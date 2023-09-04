@@ -109,40 +109,60 @@ function LocalDelivery(creep: Creep, currentWaypointIdx: number, route: EnergyRo
         }
     }
 
-    if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0&& currentRouteWaypoint.surplus) {
-        console.log('picking up energy');
-        let nearbyObjects = currentWaypoint.findInRange(FIND_STRUCTURES, 3, {
-            filter: (structure) => {
-                return (structure.structureType == STRUCTURE_CONTAINER) &&
-                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+    if (currentRouteWaypoint.surplus) {
+        if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+            console.log('picking up energy');
+            let nearbyObjects = currentWaypoint.findInRange(FIND_STRUCTURES, 3, {
+                filter: (structure) => {
+                    return (structure.structureType == STRUCTURE_CONTAINER) &&
+                        structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+                }
+            });
+
+            let nearestObject = sortBy(nearbyObjects, (structure) => {
+                return creep.pos.getRangeTo(structure);
+            })[0];
+
+            if (nearestObject != null) {
+                creep.moveTo(nearestObject, { maxOps: 50, range: 1 });
+                creep.withdraw(nearestObject, RESOURCE_ENERGY);
+                return true;
             }
-        });
 
-        let nearestObject = sortBy(nearbyObjects, (structure) => {
-            return creep.pos.getRangeTo(structure);
-        })[0];
+            let nearestEnergyPile = sortBy(currentWaypoint.findInRange(FIND_DROPPED_RESOURCES, 3), (energyPile) => {
+                return creep.pos.getRangeTo(energyPile);
+            })[0];
 
-        if (nearestObject != null) {
-            creep.moveTo(nearestObject, { maxOps: 50, range: 1 });
-            creep.withdraw(nearestObject, RESOURCE_ENERGY);
-            return true;
+            if (nearestEnergyPile != null) {
+                creep.moveTo(nearestEnergyPile, { maxOps: 50, range: 1 });
+                creep.pickup(nearestEnergyPile);
+                return true;
+            }
         }
+        else if (creep.store.getUsedCapacity(RESOURCE_ENERGY)) {
+            console.log('delivering local energy');
+            let nearbyObjects = currentWaypoint.findInRange(FIND_CREEPS, 3, {
+                filter: (creep) => {
+                    return creep.memory.role == "busyBuilder" && creep.store.getFreeCapacity(RESOURCE_ENERGY) > 20;
+                }
+            });
 
-        let nearestEnergyPile = sortBy(currentWaypoint.findInRange(FIND_DROPPED_RESOURCES, 3), (energyPile) => {
-            return creep.pos.getRangeTo(energyPile);
-        })[0];
+            let nearestObject = sortBy(nearbyObjects, (structure) => {
+                return creep.pos.getRangeTo(structure);
+            })[0];
 
-        if (nearestEnergyPile != null) {
-            creep.moveTo(nearestEnergyPile, { maxOps: 50, range: 1 });
-            creep.pickup(nearestEnergyPile);
-            return true;
+            if (nearestObject != null) {
+                creep.moveTo(nearestObject, { maxOps: 50, range: 1 });
+                creep.transfer(nearestObject, RESOURCE_ENERGY);
+                return true;
+            }
         }
     }
 
     return false;
 }
 
-function MoveToNextWaypoint(creep: Creep, currentWaypointIdx: number, route: EnergyRoute, carrier : { creepId: Id<Creep>, waypointIdx: number }) {
+function MoveToNextWaypoint(creep: Creep, currentWaypointIdx: number, route: EnergyRoute, carrier: { creepId: Id<Creep>, waypointIdx: number }) {
     console.log("Moving to next waypoint: " + currentWaypointIdx);
     let nextWaypointIdx = currentWaypointIdx + 1;
     if (nextWaypointIdx >= route.waypoints.length) { nextWaypointIdx = 0; }
@@ -170,19 +190,19 @@ function calculateRoutes(room: Room) {
     if (room.find(FIND_MY_SPAWNS).length == 0) { return; }
     let spawn = room.find(FIND_MY_SPAWNS)[0];
 
-    let energyRoutes : EnergyRoute[] = [];
+    let energyRoutes: EnergyRoute[] = [];
     forEach(mines, (mine) => {
         let harvestPos = new RoomPosition(
             mine.HarvestPositions[0].pos.x,
             mine.HarvestPositions[0].pos.y,
-             mine.HarvestPositions[0].pos.roomName);
+            mine.HarvestPositions[0].pos.roomName);
         if (harvestPos == null) { return; }
 
         energyRoutes.push(
             {
                 waypoints: [
-                    { x: harvestPos.x, y: harvestPos.y, roomName: harvestPos.roomName, surplus: true},
-                    { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName, surplus: false}],
+                    { x: harvestPos.x, y: harvestPos.y, roomName: harvestPos.roomName, surplus: true },
+                    { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName, surplus: false }],
                 Carriers: []
             });
     });

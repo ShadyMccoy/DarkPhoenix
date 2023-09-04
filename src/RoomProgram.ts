@@ -2,6 +2,7 @@ import { forEach } from "lodash";
 import { bootstrap } from "bootstrap";
 import { energyMining } from "EnergyMining";
 import { energyCarrying } from "EnergyCarrying";
+import { construction } from "Construction";
 
 export function RoomProgram(room: Room) {
   forEach(getRoomRoutines(room), (routine) => {
@@ -15,16 +16,18 @@ export function RoomProgram(room: Room) {
       case "energyCarrying":
         energyCarrying(room);
         break;
+      case "construction":
+        construction(room);
+        break;
       default:
         console.log(`Routine '${routine}' not found.`);
     }
   });
 }
 
-function getRoomRoutines(room : Room) : string[]
-{
-  if (room.controller?.level == 1 ) {
-    return ["energyCarrying", "energyMining", "bootstrap"];
+function getRoomRoutines(room: Room): string[] {
+  if (room.controller?.level == 1) {
+    return ["construction", "energyCarrying", "energyMining", "bootstrap"];
   } else {
     return ["energyMining"];
   }
