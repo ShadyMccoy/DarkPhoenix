@@ -1,7 +1,7 @@
 import { forEach, keys, sortBy } from "lodash";
 import { bootstrap } from "bootstrap";
-import { energyMining } from "EnergyMining";
-import { energyCarrying } from "EnergyCarrying";
+import { EnergyMining } from "EnergyMining";
+import { EnergyCarrying } from "EnergyCarrying";
 import { Construction } from "Construction";
 
 export function RoomProgram(room: Room) {
@@ -47,9 +47,9 @@ export abstract class RoomRoutine {
   }
 
   AddNewlySpawnedCreeps(room: Room): void {
-    forEach(keys(this.creepIds), (role) => {
-      if (this.spawnQueue.length) return;
+    if (this.spawnQueue.length == 0) return;
 
+    forEach(keys(this.creepIds), (role) => {
       let idleCreeps = room.find(FIND_MY_CREEPS, {
         filter: (creep) => {
           return creep.memory.role == role && !creep.spawning;
@@ -57,7 +57,6 @@ export abstract class RoomRoutine {
       });
 
       if (idleCreeps.length == 0) { return }
-
 
       let closestIdleCreep = sortBy(idleCreeps, (creep) => {
         return creep.pos.getRangeTo(this.position);

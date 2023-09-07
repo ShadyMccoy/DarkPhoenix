@@ -1,90 +1,39 @@
+import { RoomRoutine } from "RoomProgram";
 import { HarvestPosition, SourceMine } from "SourceMine";
 import { forEach, some, sortBy } from "lodash";
 
-export function energyMining(room: Room) {
-    console.log('energy mining');
+export class EnergyMining extends RoomRoutine {
+    name = 'energy mining';
 
-    if (!room.memory.sourceMines) { findMines(room); }
+    constructor() { super(); }
 
-    let mines = room.memory.sourceMines as SourceMine[];
-    forEach(mines, (mine) => {
-        let m = mine as SourceMine;
-        let source = Game.getObjectById(m.sourceId);
-        if (source == null) { return; }
-        SpawnMinerCreeps(m, room);
-        HarvestAssignedEnergySource(m);
-    });
+    routine(room: Room): void {
+        console.log('energy mining');
 
-    room.memory.sourceMines = mines;
-}
+        if (!room.memory.sourceMines) { findMines(room); }
 
-function SpawnMinerCreeps(mine: SourceMine, room: Room) {
-    forEach(mine.HarvestPositions, (pos) => {
-        RemoveDeadCreeps(pos);
-    });
-
-    let source = Game.getObjectById(mine.sourceId);
-    if (source == null) { return; }
-
-    let spawns = room.find(FIND_MY_SPAWNS);
-    spawns = sortBy(spawns, s => s.pos.findPathTo(source!.pos).length);
-
-    some(mine.HarvestPositions, (pos) => {
-        AddPosNewlySpawnedCreeps(pos, source!);
-        return SpawnPosMinerCreep(pos, spawns[0]);
-    });
-}
-
-function RemoveDeadCreeps(harvestPos: HarvestPosition) {
-    harvestPos.Harvesters = _.filter(harvestPos.Harvesters, (creepId) => {
-        return Game.getObjectById(creepId) != null;
-    });
-}
-
-
-function AddPosNewlySpawnedCreeps(harvestPos: HarvestPosition, source: Source): void {
-    if (harvestPos.Harvesters.length == 0) {
-        let idleHarvesters = source.room.find(FIND_MY_CREEPS, {
-            filter: (creep) => {
-                return creep.memory.role == "harvester" && !creep.spawning;
-            }
+        let mines = room.memory.sourceMines as SourceMine[];
+        forEach(mines, (mine) => {
+            let m = mine as SourceMine;
+            let source = Game.getObjectById(m.sourceId);
+            if (source == null) { return; }
+            HarvestAssignedEnergySource(m);
         });
 
-        if (idleHarvesters.length > 0) {
-            let idleHarvester = sortBy(idleHarvesters, (creep) => {
-                return creep.pos.getRangeTo(harvestPos.pos);
-            })[0];
-
-            harvestPos.Harvesters.push(idleHarvester.id);
-
-            idleHarvester.memory.role = "busyHarvester";
-        }
+        room.memory.sourceMines = mines;
     }
-}
-
-function SpawnPosMinerCreep(
-    pos: HarvestPosition,
-    spawn: StructureSpawn): boolean {
-
-    if (pos.Harvesters.length < 1) {
-        return spawn.spawnCreep(
-            [WORK, WORK, MOVE],
-            spawn.name + Game.time,
-            { memory: { role: "harvester" } }) == OK;
-    }
-
-    return false;
 }
 
 function HarvestAssignedEnergySource(mine: SourceMine) {
     let source = Game.getObjectById(mine.sourceId);
     if (source == null) { return; }
 
-    forEach(mine.HarvestPositions, (pos) => {
+    for (let p = 0; p < mine.HarvestPositions.length; p++) {
+        let pos = mine.HarvestPositions[p];
         forEach(pos.Harvesters, (creepId) => {
-            HarvestPosAssignedEnergySource(Game.getObjectById(creepId), source, pos.pos);
+            HarvestPosAssignedEnergySource(Game.getObjectById(pos.Harvesters[p]), source, pos.pos);
         });
-    });
+    };
 }
 
 function HarvestPosAssignedEnergySource(creep: Creep | null, source: Source | null, destination: RoomPosition | null) {
