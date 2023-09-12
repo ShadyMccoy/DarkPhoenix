@@ -32,9 +32,6 @@ export class Construction extends RoomRoutine {
         if (sites.length == 0) { return; }
 
         forEach(sites, (s) => {
-            this.RemoveDeadCreeps();
-            this.AddNewlySpawnedCreeps(room);
-            this.SpawnCreeps(room);
             this.BuildConstructionSite(s);
         });
 

@@ -55,9 +55,9 @@ export abstract class RoomRoutine {
   }
 
   AddNewlySpawnedCreeps(room: Room): void {
-    forEach(keys(this.creepIds), (role) => {
-      if (this.spawnQueue.length) return;
+    if (this.spawnQueue.length == 0) return;
 
+    forEach(keys(this.creepIds), (role) => {
       let idleCreeps = room.find(FIND_MY_CREEPS, {
         filter: (creep) => {
           return creep.memory.role == role && !creep.spawning;
