@@ -2,10 +2,10 @@ import { RoomRoutine } from "RoomProgram";
 import { HarvestPosition, SourceMine } from "SourceMine";
 import { forEach, some, sortBy } from "lodash";
 
-export class EnergyMining extends RoomRoutine {
+export class EnergyMining { //extends RoomRoutine {
     name = 'energy mining';
 
-    constructor() { super(); }
+    //constructor() { super(); }
 
     routine(room: Room): void {
         console.log('energy mining');

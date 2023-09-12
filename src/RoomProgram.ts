@@ -1,7 +1,7 @@
 import { forEach, keys, sortBy } from "lodash";
 import { Bootstrap } from "bootstrap";
-import { energyMining } from "EnergyMining";
-import { energyCarrying } from "EnergyCarrying";
+import { EnergyMining } from "EnergyMining";
+import { EnergyCarrying } from "EnergyCarrying";
 import { Construction } from "Construction";
 
 export function RoomProgram(room: Room) {
