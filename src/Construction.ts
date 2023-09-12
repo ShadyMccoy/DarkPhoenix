@@ -41,6 +41,19 @@ export class Construction extends RoomRoutine {
         room.memory.constructionSites = sites;
     }
 
+    calcSpawnQueue(room: Room): void {
+        let sites = room.memory.constructionSites as ConstructionSiteStruct[];
+        if (sites.length == 0) { return; }
+
+        if (this.creepIds['builder'].length == 0) {
+            this.spawnQueue.push({
+                body: [WORK, CARRY, MOVE],
+                pos: Game.getObjectById(sites[0].id)!.pos,
+                role: "builder"
+            });
+        }
+    }
+
     BuildConstructionSite(site: ConstructionSiteStruct) {
         let ConstructionSite = Game.getObjectById(site.id)!;
         let builders = site.Builders.map((builder) => {

@@ -1,5 +1,5 @@
 import { forEach, keys, sortBy } from "lodash";
-import { bootstrap } from "bootstrap";
+import { Bootstrap } from "bootstrap";
 import { energyMining } from "EnergyMining";
 import { energyCarrying } from "EnergyCarrying";
 import { Construction } from "Construction";
@@ -15,7 +15,7 @@ export function RoomProgram(room: Room) {
 
 function getRoomRoutines(room: Room): RoomRoutine[] {
   if (room.controller?.level == 1) {
-    return [new Construction()]; //, "energyCarrying", "energyMining", "bootstrap"];
+    return [new Bootstrap()]; //, "energyCarrying", "energyMining", "bootstrap"];
   } else {
     return [];
   }
@@ -36,7 +36,15 @@ export abstract class RoomRoutine {
     [role: string]: Id<Creep>[];
   };
 
+  runRoutine(room: Room) : void {
+    this.RemoveDeadCreeps();
+    this.AddNewlySpawnedCreeps(room);
+    this.SpawnCreeps(room);
+    this.routine(room);
+  }
+
   abstract routine(room: Room): void;
+  abstract calcSpawnQueue(room: Room): void;
 
   RemoveDeadCreeps(): void {
     forEach(keys(this.creepIds), (role) => {
@@ -58,18 +66,21 @@ export abstract class RoomRoutine {
 
       if (idleCreeps.length == 0) { return }
 
-
       let closestIdleCreep = sortBy(idleCreeps, (creep) => {
         return creep.pos.getRangeTo(this.position);
       })[0];
 
-      this.creepIds[role].push(closestIdleCreep.id);
-
-      closestIdleCreep.memory.role = "busy" + role;
+      this.AddNewlySpawnedCreep(role, closestIdleCreep);
     });
   }
 
+  AddNewlySpawnedCreep(role: string, creep :  Creep ): void {
+      this.creepIds[role].push(creep.id);
+      creep.memory.role = "busy" + role;
+  }
+
   SpawnCreeps(room: Room): void {
+      this.calcSpawnQueue(room);
       if (this.spawnQueue.length == 0) return;
 
       let spawns = room.find(FIND_MY_SPAWNS, { filter: spawn => !spawn.spawning });
