@@ -9,7 +9,7 @@ export class Construction extends RoomRoutine {
         let site = Game.getObjectById(constructionSiteId);
         if (site == null) { throw new Error("Construction site not found"); }
 
-        super(site.pos);
+        super(site.pos, { builder: [] });
     }
 
     routine(room: Room): void {
@@ -17,17 +17,17 @@ export class Construction extends RoomRoutine {
         this.BuildConstructionSite();
     }
 
-    serialize(): string {
-        return JSON.stringify({
+    serialize(): any {
+        return {
             name: this.name,
             position: this.position,
             creepIds: this.creepIds,
             constructionSiteId: this.constructionSiteId
-        });
+        };
     }
 
     calcSpawnQueue(room: Room): void {
-        if (!this.creepIds['builder'] || this.creepIds['builder']?.length == 0) {
+        if (this.creepIds['builder']?.length == 0) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
                 pos: this.position,
@@ -42,6 +42,7 @@ export class Construction extends RoomRoutine {
 
         let builderIds = this.creepIds['builder'];
         if (builderIds == undefined) { return; }
+
         let builders = builderIds.map((builder) => {
             return Game.getObjectById(builder)!;
         });

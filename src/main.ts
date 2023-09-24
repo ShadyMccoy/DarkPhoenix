@@ -24,6 +24,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
     _.keys(routines).forEach((routineType) => {
       _.forEach(routines[routineType], (routine) => {
+        console.log(`running routine ${routineType} in room ${room.name} ${JSON.stringify(routine)}`);
         routine.runRoutine(room);
       });
     });
@@ -56,7 +57,7 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
     let energySources = room.find(FIND_SOURCES);
     let mines = _.map(energySources, (source) => initEnergyMiningFromSource(source));
 
-    room.memory.routines.energyMines = _.map(mines, (m) => JSON.stringify(m));
+    room.memory.routines.energyMines = _.map(mines, (m) => m.serialize());
   };
 
   if (room.memory?.routines?.construction == null || room.memory?.routines?.construction.length == 0) {
@@ -78,8 +79,7 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
       return m;
     }),
     construction: _.map(room.memory.routines.construction, (memRoutine) => {
-      let data = JSON.parse(memRoutine);
-      let c = new Construction(data.constructionSiteId)
+      let c = new Construction(memRoutine.constructionSiteId)
       c.deserialize(memRoutine);
       return c;
     })
@@ -88,19 +88,6 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
   console.log(`routines2: ${JSON.stringify(routines)}`);
   return routines;
 }
-
-function findMines(room: Room) {
-  let energySources = room.find(FIND_SOURCES);
-  let mines: SourceMine[] = [];
-
-  forEach(energySources, (source) => {
-    let s = initEnergyMiningFromSource(source);
-    mines.push(s);
-  });
-
-  room.memory.sourceMines = mines;
-}
-
 
 function initEnergyMiningFromSource(source: Source): EnergyMining {
   let adjacentPositions = source.room.lookForAtArea(

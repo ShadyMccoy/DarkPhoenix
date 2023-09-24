@@ -1,51 +1,38 @@
 import { forEach, keys, sortBy } from "lodash";
 
-export function RoomProgram(room: Room, routines: RoomRoutine[]) {
-  forEach(routines, (routine) => {
-    routine.RemoveDeadCreeps();
-    routine.AddNewlySpawnedCreeps(room);
-    routine.SpawnCreeps(room);
-    routine.routine(room);
-  });
-}
 
 export abstract class RoomRoutine {
-  name!: string;
-  position: RoomPosition;
-  spawnQueue!:
-    {
-      body: BodyPartConstant[],
-      pos: RoomPosition,
-      role: string
-    }[];
+  abstract name: string;
 
-  creepIds: {
-    [role: string]: Id<Creep>[];
-  };
+  private _position: RoomPosition;
+  protected creepIds: { [role: string]: Id<Creep>[] };
+  spawnQueue: { body: BodyPartConstant[], pos: RoomPosition, role: string }[];
 
-  constructor(pos: RoomPosition) {
-      this.position = pos;
-      this.creepIds = {};
-      this.spawnQueue = [];
-    }
+  constructor(position: RoomPosition, creepIds: { [role: string]: Id<Creep>[] }) {
+    this._position = position;
+    this.creepIds = creepIds;
+    this.spawnQueue = [];
+  }
 
+  get position(): RoomPosition {
+    return this._position;
+  }
 
-  serialize(): string {
-    return JSON.stringify({
+  serialize(): any {
+    return {
       name: this.name,
       position: this.position,
       creepIds: this.creepIds
-    });
+    };
   }
 
-  deserialize(serialized: string): void {
-    let data = JSON.parse(serialized);
+  deserialize(data: any): void {
     this.name = data.name;
-    this.position = new RoomPosition(data.position.x, data.position.y, data.position.roomName);
+    this._position = new RoomPosition(data.position.x, data.position.y, data.position.roomName);
     this.creepIds = data.creepIds;
   }
 
-  runRoutine(room: Room) : void {
+  runRoutine(room: Room): void {
     this.RemoveDeadCreeps();
     this.calcSpawnQueue(room);
     this.AddNewlySpawnedCreeps(room);
@@ -84,23 +71,24 @@ export abstract class RoomRoutine {
     });
   }
 
-  AddNewlySpawnedCreep(role: string, creep :  Creep ): void {
-      this.creepIds[role].push(creep.id);
-      creep.memory.role = "busy" + role;
+  AddNewlySpawnedCreep(role: string, creep: Creep): void {
+    console.log("Adding newly spawned creep to role " + role);
+    this.creepIds[role].push(creep.id);
+    creep.memory.role = "busy" + role;
   }
 
   SpawnCreeps(room: Room): void {
-      if (this.spawnQueue.length == 0) return;
+    if (this.spawnQueue.length == 0) return;
 
-      let spawns = room.find(FIND_MY_SPAWNS, { filter: spawn => !spawn.spawning });
-      if (spawns.length == 0) return;
+    let spawns = room.find(FIND_MY_SPAWNS, { filter: spawn => !spawn.spawning });
+    if (spawns.length == 0) return;
 
-      spawns = sortBy(spawns, spawn => this.position.findPathTo(spawn).length);
-      let spawn = spawns[0];
+    spawns = sortBy(spawns, spawn => this.position.findPathTo(spawn).length);
+    let spawn = spawns[0];
 
-      spawn.spawnCreep(
-        this.spawnQueue[0].body,
-        spawn.name + Game.time,
-        { memory: { role: this.spawnQueue[0].role } }) == OK;
+    spawn.spawnCreep(
+      this.spawnQueue[0].body,
+      spawn.name + Game.time,
+      { memory: { role: this.spawnQueue[0].role } }) == OK;
   }
 }

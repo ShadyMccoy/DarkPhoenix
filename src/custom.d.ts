@@ -11,7 +11,7 @@ interface RoomMemory {
     energyRoutes : EnergyRoute[];
     constructionSites : ConstructionSiteStruct[];
     routines : {
-        [routineType : string] : string[];
+        [routineType : string] : any[];
     };
 }
 

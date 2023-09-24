@@ -6,7 +6,7 @@ export class Bootstrap extends RoomRoutine {
     //constructionSite!: ConstructionSiteStruct;
 
     constructor(pos: RoomPosition) {
-        super(pos);
+        super(pos, { jack: [] });
     }
 
     routine(room: Room) {
@@ -28,20 +28,16 @@ export class Bootstrap extends RoomRoutine {
     }
 
     calcSpawnQueue(room: Room): void {
-        let spawns = room.find(FIND_MY_SPAWNS);
-        let spawn = spawns[0];
-        if (spawn == undefined) return;
+        const spawns = room.find(FIND_MY_SPAWNS);
+        const spawn = spawns[0];
+        if (!spawn) return;
 
         this.spawnQueue = [];
 
-        if (this.creepIds == undefined) {
-            this.creepIds = { 'jack': [] };
-        }
-
-        if (this.creepIds['jack']?.length == 0) {
+        if (!this.creepIds.jack.length) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
-                pos: Game.getObjectById(spawn.id)!.pos,
+                pos: spawn.pos,
                 role: "jack"
             });
         }

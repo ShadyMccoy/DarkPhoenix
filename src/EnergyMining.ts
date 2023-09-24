@@ -6,7 +6,7 @@ export class EnergyMining extends RoomRoutine {
     private sourceMine!: SourceMine
 
     constructor(pos: RoomPosition) {
-        super(pos);
+        super(pos, { harvester: [] });
      }
 
     routine(room: Room): void {
@@ -25,11 +25,7 @@ export class EnergyMining extends RoomRoutine {
 
         this.spawnQueue = [];
 
-        if (this.creepIds == undefined) {
-            this.creepIds = { 'harvester': [] };
-        }
-
-        if (this.creepIds['harvester']?.length < this.sourceMine.HarvestPositions.length) {
+        if (this.creepIds['harvester'].length < this.sourceMine.HarvestPositions.length) {
             this.spawnQueue.push({
                 body: [WORK, WORK, MOVE],
                 pos: spawn.pos,
@@ -38,18 +34,18 @@ export class EnergyMining extends RoomRoutine {
         }
     }
 
-    serialize(): string {
-        return JSON.stringify({
+    serialize(): any {
+        return {
             name: this.name,
             position: this.position,
             creepIds: this.creepIds,
             sourceMine: this.sourceMine
-        });
+        };
     }
 
-    deserialize(serialized: string): void {
-        super.deserialize(serialized);
-        let data = JSON.parse(serialized);
+    deserialize(data: any): void {
+        console.log('deserialize energy mining ' +JSON.stringify(data));
+        super.deserialize(data);
         this.sourceMine = data.sourceMine;
     }
 
