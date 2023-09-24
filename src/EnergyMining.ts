@@ -29,7 +29,7 @@ export class EnergyMining extends RoomRoutine {
             this.creepIds = { 'harvester': [] };
         }
 
-        if (this.creepIds['harvester'].length < this.sourceMine.HarvestPositions.length) {
+        if (this.creepIds['harvester']?.length < this.sourceMine.HarvestPositions.length) {
             this.spawnQueue.push({
                 body: [WORK, WORK, MOVE],
                 pos: spawn.pos,
@@ -50,7 +50,6 @@ export class EnergyMining extends RoomRoutine {
     deserialize(serialized: string): void {
         super.deserialize(serialized);
         let data = JSON.parse(serialized);
-        console.log(`data: ${JSON.stringify(data)}`);
         this.sourceMine = data.sourceMine;
     }
 
@@ -64,11 +63,10 @@ export class EnergyMining extends RoomRoutine {
 
         for (let p = 0; p < this.sourceMine.HarvestPositions.length; p++) {
             let pos = this.sourceMine.HarvestPositions[p];
-            HarvestPosAssignedEnergySource(Game.getObjectById(this.creepIds['harvester'][p]), source, pos);
+            HarvestPosAssignedEnergySource(Game.getObjectById(this.creepIds['harvester']?.[p]), source, pos);
         };
     }
 }
-
 
 function HarvestPosAssignedEnergySource(creep: Creep | null, source: Source | null, destination: RoomPosition | null) {
     if (creep == null) { return; }

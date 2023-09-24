@@ -1,59 +1,48 @@
-import { ConstructionSiteStruct } from "ConstructionSite";
 import { RoomRoutine } from "RoomProgram";
-import { any, forEach } from "lodash";
 
 export class Construction extends RoomRoutine {
     name = "construction";
-    constructionSite!: ConstructionSiteStruct;
 
-    constructor() {
-        super();
+    constructor(readonly constructionSiteId: Id<ConstructionSite>) {
+        console.log(`constructionSiteId: ${constructionSiteId}`);
+
+        let site = Game.getObjectById(constructionSiteId);
+        if (site == null) { throw new Error("Construction site not found"); }
+
+        super(site.pos);
     }
 
     routine(room: Room): void {
         console.log('construction');
+        this.BuildConstructionSite();
+    }
 
-        //calculateConstructionSites(room);
-
-        if (!room.memory.constructionSites) { room.memory.constructionSites = [] as ConstructionSiteStruct[]; }
-
-        let sites = room.memory.constructionSites as ConstructionSiteStruct[];
-        sites = _.filter(sites, (site) => {
-            return Game.getObjectById(site.id) != null;
+    serialize(): string {
+        return JSON.stringify({
+            name: this.name,
+            position: this.position,
+            creepIds: this.creepIds,
+            constructionSiteId: this.constructionSiteId
         });
-
-        if (sites.length == 0) {
-            let s = room.find(FIND_MY_CONSTRUCTION_SITES);
-            if (s.length == 0) { return; }
-
-            room.memory.constructionSites.push({ id: s[0].id, Builders: [] as Id<Creep>[] });
-        }
-
-        if (sites.length == 0) { return; }
-
-        forEach(sites, (s) => {
-            this.BuildConstructionSite(s);
-        });
-
-        room.memory.constructionSites = sites;
     }
 
     calcSpawnQueue(room: Room): void {
-        let sites = room.memory.constructionSites as ConstructionSiteStruct[];
-        if (sites.length == 0) { return; }
-
-        if (this.creepIds['builder'].length == 0) {
+        if (!this.creepIds['builder'] || this.creepIds['builder']?.length == 0) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
-                pos: Game.getObjectById(sites[0].id)!.pos,
+                pos: this.position,
                 role: "builder"
             });
         }
     }
 
-    BuildConstructionSite(site: ConstructionSiteStruct) {
-        let ConstructionSite = Game.getObjectById(site.id)!;
-        let builders = site.Builders.map((builder) => {
+    BuildConstructionSite() {
+        let ConstructionSite = Game.getObjectById(this.constructionSiteId);
+        if (ConstructionSite == null) { return; }
+
+        let builderIds = this.creepIds['builder'];
+        if (builderIds == undefined) { return; }
+        let builders = builderIds.map((builder) => {
             return Game.getObjectById(builder)!;
         });
 
@@ -65,18 +54,5 @@ export class Construction extends RoomRoutine {
         } else {
             builder.build(ConstructionSite);
         }
-    }
-
-    calculateConstructionSites(room: Room) {
-        let constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
-        forEach(constructionSites, (site) => {
-            if (!any(room.memory.constructionSites, (s) => { return s.id == site.id })) {
-                let newSite = {
-                    id: site.id,
-                    Builders: [] as Id<Creep>[]
-                } as ConstructionSiteStruct;
-                room.memory.constructionSites.push(newSite);
-            }
-        });
     }
 }

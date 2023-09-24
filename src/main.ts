@@ -1,3 +1,4 @@
+import { Construction } from "Construction";
 import { EnergyMining } from "EnergyMining";
 import { RoomRoutine } from "RoomProgram";
 import { Bootstrap } from "bootstrap";
@@ -51,7 +52,6 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
     };
   }
 
-
   if (room.memory?.routines?.energyMines == null || room.memory?.routines?.energyMines.length == 0) {
     let energySources = room.find(FIND_SOURCES);
     let mines = _.map(energySources, (source) => initEnergyMiningFromSource(source));
@@ -59,7 +59,13 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
     room.memory.routines.energyMines = _.map(mines, (m) => JSON.stringify(m));
   };
 
-  console.log(`room.memory.routiness: ${JSON.stringify(room.memory.routines)}`);
+  if (room.memory?.routines?.construction == null || room.memory?.routines?.construction.length == 0) {
+    let s = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (s.length > 0) {
+      room.memory.routines.construction = [ new Construction(s[0].id).serialize() ];
+    }
+  };
+
   let routines = {
     bootstrap: _.map(room.memory.routines.bootstrap, (memRoutine) => {
       let b = new Bootstrap(room.controller!.pos);
@@ -70,6 +76,12 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
       let m = new EnergyMining(room.controller!.pos);
       m.deserialize(memRoutine);
       return m;
+    }),
+    construction: _.map(room.memory.routines.construction, (memRoutine) => {
+      let data = JSON.parse(memRoutine);
+      let c = new Construction(data.constructionSiteId)
+      c.deserialize(memRoutine);
+      return c;
     })
   };
 
@@ -121,3 +133,47 @@ function initEnergyMiningFromSource(source: Source): EnergyMining {
 
   return m;
 }
+
+
+
+
+
+//////
+/*
+if (!room.memory.constructionSites) { room.memory.constructionSites = [] as ConstructionSiteStruct[]; }
+
+let sites = room.memory.constructionSites as ConstructionSiteStruct[];
+sites = _.filter(sites, (site) => {
+    return Game.getObjectById(site.id) != null;
+});
+
+if (sites.length == 0) {
+    let s = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (s.length == 0) { return; }
+
+    room.memory.constructionSites.push({ id: s[0].id, Builders: [] as Id<Creep>[] });
+}
+
+if (sites.length == 0) { return; }
+
+forEach(sites, (s) => {
+
+
+
+  ////
+
+  calculateConstructionSites(room: Room) {
+    let constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    forEach(constructionSites, (site) => {
+        if (!any(room.memory.constructionSites, (s) => { return s.id == site.id })) {
+            let newSite = {
+                id: site.id,
+                Builders: [] as Id<Creep>[]
+            } as ConstructionSiteStruct;
+            room.memory.constructionSites.push(newSite);
+        }
+    });
+}
+
+*/
+

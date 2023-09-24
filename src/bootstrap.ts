@@ -38,7 +38,7 @@ export class Bootstrap extends RoomRoutine {
             this.creepIds = { 'jack': [] };
         }
 
-        if (this.creepIds['jack'].length == 0) {
+        if (this.creepIds['jack']?.length == 0) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
                 pos: Game.getObjectById(spawn.id)!.pos,

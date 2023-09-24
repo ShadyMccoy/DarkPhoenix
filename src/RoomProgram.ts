@@ -12,11 +12,6 @@ export function RoomProgram(room: Room, routines: RoomRoutine[]) {
 export abstract class RoomRoutine {
   name!: string;
   position: RoomPosition;
-
-  constructor(pos: RoomPosition) {
-      this.position = pos;
-    }
-
   spawnQueue!:
     {
       body: BodyPartConstant[],
@@ -24,9 +19,16 @@ export abstract class RoomRoutine {
       role: string
     }[];
 
-  creepIds!: {
+  creepIds: {
     [role: string]: Id<Creep>[];
   };
+
+  constructor(pos: RoomPosition) {
+      this.position = pos;
+      this.creepIds = {};
+      this.spawnQueue = [];
+    }
+
 
   serialize(): string {
     return JSON.stringify({
