@@ -1,11 +1,7 @@
 import { forEach, keys, sortBy } from "lodash";
-import { Bootstrap } from "bootstrap";
-import { EnergyMining } from "EnergyMining";
-import { EnergyCarrying } from "EnergyCarrying";
-import { Construction } from "Construction";
 
-export function RoomProgram(room: Room) {
-  forEach(getRoomRoutines(room), (routine) => {
+export function RoomProgram(room: Room, routines: RoomRoutine[]) {
+  forEach(routines, (routine) => {
     routine.RemoveDeadCreeps();
     routine.AddNewlySpawnedCreeps(room);
     routine.SpawnCreeps(room);
@@ -13,17 +9,13 @@ export function RoomProgram(room: Room) {
   });
 }
 
-function getRoomRoutines(room: Room): RoomRoutine[] {
-  if (room.controller?.level == 1) {
-    return [new Bootstrap()]; //, "energyCarrying", "energyMining", "bootstrap"];
-  } else {
-    return [];
-  }
-}
-
 export abstract class RoomRoutine {
   name!: string;
-  position!: RoomPosition;
+  position: RoomPosition;
+
+  constructor(pos: RoomPosition) {
+      this.position = pos;
+    }
 
   spawnQueue!:
     {
@@ -36,8 +28,24 @@ export abstract class RoomRoutine {
     [role: string]: Id<Creep>[];
   };
 
+  serialize(): string {
+    return JSON.stringify({
+      name: this.name,
+      position: this.position,
+      creepIds: this.creepIds
+    });
+  }
+
+  deserialize(serialized: string): void {
+    let data = JSON.parse(serialized);
+    this.name = data.name;
+    this.position = new RoomPosition(data.position.x, data.position.y, data.position.roomName);
+    this.creepIds = data.creepIds;
+  }
+
   runRoutine(room: Room) : void {
     this.RemoveDeadCreeps();
+    this.calcSpawnQueue(room);
     this.AddNewlySpawnedCreeps(room);
     this.SpawnCreeps(room);
     this.routine(room);
@@ -80,7 +88,6 @@ export abstract class RoomRoutine {
   }
 
   SpawnCreeps(room: Room): void {
-      this.calcSpawnQueue(room);
       if (this.spawnQueue.length == 0) return;
 
       let spawns = room.find(FIND_MY_SPAWNS, { filter: spawn => !spawn.spawning });
@@ -95,4 +102,3 @@ export abstract class RoomRoutine {
         { memory: { role: this.spawnQueue[0].role } }) == OK;
   }
 }
-

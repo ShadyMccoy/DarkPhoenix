@@ -10,6 +10,9 @@ interface RoomMemory {
     sourceMines : SourceMine[];
     energyRoutes : EnergyRoute[];
     constructionSites : ConstructionSiteStruct[];
+    routines : {
+        [routineType : string] : string[];
+    };
 }
 
 interface CreepMemory {

@@ -3,10 +3,10 @@ import { forEach } from "lodash";
 
 export class Bootstrap extends RoomRoutine {
     name = "bootstrap";
-    constructionSite!: ConstructionSiteStruct;
+    //constructionSite!: ConstructionSiteStruct;
 
-    constructor() {
-        super();
+    constructor(pos: RoomPosition) {
+        super(pos);
     }
 
     routine(room: Room) {
@@ -14,7 +14,7 @@ export class Bootstrap extends RoomRoutine {
         let spawn = spawns[0];
         if (spawn == undefined) return;
 
-        let jacks = room.find(FIND_MY_CREEPS, { filter: (creep) => creep.memory.role == "jack" });
+        let jacks = _.map(this.creepIds['jack'], (id) => Game.getObjectById(id)!);
 
         forEach(jacks, (jack) => {
             if (jack.store.energy == jack.store.getCapacity()) {
@@ -31,6 +31,12 @@ export class Bootstrap extends RoomRoutine {
         let spawns = room.find(FIND_MY_SPAWNS);
         let spawn = spawns[0];
         if (spawn == undefined) return;
+
+        this.spawnQueue = [];
+
+        if (this.creepIds == undefined) {
+            this.creepIds = { 'jack': [] };
+        }
 
         if (this.creepIds['jack'].length == 0) {
             this.spawnQueue.push({
