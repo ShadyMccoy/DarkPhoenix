@@ -50,10 +50,30 @@ export class Construction extends RoomRoutine {
         if (builders.length == 0) { return; }
         let builder = builders[0];
 
+        if (builder.store.energy == 0) {
+            if (this.pickupEnergyPile(builder)) { return; }
+        }
+
         if (builder.pos.getRangeTo(ConstructionSite.pos) > 3) {
             builder.moveTo(ConstructionSite.pos);
         } else {
             builder.build(ConstructionSite);
         }
+    }
+
+    pickupEnergyPile(creep: Creep): boolean {
+        let droppedEnergies = creep.room.find(FIND_DROPPED_RESOURCES, { filter: (resource) => resource.resourceType == RESOURCE_ENERGY && resource.amount > 50 });
+
+        if (droppedEnergies.length == 0) return false;
+
+        let e = _.min(droppedEnergies, e => e.pos.findPathTo(creep.pos).length);
+
+        creep.say('pickup energy');
+        new RoomVisual(creep.room.name).line(creep.pos.x, creep.pos.y, e.pos.x, e.pos.y);
+
+        creep.moveTo(e, { maxOps: 50, range: 1 });
+        creep.pickup(e);
+
+        return true;
     }
 }

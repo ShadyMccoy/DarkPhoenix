@@ -16,6 +16,8 @@ export class EnergyMining extends RoomRoutine {
         let source = Game.getObjectById(this.sourceMine.sourceId);
         if (source == null) { return; }
         this.HarvestAssignedEnergySource();
+
+        this.createConstructionSiteOnEnergyPiles();
     }
 
     calcSpawnQueue(room: Room): void {
@@ -51,6 +53,24 @@ export class EnergyMining extends RoomRoutine {
 
     setSourceMine(sourceMine: SourceMine) {
         this.sourceMine = sourceMine;
+    }
+
+    private createConstructionSiteOnEnergyPiles() {
+        _.forEach(this.sourceMine.HarvestPositions.slice(0,1), (harvestPos) => {
+            let pos = new RoomPosition(harvestPos.x, harvestPos.y, harvestPos.roomName);
+            let structures = pos.lookFor(LOOK_STRUCTURES);
+            let containers = structures.filter(s => s.structureType == STRUCTURE_CONTAINER);
+            if (containers.length > 0) return;
+
+            let energyPile = pos.lookFor(LOOK_ENERGY).filter(e => e.amount > 500);
+
+            if (energyPile.length == 0) return;
+
+            let constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType == STRUCTURE_CONTAINER);
+            if (constructionSites.length > 0) return;
+
+            pos.createConstructionSite(STRUCTURE_CONTAINER);
+        });
     }
 
     private HarvestAssignedEnergySource() {

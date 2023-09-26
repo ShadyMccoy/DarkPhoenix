@@ -14,11 +14,13 @@ export class Bootstrap extends RoomRoutine {
         let spawn = spawns[0];
         if (spawn == undefined) return;
 
-        let jacks = _.map(this.creepIds['jack'], (id) => Game.getObjectById(id)!);
+        let jacks = _.map(this.creepIds.jack, (id) => Game.getObjectById(id)!);
 
         forEach(jacks, (jack) => {
-            if (jack.store.energy == jack.store.getCapacity()) {
+            if (jack.store.energy == jack.store.getCapacity() && spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
                 this.DeliverEnergyToSpawn(jack, spawn);
+            } else if (jack.store.energy > 0 && spawn.store.getUsedCapacity(RESOURCE_ENERGY) > 150 && room?.controller?.level && room.controller.level < 2) {
+                this.upgradeController(jack);
             } else {
                 if (!this.pickupEnergyPile(jack)) {
                     this.HarvestNearestEnergySource(jack);
@@ -34,7 +36,7 @@ export class Bootstrap extends RoomRoutine {
 
         this.spawnQueue = [];
 
-        if (!this.creepIds.jack.length) {
+        if (this.creepIds.jack.length < 2) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
                 pos: spawn.pos,
@@ -111,6 +113,17 @@ export class Bootstrap extends RoomRoutine {
 
         creep.moveTo(spawn, { maxOps: 50, range: 1 });
         return creep.transfer(spawn, RESOURCE_ENERGY);
+    }
+
+    upgradeController(creep: Creep): void {
+        let c = creep.room.controller;
+        if (c == undefined) return;
+
+        creep.say('upgrade');
+        new RoomVisual(creep.room.name).line(creep.pos.x, creep.pos.y, c.pos.x, c.pos.y);
+
+        creep.moveTo(c, { maxOps: 50, range: 1 });
+        creep.upgradeController(c);
     }
 
     dismantleWalls(creep: Creep): void {
