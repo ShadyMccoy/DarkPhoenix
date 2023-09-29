@@ -4,7 +4,7 @@ import { forEach, keys, sortBy } from "lodash";
 export abstract class RoomRoutine {
   abstract name: string;
 
-  private _position: RoomPosition;
+  protected _position: RoomPosition;
   protected creepIds: { [role: string]: Id<Creep>[] };
   spawnQueue: { body: BodyPartConstant[], pos: RoomPosition, role: string }[];
 

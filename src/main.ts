@@ -62,15 +62,19 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
 
   if (room.memory?.routines?.construction == null || room.memory?.routines?.construction.length == 0) {
     console.log(`room.memory.routines.construction is empty adding c`);
+    room.memory.routines.construction = [];
     let s = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (s.length > 0) {
-      room.memory.routines.construction = [ new Construction(s[0].id).serialize() ];
-    }
+    _.forEach(s.slice(0, 1), (site) => {
+      room.memory.routines.construction.push(new Construction(site.id).serialize());
+    });
   };
 
+  console.log(`construction rs: ${JSON.stringify(room.memory.routines.construction)}`);
   room.memory.routines.construction = _.filter(room.memory.routines.construction, (memRoutine) => {
-    Game.getObjectById(memRoutine.constructionSiteId) != null;
+    return Game.getObjectById(memRoutine.constructionSiteId) != null;
   });
+
+  console.log(`construction rs: ${JSON.stringify(room.memory.routines.construction)}`);
 
   let routines = {
     bootstrap: _.map(room.memory.routines.bootstrap, (memRoutine) => {

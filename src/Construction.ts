@@ -27,7 +27,7 @@ export class Construction extends RoomRoutine {
     }
 
     calcSpawnQueue(room: Room): void {
-        if (this.creepIds['builder']?.length == 0) {
+        if (this.creepIds.builder.length == 0) {
             this.spawnQueue.push({
                 body: [WORK, CARRY, MOVE],
                 pos: this.position,

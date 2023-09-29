@@ -7,7 +7,7 @@ export class EnergyMining extends RoomRoutine {
 
     constructor(pos: RoomPosition) {
         super(pos, { harvester: [] });
-     }
+    }
 
     routine(room: Room): void {
         console.log('energy mining');
@@ -46,7 +46,7 @@ export class EnergyMining extends RoomRoutine {
     }
 
     deserialize(data: any): void {
-        console.log('deserialize energy mining ' +JSON.stringify(data));
+        console.log('deserialize energy mining ' + JSON.stringify(data));
         super.deserialize(data);
         this.sourceMine = data.sourceMine;
     }
@@ -56,20 +56,22 @@ export class EnergyMining extends RoomRoutine {
     }
 
     private createConstructionSiteOnEnergyPiles() {
-        _.forEach(this.sourceMine.HarvestPositions.slice(0,1), (harvestPos) => {
+        _.forEach(this.sourceMine.HarvestPositions.slice(0, 2), (harvestPos) => {
             let pos = new RoomPosition(harvestPos.x, harvestPos.y, harvestPos.roomName);
             let structures = pos.lookFor(LOOK_STRUCTURES);
             let containers = structures.filter(s => s.structureType == STRUCTURE_CONTAINER);
-            if (containers.length > 0) return;
+            if (containers.length == 0) {
 
-            let energyPile = pos.lookFor(LOOK_ENERGY).filter(e => e.amount > 500);
+                let energyPile = pos.lookFor(LOOK_ENERGY).filter(e => e.amount > 500);
 
-            if (energyPile.length == 0) return;
+                if (energyPile.length > 0) {
 
-            let constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType == STRUCTURE_CONTAINER);
-            if (constructionSites.length > 0) return;
-
-            pos.createConstructionSite(STRUCTURE_CONTAINER);
+                    let constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType == STRUCTURE_CONTAINER);
+                    if (constructionSites.length == 0) {
+                        pos.createConstructionSite(STRUCTURE_CONTAINER);
+                    }
+                }
+            }
         });
     }
 
