@@ -4,6 +4,7 @@ import { RoomRoutine } from "RoomProgram";
 import { Bootstrap } from "bootstrap";
 import { forEach, sortBy } from "lodash";
 import { ErrorMapper } from "utils/ErrorMapper";
+import { RoomMap } from "RoomMap";
 
 declare global {
   // Syntax for adding proprties to `global` (ex "global.log")
@@ -33,6 +34,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       room.memory.routines[routineType] = _.map(routines[routineType], (routine) => routine.serialize())
     });
 
+    new RoomMap(room);
   });
 
   // Automatically delete memory of missing creeps
@@ -41,6 +43,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       delete Memory.creeps[name];
     }
   }
+
 });
 
 
