@@ -19,11 +19,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
   console.log(`Current game tick is ${Game.time}`);
 
   _.forEach(Game.rooms, (room) => {
+    // Ensure room.memory.routines is initialized
+    if (!room.memory.routines) {
+      room.memory.routines = {};
+    }
+
     const routines = getRoomRoutines(room);
 
     _.forEach(routines, (routineList, routineType) => {
       _.forEach(routineList, (routine) => routine.runRoutine(room));
-      room.memory.routines[routineType] = _.map(routineList, (routine) => routine.serialize());
+      if (routineType) {
+        room.memory.routines[routineType] = _.map(routineList, (routine) => routine.serialize());
+      }
     });
 
     new RoomMap(room);
@@ -31,7 +38,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Clean up memory
   _.forIn(Memory.creeps, (_, name) => {
-    if (!Game.creeps[name]) delete Memory.creeps[name];
+    if (name) {
+      if (!Game.creeps[name]) delete Memory.creeps[name];
+    }
   });
 });
 
