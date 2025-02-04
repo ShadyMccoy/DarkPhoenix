@@ -85,39 +85,23 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
 }
 
 function initEnergyMiningFromSource(source: Source): EnergyMining {
-  let adjacentPositions = source.room.lookForAtArea(
-    LOOK_TERRAIN,
-    source.pos.y - 1,
-    source.pos.x - 1,
-    source.pos.y + 1,
-    source.pos.x + 1, true);
+  const harvestPositions = _.filter(
+    source.room.lookForAtArea(LOOK_TERRAIN, source.pos.y - 1, source.pos.x - 1, source.pos.y + 1, source.pos.x + 1, true),
+    (pos) => pos.terrain === "plain" || pos.terrain === "swamp"
+  ).map((pos) => new RoomPosition(pos.x, pos.y, source.room.name));
 
-  let harvestPositions: RoomPosition[] = [];
+  const spawns = _.sortBy(source.room.find(FIND_MY_SPAWNS), (s) => s.pos.findPathTo(source.pos).length);
 
-  forEach(adjacentPositions, (pos) => {
-    if (pos.terrain == "plain" || pos.terrain == "swamp") {
-      harvestPositions.push(new RoomPosition(pos.x, pos.y, source.room.name))
-    }
-  });
-
-  let spawns = source.room.find(FIND_MY_SPAWNS);
-  spawns = _.sortBy(spawns, s => s.pos.findPathTo(source.pos).length);
-
-  let m = new EnergyMining(source.pos);
+  const m = new EnergyMining(source.pos);
   m.setSourceMine({
     sourceId: source.id,
-    HarvestPositions: sortBy(harvestPositions, (h) => {
-      return h.getRangeTo(spawns[0]);
-    }),
+    HarvestPositions: _.sortBy(harvestPositions, (h) => h.getRangeTo(spawns[0])),
     distanceToSpawn: spawns[0].pos.findPathTo(source.pos).length,
     flow: 10
   });
 
   return m;
 }
-
-
-
 
 
 //////
