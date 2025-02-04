@@ -48,58 +48,40 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
 
 function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
-  if (!room.controller) { return {}; }
+  if (!room.controller) return {};
 
-  if (room.memory?.routines?.bootstrap == null || room.memory?.routines?.bootstrap.length == 0) {
+  // Initialize routines if not present
+  if (!room.memory.routines) {
     room.memory.routines = {
-      bootstrap: [new Bootstrap(room.controller?.pos).serialize()]
+      bootstrap: [new Bootstrap(room.controller.pos).serialize()],
+      energyMines: _.map(room.find(FIND_SOURCES), (source) => initEnergyMiningFromSource(source).serialize()),
+      construction: _.map(room.find(FIND_MY_CONSTRUCTION_SITES), (site) => new Construction(site.id).serialize())
     };
   }
 
-  if (room.memory?.routines?.energyMines == null || room.memory?.routines?.energyMines.length == 0) {
-    let energySources = room.find(FIND_SOURCES);
-    let mines = _.map(energySources, (source) => initEnergyMiningFromSource(source));
+  // Filter out invalid construction sites
+  room.memory.routines.construction = _.filter(room.memory.routines.construction, (memRoutine) =>
+    Game.getObjectById(memRoutine.constructionSiteId) != null
+  );
 
-    room.memory.routines.energyMines = _.map(mines, (m) => m.serialize());
-  };
-
-  if (room.memory?.routines?.construction == null || room.memory?.routines?.construction.length == 0) {
-    console.log(`room.memory.routines.construction is empty adding c`);
-    room.memory.routines.construction = [];
-    let s = room.find(FIND_MY_CONSTRUCTION_SITES);
-    _.forEach(s.slice(0, 1), (site) => {
-      room.memory.routines.construction.push(new Construction(site.id).serialize());
-    });
-  };
-
-  console.log(`construction rs: ${JSON.stringify(room.memory.routines.construction)}`);
-  room.memory.routines.construction = _.filter(room.memory.routines.construction, (memRoutine) => {
-    return Game.getObjectById(memRoutine.constructionSiteId) != null;
-  });
-
-  console.log(`construction rs: ${JSON.stringify(room.memory.routines.construction)}`);
-
-  let routines = {
+  // Deserialize routines
+  return {
     bootstrap: _.map(room.memory.routines.bootstrap, (memRoutine) => {
-      let b = new Bootstrap(room.controller!.pos);
+      const b = new Bootstrap(room.controller!.pos);
       b.deserialize(memRoutine);
       return b;
     }),
     energyMines: _.map(room.memory.routines.energyMines, (memRoutine) => {
-      let m = new EnergyMining(room.controller!.pos);
+      const m = new EnergyMining(room.controller!.pos);
       m.deserialize(memRoutine);
       return m;
     }),
     construction: _.map(room.memory.routines.construction, (memRoutine) => {
-
-      let c = new Construction(memRoutine.constructionSiteId)
+      const c = new Construction(memRoutine.constructionSiteId);
       c.deserialize(memRoutine);
       return c;
     })
   };
-
-  console.log(`routines2: ${JSON.stringify(routines)}`);
-  return routines;
 }
 
 function initEnergyMiningFromSource(source: Source): EnergyMining {
