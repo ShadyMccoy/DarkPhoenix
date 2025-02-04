@@ -18,32 +18,21 @@ declare global {
 export const loop = ErrorMapper.wrapLoop(() => {
   console.log(`Current game tick is ${Game.time}`);
 
-  forEach(Game.rooms, (room) => {
-    let routines = getRoomRoutines(room);
+  _.forEach(Game.rooms, (room) => {
+    const routines = getRoomRoutines(room);
 
-    room.memory.routines = {};
-
-    _.keys(routines).forEach((routineType) => {
-      _.forEach(routines[routineType], (routine) => {
-        console.log(`running routine ${routineType} in room ${room.name} ${JSON.stringify(routine)}`);
-        routine.runRoutine(room);
-      });
-    });
-
-    _.keys(routines).forEach((routineType) => {
-      room.memory.routines[routineType] = _.map(routines[routineType], (routine) => routine.serialize())
+    _.forEach(routines, (routineList, routineType) => {
+      _.forEach(routineList, (routine) => routine.runRoutine(room));
+      room.memory.routines[routineType] = _.map(routineList, (routine) => routine.serialize());
     });
 
     new RoomMap(room);
   });
 
-  // Automatically delete memory of missing creeps
-  for (const name in Memory.creeps) {
-    if (!(name in Game.creeps)) {
-      delete Memory.creeps[name];
-    }
-  }
-
+  // Clean up memory
+  _.forIn(Memory.creeps, (_, name) => {
+    if (!Game.creeps[name]) delete Memory.creeps[name];
+  });
 });
 
 
