@@ -48,19 +48,33 @@ export const loop = ErrorMapper.wrapLoop(() => {
 function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
   if (!room.controller) return {};
 
-  // Initialize routines if not present
+  // Initialize room.memory.routines if not present
   if (!room.memory.routines) {
-    room.memory.routines = {
-      bootstrap: [new Bootstrap(room.controller.pos).serialize()],
-      energyMines: _.map(room.find(FIND_SOURCES), (source) => initEnergyMiningFromSource(source).serialize()),
-      construction: _.map(room.find(FIND_MY_CONSTRUCTION_SITES), (site) => new Construction(site.id).serialize())
-    };
+    room.memory.routines = {};
   }
 
-  // Filter out invalid construction sites
-  room.memory.routines.construction = _.filter(room.memory.routines.construction, (memRoutine) =>
-    Game.getObjectById(memRoutine.constructionSiteId) != null
-  );
+  // Sync routines with the current state of the room
+  if (!room.memory.routines.bootstrap) {
+    room.memory.routines.bootstrap = [new Bootstrap(room.controller.pos).serialize()];
+  }
+
+  // Sync energy mines with current sources
+  const currentSources = room.find(FIND_SOURCES);
+  const existingSourceIds = _.map(room.memory.routines.energyMines || [], (m) => m.sourceId);
+  const newSources = _.filter(currentSources, (source) => !existingSourceIds.includes(source.id));
+
+  if (newSources.length > 0 || !room.memory.routines.energyMines) {
+    room.memory.routines.energyMines = _.map(currentSources, (source) => initEnergyMiningFromSource(source).serialize());
+  }
+
+  // Sync construction sites
+  const currentSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+  const existingSiteIds = _.map(room.memory.routines.construction || [], (c) => c.constructionSiteId);
+  const newSites = _.filter(currentSites, (site) => !existingSiteIds.includes(site.id));
+
+  if (newSites.length > 0 || !room.memory.routines.construction) {
+    room.memory.routines.construction = _.map(currentSites, (site) => new Construction(site.id).serialize());
+  }
 
   // Deserialize routines
   return {
