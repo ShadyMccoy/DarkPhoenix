@@ -1,10 +1,10 @@
-import { Construction } from "Construction";
-import { EnergyMining } from "EnergyMining";
-import { RoomRoutine } from "RoomProgram";
-import { Bootstrap } from "bootstrap";
+import { Construction } from "./Construction"
+import { EnergyMining } from "./EnergyMining";
+import { RoomRoutine } from "./RoomProgram";
+import { Bootstrap } from "./bootstrap";
 import { forEach, sortBy } from "lodash";
-import { ErrorMapper } from "utils/ErrorMapper";
-import { RoomMap } from "RoomMap";
+import { ErrorMapper } from "./ErrorMapper";
+import { RoomMap } from "./RoomMap";
 
 declare global {
   // Syntax for adding proprties to `global` (ex "global.log")
@@ -16,7 +16,7 @@ declare global {
 }
 
 export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is ${Game.time}`);
+  console.log(`Current game tick is blue forty two ${Game.time}`);
 
   _.forEach(Game.rooms, (room) => {
     // Ensure room.memory.routines is initialized
