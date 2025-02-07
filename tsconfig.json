@@ -9,6 +9,7 @@
     "outDir": "dist",
     "baseUrl": "src/",
     "sourceMap": true,
+    "inlineSources": true,
     "strict": true,
     "experimentalDecorators": true,
     "noImplicitReturns": true,
