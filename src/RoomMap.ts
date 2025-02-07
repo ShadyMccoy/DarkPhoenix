@@ -58,13 +58,14 @@ export class RoomMap extends RoomRoutine {
     }
 
     private ensureEdges(): void {
-        if (this.skeleton !== null && this.skeleton.edges.length > 0) return; // Already calculated
+        if (this.skeleton !== null && this.skeleton?.edges?.length > 0) return; // Already calculated
 
-        if (this.room.memory.skeleton?.edges) {
+        if (this.room.memory.skeleton?.edges && this.room.memory.skeleton?.edges.length > 0) {
             this.skeleton = this.room.memory.skeleton;
         } else {
             if (!this.skeleton || !this.distanceMatrix) throw new Error("Peaks or distance matrix not calculated");
 
+            console.log('creating edges');
             const edges = this.createEdges(this.skeleton.peaks, this.distanceMatrix);
             this.skeleton.edges = edges;
 
@@ -74,8 +75,6 @@ export class RoomMap extends RoomRoutine {
     }
 
     private visualize(): void {
-        console.log(JSON.stringify(this.distanceMatrix));
-        console.log(JSON.stringify(this.skeleton));
         if (!this.distanceMatrix || !this.skeleton) return;
 
         const vis = this.room.visual;
@@ -98,7 +97,7 @@ export class RoomMap extends RoomRoutine {
         // Draw Peaks
         this.skeleton.peaks.forEach(peak => {
             const { x, y } = peak.center;
-            const size =  peak.height; // Scale square size by height
+            const size = 2 * peak.height; // Scale square size by height
 
             // Draw peak center as a yellow circle
             vis.circle(x, y, { fill: 'yellow', radius: 0.3 });
@@ -106,7 +105,15 @@ export class RoomMap extends RoomRoutine {
             // Draw a red square around the peak to represent its height
             vis.rect(x - size / 2, y - size / 2, size, size, { fill: 'red', opacity: 0.1 });
         });
+
+        // Draw Ridge Lines (Edges)
+        this.skeleton.edges.forEach(edge => {
+            edge.path.forEach(pos => {
+                vis.rect(pos.x, pos.y, 1, 1, { fill: 'cyan', opacity: 0.8 });
+            });
+        });
     }
+
 
     private interpolateColor(value: number): string {
         const r = Math.floor(255 * value); // More red at high values
@@ -139,8 +146,10 @@ export class RoomMap extends RoomRoutine {
 
             // Check neighbors (up, down, left, right)
             const neighbors = [
-                { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
-                { dx: 0, dy: -1 }, { dx: 0, dy: 1 }
+                { dx: -1, dy: -1 }, { dx: -1, dy: 0 }, { dx: -1, dy: 1 },
+                { dx: 0, dy: 1 },
+                { dx: 1, dy: -1 }, { dx: 1, dy: 0 }, { dx: 1, dy: 1 },
+                { dx: 0, dy: -1 }
             ];
 
             for (const { dx, dy } of neighbors) {
@@ -177,6 +186,14 @@ export class RoomMap extends RoomRoutine {
             }
         }
 
+        for (let x = 0; x < 50; x++) {
+            for (let y = 0; y < 50; y++) {
+                if (terrain.get(x, y) === TERRAIN_MASK_WALL) {
+                    distanceMatrix.set(x, y, 255);
+                }
+            }
+        }
+
         return distanceMatrix;
     }
 
@@ -192,7 +209,7 @@ export class RoomMap extends RoomRoutine {
             for (let y = 0; y < 50; y++) {
                 if (terrain.get(x, y) !== TERRAIN_MASK_WALL) {
                     const height = distanceMatrix.get(x, y);
-                    if (highestDistance - height > 4) {
+                    if (highestDistance - height > 3) {
                         searchCollection.push({ x, y, height });}
                 }
             }
@@ -255,7 +272,15 @@ export class RoomMap extends RoomRoutine {
         }
 
         // Step 3: Filter out peaks that are too close to larger ones
-        peaks.sort((a, b) => b.tiles.length - a.tiles.length); // Sort by size (largest first)
+
+        peaks.sort((a, b) => {
+            if (b.height !== a.height) {
+                return b.height - a.height;
+            }
+
+            return b.tiles.length - a.tiles.length;
+        });
+
         const finalPeaks: Peak[] = [];
         const excludedPositions = new Set<string>();
 
@@ -282,12 +307,41 @@ export class RoomMap extends RoomRoutine {
         return finalPeaks;
     }
 
-
-    // Helper function to create edges
     private createEdges(peaks: Peak[], distanceMatrix: CostMatrix): Edge[] {
         const edges: Edge[] = [];
-        // Implement logic to create edges
+
+        for (let i = 0; i < peaks.length; i++) {
+            for (let j = i + 1; j < peaks.length; j++) {
+                const from = peaks[i];
+                const to = peaks[j];
+
+                // Find the best path between peaks
+                const path = this.findPath(from.center, to.center, distanceMatrix);
+
+                if (path && path.length > 0) {
+                    // Calculate path cost based on distanceMatrix values
+                    const cost = path.reduce((sum, pos) => sum + distanceMatrix.get(pos.x, pos.y), 0);
+
+                    edges.push({ from, to, path, cost });
+                }
+            }
+        }
+
         return edges;
+    }
+
+    // Pathfinding function using Screeps' PathFinder
+    private findPath(start: RoomPosition, end: RoomPosition, distanceMatrix: CostMatrix): RoomPosition[] {
+        const result = PathFinder.search(start, { pos: end, range: 2 }, {
+            //plainCost: 2,
+            //swampCost: 10,
+            roomCallback: () => {
+                const costs = distanceMatrix;
+                return costs;
+            }
+        });
+
+        return result.incomplete ? [] : result.path;
     }
 
     // Helper function to serialize CostMatrix for memory

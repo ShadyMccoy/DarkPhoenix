@@ -16,7 +16,7 @@ declare global {
 }
 
 export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is blue forty three ${Game.time}`);
+  console.log(`Current game tick is blue forty FOUR ${Game.time}`);
 
   _.forEach(Game.rooms, (room) => {
     // Ensure room.memory.routines is initialized
@@ -36,6 +36,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
     new RoomMap(room);
   });
 
+
   // Clean up memory
   _.forIn(Memory.creeps, (_, name) => {
     if (name) {
@@ -46,25 +47,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
 
 function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
-  if (!room.controller) return {};
-
-  // Initialize room.memory.routines if not present
   if (!room.memory.routines) {
     room.memory.routines = {};
   }
 
-  // Sync routines with the current state of the room
-  if (!room.memory.routines.bootstrap) {
+  if (room.controller && !room.memory.routines.bootstrap) {
     room.memory.routines.bootstrap = [new Bootstrap(room.controller.pos).serialize()];
   }
 
-  // Sync energy mines with current sources
-  const currentSources = room.find(FIND_SOURCES);
-  const existingSourceIds = _.map(room.memory.routines.energyMines || [], (m) => m.sourceId);
-  const newSources = _.filter(currentSources, (source) => !existingSourceIds.includes(source.id));
-
-  if (newSources.length > 0 || !room.memory.routines.energyMines) {
-    room.memory.routines.energyMines = _.map(currentSources, (source) => initEnergyMiningFromSource(source).serialize());
+  const spawns = room.find(FIND_MY_SPAWNS);
+  if (!room.memory.routines.energyMines && !_.isEmpty(spawns)) {
+    room.memory.routines.energyMines = room.find(FIND_SOURCES)
+        .map((source) => initEnergyMiningFromSource(source).serialize());
   }
 
   // Sync construction sites
