@@ -1,9 +1,5 @@
 import { RoomGeography } from "./RoomGeography";
-import { NodeRoutine } from "./NodeRoutine";
-import { NodeAgentRoutine } from "./routines/NodeAgentRoutine";
-import { Bootstrap } from "./routines/Bootstrap";
-import { EnergyMining } from "./routines/EnergyMining";
-import { EnergyCarrying } from "./routines/EnergyCarrying";
+import { Node } from "./Node";
 
 interface ColonyMemory {
     id: string;
@@ -19,7 +15,7 @@ declare global {
 }
 
 export class Colony {
-    private nodes: Map<string, NodeRoutine> = new Map();
+    private nodes: { [nodeId: string]: Node } = {};
     private readonly memory: ColonyMemory;
 
     constructor(rootRoom: Room) {
@@ -100,20 +96,18 @@ export class Colony {
     private createNodesForRoom(room: Room): void {
         const nodeIds = Object.keys(Memory.nodeNetwork?.nodes || {})
             .filter(id => id.includes(room.name));
-
         for (const nodeId of nodeIds) {
             if (!this.memory.nodeIds.includes(nodeId)) {
                 const nodeData = Memory.nodeNetwork!.nodes[nodeId];
-                const node = new NodeRoutine(
-                    new RoomPosition(
+                const node = new Node({
+                    position: new RoomPosition(
                         nodeData.pos.x,
                         nodeData.pos.y,
                         nodeData.pos.roomName
-                    )
-                );
-
-                this.assignRoutines(node, nodeData);
-                this.nodes.set(nodeId, node);
+                    ),
+                    assets: []
+                });
+                this.nodes[nodeId] = node;
                 this.memory.nodeIds.push(nodeId);
             }
         }
@@ -150,7 +144,7 @@ export class Colony {
         const disconnectedRoomName = this.getRoomNameFromNodeId(disconnectedNodes[0])!;
 
         if (Game.rooms[disconnectedRoomName]) {
-            new Colony(Game.rooms[disconnectedRoomName]);
+            const newColony = new Colony(Game.rooms[disconnectedRoomName]);
         }
 
         // Update this colony's memory
@@ -160,32 +154,10 @@ export class Colony {
             .filter((name): name is string => name !== null);
     }
 
-    private assignRoutines(node: NodeRoutine, nodeData: any): void {
-        // Always add bootstrap routine to new nodes
-        const bootstrap = new Bootstrap(node);
-        node.addRoutine(bootstrap);
-
-        // Add routines based on resources in territory
-        for (const resource of nodeData.resources) {
-            switch (resource.type) {
-                case 'source':
-                    const mining = new EnergyMining(node);
-                    const carrying = new EnergyCarrying(node);
-                    node.addRoutine(mining);
-                    node.addRoutine(carrying);
-                    break;
-                case 'controller':
-                    // Add controller-specific routines
-                    break;
-                // Add other resource types as needed
-            }
-        }
-    }
-
     private runNodes(): void {
-        for (const node of this.nodes.values()) {
+        for (const nodeId in this.nodes) {
             try {
-                node.run();
+                this.nodes[nodeId].run();
             } catch (error) {
                 console.log(`Error running node in colony ${this.id}:`, error);
             }
@@ -198,21 +170,16 @@ export class Colony {
         for (const [nodeId, nodeData] of Object.entries(Memory.nodeNetwork.nodes)) {
             // Only load nodes in rooms we have vision of
             if (Game.rooms[nodeData.pos.roomName]) {
-                const node = new NodeRoutine(
-                    new RoomPosition(
+                const node = new Node({
+                    position: new RoomPosition(
                         nodeData.pos.x,
                         nodeData.pos.y,
                         nodeData.pos.roomName
-                    )
-                );
-                this.assignRoutines(node, nodeData);
-                this.nodes.set(nodeId, node);
+                    ),
+                    assets: []
+                });
+                this.nodes[nodeId] = node;
             }
         }
-    }
-
-    private needsConstruction(roomName: string): boolean {
-        const room = Game.rooms[roomName];
-        return room?.find(FIND_CONSTRUCTION_SITES).length > 0;
     }
 }

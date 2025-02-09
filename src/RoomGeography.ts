@@ -1,4 +1,3 @@
-import { forEach } from "lodash";
 import { NodeNetworkMemory } from './types/global';
 
 interface RegionNode {
@@ -534,7 +533,5 @@ export class RoomGeography {
                 edges: {}
             };
         }
-
-        // ... rest of initialization
     }
 }

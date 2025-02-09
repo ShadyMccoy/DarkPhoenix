@@ -1,4 +1,11 @@
+import { NodeRoutine } from "routines/NodeRoutine";
 import { NodeAgentRoutine } from "./routines/NodeAgentRoutine";
+import { GoapState, GoapAction, GoapPlan } from './goap/interfaces';
+import { GoapPlanner } from './goap/Planner';
+import { AssetAction } from './goap/actions/AssetAction';
+import { HarvestEnergyAction } from './goap/actions/HarvestEnergyAction';
+import { SpawnHarvesterAction } from './goap/actions/SpawnHarvesterAction';
+import { UpgradeControllerAction } from './goap/actions/UpgradeControllerAction';
 
 export interface NodeRequirement {
     type: string;
@@ -13,34 +20,56 @@ export interface NodeOutput {
 }
 
 export interface RoutineMemory {
-    efficiency: number;
     initialized: boolean;
 }
 
-export class NodeRoutine {
-    private readonly _position: RoomPosition;
+interface NodeOptions {
+    position?: RoomPosition;  // Optional position
+    assets?: { type: string; amount: number }[];  // Optional assets
+}
+
+export class Node {
+    private readonly _position?: RoomPosition;  // Make _position optional
     private routines: NodeAgentRoutine[] = [];
     private memory: RoutineMemory;
+    private planner: GoapPlanner;
+    private currentState: GoapState;
+    private availableActions: GoapAction[];
+    private currentPlan: GoapPlan | null;
 
-    constructor(position: RoomPosition) {
-        this._position = position;
+    constructor({ position, assets = [] }: NodeOptions = {}) {
+        this._position = position;  // Assign directly, can be undefined
         this.memory = {
-            efficiency: 0,
             initialized: false
         };
+        this.planner = new GoapPlanner();
+        this.currentState = {};
+        this.availableActions = [];
+        this.currentPlan = null;
+
+        this.loadAssetActions(assets);
+        this.loadActions();
     }
 
-    get position(): RoomPosition {
+    private loadAssetActions(assets: { type: string, amount: number }[]): void {
+        assets.forEach(asset => {
+            this.registerAction(new AssetAction(this, asset.type, asset.amount));
+        });
+    }
+
+    private loadActions(): void {
+        // Regular actions that can use the assets
+        this.registerAction(new HarvestEnergyAction(this));
+        this.registerAction(new SpawnHarvesterAction(this));
+        this.registerAction(new UpgradeControllerAction(this));
+    }
+
+    get position(): RoomPosition | undefined {
         return this._position;
     }
 
     get name(): string {
-        return `node-${this.position.roomName}-${this.position.x}-${this.position.y}`;
-    }
-
-    addRoutine(routine: NodeAgentRoutine): void {
-        this.routines.push(routine);
-        routine.initialize();
+        return `node-${this.position?.roomName}-${this.position?.x}-${this.position?.y}`;
     }
 
     run(): void {
@@ -60,7 +89,6 @@ export class NodeRoutine {
 
     // State tracking
     protected active: boolean = false;
-    protected efficiency: number = 0;  // 0-1 rating of how well the node is performing
 
     // Core methods
     initialize(): void {
@@ -74,7 +102,7 @@ export class NodeRoutine {
     }
 
     update(): void {
-        // Update state and efficiency
+        // Update state
         this.removeDeadCreeps();
     }
 
@@ -112,10 +140,6 @@ export class NodeRoutine {
         return this.active;
     }
 
-    getEfficiency(): number {
-        return this.efficiency;
-    }
-
     // Position management
     addPosition(pos: RoomPosition): void {
         this.positions.push(pos);
@@ -137,8 +161,6 @@ export class NodeRoutine {
             this.creepIds[role] = [];
         }
         this.creepIds[role].push(creep.id);
-        creep.memory.nodeId = this.name;
-        creep.memory.role = role;
     }
 
     // Helper method for resource requirements
@@ -150,13 +172,12 @@ export class NodeRoutine {
     serialize(): any {
         return {
             position: {
-                x: this._position.x,
-                y: this._position.y,
-                roomName: this._position.roomName
+                x: this._position?.x,
+                y: this._position?.y,
+                roomName: this._position?.roomName
             },
             name: this.name,
             active: this.active,
-            efficiency: this.efficiency,
             requirements: this.requirements,
             outputs: this.outputs,
             positions: this.positions.map(pos => ({
@@ -170,4 +191,37 @@ export class NodeRoutine {
     }
 
     private requirements: NodeRequirement[] = [];
+
+    calculateOptimalRoutines(): void {
+        //todo
+    }
+
+    private getAssets(): { type: string, size: number }[] {
+        // Implementation depends on how you're storing assets
+        return [];  // TODO: Implement based on your asset storage
+    }
+
+    // Update node's current state (e.g., resource amounts)
+    updateState(newState: GoapState): void {
+        this.currentState = { ...this.currentState, ...newState };
+    }
+
+    // Register available actions for this node
+    registerAction(action: GoapAction): void {
+        this.availableActions.push(action);
+    }
+
+    // Plan actions to reach a goal state
+    planFor(goalState: GoapState): void {
+        this.currentPlan = this.planner.findPlan(
+            this.availableActions,
+            this.currentState,
+            goalState
+        );
+    }
+
+    // Get current plan
+    getCurrentPlan(): GoapPlan | null {
+        return this.currentPlan;
+    }
 }

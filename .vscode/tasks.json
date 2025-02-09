@@ -36,6 +36,39 @@
 				"reveal": "always",
 				"panel": "new"
 			}
+		},
+		{
+			"label": "Run Mocha Tests",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"mocha",
+				"test/**/*.test.js"
+			],
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": {
+				"owner": "mocha",
+				"fileLocation": [
+					"relative",
+					"${workspaceFolder}"
+				],
+				"pattern": [
+					{
+						"regexp": "^(.*):(\\d+):(\\d+)\\s+(.*)$",
+						"file": 1,
+						"line": 2,
+						"column": 3,
+						"message": 4
+					}
+				]
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
 		}
 	]
 }

@@ -15,3 +15,6 @@ export const Memory: {
 } = {
   creeps: {}
 };
+
+// Mock for other Screeps classes or functions if needed
+// For example, if you need to mock other classes, do it here
