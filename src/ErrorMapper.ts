@@ -1,60 +1,95 @@
-export const ErrorMapper = {
-  cache: {} as { sourceMap?: any },
+import { SourceMapConsumer } from "source-map";
 
-  loadSourceMap(): void {
-    if (!this.cache.sourceMap) {
-      try {
-        const rawMap = (RawMemory.get() as unknown as { [key: string]: string })['main.js.map'];
-        this.cache.sourceMap = JSON.parse(rawMap); // Parse the source map JSON
-      } catch (e) {
-        console.log("Error loading source map:", e);
-        this.cache.sourceMap = null;
+export class ErrorMapper {
+  // Cache consumer
+  private static _consumer?: SourceMapConsumer;
+
+  public static get consumer(): SourceMapConsumer {
+    if (this._consumer == null) {
+      // If you want to use source maps, get them from your build process
+      // For now, we'll skip source mapping to keep things simple
+      return new SourceMapConsumer({
+        version: "3",
+        sources: [],
+        mappings: "",
+        names: []
+      });
+    }
+    return this._consumer;
+  }
+
+  // Cache previously mapped traces to improve performance
+  public static cache: { [key: string]: string } = {};
+
+  /**
+   * Generates a stack trace using a source map generate original symbol names.
+   *
+   * WARNING - EXTREMELY high CPU cost for first call after reset - >30 CPU! Use sparingly!
+   * (Consecutive calls after a reset are more reasonable, ~0.1 CPU/ea)
+   *
+   * @param {Error | string} error The error or original stack trace
+   * @returns {string} The source-mapped stack trace
+   */
+  public static sourceMappedStackTrace(error: Error | string): string {
+    const stack: string = error instanceof Error ? (error.stack as string) : error;
+    if (Object.prototype.hasOwnProperty.call(this.cache, stack)) {
+      return this.cache[stack];
+    }
+
+    const re = /^\s+at\s+(.+?\s+)?\(?([0-z._\-\\\/]+):(\d+):(\d+)\)?$/gm;
+    let match: RegExpExecArray | null;
+    let outStack = error.toString();
+
+    while ((match = re.exec(stack))) {
+      if (match[2] === "main") {
+        const pos = this.consumer.originalPositionFor({
+          column: parseInt(match[4], 10),
+          line: parseInt(match[3], 10)
+        });
+
+        if (pos.line != null) {
+          if (pos.name) {
+            outStack += `\n    at ${pos.name} (${pos.source}:${pos.line}:${pos.column})`;
+          } else {
+            if (match[1]) {
+              // no original source file name known - use file name from given trace
+              outStack += `\n    at ${match[1]} (${pos.source}:${pos.line}:${pos.column})`;
+            } else {
+              // no original source file name known or in given trace - omit name
+              outStack += `\n    at ${pos.source}:${pos.line}:${pos.column}`;
+            }
+          }
+        } else {
+          // no known position
+          break;
+        }
+      } else {
+        // no more parseable lines
+        break;
       }
     }
-  },
 
-  getOriginalPosition(line: number, column: number): string | null {
-    this.loadSourceMap();
-    if (!this.cache.sourceMap) return null;
+    this.cache[stack] = outStack;
+    return outStack;
+  }
 
-    const mappings = this.cache.sourceMap.mappings; // Now correctly accessing the parsed object
-
-    for (const map of mappings) {
-      if (map.generatedLine === line && map.generatedColumn === column) {
-        return `${map.source}:${map.originalLine}:${map.originalColumn}`;
-      }
-    }
-    return null;
-  },
-
-  parseStackTrace(stack: string): string {
-    this.loadSourceMap();
-    if (!this.cache.sourceMap) return stack; // If no source map, return the stack as is
-
-    return stack
-      .split("\n")
-      .map((line) => {
-        const match = line.match(/(\w+\.js):(\d+):(\d+)/); // Extract filename, line, and column
-        if (!match) return line;
-
-        const [, file, lineNumber, columnNumber] = match;
-        const originalPosition = this.getOriginalPosition(Number(lineNumber), Number(columnNumber));
-        return originalPosition ? line.replace(match[0], originalPosition) : line;
-      })
-      .join("\n");
-  },
-
-  wrapLoop<T extends Function>(fn: T): T {
-    return ((...args: any[]) => {
+  public static wrapLoop(loop: () => void): () => void {
+    return () => {
       try {
-        return fn(...args);
+        loop();
       } catch (e) {
         if (e instanceof Error) {
-          console.log(`Error in loop: ${e.message}\n${this.parseStackTrace(e.stack || "")}`);
+          if ("sim" in Game.rooms) {
+            const message = `Source maps don't work in the simulator - displaying original error`;
+            console.log(`${message}\n${e.stack}`);
+          } else {
+            console.log(`${this.sourceMappedStackTrace(e)}`);
+          }
         } else {
-          console.log(`Error in loop: ${e}`);
+          // can't handle it
+          throw e;
         }
       }
-    }) as unknown as T;
-  },
-};
+    };
+  }
+}

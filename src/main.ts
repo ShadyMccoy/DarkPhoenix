@@ -1,161 +1,112 @@
-import { Construction } from "./Construction"
-import { EnergyMining } from "./EnergyMining";
-import { RoomRoutine } from "./RoomProgram";
-import { Bootstrap } from "./bootstrap";
-import { forEach, sortBy } from "lodash";
 import { ErrorMapper } from "./ErrorMapper";
-import { RoomMap } from "./RoomMap";
+import { Colony } from "./Colony";
 
-declare global {
-  // Syntax for adding proprties to `global` (ex "global.log")
-  namespace NodeJS {
-    interface Global {
-      log: any;
-    }
-  }
-}
+// Keep track of colony instances between ticks
+const activeColonies = new Map<string, Colony>();
 
-export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is blue forty FOUR ${Game.time}`);
+// Initialize colonies or create new ones as needed
+function manageColonies(): void {
+    // Initialize memory structures if needed
+    if (!Memory.colonies) Memory.colonies = {};
+    if (!Memory.nodeNetwork) Memory.nodeNetwork = { nodes: {}, edges: {} };
 
-  _.forEach(Game.rooms, (room) => {
-    // Ensure room.memory.routines is initialized
-    if (!room.memory.routines) {
-      room.memory.routines = {};
-    }
-
-    const routines = getRoomRoutines(room);
-
-    _.forEach(routines, (routineList, routineType) => {
-      _.forEach(routineList, (routine) => routine.runRoutine(room));
-      if (routineType) {
-        room.memory.routines[routineType] = _.map(routineList, (routine) => routine.serialize());
-      }
-    });
-
-    new RoomMap(room);
-  });
-
-
-  // Clean up memory
-  _.forIn(Memory.creeps, (_, name) => {
-    if (name) {
-      if (!Game.creeps[name]) delete Memory.creeps[name];
-    }
-  });
-});
-
-
-function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
-  if (!room.memory.routines) {
-    room.memory.routines = {};
-  }
-
-  if (room.controller && !room.memory.routines.bootstrap) {
-    room.memory.routines.bootstrap = [new Bootstrap(room.controller.pos).serialize()];
-  }
-
-  const spawns = room.find(FIND_MY_SPAWNS);
-  if (!room.memory.routines.energyMines && !_.isEmpty(spawns)) {
-    room.memory.routines.energyMines = room.find(FIND_SOURCES)
-        .map((source) => initEnergyMiningFromSource(source).serialize());
-  }
-
-  // Sync construction sites
-  const currentSites = room.find(FIND_MY_CONSTRUCTION_SITES);
-  const existingSiteIds = _.map(room.memory.routines.construction || [], (c) => c.constructionSiteId);
-  const newSites = _.filter(currentSites, (site) => !existingSiteIds.includes(site.id));
-
-  if (newSites.length > 0 || !room.memory.routines.construction) {
-    room.memory.routines.construction = _.map(currentSites, (site) => new Construction(site.id).serialize());
-  }
-
-  // Sync room map routine
-  if (!room.memory.routines.roomMap) {
-    room.memory.routines.roomMap = [new RoomMap(room).serialize()];
-  }
-
-  // Deserialize routines
-  return {
-    bootstrap: _.map(room.memory.routines.bootstrap, (memRoutine) => {
-      const b = new Bootstrap(room.controller!.pos);
-      b.deserialize(memRoutine);
-      return b;
-    }),
-    energyMines: _.map(room.memory.routines.energyMines, (memRoutine) => {
-      const m = new EnergyMining(room.controller!.pos);
-      m.deserialize(memRoutine);
-      return m;
-    }),
-    construction: _.map(room.memory.routines.construction, (memRoutine) => {
-      const c = new Construction(memRoutine.constructionSiteId);
-      c.deserialize(memRoutine);
-      return c;
-    }),
-    roomMap: _.map(room.memory.routines.roomMap, (memRoutine) => {
-      const r = new RoomMap(room);
-      r.deserialize(memRoutine);
-      return r;
-    })
-  };
-}
-
-function initEnergyMiningFromSource(source: Source): EnergyMining {
-  const harvestPositions = _.filter(
-    source.room.lookForAtArea(LOOK_TERRAIN, source.pos.y - 1, source.pos.x - 1, source.pos.y + 1, source.pos.x + 1, true),
-    (pos) => pos.terrain === "plain" || pos.terrain === "swamp"
-  ).map((pos) => new RoomPosition(pos.x, pos.y, source.room.name));
-
-  const spawns = _.sortBy(source.room.find(FIND_MY_SPAWNS), (s) => s.pos.findPathTo(source.pos).length);
-
-  const m = new EnergyMining(source.pos);
-  m.setSourceMine({
-    sourceId: source.id,
-    HarvestPositions: _.sortBy(harvestPositions, (h) => h.getRangeTo(spawns[0])),
-    distanceToSpawn: spawns[0].pos.findPathTo(source.pos).length,
-    flow: 10
-  });
-
-  return m;
-}
-
-
-//////
-/*
-if (!room.memory.constructionSites) { room.memory.constructionSites = [] as ConstructionSiteStruct[]; }
-
-let sites = room.memory.constructionSites as ConstructionSiteStruct[];
-sites = _.filter(sites, (site) => {
-    return Game.getObjectById(site.id) != null;
-});
-
-if (sites.length == 0) {
-    let s = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (s.length == 0) { return; }
-
-    room.memory.constructionSites.push({ id: s[0].id, Builders: [] as Id<Creep>[] });
-}
-
-if (sites.length == 0) { return; }
-
-forEach(sites, (s) => {
-
-
-
-  ////
-
-  calculateConstructionSites(room: Room) {
-    let constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    forEach(constructionSites, (site) => {
-        if (!any(room.memory.constructionSites, (s) => { return s.id == site.id })) {
-            let newSite = {
-                id: site.id,
-                Builders: [] as Id<Creep>[]
-            } as ConstructionSiteStruct;
-            room.memory.constructionSites.push(newSite);
+    // Clear inactive colonies
+    for (const [colonyId, colony] of activeColonies) {
+        if (!Memory.colonies[colonyId]) {
+            activeColonies.delete(colonyId);
         }
-    });
+    }
+
+    // Process existing colonies
+    for (const colonyData of Object.values(Memory.colonies)) {
+        const rootRoom = Game.rooms[colonyData.rootRoomName];
+        if (!rootRoom) continue;  // Skip if we lost vision of root room
+
+        let colony = activeColonies.get(colonyData.id);
+        if (!colony) {
+            colony = new Colony(rootRoom);
+            activeColonies.set(colonyData.id, colony);
+        }
+
+        try {
+            colony.run();
+        } catch (error) {
+            console.log(`Error running colony ${colonyData.id}:`, error);
+        }
+    }
+
+    // Create new colonies for unclaimed rooms
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        if (!isRoomInColony(room)) {
+            try {
+                const colony = new Colony(room);
+                activeColonies.set(colony.id, colony);
+            } catch (error) {
+                console.log(`Error creating colony for room ${roomName}:`, error);
+            }
+        }
+    }
 }
 
-*/
+function isRoomInColony(room: Room): boolean {
+    return Object.values(Memory.colonies).some(colony =>
+        colony.roomNames.includes(room.name)
+    );
+}
+
+function cleanupMemory(): void {
+    // Clear dead creep memory
+    for (const name in Memory.creeps) {
+        if (!(name in Game.creeps)) {
+            delete Memory.creeps[name];
+        }
+    }
+
+    // Clean up colonies that no longer have any rooms we can see
+    const coloniesToDelete: string[] = [];
+
+    for (const colonyId in Memory.colonies) {
+        const colony = Memory.colonies[colonyId];
+        const hasVisibleRooms = colony.roomNames.some(roomName => Game.rooms[roomName]);
+
+        if (!hasVisibleRooms) {
+            coloniesToDelete.push(colonyId);
+            activeColonies.delete(colonyId);
+        }
+    }
+
+    // Delete colonies outside the loop to avoid modification during iteration
+    coloniesToDelete.forEach(id => delete Memory.colonies[id]);
+}
+
+function logStats(): void {
+    if (Game.time % 10 !== 0) return;
+
+    const stats = {
+        colonies: activeColonies.size,
+        creeps: Object.keys(Game.creeps).length,
+        rooms: Object.keys(Game.rooms).length,
+        cpu: Game.cpu.getUsed().toFixed(2)
+    };
+
+    console.log('Stats:', JSON.stringify(stats));
+}
+
+// Main loop
+export const loop = ErrorMapper.wrapLoop(() => {
+    try {
+        // Memory cleanup
+        cleanupMemory();
+
+        // Run the colony system
+        manageColonies();
+
+        // Log stats periodically
+        logStats();
+
+    } catch (error) {
+        console.log('Main loop error:', error);
+    }
+});
 

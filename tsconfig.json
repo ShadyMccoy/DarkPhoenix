@@ -1,20 +1,18 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
-    "lib": [
-      "es2018"
-    ],
-    "target": "ES6",
-    "moduleResolution": "Node",
-    "outDir": "dist",
+    "target": "es2019",
+    "moduleResolution": "node",
+    "outDir": "dist/",
     "baseUrl": "src/",
     "sourceMap": true,
-    "inlineSources": true,
     "strict": true,
     "experimentalDecorators": true,
     "noImplicitReturns": true,
     "allowSyntheticDefaultImports": true,
-    "allowUnreachableCode": false
+    "allowUnreachableCode": false,
+    "lib": [
+      "es2019"
+    ]
   },
   "exclude": [
     "node_modules"
