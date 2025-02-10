@@ -1,3 +1,4 @@
+import { Node } from 'Node';
 import { NodeNetworkMemory } from './types/global';
 
 interface RegionNode {
@@ -29,8 +30,9 @@ interface Skeleton {
     edges: Edge[];
 }
 
-interface CrossRoomEdge extends Edge {
-    type: 'internal' | 'external';
+interface QueueItem {
+    position: RoomPosition;
+    originatingNode: Node; // The peak node from which this position is being explored
 }
 
 // Add to Memory interface
@@ -41,21 +43,63 @@ declare global {
 }
 
 export class RoomGeography {
+    private nodes: { [id: string]: Node };
+
+    constructor(nodes: { [id: string]: Node }) {
+        this.nodes = nodes;
+    }
+
+    public getEdges(): Edge[] {
+        const edges: Edge[] = [];
+        for (const nodeId in this.nodes) {
+            const node = this.nodes[nodeId];
+            if (node.connections) {
+                for (const connectedNodeId of node.connections) {
+                    const connectedNode = this.nodes[connectedNodeId];
+                    if (connectedNode && nodeId < connectedNodeId) {
+                        edges.push({
+                            from: { center: node.position, tiles: node.territory, height: node.height },
+                            to: { center: connectedNode.position, tiles: connectedNode.territory, height: connectedNode.height },
+                            path: [], // Dummy value; update as needed
+                            cost: 0   // Dummy value; update as needed
+                        });
+                    }
+                }
+            }
+        }
+        return edges;
+    }
+
+    public static pruneEdges(edges: Edge[], nodes: { [id: string]: Node }): Edge[] {
+        return edges.filter(edge => {
+            const from = edge.from.center;
+            const to = edge.to.center;
+            return !Object.values(nodes).some((node: Node) => {
+                if (node.position.x === from.x && node.position.y === from.y) return false;
+                if (node.position.x === to.x && node.position.y === to.y) return false;
+                return RoomGeography.isPointOnLineSegment(from, to, node.position);
+            });
+        });
+    }
+
+    private static isPointOnLineSegment(start: RoomPosition, end: RoomPosition, point: RoomPosition): boolean {
+        const crossProduct = (point.y - start.y) * (end.x - start.x) - (point.x - start.x) * (end.y - start.y);
+        if (Math.abs(crossProduct) > 0.0001) return false; // Not collinear
+        const dotProduct = (point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y);
+        if (dotProduct < 0) return false; // Point is behind the start point
+        const squaredLengthBA = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+        if (dotProduct > squaredLengthBA) return false; // Point is beyond the end point
+        return true; // Point is on the line segment
+    }
+
     /**
      * Analyzes a newly visible room to determine its nodes.
      * This should only be called once when we first get vision of a room.
      */
     static analyzeRoom(room: Room): RegionNode[] {
-        // Create distance transform for this room
         const distanceMatrix = this.createDistanceTransform(room);
-
-        // Find peaks (these will be our node centers)
         const peaks = this.findPeaks(distanceMatrix, room);
-
-        // Create edges between peaks
         const edges = this.createEdges(peaks, room);
-
-        // Convert peaks to region nodes and return
         return this.peaksToRegionNodes(room, peaks);
     }
 
@@ -222,8 +266,8 @@ export class RoomGeography {
         return finalPeaks;
     }
 
-    private static createEdges(peaks: Peak[], room: Room): CrossRoomEdge[] {
-        const edges: CrossRoomEdge[] = [];
+    private createEdges(peaks: Peak[], room: Room): Edge[] {
+        const edges: Edge[] = [];
 
         // Get nodes from adjacent rooms
         const adjacentNodes = this.getAdjacentRoomNodes(room);
@@ -243,7 +287,6 @@ export class RoomGeography {
                         to: peaks[j],
                         path: path.path,
                         cost: path.cost,
-                        type: 'internal'
                     });
                 }
             }
@@ -255,7 +298,7 @@ export class RoomGeography {
                 const path = PathFinder.search(
                     peak.center,
                     { pos: adjacentNode.center, range: 2 },
-                    { maxRooms: 2 }  // Allow one room crossing
+                    { maxRooms: 2, maxCost: 50 }  // Allow one room crossing and specify max distance
                 );
 
                 if (!path.incomplete) {
@@ -264,60 +307,12 @@ export class RoomGeography {
                         to: adjacentNode,
                         path: path.path,
                         cost: path.cost,
-                        type: 'external'
                     });
                 }
             }
         }
 
-        // Prune edges
-        return this.pruneEdges(edges, [...peaks, ...adjacentNodes]);
-    }
-
-    private static pruneEdges(edges: CrossRoomEdge[], nodes: Peak[]): CrossRoomEdge[] {
-        const edgeMap = new Map<string, CrossRoomEdge>();
-
-        for (const edge of edges) {
-            const key = `${edge.from.center.x},${edge.from.center.y}-${edge.to.center.x},${edge.to.center.y}`;
-            if (!edgeMap.has(key)) {
-                edgeMap.set(key, edge);
-            }
-        }
-
-        const prunedEdges: CrossRoomEdge[] = [];
-        const visited = new Set<string>();
-
-        for (const edge of edgeMap.values()) {
-            if (visited.has(`${edge.from.center.x},${edge.from.center.y}-${edge.to.center.x},${edge.to.center.y}`)) continue;
-
-            prunedEdges.push(edge);
-
-            // Mark connected nodes as visited
-            const queue = [edge.from.center, edge.to.center];
-            while (queue.length > 0) {
-                const pos = queue.pop()!;
-                const key = `${pos.x},${pos.y}`;
-
-                if (visited.has(key)) continue;
-
-                visited.add(key);
-
-                // Check neighbors
-                const neighbors = [
-                    { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
-                    { dx: 0, dy: -1 }, { dx: 0, dy: 1 }
-                ].map(({ dx, dy }) => new RoomPosition(pos.x + dx, pos.y + dy, pos.roomName));
-
-                for (const neighbor of neighbors) {
-                    const neighborKey = `${neighbor.x},${neighbor.y}`;
-                    if (nodes.some(node => node.center.x === neighbor.x && node.center.y === neighbor.y && node.center.roomName === neighbor.roomName)) {
-                        queue.push(neighbor);
-                    }
-                }
-            }
-        }
-
-        return prunedEdges;
+        return this.pruneEdges(edges, this.nodes);
     }
 
     private static getAdjacentRoomNodes(room: Room): Peak[] {
@@ -408,7 +403,7 @@ export class RoomGeography {
     /**
      * Saves new edges to the network
      */
-    private static saveEdges(edges: CrossRoomEdge[]): void {
+    private static saveEdges(edges: Edge[]): void {
         if (!Memory.nodeNetwork) {
             Memory.nodeNetwork = { nodes: {}, edges: {} };
         }
@@ -424,7 +419,6 @@ export class RoomGeography {
                     pos.roomName
                 )),
                 cost: edge.cost,
-                type: edge.type
             };
         }
     }
@@ -482,7 +476,7 @@ export class RoomGeography {
         return `node-${pos.roomName}-${pos.x}-${pos.y}`;
     }
 
-    private static getEdgeId(edge: CrossRoomEdge): string {
+    private static getEdgeId(edge: Edge): string {
         const fromId = this.getNodeId(edge.from.center);
         const toId = this.getNodeId(edge.to.center);
         return `edge-${fromId}-${toId}`;
@@ -533,5 +527,70 @@ export class RoomGeography {
                 edges: {}
             };
         }
+    }
+
+    // Method to perform BFS from peaks to divide room tiles among nodes
+    public bfsDivideRoom(peaks: Node[]): void {
+        // Sort peaks by height in descending order
+        const sortedPeaks = peaks.sort((a, b) => b.height - a.height);
+
+        // Group peaks by height
+        const peaksByHeight: { [height: number]: Node[] } = {};
+        for (const peak of sortedPeaks) {
+            if (!peaksByHeight[peak.height]) {
+                peaksByHeight[peak.height] = [];
+            }
+            peaksByHeight[peak.height].push(peak);
+        }
+
+        // Perform BFS for each height level
+        for (const height in peaksByHeight) {
+            const currentPeaks = peaksByHeight[height];
+            this.bfsFromPeaks(currentPeaks);
+        }
+    }
+
+    // Method to perform BFS from a list of peaks
+    private bfsFromPeaks(peaks: Node[]): void {
+        const visited: Set<string> = new Set(); // To track visited tiles
+        const queue: QueueItem[] = [];
+
+        // Initialize the queue with all peaks
+        for (const peak of peaks) {
+            queue.push({ position: peak.position, originatingNode: peak });
+        }
+
+        while (queue.length > 0) {
+            const { position: currentPosition, originatingNode } = queue.shift()!;
+            const key = `${currentPosition.x},${currentPosition.y}`;
+
+            if (visited.has(key)) continue; // Skip already visited positions
+            visited.add(key);
+
+            // Check if the current position is valid (not a wall)
+            const terrain = Game.map.getRoomTerrain(currentPosition.roomName);
+            if (terrain.get(currentPosition.x, currentPosition.y) !== TERRAIN_MASK_WALL) {
+                // Assign the tile to the originating node
+                originatingNode.territory.push(currentPosition);
+            }
+
+            // Explore neighboring tiles
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    if (Math.abs(dx) === Math.abs(dy)) continue; // Skip diagonals
+                    const neighborX = currentPosition.x + dx;
+                    const neighborY = currentPosition.y + dy;
+
+                    if (this.isValidPosition(neighborX, neighborY, terrain)) {
+                        queue.push({ position: new RoomPosition(neighborX, neighborY, currentPosition.roomName), originatingNode });
+                    }
+                }
+            }
+        }
+    }
+
+    // Method to check if a position is valid (within bounds and not a wall)
+    private isValidPosition(x: number, y: number, terrain: Terrain): boolean {
+        return x >= 0 && x < 50 && y >= 0 && y < 50 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
     }
 }

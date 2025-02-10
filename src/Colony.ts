@@ -1,32 +1,52 @@
 import { RoomGeography } from "./RoomGeography";
 import { Node } from "./Node";
-
-interface ColonyMemory {
-    id: string;
-    rootRoomName: string;  // The room where this colony started
-    roomNames: string[];   // All rooms that are part of this colony
-    nodeIds: string[];     // All nodes that belong to this colony
-}
-
-declare global {
-    interface Memory {
-        colonies: { [colonyId: string]: ColonyMemory };
-    }
-}
+import { ColonyMemory } from "./types/Colony";
 
 export class Colony {
-    private nodes: { [nodeId: string]: Node } = {};
-    private readonly memory: ColonyMemory;
+    private roomGeography: RoomGeography;
+    public nodes: { [id: string]: Node };
+    public memory: ColonyMemory;
 
-    constructor(rootRoom: Room) {
-        if (!Memory.colonies) Memory.colonies = {};
-
-        this.memory = this.initializeColonyMemory(rootRoom);
-        this.loadExistingNodes();
+    constructor() {
+        this.nodes = {};
+        this.memory = {
+            id: '',
+            rootRoomName: '',
+            roomNames: [],
+            nodeIds: []
+        };
+        this.roomGeography = new RoomGeography(this.nodes);
     }
+
+    private createAndCheckAdjacentNodes(room: Room, distanceThreshold: number): void {
+        const nodeIds = Object.keys(Memory.nodeNetwork?.nodes || {});
+        const roomPosition = room.controller?.pos;
+
+        const nearbyNodeIds = nodeIds.filter(nodeId => {
+            const nodeData = Memory.nodeNetwork!.nodes[nodeId];
+            const nodePosition = new RoomPosition(nodeData.pos.x, nodeData.pos.y, nodeData.pos.roomName);
+            const distance = roomPosition?.getRangeTo(nodePosition) || Infinity;
+            return distance <= distanceThreshold;
+        });
+
+        for (const nodeId of nearbyNodeIds) {
+            if (!this.memory.nodeIds.includes(nodeId)) {
+                const nodeData = Memory.nodeNetwork!.nodes[nodeId];
+                const nodePosition = new RoomPosition(nodeData.pos.x, nodeData.pos.y, nodeData.pos.roomName);
+                const node = new Node(nodeId, nodePosition, nodeData.height);
+                this.nodes[nodeId] = node;
+                this.memory.nodeIds.push(nodeId);
+            }
+        }
+
+        RoomGeography.pruneEdges(this.roomGeography.getEdges(), this.nodes);
+    }
+
 
     private initializeColonyMemory(rootRoom: Room): ColonyMemory {
         const colonyId = `colony-${rootRoom.name}-${Game.time}`;
+
+        if (!Memory.colonies) Memory.colonies = {};
 
         if (!Memory.colonies[colonyId]) {
             Memory.colonies[colonyId] = {
@@ -38,10 +58,6 @@ export class Colony {
         }
 
         return Memory.colonies[colonyId];
-    }
-
-    get id(): string {
-        return this.memory.id;
     }
 
     run(): void {
@@ -56,61 +72,26 @@ export class Colony {
             const room = Game.rooms[roomName];
             if (room && !this.hasAnalyzedRoom(room)) {
                 RoomGeography.updateNetwork(room);
-                this.createNodesForRoom(room);
-                this.checkAdjacentRooms(room);
+                this.createAndCheckAdjacentNodes(room, 50);
             }
         }
+    }
+
+    private isPointOnLineSegment(start: RoomPosition, end: RoomPosition, point: RoomPosition): boolean {
+        const crossProduct = (point.y - start.y) * (end.x - start.x) - (point.x - start.x) * (end.y - start.y);
+        if (Math.abs(crossProduct) > 0.0001) return false; // Not collinear
+
+        const dotProduct = (point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y);
+        if (dotProduct < 0) return false; // Point is behind the start point
+
+        const squaredLengthBA = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+        if (dotProduct > squaredLengthBA) return false; // Point is beyond the end point
+
+        return true; // Point is on the line segment
     }
 
     private hasAnalyzedRoom(room: Room): boolean {
         return this.memory.nodeIds.some(nodeId => nodeId.includes(room.name));
-    }
-
-    private checkAdjacentRooms(room: Room): void {
-        // Get connected rooms through node network
-        const connectedRooms = new Set<string>();
-
-        for (const nodeId of this.memory.nodeIds) {
-            const connections = RoomGeography.getConnectedNodes(nodeId);
-            for (const connectedNodeId of connections) {
-                const roomName = this.getRoomNameFromNodeId(connectedNodeId);
-                if (roomName && !this.memory.roomNames.includes(roomName)) {
-                    connectedRooms.add(roomName);
-                }
-            }
-        }
-
-        // Add new connected rooms to colony
-        for (const roomName of connectedRooms) {
-            if (!this.memory.roomNames.includes(roomName)) {
-                this.memory.roomNames.push(roomName);
-            }
-        }
-    }
-
-    private getRoomNameFromNodeId(nodeId: string): string | null {
-        const match = nodeId.match(/node-(.*?)-\d+-\d+/);
-        return match ? match[1] : null;
-    }
-
-    private createNodesForRoom(room: Room): void {
-        const nodeIds = Object.keys(Memory.nodeNetwork?.nodes || {})
-            .filter(id => id.includes(room.name));
-        for (const nodeId of nodeIds) {
-            if (!this.memory.nodeIds.includes(nodeId)) {
-                const nodeData = Memory.nodeNetwork!.nodes[nodeId];
-                const node = new Node({
-                    position: new RoomPosition(
-                        nodeData.pos.x,
-                        nodeData.pos.y,
-                        nodeData.pos.roomName
-                    ),
-                    assets: []
-                });
-                this.nodes[nodeId] = node;
-                this.memory.nodeIds.push(nodeId);
-            }
-        }
     }
 
     private updateColonyConnectivity(): void {
@@ -131,27 +112,6 @@ export class Colony {
                 }
             }
         }
-
-        // If we found a disconnected part, we need to split the colony
-        if (connectedNodes.size !== this.memory.nodeIds.length) {
-            this.handleColonySplit(connectedNodes);
-        }
-    }
-
-    private handleColonySplit(connectedNodes: Set<string>): void {
-        // Create new colony for disconnected nodes
-        const disconnectedNodes = this.memory.nodeIds.filter(id => !connectedNodes.has(id));
-        const disconnectedRoomName = this.getRoomNameFromNodeId(disconnectedNodes[0])!;
-
-        if (Game.rooms[disconnectedRoomName]) {
-            const newColony = new Colony(Game.rooms[disconnectedRoomName]);
-        }
-
-        // Update this colony's memory
-        this.memory.nodeIds = Array.from(connectedNodes);
-        this.memory.roomNames = this.memory.nodeIds
-            .map(id => this.getRoomNameFromNodeId(id))
-            .filter((name): name is string => name !== null);
     }
 
     private runNodes(): void {
@@ -159,7 +119,7 @@ export class Colony {
             try {
                 this.nodes[nodeId].run();
             } catch (error) {
-                console.log(`Error running node in colony ${this.id}:`, error);
+                console.log(`Error running node in colony`, error);
             }
         }
     }
@@ -170,14 +130,7 @@ export class Colony {
         for (const [nodeId, nodeData] of Object.entries(Memory.nodeNetwork.nodes)) {
             // Only load nodes in rooms we have vision of
             if (Game.rooms[nodeData.pos.roomName]) {
-                const node = new Node({
-                    position: new RoomPosition(
-                        nodeData.pos.x,
-                        nodeData.pos.y,
-                        nodeData.pos.roomName
-                    ),
-                    assets: []
-                });
+                const node = new Node(nodeId, new RoomPosition(nodeData.pos.x, nodeData.pos.y, nodeData.pos.roomName), nodeData.height);
                 this.nodes[nodeId] = node;
             }
         }

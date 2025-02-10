@@ -2,6 +2,7 @@ export interface NodeNetworkMemory {
     nodes: {
         [nodeId: string]: {
             pos: RoomPosition;
+            height: number;
             territory: RoomPosition[];
             resources: {
                 id: Id<Source | Mineral | StructureController>;
