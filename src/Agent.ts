@@ -1,67 +1,74 @@
-class Action {
-    constructor(public preconditions: Map<string, boolean>, public effects: Map<string, boolean>, public cost: number) { }
+export class Action {
+    constructor(
+        public name: string,
+        public preconditions: Map<string, boolean>,
+        public effects: Map<string, boolean>,
+        public cost: number
+    ) { }
 
     isAchievable(worldState: Map<string, boolean>): boolean {
         for (const [condition, value] of this.preconditions.entries()) {
-          if (worldState.get(condition) !== value) {
-            return false;
-          }
+            if (worldState.get(condition) !== value) {
+                return false;
+            }
         }
         return true;
-      }
+    }
+
+    contributesToGoal(goal: Goal): boolean {
+        for (const [condition, value] of goal.conditions.entries()) {
+            if (this.effects.get(condition) === value) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
-const mineEnergyAction = new Action(
-    new Map([['hasResource', false], ['hasMiner', true]]),
-    new Map([['hasResource', true]]),
-    2
-);
+export class Goal {
+    constructor(
+        public conditions: Map<string, boolean>,
+        public priority: number
+    ) { }
 
-const buildStructureAction = new Action(
-    new Map([['hasResource', true], ['hasBuilder', true]]),
-    new Map([['hasResource', false]]),
-    3
-);
-
-// Define more actions as needed
-
-class Goal {
-    public conditions: Map<string, boolean>;
-    public priority: number;
-
-    constructor(conditions: Map<string, boolean>, priority: number) {
-      this.conditions = conditions;
-      this.priority = priority;
+    isSatisfied(worldState: Map<string, boolean>): boolean {
+        for (const [condition, value] of this.conditions.entries()) {
+            if (worldState.get(condition) !== value) {
+                return false;
+            }
+        }
+        return true;
     }
-  }
+}
 
-const profitGoal = new Goal(new Map([['hasResource', true]]), 3);
-
-// Define more goals as needed
-
-
-class WorldState {
+export class WorldState {
     private state: Map<string, boolean>;
 
     constructor(initialState: Map<string, boolean>) {
-      this.state = initialState;
+        this.state = initialState;
     }
 
     updateState(newState: Map<string, boolean>): void {
-      for (const [condition, value] of newState.entries()) {
-        this.state.set(condition, value);
-      }
+        for (const [condition, value] of newState.entries()) {
+            this.state.set(condition, value);
+        }
     }
 
     getState(): Map<string, boolean> {
-      return new Map(this.state);
+        return new Map(this.state);
     }
-  }
 
-abstract class Agent {
-    private currentGoals: Goal[];
-    private availableActions: Action[];
-    private worldState: WorldState;
+    applyAction(action: Action): WorldState {
+        const newState = new WorldState(this.getState());
+        newState.updateState(action.effects);
+        return newState;
+    }
+}
+
+export abstract class Agent {
+    protected currentGoals: Goal[];
+    protected availableActions: Action[];
+    protected worldState: WorldState;
 
     constructor(initialWorldState: WorldState) {
         this.currentGoals = [];
@@ -78,25 +85,56 @@ abstract class Agent {
         this.currentGoals.sort((a, b) => b.priority - a.priority);
     }
 
+    removeGoal(goal: Goal): void {
+        this.currentGoals = this.currentGoals.filter(g => g !== goal);
+    }
+
     selectAction(): Action | null {
+        const currentState = this.worldState.getState();
+
+        // Find the highest priority unsatisfied goal
         for (const goal of this.currentGoals) {
-            for (const action of this.availableActions) {
-                if (action.isAchievable(this.worldState.getState()) && this.isGoalSatisfied(goal)) {
-                    return action;
-                }
+            if (goal.isSatisfied(currentState)) {
+                continue; // Goal already satisfied, check next
+            }
+
+            // Find an achievable action that contributes to this goal
+            // Sort by cost to prefer cheaper actions
+            const candidateActions = this.availableActions
+                .filter(action =>
+                    action.isAchievable(currentState) &&
+                    action.contributesToGoal(goal)
+                )
+                .sort((a, b) => a.cost - b.cost);
+
+            if (candidateActions.length > 0) {
+                return candidateActions[0];
             }
         }
+
         return null;
     }
 
-    private isGoalSatisfied(goal: Goal): boolean {
-        for (const [condition, value] of goal.conditions.entries()) {
-            if (this.worldState.getState().get(condition) !== value) {
-                return false;
-            }
-        }
-        return true;
+    executeAction(action: Action): void {
+        this.worldState.updateState(action.effects);
     }
 
     abstract performAction(): void;
 }
+
+// Example actions - kept for reference but can be instantiated elsewhere
+export const createMineEnergyAction = () => new Action(
+    'mineEnergy',
+    new Map([['hasResource', false], ['hasMiner', true]]),
+    new Map([['hasResource', true]]),
+    2
+);
+
+export const createBuildStructureAction = () => new Action(
+    'buildStructure',
+    new Map([['hasResource', true], ['hasBuilder', true]]),
+    new Map([['hasResource', false]]),
+    3
+);
+
+export const createProfitGoal = () => new Goal(new Map([['hasResource', true]]), 3);
