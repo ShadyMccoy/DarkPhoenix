@@ -1,5 +1,4 @@
 import { RoomRoutine } from "./RoomProgram";
-import { forEach } from "lodash";
 
 export class Bootstrap extends RoomRoutine {
     name = "bootstrap";
@@ -14,9 +13,11 @@ export class Bootstrap extends RoomRoutine {
         let spawn = spawns[0];
         if (spawn == undefined) return;
 
-        let jacks = _.map(this.creepIds.jack, (id) => Game.getObjectById(id)!);
+        let jacks = this.creepIds.jack
+            .map((id) => Game.getObjectById(id))
+            .filter((jack): jack is Creep => jack != null);
 
-        forEach(jacks, (jack) => {
+        jacks.forEach((jack) => {
             if (jack.store.energy == jack.store.getCapacity() && spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
                 this.DeliverEnergyToSpawn(jack, spawn);
             } else if (jack.store.energy > 0 && spawn.store.getUsedCapacity(RESOURCE_ENERGY) > 150 && room?.controller?.level && room.controller.level < 2) {
@@ -47,19 +48,17 @@ export class Bootstrap extends RoomRoutine {
 
     HarvestNearestEnergySource(creep: Creep): boolean {
         let energySources = creep.room.find(FIND_SOURCES);
-        energySources = _.sortBy(energySources, s => s.pos.findPathTo(creep.pos).length);
+        energySources = _.sortBy(energySources, s => creep.pos.getRangeTo(s.pos));
 
         let e = energySources.find(e => {
             let adjacentSpaces = creep.room.lookForAtArea(LOOK_TERRAIN, e.pos.y - 1, e.pos.x - 1, e.pos.y + 1, e.pos.x + 1, true);
 
             let openSpaces = 0;
-            forEach(adjacentSpaces, (space) => {
+            adjacentSpaces.forEach((space) => {
                 if (space.terrain == "plain" || space.terrain == "swamp") {
                     let pos = new RoomPosition(space.x, space.y, creep.room.name);
-                    pos.lookFor(LOOK_CREEPS);
-                    if (pos.lookFor(LOOK_CREEPS).length == 0) {
-                        openSpaces++;
-                    } else if (pos.lookFor(LOOK_CREEPS)[0].id == creep.id) {
+                    let creepsAtPos = pos.lookFor(LOOK_CREEPS);
+                    if (creepsAtPos.length == 0 || creepsAtPos[0].id == creep.id) {
                         openSpaces++;
                     }
                 }
@@ -92,11 +91,14 @@ export class Bootstrap extends RoomRoutine {
     }
 
     pickupEnergyPile(creep: Creep): boolean {
-        let droppedEnergies = creep.room.find(FIND_DROPPED_RESOURCES, { filter: (resource) => resource.resourceType == RESOURCE_ENERGY && resource.amount > 50 });
+        let droppedEnergies = creep.room.find(FIND_DROPPED_RESOURCES, {
+            filter: (resource) => resource.resourceType == RESOURCE_ENERGY && resource.amount > 50
+        });
 
         if (droppedEnergies.length == 0) return false;
 
-        let e = _.min(droppedEnergies, e => e.pos.findPathTo(creep.pos).length);
+        let sortedEnergies = _.sortBy(droppedEnergies, e => creep.pos.getRangeTo(e.pos));
+        let e = sortedEnergies[0];
 
         creep.say('pickup energy');
         new RoomVisual(creep.room.name).line(creep.pos.x, creep.pos.y, e.pos.x, e.pos.y);
@@ -127,11 +129,21 @@ export class Bootstrap extends RoomRoutine {
     }
 
     dismantleWalls(creep: Creep): void {
-        let walls = creep.room.find(FIND_STRUCTURES, { filter: (structure) => structure.structureType == STRUCTURE_WALL });
+        let walls = creep.room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType == STRUCTURE_WALL
+        });
 
         if (walls.length == 0) return;
 
-        let wall = _.min(walls, w => w.pos.findClosestByPath(FIND_MY_SPAWNS));
+        // Find wall closest to a spawn
+        let spawns = creep.room.find(FIND_MY_SPAWNS);
+        if (spawns.length == 0) return;
+
+        let sortedWalls = _.sortBy(walls, w => {
+            let closestSpawn = _.min(spawns.map(s => w.pos.getRangeTo(s.pos)));
+            return closestSpawn;
+        });
+        let wall = sortedWalls[0];
 
         creep.say('dismantle');
         new RoomVisual(creep.room.name).line(creep.pos.x, creep.pos.y, wall.pos.x, wall.pos.y);
@@ -143,7 +155,7 @@ export class Bootstrap extends RoomRoutine {
     getScaledBody(body: BodyPartConstant[], scale: number): BodyPartConstant[] {
         let newBody: BodyPartConstant[] = [];
 
-        forEach(body, (part) => {
+        body.forEach((part) => {
             for (let i = 0; i < scale; i++) {
                 newBody.push(part);
             }
