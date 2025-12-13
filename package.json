@@ -17,7 +17,17 @@
     "watch-main": "rollup -cw --environment DEST:main",
     "watch-pserver": "rollup -cw --environment DEST:pserver",
     "watch-season": "rollup -cw --environment DEST:season",
-    "watch-sim": "rollup -cw --environment DEST:sim"
+    "watch-sim": "rollup -cw --environment DEST:sim",
+    "sim:start": "./scripts/sim.sh start",
+    "sim:stop": "./scripts/sim.sh stop",
+    "sim:cli": "./scripts/sim.sh cli",
+    "sim:deploy": "./scripts/sim.sh deploy",
+    "sim:watch": "./scripts/sim.sh watch",
+    "sim:reset": "./scripts/sim.sh reset",
+    "sim:bench": "./scripts/sim.sh bench",
+    "scenario": "ts-node scripts/run-scenario.ts",
+    "scenario:all": "ts-node scripts/run-scenario.ts --all",
+    "scenario:list": "ts-node scripts/run-scenario.ts --list"
   },
   "repository": {
     "type": "git",
@@ -30,7 +40,7 @@
   },
   "homepage": "https://github.com/screepers/screeps-typescript-starter#readme",
   "engines": {
-    "node": "10.x || 12.x"
+    "node": ">=18"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^20.0.0",

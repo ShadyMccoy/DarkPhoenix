@@ -17,7 +17,11 @@
 
 # Screeps Config
 screeps.json
+.screeps.json
 Gruntfile.js
+
+# Environment variables (contains API keys)
+.env
 
 # ScreepsServer data from integration tests
 /server
