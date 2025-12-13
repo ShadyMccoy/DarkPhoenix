@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Screeps Simulator - HTTP API client for headless testing
  *
@@ -51,7 +52,8 @@ export class ScreepsSimulator {
   async connect(): Promise<void> {
     // Check server is up
     const version = await this.get('/api/version');
-    console.log(`Connected to Screeps server v${version.serverData?.version || 'unknown'}`);
+    const serverVersion = (version as any).serverData?.version || 'unknown';
+    console.log(`Connected to Screeps server v${serverVersion}`);
   }
 
   /**
@@ -63,7 +65,7 @@ export class ScreepsSimulator {
       email: username,
       password: password,
     });
-    this.token = result.token;
+    this.token = (result as any).token;
     console.log(`Authenticated as ${username}`);
   }
 
@@ -84,7 +86,7 @@ export class ScreepsSimulator {
    */
   async getTick(): Promise<number> {
     const result = await this.get('/api/game/time');
-    return result.time;
+    return (result as any).time;
   }
 
   /**
@@ -92,7 +94,7 @@ export class ScreepsSimulator {
    */
   async getTerrain(room: string): Promise<string> {
     const result = await this.get(`/api/game/room-terrain?room=${room}`);
-    return result.terrain?.[0]?.terrain || '';
+    return (result as any).terrain?.[0]?.terrain || '';
   }
 
   /**
@@ -100,7 +102,7 @@ export class ScreepsSimulator {
    */
   async getRoomObjects(room: string): Promise<RoomObject[]> {
     const result = await this.get(`/api/game/room-objects?room=${room}`);
-    return result.objects || [];
+    return (result as any).objects || [];
   }
 
   /**
@@ -111,10 +113,11 @@ export class ScreepsSimulator {
       ? `/api/user/memory?path=${encodeURIComponent(path)}`
       : '/api/user/memory';
     const result = await this.get(url);
+    const data = (result as any).data;
 
-    if (result.data) {
+    if (data && typeof data === 'string') {
       // Memory is gzipped and base64 encoded
-      const decoded = Buffer.from(result.data.substring(3), 'base64');
+      const decoded = Buffer.from(data.substring(3), 'base64');
       return JSON.parse(decoded.toString());
     }
     return {};
@@ -134,7 +137,8 @@ export class ScreepsSimulator {
    * Execute console command
    */
   async console(expression: string): Promise<ConsoleResult> {
-    return await this.post('/api/user/console', { expression });
+    const result = await this.post('/api/user/console', { expression });
+    return result as ConsoleResult;
   }
 
   /**
@@ -254,7 +258,9 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, { headers });
+    // Use dynamic import for fetch in Node.js
+    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
+    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, { headers });
     return response.json() as Promise<Record<string, unknown>>;
   }
 
@@ -267,7 +273,8 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
+    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

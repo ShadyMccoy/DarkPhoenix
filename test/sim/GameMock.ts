@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Lightweight Game Mock for Fast Unit Testing
  *
@@ -16,12 +17,8 @@ interface MockPosition {
   roomName: string;
 }
 
-interface MockStore {
-  [resource: string]: number;
-  getCapacity(resource?: ResourceConstant): number;
-  getFreeCapacity(resource?: ResourceConstant): number;
-  getUsedCapacity(resource?: ResourceConstant): number;
-}
+// Use any for store to avoid index signature conflicts
+type MockStore = any;
 
 interface MockCreep {
   id: string;
@@ -148,18 +145,22 @@ interface MockMemory {
 
 // Mock implementations
 function createMockStore(capacity: number, initial: Record<string, number> = {}): MockStore {
-  const store: Record<string, number> = { ...initial };
+  const store: Record<string, any> = { ...initial };
   const totalCapacity = capacity;
 
-  return {
-    ...store,
-    getCapacity: () => totalCapacity,
-    getFreeCapacity: () => {
-      const used = Object.values(store).reduce((a, b) => a + b, 0);
-      return totalCapacity - used;
-    },
-    getUsedCapacity: () => Object.values(store).reduce((a, b) => a + b, 0),
+  store.getCapacity = () => totalCapacity;
+  store.getFreeCapacity = () => {
+    const used = Object.entries(store)
+      .filter(([k]) => typeof store[k] === 'number')
+      .reduce((a, [, v]) => a + (v as number), 0);
+    return totalCapacity - used;
   };
+  store.getUsedCapacity = () =>
+    Object.entries(store)
+      .filter(([k]) => typeof store[k] === 'number')
+      .reduce((a, [, v]) => a + (v as number), 0);
+
+  return store;
 }
 
 function createMockCreep(
