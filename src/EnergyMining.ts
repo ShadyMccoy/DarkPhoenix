@@ -10,22 +10,23 @@ export class EnergyMining extends RoomRoutine {
     }
 
     routine(room: Room): void {
-        console.log('energy mining');
-        if (this.sourceMine == undefined) { return; }
+        if (!this.sourceMine) { return; }
 
         let source = Game.getObjectById(this.sourceMine.sourceId);
         if (source == null) { return; }
-        this.HarvestAssignedEnergySource();
 
+        this.HarvestAssignedEnergySource();
         this.createConstructionSiteOnEnergyPiles();
     }
 
     calcSpawnQueue(room: Room): void {
+        this.spawnQueue = [];
+
+        if (!this.sourceMine || !this.sourceMine.HarvestPositions) { return; }
+
         let spawns = room.find(FIND_MY_SPAWNS);
         let spawn = spawns[0];
         if (spawn == undefined) return;
-
-        this.spawnQueue = [];
 
         if (this.creepIds['harvester'].length < this.sourceMine.HarvestPositions.length) {
             this.spawnQueue.push({
@@ -46,7 +47,6 @@ export class EnergyMining extends RoomRoutine {
     }
 
     deserialize(data: any): void {
-        console.log('deserialize energy mining ' + JSON.stringify(data));
         super.deserialize(data);
         this.sourceMine = data.sourceMine;
     }

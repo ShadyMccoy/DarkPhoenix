@@ -2,12 +2,10 @@ import { Construction } from "./Construction"
 import { EnergyMining } from "./EnergyMining";
 import { RoomRoutine } from "./RoomProgram";
 import { Bootstrap } from "./bootstrap";
-import { forEach, sortBy } from "lodash";
 import { ErrorMapper } from "./ErrorMapper";
 import { RoomMap } from "./RoomMap";
 
 declare global {
-  // Syntax for adding proprties to `global` (ex "global.log")
   namespace NodeJS {
     interface Global {
       log: any;
@@ -15,11 +13,12 @@ declare global {
   }
 }
 
-export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is blue forty two ${Game.time}`);
+// Cache for room maps to avoid recalculating every tick
+const roomMapCache: { [roomName: string]: { map: RoomMap, tick: number } } = {};
+const ROOM_MAP_CACHE_TTL = 100; // Recalculate every 100 ticks
 
+export const loop = ErrorMapper.wrapLoop(() => {
   _.forEach(Game.rooms, (room) => {
-    // Ensure room.memory.routines is initialized
     if (!room.memory.routines) {
       room.memory.routines = {};
     }
@@ -27,19 +26,29 @@ export const loop = ErrorMapper.wrapLoop(() => {
     const routines = getRoomRoutines(room);
 
     _.forEach(routines, (routineList, routineType) => {
-      _.forEach(routineList, (routine) => routine.runRoutine(room));
+      // Filter out completed construction routines
+      const activeRoutines = routineType === 'construction'
+        ? _.filter(routineList, (r) => !(r as Construction).isComplete)
+        : routineList;
+
+      _.forEach(activeRoutines, (routine) => routine.runRoutine(room));
+
       if (routineType) {
-        room.memory.routines[routineType] = _.map(routineList, (routine) => routine.serialize());
+        room.memory.routines[routineType] = _.map(activeRoutines, (routine) => routine.serialize());
       }
     });
 
-    new RoomMap(room);
+    // Only recalculate room map periodically
+    const cached = roomMapCache[room.name];
+    if (!cached || Game.time - cached.tick > ROOM_MAP_CACHE_TTL) {
+      roomMapCache[room.name] = { map: new RoomMap(room), tick: Game.time };
+    }
   });
 
   // Clean up memory
   _.forIn(Memory.creeps, (_, name) => {
-    if (name) {
-      if (!Game.creeps[name]) delete Memory.creeps[name];
+    if (name && !Game.creeps[name]) {
+      delete Memory.creeps[name];
     }
   });
 });
@@ -102,56 +111,30 @@ function initEnergyMiningFromSource(source: Source): EnergyMining {
     (pos) => pos.terrain === "plain" || pos.terrain === "swamp"
   ).map((pos) => new RoomPosition(pos.x, pos.y, source.room.name));
 
-  const spawns = _.sortBy(source.room.find(FIND_MY_SPAWNS), (s) => s.pos.findPathTo(source.pos).length);
+  const spawns = source.room.find(FIND_MY_SPAWNS);
+  if (spawns.length === 0) {
+    const m = new EnergyMining(source.pos);
+    m.setSourceMine({
+      sourceId: source.id,
+      HarvestPositions: harvestPositions,
+      distanceToSpawn: 0,
+      flow: 10
+    });
+    return m;
+  }
+
+  // Sort spawns by range (cheaper than pathfinding)
+  const sortedSpawns = _.sortBy(spawns, (s) => s.pos.getRangeTo(source.pos));
+  const closestSpawn = sortedSpawns[0];
 
   const m = new EnergyMining(source.pos);
   m.setSourceMine({
     sourceId: source.id,
-    HarvestPositions: _.sortBy(harvestPositions, (h) => h.getRangeTo(spawns[0])),
-    distanceToSpawn: spawns[0].pos.findPathTo(source.pos).length,
+    HarvestPositions: _.sortBy(harvestPositions, (h) => h.getRangeTo(closestSpawn)),
+    distanceToSpawn: closestSpawn.pos.getRangeTo(source.pos),
     flow: 10
   });
 
   return m;
 }
-
-
-//////
-/*
-if (!room.memory.constructionSites) { room.memory.constructionSites = [] as ConstructionSiteStruct[]; }
-
-let sites = room.memory.constructionSites as ConstructionSiteStruct[];
-sites = _.filter(sites, (site) => {
-    return Game.getObjectById(site.id) != null;
-});
-
-if (sites.length == 0) {
-    let s = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (s.length == 0) { return; }
-
-    room.memory.constructionSites.push({ id: s[0].id, Builders: [] as Id<Creep>[] });
-}
-
-if (sites.length == 0) { return; }
-
-forEach(sites, (s) => {
-
-
-
-  ////
-
-  calculateConstructionSites(room: Room) {
-    let constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    forEach(constructionSites, (site) => {
-        if (!any(room.memory.constructionSites, (s) => { return s.id == site.id })) {
-            let newSite = {
-                id: site.id,
-                Builders: [] as Id<Creep>[]
-            } as ConstructionSiteStruct;
-            room.memory.constructionSites.push(newSite);
-        }
-    });
-}
-
-*/
 

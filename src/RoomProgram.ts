@@ -83,12 +83,20 @@ export abstract class RoomRoutine {
     let spawns = room.find(FIND_MY_SPAWNS, { filter: spawn => !spawn.spawning });
     if (spawns.length == 0) return;
 
-    spawns = sortBy(spawns, spawn => this.position.findPathTo(spawn).length);
+    spawns = sortBy(spawns, spawn => spawn.pos.getRangeTo(this.position));
     let spawn = spawns[0];
 
-    spawn.spawnCreep(
+    const result = spawn.spawnCreep(
       this.spawnQueue[0].body,
       spawn.name + Game.time,
-      { memory: { role: this.spawnQueue[0].role } }) == OK;
+      { memory: { role: this.spawnQueue[0].role } }
+    );
+
+    if (result === OK) {
+      this.spawnQueue.shift();
+    } else if (result !== ERR_NOT_ENOUGH_ENERGY && result !== ERR_BUSY) {
+      console.log(`Spawn failed with error: ${result}, removing from queue`);
+      this.spawnQueue.shift();
+    }
   }
 }

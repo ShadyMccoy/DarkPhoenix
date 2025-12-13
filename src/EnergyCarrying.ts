@@ -156,31 +156,56 @@ export class EnergyCarrying extends RoomRoutine {
     }
 
     calculateRoutes(room: Room) {
-        if (!room.memory.routines.sourceMines) { return; }
+        if (!room.memory.routines.energyMines) { return; }
 
-        let mines = room.memory.routines.sourceMines as SourceMine[];
+        let mines = room.memory.routines.energyMines as { sourceMine: SourceMine }[];
 
         let miners = room.find(FIND_MY_CREEPS, { filter: (creep) => { return creep.memory.role == "busyHarvester"; } });
         if (miners.length == 0) { return; }
 
-        if (room.find(FIND_MY_SPAWNS).length == 0) { return; }
-        let spawn = room.find(FIND_MY_SPAWNS)[0];
+        let spawns = room.find(FIND_MY_SPAWNS);
+        if (spawns.length == 0) { return; }
+        let spawn = spawns[0];
 
-        let energyRoutes: EnergyRoute[] = [];
-        forEach(mines, (mine) => {
+        this.energyRoutes = [];
+        forEach(mines, (mineData) => {
+            let mine = mineData.sourceMine;
+            if (!mine || !mine.HarvestPositions || mine.HarvestPositions.length == 0) { return; }
+
             let harvestPos = new RoomPosition(
                 mine.HarvestPositions[0].x,
                 mine.HarvestPositions[0].y,
                 mine.HarvestPositions[0].roomName);
-            if (harvestPos == null) { return; }
 
-            energyRoutes.push(
-                {
-                    waypoints: [
-                        { x: harvestPos.x, y: harvestPos.y, roomName: harvestPos.roomName, surplus: true },
-                        { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName, surplus: false }],
-                    Carriers: []
-                });
+            this.energyRoutes.push({
+                waypoints: [
+                    { x: harvestPos.x, y: harvestPos.y, roomName: harvestPos.roomName, surplus: true },
+                    { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName, surplus: false }
+                ],
+                Carriers: []
+            });
+        });
+
+        this.assignCarriersToRoutes();
+    }
+
+    private assignCarriersToRoutes() {
+        if (this.energyRoutes.length == 0) { return; }
+
+        let carrierIds = this.creepIds['carrier'] || [];
+        let routeIndex = 0;
+
+        forEach(carrierIds, (carrierId) => {
+            let creep = Game.getObjectById(carrierId);
+            if (creep == null) { return; }
+
+            let route = this.energyRoutes[routeIndex % this.energyRoutes.length];
+            let alreadyAssigned = route.Carriers.some(c => c.creepId === carrierId);
+
+            if (!alreadyAssigned) {
+                route.Carriers.push({ creepId: carrierId, waypointIdx: 0 });
+            }
+            routeIndex++;
         });
     }
 }
