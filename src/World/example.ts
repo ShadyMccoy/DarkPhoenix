@@ -13,8 +13,14 @@ import {
   GraphBuilder,
   GraphAnalyzer,
   GraphVisualizer,
+  ColonyManager,
+  WorldState,
+  initializeGlobalWorld,
+  getGlobalWorld,
   type GraphMetrics,
   type VisualizationOptions,
+  type Colony,
+  type ColonyResources,
 } from "./index";
 
 /**
@@ -282,6 +288,235 @@ export function updateWorldGraphs(): void {
   }
 }
 
+// ============================================================================
+// COLONY EXAMPLES - Managing multiple isolated colonies
+// ============================================================================
+
+/**
+ * Example 9: Create colonies from a merged world graph
+ *
+ * A colony is a connected component of the world graph.
+ * Multiple colonies can exist (e.g., initial base + scouted outpost).
+ */
+export function exampleCreateColonies(
+  controlledRooms: string[]
+): Map<string, Colony> {
+  // Build graphs for all rooms
+  const roomGraphs = new Map();
+  for (const room of controlledRooms) {
+    try {
+      roomGraphs.set(room, GraphBuilder.buildRoomGraph(room));
+    } catch (err) {
+      console.log(`[Colonies] Error building graph for ${room}: ${err}`);
+    }
+  }
+
+  if (roomGraphs.size === 0) {
+    console.log("[Colonies] No valid room graphs");
+    return new Map();
+  }
+
+  // Merge all room graphs into one world graph
+  const mergedGraph = GraphBuilder.mergeRoomGraphs(roomGraphs);
+
+  // Split into colonies (one per connected component)
+  const coloniesWorld = ColonyManager.buildColonies(
+    mergedGraph,
+    controlledRooms[0]
+  );
+
+  console.log(`[Colonies] Created ${coloniesWorld.colonies.size} colonies:`);
+  for (const colony of coloniesWorld.colonies.values()) {
+    console.log(`  - ${colony.id}: ${colony.graph.nodes.size} nodes in ${colony.controlledRooms.size} rooms`);
+  }
+
+  return coloniesWorld.colonies;
+}
+
+/**
+ * Example 10: Manage world state with colonies
+ *
+ * The WorldState class handles colony updates, merging, and status tracking.
+ */
+export function exampleWorldStateManagement(controlledRooms: string[]): void {
+  // Initialize global world
+  const world = initializeGlobalWorld();
+
+  // Rebuild world (rebuilds all graphs and colonies)
+  world.rebuild(controlledRooms);
+
+  // Get all colonies
+  const colonies = world.getColonies();
+  console.log(`[World] Total colonies: ${colonies.length}`);
+
+  // Get status summary
+  const statusSummary = world.getStatusSummary();
+  for (const [status, count] of statusSummary) {
+    console.log(`  ${status}: ${count}`);
+  }
+
+  // Get total resources across all colonies
+  const totalResources = world.getTotalResources();
+  console.log(`[World] Total energy: ${totalResources.energy}`);
+}
+
+/**
+ * Example 11: Track individual colony status
+ */
+export function exampleColonyStatus(colonyId: string): void {
+  const world = getGlobalWorld();
+  const colony = world.getColony(colonyId);
+
+  if (!colony) {
+    console.log(`Colony ${colonyId} not found`);
+    return;
+  }
+
+  console.log(`Colony: ${colony.name} (${colony.id})`);
+  console.log(`  Status: ${colony.status}`);
+  console.log(`  Primary Room: ${colony.primaryRoom}`);
+  console.log(`  Controlled Rooms: ${Array.from(colony.controlledRooms).join(", ")}`);
+  console.log(`  Nodes: ${colony.graph.nodes.size}`);
+  console.log(`  Edges: ${colony.graph.edges.size}`);
+  console.log(`  Energy: ${colony.resources.energy}`);
+  console.log(`  Created: ${colony.createdAt}`);
+}
+
+/**
+ * Example 12: Detect and merge adjacent colonies
+ *
+ * When you expand to a new room and connect it to an existing colony,
+ * they should merge into one.
+ */
+export function exampleMergeColonies(controlledRooms: string[]): void {
+  const world = getGlobalWorld();
+  world.rebuild(controlledRooms);
+
+  const colonies = world.getColonies();
+
+  if (colonies.length < 2) {
+    console.log("[Merge] Only 1 colony, nothing to merge");
+    return;
+  }
+
+  // Check each pair of colonies
+  for (let i = 0; i < colonies.length; i++) {
+    for (let j = i + 1; j < colonies.length; j++) {
+      const colonyA = colonies[i];
+      const colonyB = colonies[j];
+
+      if (world.checkMergeOpportunity(colonyA, colonyB)) {
+        console.log(
+          `[Merge] Opportunity to merge ${colonyA.id} + ${colonyB.id}`
+        );
+        // Merge them
+        world.mergeColonies(colonyA.id, colonyB.id);
+        console.log(`[Merge] Merged! Now have ${world.getColonies().length} colonies`);
+        return;
+      }
+    }
+  }
+
+  console.log("[Merge] No merge opportunities found");
+}
+
+/**
+ * Example 13: Update colony resources from game state
+ *
+ * After rebuilding the world, update it with actual game resources.
+ */
+export function exampleUpdateColonyResources(
+  roomResources: Map<string, ColonyResources>
+): void {
+  const world = getGlobalWorld();
+
+  // Update all colonies with their resources
+  world.updateResources(roomResources);
+
+  // Check colony status
+  for (const colony of world.getColonies()) {
+    console.log(
+      `${colony.name}: ${colony.status} (${colony.resources.energy} energy)`
+    );
+  }
+}
+
+/**
+ * Example 14: Save and load world state
+ *
+ * Persist colony metadata to memory for long-term tracking.
+ */
+export function examplePersistWorld(): void {
+  const world = getGlobalWorld();
+
+  // Save to memory
+  world.save(Memory);
+  console.log("[World] Saved colony state to memory");
+
+  // Later: Load from memory
+  // const loaded = WorldState.load(Memory);
+  // Note: Full graphs not persisted (too large), would need to rebuild
+}
+
+/**
+ * Example 15: Visualize all colonies
+ *
+ * Show the graph structure for each colony.
+ */
+export function exampleVisualizeColonies(): void {
+  const world = getGlobalWorld();
+
+  for (const colony of world.getColonies()) {
+    // Visualize in one of the colony's rooms
+    const roomName = colony.primaryRoom;
+    const room = Game.rooms[roomName];
+    if (!room) continue;
+
+    console.log(`[Vis] Visualizing ${colony.name} in ${roomName}`);
+
+    // Basic visualization
+    GraphVisualizer.visualize(room, colony.graph, {
+      showNodes: true,
+      showEdges: true,
+      showTerritories: true,
+      showLabels: true,
+    });
+  }
+}
+
+/**
+ * Example 16: Split a colony if it becomes disconnected
+ *
+ * If part of your base is sieged/destroyed, split into separate colonies.
+ */
+export function exampleHandleColonySplit(colonyId: string): void {
+  const world = getGlobalWorld();
+  const colony = world.getColony(colonyId);
+
+  if (!colony) return;
+
+  // Check if colony is still connected
+  const splitColonies = ColonyManager.splitColonyIfNeeded(colony);
+
+  if (splitColonies.length === 1) {
+    console.log(`[Split] ${colonyId} is still connected`);
+    return;
+  }
+
+  console.log(
+    `[Split] Colony split into ${splitColonies.length} separate colonies!`
+  );
+  for (const col of splitColonies) {
+    console.log(`  - ${col.name}: ${col.graph.nodes.size} nodes`);
+  }
+
+  // Update world with new colonies
+  world.colonies.delete(colonyId);
+  for (const col of splitColonies) {
+    world.colonies.set(col.id, col);
+  }
+}
+
 declare global {
   interface Memory {
     worldHealthHistory?: Array<{
@@ -293,5 +528,28 @@ declare global {
       balance: number;
       hasProblems: boolean;
     }>;
+    world?: {
+      version: number;
+      timestamp: number;
+      colonies: Array<{
+        id: string;
+        name: string;
+        status: string;
+        primaryRoom: string;
+        controlledRooms: string[];
+        resources: {
+          energy: number;
+          power: number;
+          lastUpdated: number;
+        };
+        metadata: Record<string, any>;
+      }>;
+      metadata: {
+        totalNodes: number;
+        totalEdges: number;
+        totalEnergy: number;
+        missionStatus?: string;
+      };
+    };
   }
 }
