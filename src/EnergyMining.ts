@@ -3,10 +3,44 @@ import { SourceMine } from "./SourceMine";
 
 export class EnergyMining extends RoomRoutine {
     name = 'energy mining';
-    private sourceMine!: SourceMine
+    private sourceMine!: SourceMine;
+    private lastEnergyHarvested: number = 0;
 
     constructor(pos: RoomPosition) {
         super(pos, { harvester: [] });
+
+        // Define what this routine needs to operate
+        this.requirements = [
+            { type: 'work', size: 2 },   // 2 WORK parts per harvester
+            { type: 'move', size: 1 },   // 1 MOVE part per harvester
+            { type: 'spawn_time', size: 150 } // Spawn cost in ticks
+        ];
+
+        // Define what this routine produces
+        this.outputs = [
+            { type: 'energy', size: 10 }  // ~10 energy/tick with 2 WORK parts
+        ];
+    }
+
+    /**
+     * Calculate expected value based on source capacity and harvester efficiency.
+     */
+    protected calculateExpectedValue(): number {
+        if (!this.sourceMine) return 0;
+
+        // Each WORK part harvests 2 energy/tick
+        // With 2 WORK parts per harvester and potential for multiple harvesters
+        const workParts = this.creepIds['harvester'].length * 2;
+        const energyPerTick = workParts * 2;
+
+        // Cost is spawn energy (200 for [WORK, WORK, MOVE])
+        const spawnCost = this.creepIds['harvester'].length * 200;
+
+        // Value is energy harvested minus amortized spawn cost
+        // Assuming creep lives 1500 ticks, amortize spawn cost
+        const amortizedCost = spawnCost / 1500;
+
+        return energyPerTick - amortizedCost;
     }
 
     routine(room: Room): void {
