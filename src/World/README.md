@@ -1,44 +1,95 @@
-# World Graph System
+# World System
 
-A **room-atheist** graph representation of the game world that abstracts the complex spatial layout into a simple network of nodes and edges.
+A **room-atheist**, multi-level abstraction for the game world that scales from spatial (nodes/edges) to strategic (colonies/world state).
 
-## Overview
+## Three Levels of Abstraction
 
-The world is "skeletonized" into:
-- **Nodes**: Regions of strategic importance (bases, control points, clusters of resources)
+### Level 1: Graph (Spatial Representation)
+The room terrain is "skeletonized" into nodes and edges:
+- **Nodes**: Regions of strategic importance (peaks, clusters, bases)
 - **Edges**: Connections between adjacent regions
-- **Territories**: The area of influence for each node (Voronoi-like regions)
+- **Territories**: Area of influence for each node (Voronoi regions)
+- **Spans rooms** seamlessly (room boundaries transparent)
 
-This enables:
-- Cleaner game logic that reasons about the colony at an abstract level
-- Room boundaries as just an implementation detail (not a design concern)
-- Operations to be routed through the node network
-- Empirical refinement of the graph structure through metrics and testing
+### Level 2: Colonies (Game State)
+Connected components of the graph represent isolated colonies:
+- **Colony**: A connected network of nodes (all mutually reachable)
+- **Status**: nascent → established → thriving (or declining → dormant)
+- **Resources**: Aggregated energy, power, minerals across rooms
+- **Operations**: Mining, construction, defense, expansion tasks
+
+Multiple colonies can coexist:
+- Initial spawn = 1 colony
+- Scout expansion = 2 colonies (if disconnected)
+- Connecting bases = merge colonies
+- Base siege = split colony if isolated
+
+### Level 3: World (Strategic Overview)
+Global state management for strategic decision-making:
+- **WorldState**: Manages all colonies, auto-rebuilds
+- **Global tracking**: Total resources, status summary, thread level
+- **Merge detection**: Auto-detect when colonies can/should merge
+- **Persistence**: Save/load colony metadata
+
+## Benefits
+
+- **Cleaner logic**: Reason at colony level, not room/creep level
+- **Flexibility**: Handle multiple isolated bases naturally
+- **Room transparency**: Room boundaries are just implementation detail
+- **Empirical tuning**: Metrics and visualization for heuristic refinement
+- **Scalability**: Works from 1-room bases to multi-room empires
 
 ## Architecture
 
-### Core Components
+### Level 1: Graph Construction (Spatial)
 
 ```
 RoomMap (existing)
-    ↓
+    ↓ (peaks + territories)
 PeakClusterer (merges nearby peaks)
-    ↓
+    ↓ (clusters)
 NodeBuilder (creates nodes from clusters)
-    ↓
+    ↓ (nodes)
 EdgeBuilder (connects adjacent nodes)
-    ↓
+    ↓ (edges)
 GraphBuilder (assembles complete world graph)
+    ↓ (room-atheist network)
+WorldGraph
+```
+
+### Level 2: Colony Creation (Game State)
+
+```
+WorldGraph (single merged graph)
     ↓
-WorldGraph (room-atheist network representation)
+ColonyManager.buildColonies()
+    ├─→ Find connected components (DFS/BFS)
+    ├─→ Create separate colony for each component
+    ├─→ Assign resources and operations
+    └─→ Return World (all colonies + mappings)
+```
+
+### Level 3: World Management (Strategic)
+
+```
+World (colonies collection)
+    ↓
+WorldState (singleton manager)
+    ├─→ rebuild() - rebuild all graphs/colonies
+    ├─→ updateResources() - sync with game state
+    ├─→ getColonies() - access all colonies
+    ├─→ checkMergeOpportunity() - detect connections
+    ├─→ mergeColonies() - combine isolated colonies
+    └─→ save() / load() - persist to memory
 ```
 
 ### Analysis & Visualization
 
 ```
-WorldGraph
-    ├─→ GraphAnalyzer (metrics, health checks, weakness detection)
-    └─→ GraphVisualizer (room visuals for debugging)
+WorldGraph OR Colony.graph
+    ├─→ GraphAnalyzer (metrics, health, bottlenecks)
+    ├─→ GraphVisualizer (room visuals for debugging)
+    └─→ Used at all levels (node inspection, colony status, world overview)
 ```
 
 ## Design Principles
@@ -132,7 +183,57 @@ if (metrics.hasProblems) {
 }
 ```
 
-See `example.ts` for more detailed usage examples.
+### 5. Create and Manage Colonies
+
+```typescript
+import { WorldState, initializeGlobalWorld } from "./src/World";
+
+// Initialize global world management
+const world = initializeGlobalWorld();
+
+// Rebuild all colonies from controlled rooms
+world.rebuild(["W5N3", "W5N4", "W6N3"]);
+
+// Access colonies
+const colonies = world.getColonies();
+console.log(`Colonies: ${colonies.length}`);
+
+for (const colony of colonies) {
+  console.log(`  ${colony.name}: ${colony.status} (${colony.resources.energy} energy)`);
+}
+
+// Get total resources across all colonies
+const total = world.getTotalResources();
+console.log(`Total energy: ${total.energy}`);
+```
+
+### 6. Handle Colony Operations
+
+```typescript
+// Detect and merge adjacent colonies
+if (colonies.length > 1) {
+  const colonyA = colonies[0];
+  const colonyB = colonies[1];
+
+  if (world.checkMergeOpportunity(colonyA, colonyB)) {
+    world.mergeColonies(colonyA.id, colonyB.id);
+    console.log("Colonies merged!");
+  }
+}
+
+// Detect and split disconnected colonies
+for (const colony of colonies) {
+  const splitResult = ColonyManager.splitColonyIfNeeded(colony);
+  if (splitResult.length > 1) {
+    console.log(`Colony split into ${splitResult.length} pieces!`);
+  }
+}
+
+// Save world state to memory
+world.save(Memory);
+```
+
+See `example.ts` for more detailed usage examples (Examples 1-16).
 
 ## Empirical Refinement Process
 
@@ -271,15 +372,31 @@ No unit tests yet (would require mocking RoomMap). Recommend:
 
 ## Files
 
-- `interfaces.ts` - Core data structures (WorldNode, WorldEdge, WorldGraph)
+### Level 1: Graph (Spatial)
+- `interfaces.ts` - Core data structures (WorldNode, WorldEdge, WorldGraph, PeakCluster)
 - `PeakClusterer.ts` - Merges peaks using distance + territory adjacency
 - `NodeBuilder.ts` - Creates nodes from clusters
-- `EdgeBuilder.ts` - Connects adjacent nodes
-- `GraphBuilder.ts` - Orchestrates full graph construction
-- `GraphAnalyzer.ts` - Metrics and health checks
-- `Visualizer.ts` - Room visual rendering
-- `example.ts` - Usage examples
-- `README.md` - This file
+- `EdgeBuilder.ts` - Connects adjacent nodes with territory adjacency
+- `GraphBuilder.ts` - Orchestrates full graph construction, handles multi-room merging
+
+### Level 2: Analysis & Visualization
+- `GraphAnalyzer.ts` - Comprehensive metrics and health checks
+- `Visualizer.ts` - Room visual rendering with multiple modes
+
+### Level 3: Colonies & World
+- `Colony.ts` - Colony, ColonyResources, World, ColonyManager
+  - Detects connected components (DFS/BFS)
+  - Creates/merges/splits colonies
+  - Tracks status and resources
+- `WorldState.ts` - Global world state manager
+  - Singleton pattern (getGlobalWorld, initializeGlobalWorld)
+  - Orchestrates all colonies
+  - Handles rebuild, merge detection, persistence
+
+### Documentation & Examples
+- `example.ts` - 16 detailed usage examples covering all operations
+- `README.md` - This comprehensive guide
+- `index.ts` - Module exports
 
 ## Performance Considerations
 
