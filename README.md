@@ -1,126 +1,239 @@
-# Screeps Typescript Starter
+# DarkPhoenix - Screeps Economic AI
 
-Screeps Typescript Starter is a starting point for a Screeps AI written in Typescript. It provides everything you need to start writing your AI whilst leaving `main.ts` as empty as possible.
+A Screeps AI that models a colony as a profit-seeking economy. Instead of hardcoded state machines, operations compete for resources through price signals and economic mechanisms.
 
-## Basic Usage
-
-You will need:
-
-- [Node.JS](https://nodejs.org/en/download) (10.x || 12.x)
-- A Package Manager ([Yarn](https://yarnpkg.com/en/docs/getting-started) or [npm](https://docs.npmjs.com/getting-started/installing-node))
-- Rollup CLI (Optional, install via `npm install -g rollup`)
-
-Download the latest source [here](https://github.com/screepers/screeps-typescript-starter/archive/master.zip) and extract it to a folder.
-
-Open the folder in your terminal and run your package manager to install the required packages and TypeScript declaration files:
+## Quick Start
 
 ```bash
-# npm
+# Install dependencies
 npm install
 
-# yarn
-yarn
+# Configure your Screeps credentials
+cp screeps.sample.json screeps.json
+# Edit screeps.json with your token
+
+# Build and deploy
+npm run build
+npm run push-main
 ```
-
-Fire up your preferred editor with typescript installed and you are good to go!
-
-### Rollup and code upload
-
-Screeps Typescript Starter uses rollup to compile your typescript and upload it to a screeps server.
-
-Move or copy `screeps.sample.json` to `screeps.json` and edit it, changing the credentials and optionally adding or removing some of the destinations.
-
-Running `rollup -c` will compile your code and do a "dry run", preparing the code for upload but not actually pushing it. Running `rollup -c --environment DEST:main` will compile your code, and then upload it to a screeps server using the `main` config from `screeps.json`.
-
-You can use `-cw` instead of `-c` to automatically re-run when your source code changes - for example, `rollup -cw --environment DEST:main` will automatically upload your code to the `main` configuration every time your code is changed.
-
-Finally, there are also NPM scripts that serve as aliases for these commands in `package.json` for IDE integration. Running `npm run push-main` is equivalent to `rollup -c --environment DEST:main`, and `npm run watch-sim` is equivalent to `rollup -cw --dest sim`.
-
-#### Important! To upload code to a private server, you must have [screepsmod-auth](https://github.com/ScreepsMods/screepsmod-auth) installed and configured!
-
-## Typings
-
-The type definitions for Screeps come from [typed-screeps](https://github.com/screepers/typed-screeps). If you find a problem or have a suggestion, please open an issue there.
-
-## Documentation
-
-We've also spent some time reworking the documentation from the ground-up, which is now generated through [Gitbooks](https://www.gitbook.com/). Includes all the essentials to get you up and running with Screeps AI development in TypeScript, as well as various other tips and tricks to further improve your development workflow.
-
-Maintaining the docs will also become a more community-focused effort, which means you too, can take part in improving the docs for this starter kit.
-
-To visit the docs, [click here](https://screepers.gitbook.io/screeps-typescript-starter/).
-# Screeps Economic AI
-
-A Screeps AI that models a colony as a profit-seeking economy, paired with a simulation harness for rapid iteration.
 
 ## The Core Idea
 
-Most Screeps AIs are state machines: "if energy low, spawn harvester." This works, but it's brittle. Add new features and the logic tangles. Edge cases multiply.
+Most Screeps AIs are state machines: "if energy low, spawn harvester." This works, but it's brittle. Add new features and the logic tangles.
 
-This project takes a different approach: **let the market decide**.
+DarkPhoenix takes a different approach: **let the market decide**.
 
 Instead of hardcoding what to do, we define *operations* (small units of work with inputs, outputs, and costs) and let economic actors compete to fund them. Good decisions emerge from price signals, not explicit rules.
 
-## Two Systems
-
-### 1. The Economic Framework
-
-A hierarchy of economic actors:
+## Architecture Overview
 
 ```
-Colony
-  └── District (per room)
-        └── Corp (per domain: mining, logistics, spawning, etc.)
-              └── Operation (smallest executable unit)
+src/
+├── main.ts              # Game loop entry point
+├── core/                # Base classes
+│   └── RoomRoutine.ts   # Routine lifecycle & economic tracking
+├── routines/            # Colony operations
+│   ├── Bootstrap.ts     # Early-game setup
+│   ├── EnergyMining.ts  # Harvester management
+│   ├── EnergyCarrying.ts # Logistics
+│   └── Construction.ts  # Builder management
+├── spatial/             # Room analysis
+│   └── RoomMap.ts       # Peak detection & territories
+├── planning/            # GOAP planning
+│   └── Agent.ts         # Goal-oriented behavior
+├── types/               # Domain types
+│   ├── SourceMine.ts    # Mining configuration
+│   └── EnergyRoute.ts   # Transport routes
+└── utils/               # Utilities
+    └── ErrorMapper.ts   # Error handling
 ```
 
-- **Corps** propose plans (sets of operations) with estimated ROI
-- **Districts** select and bid on the most profitable plans
-- **Colony** funds winning bids and shapes demand via buy orders
+## Economic Framework
 
-Coordination happens through the market. A Mining Corp doesn't need to know about the Logistics Corp—it just offers energy for sale. If someone wants to buy, the operation runs.
-
-### 2. The Simulation Harness
-
-Screeps has a brutal feedback loop: 3-second ticks, outcomes that take hours to manifest. You can't iterate quickly on the live server.
-
-The harness fixes this:
-
-- Generate random rooms from seeds
-- Run your code for thousands of ticks locally
-- Measure economic performance (total ROI, profit/loss)
-- Save interesting seeds as regression tests
-
-When a seed produces low ROI, you've found a weakness. Fix it, re-run, confirm improvement.
-
-## How They Connect
-
-The economic framework produces natural telemetry:
-
-- Dollar balances per Colony / District
-- Profit and loss per operation type
-- Bid premiums and discounts
-
-This telemetry *is* your test oracle. You don't need to define "success" separately—low ROI means something's wrong.
+### Colony Hierarchy
 
 ```
-seed → room → run 10,000 ticks → extract ROI → pass/fail
+Colony (single AI controlling all rooms)
+  └── Room (per-room operations)
+        └── Routine (per-domain: mining, logistics, construction)
+              └── Creep (smallest executable unit)
 ```
 
-## Design Principles
+### Requirements/Outputs Pattern
 
-**Emergent over explicit.** Don't hardcode "build extensions before towers." Let the market discover that extensions have higher ROI early-game.
+Every routine declares explicit resource contracts:
 
-**Tolerate failure.** Operations can fail. Districts can go bankrupt. The system recovers through taxation and competition.
+```typescript
+// EnergyMining routine
+requirements: [
+  { type: 'work', size: 2 },      // 2 WORK parts
+  { type: 'move', size: 1 },      // 1 MOVE part
+  { type: 'spawn_time', size: 150 } // Spawn time
+]
 
-**Small operations.** The smaller the operation, the more opportunities for the market to find creative combinations.
+outputs: [
+  { type: 'energy', size: 10 }    // ~10 energy/tick
+]
+```
 
-**Test via fuzzing.** Don't hand-craft test scenarios. Generate random rooms and let failures surface.
+This enables:
+- **ROI Calculation**: `(actualValue - cost) / cost`
+- **Performance Tracking**: Historical records per routine
+- **Market Coordination**: Resources flow where they're most valuable
 
-## What's Next
+### Design Principles
 
-See the companion documents:
+1. **Emergent over explicit** - Don't hardcode "build extensions before towers." Let the market discover optimal strategies.
 
-- `ECONOMIC_FRAMEWORK.md` — detailed breakdown of Colony, District, Corp, Operation
-- `SIMULATION_HARNESS.md` — how to set up local testing with screeps-server-mockup
-- `TELEMETRY.md` — what to log and how to analyze it
+2. **Tolerate failure** - Operations can fail. The system recovers through redundancy and adaptation.
+
+3. **Small operations** - The smaller the operation, the more opportunities for optimization.
+
+4. **Test via simulation** - Generate random rooms, measure ROI, iterate.
+
+## Routine System
+
+### Bootstrap (RCL 1-2)
+
+Manages multi-purpose "jack" creeps for colony initialization:
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, CARRY, MOVE]` |
+| Cost | 200 energy |
+| Quantity | 2 maintained |
+| Behavior | Harvest -> Deliver -> Upgrade |
+
+### EnergyMining
+
+Dedicated harvesters at each energy source:
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, WORK, MOVE]` |
+| Cost | 200 energy |
+| Output | ~10 energy/tick |
+| Auto-build | Containers at 500+ piles |
+
+### EnergyCarrying
+
+Route-based logistics between sources and consumers:
+
+| Property | Value |
+|----------|-------|
+| Body | `[CARRY, CARRY, MOVE, MOVE]` |
+| Cost | 200 energy |
+| Capacity | 100 energy |
+| Routing | Waypoint-based cycles |
+
+### Construction
+
+One builder per active construction site:
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, CARRY, MOVE]` |
+| Cost | 200 energy |
+| Lifecycle | Self-terminating on completion |
+
+## Spatial Analysis
+
+The `RoomMap` system uses sophisticated algorithms to identify optimal building locations:
+
+### Distance Transform
+
+```
+Wall Distance --> Invert --> Distance Transform --> Find Peaks
+     0              HIGH          HIGH VALUES          LOCAL MAX
+   (walls)          (walls)       (open areas)         (building zones)
+```
+
+### Peak Detection
+
+- Finds local maxima (most open areas)
+- Clusters same-height tiles into plateaus
+- Calculates centroids for precise positioning
+
+### Territory Division
+
+- BFS flood fill from peaks
+- Each tile assigned to nearest peak
+- Enables zone-based resource allocation
+
+## Development
+
+### Building
+
+```bash
+npm run build          # Compile TypeScript
+npm run watch          # Watch mode
+npm run push-main      # Deploy to main server
+npm run push-sim       # Deploy to simulation
+```
+
+### Testing
+
+```bash
+npm test               # Run unit tests
+npm run test:sim       # Run simulation tests
+```
+
+### Docker (Headless Server)
+
+```bash
+docker-compose up -d   # Start headless server
+docker-compose logs    # View server logs
+docker-compose down    # Stop server
+```
+
+## Project Structure
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/` | Source code |
+| `src/core/` | Base classes and lifecycle management |
+| `src/routines/` | Colony operation routines |
+| `src/spatial/` | Room analysis and territory mapping |
+| `src/planning/` | GOAP behavior planning system |
+| `src/types/` | TypeScript interfaces and domain types |
+| `src/utils/` | Utility functions and helpers |
+| `docs/` | Extended documentation |
+| `test/` | Unit and simulation tests |
+
+## Documentation
+
+- [Architecture Overview](docs/ARCHITECTURE.md) - System design and components
+- [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - Market mechanics and ROI tracking
+- [Routine System](docs/ROUTINES.md) - Colony operations guide
+- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territory division
+
+## Roadmap
+
+### Implemented
+- Bootstrap routine for early-game
+- Energy mining with dedicated harvesters
+- Construction management
+- Spatial analysis with peak detection
+- Performance tracking with ROI metrics
+
+### Planned
+- Multi-room coordination
+- Full market-driven pricing
+- Defense operations
+- Remote mining
+- Advanced logistics optimization
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes with tests
+4. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Acknowledgments
+
+Built on the [Screeps TypeScript Starter](https://github.com/screepers/screeps-typescript-starter) template.
