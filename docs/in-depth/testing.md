@@ -96,3 +96,157 @@ are out of date and pulling in an older version of the [screeps
 server](https://github.com/screeps/screeps). If you notice that test environment
 behavior differs from the MMO server, ensure that all of these dependencies are
 correctly up to date.
+
+## Simulation Testing with Private Server
+
+For more realistic testing scenarios, this project includes a simulation testing
+framework that runs against a real Screeps private server via Docker.
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+- Node.js 18+ (for native fetch support)
+
+### Starting the Private Server
+
+```bash
+# Start the server (first time will download images)
+docker-compose up -d
+
+# Check server status
+docker-compose ps
+
+# View server logs
+docker-compose logs -f screeps
+```
+
+The server runs on `http://localhost:21025` with these components:
+- **screeps-server**: The game server (screepers/screeps-launcher)
+- **mongo**: Database for game state
+- **redis**: Cache and pub/sub
+
+### Server Configuration
+
+The server is configured via `server/config.yml`:
+
+```yaml
+steamKey: ${STEAM_KEY}
+
+mods:
+  - screepsmod-auth          # Password authentication
+  - screepsmod-admin-utils   # Admin API endpoints
+
+serverConfig:
+  tickRate: 100              # Milliseconds per tick
+```
+
+### Deploying Code to Private Server
+
+```bash
+# Build and deploy code
+npm run sim:deploy
+
+# Or manually:
+npm run build
+node scripts/upload-pserver.js
+```
+
+This deploys to user `screeps` with password `screeps`.
+
+### Running Simulation Scenarios
+
+Scenarios are located in `test/sim/scenarios/` and test specific game behaviors:
+
+```bash
+# Run a specific scenario
+npm run scenario bootstrap
+npm run scenario energy-flow
+
+# Run all scenarios
+npm run scenario -- --all
+
+# List available scenarios
+npm run scenario -- --list
+```
+
+### Writing Scenarios
+
+Scenarios use the `ScreepsSimulator` API to interact with the server:
+
+```typescript
+import { createSimulator } from '../ScreepsSimulator';
+
+export async function runMyScenario() {
+  const sim = createSimulator();
+  await sim.connect();  // Auto-authenticates as screeps/screeps
+
+  // Place a spawn (if user doesn't have one)
+  await sim.placeSpawn('W1N1');
+
+  // Run simulation for N ticks
+  await sim.runSimulation(100, {
+    snapshotInterval: 10,
+    rooms: ['W1N1'],
+    onTick: async (tick, state) => {
+      const objects = state.rooms['W1N1'] || [];
+      const creeps = objects.filter(o => o.type === 'creep');
+      console.log(`Tick ${tick}: ${creeps.length} creeps`);
+    }
+  });
+
+  // Read game memory
+  const memory = await sim.getMemory();
+
+  // Get room objects
+  const objects = await sim.getRoomObjects('W1N1');
+}
+```
+
+### ScreepsSimulator API
+
+| Method | Description |
+|--------|-------------|
+| `connect()` | Connect and auto-authenticate |
+| `placeSpawn(room, x?, y?)` | Place a spawn for the user |
+| `getTick()` | Get current game tick |
+| `getRoomObjects(room)` | Get all objects in a room |
+| `getMemory(path?)` | Read player memory |
+| `setMemory(path, value)` | Write player memory |
+| `console(expression)` | Execute server console command |
+| `runSimulation(ticks, options)` | Run for N ticks with callbacks |
+| `waitTicks(count)` | Wait for N ticks to pass |
+
+### Available Rooms
+
+Not all rooms have sources/controllers. Query available spawn rooms:
+
+```typescript
+const result = await sim.get('/api/user/rooms');
+console.log(result.rooms);  // ['W1N1', 'W2N2', ...]
+```
+
+### Troubleshooting
+
+**Server not responding:**
+```bash
+docker-compose logs screeps
+docker-compose restart screeps
+```
+
+**Authentication errors:**
+The simulator auto-registers and authenticates. If issues persist:
+```bash
+# Reset the database
+docker-compose down -v
+docker-compose up -d
+```
+
+**No creeps spawning:**
+- Ensure spawn is in a valid room with sources
+- Check that code was deployed: `npm run sim:deploy`
+- Verify server is running ticks: check tick number increases
+
+**HTML instead of JSON errors:**
+This usually means the API endpoint doesn't exist or requires authentication.
+The simulator handles this automatically, but ensure `screepsmod-admin-utils`
+is in `server/config.yml`.

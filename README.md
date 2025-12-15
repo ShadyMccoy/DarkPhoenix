@@ -38,6 +38,24 @@ Finally, there are also NPM scripts that serve as aliases for these commands in 
 
 #### Important! To upload code to a private server, you must have [screepsmod-auth](https://github.com/ScreepsMods/screepsmod-auth) installed and configured!
 
+## Local Testing with Private Server
+
+This project includes a Docker-based private server for local testing:
+
+```bash
+# Start the server
+docker-compose up -d
+
+# Deploy your code
+npm run sim:deploy
+
+# Run simulation scenarios
+npm run scenario bootstrap
+npm run scenario energy-flow
+```
+
+See [docs/in-depth/testing.md](docs/in-depth/testing.md) for full documentation on simulation testing.
+
 ## Typings
 
 The type definitions for Screeps come from [typed-screeps](https://github.com/screepers/typed-screeps). If you find a problem or have a suggestion, please open an issue there.

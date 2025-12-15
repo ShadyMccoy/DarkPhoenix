@@ -14,7 +14,13 @@
       "Bash(docker exec:*)",
       "Bash(docker-compose down:*)",
       "Bash(docker-compose up:*)",
-      "Bash(timeout 120 docker-compose logs:*)"
+      "Bash(timeout 120 docker-compose logs:*)",
+      "Bash(npm run test-unit:*)",
+      "Bash(npm run test-unit:win:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run scenario:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(docker-compose restart:*)"
     ]
   }
 }

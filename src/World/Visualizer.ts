@@ -132,8 +132,8 @@ export class GraphVisualizer {
 
       // Draw line
       room.visual.line(fromNode.pos, toNode.pos, {
-        stroke: color,
-        strokeWidth: thickness,
+        color: color,
+        width: thickness,
         opacity: 0.6,
       });
 
@@ -187,8 +187,8 @@ export class GraphVisualizer {
           const next = boundaryPositions[(i + 1) % boundaryPositions.length];
 
           room.visual.line(current, next, {
-            stroke: color,
-            strokeWidth: 0.2,
+            color: color,
+            width: 0.2,
             opacity: 0.5,
           });
         }

@@ -206,6 +206,23 @@ export class WorldState {
   }
 
   /**
+   * Remove a colony by ID.
+   */
+  removeColony(colonyId: string): boolean {
+    return this.world.colonies.delete(colonyId);
+  }
+
+  /**
+   * Add a colony.
+   */
+  addColony(colony: Colony): void {
+    this.world.colonies.set(colony.id, colony);
+    for (const nodeId of colony.graph.nodes.keys()) {
+      this.world.nodeToColony.set(nodeId, colony.id);
+    }
+  }
+
+  /**
    * Merge two colonies.
    */
   mergeColonies(colonyIdA: string, colonyIdB: string): void {

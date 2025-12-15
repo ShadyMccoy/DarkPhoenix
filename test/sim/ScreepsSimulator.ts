@@ -6,11 +6,28 @@
  * a programmatic interface for running simulations and tests.
  */
 
+import * as zlib from 'zlib';
+
+// Declare global fetch for Node.js 18+ (not in es2018 lib)
+declare function fetch(input: string, init?: RequestInit): Promise<Response>;
+interface RequestInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+interface Response {
+  json(): Promise<any>;
+  text(): Promise<string>;
+  ok: boolean;
+  status: number;
+}
+
 interface ServerConfig {
   host: string;
   port: number;
   username?: string;
   password?: string;
+  autoAuth?: boolean;
 }
 
 interface RoomObject {
@@ -38,12 +55,16 @@ export class ScreepsSimulator {
   private baseUrl: string;
   private token: string | null = null;
   private username: string;
+  private password: string;
+  private autoAuth: boolean;
 
   constructor(config: Partial<ServerConfig> = {}) {
     const host = config.host || 'localhost';
     const port = config.port || 21025;
     this.baseUrl = `http://${host}:${port}`;
-    this.username = config.username || 'testuser';
+    this.username = config.username || 'screeps';
+    this.password = config.password || 'screeps';
+    this.autoAuth = config.autoAuth !== false; // Auto-auth by default
   }
 
   /**
@@ -54,6 +75,31 @@ export class ScreepsSimulator {
     const version = await this.get('/api/version');
     const serverVersion = (version as any).serverData?.version || 'unknown';
     console.log(`Connected to Screeps server v${serverVersion}`);
+
+    // Auto-authenticate if enabled
+    if (this.autoAuth && !this.token) {
+      await this.ensureAuthenticated();
+    }
+  }
+
+  /**
+   * Ensure user is registered and authenticated
+   */
+  private async ensureAuthenticated(): Promise<void> {
+    // Try to register first (will fail if user exists, that's ok)
+    try {
+      await this.post('/api/register/submit', {
+        username: this.username,
+        password: this.password,
+        email: `${this.username}@localhost`,
+      });
+      console.log(`Registered user: ${this.username}`);
+    } catch {
+      // User might already exist, that's fine
+    }
+
+    // Sign in
+    await this.authenticate(this.username, this.password);
   }
 
   /**
@@ -82,6 +128,54 @@ export class ScreepsSimulator {
   }
 
   /**
+   * Place spawn for user in a room (starts the game)
+   * Uses screepsmod-admin-utils if available
+   */
+  async placeSpawn(room: string, x = 25, y = 25): Promise<void> {
+    // First try the standard API
+    try {
+      const result = await this.post('/api/user/world-start-room', { room });
+      if ((result as any).ok) {
+        console.log(`Placed spawn in room: ${room}`);
+        return;
+      }
+    } catch {
+      // Endpoint might not exist, try admin utils
+    }
+
+    // Try screepsmod-admin-utils system.placeSpawn
+    try {
+      // Need to get user ID first
+      const userResult = await this.get('/api/auth/me');
+      const userId = (userResult as any)._id;
+      if (userId) {
+        const consoleResult = await this.console(
+          `storage.db['rooms.objects'].insert({ type: 'spawn', room: '${room}', x: ${x}, y: ${y}, name: 'Spawn1', user: '${userId}', store: { energy: 300 }, storeCapacityResource: { energy: 300 }, hits: 5000, hitsMax: 5000, spawning: null, notifyWhenAttacked: true })`
+        );
+        console.log(`Placed spawn via DB insert: ${JSON.stringify(consoleResult)}`);
+        return;
+      }
+    } catch (e) {
+      console.log(`Failed to place spawn via admin utils: ${e}`);
+    }
+
+    console.log(`Note: Could not auto-place spawn. Ensure user has a spawn in ${room}.`);
+  }
+
+  /**
+   * Check if user has a spawn (is in the game)
+   */
+  async hasSpawn(): Promise<boolean> {
+    try {
+      const result = await this.get('/api/user/respawn-prohibited-rooms');
+      // If we can get rooms, user has a spawn
+      return (result as any).ok === 1;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get current game tick
    */
   async getTick(): Promise<number> {
@@ -101,8 +195,41 @@ export class ScreepsSimulator {
    * Get room objects (creeps, structures, etc.)
    */
   async getRoomObjects(room: string): Promise<RoomObject[]> {
-    const result = await this.get(`/api/game/room-objects?room=${room}`);
-    return (result as any).objects || [];
+    // First try REST API (may not exist on all private servers)
+    try {
+      const result = await this.get(`/api/game/room-objects?room=${room}`);
+      return (result as any).objects || [];
+    } catch {
+      // Fallback: query via console using storage.db
+      return this.getRoomObjectsViaConsole(room);
+    }
+  }
+
+  /**
+   * Get room objects via console command (for servers without REST API)
+   */
+  private async getRoomObjectsViaConsole(room: string): Promise<RoomObject[]> {
+    const result = await this.console(
+      `JSON.stringify(storage.db['rooms.objects'].find({ room: '${room}' }))`
+    );
+
+    if (result.ok && result.result) {
+      try {
+        // Result is a stringified JSON inside the result field
+        const parsed = JSON.parse(result.result);
+        return parsed.map((obj: any) => ({
+          _id: obj._id,
+          type: obj.type,
+          x: obj.x,
+          y: obj.y,
+          room: obj.room,
+          ...obj,
+        }));
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
 
   /**
@@ -116,9 +243,14 @@ export class ScreepsSimulator {
     const data = (result as any).data;
 
     if (data && typeof data === 'string') {
-      // Memory is gzipped and base64 encoded
-      const decoded = Buffer.from(data.substring(3), 'base64');
-      return JSON.parse(decoded.toString());
+      // Memory is gzipped and base64 encoded with "gz:" prefix
+      if (data.startsWith('gz:')) {
+        const compressed = Buffer.from(data.substring(3), 'base64');
+        const decompressed = zlib.gunzipSync(compressed);
+        return JSON.parse(decompressed.toString());
+      }
+      // Plain JSON (no compression)
+      return JSON.parse(data);
     }
     return {};
   }
@@ -138,7 +270,7 @@ export class ScreepsSimulator {
    */
   async console(expression: string): Promise<ConsoleResult> {
     const result = await this.post('/api/user/console', { expression });
-    return result as ConsoleResult;
+    return result as unknown as ConsoleResult;
   }
 
   /**
@@ -258,10 +390,8 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    // Use dynamic import for fetch in Node.js
-    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
-    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, { headers });
-    return response.json() as Promise<Record<string, unknown>>;
+    const response = await fetch(`${this.baseUrl}${path}`, { headers });
+    return this.parseResponse(response, path);
   }
 
   private async post(path: string, body: unknown): Promise<Record<string, unknown>> {
@@ -273,13 +403,33 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
-    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, {
+    const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
     });
-    return response.json() as Promise<Record<string, unknown>>;
+    return this.parseResponse(response, path);
+  }
+
+  private async parseResponse(response: Response, path: string): Promise<Record<string, unknown>> {
+    const text = await response.text();
+
+    // Check for HTML response (error page)
+    if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+      throw new Error(
+        `Server returned HTML instead of JSON for ${path} (status: ${response.status}). ` +
+        `This usually means the endpoint doesn't exist or requires authentication.`
+      );
+    }
+
+    // Try to parse as JSON
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(
+        `Failed to parse response for ${path} (status: ${response.status}): ${text.substring(0, 200)}`
+      );
+    }
   }
 
   private sleep(ms: number): Promise<void> {
