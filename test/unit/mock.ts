@@ -11,7 +11,7 @@ export const Game: {
   map: {
     getRoomTerrain: (roomName: string) => any;
   };
-  getObjectById: <T>(id: Id<T> | string) => T | null;
+  getObjectById: (id: string) => any;
 } = {
   creeps: {},
   rooms: {},
@@ -22,7 +22,7 @@ export const Game: {
       get: (x: number, y: number) => 0 // Default: not a wall
     })
   },
-  getObjectById: <T>(id: Id<T> | string): T | null => null
+  getObjectById: (id: string): any => null
 };
 
 export const Memory: {
@@ -270,4 +270,235 @@ export function createMockRoom(name: string, options: {
       poly: () => {}
     }
   };
+}
+
+// ============================================================================
+// Terrain Matrix Helpers - For Pure Algorithm Testing
+// ============================================================================
+
+/**
+ * Creates a terrain callback from a string pattern.
+ *
+ * Character mapping:
+ * - 'X' or '#' = wall (TERRAIN_MASK_WALL = 1)
+ * - '~' = swamp (TERRAIN_MASK_SWAMP = 2)
+ * - '.' or ' ' = plain (0)
+ *
+ * @param pattern - Array of strings representing terrain rows
+ * @returns Terrain callback function (x, y) => terrainMask
+ *
+ * @example
+ * const terrain = createTerrainFromPattern([
+ *   "XXXXXXXXXX",
+ *   "X........X",
+ *   "X........X",
+ *   "X........X",
+ *   "XXXXXXXXXX"
+ * ]);
+ * console.log(terrain(0, 0)); // 1 (wall)
+ * console.log(terrain(5, 2)); // 0 (plain)
+ */
+export function createTerrainFromPattern(pattern: string[]): (x: number, y: number) => number {
+  return (x: number, y: number): number => {
+    // Out of pattern bounds = wall
+    if (y < 0 || y >= pattern.length) return TERRAIN_MASK_WALL;
+    if (x < 0 || x >= pattern[y].length) return TERRAIN_MASK_WALL;
+
+    const char = pattern[y][x];
+    switch (char) {
+      case 'X':
+      case '#':
+        return TERRAIN_MASK_WALL;
+      case '~':
+        return TERRAIN_MASK_SWAMP;
+      case '.':
+      case ' ':
+      default:
+        return 0; // plain
+    }
+  };
+}
+
+/**
+ * Creates a full 50x50 terrain callback from a smaller pattern.
+ * The pattern is centered in the room, with walls at the borders.
+ *
+ * @param pattern - Array of strings representing terrain rows
+ * @param wallBorder - Whether to add wall borders (default: true)
+ * @returns Terrain callback function (x, y) => terrainMask
+ *
+ * @example
+ * const terrain = createFullRoomTerrain([
+ *   "........",
+ *   "........",
+ *   "...XX...",
+ *   "...XX...",
+ *   "........",
+ *   "........"
+ * ]);
+ */
+export function createFullRoomTerrain(
+  pattern: string[],
+  wallBorder: boolean = true
+): (x: number, y: number) => number {
+  const patternHeight = pattern.length;
+  const patternWidth = pattern[0]?.length || 0;
+
+  // Center the pattern
+  const offsetX = Math.floor((50 - patternWidth) / 2);
+  const offsetY = Math.floor((50 - patternHeight) / 2);
+
+  const innerTerrain = createTerrainFromPattern(pattern);
+
+  return (x: number, y: number): number => {
+    // Room border walls (edge tiles are always walls in Screeps)
+    if (wallBorder && (x === 0 || x === 49 || y === 0 || y === 49)) {
+      return TERRAIN_MASK_WALL;
+    }
+
+    // Check if within pattern bounds
+    const patternX = x - offsetX;
+    const patternY = y - offsetY;
+
+    if (patternX >= 0 && patternX < patternWidth &&
+        patternY >= 0 && patternY < patternHeight) {
+      return innerTerrain(patternX, patternY);
+    }
+
+    // Outside pattern = plain
+    return 0;
+  };
+}
+
+/**
+ * Creates an empty room terrain (all plains except border walls).
+ *
+ * @returns Terrain callback function (x, y) => terrainMask
+ */
+export function createEmptyRoomTerrain(): (x: number, y: number) => number {
+  return (x: number, y: number): number => {
+    // Room border walls
+    if (x === 0 || x === 49 || y === 0 || y === 49) {
+      return TERRAIN_MASK_WALL;
+    }
+    return 0; // plain
+  };
+}
+
+/**
+ * Creates a corridor room terrain (walls on top and bottom).
+ *
+ * @param corridorY - Y position of the corridor center (default: 25)
+ * @param corridorHeight - Height of the open corridor (default: 10)
+ * @returns Terrain callback function (x, y) => terrainMask
+ */
+export function createCorridorTerrain(
+  corridorY: number = 25,
+  corridorHeight: number = 10
+): (x: number, y: number) => number {
+  const halfHeight = Math.floor(corridorHeight / 2);
+  const minY = corridorY - halfHeight;
+  const maxY = corridorY + halfHeight;
+
+  return (x: number, y: number): number => {
+    // Room border walls
+    if (x === 0 || x === 49 || y === 0 || y === 49) {
+      return TERRAIN_MASK_WALL;
+    }
+    // Corridor walls (above and below the corridor)
+    if (y < minY || y > maxY) {
+      return TERRAIN_MASK_WALL;
+    }
+    return 0; // plain
+  };
+}
+
+/**
+ * Creates an islands room terrain (multiple separated open areas).
+ *
+ * @param islands - Array of island definitions {x, y, radius}
+ * @returns Terrain callback function (x, y) => terrainMask
+ */
+export function createIslandsTerrain(
+  islands: { x: number; y: number; radius: number }[]
+): (x: number, y: number) => number {
+  return (x: number, y: number): number => {
+    // Room border walls
+    if (x === 0 || x === 49 || y === 0 || y === 49) {
+      return TERRAIN_MASK_WALL;
+    }
+
+    // Check if point is within any island
+    for (const island of islands) {
+      const dx = x - island.x;
+      const dy = y - island.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance <= island.radius) {
+        return 0; // plain (inside island)
+      }
+    }
+
+    return TERRAIN_MASK_WALL; // wall (between islands)
+  };
+}
+
+/**
+ * Visualizes terrain as ASCII art for debugging.
+ *
+ * @param terrain - Terrain callback function
+ * @param width - Width to visualize (default: 50)
+ * @param height - Height to visualize (default: 50)
+ * @returns Multi-line string representation
+ */
+export function visualizeTerrain(
+  terrain: (x: number, y: number) => number,
+  width: number = 50,
+  height: number = 50
+): string {
+  const lines: string[] = [];
+  for (let y = 0; y < height; y++) {
+    let line = '';
+    for (let x = 0; x < width; x++) {
+      const t = terrain(x, y);
+      if (t === TERRAIN_MASK_WALL) {
+        line += '#';
+      } else if (t === TERRAIN_MASK_SWAMP) {
+        line += '~';
+      } else {
+        line += '.';
+      }
+    }
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Visualizes a distance matrix as ASCII art for debugging.
+ * Uses digits 0-9 and letters for higher values.
+ *
+ * @param matrix - 2D distance matrix
+ * @returns Multi-line string representation
+ */
+export function visualizeDistanceMatrix(matrix: number[][]): string {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lines: string[] = [];
+
+  for (let y = 0; y < matrix[0]?.length || 0; y++) {
+    let line = '';
+    for (let x = 0; x < matrix.length; x++) {
+      const val = matrix[x]?.[y];
+      if (val === undefined || val === Infinity) {
+        line += '?';
+      } else if (val < 0) {
+        line += '-';
+      } else if (val < chars.length) {
+        line += chars[val];
+      } else {
+        line += '+';
+      }
+    }
+    lines.push(line);
+  }
+  return lines.join('\n');
 }
