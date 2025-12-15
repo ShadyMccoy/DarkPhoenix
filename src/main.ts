@@ -17,7 +17,6 @@
  * - **Bootstrap**: Early-game colony setup (jacks)
  * - **EnergyMining**: Harvester management per source
  * - **Construction**: Builder management per site
- * - **EnergyCarrying**: Logistics and transport (implicit)
  *
  * @module main
  */
