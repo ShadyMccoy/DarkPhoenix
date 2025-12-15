@@ -45,11 +45,7 @@ import {
   findPeaks as findPeaksPure,
   filterPeaks as filterPeaksPure,
   bfsDivideRoom as bfsDivideRoomPure,
-  floodFillDistanceSearch,
-  markBarriers,
-  initializeGrid,
   GRID_SIZE,
-  UNVISITED,
   TerrainCallback,
   PeakData,
   Coordinate,
@@ -124,15 +120,6 @@ export class RoomMap extends RoomRoutine {
   /** Territory assignments (which peak owns which tiles) */
   private territories: Map<string, RoomPosition[]> = new Map();
 
-  /** Legacy: Simple wall distance grid */
-  private WallDistanceGrid = initializeGrid(UNVISITED);
-
-  /** Legacy: Average wall distance for non-wall tiles */
-  private WallDistanceAvg = 0;
-
-  /** Legacy: Distance from energy sources grid */
-  private EnergyDistanceGrid = initializeGrid(UNVISITED);
-
   /**
    * Creates a new RoomMap with full spatial analysis.
    *
@@ -140,7 +127,6 @@ export class RoomMap extends RoomRoutine {
    * - Distance transform computation
    * - Peak detection and filtering
    * - Territory division
-   * - Legacy grid calculations
    *
    * @param room - The room to analyze
    */
@@ -148,16 +134,6 @@ export class RoomMap extends RoomRoutine {
     super(new RoomPosition(25, 25, room.name), {});
 
     const terrainCallback = createTerrainCallback(room);
-    const terrain = Game.map.getRoomTerrain(room.name);
-    let wallPositions: [number, number][] = [];
-
-    for (let x = 0; x < GRID_SIZE; x++) {
-      for (let y = 0; y < GRID_SIZE; y++) {
-        if (terrain.get(x, y) === TERRAIN_MASK_WALL) {
-          wallPositions.push([x, y]);
-        }
-      }
-    }
 
     // Create inverted distance transform (peaks = open areas)
     this.distanceTransform = createDistanceTransform(
@@ -192,32 +168,6 @@ export class RoomMap extends RoomRoutine {
       const fullPeakId = `${room.name}-${peakId}`;
       this.territories.set(fullPeakId, positions);
     }
-
-    // Legacy: Calculate simple wall distance
-    floodFillDistanceSearch(this.WallDistanceGrid, wallPositions);
-
-    // Calculate average, excluding wall tiles
-    let sum = 0;
-    let count = 0;
-    for (let x = 0; x < GRID_SIZE; x++) {
-      for (let y = 0; y < GRID_SIZE; y++) {
-        if (this.WallDistanceGrid[x][y] > 0) {
-          sum += this.WallDistanceGrid[x][y];
-          count++;
-        }
-      }
-    }
-    this.WallDistanceAvg = count > 0 ? sum / count : 0;
-
-    // Calculate distance from energy sources
-    markBarriers(this.EnergyDistanceGrid, wallPositions);
-
-    let energyPositions: [number, number][] = [];
-    forEach(room.find(FIND_SOURCES), (source) => {
-      energyPositions.push([source.pos.x, source.pos.y]);
-    });
-
-    floodFillDistanceSearch(this.EnergyDistanceGrid, energyPositions);
 
     // Visualize results
     this.visualize(room);
@@ -288,7 +238,6 @@ export class RoomMap extends RoomRoutine {
    * - Peak locations with varying opacity by height
    * - Labels for top 3 peaks
    * - Territory boundaries (limited for performance)
-   * - Candidate building sites
    *
    * @param room - The room to render visuals in
    */
@@ -340,25 +289,6 @@ export class RoomMap extends RoomRoutine {
         room.visual.rect(pos.x - 0.5, pos.y - 0.5, 1, 1, { fill: color });
       });
     }
-
-    // Find candidate building sites (good distance from energy sources)
-    let sites: { x: number; y: number }[] = [];
-    for (let x = 0; x < GRID_SIZE; x++) {
-      for (let y = 0; y < GRID_SIZE; y++) {
-        const energyDist = this.EnergyDistanceGrid[x][y];
-        if (energyDist > 2 && energyDist < 5) {
-          sites.push({ x, y });
-        }
-      }
-    }
-
-    forEach(sites, (site) => {
-      room.visual.circle(site.x, site.y, {
-        fill: "red",
-        radius: 0.3,
-        opacity: 0.5,
-      });
-    });
   }
 
   /**
