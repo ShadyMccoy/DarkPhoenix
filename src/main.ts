@@ -1,3 +1,4 @@
+/// <reference path="./custom.d.ts" />
 import { Construction } from "./Construction"
 import { EnergyMining } from "./EnergyMining";
 import { RoomRoutine } from "./RoomProgram";

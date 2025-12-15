@@ -11,7 +11,7 @@ export const Game: {
   map: {
     getRoomTerrain: (roomName: string) => any;
   };
-  getObjectById: <T>(id: Id<T> | string) => T | null;
+  getObjectById: (id: string) => any;
 } = {
   creeps: {},
   rooms: {},
@@ -22,7 +22,7 @@ export const Game: {
       get: (x: number, y: number) => 0 // Default: not a wall
     })
   },
-  getObjectById: <T>(id: Id<T> | string): T | null => null
+  getObjectById: (id: string): any => null
 };
 
 export const Memory: {
