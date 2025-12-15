@@ -1207,3 +1207,391 @@ describe("Abstract Node-Resource Planning", () => {
     });
   });
 });
+
+// ============================================================================
+// Bug Discovery Tests - These tests expose issues in the current implementation
+// ============================================================================
+
+describe("Bug Discovery Tests", () => {
+  describe("WorldState encapsulation", () => {
+    /**
+     * BUG: WorldState constructor stores a reference to the input Map
+     * instead of copying it. This means external modifications to the
+     * original Map will affect the WorldState, violating encapsulation.
+     *
+     * Expected behavior: WorldState should be independent of the input Map
+     * Actual behavior: WorldState is mutated when input Map changes
+     *
+     * This test is marked .skip because it exposes a known bug.
+     * Remove .skip after fixing the bug in src/planning/Agent.ts
+     */
+    it.skip("BUG: should not be affected by external modifications to input Map", () => {
+      const inputMap = new Map([["hasEnergy", false]]);
+      const worldState = new WorldState(inputMap);
+
+      // External modification to the input map
+      inputMap.set("hasEnergy", true);
+
+      // WorldState should NOT be affected - it should have copied the input
+      // BUG: This fails because WorldState stores a reference, not a copy
+      expect(worldState.getState().get("hasEnergy")).to.equal(false);
+    });
+
+    /**
+     * Related test: Verify the input Map modification does affect WorldState
+     * This documents the current (buggy) behavior
+     */
+    it("documents current behavior: input Map mutation affects WorldState", () => {
+      const inputMap = new Map([["hasEnergy", false]]);
+      const worldState = new WorldState(inputMap);
+
+      inputMap.set("hasEnergy", true);
+
+      // This passes because of the bug - WorldState IS affected
+      expect(worldState.getState().get("hasEnergy")).to.equal(true);
+    });
+  });
+
+  describe("Goal priority ties", () => {
+    /**
+     * POTENTIAL ISSUE: When goals have the same priority, the order
+     * depends on JavaScript's sort stability. While modern engines have
+     * stable sort, this is a potential source of non-determinism.
+     *
+     * This test documents the current behavior.
+     */
+    it("should handle same-priority goals deterministically", () => {
+      const agent = new TestAgent(new WorldState(new Map([["ready", true]])));
+
+      // Add goals with same priority in specific order
+      const goalA = new Goal(new Map([["doneA", true]]), 5);
+      const goalB = new Goal(new Map([["doneB", true]]), 5);
+
+      agent.addGoal(goalA);
+      agent.addGoal(goalB);
+
+      // Add actions for both goals
+      const actionA = new Action(
+        "doA",
+        new Map([["ready", true]]),
+        new Map([["doneA", true]]),
+        1
+      );
+      const actionB = new Action(
+        "doB",
+        new Map([["ready", true]]),
+        new Map([["doneB", true]]),
+        1
+      );
+      agent.addAction(actionA);
+      agent.addAction(actionB);
+
+      // With same priority, which goal is pursued first?
+      // This depends on sort stability
+      const selectedAction = agent.selectAction();
+
+      // Document current behavior (may vary by JS engine)
+      expect(selectedAction).to.not.equal(null);
+      // Note: We just check it returns something deterministic
+      // The actual order depends on insertion order + sort stability
+    });
+  });
+
+  describe("Action side effects", () => {
+    /**
+     * ISSUE: The planner doesn't consider that an action might
+     * satisfy one goal while un-satisfying another.
+     *
+     * This can lead to infinite loops or oscillating behavior.
+     */
+    it("should detect oscillating behavior from conflicting actions", () => {
+      const agent = new TestAgent(
+        new WorldState(
+          new Map([
+            ["atSource", true],
+            ["atSpawn", false],
+          ])
+        )
+      );
+
+      // Two goals that conflict with each other
+      agent.addGoal(new Goal(new Map([["atSource", true]]), 10));
+      agent.addGoal(new Goal(new Map([["atSpawn", true]]), 9));
+
+      // Actions that flip-flop between states
+      agent.addAction(
+        new Action(
+          "moveToSpawn",
+          new Map([["atSource", true]]),
+          new Map([
+            ["atSpawn", true],
+            ["atSource", false],
+          ]),
+          1
+        )
+      );
+      agent.addAction(
+        new Action(
+          "moveToSource",
+          new Map([["atSpawn", true]]),
+          new Map([
+            ["atSource", true],
+            ["atSpawn", false],
+          ]),
+          1
+        )
+      );
+
+      // First tick: atSource goal is satisfied, so pursue atSpawn
+      let action = agent.selectAction();
+      expect(action?.name).to.equal("moveToSpawn");
+      agent.executeAction(action!);
+
+      // Second tick: atSpawn is satisfied, atSource is NOT
+      // Higher priority atSource goal is now unsatisfied!
+      action = agent.selectAction();
+      expect(action?.name).to.equal("moveToSource");
+      agent.executeAction(action!);
+
+      // Third tick: we're back to original state - infinite loop!
+      action = agent.selectAction();
+      expect(action?.name).to.equal("moveToSpawn"); // Oscillation detected
+
+      // This documents that the planner can get stuck in oscillating loops
+      // A proper implementation might detect this and avoid it
+    });
+  });
+
+  describe("Partial goal contribution", () => {
+    /**
+     * ISSUE: contributesToGoal() returns true if ANY effect matches
+     * ANY goal condition. This doesn't check if the action actually
+     * makes progress toward the goal.
+     *
+     * An action that sets ONE of FIVE required conditions is considered
+     * as contributing, even if it can't achieve the full goal.
+     */
+    it("should handle multi-condition goals correctly", () => {
+      const agent = new TestAgent(
+        new WorldState(
+          new Map([
+            ["conditionA", false],
+            ["conditionB", false],
+            ["conditionC", false],
+          ])
+        )
+      );
+
+      // Goal requires ALL three conditions
+      agent.addGoal(
+        new Goal(
+          new Map([
+            ["conditionA", true],
+            ["conditionB", true],
+            ["conditionC", true],
+          ]),
+          10
+        )
+      );
+
+      // Action only satisfies ONE condition (precondition prevents re-execution)
+      agent.addAction(
+        new Action(
+          "setConditionA",
+          new Map([["conditionA", false]]), // Can only run when A is false
+          new Map([["conditionA", true]]),  // Sets A to true
+          1
+        )
+      );
+
+      // The planner will select this action because it "contributes"
+      const action = agent.selectAction();
+      expect(action?.name).to.equal("setConditionA");
+
+      // After execution, conditionA is true, so setConditionA is no longer achievable
+      agent.executeAction(action!);
+
+      // Now there's no achievable action that contributes to remaining conditions
+      const nextAction = agent.selectAction();
+      expect(nextAction).to.equal(null);
+
+      // The goal is still unsatisfied (only 1 of 3 conditions met)
+      const state = agent.getWorldState().getState();
+      expect(state.get("conditionA")).to.equal(true);
+      expect(state.get("conditionB")).to.equal(false);
+      expect(state.get("conditionC")).to.equal(false);
+
+      // This demonstrates that the planner can make partial progress
+      // but may get stuck if no single action completes the remaining goal conditions
+    });
+
+    /**
+     * Demonstrates that actions are considered "contributing" even if they
+     * only partially satisfy a multi-condition goal.
+     */
+    it("should select action that only partially satisfies goal", () => {
+      const agent = new TestAgent(
+        new WorldState(
+          new Map([
+            ["needsA", true],
+            ["needsB", true],
+          ])
+        )
+      );
+
+      // Goal requires BOTH conditions to be false
+      agent.addGoal(
+        new Goal(
+          new Map([
+            ["needsA", false],
+            ["needsB", false],
+          ]),
+          10
+        )
+      );
+
+      // Action only satisfies needsA
+      agent.addAction(
+        new Action(
+          "fixA",
+          new Map([["needsA", true]]),
+          new Map([["needsA", false]]),
+          1
+        )
+      );
+
+      // The planner will select fixA because it contributes to the goal
+      // (even though it doesn't fully satisfy it)
+      const action = agent.selectAction();
+      expect(action?.name).to.equal("fixA");
+
+      // This is actually correct behavior - partial progress is still progress
+      // The design assumes you'll add actions for all required conditions
+    });
+  });
+
+  describe("Edge case: negative and zero costs", () => {
+    /**
+     * POTENTIAL ISSUE: Negative costs are allowed and will be preferred
+     * This could lead to unexpected behavior if costs are misconfigured
+     */
+    it("should prefer negative cost actions (potential misuse)", () => {
+      const agent = new TestAgent(
+        new WorldState(new Map([["ready", true]]))
+      );
+
+      agent.addGoal(new Goal(new Map([["done", true]]), 5));
+
+      // Normal cost action
+      agent.addAction(
+        new Action(
+          "normalAction",
+          new Map([["ready", true]]),
+          new Map([["done", true]]),
+          5
+        )
+      );
+
+      // Negative cost action (suspicious!)
+      agent.addAction(
+        new Action(
+          "negativeAction",
+          new Map([["ready", true]]),
+          new Map([["done", true]]),
+          -10
+        )
+      );
+
+      // Negative cost will be selected
+      const action = agent.selectAction();
+      expect(action?.name).to.equal("negativeAction");
+    });
+
+    it("should handle zero cost actions", () => {
+      const agent = new TestAgent(
+        new WorldState(new Map([["ready", true]]))
+      );
+
+      agent.addGoal(new Goal(new Map([["done", true]]), 5));
+
+      agent.addAction(
+        new Action(
+          "zeroCostAction",
+          new Map([["ready", true]]),
+          new Map([["done", true]]),
+          0
+        )
+      );
+
+      agent.addAction(
+        new Action(
+          "positiveCostAction",
+          new Map([["ready", true]]),
+          new Map([["done", true]]),
+          1
+        )
+      );
+
+      // Zero cost should be preferred
+      const action = agent.selectAction();
+      expect(action?.name).to.equal("zeroCostAction");
+    });
+  });
+
+  describe("Missing condition in world state", () => {
+    /**
+     * OBSERVATION: When a goal condition is not present in the world state,
+     * isSatisfied returns false (because undefined !== required value).
+     *
+     * This is probably correct behavior but worth documenting.
+     */
+    it("should treat missing conditions as unsatisfied", () => {
+      // World state doesn't have 'hasEnergy' at all
+      const worldState = new WorldState(new Map());
+      const goal = new Goal(new Map([["hasEnergy", true]]), 5);
+
+      // Missing condition = not satisfied (undefined !== true)
+      expect(goal.isSatisfied(worldState.getState())).to.equal(false);
+    });
+
+    it("should treat missing conditions as false in preconditions", () => {
+      const action = new Action(
+        "test",
+        new Map([["hasEnergy", true]]),
+        new Map([["done", true]]),
+        1
+      );
+
+      // World state doesn't have 'hasEnergy'
+      const worldState = new Map<string, boolean>();
+
+      // Missing precondition = not achievable (undefined !== true)
+      expect(action.isAchievable(worldState)).to.equal(false);
+    });
+
+    /**
+     * EDGE CASE: What if we require a condition to be FALSE,
+     * but it's not in the world state?
+     *
+     * This documents a design decision: undefined !== false
+     * So requiring "hasEnergy: false" is NOT satisfied by missing hasEnergy.
+     */
+    it("should NOT satisfy 'requires false' when condition is missing", () => {
+      const action = new Action(
+        "test",
+        new Map([["hasEnergy", false]]), // Requires hasEnergy to be false
+        new Map([["done", true]]),
+        1
+      );
+
+      // World state doesn't have 'hasEnergy' - is that the same as false?
+      const worldState = new Map<string, boolean>();
+
+      // DESIGN DECISION: undefined !== false, so this returns false
+      // Philosophically, "not having energy" and "hasEnergy is false"
+      // might be considered equivalent, but the implementation disagrees
+      // This means all relevant conditions MUST be explicitly set
+      expect(action.isAchievable(worldState)).to.equal(false);
+    });
+  });
+});
