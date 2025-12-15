@@ -6,14 +6,14 @@ This guide explains how to run Screeps simulations locally for testing colony be
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Testing Stack                             │
+│                    Testing Stack                            │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
+│                                                             │
 │  ┌──────────────────┐     ┌──────────────────────────────┐ │
 │  │   Unit Tests     │     │      Simulation Tests        │ │
 │  │   (Fast, Mock)   │     │    (Full Server, Docker)     │ │
 │  ├──────────────────┤     ├──────────────────────────────┤ │
-│  │ • GameMock.ts    │     │ • ScreepsSimulator.ts        │ │
+│  │ • test/unit/     │     │ • ScreepsSimulator.ts        │ │
 │  │ • Mocha/Chai     │     │ • Scenario files             │ │
 │  │ • No server      │     │ • HTTP API to server         │ │
 │  └──────────────────┘     └──────────────────────────────┘ │
@@ -25,66 +25,70 @@ This guide explains how to run Screeps simulations locally for testing colony be
 │           │               │ • screeps-launcher           │ │
 │           │               │ • MongoDB                    │ │
 │           │               │ • Redis                      │ │
+│           │               │ • screepsmod-auth            │ │
 │           │               └──────────────────────────────┘ │
-│           │                                                 │
-│           ▼                                                 │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              Your Screeps Code (src/)               │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+│           │                                                │
+│           ▼                                                │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │              Your Screeps Code (src/)               │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
 
-### Option 1: Docker-based Full Simulation (Recommended)
+### First-Time Setup
 
 1. **Prerequisites**:
    - Docker & Docker Compose
+   - Node.js 18+
    - Steam API key (get one at https://steamcommunity.com/dev/apikey)
 
-2. **Setup**:
+2. **Set Steam API Key** (required for first-time setup):
+
+   **PowerShell:**
+   ```powershell
+   $env:STEAM_KEY="your-steam-api-key"
+   ```
+
+   **CMD:**
+   ```cmd
+   set STEAM_KEY=your-steam-api-key
+   ```
+
+   **Linux/Mac:**
    ```bash
-   # Set your Steam API key
    export STEAM_KEY="your-steam-api-key"
-
-   # Start the server
-   npm run sim:start
-
-   # Reset the world (first time only)
-   npm run sim:cli
-   # In CLI: system.resetAllData()
    ```
 
-3. **Deploy and test**:
+   > Tip: Add this to your system environment variables to make it permanent.
+
+3. **Start the server** (first run takes ~3 minutes to install dependencies):
    ```bash
-   # Build and deploy your code
-   npm run sim:deploy
-
-   # Watch for changes and auto-deploy
-   npm run sim:watch
+   npm run sim:start
    ```
 
-### Option 2: Lightweight Mocks (Fast Unit Tests)
+4. **Deploy your code**:
+   ```bash
+   npm run sim:deploy
+   ```
 
-For quick iteration without a server:
+### Iterative Development Workflow
 
-```typescript
-import { createMockGame, addMockCreep } from '../test/sim/GameMock';
+Once set up, the typical development cycle is:
 
-// Create a mock game environment
-const { Game, Memory } = createMockGame({ rooms: ['W0N0'] });
+```bash
+# 1. Make changes to src/
 
-// Add test creeps
-addMockCreep(Game, Memory, {
-  name: 'Harvester1',
-  room: 'W0N0',
-  body: ['work', 'work', 'carry', 'move'],
-  memory: { role: 'harvester' }
-});
+# 2. Deploy to local server
+npm run sim:deploy
 
-// Test your code
-// ...
+# 3. Watch logs to see your code running
+npm run sim:logs
+
+# 4. Run scenario tests to validate behavior
+npm run scenario:all
 ```
 
 ## Commands Reference
@@ -95,37 +99,30 @@ addMockCreep(Game, Memory, {
 |---------|-------------|
 | `npm run sim:start` | Start the Docker server stack |
 | `npm run sim:stop` | Stop the server |
-| `npm run sim:cli` | Open server CLI |
-| `npm run sim:deploy` | Build and deploy code |
-| `npm run sim:watch` | Watch mode with auto-deploy |
-| `npm run sim:reset` | Wipe all game data |
-| `npm run sim:bench` | Run benchmark (1000 ticks) |
+| `npm run sim:deploy` | Build and deploy code to local server |
+| `npm run sim:logs` | Follow server logs (Ctrl+C to exit) |
+| `npm run sim:reset` | Wipe all data and restart fresh |
 
-### Scenario Testing
+### Testing Commands
 
 | Command | Description |
 |---------|-------------|
+| `npm test` | Run unit tests (fast, no server needed) |
 | `npm run scenario:list` | List available scenarios |
 | `npm run scenario bootstrap` | Run bootstrap scenario |
 | `npm run scenario energy-flow` | Run energy flow scenario |
 | `npm run scenario:all` | Run all scenarios |
 
-### Direct Script Access
+### Direct API Access
+
+You can query the server directly:
 
 ```bash
-# Full help
-./scripts/sim.sh help
+# Check current tick
+curl http://localhost:21025/api/game/time
 
-# Control tick rate
-./scripts/sim.sh fast     # 50ms ticks (20 ticks/sec)
-./scripts/sim.sh slow     # 1000ms ticks (1 tick/sec)
-
-# Run specific number of ticks
-./scripts/sim.sh tick 500
-
-# Pause/resume
-./scripts/sim.sh pause
-./scripts/sim.sh resume
+# Check server version
+curl http://localhost:21025/api/version
 ```
 
 ## Writing Scenarios
@@ -146,12 +143,10 @@ export async function runMyTestScenario() {
     snapshotInterval: 10,
     rooms: ['W0N0'],
     onTick: async (tick, state) => {
-      // Check conditions each snapshot
       console.log(`Tick ${tick}: ${state.rooms['W0N0'].length} objects`);
     }
   });
 
-  // Return metrics
   return {
     finalCreepCount: await sim.countObjects('W0N0', 'creep'),
     totalSnapshots: snapshots.length
@@ -172,7 +167,7 @@ const sim = createSimulator({ host: 'localhost', port: 21025 });
 
 // Connection
 await sim.connect();
-await sim.authenticate('user', 'password');  // For screepsmod-auth
+await sim.authenticate('screeps', 'screeps');  // Default credentials
 
 // Game state
 const tick = await sim.getTick();
@@ -192,99 +187,151 @@ const harvesters = await sim.findObjects('W0N0',
 
 ## Server Configuration
 
-Edit `server/config.yml` to customize:
+The server is configured via `server/config.yml`:
 
 ```yaml
-serverConfig:
-  # Faster ticks for testing
-  tickRate: 100
+steamKey: ${STEAM_KEY}
 
-  # Modified game constants
-  constants:
-    ENERGY_REGEN_TIME: 150    # Faster energy regen
-    CREEP_SPAWN_TIME: 2       # Faster spawning
-
-  # Starting resources
-  startingGcl: 5
-
-# Mods
 mods:
-  - screepsmod-auth          # Local auth
-  - screepsmod-admin-utils   # Admin commands
-  - screepsmod-mongo         # Persistent storage
+  - screepsmod-auth    # Enables local password authentication
+
+serverConfig:
+  tickRate: 100        # Milliseconds per tick (lower = faster)
 ```
 
-## CI/CD Integration
+### Adding More Mods
 
-Add to your CI pipeline:
+Edit `server/config.yml` to add mods:
 
 ```yaml
-# .github/workflows/test.yml
-test-simulation:
-  runs-on: ubuntu-latest
-  services:
-    mongo:
-      image: mongo:6
-    redis:
-      image: redis:7-alpine
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-    - run: npm ci
-    - run: npm run build
-    - run: npm run scenario:all
+mods:
+  - screepsmod-auth
+  - screepsmod-admin-utils   # Admin commands
 ```
+
+Then restart the server:
+```bash
+npm run sim:stop && npm run sim:start
+```
+
+## Credentials
+
+The local server uses `screepsmod-auth` for authentication:
+
+- **Username**: `screeps`
+- **Password**: `screeps`
+
+These are configured in `screeps.json` under the `pserver` section.
 
 ## Troubleshooting
 
 ### Server won't start
-```bash
-# Check Docker status
-docker-compose ps
-docker-compose logs screeps
 
-# Verify ports aren't in use
-lsof -i :21025
+```bash
+# Check Docker is running
+docker info
+
+# Check container status
+docker-compose ps
+
+# View detailed logs
+docker-compose logs screeps
 ```
 
 ### Code not updating
+
 ```bash
 # Rebuild and redeploy
-npm run build && npm run push-pserver
+npm run sim:deploy
 
-# Or use watch mode
-npm run sim:watch
+# Check the server received it
+curl http://localhost:21025/api/game/time
 ```
 
-### Reset everything
+### Need a fresh start
+
 ```bash
-# Stop server, remove volumes, restart
-docker-compose down -v
-docker-compose up -d
+# Wipe everything and restart
 npm run sim:reset
 ```
 
-## Performance Tips
+### First-time setup taking too long
 
-1. **Use fast tick rate** during development: `./scripts/sim.sh fast`
-2. **Pause between tests**: `./scripts/sim.sh pause`
-3. **Run specific scenarios** instead of all: `npm run scenario bootstrap`
-4. **Use mocks** for quick logic tests that don't need full simulation
+The first run downloads and installs the Screeps server (~175 seconds). Subsequent starts are much faster.
+
+### Authentication errors
+
+Make sure `screepsmod-auth` is listed in `server/config.yml` under `mods:`.
 
 ## File Structure
 
 ```
-├── docker-compose.yml         # Server stack definition
+├── docker-compose.yml           # Server stack definition
+├── screeps.json                 # Deploy targets (main, pserver)
 ├── server/
-│   └── config.yml            # Server configuration
+│   ├── config.yml              # Server configuration
+│   ├── mods.json               # Active mods (auto-generated)
+│   └── db.json                 # Game database
 ├── scripts/
-│   ├── sim.sh                # CLI control script
-│   └── run-scenario.ts       # Scenario runner
+│   ├── upload-pserver.js       # Code upload script
+│   └── run-scenario.ts         # Scenario runner
 └── test/
+    ├── unit/                   # Fast unit tests
     └── sim/
-        ├── ScreepsSimulator.ts   # HTTP API client
-        ├── GameMock.ts           # Lightweight mocks
-        └── scenarios/
+        ├── ScreepsSimulator.ts # HTTP API client
+        └── scenarios/          # Scenario test files
             ├── bootstrap.scenario.ts
             └── energy-flow.scenario.ts
 ```
+
+## CI/CD Integration
+
+Example GitHub Actions workflow:
+
+```yaml
+# .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - run: npm ci
+      - run: npm test
+
+  simulation-tests:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - run: npm ci
+      - run: npm run build
+      - run: docker-compose up -d
+      - run: sleep 180  # Wait for server setup
+      - run: npm run sim:deploy
+      - run: npm run scenario:all
+```
+
+## Performance Tips
+
+1. **Run unit tests first** - They're fast and catch most issues
+2. **Use scenarios for integration testing** - Validates real game behavior
+3. **Check logs** when debugging - `npm run sim:logs`
+4. **Reset sparingly** - `sim:reset` wipes everything and requires re-setup
