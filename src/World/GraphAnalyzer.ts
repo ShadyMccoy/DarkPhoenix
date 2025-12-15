@@ -252,7 +252,7 @@ export class GraphAnalyzer {
       territoryBalance,
       averageEdgeDistance: avgDistance,
       maxEdgeDistance: maxDistance,
-      averageNodeDistance,
+      averageNodeDistance: avgNodeDistance,
     };
   }
 

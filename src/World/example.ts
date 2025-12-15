@@ -511,9 +511,9 @@ export function exampleHandleColonySplit(colonyId: string): void {
   }
 
   // Update world with new colonies
-  world.colonies.delete(colonyId);
+  world.removeColony(colonyId);
   for (const col of splitColonies) {
-    world.colonies.set(col.id, col);
+    world.addColony(col);
   }
 }
 

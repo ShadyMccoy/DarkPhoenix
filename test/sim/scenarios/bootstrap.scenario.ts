@@ -20,6 +20,11 @@ export async function runBootstrapScenario(): Promise<BootstrapMetrics> {
   const sim = createSimulator();
   await sim.connect();
 
+  // Ensure user has a spawn in the test room
+  // Use W1N1 which should have sources (check /api/user/rooms for valid rooms)
+  const room = 'W1N1';
+  await sim.placeSpawn(room);
+
   console.log('\n=== Bootstrap Scenario ===\n');
 
   const metrics: BootstrapMetrics = {
@@ -30,7 +35,6 @@ export async function runBootstrapScenario(): Promise<BootstrapMetrics> {
   };
 
   const startTick = await sim.getTick();
-  const room = 'W0N0';
 
   // Run for 100 ticks, checking state periodically
   await sim.runSimulation(100, {
