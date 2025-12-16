@@ -96,3 +96,25 @@ are out of date and pulling in an older version of the [screeps
 server](https://github.com/screeps/screeps). If you notice that test environment
 behavior differs from the MMO server, ensure that all of these dependencies are
 correctly up to date.
+
+## Simulation Testing (Private Server)
+
+For running scenario-based tests against a local Screeps private server using Docker, see the [Simulation Testing Guide](./simulation-testing.md).
+
+**Quick start:**
+```bash
+npm run sim:start      # Start Docker server
+npm run sim:deploy     # Build and deploy code
+npm run scenario:all   # Run scenario tests
+```
+
+### Key Differences: Mockup vs Private Server
+
+| Feature | screeps-server-mockup | Private Server (Docker) |
+|---------|----------------------|------------------------|
+| World Setup | Automatic (3x3 grid with objects) | Manual (requires map import) |
+| Speed | Fast (in-process) | Slower (network calls) |
+| Use Case | Unit/Integration tests | Scenario/Behavior tests |
+| CI/CD | Easy | Requires Docker |
+
+**Recommendation:** Use screeps-server-mockup for most integration tests. Use the private server for manual debugging and long-running scenario tests.
