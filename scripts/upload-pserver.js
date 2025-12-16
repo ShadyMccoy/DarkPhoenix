@@ -9,8 +9,8 @@ const http = require('http');
 const config = {
   host: 'localhost',
   port: 21025,
-  username: 'screeps',
-  password: 'screeps'
+  username: 'testuser',
+  password: 'testpass'
 };
 
 async function post(path, body) {

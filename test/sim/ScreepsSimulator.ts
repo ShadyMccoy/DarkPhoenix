@@ -6,6 +6,19 @@
  * a programmatic interface for running simulations and tests.
  */
 
+// Type declaration for Node.js 18+ native fetch
+declare const fetch: (url: string, init?: RequestInit) => Promise<Response>;
+interface RequestInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+interface Response {
+  json(): Promise<any>;
+  ok: boolean;
+  status: number;
+}
+
 interface ServerConfig {
   host: string;
   port: number;
@@ -138,7 +151,7 @@ export class ScreepsSimulator {
    */
   async console(expression: string): Promise<ConsoleResult> {
     const result = await this.post('/api/user/console', { expression });
-    return result as ConsoleResult;
+    return result as unknown as ConsoleResult;
   }
 
   /**
@@ -248,7 +261,7 @@ export class ScreepsSimulator {
     return objects.filter(predicate);
   }
 
-  // HTTP helpers
+  // HTTP helpers (uses Node.js 18+ native fetch)
   private async get(path: string): Promise<Record<string, unknown>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -258,9 +271,7 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    // Use dynamic import for fetch in Node.js
-    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
-    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, { headers });
+    const response = await fetch(`${this.baseUrl}${path}`, { headers });
     return response.json() as Promise<Record<string, unknown>>;
   }
 
@@ -273,8 +284,7 @@ export class ScreepsSimulator {
       headers['X-Username'] = this.username;
     }
 
-    const fetchFn = typeof fetch !== 'undefined' ? fetch : (await import('node-fetch')).default;
-    const response = await (fetchFn as any)(`${this.baseUrl}${path}`, {
+    const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

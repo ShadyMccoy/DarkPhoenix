@@ -14,7 +14,17 @@
       "Bash(docker exec:*)",
       "Bash(docker-compose down:*)",
       "Bash(docker-compose up:*)",
-      "Bash(timeout 120 docker-compose logs:*)"
+      "Bash(timeout 120 docker-compose logs:*)",
+      "Bash(npm run sim:deploy:*)",
+      "Bash(npm run:*)",
+      "Bash(timeout 5 docker-compose logs:*)",
+      "Bash(node scripts/setup-pserver.js:*)",
+      "Bash(node scripts/spawn-user.js:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm install:*)",
+      "Bash(git fetch:*)",
+      "Bash(git stash:*)",
+      "Bash(git pull:*)"
     ]
   }
 }
