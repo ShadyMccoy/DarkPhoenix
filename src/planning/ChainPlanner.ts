@@ -20,9 +20,9 @@ import { OfferCollector, Node } from "./OfferCollector";
 export type GoalType = "rcl-progress" | "gcl-progress" | "construction";
 
 /**
- * A goal represents an achievable objective that mints credits.
+ * A chain goal represents an achievable objective that mints credits.
  */
-export interface Goal {
+export interface ChainGoal {
   type: GoalType;
   corpId: string;
   resource: string;
@@ -134,8 +134,8 @@ export class ChainPlanner {
   /**
    * Find all goal corps that can mint credits
    */
-  private findGoals(): Goal[] {
-    const goals: Goal[] = [];
+  private findGoals(): ChainGoal[] {
+    const goals: ChainGoal[] = [];
 
     // Look for corps that sell mintable resources
     const rclOffers = this.collector.getSellOffers("rcl-progress");
@@ -159,7 +159,7 @@ export class ChainPlanner {
   /**
    * Build a complete chain for a goal
    */
-  private buildChainForGoal(goal: Goal, tick: number): Chain | null {
+  private buildChainForGoal(goal: ChainGoal, tick: number): Chain | null {
     const goalCorp = this.corpRegistry.get(goal.corpId);
     if (!goalCorp) return null;
 
@@ -316,7 +316,7 @@ export class ChainPlanner {
   /**
    * Estimate the potential profit for a goal without building full chain
    */
-  estimateProfit(goal: Goal): number {
+  estimateProfit(goal: ChainGoal): number {
     // Simple estimation: mint value minus estimated input costs
     const mintValue = goal.mintValuePerUnit * goal.quantity;
 
