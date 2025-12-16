@@ -27,6 +27,7 @@ import { RoomRoutine } from "./core/RoomRoutine";
 import { Bootstrap } from "./routines/Bootstrap";
 import { ErrorMapper } from "./utils/ErrorMapper";
 import { RoomMap } from "./spatial/RoomMap";
+import "./types/Memory";
 
 declare global {
   namespace NodeJS {

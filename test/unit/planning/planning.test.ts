@@ -1215,40 +1215,21 @@ describe("Abstract Node-Resource Planning", () => {
 describe("Bug Discovery Tests", () => {
   describe("WorldState encapsulation", () => {
     /**
-     * BUG: WorldState constructor stores a reference to the input Map
-     * instead of copying it. This means external modifications to the
-     * original Map will affect the WorldState, violating encapsulation.
+     * WorldState should copy the input Map to prevent external modifications
+     * from affecting its internal state.
      *
-     * Expected behavior: WorldState should be independent of the input Map
-     * Actual behavior: WorldState is mutated when input Map changes
-     *
-     * This test is marked .skip because it exposes a known bug.
-     * Remove .skip after fixing the bug in src/planning/Agent.ts
+     * This ensures proper encapsulation - the WorldState is independent
+     * of the Map passed to its constructor.
      */
-    it.skip("BUG: should not be affected by external modifications to input Map", () => {
+    it("should not be affected by external modifications to input Map", () => {
       const inputMap = new Map([["hasEnergy", false]]);
       const worldState = new WorldState(inputMap);
 
       // External modification to the input map
       inputMap.set("hasEnergy", true);
 
-      // WorldState should NOT be affected - it should have copied the input
-      // BUG: This fails because WorldState stores a reference, not a copy
+      // WorldState should NOT be affected - it copied the input
       expect(worldState.getState().get("hasEnergy")).to.equal(false);
-    });
-
-    /**
-     * Related test: Verify the input Map modification does affect WorldState
-     * This documents the current (buggy) behavior
-     */
-    it("documents current behavior: input Map mutation affects WorldState", () => {
-      const inputMap = new Map([["hasEnergy", false]]);
-      const worldState = new WorldState(inputMap);
-
-      inputMap.set("hasEnergy", true);
-
-      // This passes because of the bug - WorldState IS affected
-      expect(worldState.getState().get("hasEnergy")).to.equal(true);
     });
   });
 
