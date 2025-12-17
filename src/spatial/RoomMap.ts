@@ -38,7 +38,6 @@
  * @module spatial/RoomMap
  */
 
-import { RoomRoutine } from "../core/RoomRoutine";
 import { forEach } from "lodash";
 import {
   createDistanceTransform,
@@ -108,8 +107,9 @@ function createTerrainCallback(room: Room): TerrainCallback {
  * const bestPeak = roomMap.getBestBasePeak();
  * console.log(`Best base location: ${bestPeak?.center}`);
  */
-export class RoomMap extends RoomRoutine {
-  name = "RoomMap";
+export class RoomMap {
+  /** The room being analyzed */
+  readonly roomName: string;
 
   /** Distance transform grid (inverted: higher values = more open areas) */
   private distanceTransform: number[][] = [];
@@ -131,7 +131,7 @@ export class RoomMap extends RoomRoutine {
    * @param room - The room to analyze
    */
   constructor(room: Room) {
-    super(new RoomPosition(25, 25, room.name), {});
+    this.roomName = room.name;
 
     const terrainCallback = createTerrainCallback(room);
 
@@ -292,18 +292,13 @@ export class RoomMap extends RoomRoutine {
   }
 
   /**
-   * Main routine logic - re-visualizes each tick.
+   * Renders visual debugging information on demand.
+   *
+   * Call this method from the game loop to show spatial analysis.
    *
    * @param room - The room to visualize
    */
-  routine(room: Room): void {
+  render(room: Room): void {
     this.visualize(room);
-  }
-
-  /**
-   * RoomMap doesn't spawn creeps.
-   */
-  calcSpawnQueue(room: Room): void {
-    // No creeps needed
   }
 }

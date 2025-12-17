@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Planning module exports.
+ *
+ * This module provides chain-based planning for the economic system:
+ * - Chain: Production chains linking corps together
+ * - ChainPlanner: Builds profitable chains from offers
+ * - OfferCollector: Gathers offers from all corps
+ *
+ * @module planning
+ */
+
 export {
   Chain,
   ChainSegment,
@@ -33,29 +44,3 @@ export {
   InputRequirement,
   canBuildChain
 } from "./ChainPlanner";
-
-export {
-  WorldState,
-  Action,
-  Goal,
-  Agent,
-  createMineEnergyAction,
-  createBuildStructureAction,
-  createProfitGoal
-} from "./GOAP";
-
-export {
-  RoomPlanner,
-  createRoomPlanner,
-  STATE_HAS_SPAWN,
-  STATE_HAS_SOURCE,
-  STATE_HAS_CONTROLLER,
-  STATE_HAS_ENERGY_INCOME,
-  STATE_SPAWN_HAS_ENERGY,
-  STATE_HAS_IDLE_CREEPS,
-  STATE_HAS_BOOTSTRAP_OP,
-  STATE_HAS_MINING_OP,
-  STATE_CONTROLLER_PROGRESSING,
-  STATE_HAS_CREEPS,
-  STATE_RCL_ABOVE_1
-} from "./RoomPlanner";
