@@ -149,111 +149,39 @@ export class RealUpgradingCorp extends Corp {
   /**
    * Run behavior for an upgrader creep.
    *
-   * State machine:
-   * - If empty: pick up energy near controller
-   * - If carrying: upgrade controller
+   * Simple behavior:
+   * - Stay at the controller (range 3)
+   * - If has energy: upgrade
+   * - If empty: wait for hauler to transfer energy, pick up any nearby dropped energy
    */
   private runUpgrader(
     creep: Creep,
     room: Room,
     controller: StructureController
   ): void {
-    // State transition
-    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
-      creep.memory.working = false;
-      creep.say("get E");
-    }
-    if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-      creep.memory.working = true;
-      creep.say("upgrade");
+    // First priority: get to the controller if not there
+    if (creep.pos.getRangeTo(controller) > 3) {
+      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+      return;
     }
 
-    if (creep.memory.working) {
+    // We're at the controller - stay here and work
+    if (creep.store[RESOURCE_ENERGY] > 0) {
       // Upgrade controller
-      if (creep.upgradeController(controller) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
-      } else {
-        // Record revenue when we successfully upgrade
+      const result = creep.upgradeController(controller);
+      if (result === OK) {
         this.recordRevenue(creep.getActiveBodyparts(WORK) * 0.1);
       }
     } else {
-      // Pick up energy
-      this.getEnergy(creep, room, controller);
-    }
-  }
+      // No energy - try to pick up nearby dropped energy (within range 1)
+      const nearbyDropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+        filter: (r) => r.resourceType === RESOURCE_ENERGY,
+      });
 
-  /**
-   * Get energy from dropped resources or containers near controller.
-   */
-  private getEnergy(
-    creep: Creep,
-    room: Room,
-    controller: StructureController
-  ): void {
-    // First try dropped energy near controller
-    const dropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) =>
-        r.resourceType === RESOURCE_ENERGY &&
-        r.pos.getRangeTo(controller) <= 5,
-    });
-
-    if (dropped.length > 0) {
-      const target = creep.pos.findClosestByPath(dropped);
-      if (target) {
-        if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+      if (nearbyDropped.length > 0) {
+        creep.pickup(nearbyDropped[0]);
       }
-    }
-
-    // Then try containers near controller
-    const containers = room.find(FIND_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        s.pos.getRangeTo(controller) <= 5 &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
-    }) as StructureContainer[];
-
-    if (containers.length > 0) {
-      const target = creep.pos.findClosestByPath(containers);
-      if (target) {
-        if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
-      }
-    }
-
-    // Fallback: any dropped energy or container in room
-    const anyDropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
-    });
-
-    if (anyDropped.length > 0) {
-      const target = creep.pos.findClosestByPath(anyDropped);
-      if (target) {
-        if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
-      }
-    }
-
-    // Last resort: withdraw from spawn (if it has excess)
-    const spawns = room.find(FIND_MY_SPAWNS);
-    for (const spawn of spawns) {
-      if (spawn.store[RESOURCE_ENERGY] > 200) {
-        if (creep.withdraw(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
-      }
-    }
-
-    // If no energy, move towards controller and wait
-    if (creep.pos.getRangeTo(controller) > 3) {
-      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffaa00" } });
+      // Otherwise just wait - hauler will transfer energy to us
     }
   }
 

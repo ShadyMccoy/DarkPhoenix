@@ -216,7 +216,7 @@ export class RealHaulingCorp extends Corp {
   }
 
   /**
-   * Deliver energy to spawn or controller area.
+   * Deliver energy to spawn or directly to upgraders.
    */
   private deliverEnergy(creep: Creep, room: Room, spawn: StructureSpawn): void {
     // Priority 1: Fill spawn and extensions
@@ -239,7 +239,26 @@ export class RealHaulingCorp extends Corp {
       }
     }
 
-    // Priority 2: Drop near controller for upgraders
+    // Priority 2: Transfer directly to upgraders
+    const upgraders = room.find(FIND_MY_CREEPS, {
+      filter: (c) =>
+        c.memory.workType === "upgrade" &&
+        c.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    });
+
+    if (upgraders.length > 0) {
+      const target = creep.pos.findClosestByPath(upgraders);
+      if (target) {
+        if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+        } else {
+          this.recordRevenue(creep.store[RESOURCE_ENERGY] * 0.001);
+        }
+        return;
+      }
+    }
+
+    // Priority 3: If no upgraders need energy, drop near controller
     if (room.controller) {
       if (creep.pos.getRangeTo(room.controller) <= 3) {
         creep.drop(RESOURCE_ENERGY);
