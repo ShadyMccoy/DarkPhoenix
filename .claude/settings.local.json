@@ -32,7 +32,8 @@
       "Bash(ss:*)",
       "Bash(tasklist:*)",
       "Bash(docker-compose restart:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker-compose exec:*)"
     ]
   }
 }

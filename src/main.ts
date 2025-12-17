@@ -27,7 +27,20 @@
 
 import { Colony, createColony } from "./colony";
 import { createNode, Node, serializeNode } from "./nodes";
-import { BootstrapCorp, createBootstrapCorp, SerializedBootstrapCorp } from "./corps";
+import {
+  BootstrapCorp,
+  createBootstrapCorp,
+  SerializedBootstrapCorp,
+  RealMiningCorp,
+  createRealMiningCorp,
+  SerializedRealMiningCorp,
+  RealHaulingCorp,
+  createRealHaulingCorp,
+  SerializedRealHaulingCorp,
+  RealUpgradingCorp,
+  createRealUpgradingCorp,
+  SerializedRealUpgradingCorp,
+} from "./corps";
 import { ErrorMapper } from "./utils/ErrorMapper";
 import { RoomMap, Peak } from "./spatial";
 import "./types/Memory";
@@ -38,11 +51,17 @@ declare global {
       log: any;
       colony: Colony | undefined;
       bootstrapCorps: { [roomName: string]: BootstrapCorp };
+      miningCorps: { [sourceId: string]: RealMiningCorp };
+      haulingCorps: { [roomName: string]: RealHaulingCorp };
+      upgradingCorps: { [roomName: string]: RealUpgradingCorp };
     }
   }
 
   interface Memory {
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
+    miningCorps?: { [sourceId: string]: SerializedRealMiningCorp };
+    haulingCorps?: { [roomName: string]: SerializedRealHaulingCorp };
+    upgradingCorps?: { [roomName: string]: SerializedRealUpgradingCorp };
   }
 }
 
@@ -58,6 +77,15 @@ let colony: Colony | undefined;
 /** Bootstrap corps per room (fallback workers) */
 const bootstrapCorps: { [roomName: string]: BootstrapCorp } = {};
 
+/** Mining corps per source */
+const miningCorps: { [sourceId: string]: RealMiningCorp } = {};
+
+/** Hauling corps per room */
+const haulingCorps: { [roomName: string]: RealHaulingCorp } = {};
+
+/** Upgrading corps per room */
+const upgradingCorps: { [roomName: string]: RealUpgradingCorp } = {};
+
 /**
  * Main game loop - executed every tick.
  *
@@ -67,12 +95,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Run bootstrap corps first (keep colony alive)
   runBootstrapCorps();
 
+  // Run real corps (mining, hauling, upgrading)
+  runRealCorps();
+
   // Initialize or restore colony
   colony = getOrCreateColony();
 
   // Make colony available globally for debugging
   global.colony = colony;
   global.bootstrapCorps = bootstrapCorps;
+  global.miningCorps = miningCorps;
+  global.haulingCorps = haulingCorps;
+  global.upgradingCorps = upgradingCorps;
 
   // Initialize nodes from rooms
   initializeNodesFromRooms(colony);
@@ -142,6 +176,89 @@ function runBootstrapCorps(): void {
     if (bootstrapCorp) {
       bootstrapCorp.work(Game.time);
     }
+  }
+}
+
+/**
+ * Run real corps (mining, hauling, upgrading) for all owned rooms.
+ *
+ * These corps work together:
+ * - Mining: Harvests energy and drops it
+ * - Hauling: Picks up energy and delivers to spawn/controller
+ * - Upgrading: Picks up energy near controller and upgrades
+ */
+function runRealCorps(): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+
+    // Only process owned rooms with spawns
+    if (!room.controller?.my) continue;
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) continue;
+
+    const spawn = spawns[0];
+    const sources = room.find(FIND_SOURCES);
+
+    // Initialize and run mining corps (one per source)
+    for (const source of sources) {
+      let miningCorp = miningCorps[source.id];
+
+      if (!miningCorp) {
+        // Try to restore from memory
+        const saved = Memory.miningCorps?.[source.id];
+        if (saved) {
+          miningCorp = new RealMiningCorp(saved.nodeId, saved.spawnId, saved.sourceId);
+          miningCorp.deserialize(saved);
+          miningCorps[source.id] = miningCorp;
+        } else {
+          // Create new
+          miningCorp = createRealMiningCorp(room, spawn, source);
+          miningCorp.createdAt = Game.time;
+          miningCorps[source.id] = miningCorp;
+          console.log(`[Mining] Created corp for source ${source.id.slice(-4)} in ${roomName}`);
+        }
+      }
+
+      miningCorp.work(Game.time);
+    }
+
+    // Initialize and run hauling corp (one per room)
+    let haulingCorp = haulingCorps[roomName];
+
+    if (!haulingCorp) {
+      const saved = Memory.haulingCorps?.[roomName];
+      if (saved) {
+        haulingCorp = new RealHaulingCorp(saved.nodeId, saved.spawnId);
+        haulingCorp.deserialize(saved);
+        haulingCorps[roomName] = haulingCorp;
+      } else {
+        haulingCorp = createRealHaulingCorp(room, spawn);
+        haulingCorp.createdAt = Game.time;
+        haulingCorps[roomName] = haulingCorp;
+        console.log(`[Hauling] Created corp for ${roomName}`);
+      }
+    }
+
+    haulingCorp.work(Game.time);
+
+    // Initialize and run upgrading corp (one per room)
+    let upgradingCorp = upgradingCorps[roomName];
+
+    if (!upgradingCorp) {
+      const saved = Memory.upgradingCorps?.[roomName];
+      if (saved) {
+        upgradingCorp = new RealUpgradingCorp(saved.nodeId, saved.spawnId);
+        upgradingCorp.deserialize(saved);
+        upgradingCorps[roomName] = upgradingCorp;
+      } else {
+        upgradingCorp = createRealUpgradingCorp(room, spawn);
+        upgradingCorp.createdAt = Game.time;
+        upgradingCorps[roomName] = upgradingCorp;
+        console.log(`[Upgrading] Created corp for ${roomName}`);
+      }
+    }
+
+    upgradingCorp.work(Game.time);
   }
 }
 
@@ -216,17 +333,20 @@ function createNodeFromPeak(room: Room, peak: Peak, nodeId: string): Node {
  * Gets or creates a RoomMap for spatial analysis.
  *
  * Caches room maps to avoid expensive recalculation every tick.
+ * Renders visualization every tick (Screeps visuals only persist one tick).
  */
 function getOrCreateRoomMap(room: Room): RoomMap {
   const cached = roomMapCache[room.name];
   if (cached && Game.time - cached.tick < ROOM_MAP_CACHE_TTL) {
+    // Render visualization every tick (visuals don't persist across ticks)
+    cached.map.render(room);
     return cached.map;
   }
 
   const map = new RoomMap(room);
   roomMapCache[room.name] = { map, tick: Game.time };
 
-  // Optionally render visualization
+  // Render visualization
   map.render(room);
 
   return map;
@@ -249,6 +369,24 @@ function persistState(colony: Colony): void {
   Memory.bootstrapCorps = {};
   for (const roomName in bootstrapCorps) {
     Memory.bootstrapCorps[roomName] = bootstrapCorps[roomName].serialize();
+  }
+
+  // Persist mining corps
+  Memory.miningCorps = {};
+  for (const sourceId in miningCorps) {
+    Memory.miningCorps[sourceId] = miningCorps[sourceId].serialize();
+  }
+
+  // Persist hauling corps
+  Memory.haulingCorps = {};
+  for (const roomName in haulingCorps) {
+    Memory.haulingCorps[roomName] = haulingCorps[roomName].serialize();
+  }
+
+  // Persist upgrading corps
+  Memory.upgradingCorps = {};
+  for (const roomName in upgradingCorps) {
+    Memory.upgradingCorps[roomName] = upgradingCorps[roomName].serialize();
   }
 }
 
@@ -282,4 +420,21 @@ function logStats(colony: Colony): void {
     totalJacks += corp.getCreepCount();
   }
   console.log(`  Bootstrap Jacks: ${totalJacks}`);
+
+  // Log real corps stats
+  let totalMiners = 0;
+  let totalHaulers = 0;
+  let totalUpgraders = 0;
+
+  for (const sourceId in miningCorps) {
+    totalMiners += miningCorps[sourceId].getCreepCount();
+  }
+  for (const roomName in haulingCorps) {
+    totalHaulers += haulingCorps[roomName].getCreepCount();
+  }
+  for (const roomName in upgradingCorps) {
+    totalUpgraders += upgradingCorps[roomName].getCreepCount();
+  }
+
+  console.log(`  Miners: ${totalMiners}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}`);
 }

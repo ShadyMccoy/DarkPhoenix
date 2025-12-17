@@ -50,3 +50,21 @@ export {
   SerializedBootstrapCorp,
   createBootstrapCorp
 } from "./BootstrapCorp";
+
+export {
+  RealMiningCorp,
+  SerializedRealMiningCorp,
+  createRealMiningCorp
+} from "./RealMiningCorp";
+
+export {
+  RealHaulingCorp,
+  SerializedRealHaulingCorp,
+  createRealHaulingCorp
+} from "./RealHaulingCorp";
+
+export {
+  RealUpgradingCorp,
+  SerializedRealUpgradingCorp,
+  createRealUpgradingCorp
+} from "./RealUpgradingCorp";
