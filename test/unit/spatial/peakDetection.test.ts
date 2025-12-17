@@ -477,8 +477,8 @@ describe("filterPeaks", () => {
       const peaks = findPeaks(distanceMatrix, terrain);
 
       const defaultFiltered = filterPeaks(peaks);
-      const wideFiltered = filterPeaks(peaks, 1.5); // Larger exclusion radius
-      const narrowFiltered = filterPeaks(peaks, 0.25); // Smaller exclusion radius
+      const wideFiltered = filterPeaks(peaks, { exclusionMultiplier: 1.5 }); // Larger exclusion radius
+      const narrowFiltered = filterPeaks(peaks, { exclusionMultiplier: 0.25 }); // Smaller exclusion radius
 
       // Wider radius should result in fewer peaks
       expect(wideFiltered.length).to.be.at.most(defaultFiltered.length);

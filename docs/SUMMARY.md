@@ -7,6 +7,7 @@
 - [Installation](getting-started/installation.md)
 - [Authenticating with Screeps](getting-started/authenticating.md)
 - [Deploying](getting-started/deploying.md)
+- [Local Private Server](getting-started/local-server.md)
 
 ## In-Depth
 

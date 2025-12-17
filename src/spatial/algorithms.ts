@@ -257,31 +257,55 @@ export function findPeaks(
 }
 
 /**
- * Filters peaks to remove those too close to larger peaks.
+ * Options for peak filtering.
+ */
+export interface FilterPeaksOptions {
+  /** Multiplier for height-based exclusion radius (default: 1.5) */
+  exclusionMultiplier?: number;
+  /** Minimum height threshold - peaks below this are discarded (default: 3) */
+  minHeight?: number;
+  /** Maximum number of peaks to keep (default: 8) */
+  maxPeaks?: number;
+}
+
+/**
+ * Filters peaks to create a sparse graph of significant open areas.
  *
  * Uses the peak's height as exclusion radius - taller peaks dominate more area.
  * This prevents clustering of many small peaks near large open areas.
  *
  * @param peaks - Unfiltered peaks from findPeaks
- * @param exclusionMultiplier - Multiplier for height-based exclusion radius (default: 0.75)
+ * @param options - Filtering options (exclusionMultiplier, minHeight, maxPeaks)
  * @returns Filtered peaks with appropriate spacing
  *
  * @example
  * const peaks = findPeaks(distanceMatrix, terrain);
- * const filteredPeaks = filterPeaks(peaks);
+ * const filteredPeaks = filterPeaks(peaks, { minHeight: 3, maxPeaks: 8 });
  * // Only significant, well-spaced peaks remain
  */
 export function filterPeaks(
   peaks: PeakData[],
-  exclusionMultiplier: number = 0.75
+  options: FilterPeaksOptions = {}
 ): PeakData[] {
+  const {
+    exclusionMultiplier = 1.5,
+    minHeight = 3,
+    maxPeaks = 8,
+  } = options;
+
+  // Filter by minimum height first
+  const validPeaks = peaks.filter((p) => p.height >= minHeight);
+
   // Sort by height descending (keep tallest)
-  const sortedPeaks = [...peaks].sort((a, b) => b.height - a.height);
+  const sortedPeaks = [...validPeaks].sort((a, b) => b.height - a.height);
 
   const finalPeaks: PeakData[] = [];
   const excludedPositions = new Set<string>();
 
   for (const peak of sortedPeaks) {
+    // Stop if we've reached max peaks
+    if (finalPeaks.length >= maxPeaks) break;
+
     const key = `${peak.center.x},${peak.center.y}`;
     if (excludedPositions.has(key)) continue;
 

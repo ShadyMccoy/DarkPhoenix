@@ -16,6 +16,7 @@ services:
       - ./dist:/screeps/dist:ro  # Mount built code for hot reload
     ports:
       - "21025:21025"
+      - "21026:21026"
     environment:
       - STEAM_KEY=${STEAM_KEY:-}
     depends_on:

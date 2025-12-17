@@ -13,6 +13,34 @@ import { SerializedChain } from "../planning/Chain";
 
 declare global {
   /**
+   * Room intelligence data from scouting.
+   */
+  interface RoomIntel {
+    /** Game tick when this room was last visited */
+    lastVisit: number;
+    /** Number of energy sources in the room */
+    sourceCount: number;
+    /** Positions of energy sources */
+    sourcePositions: { x: number; y: number }[];
+    /** Type of mineral in the room (if any) */
+    mineralType: MineralConstant | null;
+    /** Position of the mineral (if any) */
+    mineralPos: { x: number; y: number } | null;
+    /** Controller level (0 if unclaimed) */
+    controllerLevel: number;
+    /** Username of controller owner (if owned) */
+    controllerOwner: string | null;
+    /** Username of controller reserver (if reserved) */
+    controllerReservation: string | null;
+    /** Number of hostile creeps observed */
+    hostileCreepCount: number;
+    /** Number of hostile structures observed */
+    hostileStructureCount: number;
+    /** Whether the room appears safe for operations */
+    isSafe: boolean;
+  }
+
+  /**
    * Extended global memory with colony persistence.
    */
   interface Memory {
@@ -35,6 +63,11 @@ declare global {
      * Room map cache metadata (tick when last computed).
      */
     roomMapCache?: { [roomName: string]: number };
+
+    /**
+     * Room intelligence data from scouting.
+     */
+    roomIntel?: { [roomName: string]: RoomIntel };
   }
 
   /**

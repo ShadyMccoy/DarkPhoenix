@@ -78,6 +78,18 @@ export interface Territory {
 }
 
 /**
+ * Edge connecting two peaks in the skeleton graph.
+ */
+export interface Edge {
+  /** Index of source peak */
+  source: number;
+  /** Index of target peak */
+  target: number;
+  /** Pathfinding distance between peaks (ignoring walls, through walkable terrain) */
+  distance: number;
+}
+
+/**
  * Converts a PeakData (pure) to Peak (with RoomPositions).
  */
 function peakDataToPeak(data: PeakData, roomName: string): Peak {
@@ -120,6 +132,12 @@ export class RoomMap {
   /** Territory assignments (which peak owns which tiles) */
   private territories: Map<string, RoomPosition[]> = new Map();
 
+  /** Skeleton graph edges with pathfinding distances */
+  private edges: Edge[] = [];
+
+  /** Terrain callback for pathfinding */
+  private terrainCallback: TerrainCallback | null = null;
+
   /**
    * Creates a new RoomMap with full spatial analysis.
    *
@@ -133,18 +151,18 @@ export class RoomMap {
   constructor(room: Room) {
     this.roomName = room.name;
 
-    const terrainCallback = createTerrainCallback(room);
+    this.terrainCallback = createTerrainCallback(room);
 
     // Create inverted distance transform (peaks = open areas)
     this.distanceTransform = createDistanceTransform(
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
 
     // Find and filter peaks (using pure functions)
     const peakDataList = findPeaksPure(
       this.distanceTransform,
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
     const filteredPeakData = filterPeaksPure(peakDataList);
@@ -155,7 +173,7 @@ export class RoomMap {
     // Divide room into territories using BFS (pure function)
     const territoryData = bfsDivideRoomPure(
       filteredPeakData,
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
 
@@ -168,6 +186,9 @@ export class RoomMap {
       const fullPeakId = `${room.name}-${peakId}`;
       this.territories.set(fullPeakId, positions);
     }
+
+    // Build skeleton graph edges
+    this.buildEdges();
 
     // Visualize results
     this.visualize(room);
@@ -232,63 +253,230 @@ export class RoomMap {
   }
 
   /**
+   * Gets all edges in the skeleton graph.
+   *
+   * @returns Array of edges with pathfinding distances
+   */
+  getEdges(): Edge[] {
+    return [...this.edges];
+  }
+
+  /**
+   * Calculates BFS pathfinding distance between two positions.
+   * Ignores walls, walks through all terrain.
+   *
+   * @param from - Starting position
+   * @param to - Target position
+   * @returns Distance in tiles, or Infinity if unreachable
+   */
+  private bfsDistance(from: RoomPosition, to: RoomPosition): number {
+    if (from.x === to.x && from.y === to.y) return 0;
+    if (!this.terrainCallback) return Infinity;
+
+    const visited = new Set<string>();
+    const queue: { x: number; y: number; dist: number }[] = [
+      { x: from.x, y: from.y, dist: 0 },
+    ];
+    visited.add(`${from.x},${from.y}`);
+
+    const neighbors = [
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: 1, dy: -1 },
+      { dx: 1, dy: 1 },
+    ];
+
+    while (queue.length > 0) {
+      const { x, y, dist } = queue.shift()!;
+
+      for (const { dx, dy } of neighbors) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = `${nx},${ny}`;
+
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+        if (visited.has(key)) continue;
+        if (this.terrainCallback(nx, ny) === TERRAIN_MASK_WALL) continue;
+
+        if (nx === to.x && ny === to.y) {
+          return dist + 1;
+        }
+
+        visited.add(key);
+        queue.push({ x: nx, y: ny, dist: dist + 1 });
+      }
+    }
+
+    return Infinity;
+  }
+
+  /**
+   * Builds skeleton graph edges between adjacent territories.
+   * Calculates pathfinding distance for each edge.
+   */
+  private buildEdges(): void {
+    if (this.peaks.length < 2) return;
+
+    // Build map from peak index to territory key
+    const peakToTerritory: Map<number, string> = new Map();
+    let tidx = 0;
+    for (const [tkey] of this.territories) {
+      if (tidx < this.peaks.length) {
+        peakToTerritory.set(tidx, tkey);
+      }
+      tidx++;
+    }
+
+    // Check if two territories share a border
+    const territoriesAdjacent = (t1: string, t2: string): boolean => {
+      const pos1 = this.territories.get(t1) || [];
+      const pos2Set = new Set(
+        (this.territories.get(t2) || []).map((p) => `${p.x},${p.y}`)
+      );
+      for (const p of pos1) {
+        if (
+          pos2Set.has(`${p.x - 1},${p.y}`) ||
+          pos2Set.has(`${p.x + 1},${p.y}`) ||
+          pos2Set.has(`${p.x},${p.y - 1}`) ||
+          pos2Set.has(`${p.x},${p.y + 1}`)
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Build MST first to ensure connectivity
+    const edgeSet = new Set<string>();
+    const edgeKey = (i: number, j: number) =>
+      i < j ? `${i}-${j}` : `${j}-${i}`;
+
+    const inMST = new Set<number>([0]);
+    while (inMST.size < this.peaks.length) {
+      let bestEdge: [number, number] | null = null;
+      let bestDist = Infinity;
+
+      for (const i of inMST) {
+        for (let j = 0; j < this.peaks.length; j++) {
+          if (inMST.has(j)) continue;
+          const d =
+            Math.abs(this.peaks[i].center.x - this.peaks[j].center.x) +
+            Math.abs(this.peaks[i].center.y - this.peaks[j].center.y);
+          if (d < bestDist) {
+            bestDist = d;
+            bestEdge = [i, j];
+          }
+        }
+      }
+
+      if (bestEdge) {
+        edgeSet.add(edgeKey(bestEdge[0], bestEdge[1]));
+        inMST.add(bestEdge[1]);
+      }
+    }
+
+    // Add edges for adjacent territories
+    for (let i = 0; i < this.peaks.length; i++) {
+      for (let j = i + 1; j < this.peaks.length; j++) {
+        const key = edgeKey(i, j);
+        if (edgeSet.has(key)) continue;
+
+        const t1 = peakToTerritory.get(i);
+        const t2 = peakToTerritory.get(j);
+        if (t1 && t2 && territoriesAdjacent(t1, t2)) {
+          edgeSet.add(key);
+        }
+      }
+    }
+
+    // Calculate pathfinding distance for each edge
+    for (const key of edgeSet) {
+      const [i, j] = key.split("-").map(Number);
+      const distance = this.bfsDistance(
+        this.peaks[i].center,
+        this.peaks[j].center
+      );
+      this.edges.push({ source: i, target: j, distance });
+    }
+  }
+
+  /**
    * Renders visual debugging information.
    *
    * Shows:
-   * - Peak locations with varying opacity by height
-   * - Labels for top 3 peaks
-   * - Territory boundaries (limited for performance)
+   * - Territory colors (sphere of influence)
+   * - Edges with pathfinding distances
+   * - Peak nodes with height labels
    *
    * @param room - The room to render visuals in
    */
   private visualize(room: Room): void {
-    // Visualize peaks with varying opacity by height
+    if (this.peaks.length === 0) return;
+
     const maxHeight = Math.max(...this.peaks.map((p) => p.height), 1);
+
+    // Draw territory colors (sphere of influence for each peak)
+    const territoryColors = [
+      "#ff000022", "#00ff0022", "#0000ff22", "#ffff0022",
+      "#ff00ff22", "#00ffff22", "#ff880022", "#88ff0022",
+    ];
+    let colorIdx = 0;
+    for (const [, positions] of this.territories) {
+      const color = territoryColors[colorIdx % territoryColors.length];
+      colorIdx++;
+      for (const pos of positions) {
+        room.visual.rect(pos.x - 0.5, pos.y - 0.5, 1, 1, {
+          fill: color,
+          opacity: 1,
+        });
+      }
+    }
+
+    // Draw edges with distance labels
+    for (const edge of this.edges) {
+      const p1 = this.peaks[edge.source].center;
+      const p2 = this.peaks[edge.target].center;
+
+      // Draw edge line
+      room.visual.line(p1.x, p1.y, p2.x, p2.y, {
+        color: "#ffffff",
+        opacity: 0.8,
+        width: 0.15,
+      });
+
+      // Draw distance label at midpoint
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      room.visual.text(`${edge.distance}`, midX, midY, {
+        font: 0.4,
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeWidth: 0.1,
+      });
+    }
+
+    // Draw peak nodes
     forEach(this.peaks, (peak, index) => {
-      const opacity = 0.3 + (peak.height / maxHeight) * 0.7;
+      const opacity = 0.5 + (peak.height / maxHeight) * 0.5;
       room.visual.circle(peak.center.x, peak.center.y, {
         fill: "yellow",
+        stroke: "#886600",
+        strokeWidth: 0.1,
         opacity,
-        radius: 0.5,
+        radius: 0.4 + (peak.height / maxHeight) * 0.3,
       });
-      // Label top 3 peaks
+      // Label top 3 peaks with their height
       if (index < 3) {
-        room.visual.text(`P${index + 1}`, peak.center.x, peak.center.y - 1, {
-          font: 0.4,
-          color: "white",
+        room.visual.text(`${peak.height}`, peak.center.x, peak.center.y + 0.15, {
+          font: 0.35,
+          color: "#000000",
         });
       }
     });
-
-    // Visualize territory boundaries
-    const colors = [
-      "#ff000044",
-      "#00ff0044",
-      "#0000ff44",
-      "#ffff0044",
-      "#ff00ff44",
-    ];
-    let colorIndex = 0;
-    for (const [peakId, positions] of this.territories) {
-      if (colorIndex >= colors.length) break;
-      const color = colors[colorIndex++];
-      // Only draw boundary positions (limited for performance)
-      const boundary = positions
-        .filter(
-          (pos) =>
-            !positions.some(
-              (p) =>
-                Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y) === 1 &&
-                positions.every(
-                  (pp) => pp !== p || pp.x !== pos.x + 1 || pp.y !== pos.y
-                )
-            )
-        )
-        .slice(0, 100);
-      forEach(boundary, (pos) => {
-        room.visual.rect(pos.x - 0.5, pos.y - 0.5, 1, 1, { fill: color });
-      });
-    }
   }
 
   /**
