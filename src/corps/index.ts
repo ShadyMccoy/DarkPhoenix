@@ -44,3 +44,9 @@ export {
   calculateUpgradeEnergyNeeded,
   calculateUpgradeEfficiency
 } from "./UpgradingCorp";
+
+export {
+  BootstrapCorp,
+  SerializedBootstrapCorp,
+  createBootstrapCorp
+} from "./BootstrapCorp";

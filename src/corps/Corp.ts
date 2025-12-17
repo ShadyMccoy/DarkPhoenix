@@ -8,7 +8,8 @@ export type CorpType =
   | "spawning"
   | "upgrading"
   | "hauling"
-  | "building";
+  | "building"
+  | "bootstrap";
 
 /**
  * Serialized corp state for persistence
