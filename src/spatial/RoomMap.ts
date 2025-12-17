@@ -79,6 +79,18 @@ export interface Territory {
 }
 
 /**
+ * Edge connecting two peaks in the skeleton graph.
+ */
+export interface Edge {
+  /** Index of source peak */
+  source: number;
+  /** Index of target peak */
+  target: number;
+  /** Pathfinding distance between peaks (ignoring walls, through walkable terrain) */
+  distance: number;
+}
+
+/**
  * Converts a PeakData (pure) to Peak (with RoomPositions).
  */
 function peakDataToPeak(data: PeakData, roomName: string): Peak {
@@ -120,6 +132,12 @@ export class RoomMap extends RoomRoutine {
   /** Territory assignments (which peak owns which tiles) */
   private territories: Map<string, RoomPosition[]> = new Map();
 
+  /** Skeleton graph edges with pathfinding distances */
+  private edges: Edge[] = [];
+
+  /** Terrain callback for pathfinding */
+  private terrainCallback: TerrainCallback | null = null;
+
   /**
    * Creates a new RoomMap with full spatial analysis.
    *
@@ -133,18 +151,18 @@ export class RoomMap extends RoomRoutine {
   constructor(room: Room) {
     super(new RoomPosition(25, 25, room.name), {});
 
-    const terrainCallback = createTerrainCallback(room);
+    this.terrainCallback = createTerrainCallback(room);
 
     // Create inverted distance transform (peaks = open areas)
     this.distanceTransform = createDistanceTransform(
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
 
     // Find and filter peaks (using pure functions)
     const peakDataList = findPeaksPure(
       this.distanceTransform,
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
     const filteredPeakData = filterPeaksPure(peakDataList);
@@ -155,7 +173,7 @@ export class RoomMap extends RoomRoutine {
     // Divide room into territories using BFS (pure function)
     const territoryData = bfsDivideRoomPure(
       filteredPeakData,
-      terrainCallback,
+      this.terrainCallback,
       TERRAIN_MASK_WALL
     );
 
@@ -168,6 +186,9 @@ export class RoomMap extends RoomRoutine {
       const fullPeakId = `${room.name}-${peakId}`;
       this.territories.set(fullPeakId, positions);
     }
+
+    // Build skeleton graph edges
+    this.buildEdges();
 
     // Visualize results
     this.visualize(room);
@@ -235,60 +256,142 @@ export class RoomMap extends RoomRoutine {
    * Renders visual debugging information.
    *
    * Shows:
-   * - Peak locations with varying opacity by height
+   * - Peak nodes (already filtered to sparse graph by filterPeaks)
+   * - MST edges ensuring connectivity, plus short non-redundant edges
    * - Labels for top 3 peaks
-   * - Territory boundaries (limited for performance)
    *
    * @param room - The room to render visuals in
    */
   private visualize(room: Room): void {
-    // Visualize peaks with varying opacity by height
+    if (this.peaks.length === 0) return;
+
     const maxHeight = Math.max(...this.peaks.map((p) => p.height), 1);
+
+    // Helper to compute Manhattan distance
+    const dist = (a: Peak, b: Peak) =>
+      Math.abs(a.center.x - b.center.x) + Math.abs(a.center.y - b.center.y);
+
+    const edgeKey = (i: number, j: number) =>
+      i < j ? `${i}-${j}` : `${j}-${i}`;
+
+    // Build MST using Prim's algorithm to ensure connectivity
+    const mstEdges: Set<string> = new Set();
+    if (this.peaks.length > 1) {
+      const inMST = new Set<number>([0]);
+      while (inMST.size < this.peaks.length) {
+        let bestEdge: [number, number] | null = null;
+        let bestDist = Infinity;
+
+        for (const i of inMST) {
+          for (let j = 0; j < this.peaks.length; j++) {
+            if (inMST.has(j)) continue;
+            const d = dist(this.peaks[i], this.peaks[j]);
+            if (d < bestDist) {
+              bestDist = d;
+              bestEdge = [i, j];
+            }
+          }
+        }
+
+        if (bestEdge) {
+          mstEdges.add(edgeKey(bestEdge[0], bestEdge[1]));
+          inMST.add(bestEdge[1]);
+        }
+      }
+    }
+
+    // Build map from peak index to territory key
+    const peakToTerritory: Map<number, string> = new Map();
+    let tidx = 0;
+    for (const [tkey] of this.territories) {
+      if (tidx < this.peaks.length) {
+        peakToTerritory.set(tidx, tkey);
+      }
+      tidx++;
+    }
+
+    // Check if two territories share a border (are adjacent)
+    const territoriesAdjacent = (t1: string, t2: string): boolean => {
+      const pos1 = this.territories.get(t1) || [];
+      const pos2Set = new Set(
+        (this.territories.get(t2) || []).map((p) => `${p.x},${p.y}`)
+      );
+      for (const p of pos1) {
+        // Check 4-directional neighbors
+        if (
+          pos2Set.has(`${p.x - 1},${p.y}`) ||
+          pos2Set.has(`${p.x + 1},${p.y}`) ||
+          pos2Set.has(`${p.x},${p.y - 1}`) ||
+          pos2Set.has(`${p.x},${p.y + 1}`)
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Add edges between peaks whose territories are adjacent
+    const allEdges: Set<string> = new Set(mstEdges);
+    for (let i = 0; i < this.peaks.length; i++) {
+      for (let j = i + 1; j < this.peaks.length; j++) {
+        const key = edgeKey(i, j);
+        if (allEdges.has(key)) continue;
+
+        const t1 = peakToTerritory.get(i);
+        const t2 = peakToTerritory.get(j);
+        if (t1 && t2 && territoriesAdjacent(t1, t2)) {
+          allEdges.add(key);
+        }
+      }
+    }
+
+    // Draw territory colors (sphere of influence for each peak)
+    const territoryColors = [
+      "#ff000022", "#00ff0022", "#0000ff22", "#ffff0022",
+      "#ff00ff22", "#00ffff22", "#ff880022", "#88ff0022",
+    ];
+    let colorIdx = 0;
+    for (const [, positions] of this.territories) {
+      const color = territoryColors[colorIdx % territoryColors.length];
+      colorIdx++;
+      for (const pos of positions) {
+        room.visual.rect(pos.x - 0.5, pos.y - 0.5, 1, 1, {
+          fill: color,
+          opacity: 1,
+        });
+      }
+    }
+
+    // Draw edges on top of territory
+    for (const key of allEdges) {
+      const [i, j] = key.split("-").map(Number);
+      const p1 = this.peaks[i].center;
+      const p2 = this.peaks[j].center;
+      room.visual.line(p1.x, p1.y, p2.x, p2.y, {
+        color: "#ffffff",
+        opacity: 0.8,
+        width: 0.15,
+      });
+    }
+
+    // Draw peak nodes
     forEach(this.peaks, (peak, index) => {
-      const opacity = 0.3 + (peak.height / maxHeight) * 0.7;
+      const opacity = 0.5 + (peak.height / maxHeight) * 0.5;
       room.visual.circle(peak.center.x, peak.center.y, {
         fill: "yellow",
+        stroke: "#886600",
+        strokeWidth: 0.1,
         opacity,
-        radius: 0.5,
+        radius: 0.4 + (peak.height / maxHeight) * 0.3,
       });
-      // Label top 3 peaks
+      // Label top 3 peaks with their height
       if (index < 3) {
-        room.visual.text(`P${index + 1}`, peak.center.x, peak.center.y - 1, {
-          font: 0.4,
-          color: "white",
+        room.visual.text(`${peak.height}`, peak.center.x, peak.center.y + 0.15, {
+          font: 0.35,
+          color: "#000000",
         });
       }
     });
-
-    // Visualize territory boundaries
-    const colors = [
-      "#ff000044",
-      "#00ff0044",
-      "#0000ff44",
-      "#ffff0044",
-      "#ff00ff44",
-    ];
-    let colorIndex = 0;
-    for (const [peakId, positions] of this.territories) {
-      if (colorIndex >= colors.length) break;
-      const color = colors[colorIndex++];
-      // Only draw boundary positions (limited for performance)
-      const boundary = positions
-        .filter(
-          (pos) =>
-            !positions.some(
-              (p) =>
-                Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y) === 1 &&
-                positions.every(
-                  (pp) => pp !== p || pp.x !== pos.x + 1 || pp.y !== pos.y
-                )
-            )
-        )
-        .slice(0, 100);
-      forEach(boundary, (pos) => {
-        room.visual.rect(pos.x - 0.5, pos.y - 0.5, 1, 1, { fill: color });
-      });
-    }
   }
 
   /**

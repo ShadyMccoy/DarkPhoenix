@@ -76,6 +76,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
     const cached = roomMapCache[room.name];
     if (!cached || Game.time - cached.tick > ROOM_MAP_CACHE_TTL) {
       roomMapCache[room.name] = { map: new RoomMap(room), tick: Game.time };
+    } else {
+      // Re-visualize cached map every tick
+      cached.map.routine(room);
     }
   });
 
