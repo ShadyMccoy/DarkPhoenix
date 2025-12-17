@@ -2,10 +2,14 @@
  * @fileoverview Screeps Memory type extensions.
  *
  * Extends the global Screeps memory interfaces to support
- * colony routine persistence.
+ * colony-based economic system persistence.
  *
  * @module types/Memory
  */
+
+import { SerializedColony } from "../colony/Colony";
+import { SerializedNode } from "../nodes/Node";
+import { SerializedChain } from "../planning/Chain";
 
 declare global {
   /**
@@ -37,49 +41,83 @@ declare global {
   }
 
   /**
-   * Extended global memory with room intel.
+   * Extended global memory with colony persistence.
    */
   interface Memory {
-    /** Room intelligence data from scouting */
-    roomIntel: { [roomName: string]: RoomIntel };
+    /**
+     * Serialized colony state for persistence across ticks.
+     */
+    colony?: SerializedColony;
+
+    /**
+     * Serialized nodes (territories) for persistence.
+     */
+    nodes?: { [nodeId: string]: SerializedNode };
+
+    /**
+     * Serialized chains for persistence.
+     */
+    chains?: { [chainId: string]: SerializedChain };
+
+    /**
+     * Room map cache metadata (tick when last computed).
+     */
+    roomMapCache?: { [roomName: string]: number };
+
+    /**
+     * Room intelligence data from scouting.
+     */
+    roomIntel?: { [roomName: string]: RoomIntel };
   }
 
   /**
-   * Extended room memory with routine persistence.
+   * Extended room memory for colony operations.
    */
   interface RoomMemory {
     /**
-     * Persisted routine states, keyed by routine type.
-     * Each routine type maps to an array of serialized routine instances.
+     * Node IDs associated with this room.
      */
-    routines: {
-      [routineType: string]: any[];
-    };
+    nodeIds?: string[];
+
+    /**
+     * Last surveyed tick for this room.
+     */
+    lastSurveyTick?: number;
   }
 
   /**
-   * Extended creep memory with role tracking.
+   * Extended creep memory with corp assignment.
    */
   interface CreepMemory {
     /**
-     * Current role of the creep.
-     *
-     * Roles follow a naming convention:
-     * - "jack" - Idle jack (multi-purpose early game)
-     * - "busyjack" - Active jack assigned to a routine
-     * - "harvester" - Idle harvester
-     * - "busyharvester" - Active harvester on a mining operation
-     * - "carrier" - Idle carrier
-     * - "busycarrier" - Active carrier on a route
-     * - "builder" - Idle builder
-     * - "busyBuilder" - Active builder on construction
-     * - "scout" - Idle scout
-     * - "busyscout" - Active scout on exploration
+     * The corp ID this creep is assigned to.
      */
-    role?: string;
+    corpId?: string;
 
-    /** Target room for scout creeps */
-    scoutTarget?: string;
+    /**
+     * The type of work this creep performs.
+     */
+    workType?: "harvest" | "haul" | "upgrade" | "build" | "repair";
+
+    /**
+     * Target ID for current task.
+     */
+    targetId?: string;
+
+    /**
+     * Source ID for hauling tasks.
+     */
+    sourceId?: string;
+
+    /**
+     * Destination ID for hauling tasks.
+     */
+    destinationId?: string;
+
+    /**
+     * Whether creep is currently working (vs traveling).
+     */
+    working?: boolean;
   }
 }
 
