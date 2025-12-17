@@ -9,6 +9,42 @@
 
 declare global {
   /**
+   * Room intelligence data from scouting.
+   */
+  interface RoomIntel {
+    /** Game tick when this room was last visited */
+    lastVisit: number;
+    /** Number of energy sources in the room */
+    sourceCount: number;
+    /** Positions of energy sources */
+    sourcePositions: { x: number; y: number }[];
+    /** Type of mineral in the room (if any) */
+    mineralType: MineralConstant | null;
+    /** Position of the mineral (if any) */
+    mineralPos: { x: number; y: number } | null;
+    /** Controller level (0 if unclaimed) */
+    controllerLevel: number;
+    /** Username of controller owner (if owned) */
+    controllerOwner: string | null;
+    /** Username of controller reserver (if reserved) */
+    controllerReservation: string | null;
+    /** Number of hostile creeps observed */
+    hostileCreepCount: number;
+    /** Number of hostile structures observed */
+    hostileStructureCount: number;
+    /** Whether the room appears safe for operations */
+    isSafe: boolean;
+  }
+
+  /**
+   * Extended global memory with room intel.
+   */
+  interface Memory {
+    /** Room intelligence data from scouting */
+    roomIntel: { [roomName: string]: RoomIntel };
+  }
+
+  /**
    * Extended room memory with routine persistence.
    */
   interface RoomMemory {
@@ -37,8 +73,13 @@ declare global {
      * - "busycarrier" - Active carrier on a route
      * - "builder" - Idle builder
      * - "busyBuilder" - Active builder on construction
+     * - "scout" - Idle scout
+     * - "busyscout" - Active scout on exploration
      */
     role?: string;
+
+    /** Target room for scout creeps */
+    scoutTarget?: string;
   }
 }
 

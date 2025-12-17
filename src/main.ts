@@ -25,6 +25,7 @@ import { Construction } from "./routines/Construction";
 import { EnergyMining } from "./routines/EnergyMining";
 import { RoomRoutine } from "./core/RoomRoutine";
 import { Bootstrap } from "./routines/Bootstrap";
+import { Scout } from "./routines/Scout";
 import { ErrorMapper } from "./utils/ErrorMapper";
 import { RoomMap } from "./spatial/RoomMap";
 import "./types/Memory";
@@ -117,6 +118,11 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
     ];
   }
 
+  // Initialize scout routine
+  if (!room.memory.routines.scout) {
+    room.memory.routines.scout = [new Scout(room.controller.pos).serialize()];
+  }
+
   // Sync energy mines with current sources
   const currentSources = room.find(FIND_SOURCES);
   const existingSourceIds = _.map(
@@ -167,6 +173,11 @@ function getRoomRoutines(room: Room): { [routineType: string]: RoomRoutine[] } {
       const c = new Construction(memRoutine.constructionSiteId);
       c.deserialize(memRoutine);
       return c;
+    }),
+    scout: _.map(room.memory.routines.scout, (memRoutine) => {
+      const s = new Scout(room.controller!.pos);
+      s.deserialize(memRoutine);
+      return s;
     }),
   };
 }

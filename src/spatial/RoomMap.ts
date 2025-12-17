@@ -253,52 +253,73 @@ export class RoomMap extends RoomRoutine {
   }
 
   /**
-   * Renders visual debugging information.
+   * Gets all edges in the skeleton graph.
    *
-   * Shows:
-   * - Peak nodes (already filtered to sparse graph by filterPeaks)
-   * - MST edges ensuring connectivity, plus short non-redundant edges
-   * - Labels for top 3 peaks
-   *
-   * @param room - The room to render visuals in
+   * @returns Array of edges with pathfinding distances
    */
-  private visualize(room: Room): void {
-    if (this.peaks.length === 0) return;
+  getEdges(): Edge[] {
+    return [...this.edges];
+  }
 
-    const maxHeight = Math.max(...this.peaks.map((p) => p.height), 1);
+  /**
+   * Calculates BFS pathfinding distance between two positions.
+   * Ignores walls, walks through all terrain.
+   *
+   * @param from - Starting position
+   * @param to - Target position
+   * @returns Distance in tiles, or Infinity if unreachable
+   */
+  private bfsDistance(from: RoomPosition, to: RoomPosition): number {
+    if (from.x === to.x && from.y === to.y) return 0;
+    if (!this.terrainCallback) return Infinity;
 
-    // Helper to compute Manhattan distance
-    const dist = (a: Peak, b: Peak) =>
-      Math.abs(a.center.x - b.center.x) + Math.abs(a.center.y - b.center.y);
+    const visited = new Set<string>();
+    const queue: { x: number; y: number; dist: number }[] = [
+      { x: from.x, y: from.y, dist: 0 },
+    ];
+    visited.add(`${from.x},${from.y}`);
 
-    const edgeKey = (i: number, j: number) =>
-      i < j ? `${i}-${j}` : `${j}-${i}`;
+    const neighbors = [
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: 1, dy: -1 },
+      { dx: 1, dy: 1 },
+    ];
 
-    // Build MST using Prim's algorithm to ensure connectivity
-    const mstEdges: Set<string> = new Set();
-    if (this.peaks.length > 1) {
-      const inMST = new Set<number>([0]);
-      while (inMST.size < this.peaks.length) {
-        let bestEdge: [number, number] | null = null;
-        let bestDist = Infinity;
+    while (queue.length > 0) {
+      const { x, y, dist } = queue.shift()!;
 
-        for (const i of inMST) {
-          for (let j = 0; j < this.peaks.length; j++) {
-            if (inMST.has(j)) continue;
-            const d = dist(this.peaks[i], this.peaks[j]);
-            if (d < bestDist) {
-              bestDist = d;
-              bestEdge = [i, j];
-            }
-          }
+      for (const { dx, dy } of neighbors) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = `${nx},${ny}`;
+
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+        if (visited.has(key)) continue;
+        if (this.terrainCallback(nx, ny) === TERRAIN_MASK_WALL) continue;
+
+        if (nx === to.x && ny === to.y) {
+          return dist + 1;
         }
 
-        if (bestEdge) {
-          mstEdges.add(edgeKey(bestEdge[0], bestEdge[1]));
-          inMST.add(bestEdge[1]);
-        }
+        visited.add(key);
+        queue.push({ x: nx, y: ny, dist: dist + 1 });
       }
     }
+
+    return Infinity;
+  }
+
+  /**
+   * Builds skeleton graph edges between adjacent territories.
+   * Calculates pathfinding distance for each edge.
+   */
+  private buildEdges(): void {
+    if (this.peaks.length < 2) return;
 
     // Build map from peak index to territory key
     const peakToTerritory: Map<number, string> = new Map();
@@ -310,14 +331,13 @@ export class RoomMap extends RoomRoutine {
       tidx++;
     }
 
-    // Check if two territories share a border (are adjacent)
+    // Check if two territories share a border
     const territoriesAdjacent = (t1: string, t2: string): boolean => {
       const pos1 = this.territories.get(t1) || [];
       const pos2Set = new Set(
         (this.territories.get(t2) || []).map((p) => `${p.x},${p.y}`)
       );
       for (const p of pos1) {
-        // Check 4-directional neighbors
         if (
           pos2Set.has(`${p.x - 1},${p.y}`) ||
           pos2Set.has(`${p.x + 1},${p.y}`) ||
@@ -330,20 +350,74 @@ export class RoomMap extends RoomRoutine {
       return false;
     };
 
-    // Add edges between peaks whose territories are adjacent
-    const allEdges: Set<string> = new Set(mstEdges);
+    // Build MST first to ensure connectivity
+    const edgeSet = new Set<string>();
+    const edgeKey = (i: number, j: number) =>
+      i < j ? `${i}-${j}` : `${j}-${i}`;
+
+    const inMST = new Set<number>([0]);
+    while (inMST.size < this.peaks.length) {
+      let bestEdge: [number, number] | null = null;
+      let bestDist = Infinity;
+
+      for (const i of inMST) {
+        for (let j = 0; j < this.peaks.length; j++) {
+          if (inMST.has(j)) continue;
+          const d =
+            Math.abs(this.peaks[i].center.x - this.peaks[j].center.x) +
+            Math.abs(this.peaks[i].center.y - this.peaks[j].center.y);
+          if (d < bestDist) {
+            bestDist = d;
+            bestEdge = [i, j];
+          }
+        }
+      }
+
+      if (bestEdge) {
+        edgeSet.add(edgeKey(bestEdge[0], bestEdge[1]));
+        inMST.add(bestEdge[1]);
+      }
+    }
+
+    // Add edges for adjacent territories
     for (let i = 0; i < this.peaks.length; i++) {
       for (let j = i + 1; j < this.peaks.length; j++) {
         const key = edgeKey(i, j);
-        if (allEdges.has(key)) continue;
+        if (edgeSet.has(key)) continue;
 
         const t1 = peakToTerritory.get(i);
         const t2 = peakToTerritory.get(j);
         if (t1 && t2 && territoriesAdjacent(t1, t2)) {
-          allEdges.add(key);
+          edgeSet.add(key);
         }
       }
     }
+
+    // Calculate pathfinding distance for each edge
+    for (const key of edgeSet) {
+      const [i, j] = key.split("-").map(Number);
+      const distance = this.bfsDistance(
+        this.peaks[i].center,
+        this.peaks[j].center
+      );
+      this.edges.push({ source: i, target: j, distance });
+    }
+  }
+
+  /**
+   * Renders visual debugging information.
+   *
+   * Shows:
+   * - Territory colors (sphere of influence)
+   * - Edges with pathfinding distances
+   * - Peak nodes with height labels
+   *
+   * @param room - The room to render visuals in
+   */
+  private visualize(room: Room): void {
+    if (this.peaks.length === 0) return;
+
+    const maxHeight = Math.max(...this.peaks.map((p) => p.height), 1);
 
     // Draw territory colors (sphere of influence for each peak)
     const territoryColors = [
@@ -362,15 +436,26 @@ export class RoomMap extends RoomRoutine {
       }
     }
 
-    // Draw edges on top of territory
-    for (const key of allEdges) {
-      const [i, j] = key.split("-").map(Number);
-      const p1 = this.peaks[i].center;
-      const p2 = this.peaks[j].center;
+    // Draw edges with distance labels
+    for (const edge of this.edges) {
+      const p1 = this.peaks[edge.source].center;
+      const p2 = this.peaks[edge.target].center;
+
+      // Draw edge line
       room.visual.line(p1.x, p1.y, p2.x, p2.y, {
         color: "#ffffff",
         opacity: 0.8,
         width: 0.15,
+      });
+
+      // Draw distance label at midpoint
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      room.visual.text(`${edge.distance}`, midX, midY, {
+        font: 0.4,
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeWidth: 0.1,
       });
     }
 
