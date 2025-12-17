@@ -215,6 +215,33 @@ export class BootstrapCorp extends Corp {
   }
 
   /**
+   * Estimate ROI for bootstrap operations.
+   * Returns 0 if there are any other creeps in the room (non-bootstrap creeps),
+   * allowing other corps to take priority.
+   */
+  estimateROI(): number {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return 0;
+
+    const room = spawn.room;
+    const allCreeps = room.find(FIND_MY_CREEPS);
+
+    // Get names of our bootstrap creeps
+    const ourCreepNames = new Set(this.creepNames);
+
+    // Check if there are any other creeps (not belonging to this bootstrap)
+    const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
+
+    // If there are any other creeps in the room, return 0 ROI
+    if (otherCreeps.length > 0) {
+      return 0;
+    }
+
+    // Very low ROI when we're the only option (but non-zero so we still work)
+    return 0.001;
+  }
+
+  /**
    * Check if bootstrap should be active.
    * Bootstrap activates when the spawn has less than 300 energy
    * OR when we have no other creeps.
@@ -223,12 +250,20 @@ export class BootstrapCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return false;
 
-    // Count all creeps in this room
     const room = spawn.room;
-    const totalCreeps = room.find(FIND_MY_CREEPS).length;
+    const allCreeps = room.find(FIND_MY_CREEPS);
+
+    // Get names of our bootstrap creeps
+    const ourCreepNames = new Set(this.creepNames);
+
+    // Check if there are any other creeps (not belonging to this bootstrap)
+    const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
+
+    // Don't activate if there are other creeps in the room
+    if (otherCreeps.length > 0) return false;
 
     // Activate if we have no creeps at all
-    if (totalCreeps === 0) return true;
+    if (allCreeps.length === 0) return true;
 
     // Activate if we have less than our target jacks
     if (this.creepNames.filter((n) => Game.creeps[n]).length < MAX_JACKS) {
