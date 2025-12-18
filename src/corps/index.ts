@@ -68,3 +68,9 @@ export {
   SerializedRealUpgradingCorp,
   createRealUpgradingCorp
 } from "./RealUpgradingCorp";
+
+export {
+  ScoutCorp,
+  SerializedScoutCorp,
+  createScoutCorp
+} from "./ScoutCorp";

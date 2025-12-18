@@ -44,6 +44,16 @@ export interface Coordinate {
 }
 
 /**
+ * World coordinate that includes room name.
+ * Used for cross-room algorithms.
+ */
+export interface WorldCoordinate {
+  x: number;
+  y: number;
+  roomName: string;
+}
+
+/**
  * Peak data structure for pure functions.
  * Uses Coordinate instead of RoomPosition.
  */
@@ -489,4 +499,584 @@ export function floodFillDistanceSearch(
       }
     }
   }
+}
+
+// ============================================================================
+// Cross-Room Coordinate Utilities
+// ============================================================================
+
+/**
+ * Parsed room coordinates.
+ */
+export interface RoomCoords {
+  /** Horizontal direction: 'W' or 'E' */
+  horizontalDir: "W" | "E";
+  /** Horizontal distance from origin */
+  horizontalPos: number;
+  /** Vertical direction: 'N' or 'S' */
+  verticalDir: "N" | "S";
+  /** Vertical distance from origin */
+  verticalPos: number;
+}
+
+/**
+ * Parses a room name into its coordinate components.
+ *
+ * @param roomName - Room name like "W1N2" or "E0S3"
+ * @returns Parsed coordinates or null if invalid
+ */
+export function parseRoomName(roomName: string): RoomCoords | null {
+  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  if (!match) return null;
+
+  return {
+    horizontalDir: match[1] as "W" | "E",
+    horizontalPos: parseInt(match[2], 10),
+    verticalDir: match[3] as "N" | "S",
+    verticalPos: parseInt(match[4], 10),
+  };
+}
+
+/**
+ * Converts room coordinates back to a room name.
+ *
+ * @param coords - Parsed room coordinates
+ * @returns Room name string
+ */
+export function roomCoordsToName(coords: RoomCoords): string {
+  return `${coords.horizontalDir}${coords.horizontalPos}${coords.verticalDir}${coords.verticalPos}`;
+}
+
+/**
+ * Gets the adjacent room name and entry position when crossing a room boundary.
+ *
+ * @param fromRoom - Room name being exited
+ * @param x - X coordinate at exit (0 or 49)
+ * @param y - Y coordinate at exit (0 or 49)
+ * @returns Adjacent room and entry position, or null if not an exit
+ */
+export function getAdjacentRoomPosition(
+  fromRoom: string,
+  x: number,
+  y: number
+): { roomName: string; x: number; y: number } | null {
+  const coords = parseRoomName(fromRoom);
+  if (!coords) return null;
+
+  // Not an exit tile
+  if (x !== 0 && x !== 49 && y !== 0 && y !== 49) return null;
+
+  let newCoords = { ...coords };
+  let newX = x;
+  let newY = y;
+
+  // Handle horizontal exit (LEFT or RIGHT)
+  if (x === 0) {
+    // Exit LEFT - go west
+    if (coords.horizontalDir === "E") {
+      if (coords.horizontalPos === 0) {
+        newCoords.horizontalDir = "W";
+        newCoords.horizontalPos = 0;
+      } else {
+        newCoords.horizontalPos = coords.horizontalPos - 1;
+      }
+    } else {
+      newCoords.horizontalPos = coords.horizontalPos + 1;
+    }
+    newX = 49;
+  } else if (x === 49) {
+    // Exit RIGHT - go east
+    if (coords.horizontalDir === "W") {
+      if (coords.horizontalPos === 0) {
+        newCoords.horizontalDir = "E";
+        newCoords.horizontalPos = 0;
+      } else {
+        newCoords.horizontalPos = coords.horizontalPos - 1;
+      }
+    } else {
+      newCoords.horizontalPos = coords.horizontalPos + 1;
+    }
+    newX = 0;
+  }
+
+  // Handle vertical exit (TOP or BOTTOM)
+  if (y === 0) {
+    // Exit TOP - go north
+    if (coords.verticalDir === "S") {
+      if (coords.verticalPos === 0) {
+        newCoords.verticalDir = "N";
+        newCoords.verticalPos = 0;
+      } else {
+        newCoords.verticalPos = coords.verticalPos - 1;
+      }
+    } else {
+      newCoords.verticalPos = coords.verticalPos + 1;
+    }
+    newY = 49;
+  } else if (y === 49) {
+    // Exit BOTTOM - go south
+    if (coords.verticalDir === "N") {
+      if (coords.verticalPos === 0) {
+        newCoords.verticalDir = "S";
+        newCoords.verticalPos = 0;
+      } else {
+        newCoords.verticalPos = coords.verticalPos - 1;
+      }
+    } else {
+      newCoords.verticalPos = coords.verticalPos + 1;
+    }
+    newY = 0;
+  }
+
+  return {
+    roomName: roomCoordsToName(newCoords),
+    x: newX,
+    y: newY,
+  };
+}
+
+// ============================================================================
+// Multi-Room BFS Territory Division
+// ============================================================================
+
+/**
+ * Peak data with room name for multi-room algorithms.
+ */
+export interface WorldPeakData {
+  /** All tiles at this peak's height (plateau) */
+  tiles: WorldCoordinate[];
+  /** Centroid of the peak cluster */
+  center: WorldCoordinate;
+  /** Distance transform value (higher = more open space) */
+  height: number;
+}
+
+/**
+ * Callback type for multi-room terrain queries.
+ * Returns terrain mask value for a position in any room.
+ */
+export type MultiRoomTerrainCallback = (
+  roomName: string,
+  x: number,
+  y: number
+) => number;
+
+/**
+ * Creates a multi-room distance transform where room boundaries don't affect distances.
+ *
+ * Unlike the single-room version, this BFS from walls continues across room exits,
+ * giving accurate "distance from walls" values for positions near room edges.
+ *
+ * @param startRooms - Initial rooms to include in the analysis
+ * @param terrainCallback - Multi-room terrain callback
+ * @param wallMask - Terrain mask value for walls (default: 1)
+ * @param maxRooms - Maximum rooms to expand into (default: 9)
+ * @returns Map of "roomName:x,y" to distance value
+ */
+export function createMultiRoomDistanceTransform(
+  startRooms: string[],
+  terrainCallback: MultiRoomTerrainCallback,
+  wallMask: number = 1,
+  maxRooms: number = 9
+): Map<string, number> {
+  const distances = new Map<string, number>();
+  const visitedRooms = new Set<string>(startRooms);
+
+  interface QueueItem {
+    x: number;
+    y: number;
+    roomName: string;
+    distance: number;
+  }
+
+  const queue: QueueItem[] = [];
+
+  // Initialize: find all walls in starting rooms and set distance 0
+  for (const roomName of startRooms) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      for (let y = 0; y < GRID_SIZE; y++) {
+        const key = `${roomName}:${x},${y}`;
+        if (terrainCallback(roomName, x, y) === wallMask) {
+          distances.set(key, 0);
+          queue.push({ x, y, roomName, distance: 0 });
+        } else {
+          distances.set(key, Infinity);
+        }
+      }
+    }
+  }
+
+  // BFS from walls, crossing room boundaries
+  while (queue.length > 0) {
+    const { x, y, roomName, distance } = queue.shift()!;
+
+    // 8-directional neighbors for accurate distance
+    for (const neighbor of NEIGHBORS_8) {
+      let nx = x + neighbor.x;
+      let ny = y + neighbor.y;
+      let nRoomName = roomName;
+
+      // Check if crossing room boundary
+      if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) {
+        const adjacent = getAdjacentRoomPosition(
+          roomName,
+          nx < 0 ? 0 : nx >= GRID_SIZE ? 49 : nx,
+          ny < 0 ? 0 : ny >= GRID_SIZE ? 49 : ny
+        );
+
+        if (!adjacent) continue;
+
+        // Limit expansion
+        if (!visitedRooms.has(adjacent.roomName)) {
+          if (visitedRooms.size >= maxRooms) continue;
+          visitedRooms.add(adjacent.roomName);
+
+          // Initialize new room's tiles
+          for (let rx = 0; rx < GRID_SIZE; rx++) {
+            for (let ry = 0; ry < GRID_SIZE; ry++) {
+              const rkey = `${adjacent.roomName}:${rx},${ry}`;
+              if (!distances.has(rkey)) {
+                if (terrainCallback(adjacent.roomName, rx, ry) === wallMask) {
+                  distances.set(rkey, 0);
+                  queue.push({ x: rx, y: ry, roomName: adjacent.roomName, distance: 0 });
+                } else {
+                  distances.set(rkey, Infinity);
+                }
+              }
+            }
+          }
+        }
+
+        nRoomName = adjacent.roomName;
+        nx = adjacent.x;
+        ny = adjacent.y;
+      }
+
+      const nkey = `${nRoomName}:${nx},${ny}`;
+      const currentDist = distances.get(nkey) ?? Infinity;
+      const newDist = distance + 1;
+
+      if (terrainCallback(nRoomName, nx, ny) !== wallMask && newDist < currentDist) {
+        distances.set(nkey, newDist);
+        queue.push({ x: nx, y: ny, roomName: nRoomName, distance: newDist });
+      }
+    }
+  }
+
+  // Replace Infinity with 0 for any isolated tiles
+  for (const [key, value] of distances) {
+    if (value === Infinity) {
+      distances.set(key, 0);
+    }
+  }
+
+  return distances;
+}
+
+/**
+ * Finds peaks across multiple rooms from a multi-room distance transform.
+ *
+ * @param distances - Multi-room distance map from createMultiRoomDistanceTransform
+ * @param terrainCallback - Multi-room terrain callback
+ * @param wallMask - Terrain mask value for walls
+ * @returns Array of peaks with world coordinates
+ */
+export function findMultiRoomPeaks(
+  distances: Map<string, number>,
+  terrainCallback: MultiRoomTerrainCallback,
+  wallMask: number = 1
+): WorldPeakData[] {
+  // Collect all tiles with heights
+  const tiles: { roomName: string; x: number; y: number; height: number }[] = [];
+  const visited = new Set<string>();
+
+  for (const [key, height] of distances) {
+    if (height > 0) {
+      const [roomPart, coordPart] = key.split(":");
+      const [xStr, yStr] = coordPart.split(",");
+      tiles.push({
+        roomName: roomPart,
+        x: parseInt(xStr, 10),
+        y: parseInt(yStr, 10),
+        height,
+      });
+    }
+  }
+
+  // Sort by height descending
+  tiles.sort((a, b) => b.height - a.height);
+
+  const peaks: WorldPeakData[] = [];
+
+  // Find peaks by clustering connected tiles of same height
+  for (const tile of tiles) {
+    const startKey = `${tile.roomName}:${tile.x},${tile.y}`;
+    if (visited.has(startKey)) continue;
+
+    // BFS to find connected tiles at same height (plateau)
+    const cluster: WorldCoordinate[] = [];
+    const clusterQueue = [{ x: tile.x, y: tile.y, roomName: tile.roomName }];
+
+    while (clusterQueue.length > 0) {
+      const { x, y, roomName } = clusterQueue.pop()!;
+      const key = `${roomName}:${x},${y}`;
+
+      if (visited.has(key)) continue;
+
+      const h = distances.get(key);
+      if (h !== tile.height) continue;
+
+      visited.add(key);
+      cluster.push({ x, y, roomName });
+
+      // Check 4-connected neighbors (including cross-room)
+      for (const neighbor of NEIGHBORS_4) {
+        let nx = x + neighbor.x;
+        let ny = y + neighbor.y;
+        let nRoomName = roomName;
+
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) {
+          const adjacent = getAdjacentRoomPosition(
+            roomName,
+            nx < 0 ? 0 : nx >= GRID_SIZE ? 49 : nx,
+            ny < 0 ? 0 : ny >= GRID_SIZE ? 49 : ny
+          );
+          if (!adjacent) continue;
+          if (!distances.has(`${adjacent.roomName}:${adjacent.x},${adjacent.y}`)) continue;
+          nRoomName = adjacent.roomName;
+          nx = adjacent.x;
+          ny = adjacent.y;
+        }
+
+        clusterQueue.push({ x: nx, y: ny, roomName: nRoomName });
+      }
+    }
+
+    if (cluster.length === 0) continue;
+
+    // Calculate centroid - need to handle cross-room clusters
+    // Use the most common room as the center's room
+    const roomCounts = new Map<string, number>();
+    for (const c of cluster) {
+      roomCounts.set(c.roomName, (roomCounts.get(c.roomName) || 0) + 1);
+    }
+    let centerRoom = cluster[0].roomName;
+    let maxCount = 0;
+    for (const [room, count] of roomCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        centerRoom = room;
+      }
+    }
+
+    // Calculate center within the dominant room
+    const roomTiles = cluster.filter((c) => c.roomName === centerRoom);
+    const centerX = Math.round(roomTiles.reduce((s, t) => s + t.x, 0) / roomTiles.length);
+    const centerY = Math.round(roomTiles.reduce((s, t) => s + t.y, 0) / roomTiles.length);
+
+    peaks.push({
+      tiles: cluster,
+      center: { x: centerX, y: centerY, roomName: centerRoom },
+      height: tile.height,
+    });
+  }
+
+  return peaks;
+}
+
+/**
+ * Filters multi-room peaks using exclusion radius.
+ *
+ * Adaptive filtering ensures skinny/narrow rooms get at least one peak
+ * even if all their peaks are below minHeight threshold.
+ *
+ * @param peaks - Unfiltered peaks from findMultiRoomPeaks
+ * @param options - Filtering options
+ * @returns Filtered peaks with appropriate spacing
+ */
+export function filterMultiRoomPeaks(
+  peaks: WorldPeakData[],
+  options: FilterPeaksOptions = {}
+): WorldPeakData[] {
+  const {
+    exclusionMultiplier = 1.5,
+    minHeight = 3,
+    maxPeaks = 8,
+  } = options;
+
+  // Group peaks by room to track which rooms have peaks
+  const peaksByRoom = new Map<string, WorldPeakData[]>();
+  for (const peak of peaks) {
+    const room = peak.center.roomName;
+    if (!peaksByRoom.has(room)) {
+      peaksByRoom.set(room, []);
+    }
+    peaksByRoom.get(room)!.push(peak);
+  }
+
+  // Filter by minimum height
+  const validPeaks = peaks.filter((p) => p.height >= minHeight);
+
+  // Sort by height descending
+  const sortedPeaks = [...validPeaks].sort((a, b) => b.height - a.height);
+
+  const finalPeaks: WorldPeakData[] = [];
+  const excludedPositions = new Set<string>();
+  const roomsWithPeaks = new Set<string>();
+
+  for (const peak of sortedPeaks) {
+    if (finalPeaks.length >= maxPeaks) break;
+
+    const centerKey = `${peak.center.roomName}:${peak.center.x},${peak.center.y}`;
+    if (excludedPositions.has(centerKey)) continue;
+
+    finalPeaks.push(peak);
+    roomsWithPeaks.add(peak.center.roomName);
+
+    // Exclude nearby positions (within same room for simplicity)
+    const exclusionRadius = Math.floor(peak.height * exclusionMultiplier);
+    for (let dx = -exclusionRadius; dx <= exclusionRadius; dx++) {
+      for (let dy = -exclusionRadius; dy <= exclusionRadius; dy++) {
+        const ex = peak.center.x + dx;
+        const ey = peak.center.y + dy;
+        if (ex >= 0 && ex < GRID_SIZE && ey >= 0 && ey < GRID_SIZE) {
+          excludedPositions.add(`${peak.center.roomName}:${ex},${ey}`);
+        }
+      }
+    }
+  }
+
+  // Adaptive: For rooms that had peaks but got filtered out, add the best peak
+  // This ensures narrow/skinny rooms still get representation
+  for (const [room, roomPeaks] of peaksByRoom) {
+    if (roomsWithPeaks.has(room)) continue; // Room already has a peak
+    if (finalPeaks.length >= maxPeaks) break;
+
+    // Find the highest peak in this room (regardless of minHeight)
+    const bestPeak = roomPeaks.reduce((best, p) =>
+      p.height > best.height ? p : best
+    );
+
+    // Only add if it has some height (not completely flat)
+    if (bestPeak.height >= 1) {
+      finalPeaks.push(bestPeak);
+      roomsWithPeaks.add(room);
+    }
+  }
+
+  return finalPeaks;
+}
+
+/**
+ * Divides territory among peaks using BFS that crosses room boundaries.
+ *
+ * Tiles are assigned to the nearest peak (by BFS distance), regardless
+ * of which room they're in. The BFS expands through exit tiles into
+ * adjacent rooms, but ONLY into rooms that have competing peaks.
+ *
+ * This prevents a single peak from flooding entire adjacent rooms that
+ * have no peaks to compete for territory.
+ *
+ * @param peaks - Peaks to divide territory among (with room names)
+ * @param terrainCallback - Multi-room terrain callback
+ * @param wallMask - Terrain mask value for walls (default: 1)
+ * @param maxRooms - Maximum number of rooms to expand into (default: 9)
+ * @returns Map of peak IDs (format: "roomName-x-y") to their assigned coordinates
+ */
+export function bfsDivideMultiRoom(
+  peaks: WorldPeakData[],
+  terrainCallback: MultiRoomTerrainCallback,
+  wallMask: number = 1,
+  maxRooms: number = 9
+): Map<string, WorldCoordinate[]> {
+  const territories = new Map<string, WorldCoordinate[]>();
+  const visited = new Set<string>();
+
+  // Collect all rooms that have peaks - territory can ONLY expand into these rooms
+  // This prevents flooding into adjacent rooms with no competition
+  const roomsWithPeaks = new Set<string>();
+  for (const peak of peaks) {
+    roomsWithPeaks.add(peak.center.roomName);
+  }
+
+  interface QueueItem {
+    x: number;
+    y: number;
+    roomName: string;
+    peakId: string;
+  }
+
+  const queue: QueueItem[] = [];
+
+  // Sort peaks by height (highest first gets priority in ties)
+  const sortedPeaks = [...peaks].sort((a, b) => b.height - a.height);
+
+  // Initialize with peak centers
+  for (const peak of sortedPeaks) {
+    const peakId = `${peak.center.roomName}-${peak.center.x}-${peak.center.y}`;
+    territories.set(peakId, []);
+
+    queue.push({
+      x: peak.center.x,
+      y: peak.center.y,
+      roomName: peak.center.roomName,
+      peakId,
+    });
+  }
+
+  // BFS expansion - crosses room boundaries only into rooms with peaks
+  while (queue.length > 0) {
+    const { x, y, roomName, peakId } = queue.shift()!;
+    const key = `${roomName}:${x},${y}`;
+
+    // Skip if already visited or wall
+    if (visited.has(key)) continue;
+    if (terrainCallback(roomName, x, y) === wallMask) continue;
+
+    visited.add(key);
+
+    // Assign tile to this peak's territory
+    const territory = territories.get(peakId)!;
+    territory.push({ x, y, roomName });
+
+    // Add unvisited neighbors to queue
+    for (const neighbor of NEIGHBORS_4) {
+      let nx = x + neighbor.x;
+      let ny = y + neighbor.y;
+      let nRoomName = roomName;
+
+      // Check if crossing room boundary
+      if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) {
+        // Get adjacent room position
+        const adjacent = getAdjacentRoomPosition(
+          roomName,
+          nx < 0 ? 0 : nx >= GRID_SIZE ? 49 : nx,
+          ny < 0 ? 0 : ny >= GRID_SIZE ? 49 : ny
+        );
+
+        if (!adjacent) continue;
+
+        // CRITICAL FIX: Only expand into rooms that have peaks
+        // This prevents flooding into empty adjacent rooms
+        if (!roomsWithPeaks.has(adjacent.roomName)) {
+          continue;
+        }
+
+        nRoomName = adjacent.roomName;
+        nx = adjacent.x;
+        ny = adjacent.y;
+      }
+
+      const nkey = `${nRoomName}:${nx},${ny}`;
+
+      if (
+        !visited.has(nkey) &&
+        terrainCallback(nRoomName, nx, ny) !== wallMask
+      ) {
+        queue.push({ x: nx, y: ny, roomName: nRoomName, peakId });
+      }
+    }
+  }
+
+  return territories;
 }

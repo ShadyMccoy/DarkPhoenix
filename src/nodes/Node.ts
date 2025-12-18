@@ -47,6 +47,48 @@ export interface PotentialCorp {
 }
 
 /**
+ * Potential corp ROI summary for a node.
+ */
+export interface PotentialCorpROI {
+  /** Corp type */
+  type: CorpType;
+  /** Estimated ROI for this corp */
+  estimatedROI: number;
+  /** Resource this corp would use */
+  resourceId: string;
+}
+
+/**
+ * ROI metrics for a node - used to evaluate expansion potential.
+ * ROI is calculated by surveying what corps could operate in this node.
+ */
+export interface NodeROI {
+  /** Overall ROI score (sum of potential corps' ROI, adjusted for distance) */
+  score: number;
+
+  /** Total estimated ROI from all potential corps (before distance adjustment) */
+  rawCorpROI: number;
+
+  /** Potential corps that could operate in this node */
+  potentialCorps: PotentialCorpROI[];
+
+  /** Peak height - indicates buildable space */
+  openness: number;
+
+  /** Distance from nearest owned room (in rooms, 0 = owned) */
+  distanceFromOwned: number;
+
+  /** Whether this node is in an owned room */
+  isOwned: boolean;
+
+  /** Number of sources in/near this territory */
+  sourceCount: number;
+
+  /** Whether there's a controller in this territory */
+  hasController: boolean;
+}
+
+/**
  * Node represents a territory-based spatial region.
  * Nodes are derived from peak detection in the spatial system.
  *
@@ -74,6 +116,9 @@ export interface Node {
 
   /** Tick when node was created */
   createdAt: number;
+
+  /** ROI metrics for expansion planning */
+  roi?: NodeROI;
 }
 
 /**
@@ -87,6 +132,7 @@ export interface SerializedNode {
   resources: NodeResource[];
   corpIds: string[];
   createdAt: number;
+  roi?: NodeROI;
 }
 
 /**
@@ -213,29 +259,151 @@ export function serializeNode(node: Node): SerializedNode {
     positions: node.positions,
     resources: node.resources,
     corpIds: node.corps.map((c) => c.id),
-    createdAt: node.createdAt
+    createdAt: node.createdAt,
+    roi: node.roi
   };
 }
 
 /**
- * Check if a position is within a node's territory
+ * Calculate ROI metrics for a node based on potential corps.
+ *
+ * The ROI is calculated by surveying what corps could operate in this node
+ * and summing their estimated ROI. Distance from owned rooms applies a
+ * logistics penalty to the score.
+ *
+ * @param node - The node to calculate ROI for
+ * @param peakHeight - The peak height from spatial analysis
+ * @param ownedRooms - Set of owned room names for distance calculation
+ * @param potentialCorps - Potential corps from NodeSurveyor (optional, for pre-computed survey)
+ * @returns ROI metrics
+ */
+export function calculateNodeROI(
+  node: Node,
+  peakHeight: number,
+  ownedRooms: Set<string>,
+  potentialCorps: PotentialCorp[] = []
+): NodeROI {
+  const isOwned = ownedRooms.has(node.roomName);
+
+  // Calculate distance from nearest owned room
+  let distanceFromOwned = 0;
+  if (!isOwned) {
+    distanceFromOwned = Infinity;
+    for (const ownedRoom of ownedRooms) {
+      const dist = Game.map.getRoomLinearDistance(node.roomName, ownedRoom);
+      if (dist < distanceFromOwned) {
+        distanceFromOwned = dist;
+      }
+    }
+  }
+
+  // Count sources from node resources
+  const sourceCount = node.resources.filter(r => r.type === "source").length;
+
+  // Check for controller
+  const hasController = node.resources.some(r => r.type === "controller");
+
+  // Build potential corps ROI summary
+  const potentialCorpROIs: PotentialCorpROI[] = potentialCorps.map(pc => ({
+    type: pc.type,
+    estimatedROI: pc.estimatedROI,
+    resourceId: pc.resource.id
+  }));
+
+  // Raw ROI is sum of all potential corps' estimated ROI
+  // Each corp's ROI is typically 0.1-2.0 range, so we scale it up for readability
+  const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
+
+  // Calculate final score
+  // Base: raw corp ROI scaled to ~0-100 range
+  let score = rawCorpROI * 50;
+
+  // Openness bonus (peak height typically 3-12)
+  score += peakHeight * 2;
+
+  // Distance penalty - logistics cost increases with distance
+  // Each room away reduces value significantly
+  if (!isOwned && distanceFromOwned !== Infinity) {
+    // Logistics penalty: 20% reduction per room away
+    const logisticsPenalty = Math.pow(0.8, distanceFromOwned);
+    score *= logisticsPenalty;
+  }
+
+  // Owned rooms get a bonus (already have infrastructure)
+  if (isOwned) {
+    score += 25;
+  }
+
+  // Floor at 0
+  score = Math.max(0, score);
+
+  return {
+    score,
+    rawCorpROI,
+    potentialCorps: potentialCorpROIs,
+    openness: peakHeight,
+    distanceFromOwned,
+    isOwned,
+    sourceCount,
+    hasController
+  };
+}
+
+/**
+ * Check if a position is within a node's territory.
+ * Supports cross-room territories - positions can be from any room.
  */
 export function isPositionInNode(node: Node, position: Position): boolean {
-  if (position.roomName !== node.roomName) return false;
-
   return node.positions.some(
-    (p) => p.x === position.x && p.y === position.y
+    (p) => p.x === position.x && p.y === position.y && p.roomName === position.roomName
   );
 }
 
 /**
- * Calculate the distance from a position to the node's peak
+ * Calculate the distance from a position to the node's peak.
+ * Supports cross-room positions using room coordinate math.
  */
 export function distanceToPeak(node: Node, position: Position): number {
-  if (position.roomName !== node.roomName) return Infinity;
+  if (position.roomName === node.peakPosition.roomName) {
+    // Same room - simple Manhattan distance
+    return (
+      Math.abs(position.x - node.peakPosition.x) +
+      Math.abs(position.y - node.peakPosition.y)
+    );
+  }
 
-  return (
-    Math.abs(position.x - node.peakPosition.x) +
-    Math.abs(position.y - node.peakPosition.y)
+  // Cross-room distance estimation using linear distance
+  // This is approximate but good enough for territory decisions
+  const roomDistance = Game.map.getRoomLinearDistance(
+    position.roomName,
+    node.peakPosition.roomName
   );
+
+  if (roomDistance === undefined || roomDistance === null) {
+    return Infinity;
+  }
+
+  // Estimate: room distance * 50 (room width) + in-room offset
+  // This gives a reasonable approximation for sorting purposes
+  return roomDistance * 50 + Math.abs(position.x - node.peakPosition.x) + Math.abs(position.y - node.peakPosition.y);
+}
+
+/**
+ * Get all unique room names that a node's territory spans.
+ * Useful for visualization and cross-room operations.
+ */
+export function getNodeRooms(node: Node): string[] {
+  const rooms = new Set<string>();
+  rooms.add(node.roomName); // Always include the peak's room
+  for (const pos of node.positions) {
+    rooms.add(pos.roomName);
+  }
+  return Array.from(rooms);
+}
+
+/**
+ * Get positions in a specific room from a node's territory.
+ */
+export function getNodePositionsInRoom(node: Node, roomName: string): Position[] {
+  return node.positions.filter((p) => p.roomName === roomName);
 }

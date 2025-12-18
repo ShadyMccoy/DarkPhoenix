@@ -7,3 +7,9 @@
  */
 
 export { ErrorMapper } from "./ErrorMapper";
+
+export {
+  discoverNearbyRooms,
+  getDistanceToOwnedRoom,
+  categorizeRoomsByDistance,
+} from "./RoomDiscovery";

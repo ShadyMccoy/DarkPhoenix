@@ -2,6 +2,8 @@ export {
   Node,
   NodeResource,
   NodeResourceType,
+  NodeROI,
+  PotentialCorpROI,
   PotentialCorp,
   SerializedNode,
   createNodeId,
@@ -15,8 +17,11 @@ export {
   getActiveCorps,
   pruneDead,
   serializeNode,
+  calculateNodeROI,
   isPositionInNode,
-  distanceToPeak
+  distanceToPeak,
+  getNodeRooms,
+  getNodePositionsInRoom
 } from "./Node";
 
 export {

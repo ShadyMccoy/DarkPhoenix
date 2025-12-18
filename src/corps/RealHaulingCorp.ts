@@ -239,7 +239,7 @@ export class RealHaulingCorp extends Corp {
       }
     }
 
-    // Priority 2: Transfer directly to upgraders
+    // Priority 2: Transfer directly to upgraders (prioritize the one with most free capacity)
     const upgraders = room.find(FIND_MY_CREEPS, {
       filter: (c) =>
         c.memory.workType === "upgrade" &&
@@ -247,15 +247,19 @@ export class RealHaulingCorp extends Corp {
     });
 
     if (upgraders.length > 0) {
-      const target = creep.pos.findClosestByPath(upgraders);
-      if (target) {
-        if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-        } else {
-          this.recordRevenue(creep.store[RESOURCE_ENERGY] * 0.001);
-        }
-        return;
+      // Sort by free capacity (descending) to prioritize upgraders that need energy most
+      upgraders.sort(
+        (a, b) =>
+          b.store.getFreeCapacity(RESOURCE_ENERGY) -
+          a.store.getFreeCapacity(RESOURCE_ENERGY)
+      );
+      const target = upgraders[0];
+      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+      } else {
+        this.recordRevenue(creep.store[RESOURCE_ENERGY] * 0.001);
       }
+      return;
     }
 
     // Priority 3: If no upgraders need energy, drop near controller

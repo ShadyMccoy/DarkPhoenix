@@ -15,7 +15,28 @@
  * @module spatial
  */
 
-export { RoomMap, Peak, Territory } from "./RoomMap";
+export {
+  RoomMap,
+  Peak,
+  Territory,
+  Edge,
+  InterRoomEdge,
+  RoomMapOptions,
+  WorldPosition,
+  CrossRoomPeak,
+  MultiRoomAnalysisResult,
+  MultiRoomAnalysisOptions,
+  shouldVisualize,
+  getRoomsToVisualize,
+  collectFeaturePositions,
+  collectFeaturePositionsFromIntel,
+  invalidateRoomMapCache,
+  createMultiRoomTerrainCallback,
+  calculateCrossRoomTerritories,
+  extractPeaksFromRoomMaps,
+  analyzeMultiRoomTerrain,
+  visualizeMultiRoomAnalysis,
+} from "./RoomMap";
 
 // Export pure algorithms and types for testing
 export {
@@ -24,14 +45,27 @@ export {
   findPeaks,
   filterPeaks,
   bfsDivideRoom,
+  // Multi-room algorithms
+  createMultiRoomDistanceTransform,
+  findMultiRoomPeaks,
+  filterMultiRoomPeaks,
+  bfsDivideMultiRoom,
   // Utility functions
   initializeGrid,
   markBarriers,
   floodFillDistanceSearch,
+  parseRoomName,
+  roomCoordsToName,
+  getAdjacentRoomPosition,
   // Types
   TerrainCallback,
+  MultiRoomTerrainCallback,
   Coordinate,
+  WorldCoordinate,
   PeakData,
+  WorldPeakData,
+  RoomCoords,
+  FilterPeaksOptions,
   // Constants
   GRID_SIZE,
   UNVISITED,

@@ -9,7 +9,8 @@ export type CorpType =
   | "upgrading"
   | "hauling"
   | "building"
-  | "bootstrap";
+  | "bootstrap"
+  | "scout";
 
 /**
  * Serialized corp state for persistence

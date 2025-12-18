@@ -28,6 +28,8 @@ declare global {
     mineralPos: { x: number; y: number } | null;
     /** Controller level (0 if unclaimed) */
     controllerLevel: number;
+    /** Position of controller (if any) */
+    controllerPos: { x: number; y: number } | null;
     /** Username of controller owner (if owned) */
     controllerOwner: string | null;
     /** Username of controller reserver (if reserved) */
@@ -68,6 +70,12 @@ declare global {
      * Room intelligence data from scouting.
      */
     roomIntel?: { [roomName: string]: RoomIntel };
+
+    /**
+     * Room names where visualization should be rendered.
+     * Alternative to placing flags named "visual*" in rooms.
+     */
+    visualRooms?: string[];
   }
 
   /**
@@ -97,7 +105,7 @@ declare global {
     /**
      * The type of work this creep performs.
      */
-    workType?: "harvest" | "haul" | "upgrade" | "build" | "repair";
+    workType?: "harvest" | "haul" | "upgrade" | "build" | "repair" | "scout";
 
     /**
      * Target ID for current task.
