@@ -142,6 +142,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Render node visualization in rooms with vision
   renderNodeVisuals(colony);
 
+
   // Clean up memory for dead creeps
   cleanupDeadCreeps();
 
