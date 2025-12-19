@@ -51,6 +51,7 @@ import {
   visualizeMultiRoomAnalysis,
   findTerritoryAdjacencies,
   WorldCoordinate,
+  WorldPosition,
 } from "./spatial";
 import { getTelemetry } from "./telemetry";
 import "./types/Memory";
@@ -611,8 +612,8 @@ function runMultiRoomAnalysis(colony: Colony): void {
         console.log(`[MultiRoom] Node ${nodeId} spans ${spansRooms.length} rooms: ${spansRooms.join(", ")}`);
       }
 
-      // Populate resources from room intel or live data
-      populateNodeResources(node);
+      // Populate resources from room intel or live data (only within territory)
+      populateNodeResources(node, positions, result.territories);
 
       // Survey node to find potential corps and their ROI
       const surveyResult = surveyor.survey(node, Game.time);
@@ -636,28 +637,81 @@ function runMultiRoomAnalysis(colony: Colony): void {
 /**
  * Populates a node's resources from room intel or live game data.
  *
- * Resources in the rooms the node spans are added. Multiple nodes in the
- * same room will share access to resources (handled by the economic system).
+ * Only resources within the node's territory are included. Resources on wall
+ * tiles (common for sources/minerals) are included if adjacent to a territory tile.
+ * When a resource is adjacent to multiple territories, it's assigned to the node
+ * with the lexicographically smallest adjacent tile (deterministic tie-breaker).
  */
-function populateNodeResources(node: Node): void {
+function populateNodeResources(
+  node: Node,
+  territoryPositions: WorldPosition[],
+  allTerritories: Map<string, WorldPosition[]>
+): void {
   node.resources = [];
+
+  // Build a set of territory position keys for efficient lookup
+  const territorySet = new Set<string>();
+  for (const pos of territoryPositions) {
+    territorySet.add(`${pos.roomName}-${pos.x}-${pos.y}`);
+  }
+
+  // Build a map of all territory positions to their owning node for tie-breaking
+  const positionToNode = new Map<string, string>();
+  for (const [nodeId, positions] of allTerritories) {
+    for (const pos of positions) {
+      positionToNode.set(`${pos.roomName}-${pos.x}-${pos.y}`, nodeId);
+    }
+  }
+
+  // Helper to check if a position should be claimed by this node.
+  // For direct territory membership: always true.
+  // For wall-adjacent resources: use lexicographically smallest adjacent tile as tie-breaker.
+  const shouldClaimResource = (x: number, y: number, roomName: string): boolean => {
+    const posKey = `${roomName}-${x}-${y}`;
+
+    // Direct membership - always claim
+    if (territorySet.has(posKey)) {
+      return true;
+    }
+
+    // For wall resources: find the lexicographically smallest adjacent tile
+    // that belongs to ANY territory, then check if it's ours
+    let smallestAdjacentKey: string | null = null;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const adjKey = `${roomName}-${x + dx}-${y + dy}`;
+        // Only consider tiles that belong to some territory
+        if (positionToNode.has(adjKey)) {
+          if (smallestAdjacentKey === null || adjKey < smallestAdjacentKey) {
+            smallestAdjacentKey = adjKey;
+          }
+        }
+      }
+    }
+
+    // Claim if the smallest adjacent tile is in our territory
+    return smallestAdjacentKey !== null && territorySet.has(smallestAdjacentKey);
+  };
 
   for (const roomName of node.spansRooms) {
     // Try live data first (if we have vision)
     const room = Game.rooms[roomName];
     if (room) {
-      // Add sources
+      // Add sources within territory
       for (const source of room.find(FIND_SOURCES)) {
-        node.resources.push({
-          type: "source",
-          id: source.id,
-          position: { x: source.pos.x, y: source.pos.y, roomName },
-          capacity: source.energyCapacity
-        });
+        if (shouldClaimResource(source.pos.x, source.pos.y, roomName)) {
+          node.resources.push({
+            type: "source",
+            id: source.id,
+            position: { x: source.pos.x, y: source.pos.y, roomName },
+            capacity: source.energyCapacity
+          });
+        }
       }
 
-      // Add controller
-      if (room.controller) {
+      // Add controller if within territory
+      if (room.controller && shouldClaimResource(room.controller.pos.x, room.controller.pos.y, roomName)) {
         node.resources.push({
           type: "controller",
           id: room.controller.id,
@@ -666,31 +720,35 @@ function populateNodeResources(node: Node): void {
         });
       }
 
-      // Add minerals
+      // Add minerals within territory
       for (const mineral of room.find(FIND_MINERALS)) {
-        node.resources.push({
-          type: "mineral",
-          id: mineral.id,
-          position: { x: mineral.pos.x, y: mineral.pos.y, roomName },
-          mineralType: mineral.mineralType
-        });
+        if (shouldClaimResource(mineral.pos.x, mineral.pos.y, roomName)) {
+          node.resources.push({
+            type: "mineral",
+            id: mineral.id,
+            position: { x: mineral.pos.x, y: mineral.pos.y, roomName },
+            mineralType: mineral.mineralType
+          });
+        }
       }
     } else {
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];
       if (intel) {
-        // Add sources from intel
+        // Add sources from intel within territory
         for (const sourcePos of intel.sourcePositions || []) {
-          node.resources.push({
-            type: "source",
-            id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
-            position: { x: sourcePos.x, y: sourcePos.y, roomName },
-            capacity: 3000 // Default capacity
-          });
+          if (shouldClaimResource(sourcePos.x, sourcePos.y, roomName)) {
+            node.resources.push({
+              type: "source",
+              id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
+              position: { x: sourcePos.x, y: sourcePos.y, roomName },
+              capacity: 3000 // Default capacity
+            });
+          }
         }
 
-        // Add controller from intel (if we have position)
-        if (intel.controllerPos) {
+        // Add controller from intel if within territory
+        if (intel.controllerPos && shouldClaimResource(intel.controllerPos.x, intel.controllerPos.y, roomName)) {
           node.resources.push({
             type: "controller",
             id: `intel-controller-${roomName}`,
@@ -699,8 +757,8 @@ function populateNodeResources(node: Node): void {
           });
         }
 
-        // Add mineral from intel
-        if (intel.mineralPos) {
+        // Add mineral from intel if within territory
+        if (intel.mineralPos && shouldClaimResource(intel.mineralPos.x, intel.mineralPos.y, roomName)) {
           node.resources.push({
             type: "mineral",
             id: `intel-mineral-${roomName}`,
