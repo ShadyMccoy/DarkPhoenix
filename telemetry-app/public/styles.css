@@ -63,6 +63,27 @@ header h1 {
   color: var(--accent);
 }
 
+.refresh-btn {
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #3b82f6;
+}
+
+.refresh-btn:disabled {
+  background: var(--text-secondary);
+  cursor: not-allowed;
+}
+
 #tick-display {
   color: var(--accent-blue);
   font-weight: bold;
@@ -219,8 +240,8 @@ tbody tr:hover {
   color: var(--accent-blue);
 }
 
-/* Terrain Canvas */
-.terrain-header {
+/* Network Graph */
+.network-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -230,16 +251,42 @@ tbody tr:hover {
   border-radius: 10px;
 }
 
-.terrain-header select {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  padding: 8px 15px;
-  border-radius: 5px;
-  font-size: 0.9rem;
+.network-legend {
+  display: flex;
+  gap: 20px;
 }
 
-.terrain-container {
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legend-dot.owned {
+  background: var(--accent-blue);
+}
+
+.legend-dot.expansion {
+  background: var(--accent-yellow);
+}
+
+.legend-dot.source {
+  background: #fbbf24;
+}
+
+.legend-dot.controller {
+  background: var(--accent);
+}
+
+.network-container {
   display: flex;
   justify-content: center;
   padding: 20px;
@@ -247,9 +294,9 @@ tbody tr:hover {
   border-radius: 10px;
 }
 
-#terrain-canvas {
+#network-canvas {
   border: 1px solid var(--border);
-  image-rendering: pixelated;
+  background: var(--bg-primary);
 }
 
 /* Status Badges */

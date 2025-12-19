@@ -19,6 +19,7 @@ let telemetry = {
 
 // DOM elements
 const elements = {
+  refreshBtn: document.getElementById("refresh-btn"),
   connectionStatus: document.getElementById("connection-status"),
   tickDisplay: document.getElementById("tick-display"),
   lastUpdate: document.getElementById("last-update"),
@@ -70,9 +71,8 @@ const elements = {
   corpsActive: document.getElementById("corps-active"),
   corpsBalance: document.getElementById("corps-balance"),
 
-  // Terrain
-  terrainCanvas: document.getElementById("terrain-canvas"),
-  terrainRoomSelect: document.getElementById("terrain-room-select"),
+  // Network
+  networkCanvas: document.getElementById("network-canvas"),
 };
 
 /**
@@ -205,9 +205,9 @@ function updateUI() {
     updateIntelUI(telemetry.intel);
   }
 
-  // Update Terrain room select
-  if (telemetry.terrain) {
-    updateTerrainRoomSelect(telemetry.terrain);
+  // Update Network graph
+  if (telemetry.nodes) {
+    drawNetworkGraph(telemetry.nodes);
   }
 }
 
@@ -334,33 +334,6 @@ function updateIntelUI(intel) {
 }
 
 /**
- * Update terrain room select.
- */
-function updateTerrainRoomSelect(terrain) {
-  const currentValue = elements.terrainRoomSelect.value;
-  const rooms = terrain.rooms.map((r) => r.name).sort();
-
-  // Only update if rooms changed
-  const existingRooms = Array.from(elements.terrainRoomSelect.options)
-    .slice(1)
-    .map((o) => o.value);
-
-  if (JSON.stringify(rooms) !== JSON.stringify(existingRooms)) {
-    elements.terrainRoomSelect.innerHTML = '<option value="">Select a room...</option>';
-    rooms.forEach((room) => {
-      const option = document.createElement("option");
-      option.value = room;
-      option.textContent = room;
-      elements.terrainRoomSelect.appendChild(option);
-    });
-
-    if (currentValue && rooms.includes(currentValue)) {
-      elements.terrainRoomSelect.value = currentValue;
-    }
-  }
-}
-
-/**
  * Generate distinct colors for nodes.
  */
 const NODE_COLORS = [
@@ -377,180 +350,223 @@ const NODE_COLORS = [
 ];
 
 /**
- * Draw terrain on canvas with node territories.
+ * Parse room name to get world coordinates.
+ * E.g., "W1N2" -> { wx: -1, wy: -2 }, "E3S1" -> { wx: 3, wy: 1 }
  */
-function drawTerrain(roomName) {
-  if (!telemetry.terrain) return;
+function parseRoomCoords(roomName) {
+  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  if (!match) return { wx: 0, wy: 0 };
+  const [, ew, ex, ns, ny] = match;
+  return {
+    wx: ew === "W" ? -parseInt(ex) - 1 : parseInt(ex),
+    wy: ns === "N" ? -parseInt(ny) - 1 : parseInt(ny),
+  };
+}
 
-  const room = telemetry.terrain.rooms.find((r) => r.name === roomName);
-  if (!room) return;
-
-  const canvas = elements.terrainCanvas;
+/**
+ * Draw the colony network graph showing all nodes and their connections.
+ */
+function drawNetworkGraph(nodesData) {
+  const canvas = elements.networkCanvas;
   const ctx = canvas.getContext("2d");
 
-  const tileSize = 10;
-  canvas.width = 50 * tileSize;
-  canvas.height = 50 * tileSize;
+  // Clear canvas
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Parse terrain string
-  const terrain = room.terrain;
-
-  // Build territory lookup: position -> node index
-  const territoryMap = new Map(); // "x,y" -> nodeIndex
-  const nodesInRoom = [];
-
-  if (telemetry.nodes) {
-    telemetry.nodes.nodes.forEach((node, idx) => {
-      if (node.territory && node.territory[roomName]) {
-        nodesInRoom.push({ node, colorIdx: idx % NODE_COLORS.length });
-        for (const pos of node.territory[roomName]) {
-          territoryMap.set(`${pos.x},${pos.y}`, idx % NODE_COLORS.length);
-        }
-      }
-    });
+  if (!nodesData || !nodesData.nodes || nodesData.nodes.length === 0) {
+    ctx.fillStyle = "#a0a0a0";
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("No node data available", canvas.width / 2, canvas.height / 2);
+    return;
   }
 
-  // Draw base terrain with territory colors
-  for (let y = 0; y < 50; y++) {
-    for (let x = 0; x < 50; x++) {
-      const idx = y * 50 + x;
-      const t = terrain[idx];
-      const key = `${x},${y}`;
-      const nodeColorIdx = territoryMap.get(key);
+  const nodes = nodesData.nodes;
+  const padding = 60;
 
-      if (t === "1") {
-        // Wall - dark
-        ctx.fillStyle = "#111111";
-      } else if (nodeColorIdx !== undefined) {
-        // Territory tile - use node color with transparency
-        const baseColor = NODE_COLORS[nodeColorIdx];
-        ctx.fillStyle = baseColor + "40"; // 25% opacity
-      } else if (t === "2") {
-        // Swamp without territory
-        ctx.fillStyle = "#3a4a35";
-      } else {
-        // Plain without territory
-        ctx.fillStyle = "#1a1a1a";
-      }
-
-      ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+  // Get all unique rooms from nodes
+  const allRooms = new Set();
+  nodes.forEach((node) => {
+    if (node.spansRooms) {
+      node.spansRooms.forEach((r) => allRooms.add(r));
     }
-  }
+    allRooms.add(node.roomName);
+  });
 
-  // Draw territory borders (optional - makes nodes more visible)
-  if (telemetry.nodes) {
-    nodesInRoom.forEach(({ node, colorIdx }) => {
-      const positions = node.territory[roomName] || [];
-      const posSet = new Set(positions.map(p => `${p.x},${p.y}`));
+  // Calculate room positions based on world coordinates
+  const roomCoords = {};
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-      ctx.strokeStyle = NODE_COLORS[colorIdx];
-      ctx.lineWidth = 1;
+  allRooms.forEach((room) => {
+    const coords = parseRoomCoords(room);
+    roomCoords[room] = coords;
+    minX = Math.min(minX, coords.wx);
+    maxX = Math.max(maxX, coords.wx);
+    minY = Math.min(minY, coords.wy);
+    maxY = Math.max(maxY, coords.wy);
+  });
 
-      for (const pos of positions) {
-        // Check each edge for border
-        const neighbors = [
-          { dx: 0, dy: -1, edge: 'top' },
-          { dx: 0, dy: 1, edge: 'bottom' },
-          { dx: -1, dy: 0, edge: 'left' },
-          { dx: 1, dy: 0, edge: 'right' },
-        ];
+  // Calculate scale
+  const worldWidth = maxX - minX + 1;
+  const worldHeight = maxY - minY + 1;
+  const scaleX = (canvas.width - padding * 2) / Math.max(worldWidth, 1);
+  const scaleY = (canvas.height - padding * 2) / Math.max(worldHeight, 1);
+  const scale = Math.min(scaleX, scaleY, 100); // Cap scale for single rooms
 
-        for (const { dx, dy, edge } of neighbors) {
-          const nx = pos.x + dx;
-          const ny = pos.y + dy;
-          if (!posSet.has(`${nx},${ny}`)) {
-            // Draw border edge
+  // Center offset
+  const offsetX = padding + (canvas.width - padding * 2 - worldWidth * scale) / 2;
+  const offsetY = padding + (canvas.height - padding * 2 - worldHeight * scale) / 2;
+
+  // Helper to convert world coords to canvas coords
+  const toCanvas = (wx, wy) => ({
+    x: offsetX + (wx - minX + 0.5) * scale,
+    y: offsetY + (wy - minY + 0.5) * scale,
+  });
+
+  // Draw room grid background
+  ctx.strokeStyle = "#2a2a4e";
+  ctx.lineWidth = 1;
+  allRooms.forEach((room) => {
+    const coords = roomCoords[room];
+    const pos = toCanvas(coords.wx, coords.wy);
+    const halfScale = scale / 2 - 2;
+
+    ctx.strokeRect(pos.x - halfScale, pos.y - halfScale, scale - 4, scale - 4);
+
+    // Room label
+    ctx.fillStyle = "#4a4a6e";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(room, pos.x, pos.y + halfScale + 4);
+  });
+
+  // Calculate node positions within their rooms
+  const nodePositions = new Map();
+  const nodesByRoom = new Map();
+
+  nodes.forEach((node) => {
+    const room = node.roomName;
+    if (!nodesByRoom.has(room)) nodesByRoom.set(room, []);
+    nodesByRoom.get(room).push(node);
+  });
+
+  // Position nodes within their rooms
+  nodesByRoom.forEach((roomNodes, room) => {
+    const coords = roomCoords[room];
+    const center = toCanvas(coords.wx, coords.wy);
+    const count = roomNodes.length;
+
+    if (count === 1) {
+      nodePositions.set(roomNodes[0].id, center);
+    } else {
+      // Distribute nodes in a circle within the room
+      const radius = scale * 0.25;
+      roomNodes.forEach((node, i) => {
+        const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+        nodePositions.set(node.id, {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        });
+      });
+    }
+  });
+
+  // Draw edges for nodes that span rooms
+  ctx.strokeStyle = "#4a4a6e";
+  ctx.lineWidth = 2;
+  nodes.forEach((node) => {
+    if (node.spansRooms && node.spansRooms.length > 1) {
+      const nodePos = nodePositions.get(node.id);
+      node.spansRooms.forEach((room) => {
+        if (room !== node.roomName) {
+          const targetCoords = roomCoords[room];
+          if (targetCoords) {
+            const targetPos = toCanvas(targetCoords.wx, targetCoords.wy);
             ctx.beginPath();
-            const px = pos.x * tileSize;
-            const py = pos.y * tileSize;
-            if (edge === 'top') {
-              ctx.moveTo(px, py);
-              ctx.lineTo(px + tileSize, py);
-            } else if (edge === 'bottom') {
-              ctx.moveTo(px, py + tileSize);
-              ctx.lineTo(px + tileSize, py + tileSize);
-            } else if (edge === 'left') {
-              ctx.moveTo(px, py);
-              ctx.lineTo(px, py + tileSize);
-            } else if (edge === 'right') {
-              ctx.moveTo(px + tileSize, py);
-              ctx.lineTo(px + tileSize, py + tileSize);
-            }
+            ctx.moveTo(nodePos.x, nodePos.y);
+            ctx.lineTo(targetPos.x, targetPos.y);
             ctx.stroke();
           }
         }
-      }
-    });
-  }
-
-  // Draw resources
-  if (telemetry.nodes) {
-    for (const { node, colorIdx } of nodesInRoom) {
-      for (const res of node.resources) {
-        if (res.position.roomName !== roomName) continue;
-
-        const rx = res.position.x * tileSize + tileSize / 2;
-        const ry = res.position.y * tileSize + tileSize / 2;
-
-        ctx.beginPath();
-        if (res.type === "source") {
-          // Yellow circle for sources
-          ctx.arc(rx, ry, tileSize / 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = "#fbbf24";
-          ctx.fill();
-          ctx.strokeStyle = "#000";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        } else if (res.type === "controller") {
-          // Red diamond for controller
-          ctx.moveTo(rx, ry - tileSize / 2.5);
-          ctx.lineTo(rx + tileSize / 2.5, ry);
-          ctx.lineTo(rx, ry + tileSize / 2.5);
-          ctx.lineTo(rx - tileSize / 2.5, ry);
-          ctx.closePath();
-          ctx.fillStyle = "#e94560";
-          ctx.fill();
-          ctx.strokeStyle = "#000";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        } else if (res.type === "mineral") {
-          // Cyan square for minerals
-          ctx.rect(rx - tileSize / 3, ry - tileSize / 3, tileSize / 1.5, tileSize / 1.5);
-          ctx.fillStyle = "#22d3ee";
-          ctx.fill();
-          ctx.strokeStyle = "#000";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-      }
+      });
     }
-  }
+  });
 
-  // Draw peak centers (node labels)
-  if (telemetry.nodes) {
-    for (const { node, colorIdx } of nodesInRoom) {
-      if (node.peakPosition.roomName !== roomName) continue;
+  // Draw nodes
+  const nodeRadius = Math.min(20, scale * 0.15);
 
-      const px = node.peakPosition.x * tileSize + tileSize / 2;
-      const py = node.peakPosition.y * tileSize + tileSize / 2;
+  nodes.forEach((node, idx) => {
+    const pos = nodePositions.get(node.id);
+    const isOwned = node.roi?.isOwned;
+    const colorIdx = idx % NODE_COLORS.length;
 
-      // Draw peak marker
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, nodeRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isOwned ? "#60a5fa" : "#facc15";
+    ctx.fill();
+    ctx.strokeStyle = NODE_COLORS[colorIdx];
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Source count inside node
+    const sourceCount = node.roi?.sourceCount || node.resources?.filter(r => r.type === "source").length || 0;
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${Math.max(10, nodeRadius * 0.8)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(sourceCount), pos.x, pos.y);
+
+    // Draw resource indicators around node
+    const resources = node.resources || [];
+    const sources = resources.filter(r => r.type === "source");
+    const controllers = resources.filter(r => r.type === "controller");
+
+    // Draw source dots
+    sources.forEach((_, i) => {
+      const angle = (i / sources.length) * Math.PI * 2 - Math.PI / 2;
+      const dotX = pos.x + Math.cos(angle) * (nodeRadius + 8);
+      const dotY = pos.y + Math.sin(angle) * (nodeRadius + 8);
       ctx.beginPath();
-      ctx.arc(px, py, tileSize / 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = NODE_COLORS[colorIdx];
+      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#fbbf24";
       ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    });
 
-      // Draw node index
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 8px monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(colorIdx + 1), px, py);
+    // Draw controller indicator
+    if (controllers.length > 0) {
+      ctx.beginPath();
+      const cx = pos.x;
+      const cy = pos.y - nodeRadius - 12;
+      ctx.moveTo(cx, cy - 5);
+      ctx.lineTo(cx + 5, cy);
+      ctx.lineTo(cx, cy + 5);
+      ctx.lineTo(cx - 5, cy);
+      ctx.closePath();
+      ctx.fillStyle = "#e94560";
+      ctx.fill();
     }
-  }
+
+    // ROI score label
+    if (node.roi?.score !== undefined) {
+      ctx.fillStyle = "#a0a0a0";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(`ROI: ${node.roi.score.toFixed(1)}`, pos.x, pos.y + nodeRadius + 4);
+    }
+  });
+
+  // Draw summary
+  ctx.fillStyle = "#eaeaea";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`Nodes: ${nodesData.summary?.totalNodes || nodes.length}`, 10, 10);
+  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 26);
+  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 42);
 }
 
 /**
@@ -576,14 +592,31 @@ function setupTabs() {
 }
 
 /**
- * Setup terrain room select.
+ * Refresh telemetry data from server.
  */
-function setupTerrainSelect() {
-  elements.terrainRoomSelect.addEventListener("change", (e) => {
-    if (e.target.value) {
-      drawTerrain(e.target.value);
+async function refreshTelemetry() {
+  elements.refreshBtn.disabled = true;
+  elements.refreshBtn.textContent = "Refreshing...";
+
+  try {
+    const response = await fetch("/api/refresh", { method: "POST" });
+    const data = await response.json();
+    if (data.ok) {
+      console.log("Refreshed, tick:", data.tick);
     }
-  });
+  } catch (e) {
+    console.error("Failed to refresh:", e);
+  } finally {
+    elements.refreshBtn.disabled = false;
+    elements.refreshBtn.textContent = "Refresh";
+  }
+}
+
+/**
+ * Setup refresh button.
+ */
+function setupRefreshButton() {
+  elements.refreshBtn.addEventListener("click", refreshTelemetry);
 }
 
 /**
@@ -591,7 +624,7 @@ function setupTerrainSelect() {
  */
 function init() {
   setupTabs();
-  setupTerrainSelect();
+  setupRefreshButton();
   connect();
 }
 

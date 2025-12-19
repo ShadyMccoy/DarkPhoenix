@@ -11,6 +11,7 @@
     <header>
       <h1>Screeps Telemetry</h1>
       <div class="status">
+        <button id="refresh-btn" class="refresh-btn">Refresh</button>
         <span id="connection-status" class="status-disconnected">Disconnected</span>
         <span id="tick-display">Tick: --</span>
         <span id="last-update">Last update: --</span>
@@ -21,7 +22,7 @@
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="nodes">Nodes</button>
       <button class="tab" data-tab="corps">Corps</button>
-      <button class="tab" data-tab="terrain">Terrain</button>
+      <button class="tab" data-tab="network">Network</button>
       <button class="tab" data-tab="intel">Intel</button>
     </nav>
 
@@ -207,16 +208,19 @@
         </table>
       </section>
 
-      <!-- Terrain Tab -->
-      <section id="terrain" class="tab-content">
-        <div class="terrain-header">
-          <h3>Room Terrain</h3>
-          <select id="terrain-room-select">
-            <option value="">Select a room...</option>
-          </select>
+      <!-- Network Tab -->
+      <section id="network" class="tab-content">
+        <div class="network-header">
+          <h3>Colony Network</h3>
+          <div class="network-legend">
+            <span class="legend-item"><span class="legend-dot owned"></span> Owned</span>
+            <span class="legend-item"><span class="legend-dot expansion"></span> Expansion</span>
+            <span class="legend-item"><span class="legend-dot source"></span> Source</span>
+            <span class="legend-item"><span class="legend-dot controller"></span> Controller</span>
+          </div>
         </div>
-        <div class="terrain-container">
-          <canvas id="terrain-canvas" width="500" height="500"></canvas>
+        <div class="network-container">
+          <canvas id="network-canvas" width="900" height="600"></canvas>
         </div>
       </section>
 

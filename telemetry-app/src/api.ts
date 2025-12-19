@@ -35,52 +35,79 @@ export class ScreepsAPI {
   }
 
   /**
-   * Read a memory segment.
+   * Read a memory segment with retry logic for rate limiting.
    */
-  async readSegment(segment: number): Promise<string | null> {
+  async readSegment(segment: number, retries = 3): Promise<string | null> {
     const url = `${this.baseUrl}/user/memory-segment?segment=${segment}&shard=${this.config.shard}`;
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "X-Token": this.config.token,
-          "Content-Type": "application/json",
-        },
-      });
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "X-Token": this.config.token,
+            "Content-Type": "application/json",
+          },
+        });
 
-      if (!response.ok) {
-        console.error(`API error: ${response.status} ${response.statusText}`);
+        if (response.status === 429) {
+          // Rate limited - wait with exponential backoff
+          const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000);
+          if (attempt < retries) {
+            console.log(`  Rate limited on segment ${segment}, retrying in ${waitTime}ms...`);
+            await this.delay(waitTime);
+            continue;
+          }
+          console.error(`  Rate limited on segment ${segment}, max retries exceeded`);
+          return null;
+        }
+
+        if (!response.ok) {
+          console.error(`API error: ${response.status} ${response.statusText}`);
+          return null;
+        }
+
+        const data = (await response.json()) as SegmentResponse;
+
+        if (data.ok !== 1) {
+          console.error("Segment read failed:", data);
+          return null;
+        }
+
+        return data.data || null;
+      } catch (error) {
+        console.error("Failed to read segment:", error);
         return null;
       }
-
-      const data = (await response.json()) as SegmentResponse;
-
-      if (data.ok !== 1) {
-        console.error("Segment read failed:", data);
-        return null;
-      }
-
-      return data.data || null;
-    } catch (error) {
-      console.error("Failed to read segment:", error);
-      return null;
     }
+    return null;
   }
 
   /**
    * Read multiple memory segments.
+   * Reads sequentially with delay to avoid rate limiting.
    */
-  async readSegments(segments: number[]): Promise<MemorySegmentData> {
+  async readSegments(segments: number[], delayMs = 250): Promise<MemorySegmentData> {
     const results: MemorySegmentData = {};
 
-    // Read segments in parallel
-    const promises = segments.map(async (segment) => {
-      const data = await this.readSegment(segment);
-      results[segment] = data;
-    });
+    // Read segments sequentially to avoid rate limiting
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      results[segment] = await this.readSegment(segment);
 
-    await Promise.all(promises);
+      // Add delay between requests (except after the last one)
+      if (i < segments.length - 1) {
+        await this.delay(delayMs);
+      }
+    }
+
     return results;
+  }
+
+  /**
+   * Delay helper for rate limiting.
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

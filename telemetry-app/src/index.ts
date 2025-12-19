@@ -9,17 +9,13 @@ import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { ScreepsAPI } from "./api.js";
 import {
   TELEMETRY_SEGMENTS,
   AllTelemetry,
   CoreTelemetry,
   NodeTelemetry,
-  TerrainTelemetry,
-  IntelTelemetry,
-  CorpsTelemetry,
-  ChainsTelemetry,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -82,7 +78,7 @@ const api = new ScreepsAPI({
   apiUrl: config.apiUrl,
 });
 
-// Current telemetry state
+// Current telemetry state (will be loaded from cache if available)
 let telemetry: AllTelemetry = {
   core: null,
   nodes: null,
@@ -95,6 +91,9 @@ let telemetry: AllTelemetry = {
 
 // Connected WebSocket clients
 const clients = new Set<WebSocket>();
+
+// Cache file path
+const CACHE_PATH = join(__dirname, "../telemetry-cache.json");
 
 /**
  * Parse telemetry JSON safely.
@@ -110,29 +109,54 @@ function parseTelemetry<T>(data: string | null): T | null {
 }
 
 /**
+ * Save telemetry to local cache file.
+ */
+function saveTelemetryCache(data: AllTelemetry): void {
+  try {
+    writeFileSync(CACHE_PATH, JSON.stringify(data, null, 2));
+    console.log("  Saved to cache");
+  } catch (e) {
+    console.error("Failed to save cache:", e);
+  }
+}
+
+/**
+ * Load telemetry from local cache file.
+ */
+function loadTelemetryCache(): AllTelemetry | null {
+  if (!existsSync(CACHE_PATH)) return null;
+  try {
+    const content = readFileSync(CACHE_PATH, "utf-8");
+    const data = JSON.parse(content) as AllTelemetry;
+    console.log(`Loaded cached telemetry (tick ${data.core?.tick || "unknown"})`);
+    return data;
+  } catch (e) {
+    console.error("Failed to load cache:", e);
+    return null;
+  }
+}
+
+/**
  * Poll telemetry data from Screeps API.
  */
 async function pollTelemetry(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Polling telemetry...`);
 
   try {
+    // Fetch core and nodes segments (with delay between to avoid rate limiting)
     const segments = await api.readSegments([
       TELEMETRY_SEGMENTS.CORE,
       TELEMETRY_SEGMENTS.NODES,
-      TELEMETRY_SEGMENTS.TERRAIN,
-      TELEMETRY_SEGMENTS.INTEL,
-      TELEMETRY_SEGMENTS.CORPS,
-      TELEMETRY_SEGMENTS.CHAINS,
     ]);
 
-    // Parse each segment
+    // Parse segments
     const newTelemetry: AllTelemetry = {
       core: parseTelemetry<CoreTelemetry>(segments[TELEMETRY_SEGMENTS.CORE]),
       nodes: parseTelemetry<NodeTelemetry>(segments[TELEMETRY_SEGMENTS.NODES]),
-      terrain: parseTelemetry<TerrainTelemetry>(segments[TELEMETRY_SEGMENTS.TERRAIN]),
-      intel: parseTelemetry<IntelTelemetry>(segments[TELEMETRY_SEGMENTS.INTEL]),
-      corps: parseTelemetry<CorpsTelemetry>(segments[TELEMETRY_SEGMENTS.CORPS]),
-      chains: parseTelemetry<ChainsTelemetry>(segments[TELEMETRY_SEGMENTS.CHAINS]),
+      terrain: null,
+      intel: null,
+      corps: null,
+      chains: null,
       lastUpdate: Date.now(),
     };
 
@@ -142,7 +166,10 @@ async function pollTelemetry(): Promise<void> {
     telemetry = newTelemetry;
 
     if (hasNewData && newTelemetry.core) {
-      console.log(`  Tick: ${newTelemetry.core.tick}, Nodes: ${newTelemetry.nodes?.summary.totalNodes || 0}`);
+      console.log(`  Tick: ${newTelemetry.core.tick}, Nodes: ${newTelemetry.nodes?.summary?.totalNodes || 0}`);
+
+      // Save to local cache
+      saveTelemetryCache(newTelemetry);
 
       // Broadcast to all connected clients
       broadcastTelemetry();
@@ -177,18 +204,23 @@ async function main(): Promise<void> {
   console.log("Screeps Telemetry Server");
   console.log("========================");
   console.log(`Shard: ${config.shard}`);
-  console.log(`Poll interval: ${config.pollInterval}ms`);
   console.log(`Port: ${config.port}`);
   console.log("");
 
-  // Test API connection
+  // Load cached telemetry if available
+  const cached = loadTelemetryCache();
+  if (cached) {
+    telemetry = cached;
+  }
+
+  // Test API connection (non-fatal - can use cached data)
   console.log("Testing API connection...");
   const connected = await api.testConnection();
   if (!connected) {
-    console.error("Failed to connect to Screeps API. Check your token and network.");
-    process.exit(1);
+    console.warn("Failed to connect to Screeps API - using cached data if available");
+  } else {
+    console.log("Connected to Screeps API!");
   }
-  console.log("Connected to Screeps API!");
   console.log("");
 
   // Create Express app
@@ -227,7 +259,7 @@ async function main(): Promise<void> {
   app.use(express.static(join(__dirname, "../public")));
 
   // API endpoint for current telemetry
-  app.get("/api/telemetry", (req, res) => {
+  app.get("/api/telemetry", (_req, res) => {
     res.json(telemetry);
   });
 
@@ -241,17 +273,23 @@ async function main(): Promise<void> {
     }
   });
 
+  // Manual refresh endpoint
+  app.post("/api/refresh", async (_req, res) => {
+    console.log("Manual refresh requested");
+    await pollTelemetry();
+    res.json({ ok: true, tick: telemetry.core?.tick });
+  });
+
   // Start server
   server.listen(config.port, () => {
     console.log(`Server running at http://localhost:${config.port}`);
     console.log("");
   });
 
-  // Initial poll
+  // Fetch once on startup
   await pollTelemetry();
 
-  // Start polling loop
-  setInterval(pollTelemetry, config.pollInterval);
+  // No continuous polling - use POST /api/refresh to fetch manually
 }
 
 main().catch(console.error);
