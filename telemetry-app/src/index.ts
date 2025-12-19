@@ -9,6 +9,7 @@ import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { readFileSync, existsSync } from "fs";
 import { ScreepsAPI } from "./api.js";
 import {
   TELEMETRY_SEGMENTS,
@@ -24,22 +25,53 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Configuration from environment variables
-const config = {
-  token: process.env.SCREEPS_TOKEN || "",
-  shard: process.env.SCREEPS_SHARD || "shard3",
-  apiUrl: process.env.SCREEPS_API_URL || "https://screeps.com/api",
-  pollInterval: parseInt(process.env.POLL_INTERVAL || "5000"),
-  port: parseInt(process.env.PORT || "3000"),
-};
+// Load config from file if it exists
+interface Config {
+  token: string;
+  shard: string;
+  apiUrl: string;
+  pollInterval: number;
+  port: number;
+}
+
+function loadConfig(): Config {
+  const configPath = join(__dirname, "../config.json");
+  let fileConfig: Partial<Config> = {};
+
+  if (existsSync(configPath)) {
+    try {
+      const content = readFileSync(configPath, "utf-8");
+      fileConfig = JSON.parse(content);
+      console.log("Loaded config from config.json");
+    } catch (e) {
+      console.error("Failed to parse config.json:", e);
+    }
+  }
+
+  // Environment variables override config file
+  return {
+    token: process.env.SCREEPS_TOKEN || fileConfig.token || "",
+    shard: process.env.SCREEPS_SHARD || fileConfig.shard || "shard3",
+    apiUrl: process.env.SCREEPS_API_URL || fileConfig.apiUrl || "https://screeps.com/api",
+    pollInterval: parseInt(process.env.POLL_INTERVAL || String(fileConfig.pollInterval || 5000)),
+    port: parseInt(process.env.PORT || String(fileConfig.port || 3000)),
+  };
+}
+
+const config = loadConfig();
 
 // Validate token
 if (!config.token) {
-  console.error("Error: SCREEPS_TOKEN environment variable is required");
-  console.error("Get your token from https://screeps.com/a/#!/account/auth-tokens");
+  console.error("Error: Screeps token is required");
   console.error("");
-  console.error("Usage:");
+  console.error("Option 1: Create config.json from config.example.json");
+  console.error("  cp config.example.json config.json");
+  console.error("  # Edit config.json and add your token");
+  console.error("");
+  console.error("Option 2: Use environment variable");
   console.error("  SCREEPS_TOKEN=your-token-here npm start");
+  console.error("");
+  console.error("Get your token from https://screeps.com/a/#!/account/auth-tokens");
   process.exit(1);
 }
 
