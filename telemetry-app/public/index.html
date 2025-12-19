@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Screeps Telemetry Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Screeps Telemetry</h1>
+      <div class="status">
+        <span id="connection-status" class="status-disconnected">Disconnected</span>
+        <span id="tick-display">Tick: --</span>
+        <span id="last-update">Last update: --</span>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="nodes">Nodes</button>
+      <button class="tab" data-tab="corps">Corps</button>
+      <button class="tab" data-tab="terrain">Terrain</button>
+      <button class="tab" data-tab="intel">Intel</button>
+    </nav>
+
+    <main>
+      <!-- Overview Tab -->
+      <section id="overview" class="tab-content active">
+        <div class="grid">
+          <!-- CPU Card -->
+          <div class="card">
+            <h3>CPU</h3>
+            <div class="stat-row">
+              <span class="label">Used:</span>
+              <span id="cpu-used">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Limit:</span>
+              <span id="cpu-limit">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Bucket:</span>
+              <span id="cpu-bucket">--</span>
+            </div>
+            <div class="progress-bar">
+              <div id="cpu-bar" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- GCL Card -->
+          <div class="card">
+            <h3>GCL</h3>
+            <div class="stat-row">
+              <span class="label">Level:</span>
+              <span id="gcl-level">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Progress:</span>
+              <span id="gcl-progress">--</span>
+            </div>
+            <div class="progress-bar">
+              <div id="gcl-bar" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- Money Supply Card -->
+          <div class="card">
+            <h3>Economy</h3>
+            <div class="stat-row">
+              <span class="label">Treasury:</span>
+              <span id="money-treasury">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Minted:</span>
+              <span id="money-minted" class="positive">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Taxed:</span>
+              <span id="money-taxed" class="negative">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Net:</span>
+              <span id="money-net">--</span>
+            </div>
+          </div>
+
+          <!-- Colony Stats Card -->
+          <div class="card">
+            <h3>Colony</h3>
+            <div class="stat-row">
+              <span class="label">Nodes:</span>
+              <span id="colony-nodes">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Corps:</span>
+              <span id="colony-corps">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Active:</span>
+              <span id="colony-active">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Chains:</span>
+              <span id="colony-chains">--</span>
+            </div>
+          </div>
+
+          <!-- Creeps Card -->
+          <div class="card">
+            <h3>Creeps</h3>
+            <div class="stat-row">
+              <span class="label">Total:</span>
+              <span id="creeps-total">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Miners:</span>
+              <span id="creeps-miners">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Haulers:</span>
+              <span id="creeps-haulers">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Upgraders:</span>
+              <span id="creeps-upgraders">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Scouts:</span>
+              <span id="creeps-scouts">--</span>
+            </div>
+          </div>
+
+          <!-- Rooms Card -->
+          <div class="card wide">
+            <h3>Rooms</h3>
+            <table id="rooms-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>RCL</th>
+                  <th>Progress</th>
+                  <th>Energy</th>
+                </tr>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Nodes Tab -->
+      <section id="nodes" class="tab-content">
+        <div class="nodes-header">
+          <h3>Nodes Summary</h3>
+          <div class="summary-stats">
+            <span>Total: <strong id="nodes-total">--</strong></span>
+            <span>Owned: <strong id="nodes-owned">--</strong></span>
+            <span>Expansion: <strong id="nodes-expansion">--</strong></span>
+            <span>Sources: <strong id="nodes-sources">--</strong></span>
+          </div>
+        </div>
+        <table id="nodes-table" class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Room</th>
+              <th>Territory</th>
+              <th>Sources</th>
+              <th>Controller</th>
+              <th>ROI Score</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Corps Tab -->
+      <section id="corps" class="tab-content">
+        <div class="corps-header">
+          <h3>Corps Summary</h3>
+          <div class="summary-stats">
+            <span>Total: <strong id="corps-total">--</strong></span>
+            <span>Active: <strong id="corps-active">--</strong></span>
+            <span>Balance: <strong id="corps-balance">--</strong></span>
+          </div>
+        </div>
+        <table id="corps-table" class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Type</th>
+              <th>Room</th>
+              <th>Balance</th>
+              <th>Profit</th>
+              <th>ROI</th>
+              <th>Creeps</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Terrain Tab -->
+      <section id="terrain" class="tab-content">
+        <div class="terrain-header">
+          <h3>Room Terrain</h3>
+          <select id="terrain-room-select">
+            <option value="">Select a room...</option>
+          </select>
+        </div>
+        <div class="terrain-container">
+          <canvas id="terrain-canvas" width="500" height="500"></canvas>
+        </div>
+      </section>
+
+      <!-- Intel Tab -->
+      <section id="intel" class="tab-content">
+        <h3>Room Intelligence</h3>
+        <table id="intel-table" class="data-table">
+          <thead>
+            <tr>
+              <th>Room</th>
+              <th>Last Visit</th>
+              <th>Sources</th>
+              <th>Mineral</th>
+              <th>Controller</th>
+              <th>Owner</th>
+              <th>Hostiles</th>
+              <th>Safe</th>
+            </tr>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
