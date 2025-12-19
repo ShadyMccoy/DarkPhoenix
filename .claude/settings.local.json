@@ -35,7 +35,8 @@
       "Bash(python3:*)",
       "Bash(docker-compose exec:*)",
       "Bash(npx mocha:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git restore:*)"
     ]
   }
 }

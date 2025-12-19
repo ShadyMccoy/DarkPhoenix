@@ -52,6 +52,7 @@ import {
   visualizeMultiRoomAnalysis,
   MultiRoomAnalysisResult,
 } from "./spatial";
+import { getTelemetry } from "./telemetry";
 import "./types/Memory";
 
 /** Maximum room distance from owned rooms for node expansion */
@@ -149,6 +150,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Persist all state
   persistState(colony);
+
+  // Update telemetry (write to RawMemory segments for external monitoring)
+  updateTelemetry(colony);
 
   // Clean up memory for dead creeps
   cleanupDeadCreeps();
@@ -860,6 +864,21 @@ function cleanupDeadCreeps(): void {
       delete Memory.creeps[name];
     }
   }
+}
+
+/**
+ * Updates telemetry data in RawMemory segments for external monitoring.
+ */
+function updateTelemetry(colony: Colony): void {
+  const telemetry = getTelemetry();
+  telemetry.update(
+    colony,
+    bootstrapCorps,
+    miningCorps,
+    haulingCorps,
+    upgradingCorps,
+    scoutCorps
+  );
 }
 
 /**

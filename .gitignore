@@ -2,13 +2,13 @@
 /yarn.lock
 
 # npm lock file (v5.0.0+)
-/package-lock.json
+**/package-lock.json
 
 # Ignore basic folders
 /dist
 /.rpt2_cache
 /tsc-out
-/node_modules
+**/node_modules
 /_book
 /build/*
 
@@ -22,6 +22,10 @@ Gruntfile.js
 
 # Environment variables (contains API keys)
 .env
+
+# Telemetry app config (contains tokens)
+telemetry-app/config.json
+telemetry-app/telemetry-cache.json
 
 # ScreepsServer data from integration tests
 /server
