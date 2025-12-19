@@ -115,6 +115,8 @@ export interface NodeTelemetry {
     roomName: string;
     peakPosition: { x: number; y: number; roomName: string };
     territorySize: number;
+    /** Territory positions grouped by room for visualization */
+    territory: { [roomName: string]: { x: number; y: number }[] };
     resources: {
       type: string;
       id: string;
@@ -441,23 +443,35 @@ export class Telemetry {
   private updateNodesTelemetry(colony: Colony | undefined): void {
     const nodes = colony?.getNodes() || [];
 
-    const nodeData = nodes.map(node => ({
-      id: node.id,
-      roomName: node.roomName,
-      peakPosition: node.peakPosition,
-      territorySize: node.positions.length,
-      resources: node.resources.map(r => ({
-        type: r.type,
-        id: r.id,
-        position: r.position,
-        capacity: r.capacity,
-        level: r.level,
-        mineralType: r.mineralType,
-      })),
-      roi: node.roi,
-      corpIds: node.corps.map(c => c.id),
-      spansRooms: [...new Set(node.positions.map(p => p.roomName))],
-    }));
+    const nodeData = nodes.map(node => {
+      // Group territory positions by room for visualization
+      const territory: { [roomName: string]: { x: number; y: number }[] } = {};
+      for (const pos of node.positions) {
+        if (!territory[pos.roomName]) {
+          territory[pos.roomName] = [];
+        }
+        territory[pos.roomName].push({ x: pos.x, y: pos.y });
+      }
+
+      return {
+        id: node.id,
+        roomName: node.roomName,
+        peakPosition: node.peakPosition,
+        territorySize: node.positions.length,
+        territory,
+        resources: node.resources.map(r => ({
+          type: r.type,
+          id: r.id,
+          position: r.position,
+          capacity: r.capacity,
+          level: r.level,
+          mineralType: r.mineralType,
+        })),
+        roi: node.roi,
+        corpIds: node.corps.map(c => c.id),
+        spansRooms: [...new Set(node.positions.map(p => p.roomName))],
+      };
+    });
 
     const ownedNodes = nodes.filter(n => n.roi?.isOwned).length;
     const expansionCandidates = nodes.filter(n => !n.roi?.isOwned && (n.roi?.score || 0) > 0).length;

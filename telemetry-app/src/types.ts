@@ -75,6 +75,8 @@ export interface NodeTelemetry {
     roomName: string;
     peakPosition: { x: number; y: number; roomName: string };
     territorySize: number;
+    /** Territory positions grouped by room */
+    territory: { [roomName: string]: { x: number; y: number }[] };
     resources: {
       type: string;
       id: string;

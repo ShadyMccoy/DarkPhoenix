@@ -361,7 +361,23 @@ function updateTerrainRoomSelect(terrain) {
 }
 
 /**
- * Draw terrain on canvas.
+ * Generate distinct colors for nodes.
+ */
+const NODE_COLORS = [
+  "#60a5fa", // blue
+  "#4ade80", // green
+  "#f472b6", // pink
+  "#facc15", // yellow
+  "#a78bfa", // purple
+  "#fb923c", // orange
+  "#2dd4bf", // teal
+  "#f87171", // red
+  "#818cf8", // indigo
+  "#34d399", // emerald
+];
+
+/**
+ * Draw terrain on canvas with node territories.
  */
 function drawTerrain(roomName) {
   if (!telemetry.terrain) return;
@@ -379,72 +395,160 @@ function drawTerrain(roomName) {
   // Parse terrain string
   const terrain = room.terrain;
 
+  // Build territory lookup: position -> node index
+  const territoryMap = new Map(); // "x,y" -> nodeIndex
+  const nodesInRoom = [];
+
+  if (telemetry.nodes) {
+    telemetry.nodes.nodes.forEach((node, idx) => {
+      if (node.territory && node.territory[roomName]) {
+        nodesInRoom.push({ node, colorIdx: idx % NODE_COLORS.length });
+        for (const pos of node.territory[roomName]) {
+          territoryMap.set(`${pos.x},${pos.y}`, idx % NODE_COLORS.length);
+        }
+      }
+    });
+  }
+
+  // Draw base terrain with territory colors
   for (let y = 0; y < 50; y++) {
     for (let x = 0; x < 50; x++) {
       const idx = y * 50 + x;
       const t = terrain[idx];
+      const key = `${x},${y}`;
+      const nodeColorIdx = territoryMap.get(key);
 
-      // Set color based on terrain type
       if (t === "1") {
-        ctx.fillStyle = "#111111"; // Wall
+        // Wall - dark
+        ctx.fillStyle = "#111111";
+      } else if (nodeColorIdx !== undefined) {
+        // Territory tile - use node color with transparency
+        const baseColor = NODE_COLORS[nodeColorIdx];
+        ctx.fillStyle = baseColor + "40"; // 25% opacity
       } else if (t === "2") {
-        ctx.fillStyle = "#4a6741"; // Swamp
+        // Swamp without territory
+        ctx.fillStyle = "#3a4a35";
       } else {
-        ctx.fillStyle = "#2b2b2b"; // Plain
+        // Plain without territory
+        ctx.fillStyle = "#1a1a1a";
       }
 
       ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
     }
   }
 
-  // Draw grid
-  ctx.strokeStyle = "#333333";
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i <= 50; i++) {
-    ctx.beginPath();
-    ctx.moveTo(i * tileSize, 0);
-    ctx.lineTo(i * tileSize, 50 * tileSize);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, i * tileSize);
-    ctx.lineTo(50 * tileSize, i * tileSize);
-    ctx.stroke();
+  // Draw territory borders (optional - makes nodes more visible)
+  if (telemetry.nodes) {
+    nodesInRoom.forEach(({ node, colorIdx }) => {
+      const positions = node.territory[roomName] || [];
+      const posSet = new Set(positions.map(p => `${p.x},${p.y}`));
+
+      ctx.strokeStyle = NODE_COLORS[colorIdx];
+      ctx.lineWidth = 1;
+
+      for (const pos of positions) {
+        // Check each edge for border
+        const neighbors = [
+          { dx: 0, dy: -1, edge: 'top' },
+          { dx: 0, dy: 1, edge: 'bottom' },
+          { dx: -1, dy: 0, edge: 'left' },
+          { dx: 1, dy: 0, edge: 'right' },
+        ];
+
+        for (const { dx, dy, edge } of neighbors) {
+          const nx = pos.x + dx;
+          const ny = pos.y + dy;
+          if (!posSet.has(`${nx},${ny}`)) {
+            // Draw border edge
+            ctx.beginPath();
+            const px = pos.x * tileSize;
+            const py = pos.y * tileSize;
+            if (edge === 'top') {
+              ctx.moveTo(px, py);
+              ctx.lineTo(px + tileSize, py);
+            } else if (edge === 'bottom') {
+              ctx.moveTo(px, py + tileSize);
+              ctx.lineTo(px + tileSize, py + tileSize);
+            } else if (edge === 'left') {
+              ctx.moveTo(px, py);
+              ctx.lineTo(px, py + tileSize);
+            } else if (edge === 'right') {
+              ctx.moveTo(px + tileSize, py);
+              ctx.lineTo(px + tileSize, py + tileSize);
+            }
+            ctx.stroke();
+          }
+        }
+      }
+    });
   }
 
-  // Draw nodes if available
+  // Draw resources
   if (telemetry.nodes) {
-    const nodesInRoom = telemetry.nodes.nodes.filter(
-      (n) => n.roomName === roomName
-    );
+    for (const { node, colorIdx } of nodesInRoom) {
+      for (const res of node.resources) {
+        if (res.position.roomName !== roomName) continue;
 
-    for (const node of nodesInRoom) {
-      // Draw peak position
+        const rx = res.position.x * tileSize + tileSize / 2;
+        const ry = res.position.y * tileSize + tileSize / 2;
+
+        ctx.beginPath();
+        if (res.type === "source") {
+          // Yellow circle for sources
+          ctx.arc(rx, ry, tileSize / 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = "#fbbf24";
+          ctx.fill();
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else if (res.type === "controller") {
+          // Red diamond for controller
+          ctx.moveTo(rx, ry - tileSize / 2.5);
+          ctx.lineTo(rx + tileSize / 2.5, ry);
+          ctx.lineTo(rx, ry + tileSize / 2.5);
+          ctx.lineTo(rx - tileSize / 2.5, ry);
+          ctx.closePath();
+          ctx.fillStyle = "#e94560";
+          ctx.fill();
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else if (res.type === "mineral") {
+          // Cyan square for minerals
+          ctx.rect(rx - tileSize / 3, ry - tileSize / 3, tileSize / 1.5, tileSize / 1.5);
+          ctx.fillStyle = "#22d3ee";
+          ctx.fill();
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  // Draw peak centers (node labels)
+  if (telemetry.nodes) {
+    for (const { node, colorIdx } of nodesInRoom) {
+      if (node.peakPosition.roomName !== roomName) continue;
+
       const px = node.peakPosition.x * tileSize + tileSize / 2;
       const py = node.peakPosition.y * tileSize + tileSize / 2;
 
+      // Draw peak marker
       ctx.beginPath();
-      ctx.arc(px, py, tileSize / 2, 0, Math.PI * 2);
-      ctx.fillStyle = node.roi?.isOwned ? "#60a5fa" : "#fbbf24";
+      ctx.arc(px, py, tileSize / 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = NODE_COLORS[colorIdx];
       ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-      // Draw sources
-      for (const res of node.resources) {
-        if (res.type === "source") {
-          const sx = res.position.x * tileSize + tileSize / 2;
-          const sy = res.position.y * tileSize + tileSize / 2;
-          ctx.beginPath();
-          ctx.arc(sx, sy, tileSize / 3, 0, Math.PI * 2);
-          ctx.fillStyle = "#fbbf24";
-          ctx.fill();
-        } else if (res.type === "controller") {
-          const cx = res.position.x * tileSize + tileSize / 2;
-          const cy = res.position.y * tileSize + tileSize / 2;
-          ctx.beginPath();
-          ctx.arc(cx, cy, tileSize / 3, 0, Math.PI * 2);
-          ctx.fillStyle = "#e94560";
-          ctx.fill();
-        }
-      }
+      // Draw node index
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 8px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(colorIdx + 1), px, py);
     }
   }
 }
