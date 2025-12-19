@@ -677,7 +677,8 @@ export function createMultiRoomDistanceTransform(
   startRooms: string[],
   terrainCallback: MultiRoomTerrainCallback,
   wallMask: number = 1,
-  maxRooms: number = 9
+  maxRooms: number = 9,
+  allowedRooms?: Set<string>
 ): Map<string, number> {
   const distances = new Map<string, number>();
   const visitedRooms = new Set<string>(startRooms);
@@ -725,6 +726,11 @@ export function createMultiRoomDistanceTransform(
         );
 
         if (!adjacent) continue;
+
+        // If allowedRooms is set, only expand to rooms in that set
+        if (allowedRooms && !allowedRooms.has(adjacent.roomName)) {
+          continue;
+        }
 
         // Limit expansion
         if (!visitedRooms.has(adjacent.roomName)) {
@@ -987,17 +993,22 @@ export function bfsDivideMultiRoom(
   peaks: WorldPeakData[],
   terrainCallback: MultiRoomTerrainCallback,
   wallMask: number = 1,
-  maxRooms: number = 9
+  maxRooms: number = 9,
+  allowedRooms?: Set<string>
 ): Map<string, WorldCoordinate[]> {
   const territories = new Map<string, WorldCoordinate[]>();
   const visited = new Set<string>();
 
   // Collect all rooms that have peaks - territory can ONLY expand into these rooms
   // This prevents flooding into adjacent rooms with no competition
+  // If allowedRooms is provided, use that instead (more restrictive)
   const roomsWithPeaks = new Set<string>();
   for (const peak of peaks) {
     roomsWithPeaks.add(peak.center.roomName);
   }
+
+  // Use allowedRooms if provided, otherwise fall back to roomsWithPeaks
+  const eligibleRooms = allowedRooms ?? roomsWithPeaks;
 
   interface QueueItem {
     x: number;
@@ -1056,9 +1067,9 @@ export function bfsDivideMultiRoom(
 
         if (!adjacent) continue;
 
-        // CRITICAL FIX: Only expand into rooms that have peaks
-        // This prevents flooding into empty adjacent rooms
-        if (!roomsWithPeaks.has(adjacent.roomName)) {
+        // CRITICAL FIX: Only expand into eligible rooms
+        // This prevents flooding into rooms outside the analysis area
+        if (!eligibleRooms.has(adjacent.roomName)) {
           continue;
         }
 

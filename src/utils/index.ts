@@ -12,4 +12,6 @@ export {
   discoverNearbyRooms,
   getDistanceToOwnedRoom,
   categorizeRoomsByDistance,
+  get5x5RoomBox,
+  get5x5BoxAroundOwnedRooms,
 } from "./RoomDiscovery";

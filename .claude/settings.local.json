@@ -36,7 +36,8 @@
       "Bash(docker-compose exec:*)",
       "Bash(npx mocha:*)",
       "Bash(npx tsc:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -105,8 +105,11 @@ export interface Node {
   /** Peak position (center of territory) */
   peakPosition: Position;
 
-  /** All positions in this territory */
-  positions: Position[];
+  /** Number of tiles in this territory */
+  territorySize: number;
+
+  /** Room names this territory spans */
+  spansRooms: string[];
 
   /** Corps operating in this node */
   corps: Corp[];
@@ -128,7 +131,8 @@ export interface SerializedNode {
   id: string;
   roomName: string;
   peakPosition: Position;
-  positions: Position[];
+  territorySize: number;
+  spansRooms: string[];
   resources: NodeResource[];
   corpIds: string[];
   createdAt: number;
@@ -149,14 +153,16 @@ export function createNode(
   id: string,
   roomName: string,
   peakPosition: Position,
-  positions: Position[] = [],
+  territorySize: number = 0,
+  spansRooms: string[] = [],
   currentTick: number = 0
 ): Node {
   return {
     id,
     roomName,
     peakPosition,
-    positions,
+    territorySize,
+    spansRooms: spansRooms.length > 0 ? spansRooms : [roomName],
     corps: [],
     resources: [],
     createdAt: currentTick
@@ -256,7 +262,8 @@ export function serializeNode(node: Node): SerializedNode {
     id: node.id,
     roomName: node.roomName,
     peakPosition: node.peakPosition,
-    positions: node.positions,
+    territorySize: node.territorySize,
+    spansRooms: node.spansRooms,
     resources: node.resources,
     corpIds: node.corps.map((c) => c.id),
     createdAt: node.createdAt,
@@ -350,16 +357,6 @@ export function calculateNodeROI(
 }
 
 /**
- * Check if a position is within a node's territory.
- * Supports cross-room territories - positions can be from any room.
- */
-export function isPositionInNode(node: Node, position: Position): boolean {
-  return node.positions.some(
-    (p) => p.x === position.x && p.y === position.y && p.roomName === position.roomName
-  );
-}
-
-/**
  * Calculate the distance from a position to the node's peak.
  * Supports cross-room positions using room coordinate math.
  */
@@ -390,20 +387,7 @@ export function distanceToPeak(node: Node, position: Position): number {
 
 /**
  * Get all unique room names that a node's territory spans.
- * Useful for visualization and cross-room operations.
  */
 export function getNodeRooms(node: Node): string[] {
-  const rooms = new Set<string>();
-  rooms.add(node.roomName); // Always include the peak's room
-  for (const pos of node.positions) {
-    rooms.add(pos.roomName);
-  }
-  return Array.from(rooms);
-}
-
-/**
- * Get positions in a specific room from a node's territory.
- */
-export function getNodePositionsInRoom(node: Node, roomName: string): Position[] {
-  return node.positions.filter((p) => p.roomName === roomName);
+  return node.spansRooms;
 }

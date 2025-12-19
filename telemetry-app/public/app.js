@@ -364,7 +364,9 @@ function parseRoomCoords(roomName) {
 }
 
 /**
- * Draw the colony network graph showing all nodes and their connections.
+ * Draw the colony network graph showing nodes positioned on the world map.
+ * Node positions are based on their actual peak coordinates in the world.
+ * Node sizes are based on peak height (openness).
  */
 function drawNetworkGraph(nodesData) {
   const canvas = elements.networkCanvas;
@@ -383,9 +385,55 @@ function drawNetworkGraph(nodesData) {
   }
 
   const nodes = nodesData.nodes;
-  const padding = 60;
+  const padding = 20;
 
-  // Get all unique rooms from nodes
+  // Calculate world coordinates for each node based on peak position
+  // World coords: roomX * 50 + peakPosition.x, roomY * 50 + peakPosition.y
+  const nodeWorldCoords = new Map();
+  let minWX = Infinity, maxWX = -Infinity, minWY = Infinity, maxWY = -Infinity;
+
+  nodes.forEach((node) => {
+    const roomCoords = parseRoomCoords(node.peakPosition?.roomName || node.roomName);
+    const peakX = node.peakPosition?.x ?? 25;
+    const peakY = node.peakPosition?.y ?? 25;
+
+    // World coordinates (room * 50 + tile position)
+    const worldX = roomCoords.wx * 50 + peakX;
+    const worldY = roomCoords.wy * 50 + peakY;
+
+    nodeWorldCoords.set(node.id, { worldX, worldY });
+
+    minWX = Math.min(minWX, worldX);
+    maxWX = Math.max(maxWX, worldX);
+    minWY = Math.min(minWY, worldY);
+    maxWY = Math.max(maxWY, worldY);
+  });
+
+  // Add minimal margin around the data
+  const margin = 10;
+  minWX -= margin;
+  maxWX += margin;
+  minWY -= margin;
+  maxWY += margin;
+
+  // Calculate scale to fit canvas
+  const worldWidth = maxWX - minWX;
+  const worldHeight = maxWY - minWY;
+  const scaleX = (canvas.width - padding * 2) / Math.max(worldWidth, 1);
+  const scaleY = (canvas.height - padding * 2) / Math.max(worldHeight, 1);
+  const scale = Math.min(scaleX, scaleY);
+
+  // Center offset
+  const offsetX = padding + (canvas.width - padding * 2 - worldWidth * scale) / 2;
+  const offsetY = padding + (canvas.height - padding * 2 - worldHeight * scale) / 2;
+
+  // Helper to convert world coords to canvas coords
+  const toCanvas = (worldX, worldY) => ({
+    x: offsetX + (worldX - minWX) * scale,
+    y: offsetY + (worldY - minWY) * scale,
+  });
+
+  // Get unique rooms to draw grid
   const allRooms = new Set();
   nodes.forEach((node) => {
     if (node.spansRooms) {
@@ -394,113 +442,79 @@ function drawNetworkGraph(nodesData) {
     allRooms.add(node.roomName);
   });
 
-  // Calculate room positions based on world coordinates
-  const roomCoords = {};
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-  allRooms.forEach((room) => {
-    const coords = parseRoomCoords(room);
-    roomCoords[room] = coords;
-    minX = Math.min(minX, coords.wx);
-    maxX = Math.max(maxX, coords.wx);
-    minY = Math.min(minY, coords.wy);
-    maxY = Math.max(maxY, coords.wy);
-  });
-
-  // Calculate scale
-  const worldWidth = maxX - minX + 1;
-  const worldHeight = maxY - minY + 1;
-  const scaleX = (canvas.width - padding * 2) / Math.max(worldWidth, 1);
-  const scaleY = (canvas.height - padding * 2) / Math.max(worldHeight, 1);
-  const scale = Math.min(scaleX, scaleY, 100); // Cap scale for single rooms
-
-  // Center offset
-  const offsetX = padding + (canvas.width - padding * 2 - worldWidth * scale) / 2;
-  const offsetY = padding + (canvas.height - padding * 2 - worldHeight * scale) / 2;
-
-  // Helper to convert world coords to canvas coords
-  const toCanvas = (wx, wy) => ({
-    x: offsetX + (wx - minX + 0.5) * scale,
-    y: offsetY + (wy - minY + 0.5) * scale,
-  });
-
   // Draw room grid background
   ctx.strokeStyle = "#2a2a4e";
   ctx.lineWidth = 1;
   allRooms.forEach((room) => {
-    const coords = roomCoords[room];
-    const pos = toCanvas(coords.wx, coords.wy);
-    const halfScale = scale / 2 - 2;
+    const roomCoords = parseRoomCoords(room);
+    // Room boundaries in world coords
+    const roomMinX = roomCoords.wx * 50;
+    const roomMinY = roomCoords.wy * 50;
+    const topLeft = toCanvas(roomMinX, roomMinY);
+    const size = 50 * scale;
 
-    ctx.strokeRect(pos.x - halfScale, pos.y - halfScale, scale - 4, scale - 4);
+    ctx.strokeRect(topLeft.x, topLeft.y, size, size);
 
-    // Room label
-    ctx.fillStyle = "#4a4a6e";
-    ctx.font = "10px monospace";
+    // Room label at center
+    ctx.fillStyle = "#3a3a5e";
+    ctx.font = `${Math.max(8, Math.min(12, size / 5))}px monospace`;
     ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(room, pos.x, pos.y + halfScale + 4);
+    ctx.textBaseline = "middle";
+    ctx.fillText(room, topLeft.x + size / 2, topLeft.y + size / 2);
   });
 
-  // Calculate node positions within their rooms
+  // Calculate node positions
   const nodePositions = new Map();
-  const nodesByRoom = new Map();
-
   nodes.forEach((node) => {
-    const room = node.roomName;
-    if (!nodesByRoom.has(room)) nodesByRoom.set(room, []);
-    nodesByRoom.get(room).push(node);
+    const wc = nodeWorldCoords.get(node.id);
+    nodePositions.set(node.id, toCanvas(wc.worldX, wc.worldY));
   });
 
-  // Position nodes within their rooms
-  nodesByRoom.forEach((roomNodes, room) => {
-    const coords = roomCoords[room];
-    const center = toCanvas(coords.wx, coords.wy);
-    const count = roomNodes.length;
-
-    if (count === 1) {
-      nodePositions.set(roomNodes[0].id, center);
-    } else {
-      // Distribute nodes in a circle within the room
-      const radius = scale * 0.25;
-      roomNodes.forEach((node, i) => {
-        const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-        nodePositions.set(node.id, {
-          x: center.x + Math.cos(angle) * radius,
-          y: center.y + Math.sin(angle) * radius,
-        });
-      });
-    }
-  });
-
-  // Draw edges for nodes that span rooms
+  // Draw edges for nodes that span rooms (connect to room centers)
   ctx.strokeStyle = "#4a4a6e";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
   nodes.forEach((node) => {
     if (node.spansRooms && node.spansRooms.length > 1) {
       const nodePos = nodePositions.get(node.id);
       node.spansRooms.forEach((room) => {
         if (room !== node.roomName) {
-          const targetCoords = roomCoords[room];
-          if (targetCoords) {
-            const targetPos = toCanvas(targetCoords.wx, targetCoords.wy);
-            ctx.beginPath();
-            ctx.moveTo(nodePos.x, nodePos.y);
-            ctx.lineTo(targetPos.x, targetPos.y);
-            ctx.stroke();
-          }
+          const roomCoords = parseRoomCoords(room);
+          const roomCenterX = roomCoords.wx * 50 + 25;
+          const roomCenterY = roomCoords.wy * 50 + 25;
+          const targetPos = toCanvas(roomCenterX, roomCenterY);
+          ctx.beginPath();
+          ctx.moveTo(nodePos.x, nodePos.y);
+          ctx.lineTo(targetPos.x, targetPos.y);
+          ctx.stroke();
         }
       });
     }
   });
+  ctx.setLineDash([]);
 
-  // Draw nodes
-  const nodeRadius = Math.min(20, scale * 0.15);
+  // Draw nodes - size based on peak height (openness)
+  const minNodeRadius = 6;
+  const maxNodeRadius = 20;
+
+  // Find min/max openness for scaling
+  let minOpenness = Infinity, maxOpenness = -Infinity;
+  nodes.forEach((node) => {
+    const openness = node.roi?.openness || 5;
+    minOpenness = Math.min(minOpenness, openness);
+    maxOpenness = Math.max(maxOpenness, openness);
+  });
 
   nodes.forEach((node, idx) => {
     const pos = nodePositions.get(node.id);
     const isOwned = node.roi?.isOwned;
     const colorIdx = idx % NODE_COLORS.length;
+
+    // Calculate radius based on openness (peak height)
+    const openness = node.roi?.openness || 5;
+    const opennessRange = Math.max(maxOpenness - minOpenness, 1);
+    const normalizedOpenness = (openness - minOpenness) / opennessRange;
+    const nodeRadius = minNodeRadius + normalizedOpenness * (maxNodeRadius - minNodeRadius);
 
     // Node circle
     ctx.beginPath();
@@ -508,65 +522,48 @@ function drawNetworkGraph(nodesData) {
     ctx.fillStyle = isOwned ? "#60a5fa" : "#facc15";
     ctx.fill();
     ctx.strokeStyle = NODE_COLORS[colorIdx];
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Source count inside node
+    // Source count inside node (if it fits)
     const sourceCount = node.roi?.sourceCount || node.resources?.filter(r => r.type === "source").length || 0;
-    ctx.fillStyle = "#fff";
-    ctx.font = `bold ${Math.max(10, nodeRadius * 0.8)}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(sourceCount), pos.x, pos.y);
+    if (nodeRadius >= 10) {
+      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${Math.max(8, nodeRadius * 0.7)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(sourceCount), pos.x, pos.y);
+    }
 
-    // Draw resource indicators around node
-    const resources = node.resources || [];
-    const sources = resources.filter(r => r.type === "source");
-    const controllers = resources.filter(r => r.type === "controller");
-
-    // Draw source dots
-    sources.forEach((_, i) => {
-      const angle = (i / sources.length) * Math.PI * 2 - Math.PI / 2;
-      const dotX = pos.x + Math.cos(angle) * (nodeRadius + 8);
-      const dotY = pos.y + Math.sin(angle) * (nodeRadius + 8);
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = "#fbbf24";
-      ctx.fill();
-    });
-
-    // Draw controller indicator
-    if (controllers.length > 0) {
+    // Draw controller indicator (diamond above node)
+    const hasController = node.roi?.hasController || node.resources?.some(r => r.type === "controller");
+    if (hasController) {
       ctx.beginPath();
       const cx = pos.x;
-      const cy = pos.y - nodeRadius - 12;
-      ctx.moveTo(cx, cy - 5);
-      ctx.lineTo(cx + 5, cy);
-      ctx.lineTo(cx, cy + 5);
-      ctx.lineTo(cx - 5, cy);
+      const cy = pos.y - nodeRadius - 6;
+      ctx.moveTo(cx, cy - 4);
+      ctx.lineTo(cx + 4, cy);
+      ctx.lineTo(cx, cy + 4);
+      ctx.lineTo(cx - 4, cy);
       ctx.closePath();
       ctx.fillStyle = "#e94560";
       ctx.fill();
     }
-
-    // ROI score label
-    if (node.roi?.score !== undefined) {
-      ctx.fillStyle = "#a0a0a0";
-      ctx.font = "10px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText(`ROI: ${node.roi.score.toFixed(1)}`, pos.x, pos.y + nodeRadius + 4);
-    }
   });
 
-  // Draw summary
+  // Draw legend
   ctx.fillStyle = "#eaeaea";
-  ctx.font = "12px sans-serif";
+  ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText(`Nodes: ${nodesData.summary?.totalNodes || nodes.length}`, 10, 10);
-  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 26);
-  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 42);
+  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 24);
+  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 38);
+
+  // Size legend
+  ctx.fillStyle = "#888";
+  ctx.font = "10px sans-serif";
+  ctx.fillText("Size = Peak Height", 10, canvas.height - 20);
 }
 
 /**

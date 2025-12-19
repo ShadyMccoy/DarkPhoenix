@@ -18,10 +18,8 @@ export {
   pruneDead,
   serializeNode,
   calculateNodeROI,
-  isPositionInNode,
   distanceToPeak,
   getNodeRooms,
-  getNodePositionsInRoom
 } from "./Node";
 
 export {

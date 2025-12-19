@@ -115,8 +115,8 @@ export interface NodeTelemetry {
     roomName: string;
     peakPosition: { x: number; y: number; roomName: string };
     territorySize: number;
-    /** Territory positions grouped by room for visualization */
-    territory: { [roomName: string]: { x: number; y: number }[] };
+    // Territory positions removed to stay under 100KB segment limit
+    // Use terrain segment for visualization instead
     resources: {
       type: string;
       id: string;
@@ -272,7 +272,6 @@ export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
  */
 export class Telemetry {
   private config: TelemetryConfig;
-  private lastTerrainUpdate: number = 0;
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.config = { ...DEFAULT_TELEMETRY_CONFIG, ...config };
@@ -310,11 +309,9 @@ export class Telemetry {
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
 
-    // Update terrain (less frequently)
-    if (Game.time - this.lastTerrainUpdate >= this.config.terrainInterval) {
-      this.updateTerrainTelemetry();
-      this.lastTerrainUpdate = Game.time;
-    }
+    // Terrain telemetry disabled - too large for 100KB segment limit
+    // Clear segment 2 if it has stale data
+    RawMemory.segments[TELEMETRY_SEGMENTS.TERRAIN] = "";
 
     // Update intel telemetry
     this.updateIntelTelemetry();
@@ -443,35 +440,23 @@ export class Telemetry {
   private updateNodesTelemetry(colony: Colony | undefined): void {
     const nodes = colony?.getNodes() || [];
 
-    const nodeData = nodes.map(node => {
-      // Group territory positions by room for visualization
-      const territory: { [roomName: string]: { x: number; y: number }[] } = {};
-      for (const pos of node.positions) {
-        if (!territory[pos.roomName]) {
-          territory[pos.roomName] = [];
-        }
-        territory[pos.roomName].push({ x: pos.x, y: pos.y });
-      }
-
-      return {
-        id: node.id,
-        roomName: node.roomName,
-        peakPosition: node.peakPosition,
-        territorySize: node.positions.length,
-        territory,
-        resources: node.resources.map(r => ({
-          type: r.type,
-          id: r.id,
-          position: r.position,
-          capacity: r.capacity,
-          level: r.level,
-          mineralType: r.mineralType,
-        })),
-        roi: node.roi,
-        corpIds: node.corps.map(c => c.id),
-        spansRooms: [...new Set(node.positions.map(p => p.roomName))],
-      };
-    });
+    const nodeData = nodes.map(node => ({
+      id: node.id,
+      roomName: node.roomName,
+      peakPosition: node.peakPosition,
+      territorySize: node.territorySize,
+      resources: node.resources.map(r => ({
+        type: r.type,
+        id: r.id,
+        position: r.position,
+        capacity: r.capacity,
+        level: r.level,
+        mineralType: r.mineralType,
+      })),
+      roi: node.roi,
+      corpIds: node.corps.map(c => c.id),
+      spansRooms: node.spansRooms,
+    }));
 
     const ownedNodes = nodes.filter(n => n.roi?.isOwned).length;
     const expansionCandidates = nodes.filter(n => !n.roi?.isOwned && (n.roi?.score || 0) > 0).length;
@@ -494,70 +479,6 @@ export class Telemetry {
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.NODES] = JSON.stringify(telemetry);
-  }
-
-  /**
-   * Updates terrain telemetry (Segment 2).
-   * Encodes terrain data as base64 for efficiency.
-   */
-  private updateTerrainTelemetry(): void {
-    const rooms: TerrainTelemetry["rooms"] = [];
-
-    // Get terrain for all rooms with vision
-    for (const roomName in Game.rooms) {
-      const terrainData = this.encodeRoomTerrain(roomName);
-      rooms.push({
-        name: roomName,
-        terrain: terrainData,
-        cachedAt: Game.time,
-      });
-    }
-
-    // Also get terrain for rooms in intel (if not already included)
-    if (Memory.roomIntel) {
-      for (const roomName in Memory.roomIntel) {
-        if (!Game.rooms[roomName]) {
-          const terrainData = this.encodeRoomTerrain(roomName);
-          rooms.push({
-            name: roomName,
-            terrain: terrainData,
-            cachedAt: Game.time,
-          });
-        }
-      }
-    }
-
-    const telemetry: TerrainTelemetry = {
-      version: 1,
-      tick: Game.time,
-      rooms,
-    };
-
-    RawMemory.segments[TELEMETRY_SEGMENTS.TERRAIN] = JSON.stringify(telemetry);
-  }
-
-  /**
-   * Encodes room terrain as a compact string.
-   * Each tile is encoded as a character: '0'=plain, '1'=wall, '2'=swamp
-   */
-  private encodeRoomTerrain(roomName: string): string {
-    const terrain = Game.map.getRoomTerrain(roomName);
-    let encoded = "";
-
-    for (let y = 0; y < 50; y++) {
-      for (let x = 0; x < 50; x++) {
-        const t = terrain.get(x, y);
-        if (t === TERRAIN_MASK_WALL) {
-          encoded += "1";
-        } else if (t === TERRAIN_MASK_SWAMP) {
-          encoded += "2";
-        } else {
-          encoded += "0";
-        }
-      }
-    }
-
-    return encoded;
   }
 
   /**

@@ -1053,6 +1053,8 @@ export interface MultiRoomAnalysisOptions {
   maxRooms?: number;
   /** Peak filtering options */
   peakOptions?: FilterPeaksOptions;
+  /** If true, strictly limit analysis to startRooms only (no room expansion) */
+  limitToStartRooms?: boolean;
 }
 
 /**
@@ -1082,17 +1084,21 @@ export function analyzeMultiRoomTerrain(
   startRooms: string[],
   options: MultiRoomAnalysisOptions = {}
 ): MultiRoomAnalysisResult {
-  const { maxRooms = 9, peakOptions = {} } = options;
+  const { maxRooms = 9, peakOptions = {}, limitToStartRooms = false } = options;
 
   // Create terrain callback
   const terrainCallback = createMultiRoomTerrainCallback();
+
+  // Create set of allowed rooms (only startRooms if limiting)
+  const allowedRooms = limitToStartRooms ? new Set(startRooms) : undefined;
 
   // Step 1: Compute multi-room distance transform
   const distances = createMultiRoomDistanceTransform(
     startRooms,
     terrainCallback,
     TERRAIN_MASK_WALL,
-    maxRooms
+    maxRooms,
+    allowedRooms
   );
 
   // Step 2: Find peaks across all rooms
@@ -1115,7 +1121,8 @@ export function analyzeMultiRoomTerrain(
     worldPeaks,
     terrainCallback,
     TERRAIN_MASK_WALL,
-    maxRooms
+    maxRooms,
+    allowedRooms
   );
 
   // Convert to WorldPosition format

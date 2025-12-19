@@ -110,6 +110,97 @@ export function getDistanceToOwnedRoom(
 }
 
 /**
+ * Parses a room name into its coordinate components.
+ * E.g., "E75N8" -> { xDir: "E", x: 75, yDir: "N", y: 8 }
+ */
+function parseRoomName(roomName: string): { xDir: string; x: number; yDir: string; y: number } | null {
+  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  if (!match) return null;
+  return {
+    xDir: match[1],
+    x: parseInt(match[2], 10),
+    yDir: match[3],
+    y: parseInt(match[4], 10),
+  };
+}
+
+/**
+ * Builds a room name from coordinate components.
+ */
+function buildRoomName(xDir: string, x: number, yDir: string, y: number): string {
+  return `${xDir}${x}${yDir}${y}`;
+}
+
+/**
+ * Gets a 5x5 box of room names centered on the given room.
+ * Returns all 25 rooms in the box, regardless of exits or accessibility.
+ *
+ * @param centerRoom - The room at the center of the box
+ * @returns Array of 25 room names in the 5x5 box
+ */
+export function get5x5RoomBox(centerRoom: string): string[] {
+  const parsed = parseRoomName(centerRoom);
+  if (!parsed) return [centerRoom];
+
+  const rooms: string[] = [];
+
+  // Iterate -2 to +2 for both axes
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      // Calculate new coordinates, handling sector boundary crossings
+      let newX = parsed.x + dx;
+      let newY = parsed.y + dy;
+      let newXDir = parsed.xDir;
+      let newYDir = parsed.yDir;
+
+      // Handle X axis crossing (W/E boundary at 0)
+      if (newX < 0) {
+        // Crossing from E to W or W to E
+        newX = -newX - 1; // E0 - 1 = W0, E0 - 2 = W1
+        newXDir = parsed.xDir === "E" ? "W" : "E";
+      }
+
+      // Handle Y axis crossing (N/S boundary at 0)
+      if (newY < 0) {
+        // Crossing from N to S or S to N
+        newY = -newY - 1; // N0 - 1 = S0, N0 - 2 = S1
+        newYDir = parsed.yDir === "N" ? "S" : "N";
+      }
+
+      rooms.push(buildRoomName(newXDir, newX, newYDir, newY));
+    }
+  }
+
+  return rooms;
+}
+
+/**
+ * Gets a 5x5 box of rooms centered on each owned room, combined.
+ * Filters out closed rooms.
+ *
+ * @returns Set of room names in the combined 5x5 boxes
+ */
+export function get5x5BoxAroundOwnedRooms(): Set<string> {
+  const rooms = new Set<string>();
+
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.controller?.my) {
+      const box = get5x5RoomBox(roomName);
+      for (const boxRoom of box) {
+        // Check if room is accessible
+        const status = Game.map.getRoomStatus(boxRoom);
+        if (status.status !== "closed") {
+          rooms.add(boxRoom);
+        }
+      }
+    }
+  }
+
+  return rooms;
+}
+
+/**
  * Categorizes discovered rooms by their distance from owned rooms.
  *
  * @param maxDistance - Maximum distance to discover

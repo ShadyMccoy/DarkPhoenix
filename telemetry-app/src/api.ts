@@ -28,10 +28,24 @@ export interface MemorySegmentData {
 export class ScreepsAPI {
   private config: ScreepsConfig;
   private baseUrl: string;
+  private lastRequestTime = 0;
+  private minRequestInterval = 1500; // Minimum 1.5s between requests
 
   constructor(config: ScreepsConfig) {
     this.config = config;
     this.baseUrl = config.apiUrl || "https://screeps.com/api";
+  }
+
+  /**
+   * Wait for rate limit cooldown before making a request.
+   */
+  private async waitForRateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      await this.delay(this.minRequestInterval - timeSinceLastRequest);
+    }
+    this.lastRequestTime = Date.now();
   }
 
   /**
@@ -42,6 +56,9 @@ export class ScreepsAPI {
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+        // Wait for rate limit cooldown
+        await this.waitForRateLimit();
+
         const response = await fetch(url, {
           headers: {
             "X-Token": this.config.token,
@@ -50,10 +67,10 @@ export class ScreepsAPI {
         });
 
         if (response.status === 429) {
-          // Rate limited - wait with exponential backoff
-          const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000);
+          // Rate limited - wait with exponential backoff (starting at 5s)
+          const waitTime = Math.min(5000 * Math.pow(2, attempt), 30000);
           if (attempt < retries) {
-            console.log(`  Rate limited on segment ${segment}, retrying in ${waitTime}ms...`);
+            console.log(`  Rate limited on segment ${segment}, waiting ${waitTime / 1000}s...`);
             await this.delay(waitTime);
             continue;
           }
@@ -84,20 +101,14 @@ export class ScreepsAPI {
 
   /**
    * Read multiple memory segments.
-   * Reads sequentially with delay to avoid rate limiting.
+   * Reads sequentially with built-in rate limiting.
    */
-  async readSegments(segments: number[], delayMs = 250): Promise<MemorySegmentData> {
+  async readSegments(segments: number[]): Promise<MemorySegmentData> {
     const results: MemorySegmentData = {};
 
-    // Read segments sequentially to avoid rate limiting
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
+    // Read segments sequentially (rate limiting is handled by waitForRateLimit)
+    for (const segment of segments) {
       results[segment] = await this.readSegment(segment);
-
-      // Add delay between requests (except after the last one)
-      if (i < segments.length - 1) {
-        await this.delay(delayMs);
-      }
     }
 
     return results;

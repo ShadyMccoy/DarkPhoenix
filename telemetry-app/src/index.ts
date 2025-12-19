@@ -286,10 +286,13 @@ async function main(): Promise<void> {
     console.log("");
   });
 
-  // Fetch once on startup
-  await pollTelemetry();
-
-  // No continuous polling - use POST /api/refresh to fetch manually
+  // Use cached data on startup - don't auto-fetch
+  // Use POST /api/refresh to fetch manually when needed
+  if (telemetry.core) {
+    console.log(`Using cached data from tick ${telemetry.core.tick}`);
+  } else {
+    console.log("No cached data available - use Refresh button to fetch");
+  }
 }
 
 main().catch(console.error);

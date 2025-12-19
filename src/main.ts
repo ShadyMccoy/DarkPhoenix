@@ -44,19 +44,13 @@ import {
   createScoutCorp,
   SerializedScoutCorp,
 } from "./corps";
-import { ErrorMapper, discoverNearbyRooms } from "./utils";
+import { ErrorMapper, get5x5BoxAroundOwnedRooms } from "./utils";
 import {
-  RoomMap,
-  getRoomsToVisualize,
   analyzeMultiRoomTerrain,
-  visualizeMultiRoomAnalysis,
   MultiRoomAnalysisResult,
 } from "./spatial";
 import { getTelemetry } from "./telemetry";
 import "./types/Memory";
-
-/** Maximum room distance from owned rooms for node expansion */
-const NEARBY_ROOM_DISTANCE = 2;
 
 /** Tick interval for expanding to nearby rooms (expensive operation) */
 const NEARBY_ROOM_EXPANSION_INTERVAL = 500;
@@ -85,12 +79,6 @@ declare global {
     scoutCorps?: { [roomName: string]: SerializedScoutCorp };
   }
 }
-
-/** Cache for room maps to avoid recalculating every tick */
-const roomMapCache: { [roomName: string]: { map: RoomMap; tick: number } } = {};
-
-/** Recalculate room maps every N ticks */
-const ROOM_MAP_CACHE_TTL = 100;
 
 /** The colony instance (persisted across ticks) */
 let colony: Colony | undefined;
@@ -142,9 +130,6 @@ export const loop = ErrorMapper.wrapLoop(() => {
     runMultiRoomAnalysis(colony);
   }
 
-  // Render visualizations for flagged rooms
-  renderNearbyRoomVisuals();
-
   // Run the colony economic tick
   colony.run(Game.time);
 
@@ -153,6 +138,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Update telemetry (write to RawMemory segments for external monitoring)
   updateTelemetry(colony);
+
+  // Render node visualization in rooms with vision
+  renderNodeVisuals(colony);
 
   // Clean up memory for dead creeps
   cleanupDeadCreeps();
@@ -457,7 +445,7 @@ global.exportNodes = (): string => {
       id: node.id,
       roomName: node.roomName,
       peakPosition: node.peakPosition,
-      territorySize: node.positions.length,
+      territorySize: node.territorySize,
       resources: node.resources.map(r => ({
         type: r.type,
         id: r.id,
@@ -466,8 +454,7 @@ global.exportNodes = (): string => {
         mineralType: r.mineralType
       })),
       roi: node.roi,
-      // Include rooms this node spans
-      spansRooms: [...new Set(node.positions.map(p => p.roomName))]
+      spansRooms: node.spansRooms
     })),
     // Summary stats
     summary: {
@@ -498,24 +485,9 @@ const MULTI_ROOM_ANALYSIS_CACHE_TTL = 500;
  * - Territories span rooms based purely on terrain
  */
 function runMultiRoomAnalysis(colony: Colony): void {
-  // Collect all rooms to analyze (owned + nearby)
-  const roomsToAnalyze: string[] = [];
-
-  // Add owned rooms
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (room.controller?.my) {
-      roomsToAnalyze.push(roomName);
-    }
-  }
-
-  // Add nearby rooms
-  const nearbyRooms = discoverNearbyRooms(NEARBY_ROOM_DISTANCE);
-  for (const roomName of nearbyRooms) {
-    if (!roomsToAnalyze.includes(roomName)) {
-      roomsToAnalyze.push(roomName);
-    }
-  }
+  // Collect all rooms to analyze: 5x5 box centered on each owned room
+  const roomsToAnalyzeSet = get5x5BoxAroundOwnedRooms();
+  const roomsToAnalyze = Array.from(roomsToAnalyzeSet);
 
   if (roomsToAnalyze.length === 0) return;
 
@@ -528,9 +500,11 @@ function runMultiRoomAnalysis(colony: Colony): void {
   console.log(`[MultiRoom] Analyzing ${roomsToAnalyze.length} rooms: ${roomsToAnalyze.join(", ")}`);
 
   // Run unified multi-room analysis
+  // maxRooms matches exact room count to prevent expansion beyond 5x5 box
   const result = analyzeMultiRoomTerrain(roomsToAnalyze, {
-    maxRooms: 20, // Must be larger than number of rooms with peaks
+    maxRooms: roomsToAnalyze.length,
     peakOptions: { minHeight: 3, maxPeaks: 20 },
+    limitToStartRooms: true, // Don't expand beyond the 5x5 box
   });
 
   // Cache result
@@ -584,42 +558,49 @@ function runMultiRoomAnalysis(colony: Colony): void {
   // Create/update nodes from peaks
   for (const peak of result.peaks) {
     const nodeId = peak.peakId;
+    const positions = result.territories.get(nodeId);
 
-    if (!existingNodeIds.has(nodeId)) {
-      // Create new node
-      const peakPosition = { x: peak.center.x, y: peak.center.y, roomName: peak.roomName };
-      const node = createNode(nodeId, peak.roomName, peakPosition, [], Game.time);
-      colony.addNode(node);
-      nodesCreated++;
-    }
-
-    // Update node positions from unified territories
-    const node = colony.getNode(nodeId);
-    if (node) {
-      const positions = result.territories.get(nodeId);
-      if (positions && positions.length > 0) {
-        node.positions = positions;
-
-        // Log cross-room territories
-        const roomsInTerritory = new Set(positions.map((p) => p.roomName));
-        if (roomsInTerritory.size > 1) {
-          console.log(`[MultiRoom] Node ${nodeId} spans ${roomsInTerritory.size} rooms: ${Array.from(roomsInTerritory).join(", ")}`);
-        }
-
-        // Populate resources from room intel or live data
-        populateNodeResources(node);
-
-        // Survey node to find potential corps and their ROI
-        const surveyResult = surveyor.survey(node, Game.time);
-
-        // Calculate ROI based on potential corps
-        node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps);
-      } else {
-        // Node has no territory - remove it
+    if (!positions || positions.length === 0) {
+      // No territory for this peak - skip it
+      if (existingNodeIds.has(nodeId)) {
         colony.removeNode(nodeId);
         nodesRemoved++;
         console.log(`[MultiRoom] Removed node ${nodeId} (no territory - peak on wall?)`);
       }
+      continue;
+    }
+
+    // Calculate territory info
+    const territorySize = positions.length;
+    const spansRooms = [...new Set(positions.map((p) => p.roomName))];
+
+    if (!existingNodeIds.has(nodeId)) {
+      // Create new node
+      const peakPosition = { x: peak.center.x, y: peak.center.y, roomName: peak.roomName };
+      const node = createNode(nodeId, peak.roomName, peakPosition, territorySize, spansRooms, Game.time);
+      colony.addNode(node);
+      nodesCreated++;
+    }
+
+    // Update node territory info
+    const node = colony.getNode(nodeId);
+    if (node) {
+      node.territorySize = territorySize;
+      node.spansRooms = spansRooms;
+
+      // Log cross-room territories
+      if (spansRooms.length > 1) {
+        console.log(`[MultiRoom] Node ${nodeId} spans ${spansRooms.length} rooms: ${spansRooms.join(", ")}`);
+      }
+
+      // Populate resources from room intel or live data
+      populateNodeResources(node);
+
+      // Survey node to find potential corps and their ROI
+      const surveyResult = surveyor.survey(node, Game.time);
+
+      // Calculate ROI based on potential corps
+      node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps);
     }
   }
 
@@ -637,36 +618,28 @@ function runMultiRoomAnalysis(colony: Colony): void {
 /**
  * Populates a node's resources from room intel or live game data.
  *
- * Resources are associated with a node if they're within or adjacent to
- * the node's territory positions.
+ * Resources in the rooms the node spans are added. Multiple nodes in the
+ * same room will share access to resources (handled by the economic system).
  */
 function populateNodeResources(node: Node): void {
   node.resources = [];
 
-  // Get all rooms this node spans
-  const roomsInNode = new Set<string>([node.roomName]);
-  for (const pos of node.positions) {
-    roomsInNode.add(pos.roomName);
-  }
-
-  for (const roomName of roomsInNode) {
+  for (const roomName of node.spansRooms) {
     // Try live data first (if we have vision)
     const room = Game.rooms[roomName];
     if (room) {
-      // Add sources - check if source or any adjacent tile is in territory
+      // Add sources
       for (const source of room.find(FIND_SOURCES)) {
-        if (isNearTerritory(node, source.pos.x, source.pos.y, roomName)) {
-          node.resources.push({
-            type: "source",
-            id: source.id,
-            position: { x: source.pos.x, y: source.pos.y, roomName },
-            capacity: source.energyCapacity
-          });
-        }
+        node.resources.push({
+          type: "source",
+          id: source.id,
+          position: { x: source.pos.x, y: source.pos.y, roomName },
+          capacity: source.energyCapacity
+        });
       }
 
       // Add controller
-      if (room.controller && isNearTerritory(node, room.controller.pos.x, room.controller.pos.y, roomName)) {
+      if (room.controller) {
         node.resources.push({
           type: "controller",
           id: room.controller.id,
@@ -677,14 +650,12 @@ function populateNodeResources(node: Node): void {
 
       // Add minerals
       for (const mineral of room.find(FIND_MINERALS)) {
-        if (isNearTerritory(node, mineral.pos.x, mineral.pos.y, roomName)) {
-          node.resources.push({
-            type: "mineral",
-            id: mineral.id,
-            position: { x: mineral.pos.x, y: mineral.pos.y, roomName },
-            mineralType: mineral.mineralType
-          });
-        }
+        node.resources.push({
+          type: "mineral",
+          id: mineral.id,
+          position: { x: mineral.pos.x, y: mineral.pos.y, roomName },
+          mineralType: mineral.mineralType
+        });
       }
     } else {
       // Fall back to room intel
@@ -692,18 +663,16 @@ function populateNodeResources(node: Node): void {
       if (intel) {
         // Add sources from intel
         for (const sourcePos of intel.sourcePositions || []) {
-          if (isNearTerritory(node, sourcePos.x, sourcePos.y, roomName)) {
-            node.resources.push({
-              type: "source",
-              id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
-              position: { x: sourcePos.x, y: sourcePos.y, roomName },
-              capacity: 3000 // Default capacity
-            });
-          }
+          node.resources.push({
+            type: "source",
+            id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
+            position: { x: sourcePos.x, y: sourcePos.y, roomName },
+            capacity: 3000 // Default capacity
+          });
         }
 
         // Add controller from intel (if we have position)
-        if (intel.controllerPos && isNearTerritory(node, intel.controllerPos.x, intel.controllerPos.y, roomName)) {
+        if (intel.controllerPos) {
           node.resources.push({
             type: "controller",
             id: `intel-controller-${roomName}`,
@@ -713,7 +682,7 @@ function populateNodeResources(node: Node): void {
         }
 
         // Add mineral from intel
-        if (intel.mineralPos && isNearTerritory(node, intel.mineralPos.x, intel.mineralPos.y, roomName)) {
+        if (intel.mineralPos) {
           node.resources.push({
             type: "mineral",
             id: `intel-mineral-${roomName}`,
@@ -722,91 +691,6 @@ function populateNodeResources(node: Node): void {
           });
         }
       }
-    }
-  }
-}
-
-/**
- * Checks if a position is within or adjacent to a node's territory.
- * This is more lenient than exact position matching - a source next to
- * territory tiles should still be associated with that node.
- */
-function isNearTerritory(node: Node, x: number, y: number, roomName: string): boolean {
-  // Check exact position first
-  if (isPositionInTerritory(node, x, y, roomName)) {
-    return true;
-  }
-
-  // Check adjacent positions (sources/controllers are often on tiles next to walkable areas)
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      if (isPositionInTerritory(node, x + dx, y + dy, roomName)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Checks if a position is within a node's territory.
- */
-function isPositionInTerritory(node: Node, x: number, y: number, roomName: string): boolean {
-  return node.positions.some(p => p.x === x && p.y === y && p.roomName === roomName);
-}
-
-/**
- * Gets or creates a RoomMap using only terrain data (no vision required).
- * Used for nearby rooms we don't have vision in.
- */
-function getOrCreateRoomMapByName(roomName: string): RoomMap {
-  const cached = roomMapCache[roomName];
-  if (cached && Game.time - cached.tick < ROOM_MAP_CACHE_TTL) {
-    return cached.map;
-  }
-
-  const map = RoomMap.fromRoomName(roomName);
-  roomMapCache[roomName] = { map, tick: Game.time };
-
-  return map;
-}
-
-/**
- * Render visualizations for nearby rooms.
- * If ANY visual flag exists, renders in ALL analyzed rooms.
- * Works even for rooms without vision.
- */
-function renderNearbyRoomVisuals(): void {
-  // Check if any visual flags exist
-  const roomsToVisualize = getRoomsToVisualize();
-  const hasAnyVisualFlag = roomsToVisualize.size > 0;
-
-  if (!hasAnyVisualFlag) {
-    return; // No visual flags, skip rendering
-  }
-
-  // If we have multi-room analysis, render all analyzed rooms
-  if (multiRoomAnalysisCache) {
-    // Collect all unique rooms from peaks and territories
-    const allRooms = new Set<string>();
-    for (const peak of multiRoomAnalysisCache.result.peaks) {
-      allRooms.add(peak.roomName);
-    }
-    for (const positions of multiRoomAnalysisCache.result.territories.values()) {
-      for (const pos of positions) {
-        allRooms.add(pos.roomName);
-      }
-    }
-    for (const roomName of allRooms) {
-      visualizeMultiRoomAnalysis(roomName, multiRoomAnalysisCache.result, false, true);
-    }
-  } else {
-    // Fall back to per-room visualization for flagged rooms only
-    for (const roomName of roomsToVisualize) {
-      const map = getOrCreateRoomMapByName(roomName);
-      map.renderByName();
     }
   }
 }
@@ -879,6 +763,82 @@ function updateTelemetry(colony: Colony): void {
     upgradingCorps,
     scoutCorps
   );
+}
+
+/**
+ * Renders node visualization in rooms with vision.
+ * Draws nodes at their peak positions and connections for cross-room nodes.
+ */
+function renderNodeVisuals(colony: Colony): void {
+  const nodes = colony.getNodes();
+
+  for (const node of nodes) {
+    const roomName = node.peakPosition.roomName;
+    const room = Game.rooms[roomName];
+    if (!room) continue;
+
+    const visual = new RoomVisual(roomName);
+    const peak = node.peakPosition;
+    const isOwned = node.roi?.isOwned;
+
+    // Draw node circle at peak position
+    const radius = Math.min(2, Math.max(0.8, (node.roi?.openness || 5) / 5));
+    visual.circle(peak.x, peak.y, {
+      radius,
+      fill: isOwned ? "#60a5fa" : "#facc15",
+      opacity: 0.6,
+      stroke: isOwned ? "#3b82f6" : "#eab308",
+      strokeWidth: 0.1,
+    });
+
+    // Draw source count in node
+    const sourceCount = node.roi?.sourceCount || 0;
+    visual.text(String(sourceCount), peak.x, peak.y + 0.15, {
+      font: "bold 0.6 sans-serif",
+      color: "#ffffff",
+      align: "center",
+    });
+
+    // Draw controller indicator (small diamond above node)
+    if (node.roi?.hasController) {
+      visual.poly([
+        [peak.x, peak.y - radius - 0.4],
+        [peak.x + 0.3, peak.y - radius - 0.7],
+        [peak.x, peak.y - radius - 1.0],
+        [peak.x - 0.3, peak.y - radius - 0.7],
+      ], {
+        fill: "#e94560",
+        opacity: 0.8,
+      });
+    }
+
+    // Draw dashed lines to other rooms this node spans
+    if (node.spansRooms.length > 1) {
+      for (const spanRoom of node.spansRooms) {
+        if (spanRoom === roomName) continue;
+
+        // Find exit direction to target room and draw line toward it
+        const exits = Game.map.describeExits(roomName);
+        for (const [dir, exitRoom] of Object.entries(exits || {})) {
+          if (exitRoom === spanRoom) {
+            let targetX = peak.x;
+            let targetY = peak.y;
+            if (dir === "1") targetY = 0; // TOP
+            if (dir === "3") targetX = 49; // RIGHT
+            if (dir === "5") targetY = 49; // BOTTOM
+            if (dir === "7") targetX = 0; // LEFT
+
+            visual.line(peak.x, peak.y, targetX, targetY, {
+              color: "#4a4a6e",
+              width: 0.1,
+              opacity: 0.5,
+              lineStyle: "dashed",
+            });
+          }
+        }
+      }
+    }
+  }
 }
 
 /**
