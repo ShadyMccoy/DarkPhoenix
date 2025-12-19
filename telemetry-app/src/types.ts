@@ -66,37 +66,12 @@ export interface CoreTelemetry {
 
 /**
  * Node telemetry data structure (Segment 1).
+ * Version 2 uses compact keys to fit more nodes.
  */
 export interface NodeTelemetry {
   version: number;
   tick: number;
-  nodes: {
-    id: string;
-    roomName: string;
-    peakPosition: { x: number; y: number; roomName: string };
-    territorySize: number;
-    // Territory positions removed to stay under 100KB segment limit
-    resources: {
-      type: string;
-      id: string;
-      position: { x: number; y: number; roomName: string };
-      capacity?: number;
-      level?: number;
-      mineralType?: string;
-    }[];
-    roi?: {
-      score: number;
-      rawCorpROI: number;
-      openness: number;
-      distanceFromOwned: number;
-      isOwned: boolean;
-      sourceCount: number;
-      hasController: boolean;
-      potentialCorps: { type: string; estimatedROI: number; resourceId: string }[];
-    };
-    corpIds: string[];
-    spansRooms: string[];
-  }[];
+  nodes: NodeTelemetryNode[];
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -104,6 +79,47 @@ export interface NodeTelemetry {
     totalSources: number;
     avgROI: number;
   };
+}
+
+/**
+ * Compact node format (version 2).
+ * Uses short keys: r=roomName, p=peakPosition, t=territorySize, etc.
+ */
+export interface NodeTelemetryNodeCompact {
+  id: string;
+  r: string;  // roomName
+  p: { x: number; y: number; r: string };  // peakPosition
+  t: number;  // territorySize
+  res: { t: string; x: number; y: number }[];  // resources
+  roi?: {
+    s: number;    // score
+    o: number;    // openness
+    d: number;    // distanceFromOwned
+    own: boolean; // isOwned
+    src: number;  // sourceCount
+    ctrl: boolean; // hasController
+  };
+  spans: string[];  // spansRooms
+}
+
+/**
+ * Normalized node format (for dashboard display).
+ */
+export interface NodeTelemetryNode {
+  id: string;
+  roomName: string;
+  peakPosition: { x: number; y: number; roomName: string };
+  territorySize: number;
+  resources: { type: string; x: number; y: number }[];
+  roi?: {
+    score: number;
+    openness: number;
+    distanceFromOwned: number;
+    isOwned: boolean;
+    sourceCount: number;
+    hasController: boolean;
+  };
+  spansRooms: string[];
 }
 
 /**

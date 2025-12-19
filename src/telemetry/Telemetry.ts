@@ -106,37 +106,32 @@ export interface CoreTelemetry {
 
 /**
  * Node telemetry data structure (Segment 1).
+ * Uses compact keys to minimize size:
+ * - id, r=roomName, p=peakPosition, t=territorySize
+ * - res=resources, roi, spans=spansRooms
  */
 export interface NodeTelemetry {
   version: number;
   tick: number;
   nodes: {
     id: string;
-    roomName: string;
-    peakPosition: { x: number; y: number; roomName: string };
-    territorySize: number;
-    // Territory positions removed to stay under 100KB segment limit
-    // Use terrain segment for visualization instead
-    resources: {
-      type: string;
-      id: string;
-      position: { x: number; y: number; roomName: string };
-      capacity?: number;
-      level?: number;
-      mineralType?: string;
+    r: string;  // roomName
+    p: { x: number; y: number; r: string };  // peakPosition
+    t: number;  // territorySize
+    res: {  // resources (compact)
+      t: string;  // type
+      x: number;
+      y: number;
     }[];
     roi?: {
-      score: number;
-      rawCorpROI: number;
-      openness: number;
-      distanceFromOwned: number;
-      isOwned: boolean;
-      sourceCount: number;
-      hasController: boolean;
-      potentialCorps: { type: string; estimatedROI: number; resourceId: string }[];
+      s: number;   // score
+      o: number;   // openness
+      d: number;   // distanceFromOwned
+      own: boolean;  // isOwned
+      src: number;   // sourceCount
+      ctrl: boolean; // hasController
     };
-    corpIds: string[];
-    spansRooms: string[];
+    spans: string[];  // spansRooms
   }[];
   summary: {
     totalNodes: number;
@@ -436,28 +431,12 @@ export class Telemetry {
 
   /**
    * Updates nodes telemetry (Segment 1).
+   * Uses compact keys to fit more nodes in the 100KB segment limit.
    */
   private updateNodesTelemetry(colony: Colony | undefined): void {
     const nodes = colony?.getNodes() || [];
 
-    const nodeData = nodes.map(node => ({
-      id: node.id,
-      roomName: node.roomName,
-      peakPosition: node.peakPosition,
-      territorySize: node.territorySize,
-      resources: node.resources.map(r => ({
-        type: r.type,
-        id: r.id,
-        position: r.position,
-        capacity: r.capacity,
-        level: r.level,
-        mineralType: r.mineralType,
-      })),
-      roi: node.roi,
-      corpIds: node.corps.map(c => c.id),
-      spansRooms: node.spansRooms,
-    }));
-
+    // Calculate summary stats from full node list
     const ownedNodes = nodes.filter(n => n.roi?.isOwned).length;
     const expansionCandidates = nodes.filter(n => !n.roi?.isOwned && (n.roi?.score || 0) > 0).length;
     const totalSources = nodes.reduce((sum, n) => sum + (n.roi?.sourceCount || 0), 0);
@@ -465,8 +444,37 @@ export class Telemetry {
       ? nodes.reduce((sum, n) => sum + (n.roi?.score || 0), 0) / nodes.length
       : 0;
 
+    // Sort nodes: owned first, then by ROI score descending
+    const sortedNodes = [...nodes].sort((a, b) => {
+      if (a.roi?.isOwned && !b.roi?.isOwned) return -1;
+      if (!a.roi?.isOwned && b.roi?.isOwned) return 1;
+      return (b.roi?.score || 0) - (a.roi?.score || 0);
+    });
+
+    // Build compact node data
+    const nodeData: NodeTelemetry["nodes"] = sortedNodes.map(node => ({
+      id: node.id,
+      r: node.roomName,
+      p: { x: node.peakPosition.x, y: node.peakPosition.y, r: node.peakPosition.roomName },
+      t: node.territorySize,
+      res: node.resources.map(r => ({
+        t: r.type,
+        x: r.position.x,
+        y: r.position.y,
+      })),
+      roi: node.roi ? {
+        s: node.roi.score,
+        o: node.roi.openness,
+        d: node.roi.distanceFromOwned,
+        own: node.roi.isOwned,
+        src: node.roi.sourceCount,
+        ctrl: node.roi.hasController,
+      } : undefined,
+      spans: node.spansRooms,
+    }));
+
     const telemetry: NodeTelemetry = {
-      version: 1,
+      version: 2,  // Bumped version for new compact format
       tick: Game.time,
       nodes: nodeData,
       summary: {
@@ -478,7 +486,11 @@ export class Telemetry {
       },
     };
 
-    RawMemory.segments[TELEMETRY_SEGMENTS.NODES] = JSON.stringify(telemetry);
+    const json = JSON.stringify(telemetry);
+    if (json.length > 100000) {
+      console.log(`[Telemetry] Warning: Node segment ${json.length} bytes exceeds 100KB limit`);
+    }
+    RawMemory.segments[TELEMETRY_SEGMENTS.NODES] = json;
   }
 
   /**

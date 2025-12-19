@@ -654,8 +654,8 @@ describe("Real Room Data Tests", () => {
         2
       );
 
-      const rawPeaks = findMultiRoomPeaks(distances, terrainCallback, TERRAIN_MASK_WALL);
-      const filteredPeaks = filterMultiRoomPeaks(rawPeaks, { minHeight: 3, maxPeaks: 10 });
+      const rawPeaks = findMultiRoomPeaks(distances);
+      const filteredPeaks = filterMultiRoomPeaks(rawPeaks, { minHeight: 3 });
 
       console.log(`Found ${rawPeaks.length} raw peaks, ${filteredPeaks.length} after filtering`);
 

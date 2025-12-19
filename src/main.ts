@@ -48,6 +48,7 @@ import { ErrorMapper, get5x5BoxAroundOwnedRooms } from "./utils";
 import {
   analyzeMultiRoomTerrain,
   MultiRoomAnalysisResult,
+  visualizeMultiRoomAnalysis,
 } from "./spatial";
 import { getTelemetry } from "./telemetry";
 import "./types/Memory";
@@ -139,9 +140,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Update telemetry (write to RawMemory segments for external monitoring)
   updateTelemetry(colony);
 
-  // Render node visualization in rooms with vision
+  // Render node visualization
   renderNodeVisuals(colony);
 
+  // Render spatial visualization (territories, edges) for rooms with visual* flags
+  renderSpatialVisuals();
 
   // Clean up memory for dead creeps
   cleanupDeadCreeps();
@@ -501,11 +504,10 @@ function runMultiRoomAnalysis(colony: Colony): void {
   console.log(`[MultiRoom] Analyzing ${roomsToAnalyze.length} rooms: ${roomsToAnalyze.join(", ")}`);
 
   // Run unified multi-room analysis
-  // maxRooms matches exact room count to prevent expansion beyond 5x5 box
   const result = analyzeMultiRoomTerrain(roomsToAnalyze, {
     maxRooms: roomsToAnalyze.length,
-    peakOptions: { minHeight: 3, maxPeaks: 20 },
-    limitToStartRooms: true, // Don't expand beyond the 5x5 box
+    peakOptions: { minHeight: 2 },
+    limitToStartRooms: true,
   });
 
   // Cache result
@@ -775,9 +777,7 @@ function renderNodeVisuals(colony: Colony): void {
 
   for (const node of nodes) {
     const roomName = node.peakPosition.roomName;
-    const room = Game.rooms[roomName];
-    if (!room) continue;
-
+    // RoomVisual works without vision - no need to check Game.rooms
     const visual = new RoomVisual(roomName);
     const peak = node.peakPosition;
     const isOwned = node.roi?.isOwned;
@@ -839,6 +839,25 @@ function renderNodeVisuals(colony: Colony): void {
         }
       }
     }
+  }
+}
+
+/**
+ * Renders spatial visualization (edges between peaks) for rooms.
+ * Draws for all rooms in the analysis (owned rooms + nearby rooms).
+ */
+function renderSpatialVisuals(): void {
+  if (!multiRoomAnalysisCache) return;
+
+  // Get all unique room names from the analysis
+  const roomsInAnalysis = new Set<string>();
+  for (const peak of multiRoomAnalysisCache.result.peaks) {
+    roomsInAnalysis.add(peak.roomName);
+  }
+
+  for (const roomName of roomsInAnalysis) {
+    // Skip peaks since renderNodeVisuals draws colony nodes with ownership styling
+    visualizeMultiRoomAnalysis(roomName, multiRoomAnalysisCache.result, false, true);
   }
 }
 

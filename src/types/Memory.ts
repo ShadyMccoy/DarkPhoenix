@@ -70,12 +70,6 @@ declare global {
      * Room intelligence data from scouting.
      */
     roomIntel?: { [roomName: string]: RoomIntel };
-
-    /**
-     * Room names where visualization should be rendered.
-     * Alternative to placing flags named "visual*" in rooms.
-     */
-    visualRooms?: string[];
   }
 
   /**

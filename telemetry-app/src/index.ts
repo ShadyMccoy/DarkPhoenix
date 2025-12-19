@@ -16,6 +16,8 @@ import {
   AllTelemetry,
   CoreTelemetry,
   NodeTelemetry,
+  NodeTelemetryNode,
+  NodeTelemetryNodeCompact,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -109,6 +111,58 @@ function parseTelemetry<T>(data: string | null): T | null {
 }
 
 /**
+ * Normalize compact node format (v2) to standard format.
+ */
+function normalizeNode(node: NodeTelemetryNodeCompact): NodeTelemetryNode {
+  return {
+    id: node.id,
+    roomName: node.r,
+    peakPosition: { x: node.p.x, y: node.p.y, roomName: node.p.r },
+    territorySize: node.t,
+    resources: node.res.map(r => ({ type: r.t, x: r.x, y: r.y })),
+    roi: node.roi ? {
+      score: node.roi.s,
+      openness: node.roi.o,
+      distanceFromOwned: node.roi.d,
+      isOwned: node.roi.own,
+      sourceCount: node.roi.src,
+      hasController: node.roi.ctrl,
+    } : undefined,
+    spansRooms: node.spans,
+  };
+}
+
+/**
+ * Parse and normalize node telemetry.
+ * Handles both v1 (legacy) and v2 (compact) formats.
+ */
+function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
+  if (!data) return null;
+  try {
+    const raw = JSON.parse(data);
+    if (!raw || !raw.nodes) return null;
+
+    // Check if this is v2 compact format (nodes have 'r' instead of 'roomName')
+    const isCompact = raw.version >= 2 || (raw.nodes.length > 0 && 'r' in raw.nodes[0]);
+
+    if (isCompact) {
+      return {
+        version: raw.version,
+        tick: raw.tick,
+        nodes: raw.nodes.map((n: NodeTelemetryNodeCompact) => normalizeNode(n)),
+        summary: raw.summary,
+      };
+    }
+
+    // Legacy format - return as-is
+    return raw as NodeTelemetry;
+  } catch (e) {
+    console.error("Failed to parse node telemetry:", e);
+    return null;
+  }
+}
+
+/**
  * Save telemetry to local cache file.
  */
 function saveTelemetryCache(data: AllTelemetry): void {
@@ -149,10 +203,10 @@ async function pollTelemetry(): Promise<void> {
       TELEMETRY_SEGMENTS.NODES,
     ]);
 
-    // Parse segments
+    // Parse segments (nodes uses special parser for v2 compact format)
     const newTelemetry: AllTelemetry = {
       core: parseTelemetry<CoreTelemetry>(segments[TELEMETRY_SEGMENTS.CORE]),
-      nodes: parseTelemetry<NodeTelemetry>(segments[TELEMETRY_SEGMENTS.NODES]),
+      nodes: parseNodeTelemetry(segments[TELEMETRY_SEGMENTS.NODES]),
       terrain: null,
       intel: null,
       corps: null,

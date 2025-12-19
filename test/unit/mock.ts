@@ -502,3 +502,191 @@ export function visualizeDistanceMatrix(matrix: number[][]): string {
   }
   return lines.join('\n');
 }
+
+// ============================================================================
+// Multi-Room Test Helpers
+// ============================================================================
+
+import {
+  createMultiRoomDistanceTransform,
+  findMultiRoomPeaks,
+  filterMultiRoomPeaks,
+  bfsDivideMultiRoom,
+  WorldPeakData,
+  WorldCoordinate,
+  FilterPeaksOptions,
+} from "../../src/spatial/algorithms";
+
+/** Default test room name for single-room tests */
+export const TEST_ROOM = "W1N1";
+
+/** Simple coordinate type for test compatibility */
+export interface Coordinate {
+  x: number;
+  y: number;
+}
+
+/** Peak data for test compatibility (single-room) */
+export interface PeakData {
+  tiles: Coordinate[];
+  center: Coordinate;
+  height: number;
+}
+
+/**
+ * Single-room distance transform wrapper for testing.
+ * Uses multi-room function internally with a single room.
+ */
+export function createDistanceTransform(
+  terrain: (x: number, y: number) => number,
+  wallMask: number = TERRAIN_MASK_WALL
+): number[][] {
+  const distances = createMultiRoomDistanceTransform(
+    [TEST_ROOM],
+    wrapTerrainForMultiRoom(terrain),
+    wallMask,
+    1 // Only one room
+  );
+  return distanceMapToArray(distances);
+}
+
+/**
+ * Single-room peak detection wrapper for testing.
+ * Uses multi-room function internally with a single room.
+ */
+export function findPeaks(
+  distanceMatrix: number[][],
+  terrain: (x: number, y: number) => number,
+  wallMask: number = TERRAIN_MASK_WALL
+): PeakData[] {
+  // Convert 2D array to Map for multi-room function
+  const distances = new Map<string, number>();
+  for (let x = 0; x < distanceMatrix.length; x++) {
+    for (let y = 0; y < (distanceMatrix[x]?.length ?? 0); y++) {
+      distances.set(`${TEST_ROOM}:${x},${y}`, distanceMatrix[x][y]);
+    }
+  }
+
+  const worldPeaks = findMultiRoomPeaks(distances);
+
+  // Convert WorldPeakData to PeakData
+  return worldPeaks.map((wp) => ({
+    tiles: wp.tiles.map((t) => ({ x: t.x, y: t.y })),
+    center: { x: wp.center.x, y: wp.center.y },
+    height: wp.height,
+  }));
+}
+
+/**
+ * Single-room peak filtering wrapper for testing.
+ * Uses multi-room function internally.
+ */
+export function filterPeaks(
+  peaks: PeakData[],
+  options: FilterPeaksOptions = {}
+): PeakData[] {
+  // Convert PeakData to WorldPeakData
+  const worldPeaks: WorldPeakData[] = peaks.map((p) => ({
+    tiles: p.tiles.map((t) => ({ x: t.x, y: t.y, roomName: TEST_ROOM })),
+    center: { x: p.center.x, y: p.center.y, roomName: TEST_ROOM },
+    height: p.height,
+  }));
+
+  const filtered = filterMultiRoomPeaks(worldPeaks, options);
+
+  // Convert back to PeakData
+  return filtered.map((wp) => ({
+    tiles: wp.tiles.map((t) => ({ x: t.x, y: t.y })),
+    center: { x: wp.center.x, y: wp.center.y },
+    height: wp.height,
+  }));
+}
+
+/**
+ * Single-room territory division wrapper for testing.
+ * Uses multi-room function internally.
+ */
+export function bfsDivideRoom(
+  peaks: PeakData[],
+  terrain: (x: number, y: number) => number,
+  wallMask: number = TERRAIN_MASK_WALL
+): Map<string, Coordinate[]> {
+  // Convert PeakData to WorldPeakData
+  const worldPeaks: WorldPeakData[] = peaks.map((p) => ({
+    tiles: p.tiles.map((t) => ({ x: t.x, y: t.y, roomName: TEST_ROOM })),
+    center: { x: p.center.x, y: p.center.y, roomName: TEST_ROOM },
+    height: p.height,
+  }));
+
+  const worldTerritories = bfsDivideMultiRoom(
+    worldPeaks,
+    wrapTerrainForMultiRoom(terrain),
+    wallMask,
+    1 // Only one room
+  );
+
+  // Convert to single-room format (peakId without room prefix)
+  const territories = new Map<string, Coordinate[]>();
+  for (const [worldPeakId, worldCoords] of worldTerritories) {
+    // Convert "W1N1-x-y" to "x-y"
+    const peakId = worldPeakId.replace(`${TEST_ROOM}-`, "");
+    territories.set(
+      peakId,
+      worldCoords.map((c) => ({ x: c.x, y: c.y }))
+    );
+  }
+
+  return territories;
+}
+
+/**
+ * Wraps a single-room terrain callback for use with multi-room functions.
+ * All room names will use the same terrain callback.
+ *
+ * @param terrain - Single-room terrain callback (x, y) => number
+ * @returns Multi-room terrain callback (roomName, x, y) => number
+ */
+export function wrapTerrainForMultiRoom(
+  terrain: (x: number, y: number) => number
+): (roomName: string, x: number, y: number) => number {
+  return (_roomName: string, x: number, y: number) => terrain(x, y);
+}
+
+/**
+ * Converts a distance Map to a 2D array for easier testing/visualization.
+ * Only extracts distances for the specified room.
+ *
+ * @param distances - Multi-room distance map
+ * @param roomName - Room to extract (default: TEST_ROOM)
+ * @returns 2D array [x][y] = distance
+ */
+export function distanceMapToArray(
+  distances: Map<string, number>,
+  roomName: string = TEST_ROOM
+): number[][] {
+  const grid: number[][] = [];
+  for (let x = 0; x < 50; x++) {
+    grid[x] = [];
+    for (let y = 0; y < 50; y++) {
+      grid[x][y] = distances.get(`${roomName}:${x},${y}`) ?? 0;
+    }
+  }
+  return grid;
+}
+
+/**
+ * Gets distance at a specific position from a multi-room distance map.
+ *
+ * @param distances - Multi-room distance map
+ * @param x - X coordinate
+ * @param y - Y coordinate
+ * @param roomName - Room name (default: TEST_ROOM)
+ */
+export function getDistance(
+  distances: Map<string, number>,
+  x: number,
+  y: number,
+  roomName: string = TEST_ROOM
+): number {
+  return distances.get(`${roomName}:${x},${y}`) ?? 0;
+}

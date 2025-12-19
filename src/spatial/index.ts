@@ -1,73 +1,58 @@
 /**
  * @fileoverview Spatial analysis module exports.
  *
- * This module provides spatial analysis tools for colony planning:
- * - RoomMap: Full room analysis with peaks and territories
- * - Peak: Optimal building location interface
- * - Territory: Zone ownership interface
+ * This module provides multi-room spatial analysis tools for colony planning:
+ * - analyzeMultiRoomTerrain: Main entry point for cross-room analysis
+ * - CrossRoomPeak: Peak info with room context
+ * - WorldPosition: Position with room name
  *
  * Pure algorithm exports (for testing and direct use):
- * - createDistanceTransform: Distance from walls calculation
- * - findPeaks: Peak detection algorithm
- * - filterPeaks: Peak filtering with exclusion radius
- * - bfsDivideRoom: Territory division via BFS
+ * - createMultiRoomDistanceTransform: Distance from walls calculation
+ * - findMultiRoomPeaks: Peak detection algorithm
+ * - filterMultiRoomPeaks: Peak filtering with exclusion radius
+ * - bfsDivideMultiRoom: Territory division via BFS
  *
  * @module spatial
  */
 
+// Main API exports
 export {
-  RoomMap,
-  Peak,
-  Territory,
-  Edge,
-  InterRoomEdge,
-  RoomMapOptions,
   WorldPosition,
   CrossRoomPeak,
   MultiRoomAnalysisResult,
   MultiRoomAnalysisOptions,
-  shouldVisualize,
-  getRoomsToVisualize,
+  analyzeMultiRoomTerrain,
+  calculateCrossRoomTerritories,
+  visualizeMultiRoomAnalysis,
+  createMultiRoomTerrainCallback,
   collectFeaturePositions,
   collectFeaturePositionsFromIntel,
   invalidateRoomMapCache,
-  createMultiRoomTerrainCallback,
-  calculateCrossRoomTerritories,
-  extractPeaksFromRoomMaps,
-  analyzeMultiRoomTerrain,
-  visualizeMultiRoomAnalysis,
 } from "./RoomMap";
 
 // Export pure algorithms and types for testing
 export {
-  // Core algorithms
-  createDistanceTransform,
-  findPeaks,
-  filterPeaks,
-  bfsDivideRoom,
   // Multi-room algorithms
   createMultiRoomDistanceTransform,
   findMultiRoomPeaks,
   filterMultiRoomPeaks,
   bfsDivideMultiRoom,
+  findTerritoryAdjacencies,
+  bfsWalkingDistance,
+  // Incremental skeleton builder (multi-tick)
+  createSkeletonBuilderState,
+  processSkeletonBuilderChunk,
+  SkeletonBuilderState,
   // Utility functions
-  initializeGrid,
-  markBarriers,
-  floodFillDistanceSearch,
   parseRoomName,
   roomCoordsToName,
   getAdjacentRoomPosition,
   // Types
-  TerrainCallback,
   MultiRoomTerrainCallback,
-  Coordinate,
   WorldCoordinate,
-  PeakData,
   WorldPeakData,
   RoomCoords,
   FilterPeaksOptions,
   // Constants
   GRID_SIZE,
-  UNVISITED,
-  BARRIER,
 } from "./algorithms";

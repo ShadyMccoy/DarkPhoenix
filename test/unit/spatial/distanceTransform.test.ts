@@ -1,20 +1,22 @@
 /**
  * @fileoverview Unit tests for distance transform algorithm.
  *
- * Tests the createDistanceTransform function which calculates
- * an inverted distance transform matrix for room analysis.
+ * Tests the createMultiRoomDistanceTransform function which calculates
+ * distance from walls for room analysis.
  */
 
 import { expect } from "chai";
 import {
-  createDistanceTransform,
+  createMultiRoomDistanceTransform,
   GRID_SIZE,
 } from "../../../src/spatial/algorithms";
 import {
-  createTerrainFromPattern,
   createEmptyRoomTerrain,
   createCorridorTerrain,
   TERRAIN_MASK_WALL,
+  wrapTerrainForMultiRoom,
+  distanceMapToArray,
+  TEST_ROOM,
 } from "../mock";
 import {
   SMALL_EMPTY_ROOM,
@@ -28,7 +30,12 @@ describe("createDistanceTransform", () => {
   describe("basic behavior", () => {
     it("should return a 50x50 grid by default", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       expect(result).to.have.length(GRID_SIZE);
       expect(result[0]).to.have.length(GRID_SIZE);
@@ -36,7 +43,12 @@ describe("createDistanceTransform", () => {
 
     it("should set wall tiles to 0", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Border walls should be 0
       expect(result[0][0]).to.equal(0);
@@ -46,7 +58,12 @@ describe("createDistanceTransform", () => {
 
     it("should have higher values for tiles further from walls", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Center should have higher value than edges
       const centerValue = result[25][25];
@@ -59,7 +76,12 @@ describe("createDistanceTransform", () => {
   describe("empty room", () => {
     it("should have maximum value at center", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       const centerValue = result[25][25];
 
@@ -79,7 +101,12 @@ describe("createDistanceTransform", () => {
 
     it("should create symmetric values for symmetric terrain", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Check symmetry: (1,1) should equal (48,48) due to symmetric borders
       expect(result[1][1]).to.equal(result[48][48]);
@@ -93,8 +120,18 @@ describe("createDistanceTransform", () => {
       const emptyTerrain = createEmptyRoomTerrain();
       const corridorTerrain = createCorridorTerrain(25, 10);
 
-      const emptyResult = createDistanceTransform(emptyTerrain);
-      const corridorResult = createDistanceTransform(corridorTerrain);
+      const emptyDistances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(emptyTerrain),
+        TERRAIN_MASK_WALL
+      );
+      const corridorDistances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(corridorTerrain),
+        TERRAIN_MASK_WALL
+      );
+      const emptyResult = distanceMapToArray(emptyDistances);
+      const corridorResult = distanceMapToArray(corridorDistances);
 
       // Corridor's max height should be lower
       let emptyMax = 0;
@@ -113,7 +150,12 @@ describe("createDistanceTransform", () => {
 
     it("should have peak values along corridor center", () => {
       const terrain = createCorridorTerrain(25, 10);
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Corridor spans y=20 to y=30 (inclusive)
       // Walls are at y<20 and y>30
@@ -130,7 +172,7 @@ describe("createDistanceTransform", () => {
   });
 
   describe("small room patterns", () => {
-    // Use smaller grid for faster tests
+    // Use smaller grid for faster tests - local implementation
     function createSmallDistanceTransform(
       terrain: (x: number, y: number) => number,
       size: number = 10
@@ -361,7 +403,12 @@ describe("createDistanceTransform", () => {
   describe("distance correctness", () => {
     it("should have high values in open areas", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Center should have HIGH value (far from walls)
       const centerValue = result[25][25];
@@ -372,7 +419,12 @@ describe("createDistanceTransform", () => {
 
     it("should produce consistent relative heights", () => {
       const terrain = createEmptyRoomTerrain();
-      const result = createDistanceTransform(terrain);
+      const distances = createMultiRoomDistanceTransform(
+        [TEST_ROOM],
+        wrapTerrainForMultiRoom(terrain),
+        TERRAIN_MASK_WALL
+      );
+      const result = distanceMapToArray(distances);
 
       // Points equidistant from walls should have equal values
       // (1,1) and (48,48) are both 1 tile from corner walls

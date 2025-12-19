@@ -11,8 +11,6 @@ import {
   findPeaks,
   filterPeaks,
   PeakData,
-} from "../../../src/spatial/algorithms";
-import {
   createEmptyRoomTerrain,
   createCorridorTerrain,
   createIslandsTerrain,

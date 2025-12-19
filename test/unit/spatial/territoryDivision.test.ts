@@ -6,6 +6,7 @@
  */
 
 import { expect } from "chai";
+import { GRID_SIZE } from "../../../src/spatial/algorithms";
 import {
   createDistanceTransform,
   findPeaks,
@@ -13,9 +14,6 @@ import {
   bfsDivideRoom,
   PeakData,
   Coordinate,
-  GRID_SIZE,
-} from "../../../src/spatial/algorithms";
-import {
   createEmptyRoomTerrain,
   createCorridorTerrain,
   createIslandsTerrain,
