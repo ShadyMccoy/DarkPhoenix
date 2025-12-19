@@ -57,6 +57,12 @@ declare global {
     nodes?: { [nodeId: string]: SerializedNode };
 
     /**
+     * Edges between nodes (adjacent territories).
+     * Format: Array of "nodeId1|nodeId2" strings (sorted alphabetically).
+     */
+    nodeEdges?: string[];
+
+    /**
      * Serialized chains for persistence.
      */
     chains?: { [chainId: string]: SerializedChain };

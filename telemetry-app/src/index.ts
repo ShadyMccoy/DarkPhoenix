@@ -150,6 +150,7 @@ function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
         version: raw.version,
         tick: raw.tick,
         nodes: raw.nodes.map((n: NodeTelemetryNodeCompact) => normalizeNode(n)),
+        edges: raw.edges || [],
         summary: raw.summary,
       };
     }

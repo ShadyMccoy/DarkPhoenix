@@ -133,6 +133,8 @@ export interface NodeTelemetry {
     };
     spans: string[];  // spansRooms
   }[];
+  /** Edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
+  edges: string[];
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -474,9 +476,10 @@ export class Telemetry {
     }));
 
     const telemetry: NodeTelemetry = {
-      version: 2,  // Bumped version for new compact format
+      version: 3,  // Bumped version for edges
       tick: Game.time,
       nodes: nodeData,
+      edges: Memory.nodeEdges || [],
       summary: {
         totalNodes: nodes.length,
         ownedNodes,

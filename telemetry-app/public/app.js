@@ -470,7 +470,24 @@ function drawNetworkGraph(nodesData) {
     nodePositions.set(node.id, toCanvas(wc.worldX, wc.worldY));
   });
 
-  // Draw edges for nodes that span rooms (connect to room centers)
+  // Draw edges between adjacent nodes (from telemetry edges array)
+  const edges = nodesData.edges || [];
+  ctx.strokeStyle = "#88aaff";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  edges.forEach((edgeKey) => {
+    const [nodeId1, nodeId2] = edgeKey.split("|");
+    const pos1 = nodePositions.get(nodeId1);
+    const pos2 = nodePositions.get(nodeId2);
+    if (pos1 && pos2) {
+      ctx.beginPath();
+      ctx.moveTo(pos1.x, pos1.y);
+      ctx.lineTo(pos2.x, pos2.y);
+      ctx.stroke();
+    }
+  });
+
+  // Draw lighter dashed lines for nodes that span rooms (connect to room centers)
   ctx.strokeStyle = "#4a4a6e";
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
@@ -557,8 +574,9 @@ function drawNetworkGraph(nodesData) {
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText(`Nodes: ${nodesData.summary?.totalNodes || nodes.length}`, 10, 10);
-  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 24);
-  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 38);
+  ctx.fillText(`Edges: ${edges.length}`, 10, 24);
+  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 38);
+  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 52);
 
   // Size legend
   ctx.fillStyle = "#888";

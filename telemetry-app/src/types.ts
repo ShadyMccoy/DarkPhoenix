@@ -72,6 +72,8 @@ export interface NodeTelemetry {
   version: number;
   tick: number;
   nodes: NodeTelemetryNode[];
+  /** Edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
+  edges: string[];
   summary: {
     totalNodes: number;
     ownedNodes: number;

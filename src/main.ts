@@ -49,6 +49,8 @@ import {
   analyzeMultiRoomTerrain,
   MultiRoomAnalysisResult,
   visualizeMultiRoomAnalysis,
+  findTerritoryAdjacencies,
+  WorldCoordinate,
 } from "./spatial";
 import { getTelemetry } from "./telemetry";
 import "./types/Memory";
@@ -510,6 +512,19 @@ function runMultiRoomAnalysis(colony: Colony): void {
     limitToStartRooms: true,
   });
 
+  // Compute territory adjacencies (edges between nodes)
+  // Convert WorldPosition to WorldCoordinate for the algorithm
+  const territoriesAsWorldCoord = new Map<string, WorldCoordinate[]>();
+  for (const [peakId, positions] of result.territories) {
+    territoriesAsWorldCoord.set(peakId, positions.map(p => ({
+      x: p.x,
+      y: p.y,
+      roomName: p.roomName
+    })));
+  }
+  result.adjacencies = findTerritoryAdjacencies(territoriesAsWorldCoord);
+  console.log(`[MultiRoom] Computed ${result.adjacencies.size} edges between territories`);
+
   // Cache result
   multiRoomAnalysisCache = { result, tick: Game.time };
 
@@ -709,6 +724,11 @@ function persistState(colony: Colony): void {
   Memory.nodes = {};
   for (const node of colony.getNodes()) {
     Memory.nodes[node.id] = serializeNode(node);
+  }
+
+  // Persist node edges (from cached analysis)
+  if (multiRoomAnalysisCache?.result.adjacencies) {
+    Memory.nodeEdges = Array.from(multiRoomAnalysisCache.result.adjacencies);
   }
 
   // Persist bootstrap corps
