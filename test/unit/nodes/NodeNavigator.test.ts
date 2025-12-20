@@ -4,7 +4,10 @@ import {
   createEdgeKey,
   parseEdgeKey,
   estimateWalkingDistance,
-  createNodeNavigator
+  createNodeNavigator,
+  buildEconomicEdges,
+  addEconomicEdgesToNavigator,
+  EdgeType
 } from "../../../src/nodes/NodeNavigator";
 import { Node, createNode } from "../../../src/nodes/Node";
 import { Position } from "../../../src/market/Offer";
@@ -546,7 +549,7 @@ describe("NodeNavigator", () => {
   });
 
   describe("getEdges()", () => {
-    it("should return all edges with weights", () => {
+    it("should return all edges with weights and types", () => {
       const nodes = [
         makeNode("node-1", "E1N1", 10, 10),
         makeNode("node-2", "E1N1", 20, 10)
@@ -558,7 +561,34 @@ describe("NodeNavigator", () => {
       const allEdges = nav.getEdges();
 
       expect(allEdges).to.have.length(1);
-      expect(allEdges[0]).to.deep.equal({ edge: "node-1|node-2", weight: 42 });
+      expect(allEdges[0]).to.deep.equal({ edge: "node-1|node-2", weight: 42, type: "spatial" });
+    });
+
+    it("should filter by edge type", () => {
+      const nodes = [
+        makeNode("node-1", "E1N1", 10, 10),
+        makeNode("node-2", "E1N1", 20, 10),
+        makeNode("node-3", "E1N1", 30, 10)
+      ];
+      const edges = ["node-1|node-2", "node-2|node-3"];
+      const weights = new Map([
+        ["node-1|node-2", 10],
+        ["node-2|node-3", 20]
+      ]);
+      const types = new Map<string, "spatial" | "economic">([
+        ["node-1|node-2", "spatial"],
+        ["node-2|node-3", "economic"]
+      ]);
+
+      const nav = new NodeNavigator(nodes, edges, weights, types);
+
+      const spatialEdges = nav.getEdges("spatial");
+      expect(spatialEdges).to.have.length(1);
+      expect(spatialEdges[0].edge).to.equal("node-1|node-2");
+
+      const economicEdges = nav.getEdges("economic");
+      expect(economicEdges).to.have.length(1);
+      expect(economicEdges[0].edge).to.equal("node-2|node-3");
     });
   });
 
@@ -642,6 +672,194 @@ describe("NodeNavigator", () => {
       const result = nav.findPath("E1N1-25-25", "E2N1-40-25");
       expect(result.found).to.be.true;
       expect(result.path).to.have.length(4);
+    });
+  });
+
+  describe("economic edges", () => {
+    // Helper to create a node with corps
+    function makeNodeWithCorps(
+      id: string,
+      roomName: string,
+      x: number,
+      y: number,
+      hasCorps: boolean
+    ): Node {
+      const position: Position = { x, y, roomName };
+      const node = createNode(id, roomName, position, 100, [roomName], 0);
+      if (hasCorps) {
+        // Add a mock corp
+        node.corps = [{
+          id: `corp-${id}`,
+          type: "mining",
+          balance: 100,
+          nodeId: id,
+          createdAt: 0,
+          isActive: true,
+          getPosition: () => position,
+          getMargin: () => 0.1,
+          sells: () => [],
+          buys: () => [],
+          work: () => {}
+        } as any];
+      }
+      return node;
+    }
+
+    describe("buildEconomicEdges()", () => {
+      it("should return empty map when less than 2 corp-hosting nodes", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 20, false)
+        ];
+        const edges = ["node-1|node-2"];
+        const nav = new NodeNavigator(nodes, edges);
+
+        const economicEdges = buildEconomicEdges(nav);
+        expect(economicEdges.size).to.equal(0);
+      });
+
+      it("should create economic edges between corp-hosting nodes", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const weights = new Map([
+          ["node-1|node-2", 10],
+          ["node-2|node-3", 15]
+        ]);
+        const nav = new NodeNavigator(nodes, edges, weights);
+
+        const economicEdges = buildEconomicEdges(nav);
+
+        expect(economicEdges.size).to.equal(1);
+        const edgeKey = createEdgeKey("node-1", "node-3");
+        expect(economicEdges.has(edgeKey)).to.be.true;
+        // Distance through node-2: 10 + 15 = 25
+        expect(economicEdges.get(edgeKey)).to.equal(25);
+      });
+
+      it("should create edges for all pairs of corp-hosting nodes", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, true),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const weights = new Map([
+          ["node-1|node-2", 10],
+          ["node-2|node-3", 15]
+        ]);
+        const nav = new NodeNavigator(nodes, edges, weights);
+
+        const economicEdges = buildEconomicEdges(nav);
+
+        // 3 nodes = 3 pairs: (1,2), (1,3), (2,3)
+        expect(economicEdges.size).to.equal(3);
+        expect(economicEdges.get(createEdgeKey("node-1", "node-2"))).to.equal(10);
+        expect(economicEdges.get(createEdgeKey("node-1", "node-3"))).to.equal(25);
+        expect(economicEdges.get(createEdgeKey("node-2", "node-3"))).to.equal(15);
+      });
+    });
+
+    describe("addEconomicEdgesToNavigator()", () => {
+      it("should add economic edges to navigator", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const weights = new Map([
+          ["node-1|node-2", 10],
+          ["node-2|node-3", 15]
+        ]);
+        const nav = new NodeNavigator(nodes, edges, weights);
+
+        addEconomicEdgesToNavigator(nav);
+
+        // Check economic edge was added
+        expect(nav.getEdgeCount("economic")).to.equal(1);
+        expect(nav.areAdjacent("node-1", "node-3", "economic")).to.be.true;
+        expect(nav.getEdgeWeight("node-1", "node-3", "economic")).to.equal(25);
+      });
+    });
+
+    describe("edge type traversal", () => {
+      it("should traverse only spatial edges when specified", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const weights = new Map([
+          ["node-1|node-2", 10],
+          ["node-2|node-3", 15]
+        ]);
+        const nav = new NodeNavigator(nodes, edges, weights);
+        addEconomicEdgesToNavigator(nav);
+
+        // Spatial path goes through node-2
+        const spatialPath = nav.findPath("node-1", "node-3", "spatial");
+        expect(spatialPath.found).to.be.true;
+        expect(spatialPath.path).to.deep.equal(["node-1", "node-2", "node-3"]);
+        expect(spatialPath.distance).to.equal(25);
+      });
+
+      it("should traverse only economic edges when specified", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const weights = new Map([
+          ["node-1|node-2", 10],
+          ["node-2|node-3", 15]
+        ]);
+        const nav = new NodeNavigator(nodes, edges, weights);
+        addEconomicEdgesToNavigator(nav);
+
+        // Economic path is direct
+        const economicPath = nav.findPath("node-1", "node-3", "economic");
+        expect(economicPath.found).to.be.true;
+        expect(economicPath.path).to.deep.equal(["node-1", "node-3"]);
+        expect(economicPath.distance).to.equal(25);
+      });
+
+      it("should not find path via economic edges for non-corp nodes", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const nav = new NodeNavigator(nodes, edges);
+        addEconomicEdgesToNavigator(nav);
+
+        // node-2 is not economically connected
+        const result = nav.findPath("node-1", "node-2", "economic");
+        expect(result.found).to.be.false;
+      });
+
+      it("should get neighbors by edge type", () => {
+        const nodes = [
+          makeNodeWithCorps("node-1", "E1N1", 10, 10, true),
+          makeNodeWithCorps("node-2", "E1N1", 20, 10, false),
+          makeNodeWithCorps("node-3", "E1N1", 30, 10, true)
+        ];
+        const edges = ["node-1|node-2", "node-2|node-3"];
+        const nav = new NodeNavigator(nodes, edges);
+        addEconomicEdgesToNavigator(nav);
+
+        // node-1's spatial neighbor is node-2
+        expect(nav.getNeighbors("node-1", "spatial")).to.deep.equal(["node-2"]);
+
+        // node-1's economic neighbor is node-3
+        expect(nav.getNeighbors("node-1", "economic")).to.deep.equal(["node-3"]);
+      });
     });
   });
 });
