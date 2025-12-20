@@ -1,0 +1,63 @@
+{
+  "name": "Two Source Mining",
+  "purpose": "Test multi-source room. Two sources feed into one spawn, enabling more upgrading.",
+  "description": "A room with two energy sources. Tests that the planner can identify and utilize both sources.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 8, "y": 8 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 8, "y": 8 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 42, "y": 8 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 42, "y": 8 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 42 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 42 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 20000,
+    "deterministicIds": true
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}

@@ -11,7 +11,8 @@ import {
   filterViable,
   selectNonOverlapping
 } from "./Chain";
-import { OfferCollector, Node } from "./OfferCollector";
+import { OfferCollector } from "./OfferCollector";
+import { Node } from "../nodes/Node";
 
 /**
  * Goal types that can be achieved by chains.

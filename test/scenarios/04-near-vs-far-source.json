@@ -1,0 +1,60 @@
+{
+  "name": "Near vs Far Source",
+  "purpose": "Compare profitability of near vs far sources. Planner should prefer closer sources when margins are equal.",
+  "description": "Two sources at different distances from spawn. Tests that travel time correctly affects which source is preferred.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 20, "y": 20 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 20, "y": 20 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 5, "y": 5 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 5, "y": 5 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 10000,
+    "deterministicIds": true
+  }
+}

@@ -72,9 +72,9 @@ export class SpawningCorp extends Corp {
   /** Standard body configuration this corp offers */
   private standardBody: CreepBody = { work: 2, carry: 2, move: 2 };
 
-  constructor(nodeId: string, spawnId: string, position: Position) {
-    super("spawning", nodeId);
-    this.spawnId = spawnId;
+  constructor(nodeId: string, position: Position, customId?: string) {
+    super("spawning", nodeId, customId);
+    this.spawnId = `spawn-${nodeId}`;
     this.spawnPosition = position;
   }
 

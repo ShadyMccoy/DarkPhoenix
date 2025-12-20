@@ -1,0 +1,54 @@
+{
+  "name": "Remote Mining",
+  "purpose": "Test cross-room economics. Source in remote room requires longer travel, affecting profitability.",
+  "description": "A spawn in home room (W1N1) and a source in adjacent room (W2N1). Tests travel time impact on creep economics.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 2
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W2N1",
+      "position": { "x": 15, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 15, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 15000,
+    "deterministicIds": true,
+    "mintValues": {
+      "rcl_upgrade": 1.5
+    }
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}

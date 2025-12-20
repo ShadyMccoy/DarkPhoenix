@@ -70,12 +70,12 @@ export class MiningCorp extends Corp {
 
   constructor(
     nodeId: string,
-    sourceId: string,
     harvestPosition: Position,
-    sourceCapacity: number = MINING_CONSTANTS.SOURCE_CAPACITY
+    sourceCapacity: number = MINING_CONSTANTS.SOURCE_CAPACITY,
+    customId?: string
   ) {
-    super("mining", nodeId);
-    this.sourceId = sourceId;
+    super("mining", nodeId, customId);
+    this.sourceId = `source-${nodeId}`;
     this.harvestPosition = harvestPosition;
     this.sourceCapacity = sourceCapacity;
   }
