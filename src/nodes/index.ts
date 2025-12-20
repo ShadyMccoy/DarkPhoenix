@@ -31,3 +31,13 @@ export {
   estimateMiningROI,
   estimateHaulingROI
 } from "./NodeSurveyor";
+
+export {
+  NodeNavigator,
+  PathResult,
+  EdgeKey,
+  createEdgeKey,
+  parseEdgeKey,
+  estimateWalkingDistance,
+  createNodeNavigator
+} from "./NodeNavigator";
