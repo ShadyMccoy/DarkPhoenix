@@ -72,7 +72,7 @@ export class ChainPlanner {
   private maxDepth: number;
   private corpRegistry: Map<string, Corp> = new Map();
 
-  /** Registry of corp states (new approach) */
+  /** Registry of corp states for projection-based planning */
   private corpStateRegistry: Map<string, AnyCorpState> = new Map();
 
   /** Cache of projections computed from corp states */
@@ -195,11 +195,11 @@ export class ChainPlanner {
    * Get buy offers for a corp (works with both Corp and CorpState).
    */
   private getCorpBuys(corpId: string): Offer[] {
-    // Try CorpState first (new approach)
+    // Try projection from CorpState
     const projection = this.getProjection(corpId);
     if (projection) return projection.buys;
 
-    // Fall back to Corp (old approach)
+    // Fall back to Corp interface
     const corp = this.corpRegistry.get(corpId);
     if (corp) return corp.buys();
 
@@ -210,11 +210,11 @@ export class ChainPlanner {
    * Get position for a corp (works with both Corp and CorpState).
    */
   private getCorpPosition(corpId: string): Position | null {
-    // Try CorpState first
+    // Try CorpState
     const state = this.corpStateRegistry.get(corpId);
     if (state) return getStatePosition(state);
 
-    // Fall back to Corp
+    // Fall back to Corp interface
     const corp = this.corpRegistry.get(corpId);
     if (corp) return corp.getPosition();
 

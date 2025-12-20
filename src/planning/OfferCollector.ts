@@ -57,7 +57,7 @@ export class OfferCollector {
 
   /**
    * Collect offers from corp states using pure projection functions.
-   * This is the new approach that computes offers on-demand from state.
+   * Computes offers on-demand from state data.
    *
    * @param states - Array of corp states to project
    * @param tick - Current game tick for offer IDs

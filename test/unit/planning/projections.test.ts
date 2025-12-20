@@ -1,8 +1,8 @@
 /**
  * @fileoverview Tests for pure projection functions.
  *
- * These tests verify that CorpState + projection functions produce
- * the same results as the old Model classes, validating the refactoring.
+ * Tests verify that CorpState + projection functions correctly compute
+ * buy/sell offers for each corp type (mining, spawning, upgrading, hauling).
  */
 
 import { expect } from "chai";
@@ -292,10 +292,9 @@ describe("projections", () => {
     });
   });
 
-  describe("comparison with MiningModel", () => {
-    it("should differ from MiningModel: projectMining is a leaf node (no buys)", () => {
-      // MiningModel buys work-ticks (work-ticks = OPTIMAL_WORK_PARTS × CREEP_LIFETIME)
-      // But projectMining is a LEAF NODE - it produces energy without supply chain dependencies
+  describe("mining as leaf node", () => {
+    it("should be a leaf node with no buy offers", () => {
+      // projectMining is a LEAF NODE - it produces energy without supply chain dependencies
       // Work-ticks dependency is handled via labor allocation, not supply chain
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys, sells } = projectMining(state, 0);
@@ -309,13 +308,13 @@ describe("projections", () => {
       expect(sells[0].quantity).to.equal(expectedEnergy);
     });
 
-    it("should use EconomicConstants instead of duplicated MINING_CONSTANTS", () => {
+    it("should use EconomicConstants for calculations", () => {
       // Verify we're using the single source of truth
       expect(HARVEST_RATE).to.equal(2);
       expect(CREEP_LIFETIME).to.equal(1500);
       expect(SOURCE_ENERGY_CAPACITY).to.equal(3000);
 
-      // These should match the old MINING_CONSTANTS values
+      // Optimal work parts calculation
       const optimalWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
       expect(optimalWorkParts).to.equal(5); // ceil(3000/300/2) = ceil(5) = 5
     });
