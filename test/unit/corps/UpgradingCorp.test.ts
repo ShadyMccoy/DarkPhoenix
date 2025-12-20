@@ -7,6 +7,9 @@ import {
   calculateUpgradeEfficiency
 } from "../../../src/planning/models/UpgradingModel";
 import { Position } from "../../../src/market/Offer";
+import { createUpgradingState } from "../../../src/corps/CorpState";
+import { projectUpgrading } from "../../../src/planning/projections";
+import { CREEP_LIFETIME } from "../../../src/planning/EconomicConstants";
 
 describe("UpgradingModel", () => {
   const controllerPosition: Position = { x: 25, y: 25, roomName: "W1N1" };
@@ -296,6 +299,109 @@ describe("UpgradingCorp pure functions", () => {
     it("should account for RCL 8 cap", () => {
       // At RCL 8, 20 work parts still only produces 15/tick
       expect(calculateUpgradeEfficiency(15000, 1000, 20, 8)).to.equal(1);
+    });
+  });
+});
+
+// =============================================================================
+// Phase 3: CorpState + Projections Equivalence Tests
+// =============================================================================
+// These tests verify that the new CorpState + projectUpgrading approach
+// produces consistent results with the old UpgradingModel class.
+
+describe("CorpState + projectUpgrading (new approach)", () => {
+  const controllerPosition: Position = { x: 25, y: 25, roomName: "W1N1" };
+
+  describe("constants equivalence", () => {
+    it("should use same creep lifetime", () => {
+      expect(CREEP_LIFETIME).to.equal(UPGRADING_CONSTANTS.CREEP_LIFETIME);
+    });
+  });
+
+  describe("buys() projection", () => {
+    it("should return buy offers for energy and work-ticks", () => {
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { buys } = projectUpgrading(state, 0);
+
+      expect(buys).to.have.length(2);
+      const resources = buys.map((o) => o.resource);
+      expect(resources).to.include("energy");
+      expect(resources).to.include("work-ticks");
+    });
+
+    it("should locate offers at controller", () => {
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { buys } = projectUpgrading(state, 0);
+
+      for (const offer of buys) {
+        expect(offer.location).to.deep.equal(controllerPosition);
+      }
+    });
+
+    it("should match UpgradingModel buy resources", () => {
+      // Old approach
+      const model = new UpgradingModel("node1", controllerPosition);
+      const modelBuys = model.buys();
+
+      // New approach
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { buys } = projectUpgrading(state, 0);
+
+      // Both should buy energy and work-ticks
+      const modelResources = modelBuys.map((o) => o.resource).sort();
+      const stateResources = buys.map((o) => o.resource).sort();
+      expect(stateResources).to.deep.equal(modelResources);
+    });
+  });
+
+  describe("sells() projection", () => {
+    it("should return sell offer for rcl-progress", () => {
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { sells } = projectUpgrading(state, 0);
+
+      expect(sells).to.have.length(1);
+      expect(sells[0].type).to.equal("sell");
+      expect(sells[0].resource).to.equal("rcl-progress");
+      expect(sells[0].location).to.deep.equal(controllerPosition);
+    });
+
+    it("should have zero price (mints credits at terminal)", () => {
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { sells } = projectUpgrading(state, 0);
+
+      // RCL progress is the terminal value sink - it mints credits
+      expect(sells[0].price).to.equal(0);
+    });
+
+    it("should match UpgradingModel sell resource", () => {
+      // Old approach
+      const model = new UpgradingModel("node1", controllerPosition);
+      const modelSells = model.sells();
+
+      // New approach
+      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const { sells } = projectUpgrading(state, 0);
+
+      // Both should sell rcl-progress
+      expect(sells[0].resource).to.equal(modelSells[0].resource);
+    });
+  });
+
+  describe("travel time effects", () => {
+    it("should reduce output when spawn is far from controller", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+
+      // Near controller (same room)
+      const nearState = createUpgradingState("upgrading-1", "node1", controllerPosition, 1, spawnPos);
+      const { sells: nearSells } = projectUpgrading(nearState, 0);
+
+      // Remote controller (different room)
+      const remoteControllerPos: Position = { x: 25, y: 25, roomName: "W2N1" };
+      const farState = createUpgradingState("upgrading-2", "node2", remoteControllerPos, 1, spawnPos);
+      const { sells: farSells } = projectUpgrading(farState, 0);
+
+      // Remote upgrading should produce less RCL progress due to travel time
+      expect(farSells[0].quantity).to.be.lessThan(nearSells[0].quantity);
     });
   });
 });
