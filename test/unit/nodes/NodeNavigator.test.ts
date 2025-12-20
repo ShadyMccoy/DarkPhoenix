@@ -132,7 +132,7 @@ describe("NodeNavigator", () => {
       expect(nav.getEdgeWeight("node-1", "node-2")).to.equal(42);
     });
 
-    it("should estimate edge weights when not provided", () => {
+    it("should default edge weight to 1 when not provided", () => {
       const nodes = [
         makeNode("node-1", "E1N1", 10, 10),
         makeNode("node-2", "E1N1", 20, 20)
@@ -141,8 +141,8 @@ describe("NodeNavigator", () => {
 
       const nav = new NodeNavigator(nodes, edges);
 
-      // Chebyshev distance = max(10, 10) = 10
-      expect(nav.getEdgeWeight("node-1", "node-2")).to.equal(10);
+      // Default weight is 1 when not provided
+      expect(nav.getEdgeWeight("node-1", "node-2")).to.equal(1);
     });
   });
 

@@ -113,6 +113,10 @@ export function estimateWalkingDistance(from: Position, to: Position): number {
  *
  * This enables quick approximation of travel costs without computing
  * full pathfinding through the tile-based terrain.
+ *
+ * IMPORTANT: Navigation only traverses existing edges in the graph.
+ * Edge weights should come from actual walking distance calculations
+ * (e.g., from bfsWalkingDistance in the skeleton builder).
  */
 export class NodeNavigator {
   /** Map of node ID to Node object */
@@ -130,7 +134,7 @@ export class NodeNavigator {
    * @param nodes - Array of nodes in the network
    * @param edges - Array of edge keys (format: "nodeId1|nodeId2")
    * @param edgeWeights - Optional map of edge keys to walking distances.
-   *                      If not provided, distances are estimated from node positions.
+   *                      If not provided, each edge defaults to weight 1.
    */
   constructor(
     nodes: Node[],
@@ -160,19 +164,9 @@ export class NodeNavigator {
       this.adjacency.get(nodeId1)!.add(nodeId2);
       this.adjacency.get(nodeId2)!.add(nodeId1);
 
-      // Set edge weight
-      if (edgeWeights && edgeWeights.has(edgeKey)) {
-        this.edgeWeights.set(edgeKey, edgeWeights.get(edgeKey)!);
-      } else {
-        // Estimate from node positions
-        const node1 = this.nodes.get(nodeId1)!;
-        const node2 = this.nodes.get(nodeId2)!;
-        const distance = estimateWalkingDistance(
-          node1.peakPosition,
-          node2.peakPosition
-        );
-        this.edgeWeights.set(edgeKey, distance);
-      }
+      // Set edge weight (use provided weight or default to 1)
+      const weight = edgeWeights?.get(edgeKey) ?? 1;
+      this.edgeWeights.set(edgeKey, weight);
     }
   }
 
