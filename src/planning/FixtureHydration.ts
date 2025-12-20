@@ -26,6 +26,15 @@ import {
   calculateBodyCost,
   SOURCE_ENERGY_CAPACITY
 } from "./EconomicConstants";
+import {
+  AnyCorpState,
+  MiningCorpState,
+  SpawningCorpState,
+  UpgradingCorpState,
+  createMiningState,
+  createSpawningState,
+  createUpgradingState
+} from "../corps/CorpState";
 
 /**
  * Resource definition in a fixture
@@ -85,6 +94,8 @@ export interface HydrationResult {
   corps: Corp[];
   /** Spawn positions for reference */
   spawns: Position[];
+  /** Corp states for pure projection functions (new approach) */
+  corpStates: AnyCorpState[];
 }
 
 /**
@@ -133,6 +144,7 @@ export function hydrateFixture(
   // Second pass: create nodes and corps
   const nodes: Node[] = [];
   const allCorps: Corp[] = [];
+  const allCorpStates: AnyCorpState[] = [];
   let corpIndex = 0;
 
   for (const fixtureNode of fixture.nodes) {
@@ -183,10 +195,23 @@ export function hydrateFixture(
       corpIndex++;
     }
 
+    // Also create CorpState for new approach
+    const corpState = createCorpStateForNode(
+      fixtureNode,
+      node,
+      spawns,
+      idGen,
+      corpIndex - 1 // Use same index as corp
+    );
+
+    if (corpState) {
+      allCorpStates.push(corpState);
+    }
+
     nodes.push(node);
   }
 
-  return { nodes, corps: allCorps, spawns };
+  return { nodes, corps: allCorps, spawns, corpStates: allCorpStates };
 }
 
 /**
@@ -262,6 +287,90 @@ function createCorpForNode(
 
     const corpId = idGen("upgrading", node.id, index);
     return createUpgradingModel(
+      corpId,
+      node.id,
+      controllerPosition,
+      controllerResource.capacity ?? 1,
+      nearestSpawn
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Create CorpState for a node based on its resources (new approach).
+ * Priority: spawn > source > controller
+ */
+function createCorpStateForNode(
+  fixtureNode: FixtureNode,
+  node: Node,
+  spawns: Position[],
+  idGen: (type: string, nodeId: string, index: number) => string,
+  index: number
+): AnyCorpState | null {
+  const hasSpawn = fixtureNode.resourceNodes.some((r) => r.type === "spawn");
+  const hasSources = fixtureNode.resourceNodes.some((r) => r.type === "source");
+  const hasController = fixtureNode.resourceNodes.some(
+    (r) => r.type === "controller"
+  );
+
+  const nodePosition: Position = {
+    x: fixtureNode.position.x,
+    y: fixtureNode.position.y,
+    roomName: fixtureNode.roomName
+  };
+
+  if (hasSpawn) {
+    const spawnResource = fixtureNode.resourceNodes.find(
+      (r) => r.type === "spawn"
+    )!;
+    const spawnPosition: Position = {
+      x: spawnResource.position.x,
+      y: spawnResource.position.y,
+      roomName: fixtureNode.roomName
+    };
+
+    const corpId = idGen("spawning", node.id, index);
+    return createSpawningState(
+      corpId,
+      node.id,
+      spawnPosition,
+      spawnResource.capacity ?? 300
+    );
+  }
+
+  if (hasSources) {
+    const totalCapacity = fixtureNode.resourceNodes
+      .filter((r) => r.type === "source")
+      .reduce((sum, r) => sum + (r.capacity ?? SOURCE_ENERGY_CAPACITY), 0);
+
+    const nearestSpawn = findNearestSpawn(nodePosition, spawns);
+    const corpId = idGen("mining", node.id, index);
+
+    return createMiningState(
+      corpId,
+      node.id,
+      nodePosition,
+      totalCapacity,
+      nearestSpawn
+    );
+  }
+
+  if (hasController) {
+    const controllerResource = fixtureNode.resourceNodes.find(
+      (r) => r.type === "controller"
+    )!;
+    const controllerPosition: Position = {
+      x: controllerResource.position.x,
+      y: controllerResource.position.y,
+      roomName: fixtureNode.roomName
+    };
+
+    const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
+    const corpId = idGen("upgrading", node.id, index);
+
+    return createUpgradingState(
       corpId,
       node.id,
       controllerPosition,

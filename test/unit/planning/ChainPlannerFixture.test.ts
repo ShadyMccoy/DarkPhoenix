@@ -12,12 +12,19 @@ import {
   CREEP_LIFETIME,
   MiningModel,
   SpawningModel,
-  UpgradingModel
+  UpgradingModel,
+  projectMining,
+  projectSpawning,
+  projectUpgrading,
+  projectAll,
+  collectBuys,
+  collectSells
 } from "../../../src/planning";
 import { OfferCollector } from "../../../src/planning/OfferCollector";
 import { ChainPlanner } from "../../../src/planning/ChainPlanner";
 import { Corp } from "../../../src/corps/Corp";
 import { DEFAULT_MINT_VALUES } from "../../../src/colony/MintValues";
+import { MiningCorpState, SpawningCorpState, UpgradingCorpState } from "../../../src/corps/CorpState";
 
 // Fixture paths
 const FIXTURES_DIR = path.join(__dirname, "../../fixtures");
@@ -247,6 +254,108 @@ describe("ChainPlanner with Fixtures", () => {
       // Effective: 1500 - 30 = 1470
       const effectiveLifetime = CREEP_LIFETIME - travelTime;
       expect(effectiveLifetime).to.equal(1470);
+    });
+  });
+
+  // =============================================================================
+  // Phase 2: CorpState hydration tests
+  // =============================================================================
+  describe("CorpState Hydration (new approach)", () => {
+    it("should hydrate corpStates alongside corps", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      // Should have both corps and corpStates
+      expect(result.corps).to.have.length(2);
+      expect(result.corpStates).to.have.length(2);
+    });
+
+    it("should create matching corp types in corpStates", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const stateTypes = result.corpStates.map((s) => s.type);
+      expect(stateTypes).to.include("spawning");
+      expect(stateTypes).to.include("mining");
+    });
+
+    it("should create MiningCorpState with correct properties", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const miningState = result.corpStates.find(
+        (s) => s.type === "mining"
+      ) as MiningCorpState;
+
+      expect(miningState).to.not.be.undefined;
+      expect(miningState.sourceCapacity).to.equal(3000);
+      expect(miningState.position).to.deep.equal({ x: 10, y: 10, roomName: "W1N1" });
+      expect(miningState.spawnPosition).to.deep.equal({ x: 25, y: 25, roomName: "W1N1" });
+    });
+
+    it("should create SpawningCorpState with correct properties", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const spawningState = result.corpStates.find(
+        (s) => s.type === "spawning"
+      ) as SpawningCorpState;
+
+      expect(spawningState).to.not.be.undefined;
+      expect(spawningState.position).to.deep.equal({ x: 25, y: 25, roomName: "W1N1" });
+      expect(spawningState.energyCapacity).to.equal(300);
+    });
+
+    it("should produce equivalent offers from corpStates and corps", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      // Get offers from corps (old approach)
+      const miningCorp = result.corps.find((c) => c instanceof MiningModel) as MiningModel;
+      const corpBuys = miningCorp.buys();
+      const corpSells = miningCorp.sells();
+
+      // Get offers from corpStates (new approach)
+      const miningState = result.corpStates.find((s) => s.type === "mining") as MiningCorpState;
+      const { buys: stateBuys, sells: stateSells } = projectMining(miningState, 0);
+
+      // Should have same resource types
+      expect(stateBuys[0].resource).to.equal(corpBuys[0].resource);
+      expect(stateSells[0].resource).to.equal(corpSells[0].resource);
+
+      // Work-ticks quantity should match (both use 5 WORK × 1500 ticks)
+      expect(stateBuys[0].quantity).to.equal(corpBuys[0].quantity);
+
+      // Energy quantity differs because projectMining accounts for travel time:
+      // - MiningModel: 15000 (5 WORK × 2 harvest × 1500 full lifetime)
+      // - projectMining: 14700 (5 WORK × 2 harvest × 1470 effective lifetime)
+      // Travel time = 30 ticks (from {25,25} to {10,10})
+      // The new approach is MORE ACCURATE because it accounts for travel time
+      expect(stateSells[0].quantity).to.be.lessThan(corpSells[0].quantity);
+      expect(stateSells[0].quantity).to.equal(14700); // 5 × 2 × (1500 - 30)
+    });
+
+    it("should collect all offers using projectAll", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const projections = projectAll(result.corpStates, 0);
+      const allBuys = collectBuys(projections);
+      const allSells = collectSells(projections);
+
+      // Should have buy offers (mining buys work-ticks, spawning buys energy)
+      expect(allBuys.length).to.be.greaterThan(0);
+
+      // Should have sell offers (mining sells energy, spawning sells work-ticks)
+      expect(allSells.length).to.be.greaterThan(0);
+
+      // Verify resources
+      const buyResources = allBuys.map((o) => o.resource);
+      const sellResources = allSells.map((o) => o.resource);
+
+      expect(buyResources).to.include("work-ticks");
+      expect(sellResources).to.include("energy");
+      expect(sellResources).to.include("work-ticks");
     });
   });
 });
