@@ -14,9 +14,9 @@
 import { Position } from "../market/Offer";
 import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
 import { Corp } from "../corps/Corp";
-import { MiningCorp } from "../corps/MiningCorp";
-import { SpawningCorp } from "../corps/SpawningCorp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { MiningModel } from "./models/MiningModel";
+import { SpawningModel } from "./models/SpawningModel";
+import { UpgradingModel } from "./models/UpgradingModel";
 import {
   calculateTravelTime,
   calculateEffectiveWorkTime,
@@ -213,7 +213,7 @@ function createCorpForNode(
   };
 
   if (hasSpawn) {
-    // SpawningCorp for nodes with spawns
+    // SpawningModel for nodes with spawns
     const spawnResource = fixtureNode.resourceNodes.find(
       (r) => r.type === "spawn"
     )!;
@@ -224,11 +224,11 @@ function createCorpForNode(
     };
 
     const corpId = idGen("spawning", node.id, index);
-    return createSpawningCorp(corpId, node.id, spawnPosition);
+    return createSpawningModel(corpId, node.id, spawnPosition);
   }
 
   if (hasSources) {
-    // MiningCorp for nodes with sources
+    // MiningModel for nodes with sources
     const totalCapacity = fixtureNode.resourceNodes
       .filter((r) => r.type === "source")
       .reduce((sum, r) => sum + (r.capacity ?? SOURCE_ENERGY_CAPACITY), 0);
@@ -237,7 +237,7 @@ function createCorpForNode(
     const nearestSpawn = findNearestSpawn(nodePosition, spawns);
 
     const corpId = idGen("mining", node.id, index);
-    return createMiningCorp(
+    return createMiningModel(
       corpId,
       node.id,
       nodePosition,
@@ -247,7 +247,7 @@ function createCorpForNode(
   }
 
   if (hasController) {
-    // UpgradingCorp for nodes with controllers
+    // UpgradingModel for nodes with controllers
     const controllerResource = fixtureNode.resourceNodes.find(
       (r) => r.type === "controller"
     )!;
@@ -261,7 +261,7 @@ function createCorpForNode(
     const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
 
     const corpId = idGen("upgrading", node.id, index);
-    return createUpgradingCorp(
+    return createUpgradingModel(
       corpId,
       node.id,
       controllerPosition,
@@ -297,21 +297,21 @@ function findNearestSpawn(
 }
 
 /**
- * Create a MiningCorp with economic calculations
+ * Create a MiningModel with economic calculations
  */
-function createMiningCorp(
+function createMiningModel(
   corpId: string,
   nodeId: string,
   position: Position,
   sourceCapacity: number,
   spawnLocation: Position | null
-): MiningCorp {
-  const corp = new MiningCorp(nodeId, position, sourceCapacity, corpId);
+): MiningModel {
+  const model = new MiningModel(nodeId, position, sourceCapacity, corpId);
 
   // Set spawn location for economic calculations
   if (spawnLocation) {
     // Store spawn location for reference
-    (corp as any).spawnLocation = spawnLocation;
+    (model as any).spawnLocation = spawnLocation;
 
     // Calculate and set input cost based on creep economics
     const workPartsNeeded = calculateOptimalWorkParts(sourceCapacity, 300);
@@ -322,43 +322,43 @@ function createMiningCorp(
     const effectiveLifetime = calculateEffectiveWorkTime(spawnLocation, position);
 
     // Set input cost for pricing (amortized spawn cost per tick)
-    if (effectiveLifetime > 0 && typeof corp.setInputCost === "function") {
-      corp.setInputCost(spawnCost / effectiveLifetime);
+    if (effectiveLifetime > 0 && typeof model.setInputCost === "function") {
+      model.setInputCost(spawnCost / effectiveLifetime);
     }
   }
 
-  return corp;
+  return model;
 }
 
 /**
- * Create a SpawningCorp
+ * Create a SpawningModel
  */
-function createSpawningCorp(
+function createSpawningModel(
   corpId: string,
   nodeId: string,
   position: Position
-): SpawningCorp {
-  return new SpawningCorp(nodeId, position, corpId);
+): SpawningModel {
+  return new SpawningModel(nodeId, position, corpId);
 }
 
 /**
- * Create an UpgradingCorp with economic calculations
+ * Create an UpgradingModel with economic calculations
  */
-function createUpgradingCorp(
+function createUpgradingModel(
   corpId: string,
   nodeId: string,
   position: Position,
   controllerLevel: number,
   spawnLocation: Position | null
-): UpgradingCorp {
-  const corp = new UpgradingCorp(nodeId, position, controllerLevel, corpId);
+): UpgradingModel {
+  const model = new UpgradingModel(nodeId, position, controllerLevel, corpId);
 
   // Store spawn location for reference
   if (spawnLocation) {
-    (corp as any).spawnLocation = spawnLocation;
+    (model as any).spawnLocation = spawnLocation;
   }
 
-  return corp;
+  return model;
 }
 
 /**

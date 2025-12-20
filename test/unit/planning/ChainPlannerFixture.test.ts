@@ -9,13 +9,13 @@ import {
   calculateCreepCostPerEnergy,
   designMiningCreep,
   calculateOptimalWorkParts,
-  CREEP_LIFETIME
+  CREEP_LIFETIME,
+  MiningModel,
+  SpawningModel,
+  UpgradingModel
 } from "../../../src/planning";
 import { OfferCollector } from "../../../src/planning/OfferCollector";
 import { ChainPlanner } from "../../../src/planning/ChainPlanner";
-import { MiningCorp } from "../../../src/corps/MiningCorp";
-import { SpawningCorp } from "../../../src/corps/SpawningCorp";
-import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { Corp } from "../../../src/corps/Corp";
 import { DEFAULT_MINT_VALUES } from "../../../src/colony/MintValues";
 
@@ -68,7 +68,7 @@ describe("ChainPlanner with Fixtures", () => {
       const fixture = loadFixture("simple-mining.json");
       const result = hydrateFixture(fixture);
 
-      const miningCorp = result.corps.find((c) => c instanceof MiningCorp);
+      const miningCorp = result.corps.find((c) => c instanceof MiningModel);
       expect(miningCorp).to.not.be.undefined;
 
       // Mining corp should have spawn location set
@@ -101,8 +101,8 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       const miningCorp = result.corps.find(
-        (c) => c instanceof MiningCorp
-      ) as MiningCorp;
+        (c) => c instanceof MiningModel
+      ) as MiningModel;
       expect(miningCorp).to.not.be.undefined;
 
       // Remote mining has longer travel time
@@ -119,8 +119,8 @@ describe("ChainPlanner with Fixtures", () => {
       const localFixture = loadFixture("simple-mining.json");
       const localResult = hydrateFixture(localFixture);
       const localMining = localResult.corps.find(
-        (c) => c instanceof MiningCorp
-      ) as MiningCorp;
+        (c) => c instanceof MiningModel
+      ) as MiningModel;
       const localSpawn = localResult.spawns[0];
 
       // Remote mining
@@ -128,8 +128,8 @@ describe("ChainPlanner with Fixtures", () => {
       const remoteFixture = loadFixture("remote-mining.json");
       const remoteResult = hydrateFixture(remoteFixture);
       const remoteMining = remoteResult.corps.find(
-        (c) => c instanceof MiningCorp
-      ) as MiningCorp;
+        (c) => c instanceof MiningModel
+      ) as MiningModel;
       const remoteSpawn = remoteResult.spawns[0];
 
       // Calculate cost per energy
@@ -171,7 +171,7 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       const upgradingCorp = result.corps.find(
-        (c) => c instanceof UpgradingCorp
+        (c) => c instanceof UpgradingModel
       );
       expect(upgradingCorp).to.not.be.undefined;
       expect(upgradingCorp!.type).to.equal("upgrading");
@@ -191,8 +191,8 @@ describe("ChainPlanner with Fixtures", () => {
       collector.collect(result.nodes);
 
       // Both mining and spawning should have offers
-      const miningCorp = result.corps.find((c) => c instanceof MiningCorp);
-      const spawningCorp = result.corps.find((c) => c instanceof SpawningCorp);
+      const miningCorp = result.corps.find((c) => c instanceof MiningModel);
+      const spawningCorp = result.corps.find((c) => c instanceof SpawningModel);
 
       expect(miningCorp).to.not.be.undefined;
       expect(spawningCorp).to.not.be.undefined;

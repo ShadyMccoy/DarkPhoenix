@@ -272,6 +272,24 @@ export function serializeNode(node: Node): SerializedNode {
 }
 
 /**
+ * Deserialize a node from persistence.
+ * Note: Corps are not restored here - they are managed separately.
+ */
+export function deserializeNode(data: SerializedNode): Node {
+  return {
+    id: data.id,
+    roomName: data.roomName,
+    peakPosition: data.peakPosition,
+    territorySize: data.territorySize,
+    spansRooms: data.spansRooms,
+    corps: [], // Corps are restored separately
+    resources: data.resources,
+    createdAt: data.createdAt,
+    roi: data.roi
+  };
+}
+
+/**
  * Calculate ROI metrics for a node based on potential corps.
  *
  * The ROI is calculated by surveying what corps could operate in this node

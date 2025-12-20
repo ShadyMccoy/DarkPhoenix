@@ -1,5 +1,16 @@
-import { Corp } from "./Corp";
-import { Offer, Position, createOfferId } from "../market/Offer";
+/**
+ * @fileoverview MiningModel - Planning model for mining operations.
+ *
+ * This is a simulation model for ChainPlanner testing. It calculates
+ * economic values (buys/sells/margins) without requiring Screeps runtime.
+ *
+ * For actual creep execution, use MiningCorp from src/corps/.
+ *
+ * @module planning/models/MiningModel
+ */
+
+import { Corp } from "../../corps/Corp";
+import { Offer, Position, createOfferId } from "../../market/Offer";
 
 /**
  * Constants for mining calculations
@@ -32,17 +43,15 @@ export interface MiningStats {
 }
 
 /**
- * MiningCorp buys work-ticks at a source and sells energy at that location.
+ * MiningModel simulates a mining operation for chain planning.
  *
  * Economic model:
  * - Buys: work-ticks (needs a harvester creep)
  * - Sells: energy at source position
  * - Price = input cost × (1 + margin)
- *
- * A MiningCorp operates one source. Multiple sources = multiple MiningCorps.
  */
-export class MiningCorp extends Corp {
-  /** Source ID this corp mines */
+export class MiningModel extends Corp {
+  /** Source ID this model represents */
   readonly sourceId: string;
 
   /** Position where harvesting occurs */
@@ -107,7 +116,7 @@ export class MiningCorp extends Corp {
   }
 
   /**
-   * Get what this corp needs to buy (work-ticks for harvesting)
+   * Get what this model needs to buy (work-ticks for harvesting)
    */
   buys(): Offer[] {
     const workTicksNeeded = this.calculateRequiredWorkTicks();
@@ -127,7 +136,7 @@ export class MiningCorp extends Corp {
   }
 
   /**
-   * Get what this corp sells (energy at source)
+   * Get what this model sells (energy at source)
    */
   sells(): Offer[] {
     const expectedOutput = this.calculateExpectedOutput();
@@ -187,8 +196,7 @@ export class MiningCorp extends Corp {
   }
 
   /**
-   * Perform work for this tick.
-   * In actual implementation, this would direct the harvester creep.
+   * Perform work for this tick (simulation only)
    */
   work(tick: number): void {
     this.currentTick = tick;

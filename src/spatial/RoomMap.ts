@@ -385,8 +385,10 @@ function buildVisualizationEdgesFromCache(
 
     if (!p1 || !p2) continue;
 
-    // Only include edges where at least one endpoint is in this room
-    if (p1.roomName !== targetRoom && p2.roomName !== targetRoom) {
+    // Only include edges where BOTH endpoints are in this room.
+    // Cross-room edges would draw lines to invalid local coordinates.
+    // Cross-room connectivity is shown via inter-room edges to exits.
+    if (p1.roomName !== targetRoom || p2.roomName !== targetRoom) {
       continue;
     }
 
