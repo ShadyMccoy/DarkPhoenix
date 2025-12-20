@@ -73,7 +73,11 @@ const elements = {
 
   // Network
   networkCanvas: document.getElementById("network-canvas"),
+  networkType: document.getElementById("network-type"),
 };
+
+// Current network view type
+let currentNetworkType = "spatial";
 
 /**
  * Connect to WebSocket server.
@@ -207,7 +211,7 @@ function updateUI() {
 
   // Update Network graph
   if (telemetry.nodes) {
-    drawNetworkGraph(telemetry.nodes);
+    drawNetworkGraph(telemetry.nodes, telemetry.corps, currentNetworkType);
   }
 }
 
@@ -364,11 +368,47 @@ function parseRoomCoords(roomName) {
 }
 
 /**
+ * Compute economic edges from corps data.
+ * Economic edges connect all nodes that have active corps.
+ * Returns an array of edge strings in format "nodeId1|nodeId2"
+ */
+function computeEconomicEdges(nodesData, corpsData) {
+  if (!corpsData || !corpsData.corps) return [];
+
+  // Find all unique nodeIds with corps
+  const nodeIdsWithCorps = new Set();
+  for (const corp of corpsData.corps) {
+    if (corp.nodeId) {
+      nodeIdsWithCorps.add(corp.nodeId);
+    }
+  }
+
+  // Also check nodes directly for ownership
+  const nodeIdSet = new Set(nodesData.nodes.map(n => n.id));
+
+  // Create edges between all pairs of corp-hosting nodes
+  const edges = [];
+  const corpNodeIds = Array.from(nodeIdsWithCorps).filter(id => nodeIdSet.has(id));
+
+  for (let i = 0; i < corpNodeIds.length; i++) {
+    for (let j = i + 1; j < corpNodeIds.length; j++) {
+      const [id1, id2] = [corpNodeIds[i], corpNodeIds[j]].sort();
+      edges.push(`${id1}|${id2}`);
+    }
+  }
+
+  return edges;
+}
+
+/**
  * Draw the colony network graph showing nodes positioned on the world map.
  * Node positions are based on their actual peak coordinates in the world.
  * Node sizes are based on peak height (openness).
+ * @param {Object} nodesData - Node telemetry data
+ * @param {Object} corpsData - Corps telemetry data (optional)
+ * @param {string} networkType - "spatial" or "economic"
  */
-function drawNetworkGraph(nodesData) {
+function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
   const canvas = elements.networkCanvas;
   const ctx = canvas.getContext("2d");
 
@@ -470,9 +510,25 @@ function drawNetworkGraph(nodesData) {
     nodePositions.set(node.id, toCanvas(wc.worldX, wc.worldY));
   });
 
-  // Draw edges between adjacent nodes (from telemetry edges array)
-  const edges = nodesData.edges || [];
-  ctx.strokeStyle = "#88aaff";
+  // Get edges based on network type
+  let edges;
+  let edgeColor;
+  let edgeLabel;
+
+  if (networkType === "economic") {
+    // Economic network: compute edges between corp-hosting nodes
+    edges = nodesData.economicEdges || computeEconomicEdges(nodesData, corpsData);
+    edgeColor = "#4ade80";  // Green for economic connections
+    edgeLabel = "Economic";
+  } else {
+    // Spatial network: use spatial adjacency edges
+    edges = nodesData.edges || [];
+    edgeColor = "#88aaff";  // Blue for spatial connections
+    edgeLabel = "Spatial";
+  }
+
+  // Draw edges between nodes
+  ctx.strokeStyle = edgeColor;
   ctx.lineWidth = 2;
   ctx.setLineDash([]);
   edges.forEach((edgeKey) => {
@@ -573,15 +629,22 @@ function drawNetworkGraph(nodesData) {
   ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillText(`Nodes: ${nodesData.summary?.totalNodes || nodes.length}`, 10, 10);
-  ctx.fillText(`Edges: ${edges.length}`, 10, 24);
-  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 38);
-  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 52);
+  ctx.fillText(`${edgeLabel} Network`, 10, 10);
+  ctx.fillText(`Nodes: ${nodesData.summary?.totalNodes || nodes.length}`, 10, 24);
+  ctx.fillText(`Edges: ${edges.length}`, 10, 38);
+  ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 52);
+  ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 66);
 
   // Size legend
   ctx.fillStyle = "#888";
   ctx.font = "10px sans-serif";
   ctx.fillText("Size = Peak Height", 10, canvas.height - 20);
+
+  // Edge color legend
+  ctx.fillStyle = edgeColor;
+  ctx.fillRect(10, canvas.height - 40, 12, 12);
+  ctx.fillStyle = "#888";
+  ctx.fillText(`${edgeLabel} edges`, 26, canvas.height - 38);
 }
 
 /**
@@ -635,11 +698,25 @@ function setupRefreshButton() {
 }
 
 /**
+ * Setup network type selector.
+ */
+function setupNetworkTypeSelector() {
+  elements.networkType.addEventListener("change", (e) => {
+    currentNetworkType = e.target.value;
+    // Redraw the network with the new type
+    if (telemetry.nodes) {
+      drawNetworkGraph(telemetry.nodes, telemetry.corps, currentNetworkType);
+    }
+  });
+}
+
+/**
  * Initialize the dashboard.
  */
 function init() {
   setupTabs();
   setupRefreshButton();
+  setupNetworkTypeSelector();
   connect();
 }
 

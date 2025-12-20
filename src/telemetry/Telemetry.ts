@@ -133,8 +133,10 @@ export interface NodeTelemetry {
     };
     spans: string[];  // spansRooms
   }[];
-  /** Edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
+  /** Spatial edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
   edges: string[];
+  /** Economic edges between corp-hosting nodes. Format: "nodeId1|nodeId2" */
+  economicEdges: string[];
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -476,10 +478,11 @@ export class Telemetry {
     }));
 
     const telemetry: NodeTelemetry = {
-      version: 3,  // Bumped version for edges
+      version: 4,  // Bumped version for economic edges
       tick: Game.time,
       nodes: nodeData,
       edges: Memory.nodeEdges || [],
+      economicEdges: Memory.economicEdges || [],
       summary: {
         totalNodes: nodes.length,
         ownedNodes,
