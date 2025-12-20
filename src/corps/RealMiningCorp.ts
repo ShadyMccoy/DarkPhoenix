@@ -9,18 +9,12 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
-
-/** Miner body: 2 WORK, 1 MOVE = 250 energy */
-const MINER_BODY: BodyPartConstant[] = [WORK, WORK, MOVE];
-
-/** Cost of a miner creep */
-const MINER_COST = 250;
-
-/** Maximum miners per source */
-const MAX_MINERS = 1;
-
-/** Ticks between spawn attempts */
-const SPAWN_COOLDOWN = 10;
+import {
+  MINER_BODY,
+  MINER_COST,
+  MAX_MINERS,
+  SPAWN_COOLDOWN,
+} from "./CorpConstants";
 
 /**
  * Serialized state specific to RealMiningCorp

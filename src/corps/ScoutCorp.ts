@@ -15,30 +15,16 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
-
-/** Body for a scout creep: just 1 MOVE = 50 energy */
-const SCOUT_BODY: BodyPartConstant[] = [MOVE];
-
-/** Cost of a scout creep */
-const SCOUT_COST = 50;
-
-/** Maximum scouts per scout corp */
-const MAX_SCOUTS = 1;
-
-/** Ticks between spawn attempts */
-const SPAWN_COOLDOWN = 50;
-
-/** How old room intel must be before it's worth updating (ticks) */
-const STALE_THRESHOLD = 5000;
-
-/** Maximum distance (in room exits) to search for stale rooms */
-const MAX_SCOUT_DISTANCE = 5;
-
-/** Maximum value for updating very old intel */
-const MAX_INTEL_VALUE = 10;
-
-/** Value multiplier per tick of staleness */
-const VALUE_PER_STALE_TICK = 0.001;
+import {
+  SCOUT_BODY,
+  SCOUT_COST,
+  MAX_SCOUTS,
+  SCOUT_SPAWN_COOLDOWN,
+  STALE_THRESHOLD,
+  MAX_SCOUT_DISTANCE,
+  MAX_INTEL_VALUE,
+  VALUE_PER_STALE_TICK,
+} from "./CorpConstants";
 
 /**
  * Serialized state specific to ScoutCorp
@@ -138,7 +124,7 @@ export class ScoutCorp extends Corp {
    */
   private trySpawn(spawn: StructureSpawn, tick: number): void {
     // Respect cooldown
-    if (tick - this.lastSpawnAttempt < SPAWN_COOLDOWN) {
+    if (tick - this.lastSpawnAttempt < SCOUT_SPAWN_COOLDOWN) {
       return;
     }
 
