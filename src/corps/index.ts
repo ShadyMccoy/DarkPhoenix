@@ -7,6 +7,9 @@
  * @module corps
  */
 
+// Shared constants
+export * from "./CorpConstants";
+
 export {
   Corp,
   CorpType,

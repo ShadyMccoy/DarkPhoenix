@@ -15,18 +15,12 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
-
-/** Body for a basic jack creep: 200 energy */
-const JACK_BODY: BodyPartConstant[] = [WORK, CARRY, MOVE];
-
-/** Cost of a jack creep */
-const JACK_COST = 200;
-
-/** Maximum jacks per bootstrap corp */
-const MAX_JACKS = 3;
-
-/** Ticks between spawn attempts */
-const SPAWN_COOLDOWN = 10;
+import {
+  JACK_BODY,
+  JACK_COST,
+  MAX_JACKS,
+  SPAWN_COOLDOWN,
+} from "./CorpConstants";
 
 /**
  * Serialized state specific to BootstrapCorp
