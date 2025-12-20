@@ -70,6 +70,12 @@ declare global {
     nodeEdges?: string[];
 
     /**
+     * Economic edges between corp-hosting nodes.
+     * Format: Array of "nodeId1|nodeId2" strings (sorted alphabetically).
+     */
+    economicEdges?: string[];
+
+    /**
      * Serialized chains for persistence.
      */
     chains?: { [chainId: string]: SerializedChain };
