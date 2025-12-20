@@ -17,6 +17,7 @@ export {
   getActiveCorps,
   pruneDead,
   serializeNode,
+  deserializeNode,
   calculateNodeROI,
   distanceToPeak,
   getNodeRooms,

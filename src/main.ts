@@ -26,7 +26,7 @@
  */
 
 import { Colony, createColony } from "./colony";
-import { createNode, Node, serializeNode, calculateNodeROI, NodeROI, NodeSurveyor } from "./nodes";
+import { createNode, Node, serializeNode, deserializeNode, calculateNodeROI, NodeROI, NodeSurveyor, SerializedNode } from "./nodes";
 import {
   BootstrapCorp,
   createBootstrapCorp,
@@ -52,6 +52,7 @@ import {
   findTerritoryAdjacencies,
   WorldCoordinate,
   WorldPosition,
+  CrossRoomPeak,
 } from "./spatial";
 import { getTelemetry } from "./telemetry";
 import "./types/Memory";
@@ -128,10 +129,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
   global.upgradingCorps = upgradingCorps;
   global.scoutCorps = scoutCorps;
 
-  // Run unified multi-room spatial analysis (periodically - expensive)
-  // Also run on first tick if we don't have any nodes yet
-  if (Game.time % NEARBY_ROOM_EXPANSION_INTERVAL === 0 || colony.getNodes().length === 0) {
-    runMultiRoomAnalysis(colony);
+  // Run incremental multi-room spatial analysis
+  // Starts when cache expires or no nodes exist, spreads work across multiple ticks
+  if (incrementalState || Game.time % NEARBY_ROOM_EXPANSION_INTERVAL === 0 || colony.getNodes().length === 0) {
+    runIncrementalAnalysis(colony);
   }
 
   // Run the colony economic tick
@@ -142,6 +143,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Update telemetry (write to RawMemory segments for external monitoring)
   updateTelemetry(colony);
+
+  // Restore visualization cache from memory if needed (avoids expensive analysis)
+  restoreVisualizationCache(colony);
 
   // Render node visualization
   renderNodeVisuals(colony);
@@ -355,6 +359,18 @@ function getOrCreateColony(): Colony {
     newColony.deserialize(Memory.colony);
   }
 
+  // Restore nodes from memory
+  if (Memory.nodes) {
+    for (const nodeId in Memory.nodes) {
+      const serializedNode = Memory.nodes[nodeId] as SerializedNode;
+      if (serializedNode && serializedNode.peakPosition) {
+        const node = deserializeNode(serializedNode);
+        newColony.addNode(node);
+      }
+    }
+    console.log(`[Colony] Restored ${newColony.getNodes().length} nodes from memory`);
+  }
+
   return newColony;
 }
 
@@ -362,18 +378,57 @@ function getOrCreateColony(): Colony {
 let multiRoomAnalysisCache: { result: MultiRoomAnalysisResult; tick: number } | null = null;
 
 /**
+ * Restore visualization cache from persisted Memory data.
+ * This allows edge visualization without running the expensive analysis.
+ */
+function restoreVisualizationCache(colony: Colony): void {
+  if (multiRoomAnalysisCache) return; // Already have cache
+
+  const nodes = colony.getNodes();
+  if (nodes.length === 0) return; // No nodes to visualize
+
+  // Reconstruct peaks from nodes
+  const peaks = nodes.map(node => ({
+    peakId: node.id,
+    roomName: node.roomName,
+    center: { x: node.peakPosition.x, y: node.peakPosition.y },
+    height: node.roi?.openness || 5
+  }));
+
+  // Restore adjacencies from memory
+  const adjacencies = Memory.nodeEdges
+    ? new Set<string>(Memory.nodeEdges)
+    : new Set<string>();
+
+  // Create minimal cache for visualization
+  multiRoomAnalysisCache = {
+    result: {
+      peaks,
+      territories: new Map(), // Not needed for edge visualization
+      distances: new Map(), // Not needed for visualization
+      adjacencies,
+      edgeWeights: new Map() // Will use Chebyshev distance as fallback
+    },
+    tick: Game.time
+  };
+
+  console.log(`[Colony] Restored visualization cache: ${peaks.length} peaks, ${adjacencies.size} edges`);
+}
+
+/**
  * Force recalculation of multi-room spatial analysis.
  * Call from console: `global.recalculateTerrain()`
+ *
+ * This triggers an incremental analysis that spreads work across multiple ticks.
  */
 global.recalculateTerrain = () => {
   multiRoomAnalysisCache = null;
-  // Actually run the analysis now
+  incrementalState = null; // Reset any in-progress analysis
+
   if (colony) {
-    const nodeCountBefore = colony.getNodes().length;
-    console.log(`[MultiRoom] Forcing recalculation now (clearing ${nodeCountBefore} existing nodes)...`);
-    runMultiRoomAnalysis(colony);
-    const nodeCountAfter = colony.getNodes().length;
-    console.log(`[MultiRoom] Recalculation complete: ${nodeCountAfter} nodes`);
+    console.log(`[MultiRoom] Triggering incremental recalculation (will spread across multiple ticks)...`);
+    // Start the incremental analysis - it will continue on subsequent ticks
+    runIncrementalAnalysis(colony);
   } else {
     console.log("[MultiRoom] Cache cleared - will recalculate when colony exists");
   }
@@ -482,6 +537,207 @@ global.exportNodes = (): string => {
 
 /** TTL for multi-room analysis cache */
 const MULTI_ROOM_ANALYSIS_CACHE_TTL = 500;
+
+/** Max rooms to analyze per batch to avoid CPU timeout */
+const ROOMS_PER_BATCH = 9;
+
+/** State for incremental terrain analysis */
+interface IncrementalAnalysisState {
+  phase: 'analyzing' | 'merging' | 'updating';
+  allRooms: string[];
+  batches: string[][];
+  currentBatchIndex: number;
+  batchResults: MultiRoomAnalysisResult[];
+  mergedResult: MultiRoomAnalysisResult | null;
+  startTick: number;
+}
+
+let incrementalState: IncrementalAnalysisState | null = null;
+
+/**
+ * Runs terrain analysis incrementally across multiple ticks.
+ * Processes rooms in small batches to avoid CPU timeout.
+ * Returns true if analysis is complete, false if still in progress.
+ */
+function runIncrementalAnalysis(colony: Colony): boolean {
+  // Check if we should start a new analysis
+  if (!incrementalState) {
+    // Check cache first
+    if (multiRoomAnalysisCache && Game.time - multiRoomAnalysisCache.tick < MULTI_ROOM_ANALYSIS_CACHE_TTL) {
+      return true; // Use cached result
+    }
+
+    const roomsToAnalyzeSet = get5x5BoxAroundOwnedRooms();
+    const allRooms = Array.from(roomsToAnalyzeSet);
+
+    if (allRooms.length === 0) return true;
+
+    // Split into batches
+    const batches: string[][] = [];
+    for (let i = 0; i < allRooms.length; i += ROOMS_PER_BATCH) {
+      batches.push(allRooms.slice(i, i + ROOMS_PER_BATCH));
+    }
+
+    console.log(`[MultiRoom] Starting incremental analysis: ${allRooms.length} rooms in ${batches.length} batches`);
+    incrementalState = {
+      phase: 'analyzing',
+      allRooms,
+      batches,
+      currentBatchIndex: 0,
+      batchResults: [],
+      mergedResult: null,
+      startTick: Game.time
+    };
+  }
+
+  const state = incrementalState;
+
+  // Phase 1: Analyze rooms in batches (one batch per tick)
+  if (state.phase === 'analyzing') {
+    if (state.currentBatchIndex < state.batches.length) {
+      const batch = state.batches[state.currentBatchIndex];
+      console.log(`[MultiRoom] Analyzing batch ${state.currentBatchIndex + 1}/${state.batches.length}: ${batch.join(", ")}`);
+
+      try {
+        const result = analyzeMultiRoomTerrain(batch, {
+          maxRooms: batch.length,
+          peakOptions: { minHeight: 2 },
+          limitToStartRooms: true,
+        });
+        state.batchResults.push(result);
+        console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} complete: ${result.peaks.length} peaks`);
+      } catch (e) {
+        console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} failed: ${e}`);
+      }
+
+      state.currentBatchIndex++;
+      return false; // Continue next tick
+    }
+
+    // All batches done, move to merging
+    state.phase = 'merging';
+    return false;
+  }
+
+  // Phase 2: Merge batch results
+  if (state.phase === 'merging') {
+    console.log(`[MultiRoom] Merging ${state.batchResults.length} batch results...`);
+
+    // Merge all peaks and territories
+    const allPeaks: CrossRoomPeak[] = [];
+    const allTerritories = new Map<string, WorldPosition[]>();
+    const allDistances = new Map<string, number>();
+
+    for (const result of state.batchResults) {
+      allPeaks.push(...result.peaks);
+      for (const [peakId, positions] of result.territories) {
+        allTerritories.set(peakId, positions);
+      }
+      for (const [key, dist] of result.distances) {
+        allDistances.set(key, dist);
+      }
+    }
+
+    // Compute adjacencies across all territories
+    const territoriesAsWorldCoord = new Map<string, WorldCoordinate[]>();
+    for (const [peakId, positions] of allTerritories) {
+      territoriesAsWorldCoord.set(peakId, positions.map(p => ({
+        x: p.x,
+        y: p.y,
+        roomName: p.roomName
+      })));
+    }
+    const adjacencies = findTerritoryAdjacencies(territoriesAsWorldCoord);
+
+    state.mergedResult = {
+      peaks: allPeaks,
+      territories: allTerritories,
+      distances: allDistances,
+      adjacencies,
+      edgeWeights: new Map()
+    };
+
+    console.log(`[MultiRoom] Merged: ${allPeaks.length} peaks, ${adjacencies.size} edges`);
+    state.phase = 'updating';
+    return false;
+  }
+
+  // Phase 3: Update nodes
+  if (state.phase === 'updating' && state.mergedResult) {
+    updateNodesFromAnalysis(colony, state.mergedResult);
+
+    // Cache result
+    multiRoomAnalysisCache = { result: state.mergedResult, tick: Game.time };
+
+    const duration = Game.time - state.startTick;
+    console.log(`[MultiRoom] Incremental analysis completed in ${duration} ticks`);
+
+    incrementalState = null;
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Updates colony nodes from analysis result.
+ */
+function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult): void {
+  const newNodeIds = new Set(result.peaks.map((p) => p.peakId));
+
+  // Remove old nodes
+  const existingNodes = colony.getNodes();
+  for (const node of existingNodes) {
+    if (!newNodeIds.has(node.id)) {
+      colony.removeNode(node.id);
+    }
+  }
+
+  // Clean up room memory
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.memory.nodeIds) {
+      room.memory.nodeIds = room.memory.nodeIds.filter((id) => newNodeIds.has(id));
+    }
+  }
+
+  const existingNodeIds = new Set(colony.getNodes().map((n) => n.id));
+  const ownedRooms = new Set<string>();
+  for (const roomName in Game.rooms) {
+    if (Game.rooms[roomName].controller?.my) {
+      ownedRooms.add(roomName);
+    }
+  }
+
+  const surveyor = new NodeSurveyor();
+
+  // Create/update nodes
+  for (const peak of result.peaks) {
+    const nodeId = peak.peakId;
+    const positions = result.territories.get(nodeId);
+    if (!positions || positions.length === 0) continue;
+
+    const territorySize = positions.length;
+    const spansRooms = [...new Set(positions.map((p) => p.roomName))];
+
+    if (!existingNodeIds.has(nodeId)) {
+      const peakPosition = { x: peak.center.x, y: peak.center.y, roomName: peak.roomName };
+      const node = createNode(nodeId, peak.roomName, peakPosition, territorySize, spansRooms, Game.time);
+      colony.addNode(node);
+    }
+
+    const node = colony.getNode(nodeId);
+    if (node) {
+      node.territorySize = territorySize;
+      node.spansRooms = spansRooms;
+      populateNodeResources(node, positions, result.territories);
+      const surveyResult = surveyor.survey(node, Game.time);
+      node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps);
+    }
+  }
+
+  console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);
+}
 
 /**
  * Performs unified multi-room spatial analysis and creates/updates nodes.

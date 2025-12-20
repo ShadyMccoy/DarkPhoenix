@@ -1,7 +1,7 @@
 import { CreditLedger } from "./CreditLedger";
 import { MintValues, DEFAULT_MINT_VALUES, getMintValue } from "./MintValues";
 import { Corp } from "../corps/Corp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { UpgradingModel } from "../planning/models/UpgradingModel";
 import { Offer } from "../market/Offer";
 import {
   Node,
@@ -328,7 +328,7 @@ export class Colony {
   private mintForAchievements(): void {
     for (const node of this.nodes) {
       // Check upgrading corps for RCL progress
-      const upgraders = getCorpsByType(node, "upgrading") as UpgradingCorp[];
+      const upgraders = getCorpsByType(node, "upgrading") as UpgradingModel[];
       for (const upgrader of upgraders) {
         const upgradeWork = upgrader.getUpgradeWorkThisTick();
         if (upgradeWork > 0) {

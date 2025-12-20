@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Corps module exports.
+ *
+ * Corps are the execution units that actually control creeps in the game.
+ * For planning/simulation models (used in ChainPlanner), see src/planning/models/.
+ *
+ * @module corps
+ */
+
 export {
   Corp,
   CorpType,
@@ -6,44 +15,6 @@ export {
   calculatePrice,
   calculateROI
 } from "./Corp";
-
-export {
-  SpawningCorp,
-  CreepBody,
-  SpawnRequest,
-  SPAWN_CONSTANTS,
-  calculateBodyEnergyCost,
-  calculateWorkTicks,
-  calculateCarryTicks,
-  calculateSpawnTime
-} from "./SpawningCorp";
-
-export {
-  MiningCorp,
-  MiningStats,
-  MINING_CONSTANTS,
-  calculateExpectedOutput,
-  calculateOptimalWorkParts,
-  calculateMiningEfficiency
-} from "./MiningCorp";
-
-export {
-  HaulingCorp,
-  HaulingStats,
-  HAULING_CONSTANTS,
-  calculateHaulingThroughput,
-  calculateRoundTripTime,
-  calculateTripsPerLifetime
-} from "./HaulingCorp";
-
-export {
-  UpgradingCorp,
-  UpgradingStats,
-  UPGRADING_CONSTANTS,
-  calculateExpectedUpgradeOutput,
-  calculateUpgradeEnergyNeeded,
-  calculateUpgradeEfficiency
-} from "./UpgradingCorp";
 
 export {
   BootstrapCorp,

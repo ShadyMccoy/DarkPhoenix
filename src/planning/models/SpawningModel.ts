@@ -1,5 +1,16 @@
-import { Corp } from "./Corp";
-import { Offer, Position, createOfferId } from "../market/Offer";
+/**
+ * @fileoverview SpawningModel - Planning model for spawning operations.
+ *
+ * This is a simulation model for ChainPlanner testing. It calculates
+ * economic values (buys/sells/margins) without requiring Screeps runtime.
+ *
+ * For actual creep execution, use SpawningCorp from src/corps/.
+ *
+ * @module planning/models/SpawningModel
+ */
+
+import { Corp } from "../../corps/Corp";
+import { Offer, Position, createOfferId } from "../../market/Offer";
 
 /**
  * Body configuration for spawning creeps
@@ -46,18 +57,15 @@ export interface SpawnRequest {
 }
 
 /**
- * SpawningCorp sells creep services (work-ticks, carry-ticks) at a spawn location.
+ * SpawningModel simulates spawning operations for chain planning.
  *
  * Economic model:
  * - Buys: energy (to create creeps)
  * - Sells: work-ticks, carry-ticks, move-ticks
  * - Price = (energy cost + spawn time cost) × (1 + margin)
- *
- * Spawning corps don't directly control creeps - they produce them and
- * the buying corp directs them.
  */
-export class SpawningCorp extends Corp {
-  /** Spawn ID this corp operates */
+export class SpawningModel extends Corp {
+  /** Spawn ID this model represents */
   readonly spawnId: string;
 
   /** Position of the spawn */
@@ -69,7 +77,7 @@ export class SpawningCorp extends Corp {
   /** Current tick for time-based calculations */
   private currentTick: number = 0;
 
-  /** Standard body configuration this corp offers */
+  /** Standard body configuration this model offers */
   private standardBody: CreepBody = { work: 2, carry: 2, move: 2 };
 
   constructor(nodeId: string, position: Position, customId?: string) {
@@ -126,7 +134,7 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Get what this corp needs to buy (energy for spawning)
+   * Get what this model needs to buy (energy for spawning)
    */
   buys(): Offer[] {
     const energyNeeded = this.calculateBodyEnergyCost(this.standardBody);
@@ -146,7 +154,7 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Get what this corp sells (work-ticks, carry-ticks, move-ticks)
+   * Get what this model sells (work-ticks, carry-ticks, move-ticks)
    */
   sells(): Offer[] {
     const body = this.standardBody;
@@ -214,11 +222,7 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Perform work for this tick.
-   * In actual implementation, this would:
-   * 1. Check spawn queue
-   * 2. Start spawning if spawn is available
-   * 3. Track spawned creeps
+   * Perform work for this tick (simulation only)
    */
   work(tick: number): void {
     this.currentTick = tick;
@@ -272,7 +276,7 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Set the standard body configuration this corp offers
+   * Set the standard body configuration this model offers
    */
   setStandardBody(body: CreepBody): void {
     this.standardBody = body;

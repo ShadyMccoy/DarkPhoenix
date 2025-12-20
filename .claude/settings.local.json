@@ -42,7 +42,8 @@
       "Bash(git commit:*)",
       "Bash(git cherry-pick:*)",
       "Bash(git checkout:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(grep:*)"
     ]
   }
 }

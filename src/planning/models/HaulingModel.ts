@@ -1,5 +1,16 @@
-import { Corp } from "./Corp";
-import { Offer, Position, createOfferId, manhattanDistance } from "../market/Offer";
+/**
+ * @fileoverview HaulingModel - Planning model for hauling operations.
+ *
+ * This is a simulation model for ChainPlanner testing. It calculates
+ * economic values (buys/sells/margins) without requiring Screeps runtime.
+ *
+ * For actual creep execution, use HaulingCorp from src/corps/.
+ *
+ * @module planning/models/HaulingModel
+ */
+
+import { Corp } from "../../corps/Corp";
+import { Offer, Position, createOfferId, manhattanDistance } from "../../market/Offer";
 
 /**
  * Constants for hauling calculations
@@ -34,18 +45,15 @@ export interface HaulingStats {
 }
 
 /**
- * HaulingCorp buys energy at one location and sells it at another.
+ * HaulingModel simulates hauling operations for chain planning.
  * This is arbitrage - the value add is transportation.
  *
  * Economic model:
  * - Buys: energy (at source), carry-ticks (for transport capacity)
  * - Sells: energy (at destination, higher value due to location)
  * - Price = (energy cost + carry-ticks cost) × (1 + margin)
- *
- * The profit comes from energy being worth more at destination
- * (closer to where it's needed, e.g., controller or spawn).
  */
-export class HaulingCorp extends Corp {
+export class HaulingModel extends Corp {
   /** Source position (where to pick up) */
   private readonly fromLocation: Position;
 
@@ -146,7 +154,7 @@ export class HaulingCorp extends Corp {
   }
 
   /**
-   * Get what this corp needs to buy
+   * Get what this model needs to buy
    */
   buys(): Offer[] {
     const throughput = this.calculateThroughput();
@@ -179,7 +187,7 @@ export class HaulingCorp extends Corp {
   }
 
   /**
-   * Get what this corp sells (energy at destination)
+   * Get what this model sells (energy at destination)
    */
   sells(): Offer[] {
     const throughput = this.calculateThroughput();
@@ -236,8 +244,7 @@ export class HaulingCorp extends Corp {
   }
 
   /**
-   * Perform work for this tick.
-   * In actual implementation, this would direct hauler creeps.
+   * Perform work for this tick (simulation only)
    */
   work(tick: number): void {
     this.currentTick = tick;

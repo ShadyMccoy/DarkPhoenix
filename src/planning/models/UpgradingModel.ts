@@ -1,5 +1,16 @@
-import { Corp } from "./Corp";
-import { Offer, Position, createOfferId } from "../market/Offer";
+/**
+ * @fileoverview UpgradingModel - Planning model for upgrading operations.
+ *
+ * This is a simulation model for ChainPlanner testing. It calculates
+ * economic values (buys/sells/margins) without requiring Screeps runtime.
+ *
+ * For actual creep execution, use UpgradingCorp from src/corps/.
+ *
+ * @module planning/models/UpgradingModel
+ */
+
+import { Corp } from "../../corps/Corp";
+import { Offer, Position, createOfferId } from "../../market/Offer";
 
 /**
  * Constants for upgrading calculations
@@ -32,18 +43,16 @@ export interface UpgradingStats {
 }
 
 /**
- * UpgradingCorp buys energy and work-ticks at a controller and produces RCL progress.
+ * UpgradingModel simulates upgrading operations for chain planning.
  * This is the "sink" in the economic system - RCL progress triggers credit minting.
  *
  * Economic model:
  * - Buys: energy (consumed for upgrading), work-ticks (upgrader creep)
  * - Sells: rcl-progress (the Colony buys this and mints credits)
  * - Price = (energy cost + work-ticks cost) × (1 + margin)
- *
- * The Colony pays for rcl-progress at mint value, which funds the entire chain.
  */
-export class UpgradingCorp extends Corp {
-  /** Controller ID this corp upgrades */
+export class UpgradingModel extends Corp {
+  /** Controller ID this model represents */
   readonly controllerId: string;
 
   /** Position where upgrading occurs (near controller) */
@@ -141,7 +150,7 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Get what this corp needs to buy
+   * Get what this model needs to buy
    */
   buys(): Offer[] {
     const energyNeeded = this.calculateEnergyNeeded();
@@ -174,7 +183,7 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Get what this corp sells (RCL progress)
+   * Get what this model sells (RCL progress)
    */
   sells(): Offer[] {
     const expectedOutput = this.calculateExpectedOutput();
@@ -224,8 +233,7 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Perform work for this tick.
-   * In actual implementation, this would direct upgrader creeps.
+   * Perform work for this tick (simulation only)
    */
   work(tick: number): void {
     this.currentTick = tick;
