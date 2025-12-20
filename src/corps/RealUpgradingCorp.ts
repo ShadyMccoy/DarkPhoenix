@@ -8,18 +8,12 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
-
-/** Upgrader body: 2 WORK, 1 CARRY, 1 MOVE = 300 energy */
-const UPGRADER_BODY: BodyPartConstant[] = [WORK, WORK, CARRY, MOVE];
-
-/** Cost of an upgrader creep */
-const UPGRADER_COST = 300;
-
-/** Maximum upgraders per room */
-const MAX_UPGRADERS = 2;
-
-/** Ticks between spawn attempts */
-const SPAWN_COOLDOWN = 10;
+import {
+  UPGRADER_BODY,
+  UPGRADER_COST,
+  MAX_UPGRADERS,
+  SPAWN_COOLDOWN,
+} from "./CorpConstants";
 
 /**
  * Serialized state specific to RealUpgradingCorp

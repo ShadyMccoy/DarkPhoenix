@@ -10,6 +10,13 @@
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 import { SerializedChain } from "../planning/Chain";
+import {
+  SerializedBootstrapCorp,
+  SerializedRealMiningCorp,
+  SerializedRealHaulingCorp,
+  SerializedRealUpgradingCorp,
+  SerializedScoutCorp,
+} from "../corps";
 
 declare global {
   /**
@@ -76,6 +83,31 @@ declare global {
      * Room intelligence data from scouting.
      */
     roomIntel?: { [roomName: string]: RoomIntel };
+
+    /**
+     * Serialized bootstrap corps by room name.
+     */
+    bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
+
+    /**
+     * Serialized mining corps by source ID.
+     */
+    miningCorps?: { [sourceId: string]: SerializedRealMiningCorp };
+
+    /**
+     * Serialized hauling corps by room name.
+     */
+    haulingCorps?: { [roomName: string]: SerializedRealHaulingCorp };
+
+    /**
+     * Serialized upgrading corps by room name.
+     */
+    upgradingCorps?: { [roomName: string]: SerializedRealUpgradingCorp };
+
+    /**
+     * Serialized scout corps by room name.
+     */
+    scoutCorps?: { [roomName: string]: SerializedScoutCorp };
   }
 
   /**

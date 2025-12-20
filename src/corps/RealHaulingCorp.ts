@@ -9,18 +9,12 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
-
-/** Hauler body: 2 CARRY, 2 MOVE = 200 energy */
-const HAULER_BODY: BodyPartConstant[] = [CARRY, CARRY, MOVE, MOVE];
-
-/** Cost of a hauler creep */
-const HAULER_COST = 200;
-
-/** Maximum haulers per room */
-const MAX_HAULERS = 2;
-
-/** Ticks between spawn attempts */
-const SPAWN_COOLDOWN = 10;
+import {
+  HAULER_BODY,
+  HAULER_COST,
+  MAX_HAULERS,
+  SPAWN_COOLDOWN,
+} from "./CorpConstants";
 
 /**
  * Serialized state specific to RealHaulingCorp
