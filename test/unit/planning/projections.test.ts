@@ -41,14 +41,13 @@ describe("projections", () => {
   const controllerPos: Position = { x: 40, y: 40, roomName: "W1N1" };
 
   describe("projectMining", () => {
-    it("should produce buy offer for work-ticks", () => {
+    it("should be a leaf node with no buy offers", () => {
+      // Mining is a leaf node in the supply chain - it produces energy
+      // from sources without supply chain dependencies
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys } = projectMining(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].resource).to.equal("work-ticks");
-      expect(buys[0].type).to.equal("buy");
-      expect(buys[0].corpId).to.equal("mining-1");
+      expect(buys).to.have.length(0);
     });
 
     it("should produce sell offer for energy", () => {
@@ -60,24 +59,15 @@ describe("projections", () => {
       expect(sells[0].type).to.equal("sell");
     });
 
-    it("should calculate work-ticks based on optimal work parts", () => {
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
-      const { buys } = projectMining(state, 0);
-
-      const expectedWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
-      const expectedWorkTicks = expectedWorkParts * CREEP_LIFETIME;
-
-      expect(buys[0].quantity).to.equal(expectedWorkTicks);
-    });
-
-    it("should calculate energy output without travel time when no spawn position", () => {
+    it("should calculate energy output based on optimal work parts", () => {
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
       const { sells } = projectMining(state, 0);
 
-      const workParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
-      const expectedOutput = workParts * HARVEST_RATE * CREEP_LIFETIME;
+      const expectedWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
+      // Without spawn position, uses full lifetime
+      const expectedEnergy = expectedWorkParts * HARVEST_RATE * CREEP_LIFETIME;
 
-      expect(sells[0].quantity).to.equal(expectedOutput);
+      expect(sells[0].quantity).to.equal(expectedEnergy);
     });
 
     it("should reduce energy output when spawn position is far", () => {
@@ -93,19 +83,18 @@ describe("projections", () => {
       expect(farSells[0].quantity).to.be.lessThan(nearSells[0].quantity);
     });
 
-    it("should include location in offers", () => {
+    it("should include location in sell offers", () => {
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
-      const { buys, sells } = projectMining(state, 0);
+      const { sells } = projectMining(state, 0);
 
-      expect(buys[0].location).to.deep.equal(sourcePos);
       expect(sells[0].location).to.deep.equal(sourcePos);
     });
 
     it("should set duration to creep lifetime", () => {
+      // Mining is a leaf node - only check sells duration
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
-      const { buys, sells } = projectMining(state, 0);
+      const { sells } = projectMining(state, 0);
 
-      expect(buys[0].duration).to.equal(CREEP_LIFETIME);
       expect(sells[0].duration).to.equal(CREEP_LIFETIME);
     });
   });
@@ -304,14 +293,20 @@ describe("projections", () => {
   });
 
   describe("comparison with MiningModel", () => {
-    it("should produce equivalent work-ticks quantity as MiningModel", () => {
-      // MiningModel uses MINING_CONSTANTS.OPTIMAL_WORK_PARTS (5) × CREEP_LIFETIME (1500)
+    it("should differ from MiningModel: projectMining is a leaf node (no buys)", () => {
+      // MiningModel buys work-ticks (work-ticks = OPTIMAL_WORK_PARTS × CREEP_LIFETIME)
+      // But projectMining is a LEAF NODE - it produces energy without supply chain dependencies
+      // Work-ticks dependency is handled via labor allocation, not supply chain
       const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
-      const { buys } = projectMining(state, 0);
+      const { buys, sells } = projectMining(state, 0);
 
-      // calculateOptimalWorkParts(3000) = ceil(10/2) = 5
-      const expectedWorkTicks = 5 * CREEP_LIFETIME;
-      expect(buys[0].quantity).to.equal(expectedWorkTicks);
+      // Mining is a leaf node - no buy offers
+      expect(buys).to.have.length(0);
+
+      // But still produces energy based on optimal work parts
+      const expectedWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
+      const expectedEnergy = expectedWorkParts * HARVEST_RATE * CREEP_LIFETIME;
+      expect(sells[0].quantity).to.equal(expectedEnergy);
     });
 
     it("should use EconomicConstants instead of duplicated MINING_CONSTANTS", () => {

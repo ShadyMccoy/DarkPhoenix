@@ -51,15 +51,18 @@ const EMPTY_PROJECTION: CorpProjection = { buys: [], sells: [] };
 /**
  * Calculate offers for a mining corp.
  *
- * Mining corps:
- * - Buy: work-ticks (need a creep to harvest)
+ * Mining corps are LEAF NODES in the supply chain:
+ * - Buy: nothing (raw producer - extracts energy from source)
  * - Sell: energy at source location
+ *
+ * Note: Work-ticks dependency is handled separately via labor allocation,
+ * not through the supply chain. For chain building, mining is the origin
+ * of value (energy) without dependencies.
  *
  * Price is based on amortized spawn cost over effective lifetime.
  */
 export function projectMining(state: MiningCorpState, tick: number): CorpProjection {
   const workParts = calculateOptimalWorkParts(state.sourceCapacity);
-  const workTicksNeeded = workParts * CREEP_LIFETIME;
 
   // Calculate effective output considering travel time
   const effectiveLifetime = state.spawnPosition
@@ -77,19 +80,10 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
   const margin = calculateMargin(state.balance);
   const sellPrice = inputCostPerUnit * (1 + margin);
 
+  // Mining is a leaf node - no buy offers
+  // It produces energy from the source without supply chain dependencies
   return {
-    buys: [
-      {
-        id: createOfferId(state.id, "work-ticks", tick),
-        corpId: state.id,
-        type: "buy",
-        resource: "work-ticks",
-        quantity: workTicksNeeded,
-        price: 0, // Price determined by seller
-        duration: CREEP_LIFETIME,
-        location: state.position
-      }
-    ],
+    buys: [],
     sells: [
       {
         id: createOfferId(state.id, "energy", tick),

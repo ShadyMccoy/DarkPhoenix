@@ -1,6 +1,8 @@
 import { Offer, Position, sortByEffectivePrice } from "../market/Offer";
 import { Corp } from "../corps/Corp";
 import { Node } from "../nodes/Node";
+import { AnyCorpState } from "../corps/CorpState";
+import { projectAll } from "./projections";
 
 /**
  * OfferCollector gathers buy/sell offers from all corps in all nodes.
@@ -48,6 +50,27 @@ export class OfferCollector {
         this.addOffer(offer);
       }
       for (const offer of corp.buys()) {
+        this.addOffer(offer);
+      }
+    }
+  }
+
+  /**
+   * Collect offers from corp states using pure projection functions.
+   * This is the new approach that computes offers on-demand from state.
+   *
+   * @param states - Array of corp states to project
+   * @param tick - Current game tick for offer IDs
+   */
+  collectFromCorpStates(states: AnyCorpState[], tick: number): void {
+    this.clear();
+
+    const projections = projectAll(states, tick);
+    for (const projection of projections) {
+      for (const offer of projection.buys) {
+        this.addOffer(offer);
+      }
+      for (const offer of projection.sells) {
         this.addOffer(offer);
       }
     }

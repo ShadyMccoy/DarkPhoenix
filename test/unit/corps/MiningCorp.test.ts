@@ -267,17 +267,19 @@ describe("CorpState + projectMining (new approach)", () => {
   const defaultSourceCapacity = SOURCE_ENERGY_CAPACITY; // 3000
 
   describe("equivalence with MiningModel", () => {
-    it("should produce same work-ticks quantity as MiningModel.buys()", () => {
-      // Old approach
+    it("should document difference: projectMining is a leaf node (no buys)", () => {
+      // Old approach: MiningModel buys work-ticks
       const model = new MiningModel("node1", defaultPosition, defaultSourceCapacity);
       const modelBuys = model.buys();
+      expect(modelBuys.length).to.equal(1);
+      expect(modelBuys[0].resource).to.equal("work-ticks");
 
-      // New approach
+      // New approach: projectMining is a LEAF NODE (no buy offers)
+      // This is intentional - mining produces energy without supply chain dependencies
+      // Work-ticks dependency is handled via labor allocation, not supply chain
       const state = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
       const { buys } = projectMining(state, 0);
-
-      expect(buys[0].quantity).to.equal(modelBuys[0].quantity);
-      expect(buys[0].resource).to.equal(modelBuys[0].resource);
+      expect(buys.length).to.equal(0);
     });
 
     it("should produce same energy quantity as MiningModel.sells()", () => {
@@ -313,15 +315,13 @@ describe("CorpState + projectMining (new approach)", () => {
   });
 
   describe("buys() projection", () => {
-    it("should return buy offer for work-ticks", () => {
+    it("should return empty buy offers (mining is leaf node)", () => {
+      // Mining is a leaf node in the supply chain - it produces energy
+      // from sources without buying anything
       const state = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
       const { buys } = projectMining(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].type).to.equal("buy");
-      expect(buys[0].resource).to.equal("work-ticks");
-      expect(buys[0].quantity).to.equal(7500); // 5 work parts × 1500 ticks
-      expect(buys[0].location).to.deep.equal(defaultPosition);
+      expect(buys).to.have.length(0);
     });
   });
 
