@@ -101,6 +101,7 @@ export {
 } from "./ScenarioRunner";
 
 // Planning models (for testing/simulation, no Screeps runtime required)
+// Note: These will be deprecated in favor of CorpState + projection functions
 export {
   MiningModel,
   MiningStats,
@@ -129,3 +130,16 @@ export {
   calculateRoundTripTime,
   calculateTripsPerLifetime
 } from "./models";
+
+// Pure projection functions (new approach - uses CorpState)
+export {
+  CorpProjection,
+  projectMining,
+  projectSpawning,
+  projectUpgrading,
+  projectHauling,
+  project,
+  projectAll,
+  collectBuys,
+  collectSells
+} from "./projections";

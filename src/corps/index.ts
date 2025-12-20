@@ -45,3 +45,20 @@ export {
   SerializedScoutCorp,
   createScoutCorp
 } from "./ScoutCorp";
+
+// Corp state types for pure projection functions
+export {
+  MiningCorpState,
+  SpawningCorpState,
+  UpgradingCorpState,
+  HaulingCorpState,
+  BuildingCorpState,
+  BootstrapCorpState,
+  ScoutCorpState,
+  AnyCorpState,
+  createMiningState,
+  createSpawningState,
+  createUpgradingState,
+  createHaulingState,
+  getCorpPosition
+} from "./CorpState";
