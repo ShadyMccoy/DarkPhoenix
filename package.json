@@ -25,7 +25,10 @@
     "sim:reset": "docker-compose down -v && docker-compose up -d",
     "scenario": "ts-node scripts/run-scenario.ts",
     "scenario:all": "ts-node scripts/run-scenario.ts --all",
-    "scenario:list": "ts-node scripts/run-scenario.ts --list"
+    "scenario:list": "ts-node scripts/run-scenario.ts --list",
+    "plan:scenario": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts",
+    "plan:scenario:list": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --list",
+    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose"
   },
   "repository": {
     "type": "git",

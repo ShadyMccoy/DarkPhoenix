@@ -89,3 +89,13 @@ export {
   ChainStepReport,
   ResourceMarketData
 } from "./ChainReporter";
+
+export {
+  ScenarioRunner,
+  Scenario,
+  ScenarioExpectations,
+  ScenarioConfig,
+  ScenarioResult,
+  parseScenario,
+  createScenario
+} from "./ScenarioRunner";
