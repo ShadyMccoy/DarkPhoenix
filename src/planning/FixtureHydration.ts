@@ -13,24 +13,12 @@
 
 import { Position } from "../market/Offer";
 import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
-import { Corp } from "../corps/Corp";
-import { MiningModel } from "./models/MiningModel";
-import { SpawningModel } from "./models/SpawningModel";
-import { UpgradingModel } from "./models/UpgradingModel";
 import {
   calculateTravelTime,
-  calculateEffectiveWorkTime,
-  calculateCreepCostPerEnergy,
-  designMiningCreep,
-  calculateOptimalWorkParts,
-  calculateBodyCost,
   SOURCE_ENERGY_CAPACITY
 } from "./EconomicConstants";
 import {
   AnyCorpState,
-  MiningCorpState,
-  SpawningCorpState,
-  UpgradingCorpState,
   createMiningState,
   createSpawningState,
   createUpgradingState
@@ -88,13 +76,11 @@ export interface HydrationConfig {
  * Result of hydrating a fixture
  */
 export interface HydrationResult {
-  /** Hydrated nodes with corps */
+  /** Hydrated nodes */
   nodes: Node[];
-  /** All corps created (flat list) */
-  corps: Corp[];
   /** Spawn positions for reference */
   spawns: Position[];
-  /** Corp states for pure projection functions (new approach) */
+  /** Corp states for pure projection functions */
   corpStates: AnyCorpState[];
 }
 
@@ -141,9 +127,8 @@ export function hydrateFixture(
     }
   }
 
-  // Second pass: create nodes and corps
+  // Second pass: create nodes and corp states
   const nodes: Node[] = [];
-  const allCorps: Corp[] = [];
   const allCorpStates: AnyCorpState[] = [];
   let corpIndex = 0;
 
@@ -180,8 +165,8 @@ export function hydrateFixture(
       node.resources.push(nodeResource);
     }
 
-    // Create corp for this node based on resources
-    const corp = createCorpForNode(
+    // Create CorpState for projection functions
+    const corpState = createCorpStateForNode(
       fixtureNode,
       node,
       spawns,
@@ -189,117 +174,19 @@ export function hydrateFixture(
       corpIndex
     );
 
-    if (corp) {
-      node.corps.push(corp);
-      allCorps.push(corp);
-      corpIndex++;
-    }
-
-    // Also create CorpState for new approach
-    const corpState = createCorpStateForNode(
-      fixtureNode,
-      node,
-      spawns,
-      idGen,
-      corpIndex - 1 // Use same index as corp
-    );
-
     if (corpState) {
       allCorpStates.push(corpState);
+      corpIndex++;
     }
 
     nodes.push(node);
   }
 
-  return { nodes, corps: allCorps, spawns, corpStates: allCorpStates };
+  return { nodes, spawns, corpStates: allCorpStates };
 }
 
 /**
- * Create the appropriate Corp type for a node based on its resources.
- * Priority: spawn > source > controller
- */
-function createCorpForNode(
-  fixtureNode: FixtureNode,
-  node: Node,
-  spawns: Position[],
-  idGen: (type: string, nodeId: string, index: number) => string,
-  index: number
-): Corp | null {
-  const hasSpawn = fixtureNode.resourceNodes.some((r) => r.type === "spawn");
-  const hasSources = fixtureNode.resourceNodes.some((r) => r.type === "source");
-  const hasController = fixtureNode.resourceNodes.some(
-    (r) => r.type === "controller"
-  );
-
-  const nodePosition: Position = {
-    x: fixtureNode.position.x,
-    y: fixtureNode.position.y,
-    roomName: fixtureNode.roomName
-  };
-
-  if (hasSpawn) {
-    // SpawningModel for nodes with spawns
-    const spawnResource = fixtureNode.resourceNodes.find(
-      (r) => r.type === "spawn"
-    )!;
-    const spawnPosition: Position = {
-      x: spawnResource.position.x,
-      y: spawnResource.position.y,
-      roomName: fixtureNode.roomName
-    };
-
-    const corpId = idGen("spawning", node.id, index);
-    return createSpawningModel(corpId, node.id, spawnPosition);
-  }
-
-  if (hasSources) {
-    // MiningModel for nodes with sources
-    const totalCapacity = fixtureNode.resourceNodes
-      .filter((r) => r.type === "source")
-      .reduce((sum, r) => sum + (r.capacity ?? SOURCE_ENERGY_CAPACITY), 0);
-
-    // Find nearest spawn
-    const nearestSpawn = findNearestSpawn(nodePosition, spawns);
-
-    const corpId = idGen("mining", node.id, index);
-    return createMiningModel(
-      corpId,
-      node.id,
-      nodePosition,
-      totalCapacity,
-      nearestSpawn
-    );
-  }
-
-  if (hasController) {
-    // UpgradingModel for nodes with controllers
-    const controllerResource = fixtureNode.resourceNodes.find(
-      (r) => r.type === "controller"
-    )!;
-    const controllerPosition: Position = {
-      x: controllerResource.position.x,
-      y: controllerResource.position.y,
-      roomName: fixtureNode.roomName
-    };
-
-    // Find nearest spawn
-    const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
-
-    const corpId = idGen("upgrading", node.id, index);
-    return createUpgradingModel(
-      corpId,
-      node.id,
-      controllerPosition,
-      controllerResource.capacity ?? 1,
-      nearestSpawn
-    );
-  }
-
-  return null;
-}
-
-/**
- * Create CorpState for a node based on its resources (new approach).
+ * Create CorpState for a node based on its resources.
  * Priority: spawn > source > controller
  */
 function createCorpStateForNode(
@@ -403,71 +290,6 @@ function findNearestSpawn(
   }
 
   return nearest;
-}
-
-/**
- * Create a MiningModel with economic calculations
- */
-function createMiningModel(
-  corpId: string,
-  nodeId: string,
-  position: Position,
-  sourceCapacity: number,
-  spawnLocation: Position | null
-): MiningModel {
-  const model = new MiningModel(nodeId, position, sourceCapacity, corpId);
-
-  // Set spawn location for economic calculations
-  if (spawnLocation) {
-    // Store spawn location for reference
-    (model as any).spawnLocation = spawnLocation;
-
-    // Calculate and set input cost based on creep economics
-    const workPartsNeeded = calculateOptimalWorkParts(sourceCapacity, 300);
-    const creepBody = designMiningCreep(workPartsNeeded);
-    const spawnCost = calculateBodyCost(creepBody);
-
-    // Calculate effective work time
-    const effectiveLifetime = calculateEffectiveWorkTime(spawnLocation, position);
-
-    // Set input cost for pricing (amortized spawn cost per tick)
-    if (effectiveLifetime > 0 && typeof model.setInputCost === "function") {
-      model.setInputCost(spawnCost / effectiveLifetime);
-    }
-  }
-
-  return model;
-}
-
-/**
- * Create a SpawningModel
- */
-function createSpawningModel(
-  corpId: string,
-  nodeId: string,
-  position: Position
-): SpawningModel {
-  return new SpawningModel(nodeId, position, corpId);
-}
-
-/**
- * Create an UpgradingModel with economic calculations
- */
-function createUpgradingModel(
-  corpId: string,
-  nodeId: string,
-  position: Position,
-  controllerLevel: number,
-  spawnLocation: Position | null
-): UpgradingModel {
-  const model = new UpgradingModel(nodeId, position, controllerLevel, corpId);
-
-  // Store spawn location for reference
-  if (spawnLocation) {
-    (model as any).spawnLocation = spawnLocation;
-  }
-
-  return model;
 }
 
 /**

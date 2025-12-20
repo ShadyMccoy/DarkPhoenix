@@ -16,11 +16,9 @@
 
 import { Position } from "../market/Offer";
 import { Node } from "../nodes/Node";
-import { Corp } from "../corps/Corp";
 import { Chain, calculateProfit, calculateChainROI } from "./Chain";
 import { ChainPlanner } from "./ChainPlanner";
 import { OfferCollector } from "./OfferCollector";
-import { ChainReporter } from "./ChainReporter";
 import { MintValues, createMintValues } from "../colony/MintValues";
 import {
   Fixture,
@@ -29,6 +27,8 @@ import {
   hydrateFixture,
   resetIdCounter
 } from "./FixtureHydration";
+import { AnyCorpState } from "../corps/CorpState";
+import { projectAll, collectBuys, collectSells } from "./projections";
 
 /**
  * Scenario definition extending Fixture with planning parameters
@@ -97,8 +97,8 @@ export interface ScenarioResult {
   /** Hydrated nodes */
   nodes: Node[];
 
-  /** All corps created */
-  corps: Corp[];
+  /** All corp states */
+  corpStates: AnyCorpState[];
 
   /** Viable chains found */
   viableChains: Chain[];
@@ -145,79 +145,72 @@ export class ScenarioRunner {
     // Reset ID counter for deterministic results
     if (scenario.config?.deterministicIds !== false) {
       resetIdCounter();
-      Corp.setIdGenerator((type, nodeId) => {
-        return Corp.generateTestId(type, nodeId);
-      });
     }
 
-    try {
-      // Hydrate the fixture
-      const hydrationResult = hydrateFixture(scenario, {
-        currentTick: scenario.config?.tick ?? 0
-      });
+    // Hydrate the fixture
+    const tick = scenario.config?.tick ?? 0;
+    const hydrationResult = hydrateFixture(scenario, {
+      currentTick: tick
+    });
 
-      const { nodes, corps, spawns } = hydrationResult;
+    const { nodes, corpStates, spawns } = hydrationResult;
 
-      // Set up offer collector
-      const collector = new OfferCollector();
-      collector.collectFromCorps(corps);
+    // Set up offer collector
+    const collector = new OfferCollector();
+    collector.collectFromCorpStates(corpStates, tick);
 
-      // Set up mint values
-      const mintValues = {
-        ...this.defaultMintValues,
-        ...(scenario.config?.mintValues ?? {})
-      };
+    // Set up mint values
+    const mintValues = {
+      ...this.defaultMintValues,
+      ...(scenario.config?.mintValues ?? {})
+    };
 
-      // Create planner
-      const planner = new ChainPlanner(
-        collector,
-        mintValues,
-        scenario.config?.maxDepth ?? 10
-      );
-      planner.registerCorps(corps);
+    // Create planner
+    const planner = new ChainPlanner(
+      collector,
+      mintValues,
+      scenario.config?.maxDepth ?? 10
+    );
+    planner.registerCorpStates(corpStates, tick);
 
-      // Run planning
-      const tick = scenario.config?.tick ?? 0;
-      const viableChains = planner.findViableChains(tick);
-      const budget = scenario.config?.budget ?? Infinity;
-      const bestChains = planner.findBestChains(tick, budget);
+    // Run planning
+    const viableChains = planner.findViableChains(tick);
+    const budget = scenario.config?.budget ?? Infinity;
+    const bestChains = planner.findBestChains(tick, budget);
 
-      // Generate report
-      const report = this.generateScenarioReport(
-        scenario,
-        nodes,
-        corps,
-        viableChains,
-        bestChains
-      );
+    // Generate report
+    const report = this.generateScenarioReport(
+      scenario,
+      nodes,
+      corpStates,
+      viableChains,
+      bestChains,
+      tick
+    );
 
-      // Validate expectations
-      if (scenario.expectations) {
-        this.validateExpectations(
-          scenario.expectations,
-          viableChains,
-          bestChains,
-          failures
-        );
-      }
-
-      const executionTime = Date.now() - startTime;
-
-      return {
-        scenario,
-        nodes,
-        corps,
+    // Validate expectations
+    if (scenario.expectations) {
+      this.validateExpectations(
+        scenario.expectations,
         viableChains,
         bestChains,
-        report,
-        passed: failures.length === 0,
-        failures,
-        executionTime
-      };
-    } finally {
-      // Reset ID generator
-      Corp.setIdGenerator(null);
+        failures
+      );
     }
+
+    const executionTime = Date.now() - startTime;
+
+    return {
+      scenario,
+      nodes,
+      corpStates,
+      viableChains,
+      bestChains,
+      report,
+      passed: failures.length === 0,
+      failures,
+      executionTime
+    };
   }
 
   /**
@@ -233,9 +226,10 @@ export class ScenarioRunner {
   private generateScenarioReport(
     scenario: Scenario,
     nodes: Node[],
-    corps: Corp[],
+    corpStates: AnyCorpState[],
     viableChains: Chain[],
-    bestChains: Chain[]
+    bestChains: Chain[],
+    tick: number
   ): string {
     const lines: string[] = [];
     const separator = "=".repeat(70);
@@ -257,39 +251,41 @@ export class ScenarioRunner {
     lines.push(thinSeparator);
     for (const node of nodes) {
       const resources = node.resources.map((r) => r.type).join(", ");
-      const corpTypes = node.corps.map((c) => c.type).join(", ");
       lines.push(
         `  ${node.id}: ${node.roomName} (${node.peakPosition.x}, ${node.peakPosition.y})`
       );
       lines.push(`    Resources: ${resources || "(none)"}`);
-      lines.push(`    Corps: ${corpTypes || "(none)"}`);
     }
     lines.push("");
 
     // Corps summary
     lines.push(thinSeparator);
-    lines.push("CORPS:");
+    lines.push("CORP STATES:");
     lines.push(thinSeparator);
-    for (const corp of corps) {
-      const pos = corp.getPosition();
-      const margin = (corp.getMargin() * 100).toFixed(1);
-      lines.push(`  ${corp.id}`);
-      lines.push(`    Type: ${corp.type}`);
-      lines.push(`    Position: ${pos.roomName} (${pos.x}, ${pos.y})`);
-      lines.push(`    Margin: ${margin}%`);
 
-      // Show offers
-      const sells = corp.sells();
-      const buys = corp.buys();
-      if (sells.length > 0) {
-        lines.push(
-          `    Sells: ${sells.map((o) => `${o.resource}@${o.price.toFixed(4)}`).join(", ")}`
-        );
-      }
-      if (buys.length > 0) {
-        lines.push(
-          `    Buys: ${buys.map((o) => `${o.resource}@${o.price.toFixed(4)}`).join(", ")}`
-        );
+    const projections = projectAll(corpStates, tick);
+    const projectionsMap = new Map(
+      projections.map((p, i) => [corpStates[i].id, p])
+    );
+
+    for (const state of corpStates) {
+      lines.push(`  ${state.id}`);
+      lines.push(`    Type: ${state.type}`);
+      lines.push(`    Node: ${state.nodeId}`);
+
+      // Show offers from projections
+      const projection = projectionsMap.get(state.id);
+      if (projection) {
+        if (projection.sells.length > 0) {
+          lines.push(
+            `    Sells: ${projection.sells.map((o) => `${o.resource}@${o.price.toFixed(4)}`).join(", ")}`
+          );
+        }
+        if (projection.buys.length > 0) {
+          lines.push(
+            `    Buys: ${projection.buys.map((o) => `${o.resource}@${o.price.toFixed(4)}`).join(", ")}`
+          );
+        }
       }
     }
     lines.push("");
@@ -307,11 +303,6 @@ export class ScenarioRunner {
       lines.push("    - No supply chain from sources to goals");
       lines.push("    - Costs exceed mint value");
     } else {
-      const corpRegistry = new Map<string, Corp>();
-      for (const corp of corps) {
-        corpRegistry.set(corp.id, corp);
-      }
-
       for (const chain of viableChains) {
         const profit = calculateProfit(chain);
         const roi = calculateChainROI(chain);
@@ -349,23 +340,6 @@ export class ScenarioRunner {
       lines.push(`  Total Profit: ${totalProfit.toFixed(2)}`);
     }
     lines.push("");
-
-    // Detailed chain reports
-    if (viableChains.length > 0 && viableChains.length <= 3) {
-      lines.push(thinSeparator);
-      lines.push("DETAILED CHAIN REPORTS:");
-      lines.push(thinSeparator);
-
-      const corpRegistry = new Map<string, Corp>();
-      for (const corp of corps) {
-        corpRegistry.set(corp.id, corp);
-      }
-
-      for (const chain of viableChains) {
-        const report = ChainReporter.generateReport(chain, corpRegistry);
-        lines.push(report.formattedText);
-      }
-    }
 
     lines.push(separator);
     lines.push("");

@@ -100,38 +100,7 @@ export {
   createScenario
 } from "./ScenarioRunner";
 
-// Planning models (for testing/simulation, no Screeps runtime required)
-// Note: These will be deprecated in favor of CorpState + projection functions
-export {
-  MiningModel,
-  MiningStats,
-  MINING_CONSTANTS,
-  calculateExpectedOutput,
-  calculateOptimalWorkParts as calculateOptimalMiningWorkParts,
-  calculateMiningEfficiency,
-  SpawningModel,
-  CreepBody,
-  SpawnRequest,
-  SPAWN_CONSTANTS,
-  calculateBodyEnergyCost,
-  calculateWorkTicks,
-  calculateCarryTicks,
-  calculateSpawnTime as calculateModelSpawnTime,
-  UpgradingModel,
-  UpgradingStats,
-  UPGRADING_CONSTANTS,
-  calculateExpectedUpgradeOutput,
-  calculateUpgradeEnergyNeeded,
-  calculateUpgradeEfficiency,
-  HaulingModel,
-  HaulingStats,
-  HAULING_CONSTANTS,
-  calculateHaulingThroughput,
-  calculateRoundTripTime,
-  calculateTripsPerLifetime
-} from "./models";
-
-// Pure projection functions (new approach - uses CorpState)
+// Pure projection functions (uses CorpState)
 export {
   CorpProjection,
   projectMining,

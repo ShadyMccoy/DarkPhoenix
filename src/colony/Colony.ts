@@ -1,7 +1,6 @@
 import { CreditLedger } from "./CreditLedger";
 import { MintValues, DEFAULT_MINT_VALUES, getMintValue } from "./MintValues";
 import { Corp } from "../corps/Corp";
-import { UpgradingModel } from "../planning/models/UpgradingModel";
 import { Offer } from "../market/Offer";
 import {
   Node,
@@ -324,29 +323,36 @@ export class Colony {
 
   /**
    * Mint credits for achievements
+   *
+   * TODO: Re-implement when Real*Corps are connected to projections.
+   * Previously used UpgradingModel for tracking upgrade work, but that's
+   * now handled by projection functions which are for planning, not runtime.
+   * Runtime corps (Real*Corps) should implement getUpgradeWorkThisTick().
    */
   private mintForAchievements(): void {
-    for (const node of this.nodes) {
-      // Check upgrading corps for RCL progress
-      const upgraders = getCorpsByType(node, "upgrading") as UpgradingModel[];
-      for (const upgrader of upgraders) {
-        const upgradeWork = upgrader.getUpgradeWorkThisTick();
-        if (upgradeWork > 0) {
-          const rcl = upgrader.getControllerLevel();
-          const mintRate =
-            rcl < 8
-              ? getMintValue(this.mintValues, "rcl_upgrade")
-              : getMintValue(this.mintValues, "gcl_upgrade");
-
-          // Mint is per upgrade progress, not per tick of work
-          // Normalize to credits per upgrade point
-          const mintAmount = upgradeWork * (mintRate / 1000);
-          this.ledger.mint(mintAmount, `upgrade-rcl${rcl}`);
-        }
-      }
-    }
-
-    // TODO: Check for other achievements (bounties, buildings, etc.)
+    // TODO: Implement when Real*Corps are connected
+    // For now, upgrading corps are tracked via projections for planning,
+    // not runtime tracking. Real*Corps will need to implement:
+    // - getUpgradeWorkThisTick(): number
+    // - getControllerLevel(): number
+    //
+    // Example future implementation:
+    // for (const node of this.nodes) {
+    //   const upgraders = getCorpsByType(node, "upgrading");
+    //   for (const upgrader of upgraders) {
+    //     if ('getUpgradeWorkThisTick' in upgrader) {
+    //       const upgradeWork = (upgrader as any).getUpgradeWorkThisTick();
+    //       if (upgradeWork > 0) {
+    //         const rcl = (upgrader as any).getControllerLevel();
+    //         const mintRate = rcl < 8
+    //           ? getMintValue(this.mintValues, "rcl_upgrade")
+    //           : getMintValue(this.mintValues, "gcl_upgrade");
+    //         const mintAmount = upgradeWork * (mintRate / 1000);
+    //         this.ledger.mint(mintAmount, `upgrade-rcl${rcl}`);
+    //       }
+    //     }
+    //   }
+    // }
   }
 
   /**
