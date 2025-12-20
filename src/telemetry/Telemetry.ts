@@ -19,7 +19,6 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { Node, SerializedNode } from "../nodes/Node";
 import { Corp } from "../corps/Corp";
 
 /**
@@ -132,6 +131,7 @@ export interface NodeTelemetry {
       ctrl: boolean; // hasController
     };
     spans: string[];  // spansRooms
+    econ?: boolean;   // is part of economic network (has corps)
   }[];
   /** Spatial edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
   edges: string[];
@@ -455,6 +455,14 @@ export class Telemetry {
       return (b.roi?.score || 0) - (a.roi?.score || 0);
     });
 
+    // Build set of economic node IDs (nodes that appear in economic edges)
+    const econNodeIds = new Set<string>();
+    for (const edge of Memory.economicEdges || []) {
+      const [id1, id2] = edge.split("|");
+      econNodeIds.add(id1);
+      econNodeIds.add(id2);
+    }
+
     // Build compact node data
     const nodeData: NodeTelemetry["nodes"] = sortedNodes.map(node => ({
       id: node.id,
@@ -475,6 +483,7 @@ export class Telemetry {
         ctrl: node.roi.hasController,
       } : undefined,
       spans: node.spansRooms,
+      econ: econNodeIds.has(node.id) || undefined,
     }));
 
     const telemetry: NodeTelemetry = {

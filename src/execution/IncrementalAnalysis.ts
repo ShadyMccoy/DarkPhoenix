@@ -277,6 +277,14 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
 
   const surveyor = new NodeSurveyor();
 
+  // Build position-to-node map ONCE for all nodes (tie-breaking for wall resources)
+  const positionToNode = new Map<string, string>();
+  for (const [nodeId, positions] of result.territories) {
+    for (const pos of positions) {
+      positionToNode.set(`${pos.roomName}-${pos.x}-${pos.y}`, nodeId);
+    }
+  }
+
   // Create/update nodes
   for (const peak of result.peaks) {
     const nodeId = peak.peakId;
@@ -296,7 +304,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     if (node) {
       node.territorySize = territorySize;
       node.spansRooms = spansRooms;
-      populateNodeResources(node, positions, result.territories);
+      populateNodeResources(node, positions, positionToNode);
       const surveyResult = surveyor.survey(node, Game.time);
       node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps);
     }
@@ -312,11 +320,13 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
  * tiles (common for sources/minerals) are included if adjacent to a territory tile.
  * When a resource is adjacent to multiple territories, it's assigned to the node
  * with the lexicographically smallest adjacent tile (deterministic tie-breaker).
+ *
+ * @param positionToNode Pre-built map of position keys to node IDs (shared across all nodes)
  */
 function populateNodeResources(
   node: Node,
   territoryPositions: WorldPosition[],
-  allTerritories: Map<string, WorldPosition[]>
+  positionToNode: Map<string, string>
 ): void {
   node.resources = [];
 
@@ -324,14 +334,6 @@ function populateNodeResources(
   const territorySet = new Set<string>();
   for (const pos of territoryPositions) {
     territorySet.add(`${pos.roomName}-${pos.x}-${pos.y}`);
-  }
-
-  // Build a map of all territory positions to their owning node for tie-breaking
-  const positionToNode = new Map<string, string>();
-  for (const [nodeId, positions] of allTerritories) {
-    for (const pos of positions) {
-      positionToNode.set(`${pos.roomName}-${pos.x}-${pos.y}`, nodeId);
-    }
   }
 
   // Helper to check if a position should be claimed by this node.

@@ -74,6 +74,8 @@ export interface NodeTelemetry {
   nodes: NodeTelemetryNode[];
   /** Edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
   edges: string[];
+  /** Economic edges between nodes with resources. Format: "nodeId1|nodeId2" */
+  economicEdges?: string[];
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -102,6 +104,7 @@ export interface NodeTelemetryNodeCompact {
     ctrl: boolean; // hasController
   };
   spans: string[];  // spansRooms
+  econ?: boolean;   // is part of economic network
 }
 
 /**
@@ -122,6 +125,7 @@ export interface NodeTelemetryNode {
     hasController: boolean;
   };
   spansRooms: string[];
+  econ?: boolean;  // is part of economic network
 }
 
 /**

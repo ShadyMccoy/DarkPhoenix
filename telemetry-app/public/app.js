@@ -549,6 +549,10 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
   ctx.setLineDash([4, 4]);
   nodes.forEach((node) => {
     if (node.spansRooms && node.spansRooms.length > 1) {
+      // Fade room-spanning lines for non-economic nodes in economic view
+      const isEconNode = networkType !== "economic" || node.econ;
+      ctx.globalAlpha = isEconNode ? 1.0 : 0.15;
+
       const nodePos = nodePositions.get(node.id);
       node.spansRooms.forEach((room) => {
         if (room !== node.roomName) {
@@ -565,6 +569,7 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
     }
   });
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1.0;
 
   // Draw nodes - size based on peak height (openness)
   const minNodeRadius = 6;
@@ -583,11 +588,17 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
     const isOwned = node.roi?.isOwned;
     const colorIdx = idx % NODE_COLORS.length;
 
+    // Check if this node should be faded (economic view, not in economic network)
+    const isEconNode = networkType !== "economic" || node.econ;
+    const alpha = isEconNode ? 1.0 : 0.15;
+
     // Calculate radius based on openness (peak height)
     const openness = node.roi?.openness || 5;
     const opennessRange = Math.max(maxOpenness - minOpenness, 1);
     const normalizedOpenness = (openness - minOpenness) / opennessRange;
     const nodeRadius = minNodeRadius + normalizedOpenness * (maxNodeRadius - minNodeRadius);
+
+    ctx.globalAlpha = alpha;
 
     // Node circle
     ctx.beginPath();
@@ -622,6 +633,8 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
       ctx.fillStyle = "#e94560";
       ctx.fill();
     }
+
+    ctx.globalAlpha = 1.0;
   });
 
   // Draw legend

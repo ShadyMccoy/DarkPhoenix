@@ -129,6 +129,7 @@ function normalizeNode(node: NodeTelemetryNodeCompact): NodeTelemetryNode {
       hasController: node.roi.ctrl,
     } : undefined,
     spansRooms: node.spans,
+    econ: node.econ,
   };
 }
 
@@ -151,6 +152,7 @@ function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
         tick: raw.tick,
         nodes: raw.nodes.map((n: NodeTelemetryNodeCompact) => normalizeNode(n)),
         edges: raw.edges || [],
+        economicEdges: raw.economicEdges || [],
         summary: raw.summary,
       };
     }
