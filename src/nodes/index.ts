@@ -36,8 +36,12 @@ export {
   NodeNavigator,
   PathResult,
   EdgeKey,
+  EdgeType,
+  EdgeData,
   createEdgeKey,
   parseEdgeKey,
   estimateWalkingDistance,
-  createNodeNavigator
+  createNodeNavigator,
+  buildEconomicEdges,
+  addEconomicEdgesToNavigator
 } from "./NodeNavigator";
