@@ -32,10 +32,12 @@ export {
 
 export {
   OfferCollector,
-  Node,
   ResourceStat,
   OfferStats
 } from "./OfferCollector";
+
+// Re-export Node from canonical source
+export { Node } from "../nodes/Node";
 
 export {
   ChainPlanner,
@@ -44,3 +46,46 @@ export {
   InputRequirement,
   canBuildChain
 } from "./ChainPlanner";
+
+export {
+  BodyPart,
+  BODY_PART_COST,
+  CREEP_LIFETIME,
+  HARVEST_RATE,
+  CARRY_CAPACITY,
+  SPAWN_TIME_PER_PART,
+  SOURCE_REGEN_TIME,
+  SOURCE_ENERGY_CAPACITY,
+  SOURCE_ENERGY_PER_TICK,
+  parseRoomCoords,
+  calculateTravelTime,
+  calculateEffectiveWorkTime,
+  calculateBodyCost,
+  countBodyParts,
+  calculateTotalHarvest,
+  calculateCreepCostPerEnergy,
+  designMiningCreep,
+  calculateOptimalWorkParts,
+  calculateSpawnTime
+} from "./EconomicConstants";
+
+export {
+  FixtureNode,
+  FixtureResource,
+  Fixture,
+  HydrationConfig,
+  HydrationResult,
+  hydrateFixture,
+  hydrateNodes,
+  resetIdCounter,
+  createSimpleMiningFixture,
+  createRemoteMiningFixture,
+  createCompleteRoomFixture
+} from "./FixtureHydration";
+
+export {
+  ChainReporter,
+  ChainReport,
+  ChainStepReport,
+  ResourceMarketData
+} from "./ChainReporter";

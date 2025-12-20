@@ -16,20 +16,19 @@ describe("MiningCorp", () => {
     it("should create a mining corp with correct properties", () => {
       const corp = new MiningCorp(
         "node1",
-        "source1",
         defaultPosition,
         defaultSourceCapacity
       );
 
       expect(corp.type).to.equal("mining");
       expect(corp.nodeId).to.equal("node1");
-      expect(corp.sourceId).to.equal("source1");
+      expect(corp.sourceId).to.equal("source-node1");
       expect(corp.getPosition()).to.deep.equal(defaultPosition);
       expect(corp.getSourceCapacity()).to.equal(defaultSourceCapacity);
     });
 
     it("should use default source capacity if not specified", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       expect(corp.getSourceCapacity()).to.equal(MINING_CONSTANTS.SOURCE_CAPACITY);
     });
   });
@@ -38,7 +37,6 @@ describe("MiningCorp", () => {
     it("should calculate expected energy output", () => {
       const corp = new MiningCorp(
         "node1",
-        "source1",
         defaultPosition,
         defaultSourceCapacity
       );
@@ -53,7 +51,6 @@ describe("MiningCorp", () => {
     it("should cap at source rate", () => {
       const corp = new MiningCorp(
         "node1",
-        "source1",
         defaultPosition,
         defaultSourceCapacity
       );
@@ -67,7 +64,7 @@ describe("MiningCorp", () => {
 
   describe("calculateRequiredWorkTicks()", () => {
     it("should calculate work ticks needed for optimal harvesting", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
 
       // 5 WORK parts × 1500 ticks = 7500 work-ticks
       const workTicks = corp.calculateRequiredWorkTicks();
@@ -77,7 +74,7 @@ describe("MiningCorp", () => {
 
   describe("buys()", () => {
     it("should return buy offer for work-ticks", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
 
       const offers = corp.buys();
       expect(offers).to.have.length(1);
@@ -92,7 +89,7 @@ describe("MiningCorp", () => {
 
   describe("sells()", () => {
     it("should return sell offer for energy", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
 
       const offers = corp.sells();
       expect(offers).to.have.length(1);
@@ -105,7 +102,7 @@ describe("MiningCorp", () => {
     });
 
     it("should apply margin to price when input cost is set", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.setInputCost(100);
 
       const offers = corp.sells();
@@ -116,14 +113,14 @@ describe("MiningCorp", () => {
 
   describe("assignWorkParts()", () => {
     it("should set assigned work parts", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
 
       corp.assignWorkParts(5);
       expect(corp.getAssignedWorkParts()).to.equal(5);
     });
 
     it("should not allow negative work parts", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
 
       corp.assignWorkParts(-3);
       expect(corp.getAssignedWorkParts()).to.equal(0);
@@ -132,12 +129,12 @@ describe("MiningCorp", () => {
 
   describe("getCurrentHarvestRate()", () => {
     it("should return 0 when no work parts assigned", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       expect(corp.getCurrentHarvestRate()).to.equal(0);
     });
 
     it("should calculate rate based on work parts", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(3);
 
       // 3 × 2 = 6 energy/tick
@@ -145,7 +142,7 @@ describe("MiningCorp", () => {
     });
 
     it("should cap at source rate", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(10);
 
       // 10 × 2 = 20, but source only provides 10/tick
@@ -155,7 +152,7 @@ describe("MiningCorp", () => {
 
   describe("work()", () => {
     it("should update stats when work parts assigned", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(5);
 
       corp.work(100);
@@ -167,7 +164,7 @@ describe("MiningCorp", () => {
     });
 
     it("should accumulate harvested over multiple ticks", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(5);
 
       corp.work(100);
@@ -182,13 +179,13 @@ describe("MiningCorp", () => {
 
   describe("isOptimallyMined()", () => {
     it("should return false when under-assigned", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(3);
       expect(corp.isOptimallyMined()).to.be.false;
     });
 
     it("should return true when optimally assigned", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(5);
       expect(corp.isOptimallyMined()).to.be.true;
     });
@@ -196,12 +193,12 @@ describe("MiningCorp", () => {
 
   describe("getEfficiency()", () => {
     it("should return 0 when no active ticks", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       expect(corp.getEfficiency()).to.equal(0);
     });
 
     it("should return 1 when harvesting at source rate", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(5);
       corp.work(100);
 
@@ -209,7 +206,7 @@ describe("MiningCorp", () => {
     });
 
     it("should return less than 1 when under-assigned", () => {
-      const corp = new MiningCorp("node1", "source1", defaultPosition);
+      const corp = new MiningCorp("node1", defaultPosition);
       corp.assignWorkParts(2);
       corp.work(100);
 

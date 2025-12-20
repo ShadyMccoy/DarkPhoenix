@@ -1,26 +1,6 @@
 import { Offer, Position, sortByEffectivePrice } from "../market/Offer";
 import { Corp } from "../corps/Corp";
-
-/**
- * Node represents a territory in the colony.
- * Corps operate within nodes.
- */
-export interface Node {
-  /** Unique node identifier (e.g., "W1N1-25-25") */
-  id: string;
-
-  /** Peak position of this territory */
-  peakPosition: Position;
-
-  /** All positions in this territory */
-  positions: Position[];
-
-  /** Room this node is in */
-  roomName: string;
-
-  /** Corps operating in this node */
-  corps: Corp[];
-}
+import { Node } from "../nodes/Node";
 
 /**
  * OfferCollector gathers buy/sell offers from all corps in all nodes.

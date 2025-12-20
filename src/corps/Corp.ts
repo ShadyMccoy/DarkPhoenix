@@ -78,17 +78,49 @@ export abstract class Corp {
   /** Balance threshold for maximum discount */
   private readonly WEALTH_THRESHOLD = 10000;
 
-  constructor(type: CorpType, nodeId: string) {
-    this.id = this.generateId(type, nodeId);
+  /** Optional custom ID generator for deterministic testing */
+  private static idGenerator: ((type: CorpType, nodeId: string) => string) | null = null;
+
+  /** Counter for default sequential IDs in test mode */
+  private static idCounter: number = 0;
+
+  constructor(type: CorpType, nodeId: string, customId?: string) {
+    this.id = customId ?? this.generateId(type, nodeId);
     this.type = type;
     this.nodeId = nodeId;
+  }
+
+  /**
+   * Set a custom ID generator for deterministic testing.
+   * Pass null to reset to default behavior.
+   */
+  static setIdGenerator(generator: ((type: CorpType, nodeId: string) => string) | null): void {
+    Corp.idGenerator = generator;
+    Corp.idCounter = 0;
+  }
+
+  /**
+   * Reset ID counter (useful between tests)
+   */
+  static resetIdCounter(): void {
+    Corp.idCounter = 0;
   }
 
   /**
    * Generate a unique ID for this corp
    */
   protected generateId(type: CorpType, nodeId: string): string {
+    if (Corp.idGenerator) {
+      return Corp.idGenerator(type, nodeId);
+    }
     return `${type}-${nodeId}-${Date.now().toString(36)}`;
+  }
+
+  /**
+   * Generate a deterministic ID (for testing)
+   */
+  static generateTestId(type: CorpType, nodeId: string): string {
+    return `${type}-${nodeId}-${Corp.idCounter++}`;
   }
 
   /**

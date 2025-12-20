@@ -1,0 +1,27 @@
+{
+  "description": "Remote mining with long travel time - tests distance-based costs",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ]
+    },
+    {
+      "roomName": "W2N1",
+      "position": { "x": 40, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 40, "y": 40 },
+          "capacity": 3000
+        }
+      ]
+    }
+  ]
+}

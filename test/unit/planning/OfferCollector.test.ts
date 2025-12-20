@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { OfferCollector, Node } from "../../../src/planning/OfferCollector";
+import { OfferCollector } from "../../../src/planning/OfferCollector";
+import { Node } from "../../../src/nodes/Node";
 import { Offer, Position } from "../../../src/market/Offer";
 import { Corp, CorpType } from "../../../src/corps/Corp";
 
@@ -89,9 +90,12 @@ describe("OfferCollector", () => {
       const nodes: Node[] = [{
         id: "node1",
         peakPosition: pos,
-        positions: [pos],
         roomName: "W1N1",
-        corps: [corp1, corp2]
+        territorySize: 1,
+        spansRooms: ["W1N1"],
+        corps: [corp1, corp2],
+        resources: [],
+        createdAt: 0
       }];
 
       collector.collect(nodes);

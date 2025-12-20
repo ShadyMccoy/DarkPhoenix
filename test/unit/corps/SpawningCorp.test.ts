@@ -16,18 +16,18 @@ describe("SpawningCorp", () => {
 
   describe("constructor", () => {
     it("should create a spawning corp with correct properties", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       expect(corp.type).to.equal("spawning");
       expect(corp.nodeId).to.equal("node1");
-      expect(corp.spawnId).to.equal("spawn1");
+      expect(corp.spawnId).to.equal("spawn-node1");
       expect(corp.getPosition()).to.deep.equal(defaultPosition);
     });
   });
 
   describe("calculateBodyEnergyCost()", () => {
     it("should calculate energy cost correctly", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       // 2 WORK (100 each) + 2 CARRY (50 each) + 2 MOVE (50 each) = 400
       const cost = corp.calculateBodyEnergyCost(defaultBody);
@@ -35,7 +35,7 @@ describe("SpawningCorp", () => {
     });
 
     it("should handle different body configurations", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       const bigBody: CreepBody = { work: 5, carry: 5, move: 5 };
       // 5×100 + 5×50 + 5×50 = 1000
@@ -45,7 +45,7 @@ describe("SpawningCorp", () => {
 
   describe("calculateSpawnTime()", () => {
     it("should calculate spawn time correctly", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       // 6 parts × 3 ticks each = 18 ticks
       expect(corp.calculateSpawnTime(defaultBody)).to.equal(18);
@@ -54,7 +54,7 @@ describe("SpawningCorp", () => {
 
   describe("calculateWorkTicks()", () => {
     it("should calculate work ticks over lifetime", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       // 2 WORK × 1500 ticks = 3000 work-ticks
       expect(corp.calculateWorkTicks(defaultBody)).to.equal(3000);
@@ -63,7 +63,7 @@ describe("SpawningCorp", () => {
 
   describe("calculateCarryTicks()", () => {
     it("should calculate carry ticks over lifetime", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       // 2 CARRY × 1500 ticks = 3000 carry-ticks
       expect(corp.calculateCarryTicks(defaultBody)).to.equal(3000);
@@ -72,7 +72,7 @@ describe("SpawningCorp", () => {
 
   describe("buys()", () => {
     it("should return buy offer for energy", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.setStandardBody(defaultBody);
 
       const offers = corp.buys();
@@ -88,7 +88,7 @@ describe("SpawningCorp", () => {
 
   describe("sells()", () => {
     it("should return sell offers for work-ticks, carry-ticks, move-ticks", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.setStandardBody(defaultBody);
 
       const offers = corp.sells();
@@ -101,7 +101,7 @@ describe("SpawningCorp", () => {
     });
 
     it("should have correct quantities in sell offers", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.setStandardBody(defaultBody);
 
       const offers = corp.sells();
@@ -113,7 +113,7 @@ describe("SpawningCorp", () => {
     });
 
     it("should apply margin to prices", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.setStandardBody(defaultBody);
 
       const offers = corp.sells();
@@ -125,7 +125,7 @@ describe("SpawningCorp", () => {
 
   describe("addSpawnRequest()", () => {
     it("should add a request to the spawn queue", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       corp.addSpawnRequest("buyer1", defaultBody, 500);
       const queue = corp.getSpawnQueue();
@@ -138,14 +138,14 @@ describe("SpawningCorp", () => {
 
   describe("work()", () => {
     it("should update lastActivityTick", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.work(1000);
 
       expect(corp.lastActivityTick).to.equal(1000);
     });
 
     it("should process completed spawn requests", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
 
       // Add a request at tick 0
       corp.work(0);
@@ -162,12 +162,12 @@ describe("SpawningCorp", () => {
 
   describe("isSpawning()", () => {
     it("should return false when queue is empty", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       expect(corp.isSpawning()).to.be.false;
     });
 
     it("should return true when queue has requests", () => {
-      const corp = new SpawningCorp("node1", "spawn1", defaultPosition);
+      const corp = new SpawningCorp("node1", defaultPosition);
       corp.addSpawnRequest("buyer1", defaultBody, 500);
       expect(corp.isSpawning()).to.be.true;
     });

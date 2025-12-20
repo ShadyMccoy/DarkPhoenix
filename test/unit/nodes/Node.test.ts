@@ -10,9 +10,7 @@ import {
   hasResourceType,
   getTotalBalance,
   getActiveCorps,
-  pruneDead,
-  isPositionInNode,
-  distanceToPeak
+  pruneDead
 } from "../../../src/nodes/Node";
 import { Corp, CorpType } from "../../../src/corps/Corp";
 import { Offer, Position } from "../../../src/market/Offer";
@@ -67,7 +65,7 @@ describe("Node", () => {
 
   describe("createNode()", () => {
     it("should create an empty node", () => {
-      const node = createNode("node1", "W1N1", peakPosition, [], 100);
+      const node = createNode("node1", "W1N1", peakPosition, 0, [], 100);
 
       expect(node.id).to.equal("node1");
       expect(node.roomName).to.equal("W1N1");
@@ -77,15 +75,10 @@ describe("Node", () => {
       expect(node.createdAt).to.equal(100);
     });
 
-    it("should include positions", () => {
-      const positions = [
-        { x: 24, y: 24, roomName: "W1N1" },
-        { x: 25, y: 25, roomName: "W1N1" },
-        { x: 26, y: 26, roomName: "W1N1" }
-      ];
-      const node = createNode("node1", "W1N1", peakPosition, positions);
+    it("should include territory size", () => {
+      const node = createNode("node1", "W1N1", peakPosition, 50);
 
-      expect(node.positions).to.have.length(3);
+      expect(node.territorySize).to.equal(50);
     });
   });
 
@@ -288,51 +281,7 @@ describe("Node", () => {
     });
   });
 
-  describe("isPositionInNode()", () => {
-    it("should return true for position in node territory", () => {
-      const node = createNode("node1", "W1N1", peakPosition, [
-        { x: 24, y: 24, roomName: "W1N1" },
-        { x: 25, y: 25, roomName: "W1N1" },
-        { x: 26, y: 26, roomName: "W1N1" }
-      ]);
-
-      expect(isPositionInNode(node, { x: 25, y: 25, roomName: "W1N1" })).to.be
-        .true;
-      expect(isPositionInNode(node, { x: 30, y: 30, roomName: "W1N1" })).to.be
-        .false;
-    });
-
-    it("should return false for different room", () => {
-      const node = createNode("node1", "W1N1", peakPosition, [
-        { x: 25, y: 25, roomName: "W1N1" }
-      ]);
-
-      expect(isPositionInNode(node, { x: 25, y: 25, roomName: "W2N1" })).to.be
-        .false;
-    });
-  });
-
-  describe("distanceToPeak()", () => {
-    it("should calculate Manhattan distance to peak", () => {
-      const node = createNode("node1", "W1N1", peakPosition);
-
-      expect(distanceToPeak(node, { x: 25, y: 25, roomName: "W1N1" })).to.equal(
-        0
-      );
-      expect(distanceToPeak(node, { x: 30, y: 30, roomName: "W1N1" })).to.equal(
-        10
-      );
-      expect(distanceToPeak(node, { x: 20, y: 20, roomName: "W1N1" })).to.equal(
-        10
-      );
-    });
-
-    it("should return Infinity for different room", () => {
-      const node = createNode("node1", "W1N1", peakPosition);
-
-      expect(distanceToPeak(node, { x: 25, y: 25, roomName: "W2N1" })).to.equal(
-        Infinity
-      );
-    });
-  });
+  // Note: isPositionInNode was removed as positions are no longer stored in Node
+  // Note: distanceToPeak tests removed as they depend on Game.map API
+  //       This will be addressed in Phase 1.2 when Game API dependencies are removed
 });

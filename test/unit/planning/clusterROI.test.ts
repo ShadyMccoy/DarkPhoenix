@@ -15,7 +15,7 @@
  * Test data: test/fixtures/node-network-snapshot.json (240 nodes, 400 edges)
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -50,7 +50,7 @@ describe("Cluster ROI Evaluation", () => {
   let nodeMap: Map<string, TestNode>;
   let adjacency: Map<string, Set<string>>;
 
-  beforeAll(() => {
+  before(() => {
     const raw = fs.readFileSync(fixturePath, "utf-8");
     data = JSON.parse(raw);
 
@@ -69,45 +69,45 @@ describe("Cluster ROI Evaluation", () => {
   });
 
   describe("Graph utilities", () => {
-    it.todo("should find connected components");
-    it.todo("should calculate shortest path between nodes");
-    it.todo("should find nodes within N hops of a given node");
+    it.skip("should find connected components", () => {});
+    it.skip("should calculate shortest path between nodes", () => {});
+    it.skip("should find nodes within N hops of a given node", () => {});
   });
 
   describe("Cluster identification", () => {
-    it.todo("should identify natural clusters (dense subgraphs)");
-    it.todo("should find clusters around owned nodes");
-    it.todo("should identify bridge nodes (high betweenness)");
+    it.skip("should identify natural clusters (dense subgraphs)", () => {});
+    it.skip("should find clusters around owned nodes", () => {});
+    it.skip("should identify bridge nodes (high betweenness)", () => {});
   });
 
   describe("Hypothetical evaluation", () => {
-    it.todo("should evaluate 'if spawn placed here' scenarios");
-    it.todo("should calculate energy flow potential through a cluster");
-    it.todo("should estimate trade chains possible within cluster");
+    it.skip("should evaluate 'if spawn placed here' scenarios", () => {});
+    it.skip("should calculate energy flow potential through a cluster", () => {});
+    it.skip("should estimate trade chains possible within cluster", () => {});
   });
 
   describe("Cluster ROI scoring", () => {
-    it.todo("should score based on total sources reachable");
-    it.todo("should penalize clusters with long internal distances");
-    it.todo("should bonus clusters with good spawn placement options");
-    it.todo("should consider controller placement for room claiming");
+    it.skip("should score based on total sources reachable", () => {});
+    it.skip("should penalize clusters with long internal distances", () => {});
+    it.skip("should bonus clusters with good spawn placement options", () => {});
+    it.skip("should consider controller placement for room claiming", () => {});
   });
 
   describe("Expansion recommendations", () => {
-    it.todo("should recommend next best cluster to expand into");
-    it.todo("should consider existing owned territory when recommending");
-    it.todo("should identify minimum nodes needed to connect clusters");
+    it.skip("should recommend next best cluster to expand into", () => {});
+    it.skip("should consider existing owned territory when recommending", () => {});
+    it.skip("should identify minimum nodes needed to connect clusters", () => {});
   });
 
   // Smoke test to verify fixture loads
   it("should load test fixture", () => {
-    expect(data.nodes.length).toBe(240);
-    expect(data.edges.length).toBe(400);
-    expect(adjacency.size).toBeGreaterThan(0);
+    expect(data.nodes.length).to.equal(240);
+    expect(data.edges.length).to.equal(400);
+    expect(adjacency.size).to.be.greaterThan(0);
   });
 
   it("should have owned nodes to work with", () => {
     const owned = data.nodes.filter(n => n.roi?.isOwned);
-    expect(owned.length).toBeGreaterThan(0);
+    expect(owned.length).to.be.greaterThan(0);
   });
 });

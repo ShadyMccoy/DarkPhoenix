@@ -72,12 +72,12 @@ export class UpgradingCorp extends Corp {
 
   constructor(
     nodeId: string,
-    controllerId: string,
     controllerPosition: Position,
-    controllerLevel: number = 1
+    controllerLevel: number = 1,
+    customId?: string
   ) {
-    super("upgrading", nodeId);
-    this.controllerId = controllerId;
+    super("upgrading", nodeId, customId);
+    this.controllerId = `controller-${nodeId}`;
     this.controllerPosition = controllerPosition;
     this.controllerLevel = controllerLevel;
   }

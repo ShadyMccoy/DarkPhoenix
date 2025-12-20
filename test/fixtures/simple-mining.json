@@ -1,0 +1,27 @@
+{
+  "description": "Single mining node with spawn - tests basic chain",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ]
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 10, "y": 10 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 10, "y": 10 },
+          "capacity": 3000
+        }
+      ]
+    }
+  ]
+}
