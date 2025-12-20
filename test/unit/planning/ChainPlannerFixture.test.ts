@@ -10,14 +10,17 @@ import {
   designMiningCreep,
   calculateOptimalWorkParts,
   CREEP_LIFETIME,
-  MiningModel,
-  SpawningModel,
-  UpgradingModel
+  projectMining,
+  projectSpawning,
+  projectUpgrading,
+  projectAll,
+  collectBuys,
+  collectSells
 } from "../../../src/planning";
 import { OfferCollector } from "../../../src/planning/OfferCollector";
 import { ChainPlanner } from "../../../src/planning/ChainPlanner";
-import { Corp } from "../../../src/corps/Corp";
 import { DEFAULT_MINT_VALUES } from "../../../src/colony/MintValues";
+import { MiningCorpState, SpawningCorpState, UpgradingCorpState } from "../../../src/corps/CorpState";
 
 // Fixture paths
 const FIXTURES_DIR = path.join(__dirname, "../../fixtures");
@@ -32,11 +35,6 @@ describe("ChainPlanner with Fixtures", () => {
   // Reset ID counter before each test for determinism
   beforeEach(() => {
     resetIdCounter();
-    Corp.setIdGenerator(Corp.generateTestId);
-  });
-
-  afterEach(() => {
-    Corp.setIdGenerator(null);
   });
 
   describe("Simple Mining Chain", () => {
@@ -45,51 +43,50 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       expect(result.nodes).to.have.length(2);
-      expect(result.corps).to.have.length(2);
+      expect(result.corpStates).to.have.length(2);
       expect(result.spawns).to.have.length(1);
 
       // Check corp types
-      const corpTypes = result.corps.map((c) => c.type);
-      expect(corpTypes).to.include("spawning");
-      expect(corpTypes).to.include("mining");
+      const stateTypes = result.corpStates.map((s) => s.type);
+      expect(stateTypes).to.include("spawning");
+      expect(stateTypes).to.include("mining");
     });
 
-    it("should create corps with deterministic IDs", () => {
+    it("should create corpStates with deterministic IDs", () => {
       const fixture = loadFixture("simple-mining.json");
       const result = hydrateFixture(fixture);
 
       // IDs should be deterministic
-      const corpIds = result.corps.map((c) => c.id);
+      const corpIds = result.corpStates.map((s) => s.id);
       expect(corpIds[0]).to.match(/spawning-.*-0/);
       expect(corpIds[1]).to.match(/mining-.*-1/);
     });
 
-    it("should link mining corps to nearest spawn", () => {
+    it("should link mining states to nearest spawn", () => {
       const fixture = loadFixture("simple-mining.json");
       const result = hydrateFixture(fixture);
 
-      const miningCorp = result.corps.find((c) => c instanceof MiningModel);
-      expect(miningCorp).to.not.be.undefined;
+      const miningState = result.corpStates.find((s) => s.type === "mining") as MiningCorpState;
+      expect(miningState).to.not.be.undefined;
 
-      // Mining corp should have spawn location set
-      const spawnLocation = (miningCorp as any).spawnLocation;
-      expect(spawnLocation).to.not.be.null;
-      expect(spawnLocation.x).to.equal(25);
-      expect(spawnLocation.y).to.equal(25);
+      // Mining state should have spawn position set
+      expect(miningState.spawnPosition).to.not.be.null;
+      expect(miningState.spawnPosition!.x).to.equal(25);
+      expect(miningState.spawnPosition!.y).to.equal(25);
     });
 
-    it("should collect offers from hydrated corps", () => {
+    it("should collect offers from hydrated corpStates", () => {
       const fixture = loadFixture("simple-mining.json");
       const result = hydrateFixture(fixture);
 
       const collector = new OfferCollector();
-      collector.collect(result.nodes);
+      collector.collectFromCorpStates(result.corpStates, 0);
 
       const stats = collector.getStats();
       expect(stats.totalOffers).to.be.greaterThan(0);
 
-      // SpawningCorp sells work-ticks, carry-ticks, move-ticks
-      // MiningCorp sells energy, buys work-ticks
+      // SpawningCorp sells work-ticks
+      // MiningCorp sells energy (is a leaf node - no buys)
       expect(collector.hasSellOffers("energy")).to.be.true;
       expect(collector.hasSellOffers("work-ticks")).to.be.true;
     });
@@ -100,14 +97,12 @@ describe("ChainPlanner with Fixtures", () => {
       const fixture = loadFixture("remote-mining.json");
       const result = hydrateFixture(fixture);
 
-      const miningCorp = result.corps.find(
-        (c) => c instanceof MiningModel
-      ) as MiningModel;
-      expect(miningCorp).to.not.be.undefined;
+      const miningState = result.corpStates.find((s) => s.type === "mining") as MiningCorpState;
+      expect(miningState).to.not.be.undefined;
 
       // Remote mining has longer travel time
       const spawn = result.spawns[0];
-      const miningPos = miningCorp.getPosition();
+      const miningPos = miningState.position;
       const travelTime = calculateTravelTime(spawn, miningPos);
 
       // Should include room crossing (50 ticks)
@@ -118,18 +113,14 @@ describe("ChainPlanner with Fixtures", () => {
       // Local mining
       const localFixture = loadFixture("simple-mining.json");
       const localResult = hydrateFixture(localFixture);
-      const localMining = localResult.corps.find(
-        (c) => c instanceof MiningModel
-      ) as MiningModel;
+      const localMining = localResult.corpStates.find((s) => s.type === "mining") as MiningCorpState;
       const localSpawn = localResult.spawns[0];
 
       // Remote mining
       resetIdCounter();
       const remoteFixture = loadFixture("remote-mining.json");
       const remoteResult = hydrateFixture(remoteFixture);
-      const remoteMining = remoteResult.corps.find(
-        (c) => c instanceof MiningModel
-      ) as MiningModel;
+      const remoteMining = remoteResult.corpStates.find((s) => s.type === "mining") as MiningCorpState;
       const remoteSpawn = remoteResult.spawns[0];
 
       // Calculate cost per energy
@@ -139,12 +130,12 @@ describe("ChainPlanner with Fixtures", () => {
       const localCost = calculateCreepCostPerEnergy(
         body,
         localSpawn,
-        localMining.getPosition()
+        localMining.position
       );
       const remoteCost = calculateCreepCostPerEnergy(
         body,
         remoteSpawn,
-        remoteMining.getPosition()
+        remoteMining.position
       );
 
       // Remote should be more expensive
@@ -158,58 +149,21 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       expect(result.nodes).to.have.length(4);
-      expect(result.corps).to.have.length(4);
+      expect(result.corpStates).to.have.length(4);
 
-      const corpTypes = result.corps.map((c) => c.type);
-      expect(corpTypes.filter((t) => t === "mining")).to.have.length(2);
-      expect(corpTypes.filter((t) => t === "spawning")).to.have.length(1);
-      expect(corpTypes.filter((t) => t === "upgrading")).to.have.length(1);
+      const stateTypes = result.corpStates.map((s) => s.type);
+      expect(stateTypes.filter((t) => t === "mining")).to.have.length(2);
+      expect(stateTypes.filter((t) => t === "spawning")).to.have.length(1);
+      expect(stateTypes.filter((t) => t === "upgrading")).to.have.length(1);
     });
 
-    it("should create UpgradingCorp for controller", () => {
+    it("should create UpgradingCorpState for controller", () => {
       const fixture = loadFixture("complete-room.json");
       const result = hydrateFixture(fixture);
 
-      const upgradingCorp = result.corps.find(
-        (c) => c instanceof UpgradingModel
-      );
-      expect(upgradingCorp).to.not.be.undefined;
-      expect(upgradingCorp!.type).to.equal("upgrading");
-    });
-  });
-
-  describe("Circular Dependencies", () => {
-    it("should handle mining↔spawning circular dependency", () => {
-      // Mining needs creeps (from spawning)
-      // Spawning needs energy (from mining)
-      // This creates a circular dependency
-
-      const fixture = loadFixture("simple-mining.json");
-      const result = hydrateFixture(fixture);
-
-      const collector = new OfferCollector();
-      collector.collect(result.nodes);
-
-      // Both mining and spawning should have offers
-      const miningCorp = result.corps.find((c) => c instanceof MiningModel);
-      const spawningCorp = result.corps.find((c) => c instanceof SpawningModel);
-
-      expect(miningCorp).to.not.be.undefined;
-      expect(spawningCorp).to.not.be.undefined;
-
-      // Mining sells energy
-      const miningOffers = collector.getCorpOffers(miningCorp!.id);
-      const sellsEnergy = miningOffers.some(
-        (o) => o.type === "sell" && o.resource === "energy"
-      );
-      expect(sellsEnergy).to.be.true;
-
-      // Spawning sells work-ticks
-      const spawningOffers = collector.getCorpOffers(spawningCorp!.id);
-      const sellsWorkTicks = spawningOffers.some(
-        (o) => o.type === "sell" && o.resource === "work-ticks"
-      );
-      expect(sellsWorkTicks).to.be.true;
+      const upgradingState = result.corpStates.find((s) => s.type === "upgrading");
+      expect(upgradingState).to.not.be.undefined;
+      expect(upgradingState!.type).to.equal("upgrading");
     });
   });
 
@@ -247,6 +201,139 @@ describe("ChainPlanner with Fixtures", () => {
       // Effective: 1500 - 30 = 1470
       const effectiveLifetime = CREEP_LIFETIME - travelTime;
       expect(effectiveLifetime).to.equal(1470);
+    });
+  });
+
+  describe("CorpState Hydration", () => {
+    it("should create MiningCorpState with correct properties", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const miningState = result.corpStates.find(
+        (s) => s.type === "mining"
+      ) as MiningCorpState;
+
+      expect(miningState).to.not.be.undefined;
+      expect(miningState.sourceCapacity).to.equal(3000);
+      expect(miningState.position).to.deep.equal({ x: 10, y: 10, roomName: "W1N1" });
+      expect(miningState.spawnPosition).to.deep.equal({ x: 25, y: 25, roomName: "W1N1" });
+    });
+
+    it("should create SpawningCorpState with correct properties", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const spawningState = result.corpStates.find(
+        (s) => s.type === "spawning"
+      ) as SpawningCorpState;
+
+      expect(spawningState).to.not.be.undefined;
+      expect(spawningState.position).to.deep.equal({ x: 25, y: 25, roomName: "W1N1" });
+      expect(spawningState.energyCapacity).to.equal(300);
+    });
+
+    it("should collect all offers using projectAll", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const projections = projectAll(result.corpStates, 0);
+      const allBuys = collectBuys(projections);
+      const allSells = collectSells(projections);
+
+      // Should have buy offers (spawning buys energy)
+      // Note: mining is a leaf node (no buy offers)
+      expect(allBuys.length).to.be.greaterThan(0);
+
+      // Should have sell offers (mining sells energy, spawning sells work-ticks)
+      expect(allSells.length).to.be.greaterThan(0);
+
+      // Verify resources
+      const buyResources = allBuys.map((o) => o.resource);
+      const sellResources = allSells.map((o) => o.resource);
+
+      // Spawning buys energy
+      expect(buyResources).to.include("energy");
+      expect(sellResources).to.include("energy");
+      expect(sellResources).to.include("work-ticks");
+    });
+  });
+
+  describe("ChainPlanner with CorpStates", () => {
+    it("should collect offers from corpStates via OfferCollector", () => {
+      const fixture = loadFixture("simple-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const collector = new OfferCollector();
+      collector.collectFromCorpStates(result.corpStates, 0);
+
+      const stats = collector.getStats();
+      expect(stats.totalOffers).to.be.greaterThan(0);
+
+      // Mining sells energy, spawning sells work-ticks
+      expect(collector.hasSellOffers("energy")).to.be.true;
+      expect(collector.hasSellOffers("work-ticks")).to.be.true;
+
+      // Spawning buys energy (mining is a leaf node with no buy offers)
+      expect(collector.hasBuyOffers("energy")).to.be.true;
+    });
+
+    it("should register corpStates in ChainPlanner", () => {
+      const fixture = loadFixture("complete-room.json");
+      const result = hydrateFixture(fixture);
+
+      const collector = new OfferCollector();
+      collector.collectFromCorpStates(result.corpStates, 0);
+
+      const planner = new ChainPlanner(collector, DEFAULT_MINT_VALUES);
+      planner.registerCorpStates(result.corpStates, 0);
+
+      // Should find viable chains (upgrading sells rcl-progress)
+      const chains = planner.findViableChains(0);
+
+      // Should have at least one chain for RCL progress
+      expect(chains.length).to.be.greaterThan(0);
+    });
+
+    it("should build chains using projection functions", () => {
+      const fixture = loadFixture("complete-room.json");
+      const result = hydrateFixture(fixture);
+
+      const collector = new OfferCollector();
+      collector.collectFromCorpStates(result.corpStates, 0);
+
+      const planner = new ChainPlanner(collector, DEFAULT_MINT_VALUES);
+      planner.registerCorpStates(result.corpStates, 0);
+
+      const chains = planner.findViableChains(0);
+      expect(chains.length).to.be.greaterThan(0);
+
+      // Check chain structure
+      const chain = chains[0];
+      expect(chain.segments.length).to.be.greaterThan(0);
+      expect(chain.profit).to.be.a("number");
+
+      // Chain should include upgrading (goal), mining (source), and spawning (creep production)
+      const corpTypes = chain.segments.map((s) => s.corpType);
+      expect(corpTypes).to.include("upgrading");
+    });
+
+    it("should handle remote mining with CorpStates", () => {
+      const fixture = loadFixture("remote-mining.json");
+      const result = hydrateFixture(fixture);
+
+      const collector = new OfferCollector();
+      collector.collectFromCorpStates(result.corpStates, 0);
+
+      // Remote mining should have reduced output due to travel time
+      const miningState = result.corpStates.find((s) => s.type === "mining") as MiningCorpState;
+      const { sells } = projectMining(miningState, 0);
+
+      // Remote mining produces less energy (travel time reduces effective lifetime)
+      const energySold = sells[0].quantity;
+      expect(energySold).to.be.lessThan(15000); // Less than full lifetime output
+
+      // Verify mining offers are collected
+      expect(collector.hasSellOffers("energy")).to.be.true;
     });
   });
 });

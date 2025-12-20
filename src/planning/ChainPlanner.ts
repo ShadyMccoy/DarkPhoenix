@@ -1,5 +1,5 @@
 import { Offer, Position, effectivePrice } from "../market/Offer";
-import { Corp, CorpType } from "../corps/Corp";
+import { Corp, CorpType, calculateMargin } from "../corps/Corp";
 import { MintValues, getMintValue } from "../colony/MintValues";
 import {
   Chain,
@@ -14,6 +14,8 @@ import {
 import { OfferCollector } from "./OfferCollector";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
+import { AnyCorpState, getCorpPosition as getStatePosition } from "../corps/CorpState";
+import { project, CorpProjection } from "./projections";
 
 /**
  * Goal types that can be achieved by chains.
@@ -69,6 +71,15 @@ export class ChainPlanner {
   private mintValues: MintValues;
   private maxDepth: number;
   private corpRegistry: Map<string, Corp> = new Map();
+
+  /** Registry of corp states for projection-based planning */
+  private corpStateRegistry: Map<string, AnyCorpState> = new Map();
+
+  /** Cache of projections computed from corp states */
+  private projectionCache: Map<string, CorpProjection> = new Map();
+
+  /** Current tick for projection computation */
+  private currentTick: number = 0;
 
   /** Optional navigator for economic edge traversal */
   private navigator: NodeNavigator | null = null;
@@ -141,6 +152,113 @@ export class ChainPlanner {
   }
 
   /**
+   * Register corp states for the new projection-based approach.
+   * When corp states are registered, the planner uses pure projection
+   * functions instead of calling corp.buys()/sells().
+   *
+   * @param states - Array of corp states to register
+   * @param tick - Current game tick for projection computation
+   */
+  registerCorpStates(states: AnyCorpState[], tick: number): void {
+    this.corpStateRegistry.clear();
+    this.projectionCache.clear();
+    this.corpToNode.clear();
+    this.currentTick = tick;
+
+    for (const state of states) {
+      this.corpStateRegistry.set(state.id, state);
+      this.corpToNode.set(state.id, state.nodeId);
+    }
+    this.updateEconomicNodeIds();
+  }
+
+  // ==========================================================================
+  // Helper methods for working with both Corps and CorpStates
+  // ==========================================================================
+
+  /**
+   * Get projection for a corp state (cached for performance).
+   */
+  private getProjection(corpId: string): CorpProjection | null {
+    const cached = this.projectionCache.get(corpId);
+    if (cached) return cached;
+
+    const state = this.corpStateRegistry.get(corpId);
+    if (!state) return null;
+
+    const projection = project(state, this.currentTick);
+    this.projectionCache.set(corpId, projection);
+    return projection;
+  }
+
+  /**
+   * Get buy offers for a corp (works with both Corp and CorpState).
+   */
+  private getCorpBuys(corpId: string): Offer[] {
+    // Try projection from CorpState
+    const projection = this.getProjection(corpId);
+    if (projection) return projection.buys;
+
+    // Fall back to Corp interface
+    const corp = this.corpRegistry.get(corpId);
+    if (corp) return corp.buys();
+
+    return [];
+  }
+
+  /**
+   * Get position for a corp (works with both Corp and CorpState).
+   */
+  private getCorpPosition(corpId: string): Position | null {
+    // Try CorpState
+    const state = this.corpStateRegistry.get(corpId);
+    if (state) return getStatePosition(state);
+
+    // Fall back to Corp interface
+    const corp = this.corpRegistry.get(corpId);
+    if (corp) return corp.getPosition();
+
+    return null;
+  }
+
+  /**
+   * Get margin for a corp (works with both Corp and CorpState).
+   */
+  private getCorpMargin(corpId: string): number {
+    // Try CorpState first
+    const state = this.corpStateRegistry.get(corpId);
+    if (state) return calculateMargin(state.balance);
+
+    // Fall back to Corp
+    const corp = this.corpRegistry.get(corpId);
+    if (corp) return corp.getMargin();
+
+    return 0.1; // Default margin
+  }
+
+  /**
+   * Get type for a corp (works with both Corp and CorpState).
+   */
+  private getCorpType(corpId: string): CorpType | null {
+    // Try CorpState first
+    const state = this.corpStateRegistry.get(corpId);
+    if (state) return state.type as CorpType;
+
+    // Fall back to Corp
+    const corp = this.corpRegistry.get(corpId);
+    if (corp) return corp.type;
+
+    return null;
+  }
+
+  /**
+   * Check if a corp exists (in either registry).
+   */
+  private hasCorp(corpId: string): boolean {
+    return this.corpRegistry.has(corpId) || this.corpStateRegistry.has(corpId);
+  }
+
+  /**
    * Get the node ID for a corp.
    * Returns undefined if the corp's node is not known.
    */
@@ -173,12 +291,10 @@ export class ChainPlanner {
   private getEconomicDistance(fromCorpId: string, toCorpId: string): number {
     if (!this.navigator) {
       // No navigator - fall back to position-based distance
-      const fromCorp = this.corpRegistry.get(fromCorpId);
-      const toCorp = this.corpRegistry.get(toCorpId);
-      if (!fromCorp || !toCorp) return Infinity;
+      const fromPos = this.getCorpPosition(fromCorpId);
+      const toPos = this.getCorpPosition(toCorpId);
+      if (!fromPos || !toPos) return Infinity;
 
-      const fromPos = fromCorp.getPosition();
-      const toPos = toCorp.getPosition();
       return Math.abs(toPos.x - fromPos.x) + Math.abs(toPos.y - fromPos.y);
     }
 
@@ -259,18 +375,21 @@ export class ChainPlanner {
     // Look for corps that sell mintable resources
     const rclOffers = this.collector.getSellOffers("rcl-progress");
     for (const offer of rclOffers) {
-      const corp = this.corpRegistry.get(offer.corpId);
-      if (!corp) continue;
+      // Check corp exists in either registry
+      if (!this.hasCorp(offer.corpId)) continue;
 
       // When using economic edges, skip corps not in economically connected nodes
       if (!this.isCorpEconomicallyConnected(offer.corpId)) continue;
+
+      const position = this.getCorpPosition(offer.corpId);
+      if (!position) continue;
 
       goals.push({
         type: "rcl-progress",
         corpId: offer.corpId,
         resource: "rcl-progress",
         quantity: offer.quantity,
-        position: corp.getPosition(),
+        position,
         mintValuePerUnit: getMintValue(this.mintValues, "rcl_upgrade")
       });
     }
@@ -282,11 +401,11 @@ export class ChainPlanner {
    * Build a complete chain for a goal
    */
   private buildChainForGoal(goal: ChainGoal, tick: number): Chain | null {
-    const goalCorp = this.corpRegistry.get(goal.corpId);
-    if (!goalCorp) return null;
+    // Check corp exists in either registry
+    if (!this.hasCorp(goal.corpId)) return null;
 
     // Get what the goal corp needs
-    const buyOffers = goalCorp.buys();
+    const buyOffers = this.getCorpBuys(goal.corpId);
     if (buyOffers.length === 0) return null;
 
     // Build chain by tracing inputs
@@ -318,11 +437,14 @@ export class ChainPlanner {
     if (!success) return null;
 
     // Add the goal corp's segment
-    const goalMargin = goalCorp.getMargin();
+    const goalMargin = this.getCorpMargin(goal.corpId);
+    const goalType = this.getCorpType(goal.corpId);
+    if (!goalType) return null;
+
     segments.push(
       buildSegment(
         goal.corpId,
-        goalCorp.type,
+        goalType,
         goal.resource,
         goal.quantity,
         totalInputCost,
@@ -378,8 +500,8 @@ export class ChainPlanner {
       // Check quantity
       if (sellOffer.quantity < requirement.quantity) continue;
 
-      const sellerCorp = this.corpRegistry.get(sellOffer.corpId);
-      if (!sellerCorp) continue;
+      // Check corp exists in either registry
+      if (!this.hasCorp(sellOffer.corpId)) continue;
 
       // Calculate effective price including distance
       // Use economic edges if available, otherwise fall back to position-based
@@ -394,17 +516,22 @@ export class ChainPlanner {
       if (price === Infinity) continue;
 
       // What does the seller need?
-      const sellerBuyOffers = sellerCorp.buys();
+      const sellerBuyOffers = this.getCorpBuys(sellOffer.corpId);
+      const sellerType = this.getCorpType(sellOffer.corpId);
+      const sellerMargin = this.getCorpMargin(sellOffer.corpId);
+      const sellerPosition = this.getCorpPosition(sellOffer.corpId);
+
+      if (!sellerType || !sellerPosition) continue;
 
       if (sellerBuyOffers.length === 0) {
         // Leaf node (raw production like mining)
         const segment = buildSegment(
           sellOffer.corpId,
-          sellerCorp.type,
+          sellerType,
           requirement.resource,
           requirement.quantity,
           0, // Leaf has no input cost
-          sellerCorp.getMargin()
+          sellerMargin
         );
         return {
           success: true,
@@ -423,7 +550,7 @@ export class ChainPlanner {
           {
             resource: buyOffer.resource,
             quantity: buyOffer.quantity,
-            location: sellerCorp.getPosition(),
+            location: sellerPosition,
             buyerCorpId: sellOffer.corpId
           },
           depth + 1,
@@ -442,11 +569,11 @@ export class ChainPlanner {
       if (allInputsFound) {
         const segment = buildSegment(
           sellOffer.corpId,
-          sellerCorp.type,
+          sellerType,
           requirement.resource,
           requirement.quantity,
           inputCost,
-          sellerCorp.getMargin()
+          sellerMargin
         );
 
         return {
