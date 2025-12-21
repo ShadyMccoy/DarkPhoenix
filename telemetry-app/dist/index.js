@@ -172,10 +172,11 @@ function loadTelemetryCache() {
 async function pollTelemetry() {
     console.log(`[${new Date().toISOString()}] Polling telemetry...`);
     try {
-        // Fetch core and nodes segments (with delay between to avoid rate limiting)
+        // Fetch core, nodes, and corps segments (with delay between to avoid rate limiting)
         const segments = await api.readSegments([
             TELEMETRY_SEGMENTS.CORE,
             TELEMETRY_SEGMENTS.NODES,
+            TELEMETRY_SEGMENTS.CORPS,
         ]);
         // Parse segments (nodes uses special parser for v2 compact format)
         const newTelemetry = {
@@ -183,7 +184,7 @@ async function pollTelemetry() {
             nodes: parseNodeTelemetry(segments[TELEMETRY_SEGMENTS.NODES]),
             terrain: null,
             intel: null,
-            corps: null,
+            corps: parseTelemetry(segments[TELEMETRY_SEGMENTS.CORPS]),
             chains: null,
             lastUpdate: Date.now(),
         };
