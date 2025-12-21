@@ -16,6 +16,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position, createOfferId } from "../market/Offer";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { SourceCorp } from "./SourceCorp";
 
 /** Price per energy unit */
 const ENERGY_PRICE = 0.1;
@@ -28,17 +29,13 @@ export interface SerializedMiningOperation extends SerializedCorp {
   spawningCorpId: string;
   creepNames: string[];
   targetMiners: number;
-  // Source data (from SourceCorp, cached)
-  sourceId: string;
-  sourcePosition: Position;
-  miningSpots: number;
 }
 
 /**
  * MiningOperation - harvests energy from a source.
  *
  * Dependencies (explicit in constructor):
- * - sourceCorpId: which source to mine
+ * - sourceCorp: the SourceCorp to mine from (provides source data)
  * - spawningCorpId: where to get work-ticks from
  *
  * Buys: work-ticks (miners)
@@ -46,13 +43,8 @@ export interface SerializedMiningOperation extends SerializedCorp {
  */
 export class MiningOperation extends Corp {
   // === DEPENDENCIES (from planner) ===
-  private readonly sourceCorpId: string;
+  private readonly sourceCorp: SourceCorp;
   private readonly spawningCorpId: string;
-
-  // === SOURCE DATA (cached from SourceCorp) ===
-  private sourceId: string = "";
-  private sourcePosition: Position = { x: 0, y: 0, roomName: "" };
-  private miningSpots: number = 1;
 
   // === RUNTIME STATE ===
   private creepNames: string[] = [];
@@ -61,25 +53,28 @@ export class MiningOperation extends Corp {
   /**
    * Create a mining operation.
    *
-   * @param sourceCorpId - ID of the SourceCorp to mine from
+   * @param sourceCorp - The SourceCorp to mine from (provides source data)
    * @param spawningCorpId - ID of the SpawningCorp to get miners from
    */
-  constructor(sourceCorpId: string, spawningCorpId: string) {
-    const nodeId = `mining-${sourceCorpId.slice(-8)}`;
+  constructor(sourceCorp: SourceCorp, spawningCorpId: string) {
+    const nodeId = `mining-${sourceCorp.sourceId.slice(-8)}`;
     super("mining", nodeId);
-    this.sourceCorpId = sourceCorpId;
+    this.sourceCorp = sourceCorp;
     this.spawningCorpId = spawningCorpId;
+    this.targetMiners = sourceCorp.miningSpots;
   }
 
-  /**
-   * Initialize source data from the SourceCorp.
-   * Called by planner after construction.
-   */
-  initializeSource(sourceId: string, position: Position, miningSpots: number): void {
-    this.sourceId = sourceId;
-    this.sourcePosition = position;
-    this.miningSpots = miningSpots;
-    this.targetMiners = miningSpots; // One miner per spot
+  // === ACCESSORS (data comes from SourceCorp) ===
+  private get sourceId(): string {
+    return this.sourceCorp.sourceId;
+  }
+
+  private get sourcePosition(): Position {
+    return this.sourceCorp.position;
+  }
+
+  private get miningSpots(): number {
+    return this.sourceCorp.miningSpots;
   }
 
   // === SELLS: energy ===
@@ -197,7 +192,7 @@ export class MiningOperation extends Corp {
   // === PLANNING ===
   plan(tick: number): void {
     super.plan(tick);
-    // Target = one miner per spot
+    // Target = one miner per spot (data from SourceCorp)
     this.targetMiners = this.miningSpots;
   }
 
@@ -205,13 +200,10 @@ export class MiningOperation extends Corp {
   serialize(): SerializedMiningOperation {
     return {
       ...super.serialize(),
-      sourceCorpId: this.sourceCorpId,
+      sourceCorpId: this.sourceCorp.id,
       spawningCorpId: this.spawningCorpId,
       creepNames: this.creepNames,
       targetMiners: this.targetMiners,
-      sourceId: this.sourceId,
-      sourcePosition: this.sourcePosition,
-      miningSpots: this.miningSpots,
     };
   }
 
@@ -219,8 +211,12 @@ export class MiningOperation extends Corp {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.targetMiners = data.targetMiners || 1;
-    this.sourceId = data.sourceId || "";
-    this.sourcePosition = data.sourcePosition || { x: 0, y: 0, roomName: "" };
-    this.miningSpots = data.miningSpots || 1;
+  }
+
+  /**
+   * Get the SourceCorp this operation mines from.
+   */
+  getSourceCorp(): SourceCorp {
+    return this.sourceCorp;
   }
 }

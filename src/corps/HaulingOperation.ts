@@ -16,6 +16,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { MiningOperation } from "./MiningOperation";
 
 /** Transport fee per energy */
 const TRANSPORT_FEE = 0.05;
@@ -26,7 +27,6 @@ const TRANSPORT_FEE = 0.05;
 export interface SerializedHaulingOperation extends SerializedCorp {
   miningCorpId: string;
   spawningCorpId: string;
-  pickupPosition: Position;
   deliveryPosition: Position;
   creepNames: string[];
   targetHaulers: number;
@@ -36,7 +36,7 @@ export interface SerializedHaulingOperation extends SerializedCorp {
  * HaulingOperation - transports energy from source to destination.
  *
  * Dependencies (explicit in constructor):
- * - miningCorpId: where to pick up energy
+ * - miningOp: the MiningOperation to pick up energy from (provides pickup position)
  * - spawningCorpId: where to get carry-ticks from
  * - deliveryPosition: where to drop energy (spawn or controller)
  *
@@ -45,12 +45,9 @@ export interface SerializedHaulingOperation extends SerializedCorp {
  */
 export class HaulingOperation extends Corp {
   // === DEPENDENCIES (from planner) ===
-  private readonly miningCorpId: string;
+  private readonly miningOp: MiningOperation;
   private readonly spawningCorpId: string;
-
-  // === ROUTE DATA (from planner) ===
-  private pickupPosition: Position = { x: 0, y: 0, roomName: "" };
-  private deliveryPosition: Position = { x: 0, y: 0, roomName: "" };
+  private readonly deliveryPosition: Position;
 
   // === RUNTIME STATE ===
   private creepNames: string[] = [];
@@ -59,25 +56,32 @@ export class HaulingOperation extends Corp {
   /**
    * Create a hauling operation.
    *
-   * @param miningCorpId - ID of the MiningCorp to pick up from
+   * @param miningOp - The MiningOperation to pick up energy from
    * @param spawningCorpId - ID of the SpawningCorp to get haulers from
+   * @param deliveryPosition - Where to deliver energy (spawn/controller area)
    */
-  constructor(miningCorpId: string, spawningCorpId: string) {
-    const nodeId = `hauling-${miningCorpId.slice(-8)}`;
+  constructor(miningOp: MiningOperation, spawningCorpId: string, deliveryPosition: Position) {
+    const nodeId = `hauling-${miningOp.id.slice(-8)}`;
     super("hauling", nodeId);
-    this.miningCorpId = miningCorpId;
+    this.miningOp = miningOp;
     this.spawningCorpId = spawningCorpId;
+    this.deliveryPosition = deliveryPosition;
+
+    // Calculate haulers needed based on distance
+    const distance = this.calculateDistance();
+    this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
   }
 
-  /**
-   * Initialize route data from planner.
-   */
-  initializeRoute(pickupPosition: Position, deliveryPosition: Position, distance: number): void {
-    this.pickupPosition = pickupPosition;
-    this.deliveryPosition = deliveryPosition;
-    // Calculate haulers needed based on distance
-    // Higher distance = more haulers needed for same throughput
-    this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
+  // === ACCESSORS (data comes from MiningOperation) ===
+  private get pickupPosition(): Position {
+    return this.miningOp.getPosition();
+  }
+
+  private calculateDistance(): number {
+    const pickup = this.pickupPosition;
+    const delivery = this.deliveryPosition;
+    // Simple manhattan distance
+    return Math.abs(pickup.x - delivery.x) + Math.abs(pickup.y - delivery.y);
   }
 
   // === SELLS: haul-energy (delivered energy) ===
@@ -249,15 +253,16 @@ export class HaulingOperation extends Corp {
 
   plan(tick: number): void {
     super.plan(tick);
-    // Could recalculate target based on throughput needs
+    // Recalculate target based on distance (data from MiningOperation)
+    const distance = this.calculateDistance();
+    this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
   }
 
   serialize(): SerializedHaulingOperation {
     return {
       ...super.serialize(),
-      miningCorpId: this.miningCorpId,
+      miningCorpId: this.miningOp.id,
       spawningCorpId: this.spawningCorpId,
-      pickupPosition: this.pickupPosition,
       deliveryPosition: this.deliveryPosition,
       creepNames: this.creepNames,
       targetHaulers: this.targetHaulers,
@@ -266,9 +271,14 @@ export class HaulingOperation extends Corp {
 
   deserialize(data: SerializedHaulingOperation): void {
     super.deserialize(data);
-    this.pickupPosition = data.pickupPosition || { x: 0, y: 0, roomName: "" };
-    this.deliveryPosition = data.deliveryPosition || { x: 0, y: 0, roomName: "" };
     this.creepNames = data.creepNames || [];
     this.targetHaulers = data.targetHaulers || 1;
+  }
+
+  /**
+   * Get the MiningOperation this hauls from.
+   */
+  getMiningOperation(): MiningOperation {
+    return this.miningOp;
   }
 }
