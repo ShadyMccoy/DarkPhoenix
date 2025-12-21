@@ -43,15 +43,16 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       expect(result.nodes).to.have.length(2);
-      // Now includes: Spawning + Source + Mining (clean operation architecture)
-      expect(result.corpStates).to.have.length(3);
+      // Now includes: Spawning + Source + Mining + Hauling (clean operation architecture)
+      expect(result.corpStates).to.have.length(4);
       expect(result.spawns).to.have.length(1);
 
-      // Check corp types - including the new SourceCorp
+      // Check corp types - including the new SourceCorp and HaulingCorp
       const stateTypes = result.corpStates.map((s) => s.type);
       expect(stateTypes).to.include("spawning");
       expect(stateTypes).to.include("source");
       expect(stateTypes).to.include("mining");
+      expect(stateTypes).to.include("hauling");
     });
 
     it("should create corpStates with deterministic IDs and proper dependencies", () => {
@@ -60,10 +61,11 @@ describe("ChainPlanner with Fixtures", () => {
 
       // IDs should be deterministic and show dependency chain
       const corpIds = result.corpStates.map((s) => s.id);
-      // Order: Spawning (0) -> Source (1) -> Mining (2)
+      // Order: Spawning (0) -> Source (1) -> Mining (2) -> Hauling (3)
       expect(corpIds[0]).to.match(/spawning-.*-0/);
       expect(corpIds[1]).to.match(/source-.*-1/);
       expect(corpIds[2]).to.match(/mining-.*-2/);
+      expect(corpIds[3]).to.match(/hauling-.*-3/);
     });
 
     it("should link mining states to nearest spawn", () => {
@@ -153,12 +155,13 @@ describe("ChainPlanner with Fixtures", () => {
       const result = hydrateFixture(fixture);
 
       expect(result.nodes).to.have.length(4);
-      // Now: Spawning(1) + Source(2) + Mining(2) + Upgrading(1) = 6 corp states
-      expect(result.corpStates).to.have.length(6);
+      // Now: Spawning(1) + Source(2) + Mining(2) + Hauling(2) + Upgrading(1) = 8 corp states
+      expect(result.corpStates).to.have.length(8);
 
       const stateTypes = result.corpStates.map((s) => s.type);
       expect(stateTypes.filter((t) => t === "source")).to.have.length(2);
       expect(stateTypes.filter((t) => t === "mining")).to.have.length(2);
+      expect(stateTypes.filter((t) => t === "hauling")).to.have.length(2);
       expect(stateTypes.filter((t) => t === "spawning")).to.have.length(1);
       expect(stateTypes.filter((t) => t === "upgrading")).to.have.length(1);
     });
@@ -293,18 +296,19 @@ describe("ChainPlanner with Fixtures", () => {
       const planner = new ChainPlanner(collector, DEFAULT_MINT_VALUES);
       planner.registerCorpStates(result.corpStates, 0);
 
-      // Verify registration works (chains may not be complete without hauling)
-      // The clean operation architecture requires:
+      // Verify registration works - chain is now complete with HaulingCorpState
+      // The clean operation architecture:
       // SourceCorp -> MiningOperation -> HaulingOperation -> UpgradingCorp
-      // Without HaulingCorpState, the chain from mining (energy) to upgrading (delivered-energy) is broken
 
       // Should have offer collection working
       const stats = collector.getStats();
       expect(stats.totalOffers).to.be.greaterThan(0);
 
       // SourceCorp sells energy-source, Mining sells energy, Spawning sells work-ticks
+      // HaulingCorp sells delivered-energy
       expect(collector.hasSellOffers("energy")).to.be.true;
       expect(collector.hasSellOffers("work-ticks")).to.be.true;
+      expect(collector.hasSellOffers("delivered-energy")).to.be.true;
     });
 
     it("should collect offers from all corp types", () => {
@@ -325,10 +329,11 @@ describe("ChainPlanner with Fixtures", () => {
       expect(collector.hasSellOffers("work-ticks")).to.be.true;
       expect(collector.hasSellOffers("haul-demand")).to.be.true;
 
+      // Hauling sells delivered-energy (bridges mining -> upgrading)
+      expect(collector.hasSellOffers("delivered-energy")).to.be.true;
+
       // Upgrading sells rcl-progress (goal corp)
       expect(collector.hasSellOffers("rcl-progress")).to.be.true;
-
-      // Note: Complete chain requires HaulingCorpState to bridge mining (energy) -> upgrading (delivered-energy)
     });
 
     it("should handle remote mining with CorpStates", () => {

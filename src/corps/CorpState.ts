@@ -59,10 +59,13 @@ export interface SpawningCorpState extends SerializedCorp {
 }
 
 /**
- * Upgrading corp state - upgrades room controller
+ * Upgrading corp state - upgrades room controller.
+ * Consumes delivered-energy from HaulingCorp and work-ticks from SpawningCorp.
  */
 export interface UpgradingCorpState extends SerializedCorp {
   type: "upgrading";
+  /** ID of the SpawningCorp to get workers from (dependency) */
+  spawningCorpId: string;
   /** Position of the controller */
   position: Position;
   /** Current controller level (1-8) */
@@ -248,11 +251,13 @@ export function createSpawningState(
 }
 
 /**
- * Create a minimal upgrading corp state for testing
+ * Create an upgrading corp state.
+ * Depends on SpawningCorpState (must be created first).
  */
 export function createUpgradingState(
   id: string,
   nodeId: string,
+  spawningCorpId: string,
   position: Position,
   controllerLevel: number,
   spawnPosition: Position | null = null
@@ -261,6 +266,7 @@ export function createUpgradingState(
     id,
     type: "upgrading",
     nodeId,
+    spawningCorpId,
     position,
     controllerLevel,
     spawnPosition,

@@ -157,7 +157,7 @@ describe("projections", () => {
 
   describe("projectUpgrading", () => {
     it("should buy both delivered-energy and work-ticks", () => {
-      const state = createUpgradingState("upgrading-1", "node-1", controllerPos, 1);
+      const state = createUpgradingState("upgrading-1", "node-1", spawningCorpId, controllerPos, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
@@ -167,7 +167,7 @@ describe("projections", () => {
     });
 
     it("should sell rcl-progress", () => {
-      const state = createUpgradingState("upgrading-1", "node-1", controllerPos, 1);
+      const state = createUpgradingState("upgrading-1", "node-1", spawningCorpId, controllerPos, 1);
       const { sells } = projectUpgrading(state, 0);
 
       expect(sells).to.have.length(1);
@@ -175,7 +175,7 @@ describe("projections", () => {
     });
 
     it("should have zero price for rcl-progress (mints credits)", () => {
-      const state = createUpgradingState("upgrading-1", "node-1", controllerPos, 1);
+      const state = createUpgradingState("upgrading-1", "node-1", spawningCorpId, controllerPos, 1);
       const { sells } = projectUpgrading(state, 0);
 
       expect(sells[0].price).to.equal(0);
