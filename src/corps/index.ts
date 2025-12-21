@@ -55,6 +55,14 @@ export {
   createConstructionCorp
 } from "./ConstructionCorp";
 
+export {
+  SpawningCorp,
+  SerializedSpawningCorp,
+  SpawnOrder,
+  SpawnableCreepType,
+  createSpawningCorp
+} from "./SpawningCorp";
+
 // Corp state types for pure projection functions
 export {
   MiningCorpState,

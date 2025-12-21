@@ -136,8 +136,12 @@ export function createMiningState(
     isActive: false,
     lastActivityTick: 0,
     unitsProduced: 0,
+    expectedUnitsProduced: 0,
     unitsConsumed: 0,
-    acquisitionCost: 0
+    acquisitionCost: 0,
+    committedWorkTicks: 0,
+    committedEnergy: 0,
+    committedDeliveredEnergy: 0
   };
 }
 
@@ -163,8 +167,12 @@ export function createSpawningState(
     isActive: false,
     lastActivityTick: 0,
     unitsProduced: 0,
+    expectedUnitsProduced: 0,
     unitsConsumed: 0,
-    acquisitionCost: 0
+    acquisitionCost: 0,
+    committedWorkTicks: 0,
+    committedEnergy: 0,
+    committedDeliveredEnergy: 0
   };
 }
 
@@ -192,8 +200,12 @@ export function createUpgradingState(
     isActive: false,
     lastActivityTick: 0,
     unitsProduced: 0,
+    expectedUnitsProduced: 0,
     unitsConsumed: 0,
-    acquisitionCost: 0
+    acquisitionCost: 0,
+    committedWorkTicks: 0,
+    committedEnergy: 0,
+    committedDeliveredEnergy: 0
   };
 }
 
@@ -223,8 +235,12 @@ export function createHaulingState(
     isActive: false,
     lastActivityTick: 0,
     unitsProduced: 0,
+    expectedUnitsProduced: 0,
     unitsConsumed: 0,
-    acquisitionCost: 0
+    acquisitionCost: 0,
+    committedWorkTicks: 0,
+    committedEnergy: 0,
+    committedDeliveredEnergy: 0
   };
 }
 

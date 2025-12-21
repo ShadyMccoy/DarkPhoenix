@@ -221,7 +221,8 @@ tbody tr:hover {
 
 /* Summary Stats */
 .nodes-header,
-.corps-header {
+.corps-header,
+.market-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -229,6 +230,34 @@ tbody tr:hover {
   padding: 15px;
   background: var(--bg-card);
   border-radius: 10px;
+}
+
+/* Market Grid Layout */
+.market-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.market-section {
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 15px;
+}
+
+.market-section h4 {
+  color: var(--accent-blue);
+  margin-bottom: 12px;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .market-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .summary-stats {
@@ -656,7 +685,8 @@ tbody tr:hover {
   }
 
   .nodes-header,
-  .corps-header {
+  .corps-header,
+  .market-header {
     flex-direction: column;
     gap: 15px;
   }

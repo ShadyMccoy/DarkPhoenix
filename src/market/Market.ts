@@ -200,15 +200,19 @@ export class Market {
         const sellQty = sellRemaining.get(sellOffer.id) || 0;
         if (sellQty <= 0) continue;
 
-        // Check if trade is viable: buyer willing to pay >= seller's ask
-        if (buyOffer.price < sellPrice) {
+        // Calculate per-unit prices (offers use total price)
+        const buyPricePerUnit = buyOffer.price / buyOffer.quantity;
+        const sellPricePerUnit = sellPrice / sellOffer.quantity;
+
+        // Check if trade is viable: buyer willing to pay >= seller's ask (per unit)
+        if (buyPricePerUnit < sellPricePerUnit) {
           continue; // Buyer not willing to pay enough
         }
 
         // Calculate trade quantity and price
         const tradeQty = Math.min(buyQty, sellQty);
         // Price = max(seller's ask, buyer's bid) - captures urgency premium
-        const tradePrice = Math.max(sellPrice, buyOffer.price);
+        const tradePricePerUnit = Math.max(sellPricePerUnit, buyPricePerUnit);
 
         // Create contract
         const contract = createContract(
@@ -216,11 +220,13 @@ export class Market {
           buyOffer.corpId,
           sellOffer.resource,
           tradeQty,
-          tradePrice * tradeQty,
+          tradePricePerUnit * tradeQty,
           Math.min(sellOffer.duration, buyOffer.duration),
           tick
         );
         contracts.push(contract);
+
+        console.log(`[Market] Matched: ${sellOffer.resource} x${tradeQty} @ ${tradePricePerUnit.toFixed(3)}/unit (${contract.sellerId.slice(-6)} → ${contract.buyerId.slice(-6)})`);
 
         // Record transaction
         this.recordTransaction(
@@ -229,7 +235,7 @@ export class Market {
           buyOffer.corpId,
           sellOffer.resource,
           tradeQty,
-          tradePrice
+          tradePricePerUnit
         );
 
         // Update remaining quantities
@@ -238,7 +244,7 @@ export class Market {
         sellRemaining.set(sellOffer.id, sellQty - tradeQty);
 
         totalVolume += tradeQty;
-        totalValue += tradeQty * tradePrice;
+        totalValue += tradeQty * tradePricePerUnit;
       }
 
       // If any buy quantity remains unmatched
@@ -298,12 +304,27 @@ export class Market {
     const seller = this.corps.get(sellerId);
     if (seller) {
       seller.recordRevenue(totalPayment);
+
+      // Record energy commitment for the seller (prevents double-selling)
+      if (resource === "energy") {
+        seller.recordEnergyCommitment(quantity);
+      } else if (resource === "delivered-energy" || resource === "haul-energy") {
+        seller.recordDeliveredEnergyCommitment(quantity);
+      }
     }
 
     // Update buyer: record cost
     const buyer = this.corps.get(buyerId);
     if (buyer) {
       buyer.recordCost(totalPayment);
+
+      // Record energy commitment for the buyer (prevents double-ordering)
+      if (resource === "energy") {
+        buyer.recordEnergyCommitment(quantity);
+      } else if (resource === "delivered-energy" || resource === "haul-energy") {
+        buyer.recordDeliveredEnergyCommitment(quantity);
+      }
+
       // For middleman corps (hauling), also record acquisition cost
       if (buyer.type === "hauling") {
         buyer.recordAcquisition(totalPayment, quantity);

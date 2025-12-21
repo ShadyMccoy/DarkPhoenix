@@ -17,6 +17,7 @@ import {
   SerializedRealUpgradingCorp,
   SerializedScoutCorp,
   SerializedConstructionCorp,
+  SerializedSpawningCorp,
 } from "../corps";
 
 declare global {
@@ -120,6 +121,11 @@ declare global {
      * Serialized construction corps by room name.
      */
     constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
+
+    /**
+     * Serialized spawning corps by spawn ID.
+     */
+    spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
   }
 
   /**
@@ -170,6 +176,23 @@ declare global {
      * Whether creep is currently working (vs traveling).
      */
     working?: boolean;
+
+    /**
+     * ID of the SpawningCorp that spawned this creep.
+     */
+    spawnedBy?: string;
+
+    /**
+     * Contract ID this creep was spawned for.
+     */
+    contractId?: string;
+
+    /**
+     * Whether this is a maintenance hauler spawned by SpawningCorp
+     * to break energy starvation. These haulers are assigned to the
+     * room's HaulingCorp but don't fulfill contract commitments.
+     */
+    isMaintenanceHauler?: boolean;
   }
 }
 

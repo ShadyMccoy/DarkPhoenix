@@ -22,6 +22,7 @@
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="nodes">Nodes</button>
       <button class="tab" data-tab="corps">Corps</button>
+      <button class="tab" data-tab="market">Market</button>
       <button class="tab" data-tab="network">Network</button>
       <button class="tab" data-tab="intel">Intel</button>
     </nav>
@@ -207,6 +208,89 @@
           <tbody>
           </tbody>
         </table>
+      </section>
+
+      <!-- Market Tab -->
+      <section id="market" class="tab-content">
+        <div class="market-header">
+          <h3>Market Activity</h3>
+          <div class="summary-stats">
+            <span>Buy Offers: <strong id="market-buys">--</strong></span>
+            <span>Sell Offers: <strong id="market-sells">--</strong></span>
+            <span>Contracts: <strong id="market-contracts">--</strong></span>
+            <span>Volume: <strong id="market-volume">--</strong></span>
+          </div>
+        </div>
+        <div class="market-grid">
+          <div class="market-section">
+            <h4>Buy Offers</h4>
+            <table id="market-buys-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>Corp</th>
+                  <th>Type</th>
+                  <th>Resource</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+          <div class="market-section">
+            <h4>Sell Offers</h4>
+            <table id="market-sells-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>Corp</th>
+                  <th>Type</th>
+                  <th>Resource</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="market-section">
+          <h4>Contracts (Matched Trades)</h4>
+          <table id="market-contracts-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Seller</th>
+                <th>Buyer</th>
+                <th>Resource</th>
+                <th>Qty</th>
+                <th>Total Price</th>
+              </tr>
+            </thead>
+            <tbody>
+            </tbody>
+          </table>
+        </div>
+        <div class="market-section">
+          <h4>Transaction History <span id="market-transactions-count" style="color: var(--text-secondary); font-weight: normal;">(0 total)</span></h4>
+          <table id="market-transactions-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Tick</th>
+                <th>Seller</th>
+                <th>Buyer</th>
+                <th>Resource</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Network Tab -->

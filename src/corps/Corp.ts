@@ -27,8 +27,13 @@ export interface SerializedCorp {
   lastActivityTick: number;
   // Production tracking for marginal cost pricing
   unitsProduced: number;
+  expectedUnitsProduced: number;
   unitsConsumed: number;
   acquisitionCost: number;
+  // Contract commitment tracking
+  committedWorkTicks: number;
+  committedEnergy: number;
+  committedDeliveredEnergy: number;
 }
 
 /**
@@ -76,11 +81,23 @@ export abstract class Corp {
   /** Units produced (energy harvested, carried, etc.) for marginal cost calculation */
   unitsProduced: number = 0;
 
+  /** Expected units to be produced over lifetime (for amortizing upfront costs) */
+  expectedUnitsProduced: number = 0;
+
   /** Units consumed (energy used) for tracking consumption */
   unitsConsumed: number = 0;
 
   /** Total acquisition cost for purchased inputs (for middleman corps like hauling) */
   acquisitionCost: number = 0;
+
+  /** Work-ticks committed via contracts but not yet delivered (prevents double-ordering) */
+  committedWorkTicks: number = 0;
+
+  /** Energy committed via contracts but not yet delivered (prevents double-selling) */
+  committedEnergy: number = 0;
+
+  /** Delivered-energy committed via contracts but not yet fulfilled (prevents double-selling) */
+  committedDeliveredEnergy: number = 0;
 
   /** Base margin for cost-plus pricing (10%) */
   private readonly BASE_MARGIN = 0.1;
@@ -185,6 +202,16 @@ export abstract class Corp {
   }
 
   /**
+   * Record expected production over lifetime (for amortizing upfront costs).
+   * Call this when acquiring a long-lived asset (e.g., picking up a new creep).
+   * This prevents price spikes during the bootstrapping period.
+   */
+  recordExpectedProduction(units: number): void {
+    if (units <= 0) return;
+    this.expectedUnitsProduced += units;
+  }
+
+  /**
    * Record consumption of units
    */
   recordConsumption(units: number): void {
@@ -202,15 +229,74 @@ export abstract class Corp {
   }
 
   /**
+   * Record work-ticks commitment from a matched contract.
+   * Prevents double-ordering by tracking what's already been ordered.
+   */
+  recordWorkTicksCommitment(workTicks: number): void {
+    if (workTicks <= 0) return;
+    this.committedWorkTicks += workTicks;
+  }
+
+  /**
+   * Fulfill work-ticks commitment when creep is delivered.
+   * Called when a creep assigned to this corp starts working.
+   */
+  fulfillWorkTicksCommitment(workTicks: number): void {
+    if (workTicks <= 0) return;
+    this.committedWorkTicks = Math.max(0, this.committedWorkTicks - workTicks);
+  }
+
+  /**
+   * Record energy commitment from a matched contract.
+   * Prevents double-selling by tracking what's already been sold.
+   */
+  recordEnergyCommitment(energy: number): void {
+    if (energy <= 0) return;
+    this.committedEnergy += energy;
+  }
+
+  /**
+   * Fulfill energy commitment when energy is delivered.
+   * Called when energy is actually transferred to the buyer.
+   */
+  fulfillEnergyCommitment(energy: number): void {
+    if (energy <= 0) return;
+    this.committedEnergy = Math.max(0, this.committedEnergy - energy);
+  }
+
+  /**
+   * Record delivered-energy commitment from a matched contract.
+   * Prevents double-selling by tracking what's already been sold.
+   */
+  recordDeliveredEnergyCommitment(energy: number): void {
+    if (energy <= 0) return;
+    this.committedDeliveredEnergy += energy;
+  }
+
+  /**
+   * Fulfill delivered-energy commitment when energy is delivered.
+   * Called when delivered-energy is actually provided to the buyer.
+   */
+  fulfillDeliveredEnergyCommitment(energy: number): void {
+    if (energy <= 0) return;
+    this.committedDeliveredEnergy = Math.max(0, this.committedDeliveredEnergy - energy);
+  }
+
+  /**
    * Get marginal cost per unit produced.
    * For producers: totalCost / unitsProduced
    * For middlemen: (acquisitionCost + operatingCost) / unitsProduced
+   *
+   * Uses the larger of actual or expected production to amortize upfront costs
+   * over the full expected lifetime, preventing price spikes during bootstrapping.
    */
   getMarginalCost(): number {
-    if (this.unitsProduced === 0) return Infinity;
+    // Use max of actual and expected production to amortize upfront costs
+    const production = Math.max(this.unitsProduced, this.expectedUnitsProduced);
+    if (production === 0) return Infinity;
     // Operating cost = totalCost - acquisitionCost (what we paid to produce/transport)
     const operatingCost = this.totalCost - this.acquisitionCost;
-    return (this.acquisitionCost + operatingCost) / this.unitsProduced;
+    return (this.acquisitionCost + operatingCost) / production;
   }
 
   /**
@@ -300,8 +386,12 @@ export abstract class Corp {
       isActive: this.isActive,
       lastActivityTick: this.lastActivityTick,
       unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
-      acquisitionCost: this.acquisitionCost
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy
     };
   }
 
@@ -316,8 +406,12 @@ export abstract class Corp {
     this.isActive = data.isActive ?? false;
     this.lastActivityTick = data.lastActivityTick ?? 0;
     this.unitsProduced = data.unitsProduced ?? 0;
+    this.expectedUnitsProduced = data.expectedUnitsProduced ?? 0;
     this.unitsConsumed = data.unitsConsumed ?? 0;
     this.acquisitionCost = data.acquisitionCost ?? 0;
+    this.committedWorkTicks = data.committedWorkTicks ?? 0;
+    this.committedEnergy = data.committedEnergy ?? 0;
+    this.committedDeliveredEnergy = data.committedDeliveredEnergy ?? 0;
   }
 
   /**

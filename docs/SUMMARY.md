@@ -9,6 +9,13 @@
 - [Deploying](getting-started/deploying.md)
 - [Local Private Server](getting-started/local-server.md)
 
+## Architecture
+
+- [Architecture Overview](ARCHITECTURE.md)
+- [Economic Framework](ECONOMIC_FRAMEWORK.md)
+- [Market Architecture](market-architecture.md)
+- [Spatial System](SPATIAL_SYSTEM.md)
+
 ## In-Depth
 
 - [Module bundling](in-depth/module-bundling.md)
@@ -16,6 +23,7 @@
 - [TypeScript](in-depth/typescript.md)
 - [Prettier](in-depth/prettier.md)
 - [Testing](in-depth/testing.md)
+- [Simulation Testing](in-depth/simulation-testing.md)
 - [Cookbook](in-depth/cookbook/README.md)
   - [Environment variables](in-depth/cookbook/environment-variables.md)
   - [One-line PowerShell setup](in-depth/cookbook/one-line-powershell.md)

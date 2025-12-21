@@ -20,12 +20,20 @@
 
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
+import { getMarket } from "../market/Market";
 
 /**
  * Interface for corps that track creeps.
  */
 interface CreepTrackingCorp extends Corp {
   getCreepCount(): number;
+}
+
+/**
+ * Interface for spawning corps (tracks pending orders instead of creeps).
+ */
+interface SpawningCorpLike extends Corp {
+  getPendingOrderCount(): number;
 }
 
 /**
@@ -38,12 +46,13 @@ export const TELEMETRY_SEGMENTS = {
   INTEL: 3,     // Room intel from scouting
   CORPS: 4,     // Corps details
   CHAINS: 5,    // Active chains
+  MARKET: 6,    // Market offers and contracts
 };
 
 /**
  * Segments to make publicly readable via API.
  */
-export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5];
+export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5, 6];
 
 /**
  * Core telemetry data structure (Segment 0).
@@ -249,6 +258,59 @@ export interface ChainsTelemetry {
 }
 
 /**
+ * Market telemetry data structure (Segment 6).
+ * Shows current offers, active contracts, and transaction history.
+ */
+export interface MarketTelemetry {
+  version: number;
+  tick: number;
+  offers: {
+    buys: {
+      corpId: string;
+      corpType: string;
+      resource: string;
+      quantity: number;
+      price: number;
+      unitPrice: number;
+    }[];
+    sells: {
+      corpId: string;
+      corpType: string;
+      resource: string;
+      quantity: number;
+      price: number;
+      unitPrice: number;
+    }[];
+  };
+  /** Active contracts from current market clearing */
+  contracts: {
+    sellerId: string;
+    buyerId: string;
+    resource: string;
+    quantity: number;
+    totalPrice: number;
+  }[];
+  /** Historical transactions (completed trades) for analysis */
+  transactions: {
+    tick: number;
+    sellerId: string;
+    buyerId: string;
+    resource: string;
+    quantity: number;
+    pricePerUnit: number;
+    totalPayment: number;
+  }[];
+  summary: {
+    totalBuyOffers: number;
+    totalSellOffers: number;
+    totalContracts: number;
+    totalVolume: number;
+    /** Total transactions in history */
+    totalTransactions: number;
+  };
+}
+
+/**
  * Telemetry configuration.
  */
 export interface TelemetryConfig {
@@ -290,7 +352,8 @@ export class Telemetry {
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
-    constructionCorps: { [roomName: string]: CreepTrackingCorp } = {}
+    constructionCorps: { [roomName: string]: CreepTrackingCorp } = {},
+    spawningCorps: { [spawnId: string]: SpawningCorpLike } = {}
   ): void {
     if (!this.config.enabled) return;
 
@@ -319,10 +382,13 @@ export class Telemetry {
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(miningCorps, haulingCorps, upgradingCorps, constructionCorps);
+    this.updateCorpsTelemetry(miningCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
 
     // Update chains telemetry
     this.updateChainsTelemetry(colony);
+
+    // Update market telemetry
+    this.updateMarketTelemetry(miningCorps, haulingCorps, upgradingCorps, spawningCorps);
   }
 
   /**
@@ -616,7 +682,8 @@ export class Telemetry {
     miningCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    constructionCorps: { [roomName: string]: CreepTrackingCorp }
+    constructionCorps: { [roomName: string]: CreepTrackingCorp },
+    spawningCorps: { [spawnId: string]: SpawningCorpLike }
   ): void {
     const corps: CorpsTelemetry["corps"] = [];
     const corpsByType: { [type: string]: number } = {};
@@ -667,6 +734,33 @@ export class Telemetry {
     // Add construction corps
     for (const roomName in constructionCorps) {
       addCorp(constructionCorps[roomName], roomName);
+    }
+
+    // Add spawning corps
+    for (const spawnId in spawningCorps) {
+      const corp = spawningCorps[spawnId];
+      const profit = corp.totalRevenue - corp.totalCost;
+      const roi = corp.totalCost > 0 ? profit / corp.totalCost : 0;
+      // Extract room from nodeId (format: "E75N8-spawn-xxxx")
+      const roomName = corp.nodeId.split("-")[0] || "unknown";
+
+      corps.push({
+        id: corp.id,
+        type: corp.type,
+        nodeId: corp.nodeId || "",
+        roomName,
+        balance: corp.balance,
+        totalRevenue: corp.totalRevenue,
+        totalCost: corp.totalCost,
+        profit,
+        roi,
+        isActive: corp.isActive,
+        creepCount: corp.getPendingOrderCount(), // Show pending orders as "creepCount"
+        createdAt: corp.createdAt,
+        lastActivityTick: corp.lastActivityTick,
+      });
+
+      corpsByType[corp.type] = (corpsByType[corp.type] || 0) + 1;
     }
 
     const totalBalance = corps.reduce((sum, c) => sum + c.balance, 0);
@@ -732,6 +826,96 @@ export class Telemetry {
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.CHAINS] = JSON.stringify(telemetry);
+  }
+
+  /**
+   * Updates market telemetry (Segment 6).
+   * Shows current offers and recent contracts.
+   */
+  private updateMarketTelemetry(
+    miningCorps: { [sourceId: string]: CreepTrackingCorp },
+    haulingCorps: { [roomName: string]: CreepTrackingCorp },
+    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
+    spawningCorps: { [spawnId: string]: SpawningCorpLike }
+  ): void {
+    const market = getMarket();
+
+    // Collect all current offers from corps
+    const buyOffers: MarketTelemetry["offers"]["buys"] = [];
+    const sellOffers: MarketTelemetry["offers"]["sells"] = [];
+
+    const collectOffers = (corp: Corp) => {
+      for (const offer of corp.buys()) {
+        buyOffers.push({
+          corpId: corp.id,
+          corpType: corp.type,
+          resource: offer.resource,
+          quantity: offer.quantity,
+          price: offer.price,
+          unitPrice: offer.quantity > 0 ? offer.price / offer.quantity : 0,
+        });
+      }
+      for (const offer of corp.sells()) {
+        sellOffers.push({
+          corpId: corp.id,
+          corpType: corp.type,
+          resource: offer.resource,
+          quantity: offer.quantity,
+          price: offer.price,
+          unitPrice: offer.quantity > 0 ? offer.price / offer.quantity : 0,
+        });
+      }
+    };
+
+    // Collect from all corp types
+    for (const id in miningCorps) collectOffers(miningCorps[id]);
+    for (const id in haulingCorps) collectOffers(haulingCorps[id]);
+    for (const id in upgradingCorps) collectOffers(upgradingCorps[id]);
+    for (const id in spawningCorps) collectOffers(spawningCorps[id]);
+
+    // Get recent contracts from market
+    const recentContracts = market.getContracts().slice(-20); // Last 20 contracts
+    const contracts: MarketTelemetry["contracts"] = recentContracts.map(c => ({
+      sellerId: c.sellerId,
+      buyerId: c.buyerId,
+      resource: c.resource,
+      quantity: c.quantity,
+      totalPrice: c.price,
+    }));
+
+    // Get transaction history (last 100 for analysis)
+    const recentTransactions = market.getRecentTransactions(500);
+    const transactions: MarketTelemetry["transactions"] = recentTransactions.slice(-100).map(t => ({
+      tick: t.tick,
+      sellerId: t.sellerId,
+      buyerId: t.buyerId,
+      resource: t.resource,
+      quantity: t.quantity,
+      pricePerUnit: t.pricePerUnit,
+      totalPayment: t.totalPayment,
+    }));
+
+    const totalVolume = contracts.reduce((sum, c) => sum + c.quantity, 0);
+
+    const telemetry: MarketTelemetry = {
+      version: 1,
+      tick: Game.time,
+      offers: {
+        buys: buyOffers,
+        sells: sellOffers,
+      },
+      contracts,
+      transactions,
+      summary: {
+        totalBuyOffers: buyOffers.length,
+        totalSellOffers: sellOffers.length,
+        totalContracts: contracts.length,
+        totalVolume,
+        totalTransactions: recentTransactions.length,
+      },
+    };
+
+    RawMemory.segments[TELEMETRY_SEGMENTS.MARKET] = JSON.stringify(telemetry);
   }
 }
 

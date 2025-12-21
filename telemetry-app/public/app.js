@@ -14,6 +14,7 @@ let telemetry = {
   intel: null,
   corps: null,
   chains: null,
+  market: null,  // Market offers and contracts
   lastUpdate: 0,
 };
 
@@ -82,6 +83,17 @@ const elements = {
   corpsTotal: document.getElementById("corps-total"),
   corpsActive: document.getElementById("corps-active"),
   corpsBalance: document.getElementById("corps-balance"),
+
+  // Market
+  marketBuys: document.getElementById("market-buys"),
+  marketSells: document.getElementById("market-sells"),
+  marketContracts: document.getElementById("market-contracts"),
+  marketVolume: document.getElementById("market-volume"),
+  marketBuysTable: document.querySelector("#market-buys-table tbody"),
+  marketSellsTable: document.querySelector("#market-sells-table tbody"),
+  marketContractsTable: document.querySelector("#market-contracts-table tbody"),
+  marketTransactionsTable: document.querySelector("#market-transactions-table tbody"),
+  marketTransactionsCount: document.getElementById("market-transactions-count"),
 
   // Network
   networkCanvas: document.getElementById("network-canvas"),
@@ -325,6 +337,11 @@ function updateUI() {
     updateIntelUI(telemetry.intel);
   }
 
+  // Update Market
+  if (telemetry.market) {
+    updateMarketUI(telemetry.market);
+  }
+
   // Update Network graph
   if (telemetry.nodes) {
     drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
@@ -504,6 +521,92 @@ function updateIntelUI(intel) {
   `
     )
     .join("");
+}
+
+/**
+ * Update market UI.
+ */
+function updateMarketUI(market) {
+  // Update summary
+  elements.marketBuys.textContent = market.summary?.totalBuyOffers || 0;
+  elements.marketSells.textContent = market.summary?.totalSellOffers || 0;
+  elements.marketContracts.textContent = market.summary?.totalContracts || 0;
+  elements.marketVolume.textContent = formatNumber(Math.round(market.summary?.totalVolume || 0));
+
+  // Update buy offers table
+  const buys = market.offers?.buys || [];
+  elements.marketBuysTable.innerHTML = buys
+    .sort((a, b) => b.price - a.price)
+    .map(
+      (offer) => `
+    <tr>
+      <td title="${offer.corpId}">${offer.corpId.slice(-8)}</td>
+      <td>${offer.corpType}</td>
+      <td>${offer.resource}</td>
+      <td>${formatNumber(offer.quantity)}</td>
+      <td>${formatNumber(Math.round(offer.price))}</td>
+      <td>${offer.unitPrice.toFixed(3)}</td>
+    </tr>
+  `
+    )
+    .join("") || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No buy offers</td></tr>';
+
+  // Update sell offers table
+  const sells = market.offers?.sells || [];
+  elements.marketSellsTable.innerHTML = sells
+    .sort((a, b) => a.price - b.price)
+    .map(
+      (offer) => `
+    <tr>
+      <td title="${offer.corpId}">${offer.corpId.slice(-8)}</td>
+      <td>${offer.corpType}</td>
+      <td>${offer.resource}</td>
+      <td>${formatNumber(offer.quantity)}</td>
+      <td>${formatNumber(Math.round(offer.price))}</td>
+      <td>${offer.unitPrice.toFixed(3)}</td>
+    </tr>
+  `
+    )
+    .join("") || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No sell offers</td></tr>';
+
+  // Update contracts table
+  const contracts = market.contracts || [];
+  elements.marketContractsTable.innerHTML = contracts
+    .map(
+      (contract) => `
+    <tr>
+      <td title="${contract.sellerId}">${contract.sellerId.slice(-8)}</td>
+      <td title="${contract.buyerId}">${contract.buyerId.slice(-8)}</td>
+      <td>${contract.resource}</td>
+      <td>${formatNumber(contract.quantity)}</td>
+      <td>${formatNumber(Math.round(contract.totalPrice))}</td>
+    </tr>
+  `
+    )
+    .join("") || '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No contracts this tick</td></tr>';
+
+  // Update transactions history table
+  const transactions = market.transactions || [];
+  const totalTransactions = market.summary?.totalTransactions || transactions.length;
+  elements.marketTransactionsCount.textContent = `(${totalTransactions} total)`;
+
+  // Sort by tick descending (most recent first)
+  elements.marketTransactionsTable.innerHTML = [...transactions]
+    .sort((a, b) => b.tick - a.tick)
+    .map(
+      (tx) => `
+    <tr>
+      <td>${tx.tick}</td>
+      <td title="${tx.sellerId}">${tx.sellerId.slice(-8)}</td>
+      <td title="${tx.buyerId}">${tx.buyerId.slice(-8)}</td>
+      <td>${tx.resource}</td>
+      <td>${formatNumber(tx.quantity)}</td>
+      <td>${tx.pricePerUnit.toFixed(3)}</td>
+      <td>${formatNumber(Math.round(tx.totalPayment))}</td>
+    </tr>
+  `
+    )
+    .join("") || '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No transactions yet</td></tr>';
 }
 
 /**

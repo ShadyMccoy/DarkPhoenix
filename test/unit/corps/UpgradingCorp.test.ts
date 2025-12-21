@@ -8,13 +8,13 @@ describe("UpgradingCorp projections", () => {
   const controllerPosition: Position = { x: 25, y: 25, roomName: "W1N1" };
 
   describe("projectUpgrading", () => {
-    it("should return buy offers for energy and work-ticks", () => {
+    it("should return buy offers for delivered-energy and work-ticks", () => {
       const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
       const resources = buys.map((o) => o.resource);
-      expect(resources).to.include("energy");
+      expect(resources).to.include("delivered-energy");
       expect(resources).to.include("work-ticks");
     });
 

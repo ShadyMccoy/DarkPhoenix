@@ -13,6 +13,7 @@ export const TELEMETRY_SEGMENTS = {
   INTEL: 3,
   CORPS: 4,
   CHAINS: 5,
+  MARKET: 6,   // Market offers and contracts
 };
 
 /**
@@ -227,6 +228,56 @@ export interface ChainsTelemetry {
 }
 
 /**
+ * Market telemetry data structure (Segment 6).
+ */
+export interface MarketTelemetry {
+  version: number;
+  tick: number;
+  offers: {
+    buys: {
+      corpId: string;
+      corpType: string;
+      resource: string;
+      quantity: number;
+      price: number;
+      unitPrice: number;
+    }[];
+    sells: {
+      corpId: string;
+      corpType: string;
+      resource: string;
+      quantity: number;
+      price: number;
+      unitPrice: number;
+    }[];
+  };
+  contracts: {
+    sellerId: string;
+    buyerId: string;
+    resource: string;
+    quantity: number;
+    totalPrice: number;
+  }[];
+  /** Historical transactions (completed trades) */
+  transactions?: {
+    tick: number;
+    sellerId: string;
+    buyerId: string;
+    resource: string;
+    quantity: number;
+    pricePerUnit: number;
+    totalPayment: number;
+  }[];
+  summary: {
+    totalBuyOffers: number;
+    totalSellOffers: number;
+    totalContracts: number;
+    totalVolume: number;
+    totalTransactions?: number;
+  };
+}
+
+/**
  * All telemetry data combined.
  */
 export interface AllTelemetry {
@@ -236,5 +287,6 @@ export interface AllTelemetry {
   intel: IntelTelemetry | null;
   corps: CorpsTelemetry | null;
   chains: ChainsTelemetry | null;
+  market: MarketTelemetry | null;
   lastUpdate: number;
 }

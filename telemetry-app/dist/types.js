@@ -12,4 +12,5 @@ export const TELEMETRY_SEGMENTS = {
     INTEL: 3,
     CORPS: 4,
     CHAINS: 5,
+    MARKET: 6, // Market offers and contracts
 };

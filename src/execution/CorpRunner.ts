@@ -28,9 +28,13 @@ import {
   ConstructionCorp,
   createConstructionCorp,
   SerializedConstructionCorp,
+  SpawningCorp,
+  createSpawningCorp,
+  SerializedSpawningCorp,
+  SpawnableCreepType,
 } from "../corps";
 import { getMinableSources } from "../analysis";
-import { getMarket, ClearingResult } from "../market";
+import { getMarket, ClearingResult, Contract } from "../market";
 
 /**
  * Container for all active corps, organized by type.
@@ -42,6 +46,7 @@ export interface CorpRegistry {
   upgradingCorps: { [roomName: string]: RealUpgradingCorp };
   scoutCorps: { [roomName: string]: ScoutCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
+  spawningCorps: { [spawnId: string]: SpawningCorp };
 }
 
 /**
@@ -55,6 +60,7 @@ export function createCorpRegistry(): CorpRegistry {
     upgradingCorps: {},
     scoutCorps: {},
     constructionCorps: {},
+    spawningCorps: {},
   };
 }
 
@@ -280,6 +286,158 @@ export function runConstructionCorps(registry: CorpRegistry): void {
 }
 
 /**
+ * Run spawning corps for all owned rooms.
+ *
+ * Spawning corps manage spawn structures and sell work-ticks.
+ * They process queued spawn orders from market contracts.
+ */
+export function runSpawningCorps(registry: CorpRegistry): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+
+    // Only process owned rooms with spawns
+    if (!room.controller?.my) continue;
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) continue;
+
+    // Create/restore spawning corp for each spawn
+    for (const spawn of spawns) {
+      let spawningCorp = registry.spawningCorps[spawn.id];
+
+      if (!spawningCorp) {
+        // Try to restore from memory
+        const saved = Memory.spawningCorps?.[spawn.id];
+        if (saved) {
+          spawningCorp = new SpawningCorp(saved.nodeId, spawn.id, saved.energyCapacity);
+          spawningCorp.deserialize(saved);
+          registry.spawningCorps[spawn.id] = spawningCorp;
+        } else {
+          // Create new
+          spawningCorp = createSpawningCorp(spawn);
+          spawningCorp.createdAt = Game.time;
+          registry.spawningCorps[spawn.id] = spawningCorp;
+          console.log(`[Spawning] Created corp for spawn ${spawn.name} in ${roomName}`);
+        }
+      }
+
+      // Run the spawning corp (processes pending orders)
+      spawningCorp.work(Game.time);
+    }
+  }
+}
+
+/**
+ * Process spawn contracts from market clearing.
+ * Routes work-ticks and haul-demand contracts to the selling SpawningCorp.
+ * Also records commitments on buyer corps to prevent double-ordering.
+ */
+export function processSpawnContracts(
+  contracts: Contract[],
+  registry: CorpRegistry
+): void {
+  for (const contract of contracts) {
+    // Handle both work-ticks and haul-demand contracts
+    if (contract.resource !== "work-ticks" && contract.resource !== "haul-demand") {
+      continue;
+    }
+
+    // Find spawning corp by corp ID (registry is keyed by spawn.id, not corp.id)
+    let spawningCorp: SpawningCorp | undefined;
+    for (const spawnId in registry.spawningCorps) {
+      if (registry.spawningCorps[spawnId].id === contract.sellerId) {
+        spawningCorp = registry.spawningCorps[spawnId];
+        break;
+      }
+    }
+    if (!spawningCorp) continue;
+
+    // Find buyer corp to determine creep type and record commitment
+    const buyerResult = findBuyerCorp(contract.buyerId, registry);
+    if (!buyerResult) continue;
+
+    const { corp: buyerCorp, type: buyerCorpType } = buyerResult;
+
+    // Map corp type to creep type
+    const creepType = mapCorpTypeToCreepType(buyerCorpType);
+    if (!creepType) continue;
+
+    // Record commitment on buyer corp to prevent double-ordering
+    buyerCorp.recordWorkTicksCommitment(contract.quantity);
+
+    if (contract.resource === "haul-demand") {
+      spawningCorp.queueSpawn({
+        buyerCorpId: contract.buyerId,
+        creepType,
+        workTicksRequested: 0,
+        haulDemandRequested: contract.quantity,
+        contractId: contract.id,
+        queuedAt: Game.time
+      });
+      console.log(`[Spawning] Queued ${creepType} for ${contract.buyerId} (${contract.quantity} haul-demand)`);
+    } else {
+      spawningCorp.queueSpawn({
+        buyerCorpId: contract.buyerId,
+        creepType,
+        workTicksRequested: contract.quantity,
+        contractId: contract.id,
+        queuedAt: Game.time
+      });
+      console.log(`[Spawning] Queued ${creepType} for ${contract.buyerId} (${contract.quantity} work-ticks)`);
+    }
+  }
+}
+
+/**
+ * Find the buyer corp and its type by corp ID.
+ * Returns both the corp instance and its type.
+ */
+function findBuyerCorp(
+  corpId: string,
+  registry: CorpRegistry
+): { corp: RealMiningCorp | RealHaulingCorp | RealUpgradingCorp; type: string } | null {
+  // Check each corp registry
+  for (const id in registry.miningCorps) {
+    if (registry.miningCorps[id].id === corpId) {
+      return { corp: registry.miningCorps[id], type: "mining" };
+    }
+  }
+  for (const id in registry.haulingCorps) {
+    if (registry.haulingCorps[id].id === corpId) {
+      return { corp: registry.haulingCorps[id], type: "hauling" };
+    }
+  }
+  for (const id in registry.upgradingCorps) {
+    if (registry.upgradingCorps[id].id === corpId) {
+      return { corp: registry.upgradingCorps[id], type: "upgrading" };
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the corp type for a buyer corp ID.
+ */
+function findBuyerCorpType(
+  corpId: string,
+  registry: CorpRegistry
+): string | null {
+  const result = findBuyerCorp(corpId, registry);
+  return result ? result.type : null;
+}
+
+/**
+ * Map corp type to spawnable creep type.
+ */
+function mapCorpTypeToCreepType(corpType: string): SpawnableCreepType | null {
+  switch (corpType) {
+    case "mining": return "miner";
+    case "hauling": return "hauler";
+    case "upgrading": return "upgrader";
+    default: return null;
+  }
+}
+
+/**
  * Register all corps with the market for trading.
  */
 export function registerCorpsWithMarket(registry: CorpRegistry): void {
@@ -303,6 +461,11 @@ export function registerCorpsWithMarket(registry: CorpRegistry): void {
   // Register construction corps
   for (const roomName in registry.constructionCorps) {
     market.registerCorp(registry.constructionCorps[roomName]);
+  }
+
+  // Register spawning corps
+  for (const spawnId in registry.spawningCorps) {
+    market.registerCorp(registry.spawningCorps[spawnId]);
   }
 
   // Note: Bootstrap and Scout corps don't participate in the market

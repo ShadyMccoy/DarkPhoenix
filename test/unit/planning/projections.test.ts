@@ -109,20 +109,22 @@ describe("projections", () => {
       expect(buys[0].type).to.equal("buy");
     });
 
-    it("should produce sell offer for work-ticks", () => {
+    it("should produce sell offers for work-ticks and haul-demand", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const { sells } = projectSpawning(state, 0);
 
-      expect(sells).to.have.length(1);
-      expect(sells[0].resource).to.equal("work-ticks");
-      expect(sells[0].type).to.equal("sell");
+      expect(sells).to.have.length(2);
+      const resources = sells.map(s => s.resource);
+      expect(resources).to.include("work-ticks");
+      expect(resources).to.include("haul-demand");
     });
 
     it("should sell work-ticks for creep lifetime", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const { sells } = projectSpawning(state, 0);
 
-      expect(sells[0].quantity).to.equal(CREEP_LIFETIME);
+      const workTicksOffer = sells.find(s => s.resource === "work-ticks");
+      expect(workTicksOffer!.quantity).to.equal(CREEP_LIFETIME);
     });
 
     it("should buy energy equal to worker body cost", () => {
@@ -137,24 +139,26 @@ describe("projections", () => {
       const poorState = createSpawningState("spawning-1", "node-1", spawnPos);
       poorState.balance = 0;
       const { sells: poorSells } = projectSpawning(poorState, 0);
+      const poorWorkTicks = poorSells.find(s => s.resource === "work-ticks")!;
 
       const richState = createSpawningState("spawning-2", "node-1", spawnPos);
       richState.balance = 10000;
       const { sells: richSells } = projectSpawning(richState, 0);
+      const richWorkTicks = richSells.find(s => s.resource === "work-ticks")!;
 
       // Rich corp should have lower price (lower margin)
-      expect(richSells[0].price).to.be.lessThan(poorSells[0].price);
+      expect(richWorkTicks.price).to.be.lessThan(poorWorkTicks.price);
     });
   });
 
   describe("projectUpgrading", () => {
-    it("should buy both energy and work-ticks", () => {
+    it("should buy both delivered-energy and work-ticks", () => {
       const state = createUpgradingState("upgrading-1", "node-1", controllerPos, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
       const resources = buys.map(b => b.resource);
-      expect(resources).to.include("energy");
+      expect(resources).to.include("delivered-energy");
       expect(resources).to.include("work-ticks");
     });
 
@@ -177,20 +181,20 @@ describe("projections", () => {
   describe("projectHauling", () => {
     const destPos: Position = { x: 25, y: 30, roomName: "W1N1" };
 
-    it("should buy carry-ticks", () => {
+    it("should buy haul-demand", () => {
       const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
-      expect(buys[0].resource).to.equal("carry-ticks");
+      expect(buys[0].resource).to.equal("haul-demand");
     });
 
-    it("should sell transport service", () => {
+    it("should sell delivered-energy", () => {
       const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
       const { sells } = projectHauling(state, 0);
 
       expect(sells).to.have.length(1);
-      expect(sells[0].resource).to.equal("transport");
+      expect(sells[0].resource).to.equal("delivered-energy");
     });
 
     it("should have source position for buy offer", () => {
@@ -234,7 +238,14 @@ describe("projections", () => {
         totalCost: 0,
         createdAt: 0,
         isActive: false,
-        lastActivityTick: 0
+        lastActivityTick: 0,
+        unitsProduced: 0,
+        expectedUnitsProduced: 0,
+        unitsConsumed: 0,
+        acquisitionCost: 0,
+        committedWorkTicks: 0,
+        committedEnergy: 0,
+        committedDeliveredEnergy: 0
       };
       const projection = project(state, 0);
 

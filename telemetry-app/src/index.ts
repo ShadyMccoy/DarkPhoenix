@@ -20,6 +20,7 @@ import {
   NodeTelemetryNodeCompact,
   EdgesTelemetry,
   CorpsTelemetry,
+  MarketTelemetry,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +91,7 @@ let telemetry: AllTelemetry = {
   intel: null,
   corps: null,
   chains: null,
+  market: null,
   lastUpdate: 0,
 };
 
@@ -203,12 +205,13 @@ async function pollTelemetry(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Polling telemetry...`);
 
   try {
-    // Fetch core, nodes, edges, and corps segments (with delay between to avoid rate limiting)
+    // Fetch core, nodes, edges, corps, and market segments (with delay between to avoid rate limiting)
     const segments = await api.readSegments([
       TELEMETRY_SEGMENTS.CORE,
       TELEMETRY_SEGMENTS.NODES,
       TELEMETRY_SEGMENTS.EDGES,
       TELEMETRY_SEGMENTS.CORPS,
+      TELEMETRY_SEGMENTS.MARKET,
     ]);
 
     // Parse segments (nodes uses special parser for v2 compact format)
@@ -219,6 +222,7 @@ async function pollTelemetry(): Promise<void> {
       intel: null,
       corps: parseTelemetry<CorpsTelemetry>(segments[TELEMETRY_SEGMENTS.CORPS]),
       chains: null,
+      market: parseTelemetry<MarketTelemetry>(segments[TELEMETRY_SEGMENTS.MARKET]),
       lastUpdate: Date.now(),
     };
 

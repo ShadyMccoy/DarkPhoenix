@@ -808,10 +808,16 @@ export function createNodeNavigator(
 }
 
 /**
- * Builds economic edges between all corp-hosting nodes.
+ * Maximum number of closest neighbors to keep for each node in the economic network.
+ */
+const MAX_ECONOMIC_NEIGHBORS = 10;
+
+/**
+ * Builds economic edges between corp-hosting nodes, limited to top N closest neighbors.
  *
- * For each pair of corp-hosting nodes, computes the shortest path via
- * spatial edges and creates an economic edge with that total cost.
+ * For each corp-hosting node, computes the shortest path to all other corp nodes
+ * via spatial edges, then keeps only the top MAX_ECONOMIC_NEIGHBORS closest neighbors.
+ * An edge is included if either endpoint considers the other a top-N neighbor.
  *
  * @param navigator - NodeNavigator with spatial edges already set up
  * @returns Map of economic edge keys to their weights (path costs)
@@ -826,8 +832,15 @@ export function buildEconomicEdges(
     return economicEdges;
   }
 
-  // For each pair of corp-hosting nodes
   const nodeIds = Array.from(corpNodes);
+
+  // Compute all pairwise distances first
+  const allDistances = new Map<string, { neighbor: string; distance: number }[]>();
+
+  for (const nodeId of nodeIds) {
+    allDistances.set(nodeId, []);
+  }
+
   for (let i = 0; i < nodeIds.length; i++) {
     for (let j = i + 1; j < nodeIds.length; j++) {
       const nodeId1 = nodeIds[i];
@@ -837,9 +850,26 @@ export function buildEconomicEdges(
       const result = navigator.findPath(nodeId1, nodeId2, "spatial");
 
       if (result.found && result.distance < Infinity) {
-        const edgeKey = createEdgeKey(nodeId1, nodeId2);
-        economicEdges.set(edgeKey, result.distance);
+        allDistances.get(nodeId1)!.push({ neighbor: nodeId2, distance: result.distance });
+        allDistances.get(nodeId2)!.push({ neighbor: nodeId1, distance: result.distance });
       }
+    }
+  }
+
+  // For each node, keep only top N closest neighbors
+  const topNeighbors = new Set<EdgeKey>();
+
+  for (const [nodeId, neighbors] of allDistances) {
+    // Sort by distance ascending
+    neighbors.sort((a, b) => a.distance - b.distance);
+
+    // Keep top N
+    const topN = neighbors.slice(0, MAX_ECONOMIC_NEIGHBORS);
+    for (const { neighbor, distance } of topN) {
+      const edgeKey = createEdgeKey(nodeId, neighbor);
+      topNeighbors.add(edgeKey);
+      // Store the distance (may be set twice for same edge, but values are identical)
+      economicEdges.set(edgeKey, distance);
     }
   }
 

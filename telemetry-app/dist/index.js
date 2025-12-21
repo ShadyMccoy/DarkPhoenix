@@ -64,6 +64,7 @@ let telemetry = {
     intel: null,
     corps: null,
     chains: null,
+    market: null,
     lastUpdate: 0,
 };
 // Connected WebSocket clients
@@ -173,12 +174,13 @@ function loadTelemetryCache() {
 async function pollTelemetry() {
     console.log(`[${new Date().toISOString()}] Polling telemetry...`);
     try {
-        // Fetch core, nodes, edges, and corps segments (with delay between to avoid rate limiting)
+        // Fetch core, nodes, edges, corps, and market segments (with delay between to avoid rate limiting)
         const segments = await api.readSegments([
             TELEMETRY_SEGMENTS.CORE,
             TELEMETRY_SEGMENTS.NODES,
             TELEMETRY_SEGMENTS.EDGES,
             TELEMETRY_SEGMENTS.CORPS,
+            TELEMETRY_SEGMENTS.MARKET,
         ]);
         // Parse segments (nodes uses special parser for v2 compact format)
         const newTelemetry = {
@@ -188,6 +190,7 @@ async function pollTelemetry() {
             intel: null,
             corps: parseTelemetry(segments[TELEMETRY_SEGMENTS.CORPS]),
             chains: null,
+            market: parseTelemetry(segments[TELEMETRY_SEGMENTS.MARKET]),
             lastUpdate: Date.now(),
         };
         // Check if data changed

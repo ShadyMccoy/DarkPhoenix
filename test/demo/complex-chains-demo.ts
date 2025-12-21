@@ -169,13 +169,13 @@ console.log("\n" + "=".repeat(70));
 console.log("CHAIN 3: Spawning Chain (Energy → Creep Body Parts)");
 console.log("=".repeat(70));
 console.log(`
-  Spawning converts energy into body parts (work-ticks, carry-ticks, move-ticks):
+  Spawning converts energy into body parts (work-ticks, haul-demand):
 
-  Mining → Hauling → Spawning → [work-ticks]  → Various consumers
-                              → [carry-ticks]
-                              → [move-ticks]
+  Mining → Hauling → Spawning → [work-ticks]  → Miners, Upgraders
+                              → [haul-demand] → Haulers
 
-  Each body part type has different value based on demand.
+  work-ticks: WORK part × lifetime (for miners, upgraders)
+  haul-demand: flow × distance capacity (for haulers)
 `);
 
 // Build the supply chain to spawner

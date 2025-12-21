@@ -9,7 +9,7 @@
  * @module planning/projections
  */
 
-import { Offer, createOfferId } from "../market/Offer";
+import { Offer, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
 import {
   MiningCorpState,
   SpawningCorpState,
@@ -108,7 +108,8 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
  *
  * Spawning corps:
  * - Buy: energy (to spawn creeps)
- * - Sell: work-ticks (creep labor time)
+ * - Sell: work-ticks (creep labor time for miners/upgraders)
+ * - Sell: haul-demand (hauling capacity for haulers)
  *
  * Price is based on body part costs amortized over lifetime.
  */
@@ -126,7 +127,14 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
   const costPerWorkTick = workerCost / CREEP_LIFETIME;
 
   const margin = calculateMargin(state.balance);
-  const sellPricePerTick = costPerWorkTick * (1 + margin);
+  const sellPricePerWorkTick = costPerWorkTick * (1 + margin);
+
+  // Haul-demand capacity: assume 4 CARRY parts worth
+  const haulerCarryParts = 4;
+  const haulCapacityProduced = haulerCarryParts * HAUL_PER_CARRY; // 100 HAUL
+  const haulerCost = haulerCarryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
+  const costPerHaul = haulerCost / (haulCapacityProduced * CREEP_LIFETIME);
+  const sellPricePerHaul = costPerHaul * (1 + margin);
 
   return {
     buys: [
@@ -148,7 +156,17 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
         type: "sell",
         resource: "work-ticks",
         quantity: workTicksProduced,
-        price: sellPricePerTick * workTicksProduced, // Total price
+        price: sellPricePerWorkTick * workTicksProduced,
+        duration: CREEP_LIFETIME,
+        location: state.position
+      },
+      {
+        id: createOfferId(state.id, "haul-demand", tick),
+        corpId: state.id,
+        type: "sell",
+        resource: "haul-demand",
+        quantity: haulCapacityProduced,
+        price: sellPricePerHaul * haulCapacityProduced,
         duration: CREEP_LIFETIME,
         location: state.position
       }
@@ -164,7 +182,7 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
  * Calculate offers for an upgrading corp.
  *
  * Upgrading corps:
- * - Buy: energy (for controller upgrade)
+ * - Buy: delivered-energy (from haulers)
  * - Buy: work-ticks (need upgrader creep)
  * - Sell: rcl-progress (controller points)
  *
@@ -192,10 +210,10 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
   return {
     buys: [
       {
-        id: createOfferId(state.id, "energy", tick),
+        id: createOfferId(state.id, "delivered-energy", tick),
         corpId: state.id,
         type: "buy",
-        resource: "energy",
+        resource: "delivered-energy",
         quantity: energyNeeded,
         price: 0,
         duration: CREEP_LIFETIME,
@@ -235,16 +253,19 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
  * Calculate offers for a hauling corp.
  *
  * Hauling corps:
- * - Buy: carry-ticks (need hauler creep)
- * - Provide: transport service (not modeled as buy/sell, but as cost)
+ * - Buy: haul-demand (need hauler creep capacity)
+ * - Sell: delivered-energy (transport service)
  *
- * Hauling is infrastructure - it enables chains but doesn't produce resources.
- * The cost of hauling is factored into effective prices by ChainPlanner.
+ * Haul demand = flow × distance, where:
+ * - flow = throughput rate (energy/tick) to transport
+ * - distance = one-way distance from source to destination
+ *
+ * Each CARRY part provides HAUL_PER_CARRY (25) capacity.
  */
 export function projectHauling(state: HaulingCorpState, tick: number): CorpProjection {
-  // Calculate round-trip time
-  const oneWayDistance = calculateTravelTime(state.sourcePosition, state.destinationPosition);
-  const roundTripTime = oneWayDistance * 2;
+  // Calculate one-way distance
+  const distance = calculateTravelTime(state.sourcePosition, state.destinationPosition);
+  const roundTripTime = distance * 2;
 
   // Trips per lifetime
   const effectiveLifetime = state.spawnPosition
@@ -255,15 +276,17 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
     ? Math.floor(effectiveLifetime / roundTripTime)
     : 0;
 
-  // Carry-ticks needed = carry capacity × lifetime
-  const carryTicksNeeded = state.carryCapacity * CREEP_LIFETIME;
+  // Calculate haul demand needed
+  // carryCapacity represents the total carry capacity needed
+  // haul-demand = (carryCapacity / CARRY_CAPACITY) × HAUL_PER_CARRY
+  const carryParts = Math.ceil(state.carryCapacity / CARRY_CAPACITY);
+  const haulDemandNeeded = carryParts * HAUL_PER_CARRY;
 
   // Energy transported per lifetime
   const energyTransported = tripsPerLifetime * state.carryCapacity;
 
   // Hauler body cost (CARRY + MOVE per unit)
-  const carryUnits = Math.ceil(state.carryCapacity / CARRY_CAPACITY);
-  const haulerCost = carryUnits * (BODY_PART_COST.carry + BODY_PART_COST.move);
+  const haulerCost = carryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
 
   const margin = calculateMargin(state.balance);
   const costPerEnergy = energyTransported > 0 ? haulerCost / energyTransported : 0;
@@ -272,11 +295,11 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
   return {
     buys: [
       {
-        id: createOfferId(state.id, "carry-ticks", tick),
+        id: createOfferId(state.id, "haul-demand", tick),
         corpId: state.id,
         type: "buy",
-        resource: "carry-ticks",
-        quantity: carryTicksNeeded,
+        resource: "haul-demand",
+        quantity: haulDemandNeeded,
         price: 0,
         duration: CREEP_LIFETIME,
         location: state.sourcePosition
@@ -284,10 +307,10 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
     ],
     sells: [
       {
-        id: createOfferId(state.id, "transport", tick),
+        id: createOfferId(state.id, "delivered-energy", tick),
         corpId: state.id,
         type: "sell",
-        resource: "transport",
+        resource: "delivered-energy",
         quantity: energyTransported,
         price: pricePerEnergy * energyTransported,
         duration: CREEP_LIFETIME,

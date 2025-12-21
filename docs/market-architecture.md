@@ -206,16 +206,17 @@ Energy abundant ← Price falls ← Mining less profitable ← More energy produ
 
 ## Implementation Phases
 
-### Phase 1 (Current)
+### Phase 1 ✅ Complete
 - [x] Energy market (mining → hauling → consumers)
 - [x] Marginal cost pricing
 - [x] Urgency-based bidding
 - [x] Market clearing
 
-### Phase 2
-- [ ] Spawn time market
-- [ ] Price-driven spawning decisions
-- [ ] Multi-room offer routing
+### Phase 2 ✅ Complete (Dec 2024)
+- [x] Spawn time market (`SpawningCorp` sells `work-ticks`)
+- [x] Price-driven spawning decisions (corps buy work-ticks via market)
+- [x] Multi-room offer routing (remote mining "just works")
+- [x] Contract fulfillment via `processSpawnContracts()`
 
 ### Phase 3
 - [ ] Mineral/boost markets
@@ -257,3 +258,105 @@ Tick 1001:
 
   System self-balances without central coordination.
 ```
+
+---
+
+## Current Implementation: Market-Driven Spawning
+
+### Overview
+
+As of December 2024, spawning is fully market-driven. Corps no longer spawn creeps directly - they buy `work-ticks` from `SpawningCorp` through the market.
+
+### Key Components
+
+| File | Purpose |
+|------|---------|
+| `src/corps/SpawningCorp.ts` | Manages spawn structures, sells work-ticks, queues spawn orders |
+| `src/corps/RealMiningCorp.ts` | Buys work-ticks via `buys()`, picks up assigned creeps |
+| `src/corps/RealHaulingCorp.ts` | Same pattern - buys work-ticks, picks up creeps |
+| `src/corps/RealUpgradingCorp.ts` | Same pattern - buys work-ticks + delivered-energy |
+| `src/execution/CorpRunner.ts` | `processSpawnContracts()` routes contracts to SpawningCorps |
+
+### Flow
+
+```
+1. MiningCorp.buys() → offers to buy "work-ticks"
+2. SpawningCorp.sells() → offers to sell "work-ticks"
+3. runMarketClearing() → matches offers, creates contracts
+4. processSpawnContracts() → queues spawn order on SpawningCorp
+5. SpawningCorp.work() → spawns creep with memory.corpId = buyerCorpId
+6. MiningCorp.pickupAssignedCreeps() → scans for creeps with matching corpId
+```
+
+### Why This Matters for Remote Mining
+
+With market-driven spawning, room boundaries become invisible:
+
+- A spawn in room A can fulfill a work-ticks contract from a mining corp targeting a source in room B
+- The market automatically routes based on price (distance factors into effective price)
+- No special "remote mining" logic needed - it's just economics
+
+### Monitoring via Telemetry
+
+The telemetry system exports data to RawMemory segments for external monitoring.
+
+#### Telemetry Segments
+
+| Segment | Content |
+|---------|---------|
+| 0 (CORE) | CPU, GCL, colony stats, creep counts |
+| 1 (NODES) | Node territories, resources, ROI scores |
+| 2 (EDGES) | Spatial and economic graph edges |
+| 3 (INTEL) | Room scouting data |
+| 4 (CORPS) | Corp details: balance, revenue, cost, ROI |
+| 5 (CHAINS) | Active production chains |
+
+#### What to Watch
+
+**Creep counts** (Segment 0 - `creeps` field):
+- `miners`: Should match number of active mining corps
+- `haulers`: Should match number of active hauling corps
+- `upgraders`: Should match upgrading corps
+
+**Corps data** (Segment 4):
+- `creepCount`: Number of creeps per corp
+- `isActive`: Whether corp is actively working
+- `profit`: Revenue - Cost (should be positive for healthy corps)
+
+**Console logs** to watch for:
+```
+[Mining] Picked up creep Miner_1234 assigned to W1N1-mining-abc1
+[Hauling] Picked up creep Hauler_5678 assigned to W1N1-hauling
+[Upgrading] Picked up creep Upgrader_9012 assigned to W1N1-upgrading
+[Spawning] Spawned creep Miner_1234 for W1N1-mining-abc1
+```
+
+#### Running the Telemetry App
+
+```bash
+cd telemetry-app
+npm start
+```
+
+Then open http://localhost:3000 and configure with your Screeps token.
+
+#### Verifying Market-Driven Spawning Works
+
+1. **Check corps tab**: Each mining/hauling/upgrading corp should have creeps
+2. **Watch creep counts**: Should see miners, haulers, upgraders being spawned
+3. **Check corps balance**: Should be non-zero (receiving/spending credits)
+4. **Console logs**: Watch for "Picked up creep" messages
+
+If creeps aren't being assigned:
+- Verify `SpawningCorp` is created and registered
+- Check that market clearing is producing contracts
+- Verify `processSpawnContracts()` is being called
+
+### Future: Boosted Creeps (Minerals)
+
+The `work-ticks` abstraction is designed for future extension:
+
+- Minerals boost body parts (e.g., +100% harvest rate)
+- A boosted WORK part = 2 effective work-ticks per tick
+- SpawningCorp with lab access could offer cheaper effective work-ticks
+- Could introduce `boosted-work-ticks` or price by effectiveness

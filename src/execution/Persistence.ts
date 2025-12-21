@@ -81,8 +81,12 @@ export function persistState(
 
   // Find economic neighbors: BFS from each economic node through non-economic nodes
   // Track cumulative distance and stop if > MAX_ECON_DISTANCE
-  const economicEdgeMap = new Map<string, number>();
+  // Then limit to top 10 closest neighbors per node
+  const MAX_ECONOMIC_NEIGHBORS = 10;
+  const allNeighbors = new Map<string, Array<{ neighbor: string; dist: number }>>();
+
   for (const startId of economicNodeIds) {
+    allNeighbors.set(startId, []);
     const visited = new Map<string, number>(); // nodeId -> distance from start
     visited.set(startId, 0);
     const queue: Array<{ id: string; dist: number }> = [{ id: startId, dist: 0 }];
@@ -101,12 +105,8 @@ export function persistState(
         visited.set(neighbor, totalDist);
 
         if (economicNodeIds.has(neighbor)) {
-          // Found an economic neighbor - add edge with distance (don't continue through it)
-          const edgeKey = createEdgeKey(startId, neighbor);
-          const existingDist = economicEdgeMap.get(edgeKey);
-          if (existingDist === undefined || totalDist < existingDist) {
-            economicEdgeMap.set(edgeKey, totalDist);
-          }
+          // Found an economic neighbor - record distance (don't continue through it)
+          allNeighbors.get(startId)!.push({ neighbor, dist: totalDist });
         } else {
           // Non-economic node - continue searching through it
           queue.push({ id: neighbor, dist: totalDist });
@@ -114,6 +114,24 @@ export function persistState(
       }
     }
   }
+
+  // For each node, keep only top N closest neighbors
+  const economicEdgeMap = new Map<string, number>();
+  for (const [startId, neighbors] of allNeighbors) {
+    // Sort by distance ascending
+    neighbors.sort((a, b) => a.dist - b.dist);
+
+    // Keep top N
+    const topN = neighbors.slice(0, MAX_ECONOMIC_NEIGHBORS);
+    for (const { neighbor, dist } of topN) {
+      const edgeKey = createEdgeKey(startId, neighbor);
+      const existingDist = economicEdgeMap.get(edgeKey);
+      if (existingDist === undefined || dist < existingDist) {
+        economicEdgeMap.set(edgeKey, dist);
+      }
+    }
+  }
+
   // Convert Map to object
   const econEdgesObj: { [edge: string]: number } = {};
   economicEdgeMap.forEach((dist, edge) => {
@@ -155,6 +173,12 @@ export function persistState(
   Memory.constructionCorps = {};
   for (const roomName in registry.constructionCorps) {
     Memory.constructionCorps[roomName] = registry.constructionCorps[roomName].serialize();
+  }
+
+  // Persist spawning corps
+  Memory.spawningCorps = {};
+  for (const spawnId in registry.spawningCorps) {
+    Memory.spawningCorps[spawnId] = registry.spawningCorps[spawnId].serialize();
   }
 }
 

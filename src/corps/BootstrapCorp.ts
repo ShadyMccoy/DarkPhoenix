@@ -37,6 +37,7 @@ export interface SerializedBootstrapCorp extends SerializedCorp {
  *
  * This corp:
  * - Spawns jack creeps (WORK, CARRY, MOVE) at lowest priority
+ * - Picks up dropped energy from the ground (prioritized if closer)
  * - Harvests energy from the nearest source
  * - Returns energy to the spawn
  * - Self-sufficient, doesn't need other corps
@@ -201,6 +202,26 @@ export class BootstrapCorp extends Corp {
         }
       }
     } else {
+      // Look for dropped energy on the ground first
+      const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+        filter: (r) => r.resourceType === RESOURCE_ENERGY,
+      });
+
+      // Prioritize picking up dropped energy if it's closer than the source
+      if (droppedEnergy) {
+        const distToDropped = creep.pos.getRangeTo(droppedEnergy);
+        const distToSource = creep.pos.getRangeTo(source);
+
+        // Pick up dropped energy if it's closer or very near
+        if (distToDropped <= 1) {
+          creep.pickup(droppedEnergy);
+          return;
+        } else if (distToDropped < distToSource) {
+          creep.moveTo(droppedEnergy, { visualizePathStyle: { stroke: "#00ff00" } });
+          return;
+        }
+      }
+
       // Harvest from source
       if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
         creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });

@@ -5,9 +5,10 @@
  * It only invests in construction when there's accumulated profit,
  * ensuring the economy is stable before expanding.
  *
- * Extension placement strategy (for now):
- * - Place extensions along walls where there's still room to path
- * - Avoid blocking important paths (near spawns, sources, controller)
+ * Extension placement strategy:
+ * - Place extensions close to spawns (2-8 tiles away)
+ * - Keep the immediate spawn area (1 tile) clear for creep movement
+ * - Avoid blocking important paths (near sources, controller)
  *
  * @module corps/ConstructionCorp
  */
@@ -22,11 +23,8 @@ import {
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
 
-/** Base value per energy for construction */
-const BASE_ENERGY_VALUE = 0.3;
-
-/** Urgency multiplier when we have active construction sites */
-const ACTIVE_CONSTRUCTION_URGENCY = 1.5;
+/** Base value per energy for construction (higher than upgrading to prioritize finishing builds) */
+const BASE_ENERGY_VALUE = 0.6;
 
 /** Urgency multiplier when builder has no energy */
 const STARVATION_URGENCY_MULTIPLIER = 2.0;
@@ -96,7 +94,7 @@ export class ConstructionCorp extends Corp {
 
   /**
    * Construction corp buys delivered energy with priority-based bidding.
-   * Lower priority than upgrading (base value 0.3 vs 0.5).
+   * Higher priority than upgrading (base value 0.6 vs 0.5) to finish builds quickly.
    */
   buys(): Offer[] {
     const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
@@ -142,15 +140,6 @@ export class ConstructionCorp extends Corp {
    */
   private calculateUrgency(): number {
     let urgency = 1.0;
-
-    // Check for active construction
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
-      if (sites.length > 0) {
-        urgency *= ACTIVE_CONSTRUCTION_URGENCY;
-      }
-    }
 
     // Check builder energy levels
     const totalEnergy = this.creepNames.reduce((sum, name) => {
@@ -259,20 +248,25 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Find a position adjacent to walls but still accessible.
-   * Strategy: Find tiles that are next to walls but have enough open neighbors for pathing.
+   * Find a position near spawns that is accessible.
+   * Strategy: Place extensions close to spawns while maintaining pathability.
    */
   private findWallAdjacentPosition(room: Room, spawn: StructureSpawn): { x: number; y: number } | null {
     const terrain = room.getTerrain();
     const candidates: { x: number; y: number; score: number }[] = [];
 
+    // Get all spawns in the room for clustering extensions near them
+    const spawns = room.find(FIND_MY_SPAWNS);
+
     // Get positions to avoid (too close to important structures)
     const avoidPositions = new Set<string>();
 
-    // Avoid tiles near spawn (within 2 tiles)
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -2; dy <= 2; dy++) {
-        avoidPositions.add(`${spawn.pos.x + dx},${spawn.pos.y + dy}`);
+    // Avoid tiles immediately adjacent to spawns (within 1 tile) to keep spawn area clear
+    for (const s of spawns) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          avoidPositions.add(`${s.pos.x + dx},${s.pos.y + dy}`);
+        }
       }
     }
 
@@ -305,10 +299,10 @@ export class ConstructionCorp extends Corp {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
     }
 
-    // Scan the room for wall-adjacent positions
+    // Scan the room for positions near spawns
     for (let x = 2; x < 48; x++) {
       for (let y = 2; y < 48; y++) {
-        // Skip walls and swamps for now
+        // Skip walls
         if (terrain.get(x, y) === TERRAIN_MASK_WALL) {
           continue;
         }
@@ -318,10 +312,8 @@ export class ConstructionCorp extends Corp {
           continue;
         }
 
-        // Count adjacent walls and open tiles
-        let adjacentWalls = 0;
+        // Count open neighbors for pathing
         let openNeighbors = 0;
-
         for (let dx = -1; dx <= 1; dx++) {
           for (let dy = -1; dy <= 1; dy++) {
             if (dx === 0 && dy === 0) continue;
@@ -329,27 +321,33 @@ export class ConstructionCorp extends Corp {
             const ny = y + dy;
             if (nx < 0 || nx > 49 || ny < 0 || ny > 49) continue;
 
-            if (terrain.get(nx, ny) === TERRAIN_MASK_WALL) {
-              adjacentWalls++;
-            } else {
+            if (terrain.get(nx, ny) !== TERRAIN_MASK_WALL) {
               openNeighbors++;
             }
           }
         }
 
-        // We want positions that are:
-        // 1. Adjacent to at least one wall (score bonus)
-        // 2. Have at least 3 open neighbors (for pathing)
-        if (adjacentWalls >= 1 && openNeighbors >= 3) {
-          // Score: prefer more wall-adjacent (tucked in) but still accessible
-          const distToSpawn = Math.max(
-            Math.abs(x - spawn.pos.x),
-            Math.abs(y - spawn.pos.y)
-          );
-          // Prefer closer to spawn but not too close
-          const score = adjacentWalls * 10 - Math.abs(distToSpawn - 5);
-          candidates.push({ x, y, score });
+        // Require at least 3 open neighbors for pathing
+        if (openNeighbors < 3) {
+          continue;
         }
+
+        // Calculate distance to nearest spawn
+        let minDistToSpawn = Infinity;
+        for (const s of spawns) {
+          const dist = Math.max(Math.abs(x - s.pos.x), Math.abs(y - s.pos.y));
+          minDistToSpawn = Math.min(minDistToSpawn, dist);
+        }
+
+        // Only consider positions within reasonable distance of spawns (2-8 tiles)
+        if (minDistToSpawn < 2 || minDistToSpawn > 8) {
+          continue;
+        }
+
+        // Score: heavily prefer closer to spawn
+        // Higher score = better position
+        const score = 100 - minDistToSpawn * 10;
+        candidates.push({ x, y, score });
       }
     }
 
@@ -357,7 +355,7 @@ export class ConstructionCorp extends Corp {
       return null;
     }
 
-    // Sort by score and pick the best
+    // Sort by score (highest first) and pick the best
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0];
   }

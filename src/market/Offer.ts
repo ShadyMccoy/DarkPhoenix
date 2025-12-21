@@ -48,8 +48,20 @@ export type ResourceType =
   | "work-ticks"
   | "carry-ticks"
   | "move-ticks"
+  | "haul-demand"
   | "rcl-progress"
   | "spawn-time";
+
+/**
+ * HAUL capacity per CARRY part (with 1:1 MOVE on roads).
+ *
+ * Derivation:
+ * - Each CARRY part holds 50 energy
+ * - Round trip = 2 × distance ticks (on roads with 1:1 MOVE)
+ * - Throughput = 50 / (2 × distance) energy/tick
+ * - HAUL capacity = throughput × distance = 50/2 = 25
+ */
+export const HAUL_PER_CARRY = 25;
 
 /**
  * Calculate the per-tick rate of an offer
@@ -113,8 +125,24 @@ export function parseRoomName(
 }
 
 /**
+ * Abstract resource types that don't require physical hauling.
+ * These include labor-time resources that are delivered by creep movement.
+ */
+const ABSTRACT_RESOURCES = new Set([
+  "work-ticks",
+  "carry-ticks",
+  "move-ticks",
+  "haul-demand",
+  "spawn-time",
+  "rcl-progress",
+]);
+
+/**
  * Calculate effective price including distance penalty.
  * Hauling resources costs money, so distant offers are more expensive.
+ *
+ * Note: Abstract resources (work-ticks, etc.) don't incur hauling costs
+ * since they represent labor delivered by creep movement, not physical goods.
  *
  * @param offer The sell offer
  * @param buyerLocation Where the buyer needs the resource
@@ -126,6 +154,11 @@ export function effectivePrice(
   haulingCostPerTile: number = 0.01
 ): number {
   if (!offer.location) return offer.price;
+
+  // Abstract resources don't require physical hauling
+  if (ABSTRACT_RESOURCES.has(offer.resource)) {
+    return offer.price;
+  }
 
   const distance = manhattanDistance(offer.location, buyerLocation);
   if (distance === Infinity) {

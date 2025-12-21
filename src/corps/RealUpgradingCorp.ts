@@ -8,11 +8,9 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position, createOfferId } from "../market/Offer";
-import {
-  SPAWN_COOLDOWN,
-  CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD,
-} from "./CorpConstants";
+import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { buildUpgraderBody, UpgraderBodyResult } from "../spawn/BodyBuilder";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 
 /** Base value per energy for upgrading (what we're willing to pay) */
 const BASE_ENERGY_VALUE = 0.5;
@@ -63,39 +61,75 @@ export class RealUpgradingCorp extends Corp {
   }
 
   /**
-   * Upgrading corp buys delivered energy with urgency-based bidding.
-   * Higher urgency = higher bid = gets served first by haulers.
+   * Upgrading corp buys work-ticks (upgrader creeps) and haul-energy (energy delivery).
    */
   buys(): Offer[] {
-    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
-    if (activeCreeps === 0) return [];
+    const offers: Offer[] = [];
 
-    // Calculate urgency based on:
-    // 1. Controller downgrade timer
-    // 2. Current energy levels of upgraders
-    const urgency = this.calculateUrgency();
-
-    // Calculate how much energy we need
-    const energyDeficit = this.creepNames.reduce((sum, name) => {
+    // Buy work-ticks (upgrader creeps) if we need more capacity
+    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
       const creep = Game.creeps[name];
-      return sum + (creep ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 0);
+      if (!creep) return sum;
+      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
+      const workParts = creep.getActiveBodyparts(WORK);
+      return sum + (workParts * ttl);
     }, 0);
 
-    if (energyDeficit === 0) return [];
+    // Target: at least 2 WORK parts worth of capacity (subtract both current AND committed)
+    const targetWorkTicks = 2 * CREEP_LIFETIME;
+    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
 
-    // Bid price = base value × urgency
-    const bidPrice = BASE_ENERGY_VALUE * urgency;
+    if (neededWorkTicks >= CREEP_LIFETIME) {
+      // Price based on expected RCL progress value
+      const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
-    return [{
-      id: createOfferId(this.id, "delivered-energy", Game.time),
-      corpId: this.id,
-      type: "buy",
-      resource: "delivered-energy",
-      quantity: energyDeficit,
-      price: bidPrice,
-      duration: 100,
-      location: this.getPosition()
-    }];
+      offers.push({
+        id: createOfferId(this.id, "work-ticks", Game.time),
+        corpId: this.id,
+        type: "buy",
+        resource: "work-ticks",
+        quantity: neededWorkTicks,
+        price: pricePerWorkTick * neededWorkTicks,
+        duration: CREEP_LIFETIME,
+        location: this.getPosition()
+      });
+    }
+
+    // Buy haul-energy - long-term contract based on upgrade capacity
+    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
+    if (activeCreeps > 0) {
+      const urgency = this.calculateUrgency();
+
+      // Calculate long-term energy needs based on work capacity
+      // Each WORK part consumes 1 energy per tick for upgrading
+      const energyCapacity = this.creepNames.reduce((sum, name) => {
+        const creep = Game.creeps[name];
+        if (!creep) return sum;
+        const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
+        const workParts = creep.getActiveBodyparts(WORK);
+        return sum + (workParts * ttl); // energy consumed over remaining lifespan
+      }, 0);
+
+      // Subtract already-committed haul-energy to prevent double-ordering
+      const energyNeeded = energyCapacity - this.committedDeliveredEnergy;
+
+      if (energyNeeded > 0) {
+        const bidPricePerUnit = BASE_ENERGY_VALUE * urgency;
+
+        offers.push({
+          id: createOfferId(this.id, "haul-energy", Game.time),
+          corpId: this.id,
+          type: "buy",
+          resource: "haul-energy",
+          quantity: energyNeeded,
+          price: bidPricePerUnit * energyNeeded, // Total price for contract
+          duration: CREEP_LIFETIME,
+          location: this.getPosition()
+        });
+      }
+    }
+
+    return offers;
   }
 
   /**
@@ -155,15 +189,19 @@ export class RealUpgradingCorp extends Corp {
   }
 
   /**
-   * Main work loop - spawn upgraders and run their behavior.
+   * Main work loop - pick up assigned creeps and run their behavior.
+   * Spawning is handled by SpawningCorp via the market.
    */
   work(tick: number): void {
     this.lastActivityTick = tick;
 
+    // Pick up newly assigned creeps (spawned by SpawningCorp with our corpId)
+    this.pickupAssignedCreeps();
+
     // Clean up dead creeps
     this.creepNames = this.creepNames.filter((name) => Game.creeps[name]);
 
-    // Get spawn
+    // Get spawn (for room reference)
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) {
       return;
@@ -175,15 +213,7 @@ export class RealUpgradingCorp extends Corp {
       return;
     }
 
-    // Calculate dynamic upgrader configuration based on available energy
-    const { body, cost, maxUpgraders } = this.calculateUpgraderConfig(room, controller);
-
-    // Try to spawn if we need more upgraders
-    if (this.creepNames.length < maxUpgraders && body.length > 0) {
-      this.trySpawn(spawn, tick, body, cost);
-    }
-
-    // Run upgrader behavior
+    // Run upgrader behavior for all creeps
     for (const name of this.creepNames) {
       const creep = Game.creeps[name];
       if (creep && !creep.spawning) {
@@ -193,116 +223,24 @@ export class RealUpgradingCorp extends Corp {
   }
 
   /**
-   * Calculate optimal upgrader configuration based on available energy.
-   *
-   * Scales upgraders based on:
-   * - Room energy capacity (bigger bodies)
-   * - Available energy near controller (more upgraders when energy is plentiful)
+   * Scan for creeps that were spawned for this corp and add them to our roster.
    */
-  private calculateUpgraderConfig(room: Room, controller: StructureController): {
-    body: BodyPartConstant[];
-    cost: number;
-    maxUpgraders: number;
-  } {
-    const energyCapacity = room.energyCapacityAvailable;
-
-    // Build upgrader body scaled to room capacity
-    const bodyResult = buildUpgraderBody(energyCapacity);
-
-    if (bodyResult.workParts === 0) {
-      return { body: [], cost: 0, maxUpgraders: 0 };
-    }
-
-    // Calculate max upgraders based on available energy near controller
-    // This creates natural scaling: more energy → more upgraders → energy consumed
-    const nearbyEnergy = this.getAvailableEnergyNearController(room, controller);
-
-    // Base: 2 upgraders (minimum to keep controller healthy)
-    // Bonus: +1 upgrader per 300 energy available (roughly one upgrader's worth of work time)
-    const baseUpgraders = 2;
-    const bonusUpgraders = Math.floor(nearbyEnergy / 300);
-    const maxUpgraders = Math.min(baseUpgraders + bonusUpgraders, 6);
-
-    return {
-      body: bodyResult.body,
-      cost: bodyResult.cost,
-      maxUpgraders,
-    };
-  }
-
-  /**
-   * Get total energy available near the controller (dropped + containers).
-   * This is the supply signal that drives upgrader scaling.
-   */
-  private getAvailableEnergyNearController(room: Room, controller: StructureController): number {
-    // Find dropped energy near controller (range 5)
-    const droppedEnergy = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) =>
-        r.resourceType === RESOURCE_ENERGY &&
-        r.pos.getRangeTo(controller) <= 5,
-    }).reduce((sum, r) => sum + r.amount, 0);
-
-    // Find container energy near controller (range 5)
-    const containerEnergy = room.find(FIND_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        s.pos.getRangeTo(controller) <= 5,
-    }).reduce((sum, s) => sum + (s as StructureContainer).store[RESOURCE_ENERGY], 0);
-
-    // Also count energy held by upgraders (they're already supplied)
-    const upgraderEnergy = this.creepNames.reduce((sum, name) => {
+  private pickupAssignedCreeps(): void {
+    for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      return sum + (creep ? creep.store[RESOURCE_ENERGY] : 0);
-    }, 0);
+      if (
+        creep.memory.corpId === this.id &&
+        !this.creepNames.includes(name)
+      ) {
+        this.creepNames.push(name);
 
-    return droppedEnergy + containerEnergy + upgraderEnergy;
-  }
+        // Fulfill commitment for delivered work-ticks
+        const workParts = creep.getActiveBodyparts(WORK);
+        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
+        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
 
-  /**
-   * Attempt to spawn a new upgrader creep.
-   *
-   * @param spawn - The spawn to use
-   * @param tick - Current game tick
-   * @param body - Body parts array from calculateUpgraderConfig
-   * @param cost - Energy cost of the body
-   */
-  private trySpawn(
-    spawn: StructureSpawn,
-    tick: number,
-    body: BodyPartConstant[],
-    cost: number
-  ): void {
-    if (tick - this.lastSpawnAttempt < SPAWN_COOLDOWN) {
-      return;
-    }
-
-    if (spawn.spawning) {
-      return;
-    }
-
-    if (spawn.store[RESOURCE_ENERGY] < cost) {
-      return;
-    }
-
-    const name = `upgrader-${spawn.room.name}-${tick}`;
-
-    const result = spawn.spawnCreep(body, name, {
-      memory: {
-        corpId: this.id,
-        workType: "upgrade",
-        working: false,
-      },
-    });
-
-    this.lastSpawnAttempt = tick;
-
-    if (result === OK) {
-      this.creepNames.push(name);
-      this.recordCost(cost);
-      const workParts = body.filter((p) => p === WORK).length;
-      console.log(
-        `[Upgrading] Spawned ${name} with ${workParts} WORK parts (cost: ${cost})`
-      );
+        console.log(`[Upgrading] Picked up creep ${name} assigned to ${this.id}`);
+      }
     }
   }
 
@@ -344,7 +282,13 @@ export class RealUpgradingCorp extends Corp {
       });
 
       if (nearbyDropped.length > 0) {
-        creep.pickup(nearbyDropped[0]);
+        const target = nearbyDropped[0];
+        const result = creep.pickup(target);
+        if (result === OK) {
+          // Fulfill delivered-energy commitment as we receive energy
+          const pickedUp = Math.min(target.amount, creep.store.getFreeCapacity());
+          this.fulfillDeliveredEnergyCommitment(pickedUp);
+        }
       }
       // Otherwise just wait - hauler will transfer energy to us
     }

@@ -17,8 +17,10 @@ export {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runSpawningCorps,
   registerCorpsWithMarket,
   runMarketClearing,
+  processSpawnContracts,
   logCorpStats,
 } from "./CorpRunner";
 

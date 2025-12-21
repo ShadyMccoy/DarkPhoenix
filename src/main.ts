@@ -32,6 +32,7 @@ import { Colony, createColony } from "./colony";
 import { deserializeNode, SerializedNode } from "./nodes";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
+import { resetMarket } from "./market/Market";
 import {
   CorpRegistry,
   createCorpRegistry,
@@ -39,8 +40,10 @@ import {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runSpawningCorps,
   registerCorpsWithMarket,
   runMarketClearing,
+  processSpawnContracts,
   logCorpStats,
   persistState,
   cleanupDeadCreeps,
@@ -73,8 +76,12 @@ declare global {
       colony: Colony | undefined;
       corps: CorpRegistry;
       recalculateTerrain: () => void;
+      resetAnalysis: () => void;
       showNodes: () => void;
       exportNodes: () => string;
+      forgiveDebt: (amount?: number) => void;
+      clearSpawnQueue: () => void;
+      marketStatus: () => void;
     }
   }
 }
@@ -95,16 +102,22 @@ let corps: CorpRegistry = createCorpRegistry();
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
-  // Run corps (bootstrap, mining, hauling, upgrading, scouts, construction)
+  // Run spawning corps first (they process pending spawn orders)
+  runSpawningCorps(corps);
+
+  // Run other corps (bootstrap, mining, hauling, upgrading, scouts, construction)
   runBootstrapCorps(corps);
   runRealCorps(corps);
   runScoutCorps(corps);
   runConstructionCorps(corps);
 
-  // Register corps with market and run market clearing
-  // This matches buy/sell offers and records transactions
+  // Register all corps with market and run market clearing
+  // This matches buy/sell offers (including work-ticks for spawning)
   registerCorpsWithMarket(corps);
-  runMarketClearing();
+  const clearingResult = runMarketClearing();
+
+  // Process spawn contracts - routes work-ticks contracts to SpawningCorps
+  processSpawnContracts(clearingResult.contracts, corps);
 
   // Initialize or restore colony
   colony = getOrCreateColony();
@@ -198,7 +211,8 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
     corps.haulingCorps,
     corps.upgradingCorps,
     corps.scoutCorps,
-    corps.constructionCorps
+    corps.constructionCorps,
+    corps.spawningCorps
   );
 }
 
@@ -237,6 +251,15 @@ global.recalculateTerrain = () => {
   } else {
     console.log("[MultiRoom] Cache cleared - will recalculate when colony exists");
   }
+};
+
+/**
+ * Reset analysis cache without triggering recalculation.
+ * Call from console: `global.resetAnalysis()`
+ */
+global.resetAnalysis = () => {
+  resetAnalysis();
+  console.log("[Analysis] Cache cleared. Will recalculate on next tick.");
 };
 
 /**
@@ -338,4 +361,166 @@ global.exportNodes = (): string => {
   console.log(`[Export] Exported ${nodes.length} nodes. Copy from console or use: JSON.parse(global.exportNodes())`);
   console.log(json);
   return json;
+};
+
+/**
+ * Full market reset - clears all economic state.
+ * Call from console: `global.forgiveDebt()` or `global.forgiveDebt(1000)`
+ *
+ * This resets:
+ * - All corp balances, revenue, and cost tracking
+ * - All pending spawn orders
+ * - All commitment tracking (work-ticks, energy, delivered-energy)
+ * - Market contracts and transactions
+ *
+ * @param amount Optional starting balance for all corps (default: 1000)
+ */
+global.forgiveDebt = (amount: number = 1000) => {
+  let corpsReset = 0;
+  let pendingOrdersCleared = 0;
+
+  const resetCorp = (corp: {
+    balance: number;
+    totalRevenue: number;
+    totalCost: number;
+    id: string;
+    committedWorkTicks: number;
+    committedEnergy: number;
+    committedDeliveredEnergy: number;
+    unitsProduced: number;
+    expectedUnitsProduced: number;
+    unitsConsumed: number;
+    acquisitionCost: number;
+  }) => {
+    corp.balance = amount;
+    corp.totalRevenue = 0;
+    corp.totalCost = 0;
+    corp.committedWorkTicks = 0;
+    corp.committedEnergy = 0;
+    corp.committedDeliveredEnergy = 0;
+    corp.unitsProduced = 0;
+    corp.expectedUnitsProduced = 0;
+    corp.unitsConsumed = 0;
+    corp.acquisitionCost = 0;
+    corpsReset++;
+  };
+
+  // Reset all corp types
+  for (const id in corps.miningCorps) {
+    resetCorp(corps.miningCorps[id]);
+  }
+  for (const id in corps.haulingCorps) {
+    resetCorp(corps.haulingCorps[id]);
+  }
+  for (const id in corps.upgradingCorps) {
+    resetCorp(corps.upgradingCorps[id]);
+  }
+  for (const id in corps.constructionCorps) {
+    resetCorp(corps.constructionCorps[id]);
+  }
+  for (const id in corps.spawningCorps) {
+    resetCorp(corps.spawningCorps[id]);
+    // Give SpawningCorp extra balance for maintenance haulers (3x normal)
+    // This allows the spawn to self-sustain and break energy starvation
+    corps.spawningCorps[id].balance = amount * 3;
+    // Clear pending spawn orders
+    const cleared = corps.spawningCorps[id].clearPendingOrders();
+    pendingOrdersCleared += cleared;
+  }
+
+  // Reset market contracts and transactions
+  resetMarket();
+
+  console.log(`[GodMode] Full market reset complete:`);
+  console.log(`  - ${corpsReset} corps reset to balance=${amount}`);
+  console.log(`  - SpawningCorps given extra balance=${amount * 3} (for maintenance haulers)`);
+  console.log(`  - ${pendingOrdersCleared} pending spawn orders cleared`);
+  console.log(`  - Market contracts and transactions cleared`);
+  console.log(`  - All commitment tracking reset`);
+};
+
+/**
+ * Clear all pending spawn orders from all SpawningCorps.
+ * Use this to recover from a deadlocked spawn queue.
+ * Call from console: `global.clearSpawnQueue()`
+ */
+global.clearSpawnQueue = () => {
+  let totalCleared = 0;
+
+  for (const id in corps.spawningCorps) {
+    const spawningCorp = corps.spawningCorps[id];
+    const cleared = spawningCorp.clearPendingOrders();
+    totalCleared += cleared;
+  }
+
+  console.log(`[GodMode] Cleared ${totalCleared} pending spawn orders from all SpawningCorps`);
+  console.log(`[GodMode] SpawningCorps can now sell work-ticks again`);
+};
+
+/**
+ * Show current market status for debugging.
+ * Call from console: `global.marketStatus()`
+ */
+global.marketStatus = () => {
+  console.log("\n=== Market Status ===\n");
+
+  // Collect offers from all corps
+  const buyOffers: { corp: string; type: string; resource: string; qty: number; price: number }[] = [];
+  const sellOffers: { corp: string; type: string; resource: string; qty: number; price: number }[] = [];
+
+  const collectOffers = (corp: { id: string; type: string; buys(): any[]; sells(): any[] }) => {
+    for (const offer of corp.buys()) {
+      buyOffers.push({
+        corp: corp.id.slice(-12),
+        type: corp.type,
+        resource: offer.resource,
+        qty: Math.round(offer.quantity),
+        price: offer.price / offer.quantity
+      });
+    }
+    for (const offer of corp.sells()) {
+      sellOffers.push({
+        corp: corp.id.slice(-12),
+        type: corp.type,
+        resource: offer.resource,
+        qty: Math.round(offer.quantity),
+        price: offer.price / offer.quantity
+      });
+    }
+  };
+
+  for (const id in corps.miningCorps) collectOffers(corps.miningCorps[id]);
+  for (const id in corps.haulingCorps) collectOffers(corps.haulingCorps[id]);
+  for (const id in corps.upgradingCorps) collectOffers(corps.upgradingCorps[id]);
+  for (const id in corps.spawningCorps) collectOffers(corps.spawningCorps[id]);
+  for (const id in corps.constructionCorps) collectOffers(corps.constructionCorps[id]);
+
+  // Group by resource
+  const resources = new Set([...buyOffers.map(o => o.resource), ...sellOffers.map(o => o.resource)]);
+
+  for (const resource of resources) {
+    const buys = buyOffers.filter(o => o.resource === resource);
+    const sells = sellOffers.filter(o => o.resource === resource);
+
+    console.log(`[${resource}]`);
+    if (sells.length > 0) {
+      console.log(`  SELL: ${sells.map(s => `${s.type}(${s.qty}@${s.price.toFixed(3)})`).join(", ")}`);
+    } else {
+      console.log(`  SELL: (none)`);
+    }
+    if (buys.length > 0) {
+      console.log(`  BUY:  ${buys.map(b => `${b.type}(${b.qty}@${b.price.toFixed(3)})`).join(", ")}`);
+    } else {
+      console.log(`  BUY:  (none)`);
+    }
+  }
+
+  // Show spawn queue status
+  console.log("\n=== Spawn Queues ===");
+  for (const id in corps.spawningCorps) {
+    const sc = corps.spawningCorps[id];
+    console.log(`  ${sc.id}: ${sc.getPendingOrderCount()} pending orders`);
+  }
+
+  console.log("");
 };

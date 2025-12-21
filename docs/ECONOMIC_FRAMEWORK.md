@@ -306,14 +306,17 @@ const marginalROI = (marginalOutput - marginalCost) / marginalCost;
 - [x] ROI calculation
 - [x] History management
 - [x] Serialization
+- [x] Market system with buy/sell offers
+- [x] Price discovery via market clearing
+- [x] Cross-room coordination (remote mining via market)
+- [x] SpawningCorp sells work-ticks, consuming corps buy them
+- [x] Contract fulfillment (`processSpawnContracts()`)
 
 ### Planned
 
-- [ ] Market system with orders
-- [ ] Price discovery algorithm
 - [ ] Taxation mechanics
-- [ ] Cross-room coordination
-- [ ] Automated operation selection
+- [ ] Mineral/boost markets
+- [ ] Defense services market
 
 ## Best Practices
 

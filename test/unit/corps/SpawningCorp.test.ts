@@ -34,10 +34,13 @@ describe("SpawningCorp projections", () => {
       const state = createSpawningState("spawning-1", "node1", defaultPosition);
       const { sells } = projectSpawning(state, 0);
 
-      expect(sells).to.have.length(1);
-      expect(sells[0].type).to.equal("sell");
-      expect(sells[0].resource).to.equal("work-ticks");
-      expect(sells[0].location).to.deep.equal(defaultPosition);
+      // SpawningCorp sells both work-ticks and haul-demand
+      expect(sells).to.have.length(2);
+      const workTicksOffer = sells.find(s => s.resource === "work-ticks");
+      expect(workTicksOffer).to.exist;
+      expect(workTicksOffer!.type).to.equal("sell");
+      expect(workTicksOffer!.resource).to.equal("work-ticks");
+      expect(workTicksOffer!.location).to.deep.equal(defaultPosition);
     });
 
     it("should sell work-ticks for full creep lifetime", () => {

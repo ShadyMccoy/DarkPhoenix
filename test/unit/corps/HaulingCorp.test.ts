@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Position } from "../../../src/market/Offer";
+import { Position, HAUL_PER_CARRY } from "../../../src/market/Offer";
 import { createHaulingState } from "../../../src/corps/CorpState";
 import { projectHauling } from "../../../src/planning/projections";
 import { CREEP_LIFETIME, CARRY_CAPACITY } from "../../../src/planning/EconomicConstants";
@@ -10,13 +10,24 @@ describe("HaulingCorp projections", () => {
   const carryCapacity = 500; // 10 CARRY parts × 50
 
   describe("projectHauling", () => {
-    it("should return buy offer for carry-ticks", () => {
+    it("should return buy offer for haul-demand", () => {
       const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
       expect(buys[0].type).to.equal("buy");
-      expect(buys[0].resource).to.equal("carry-ticks");
+      expect(buys[0].resource).to.equal("haul-demand");
+    });
+
+    it("should calculate haul-demand based on carry parts", () => {
+      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const { buys } = projectHauling(state, 0);
+
+      // 500 capacity / 50 per CARRY = 10 CARRY parts
+      // 10 CARRY × 25 HAUL per CARRY = 250 haul-demand
+      const expectedCarryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
+      const expectedHaulDemand = expectedCarryParts * HAUL_PER_CARRY;
+      expect(buys[0].quantity).to.equal(expectedHaulDemand);
     });
 
     it("should locate buy offer at source position", () => {
@@ -26,13 +37,13 @@ describe("HaulingCorp projections", () => {
       expect(buys[0].location).to.deep.equal(sourcePosition);
     });
 
-    it("should return sell offer for transport", () => {
+    it("should return sell offer for delivered-energy", () => {
       const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
       const { sells } = projectHauling(state, 0);
 
       expect(sells).to.have.length(1);
       expect(sells[0].type).to.equal("sell");
-      expect(sells[0].resource).to.equal("transport");
+      expect(sells[0].resource).to.equal("delivered-energy");
     });
 
     it("should locate sell offer at destination position", () => {
@@ -42,7 +53,7 @@ describe("HaulingCorp projections", () => {
       expect(sells[0].location).to.deep.equal(destPosition);
     });
 
-    it("should calculate transport quantity based on trips", () => {
+    it("should calculate delivered-energy quantity based on trips", () => {
       const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
       const { sells } = projectHauling(state, 0);
 
@@ -76,7 +87,7 @@ describe("HaulingCorp projections", () => {
       const farState = createHaulingState("hauling-2", "node2", sourcePosition, farDest, carryCapacity);
       const { sells: farSells } = projectHauling(farState, 0);
 
-      // Longer distance = fewer trips = less transport capacity
+      // Longer distance = fewer trips = less delivered energy
       expect(farSells[0].quantity).to.be.lessThan(nearSells[0].quantity);
     });
   });
@@ -88,6 +99,10 @@ describe("HaulingCorp projections", () => {
 
     it("should use correct carry capacity", () => {
       expect(CARRY_CAPACITY).to.equal(50);
+    });
+
+    it("should use correct haul per carry", () => {
+      expect(HAUL_PER_CARRY).to.equal(25);
     });
   });
 });
