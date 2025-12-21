@@ -16,18 +16,13 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position, createOfferId } from "../market/Offer";
 import {
-  BUILDER_BODY,
-  BUILDER_COST,
   MAX_BUILDERS,
-  SPAWN_COOLDOWN,
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 
 /** Base value per energy for construction (higher than upgrading to prioritize finishing builds) */
 const BASE_ENERGY_VALUE = 0.6;
-
-/** Urgency multiplier when builder has no energy */
-const STARVATION_URGENCY_MULTIPLIER = 2.0;
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -35,7 +30,6 @@ const STARVATION_URGENCY_MULTIPLIER = 2.0;
 export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   creepNames: string[];
-  lastSpawnAttempt: number;
   lastPlacementAttempt: number;
 }
 
@@ -74,9 +68,6 @@ export class ConstructionCorp extends Corp {
   /** Names of creeps owned by this corp */
   private creepNames: string[] = [];
 
-  /** Last tick we attempted to spawn */
-  private lastSpawnAttempt: number = 0;
-
   /** Last tick we attempted to place extensions */
   private lastPlacementAttempt: number = 0;
 
@@ -93,12 +84,11 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Construction corp buys delivered energy with priority-based bidding.
-   * Higher priority than upgrading (base value 0.6 vs 0.5) to finish builds quickly.
+   * Construction corp buys work-ticks (builder creeps) via the market.
+   * Only requests builders when there's construction work to do.
    */
   buys(): Offer[] {
-    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
-    if (activeCreeps === 0) return [];
+    const offers: Offer[] = [];
 
     // Check if there's construction to do
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -107,56 +97,59 @@ export class ConstructionCorp extends Corp {
     const constructionSites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) return [];
 
-    // Calculate urgency based on:
-    // 1. Active construction sites
-    // 2. Builder energy levels
-    const urgency = this.calculateUrgency();
-
-    // Calculate how much energy we need
-    const energyDeficit = this.creepNames.reduce((sum, name) => {
+    // Calculate current work-ticks capacity
+    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
       const creep = Game.creeps[name];
-      return sum + (creep ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 0);
+      if (!creep) return sum;
+      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
+      const workParts = creep.getActiveBodyparts(WORK);
+      return sum + (workParts * ttl);
     }, 0);
 
-    if (energyDeficit === 0) return [];
+    // Target: up to MAX_BUILDERS worth of capacity (subtract both current AND committed)
+    const targetWorkTicks = MAX_BUILDERS * CREEP_LIFETIME;
+    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
 
-    // Bid price = base value × urgency
-    const bidPrice = BASE_ENERGY_VALUE * urgency;
+    if (neededWorkTicks >= CREEP_LIFETIME) {
+      // Price based on construction value
+      const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
-    return [{
-      id: createOfferId(this.id, "delivered-energy", Game.time),
-      corpId: this.id,
-      type: "buy",
-      resource: "delivered-energy",
-      quantity: energyDeficit,
-      price: bidPrice,
-      duration: 100,
-      location: this.getPosition()
-    }];
+      offers.push({
+        id: createOfferId(this.id, "work-ticks", Game.time),
+        corpId: this.id,
+        type: "buy",
+        resource: "work-ticks",
+        quantity: neededWorkTicks,
+        price: pricePerWorkTick * neededWorkTicks,
+        duration: CREEP_LIFETIME,
+        location: this.getPosition()
+      });
+    }
+
+    return offers;
   }
 
   /**
-   * Calculate urgency multiplier for bidding.
+   * Scan for creeps that were spawned for this corp and add them to our roster.
+   * Creeps are spawned by SpawningCorp with memory.corpId set to our ID.
    */
-  private calculateUrgency(): number {
-    let urgency = 1.0;
-
-    // Check builder energy levels
-    const totalEnergy = this.creepNames.reduce((sum, name) => {
+  private pickupAssignedCreeps(): void {
+    for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      return sum + (creep ? creep.store[RESOURCE_ENERGY] : 0);
-    }, 0);
+      if (
+        creep.memory.corpId === this.id &&
+        !this.creepNames.includes(name)
+      ) {
+        this.creepNames.push(name);
 
-    const totalCapacity = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      return sum + (creep ? creep.store.getCapacity() : 0);
-    }, 0);
+        // Fulfill commitment for delivered work-ticks
+        const workParts = creep.getActiveBodyparts(WORK);
+        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
+        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
 
-    if (totalCapacity > 0 && totalEnergy / totalCapacity < 0.2) {
-      urgency *= STARVATION_URGENCY_MULTIPLIER;
+        console.log(`[Construction] Picked up creep ${name} assigned to ${this.id}`);
+      }
     }
-
-    return urgency;
   }
 
   /**
@@ -175,6 +168,9 @@ export class ConstructionCorp extends Corp {
    */
   work(tick: number): void {
     this.lastActivityTick = tick;
+
+    // Pick up newly assigned creeps (spawned by SpawningCorp with our corpId)
+    this.pickupAssignedCreeps();
 
     // Clean up dead creeps
     this.creepNames = this.creepNames.filter((name) => Game.creeps[name]);
@@ -206,12 +202,6 @@ export class ConstructionCorp extends Corp {
     // Try to place new extension sites if we have profit and room for more
     if (canBuildMore && this.balance >= MIN_CONSTRUCTION_PROFIT) {
       this.tryPlaceExtension(room, spawn, tick);
-    }
-
-    // Only spawn builders if there's construction to do
-    const hasConstruction = constructionSites.length > 0;
-    if (hasConstruction && this.creepNames.length < MAX_BUILDERS) {
-      this.trySpawn(spawn, tick);
     }
 
     // Run builder behavior
@@ -361,41 +351,6 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Attempt to spawn a new builder creep.
-   */
-  private trySpawn(spawn: StructureSpawn, tick: number): void {
-    if (tick - this.lastSpawnAttempt < SPAWN_COOLDOWN) {
-      return;
-    }
-
-    if (spawn.spawning) {
-      return;
-    }
-
-    if (spawn.store[RESOURCE_ENERGY] < BUILDER_COST) {
-      return;
-    }
-
-    const name = `builder-${spawn.room.name}-${tick}`;
-
-    const result = spawn.spawnCreep(BUILDER_BODY, name, {
-      memory: {
-        corpId: this.id,
-        workType: "build",
-        working: false,
-      },
-    });
-
-    this.lastSpawnAttempt = tick;
-
-    if (result === OK) {
-      this.creepNames.push(name);
-      this.recordCost(BUILDER_COST);
-      console.log(`[Construction] Spawned ${name}`);
-    }
-  }
-
-  /**
    * Run behavior for a builder creep.
    *
    * State machine:
@@ -502,7 +457,6 @@ export class ConstructionCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       creepNames: this.creepNames,
-      lastSpawnAttempt: this.lastSpawnAttempt,
       lastPlacementAttempt: this.lastPlacementAttempt,
     };
   }
@@ -513,7 +467,6 @@ export class ConstructionCorp extends Corp {
   deserialize(data: SerializedConstructionCorp): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
-    this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
   }
 }

@@ -336,8 +336,8 @@ export function processSpawnContracts(
   registry: CorpRegistry
 ): void {
   for (const contract of contracts) {
-    // Handle both work-ticks and haul-demand contracts
-    if (contract.resource !== "work-ticks" && contract.resource !== "haul-demand") {
+    // Handle work-ticks and carry-ticks contracts (for spawning)
+    if (contract.resource !== "work-ticks" && contract.resource !== "carry-ticks") {
       continue;
     }
 
@@ -364,7 +364,7 @@ export function processSpawnContracts(
     // Record commitment on buyer corp to prevent double-ordering
     buyerCorp.recordWorkTicksCommitment(contract.quantity);
 
-    if (contract.resource === "haul-demand") {
+    if (contract.resource === "carry-ticks") {
       spawningCorp.queueSpawn({
         buyerCorpId: contract.buyerId,
         creepType,
@@ -373,7 +373,7 @@ export function processSpawnContracts(
         contractId: contract.id,
         queuedAt: Game.time
       });
-      console.log(`[Spawning] Queued ${creepType} for ${contract.buyerId} (${contract.quantity} haul-demand)`);
+      console.log(`[Spawning] Queued ${creepType} for ${contract.buyerId} (${contract.quantity} carry-ticks)`);
     } else {
       spawningCorp.queueSpawn({
         buyerCorpId: contract.buyerId,
@@ -394,7 +394,7 @@ export function processSpawnContracts(
 function findBuyerCorp(
   corpId: string,
   registry: CorpRegistry
-): { corp: RealMiningCorp | RealHaulingCorp | RealUpgradingCorp; type: string } | null {
+): { corp: RealMiningCorp | RealHaulingCorp | RealUpgradingCorp | ConstructionCorp; type: string } | null {
   // Check each corp registry
   for (const id in registry.miningCorps) {
     if (registry.miningCorps[id].id === corpId) {
@@ -409,6 +409,11 @@ function findBuyerCorp(
   for (const id in registry.upgradingCorps) {
     if (registry.upgradingCorps[id].id === corpId) {
       return { corp: registry.upgradingCorps[id], type: "upgrading" };
+    }
+  }
+  for (const id in registry.constructionCorps) {
+    if (registry.constructionCorps[id].id === corpId) {
+      return { corp: registry.constructionCorps[id], type: "building" };
     }
   }
   return null;
@@ -433,6 +438,7 @@ function mapCorpTypeToCreepType(corpType: string): SpawnableCreepType | null {
     case "mining": return "miner";
     case "hauling": return "hauler";
     case "upgrading": return "upgrader";
+    case "building": return "builder";
     default: return null;
   }
 }

@@ -22,7 +22,7 @@ import { buildMinerBody, buildHaulerBody, buildUpgraderBody } from "../spawn/Bod
 /**
  * Types of creeps that can be spawned
  */
-export type SpawnableCreepType = "miner" | "hauler" | "upgrader";
+export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder";
 
 /**
  * A queued spawn order from a matched contract
@@ -334,10 +334,11 @@ export class SpawningCorp extends Corp {
       const name = `${order.creepType}-${order.buyerCorpId.slice(-6)}-${tick}`;
 
       // Map creep type to workType
-      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade"> = {
+      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade" | "build"> = {
         miner: "harvest",
         hauler: "haul",
-        upgrader: "upgrade"
+        upgrader: "upgrade",
+        builder: "build"
       };
 
       // Spawn the creep with corpId set to buyer
@@ -466,6 +467,26 @@ export class SpawningCorp extends Corp {
         const desiredWorkParts = Math.max(1, Math.ceil(order.workTicksRequested / CREEP_LIFETIME));
         const result = buildUpgraderBody(this.energyCapacity, desiredWorkParts);
         return result.body;
+      }
+      case "builder": {
+        // Builders need WORK, CARRY, and MOVE in balanced proportions
+        // Each set: 1 WORK + 1 CARRY + 1 MOVE = 200 energy
+        const desiredWorkParts = Math.max(1, Math.ceil(order.workTicksRequested / CREEP_LIFETIME));
+        const setSize = 200; // WORK(100) + CARRY(50) + MOVE(50)
+        const maxSets = Math.floor(this.energyCapacity / setSize);
+        const actualSets = Math.min(desiredWorkParts, maxSets, 16); // Max 48 parts (16 sets)
+
+        const body: BodyPartConstant[] = [];
+        for (let i = 0; i < actualSets; i++) {
+          body.push(WORK);
+        }
+        for (let i = 0; i < actualSets; i++) {
+          body.push(CARRY);
+        }
+        for (let i = 0; i < actualSets; i++) {
+          body.push(MOVE);
+        }
+        return body.length > 0 ? body : [WORK, CARRY, MOVE];
       }
       default:
         // Fallback: basic worker
