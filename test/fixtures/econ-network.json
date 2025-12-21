@@ -1,0 +1,4799 @@
+{
+  "timestamp": "2025-12-21T00:39:36.576Z",
+  "tick": 72256603,
+  "summary": {
+    "totalNodes": 253,
+    "economicNodes": 46,
+    "spatialEdges": 415,
+    "economicEdges": 468
+  },
+  "nodes": [
+    {
+      "id": "E75N8-29-9",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 29,
+        "y": 9,
+        "roomName": "E75N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 33,
+          "y": 3
+        },
+        {
+          "type": "controller",
+          "x": 24,
+          "y": 5
+        },
+        {
+          "type": "mineral",
+          "x": 32,
+          "y": 16
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-4-12",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 4,
+        "y": 12,
+        "roomName": "E75N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 4,
+          "y": 16
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-47-36",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 47,
+        "y": 36,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8",
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E75N8-11-25",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 11,
+        "y": 25,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-23-48",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 23,
+        "y": 48,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8",
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E75N8-1-35",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 1,
+        "y": 35,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-34-28",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 34,
+        "y": 28,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-15-8",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 15,
+        "y": 8,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8",
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E75N8-0-18",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 0,
+        "y": 18,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-23-33",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 23,
+        "y": 33,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-40-20",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 40,
+        "y": 20,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8",
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E75N8-41-6",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 41,
+        "y": 6,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E75N8-26-24",
+      "roomName": "E75N8",
+      "peakPosition": {
+        "x": 26,
+        "y": 24,
+        "roomName": "E75N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E74N7-27-37",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 27,
+        "y": 37,
+        "roomName": "E74N7"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 20,
+          "y": 38
+        },
+        {
+          "type": "controller",
+          "x": 31,
+          "y": 32
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E75N9-37-26",
+      "roomName": "E75N9",
+      "peakPosition": {
+        "x": 37,
+        "y": 26,
+        "roomName": "E75N9"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 38,
+          "y": 14
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E76N8-1-32",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 1,
+        "y": 32,
+        "roomName": "E76N8"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 7,
+          "y": 22
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N8",
+        "E75N8"
+      ]
+    },
+    {
+      "id": "E74N8-26-35",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 26,
+        "y": 35,
+        "roomName": "E74N8"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 31,
+          "y": 41
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E74N9-39-28",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 39,
+        "y": 28,
+        "roomName": "E74N9"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 39,
+          "y": 22
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E77N8-0-24",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 0,
+        "y": 24,
+        "roomName": "E77N8"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 5,
+          "y": 30
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E73N9-28-36",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 28,
+        "y": 36,
+        "roomName": "E73N9"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 39,
+          "y": 43
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E73N8-44-14",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 44,
+        "y": 14,
+        "roomName": "E73N8"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 37,
+          "y": 14
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E73N7-47-13",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 47,
+        "y": 13,
+        "roomName": "E73N7"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 39,
+          "y": 10
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N7",
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E77N7-10-38",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 10,
+        "y": 38,
+        "roomName": "E77N7"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 11,
+          "y": 33
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E77N6-38-4",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 38,
+        "y": 4,
+        "roomName": "E77N6"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 42,
+          "y": 5
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N6",
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E77N9-22-14",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 22,
+        "y": 14,
+        "roomName": "E77N9"
+      },
+      "resources": [
+        {
+          "type": "controller",
+          "x": 26,
+          "y": 12
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E75N9-18-23",
+      "roomName": "E75N9",
+      "peakPosition": {
+        "x": 18,
+        "y": 23,
+        "roomName": "E75N9"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 3,
+          "y": 14
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E76N8-26-32",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 26,
+        "y": 32,
+        "roomName": "E76N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 31,
+          "y": 25
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E74N7-9-47",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 9,
+        "y": 47,
+        "roomName": "E74N7"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 10,
+          "y": 36
+        },
+        {
+          "type": "source",
+          "x": 16,
+          "y": 4
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N7",
+        "E74N6",
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E74N7-16-28",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 16,
+        "y": 28,
+        "roomName": "E74N7"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 23,
+          "y": 25
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N9-41-48",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 41,
+        "y": 48,
+        "roomName": "E74N9"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 38,
+          "y": 43
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N9",
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E73N8-37-36",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 37,
+        "y": 36,
+        "roomName": "E73N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 42,
+          "y": 44
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E77N6-22-29",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 22,
+        "y": 29,
+        "roomName": "E77N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 27,
+          "y": 28
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E76N6-5-24",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 5,
+        "y": 24,
+        "roomName": "E76N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 12,
+          "y": 17
+        },
+        {
+          "type": "mineral",
+          "x": 5,
+          "y": 34
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N6",
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E77N9-35-32",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 35,
+        "y": 32,
+        "roomName": "E77N9"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 33,
+          "y": 26
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N6-32-33",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 32,
+        "y": 33,
+        "roomName": "E77N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 34,
+          "y": 38
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E73N7-14-43",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 14,
+        "y": 43,
+        "roomName": "E73N7"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 18,
+          "y": 45
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N7",
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N8-7-46",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 7,
+        "y": 46,
+        "roomName": "E77N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 7,
+          "y": 33
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N8",
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E74N6-37-13",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 37,
+        "y": 13,
+        "roomName": "E74N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 41,
+          "y": 13
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E74N6-36-42",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 36,
+        "y": 42,
+        "roomName": "E74N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 34,
+          "y": 39
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E77N7-22-36",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 22,
+        "y": 36,
+        "roomName": "E77N7"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 19,
+          "y": 31
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E73N9-26-13",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 26,
+        "y": 13,
+        "roomName": "E73N9"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 30,
+          "y": 17
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E77N9-15-4",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 15,
+        "y": 4,
+        "roomName": "E77N9"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 12,
+          "y": 9
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N9",
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E76N6-33-37",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 33,
+        "y": 37,
+        "roomName": "E76N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 41,
+          "y": 37
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E76N6-34-14",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 34,
+        "y": 14,
+        "roomName": "E76N6"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 40,
+          "y": 12
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E77N7-45-35",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 45,
+        "y": 35,
+        "roomName": "E77N7"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 41,
+          "y": 36
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E74N10-3-27",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 3,
+        "y": 27,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E77N10-4-25",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 4,
+        "y": 25,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10",
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E73N10-49-29",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 49,
+        "y": 29,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E77N10-49-29",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 49,
+        "y": 29,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E75N10-30-47",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 30,
+        "y": 47,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10",
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E74N8-49-30",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 49,
+        "y": 30,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E73N8-12-15",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 12,
+        "y": 15,
+        "roomName": "E73N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E73N10-1-34",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 1,
+        "y": 34,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E75N6-30-30",
+      "roomName": "E75N6",
+      "peakPosition": {
+        "x": 30,
+        "y": 30,
+        "roomName": "E75N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E73N10-0-11",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 0,
+        "y": 11,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E77N8-38-28",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 38,
+        "y": 28,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E75N10-48-17",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 48,
+        "y": 17,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E74N10-26-1",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 26,
+        "y": 1,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E74N7-35-19",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 35,
+        "y": 19,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E76N9-23-46",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 23,
+        "y": 46,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E76N9-18-18",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 18,
+        "y": 18,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E75N7-44-27",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 44,
+        "y": 27,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7",
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E76N6-15-49",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 15,
+        "y": 49,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E74N10-34-17",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 34,
+        "y": 17,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E73N10-18-21",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 18,
+        "y": 21,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E76N10-29-26",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 29,
+        "y": 26,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E74N10-48-26",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 48,
+        "y": 26,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10",
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E74N8-14-22",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 14,
+        "y": 22,
+        "roomName": "E74N8"
+      },
+      "resources": [
+        {
+          "type": "source",
+          "x": 6,
+          "y": 22
+        },
+        {
+          "type": "mineral",
+          "x": 19,
+          "y": 16
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E76N10-2-12",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 2,
+        "y": 12,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E74N10-24-42",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 24,
+        "y": 42,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E74N10-8-2",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 8,
+        "y": 2,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E77N7-12-22",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 12,
+        "y": 22,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E75N10-19-11",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 19,
+        "y": 11,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E75N6-7-31",
+      "roomName": "E75N6",
+      "peakPosition": {
+        "x": 7,
+        "y": 31,
+        "roomName": "E75N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E75N9-48-42",
+      "roomName": "E75N9",
+      "peakPosition": {
+        "x": 48,
+        "y": 42,
+        "roomName": "E75N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E74N7-0-9",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 0,
+        "y": 9,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7",
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E75N9-9-43",
+      "roomName": "E75N9",
+      "peakPosition": {
+        "x": 9,
+        "y": 43,
+        "roomName": "E75N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E75N9-26-43",
+      "roomName": "E75N9",
+      "peakPosition": {
+        "x": 26,
+        "y": 43,
+        "roomName": "E75N9"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 30,
+          "y": 38
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E75N9"
+      ]
+    },
+    {
+      "id": "E74N7-4-29",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 4,
+        "y": 29,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7",
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E76N9-42-12",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 42,
+        "y": 12,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E76N9-40-38",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 40,
+        "y": 38,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E75N7-12-29",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 12,
+        "y": 29,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E75N7-16-42",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 16,
+        "y": 42,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7",
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E76N8-16-16",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 16,
+        "y": 16,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E76N9-34-15",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 34,
+        "y": 15,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E74N9-7-31",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 7,
+        "y": 31,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9",
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E76N7-31-27",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 31,
+        "y": 27,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E76N7-0-34",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 0,
+        "y": 34,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7",
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E74N9-18-46",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 18,
+        "y": 46,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9",
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E74N9-34-13",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 34,
+        "y": 13,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N10-18-47",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 18,
+        "y": 47,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10",
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E77N6-29-49",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 29,
+        "y": 49,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N8-34-11",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 34,
+        "y": 11,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E73N6-44-18",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 44,
+        "y": 18,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6",
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N6-41-38",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 41,
+        "y": 38,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E74N10-36-49",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 36,
+        "y": 49,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E76N6-49-34",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 49,
+        "y": 34,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E73N7-23-6",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 23,
+        "y": 6,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7",
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E76N6-22-26",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 22,
+        "y": 26,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E77N7-40-21",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 40,
+        "y": 21,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E73N10-27-42",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 27,
+        "y": 42,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10",
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E73N6-27-49",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 27,
+        "y": 49,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E73N10-19-43",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 19,
+        "y": 43,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10",
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E77N7-27-27",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 27,
+        "y": 27,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E76N10-7-27",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 7,
+        "y": 27,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E77N10-26-25",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 26,
+        "y": 25,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E76N10-40-13",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 40,
+        "y": 13,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10",
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E75N10-22-24",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 22,
+        "y": 24,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E75N6-41-8",
+      "roomName": "E75N6",
+      "peakPosition": {
+        "x": 41,
+        "y": 8,
+        "roomName": "E75N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N6",
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E74N9-4-19",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 4,
+        "y": 19,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9",
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E74N9-15-5",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 15,
+        "y": 5,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N8-39-27",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 39,
+        "y": 27,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E74N7-29-48",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 29,
+        "y": 48,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7",
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E76N9-48-23",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 48,
+        "y": 23,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9",
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E74N9-49-9",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 49,
+        "y": 9,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E74N9-38-0",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 38,
+        "y": 0,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N7-22-41",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 22,
+        "y": 41,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7",
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E74N7-42-37",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 42,
+        "y": 37,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E76N9-1-41",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 1,
+        "y": 41,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E76N8-18-0",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 18,
+        "y": 0,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E76N8-15-39",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 15,
+        "y": 39,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E74N8-44-12",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 44,
+        "y": 12,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E74N9-2-9",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 2,
+        "y": 9,
+        "roomName": "E74N9"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 9,
+          "y": 11
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N9",
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E74N10-13-49",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 13,
+        "y": 49,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10"
+      ]
+    },
+    {
+      "id": "E77N8-24-44",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 24,
+        "y": 44,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8",
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E73N9-2-24",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 2,
+        "y": 24,
+        "roomName": "E73N9"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 9,
+          "y": 17
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E73N9-2-11",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 2,
+        "y": 11,
+        "roomName": "E73N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E75N6-14-10",
+      "roomName": "E75N6",
+      "peakPosition": {
+        "x": 14,
+        "y": 10,
+        "roomName": "E75N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E77N10-21-0",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 21,
+        "y": 0,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E74N10-41-39",
+      "roomName": "E74N10",
+      "peakPosition": {
+        "x": 41,
+        "y": 39,
+        "roomName": "E74N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N10",
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E77N9-21-32",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 21,
+        "y": 32,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-5-39",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 5,
+        "y": 39,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-6-31",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 6,
+        "y": 31,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E73N9-34-8",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 34,
+        "y": 8,
+        "roomName": "E73N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N9",
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E76N6-16-4",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 16,
+        "y": 4,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6",
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E76N6-39-44",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 39,
+        "y": 44,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E76N6-43-18",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 43,
+        "y": 18,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E73N9-17-26",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 17,
+        "y": 26,
+        "roomName": "E73N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E74N6-11-39",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 11,
+        "y": 39,
+        "roomName": "E74N6"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 10,
+          "y": 33
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E77N6-6-8",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 6,
+        "y": 8,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N6-29-15",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 29,
+        "y": 15,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E73N8-42-6",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 42,
+        "y": 6,
+        "roomName": "E73N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E77N6-40-22",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 40,
+        "y": 22,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N7-11-45",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 11,
+        "y": 45,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E77N7-33-35",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 33,
+        "y": 35,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E73N8-20-42",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 20,
+        "y": 42,
+        "roomName": "E73N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E77N7-40-45",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 40,
+        "y": 45,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7",
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N7-44-7",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 44,
+        "y": 7,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E77N8-8-17",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 8,
+        "y": 17,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E77N8-20-24",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 20,
+        "y": 24,
+        "roomName": "E77N8"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 26,
+          "y": 23
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E77N8-23-6",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 23,
+        "y": 6,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E75N7-20-14",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 20,
+        "y": 14,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E75N7-32-20",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 32,
+        "y": 20,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E76N8-42-6",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 42,
+        "y": 6,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E74N7-10-18",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 10,
+        "y": 18,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N7-16-12",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 16,
+        "y": 12,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N7-23-4",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 23,
+        "y": 4,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N7-22-16",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 22,
+        "y": 16,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N7-36-5",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 36,
+        "y": 5,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7"
+      ]
+    },
+    {
+      "id": "E74N7-36-46",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 36,
+        "y": 46,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7",
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E75N7-22-34",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 22,
+        "y": 34,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E74N9-49-20",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 49,
+        "y": 20,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N8-38-46",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 38,
+        "y": 46,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E76N9-34-4",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 34,
+        "y": 4,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9",
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E74N9-19-15",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 19,
+        "y": 15,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N8-49-24",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 49,
+        "y": 24,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E76N8-40-39",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 40,
+        "y": 39,
+        "roomName": "E76N8"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 45,
+          "y": 34
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E74N8-8-0",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 8,
+        "y": 0,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8",
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E77N9-20-21",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 20,
+        "y": 21,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E73N6-33-11",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 33,
+        "y": 11,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N9-26-46",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 26,
+        "y": 46,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-48-41",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 48,
+        "y": 41,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E73N10-18-3",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 18,
+        "y": 3,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E73N9-10-29",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 10,
+        "y": 29,
+        "roomName": "E73N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N9"
+      ]
+    },
+    {
+      "id": "E73N6-5-47",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 5,
+        "y": 47,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N6-7-41",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 7,
+        "y": 41,
+        "roomName": "E77N6"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 5,
+          "y": 34
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N6-21-11",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 21,
+        "y": 11,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6",
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E73N6-10-14",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 10,
+        "y": 14,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E73N7-33-36",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 33,
+        "y": 36,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E73N7-33-18",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 33,
+        "y": 18,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E73N7-39-31",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 39,
+        "y": 31,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E75N10-32-20",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 32,
+        "y": 20,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E77N6-42-9",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 42,
+        "y": 9,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E73N6-16-18",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 16,
+        "y": 18,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N7-17-5",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 17,
+        "y": 5,
+        "roomName": "E77N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E76N6-24-8",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 24,
+        "y": 8,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6",
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E75N10-40-3",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 40,
+        "y": 3,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E77N7-24-10",
+      "roomName": "E77N7",
+      "peakPosition": {
+        "x": 24,
+        "y": 10,
+        "roomName": "E77N7"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 24,
+          "y": 5
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N7"
+      ]
+    },
+    {
+      "id": "E76N6-46-4",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 46,
+        "y": 4,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E73N6-17-40",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 17,
+        "y": 40,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E73N6-25-24",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 25,
+        "y": 24,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N8-6-4",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 6,
+        "y": 4,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E77N8-16-39",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 16,
+        "y": 39,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E73N7-8-21",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 8,
+        "y": 21,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E74N6-12-14",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 12,
+        "y": 14,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N7-15-31",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 15,
+        "y": 31,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E74N6-25-36",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 25,
+        "y": 36,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E74N6-30-12",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 30,
+        "y": 12,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E77N10-28-7",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 28,
+        "y": 7,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E74N6-35-23",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 35,
+        "y": 23,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N6-7-3",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 7,
+        "y": 3,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6",
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E74N6-40-19",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 40,
+        "y": 19,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E77N9-5-6",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 5,
+        "y": 6,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9",
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E77N9-5-13",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 5,
+        "y": 13,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-29-18",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 29,
+        "y": 18,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-17-41",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 17,
+        "y": 41,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E76N8-35-16",
+      "roomName": "E76N8",
+      "peakPosition": {
+        "x": 35,
+        "y": 16,
+        "roomName": "E76N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N8"
+      ]
+    },
+    {
+      "id": "E76N7-9-23",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 9,
+        "y": 23,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E74N8-2-3",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 2,
+        "y": 3,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8",
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E74N8-4-9",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 4,
+        "y": 9,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E74N8-4-45",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 4,
+        "y": 45,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E74N9-10-42",
+      "roomName": "E74N9",
+      "peakPosition": {
+        "x": 10,
+        "y": 42,
+        "roomName": "E74N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N9"
+      ]
+    },
+    {
+      "id": "E76N9-38-27",
+      "roomName": "E76N9",
+      "peakPosition": {
+        "x": 38,
+        "y": 27,
+        "roomName": "E76N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N9"
+      ]
+    },
+    {
+      "id": "E74N7-20-47",
+      "roomName": "E74N7",
+      "peakPosition": {
+        "x": 20,
+        "y": 47,
+        "roomName": "E74N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N7",
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E75N7-7-19",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 7,
+        "y": 19,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E75N7-4-34",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 4,
+        "y": 34,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E76N7-39-23",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 39,
+        "y": 23,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E76N7-41-35",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 41,
+        "y": 35,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E76N7-6-19",
+      "roomName": "E76N7",
+      "peakPosition": {
+        "x": 6,
+        "y": 19,
+        "roomName": "E76N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N7"
+      ]
+    },
+    {
+      "id": "E74N8-19-46",
+      "roomName": "E74N8",
+      "peakPosition": {
+        "x": 19,
+        "y": 46,
+        "roomName": "E74N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N8"
+      ]
+    },
+    {
+      "id": "E75N7-0-32",
+      "roomName": "E75N7",
+      "peakPosition": {
+        "x": 0,
+        "y": 32,
+        "roomName": "E75N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N7"
+      ]
+    },
+    {
+      "id": "E77N10-44-3",
+      "roomName": "E77N10",
+      "peakPosition": {
+        "x": 44,
+        "y": 3,
+        "roomName": "E77N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E76N6-8-9",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 8,
+        "y": 9,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E74N6-46-24",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 46,
+        "y": 24,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N7-31-13",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 31,
+        "y": 13,
+        "roomName": "E73N7"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 32,
+          "y": 10
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E77N8-45-45",
+      "roomName": "E77N8",
+      "peakPosition": {
+        "x": 45,
+        "y": 45,
+        "roomName": "E77N8"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N8"
+      ]
+    },
+    {
+      "id": "E73N6-20-30",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 20,
+        "y": 30,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N6-49-6",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 49,
+        "y": 6,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E77N6-11-49",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 11,
+        "y": 49,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E74N6-43-36",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 43,
+        "y": 36,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N8-12-39",
+      "roomName": "E73N8",
+      "peakPosition": {
+        "x": 12,
+        "y": 39,
+        "roomName": "E73N8"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 12,
+          "y": 42
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E73N8"
+      ]
+    },
+    {
+      "id": "E77N9-30-8",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 30,
+        "y": 8,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9",
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E74N6-49-31",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 49,
+        "y": 31,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N6-4-26",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 4,
+        "y": 26,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E76N10-26-8",
+      "roomName": "E76N10",
+      "peakPosition": {
+        "x": 26,
+        "y": 8,
+        "roomName": "E76N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N10"
+      ]
+    },
+    {
+      "id": "E77N9-32-12",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 32,
+        "y": 12,
+        "roomName": "E77N9"
+      },
+      "resources": [
+        {
+          "type": "mineral",
+          "x": 34,
+          "y": 10
+        }
+      ],
+      "econ": true,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E73N7-8-7",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 8,
+        "y": 7,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E77N9-37-45",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 37,
+        "y": 45,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E73N6-7-33",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 7,
+        "y": 33,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N9-40-18",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 40,
+        "y": 18,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-42-3",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 42,
+        "y": 3,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9",
+        "E77N10"
+      ]
+    },
+    {
+      "id": "E77N9-41-24",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 41,
+        "y": 24,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-43-7",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 43,
+        "y": 7,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E77N9-48-36",
+      "roomName": "E77N9",
+      "peakPosition": {
+        "x": 48,
+        "y": 36,
+        "roomName": "E77N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N9"
+      ]
+    },
+    {
+      "id": "E74N6-22-49",
+      "roomName": "E74N6",
+      "peakPosition": {
+        "x": 22,
+        "y": 49,
+        "roomName": "E74N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E74N6"
+      ]
+    },
+    {
+      "id": "E73N10-32-3",
+      "roomName": "E73N10",
+      "peakPosition": {
+        "x": 32,
+        "y": 3,
+        "roomName": "E73N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N10"
+      ]
+    },
+    {
+      "id": "E75N6-11-42",
+      "roomName": "E75N6",
+      "peakPosition": {
+        "x": 11,
+        "y": 42,
+        "roomName": "E75N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N6"
+      ]
+    },
+    {
+      "id": "E75N10-47-3",
+      "roomName": "E75N10",
+      "peakPosition": {
+        "x": 47,
+        "y": 3,
+        "roomName": "E75N10"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E75N10"
+      ]
+    },
+    {
+      "id": "E73N7-20-26",
+      "roomName": "E73N7",
+      "peakPosition": {
+        "x": 20,
+        "y": 26,
+        "roomName": "E73N7"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N7"
+      ]
+    },
+    {
+      "id": "E76N6-29-3",
+      "roomName": "E76N6",
+      "peakPosition": {
+        "x": 29,
+        "y": 3,
+        "roomName": "E76N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E76N6"
+      ]
+    },
+    {
+      "id": "E73N6-23-14",
+      "roomName": "E73N6",
+      "peakPosition": {
+        "x": 23,
+        "y": 14,
+        "roomName": "E73N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N6"
+      ]
+    },
+    {
+      "id": "E77N6-22-20",
+      "roomName": "E77N6",
+      "peakPosition": {
+        "x": 22,
+        "y": 20,
+        "roomName": "E77N6"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E77N6"
+      ]
+    },
+    {
+      "id": "E73N9-7-35",
+      "roomName": "E73N9",
+      "peakPosition": {
+        "x": 7,
+        "y": 35,
+        "roomName": "E73N9"
+      },
+      "resources": [],
+      "econ": false,
+      "spansRooms": [
+        "E73N9"
+      ]
+    }
+  ],
+  "spatialEdges": [
+    "E73N10-49-29|E74N10-3-27",
+    "E73N10-27-42|E73N10-49-29",
+    "E73N10-49-29|E74N10-8-2",
+    "E73N10-18-21|E73N10-49-29",
+    "E73N10-32-3|E73N10-49-29",
+    "E73N8-12-15|E73N8-12-39",
+    "E73N8-12-15|E73N8-44-14",
+    "E73N8-12-15|E73N8-20-42",
+    "E73N10-0-11|E73N10-1-34",
+    "E73N10-1-34|E73N10-19-43",
+    "E73N10-1-34|E73N10-18-21",
+    "E73N10-0-11|E73N10-18-3",
+    "E73N10-0-11|E73N10-18-21",
+    "E74N8-49-30|E75N8-1-35",
+    "E74N8-49-30|E75N8-0-18",
+    "E74N8-44-12|E74N8-49-30",
+    "E74N8-26-35|E74N8-49-30",
+    "E73N8-20-42|E73N8-37-36",
+    "E73N8-37-36|E73N8-44-14",
+    "E73N7-23-6|E73N8-37-36",
+    "E73N10-18-21|E73N10-18-3",
+    "E73N10-18-21|E73N10-19-43",
+    "E73N10-18-21|E73N10-32-3",
+    "E73N10-18-21|E73N10-27-42",
+    "E74N7-35-19|E74N7-36-5",
+    "E74N7-22-16|E74N7-35-19",
+    "E74N7-35-19|E74N7-42-37",
+    "E74N7-27-37|E74N7-35-19",
+    "E73N6-33-11|E73N6-44-18",
+    "E73N6-41-38|E73N6-44-18",
+    "E73N6-44-18|E74N6-12-14",
+    "E74N8-14-22|E74N8-4-9",
+    "E74N8-14-22|E74N8-26-35",
+    "E74N8-14-22|E74N8-4-45",
+    "E73N10-19-43|E73N10-27-42",
+    "E73N10-19-43|E73N9-26-13",
+    "E73N10-19-43|E73N9-34-8",
+    "E73N6-27-49|E73N6-41-38",
+    "E73N9-17-26|E73N9-28-36",
+    "E73N8-42-6|E73N8-44-14",
+    "E73N7-47-13|E74N7-0-9",
+    "E74N7-0-9|E74N7-16-12",
+    "E74N7-16-28|E74N7-4-29",
+    "E73N7-39-31|E74N7-4-29",
+    "E73N7-47-13|E74N7-4-29",
+    "E74N7-4-29|E74N7-9-47",
+    "E74N6-12-14|E74N7-9-47",
+    "E74N7-20-47|E74N7-9-47",
+    "E74N7-10-18|E74N7-16-28",
+    "E74N7-16-28|E74N7-27-37",
+    "E74N7-16-28|E74N7-22-16",
+    "E74N8-19-46|E74N8-26-35",
+    "E73N7-23-6|E73N7-31-13",
+    "E73N7-23-6|E73N8-20-42",
+    "E73N7-23-6|E73N7-8-7",
+    "E73N7-20-26|E73N7-23-6",
+    "E73N7-23-6|E73N7-8-21",
+    "E73N6-25-24|E73N6-41-38",
+    "E74N9-4-19|E74N9-7-31",
+    "E74N9-10-42|E74N9-7-31",
+    "E74N9-10-42|E74N9-18-46",
+    "E74N8-8-0|E74N9-18-46",
+    "E74N9-18-46|E74N9-41-48",
+    "E73N10-27-42|E73N9-34-8",
+    "E74N9-34-13|E74N9-38-0",
+    "E74N9-34-13|E74N9-39-28",
+    "E74N9-19-15|E74N9-34-13",
+    "E74N9-15-5|E74N9-34-13",
+    "E73N9-10-29|E73N9-2-24",
+    "E73N9-2-11|E73N9-2-24",
+    "E73N9-10-29|E73N9-17-26",
+    "E73N9-17-26|E73N9-26-13",
+    "E73N9-26-13|E73N9-34-8",
+    "E73N9-34-8|E74N9-2-9",
+    "E73N7-14-43|E73N7-15-31",
+    "E73N6-7-3|E73N7-14-43",
+    "E73N7-33-18|E73N7-47-13",
+    "E74N6-11-39|E74N6-25-36",
+    "E74N6-11-39|E74N6-22-49",
+    "E74N6-11-39|E74N6-12-14",
+    "E73N8-12-39|E73N8-20-42",
+    "E74N7-29-48|E74N7-36-46",
+    "E74N7-20-47|E74N7-29-48",
+    "E74N7-27-37|E74N7-29-48",
+    "E74N6-30-12|E74N7-29-48",
+    "E74N8-44-12|E75N8-0-18",
+    "E74N8-44-12|E74N9-41-48",
+    "E74N9-2-9|E74N9-4-19",
+    "E74N9-15-5|E74N9-2-9",
+    "E74N9-19-15|E74N9-4-19",
+    "E74N10-13-49|E74N9-15-5",
+    "E74N9-15-5|E74N9-19-15",
+    "E74N9-15-5|E74N9-38-0",
+    "E74N10-36-49|E74N9-38-0",
+    "E74N9-38-0|E74N9-49-9",
+    "E74N9-39-28|E74N9-41-48",
+    "E74N9-49-9|E75N9-18-23",
+    "E74N9-49-20|E74N9-49-9",
+    "E74N7-36-46|E74N7-42-37",
+    "E74N7-42-37|E75N7-0-32",
+    "E73N9-10-29|E73N9-7-35",
+    "E73N6-10-14|E73N6-16-18",
+    "E73N6-10-14|E73N6-7-3",
+    "E73N6-10-14|E73N6-4-26",
+    "E73N6-16-18|E73N6-25-24",
+    "E73N6-17-40|E73N6-5-47",
+    "E73N7-20-26|E73N7-8-21",
+    "E73N7-15-31|E73N7-8-21",
+    "E74N6-12-14|E74N6-30-12",
+    "E74N6-12-14|E74N6-25-36",
+    "E73N7-15-31|E73N7-20-26",
+    "E74N6-25-36|E74N6-36-42",
+    "E74N6-30-12|E74N6-37-13",
+    "E74N6-36-42|E74N6-43-36",
+    "E74N6-22-49|E74N6-36-42",
+    "E74N6-35-23|E74N6-40-19",
+    "E74N6-35-23|E74N6-43-36",
+    "E74N6-37-13|E74N6-40-19",
+    "E74N6-40-19|E74N6-46-24",
+    "E73N6-20-30|E73N6-25-24",
+    "E73N6-23-14|E73N6-25-24",
+    "E74N7-10-18|E74N7-16-12",
+    "E74N7-16-12|E74N7-22-16",
+    "E74N7-16-12|E74N7-23-4",
+    "E74N7-23-4|E74N7-36-5",
+    "E74N7-22-16|E74N7-23-4",
+    "E74N7-22-16|E74N7-36-5",
+    "E73N7-33-36|E73N7-39-31",
+    "E73N7-33-18|E73N7-33-36",
+    "E73N7-31-13|E73N7-33-18",
+    "E73N7-33-18|E73N7-39-31",
+    "E74N8-2-3|E74N8-8-0",
+    "E74N8-8-0|E74N9-10-42",
+    "E74N9-49-20|E75N9-18-23",
+    "E74N9-39-28|E74N9-49-20",
+    "E73N6-5-47|E73N6-7-33",
+    "E73N10-18-3|E73N10-32-3",
+    "E74N7-20-47|E74N7-27-37",
+    "E73N10-32-3|E74N10-8-2",
+    "E74N6-43-36|E74N6-49-31",
+    "E74N6-46-24|E75N6-7-31",
+    "E74N6-46-24|E74N6-49-31",
+    "E74N6-49-31|E75N6-7-31",
+    "E73N6-4-26|E73N6-7-33",
+    "E74N8-2-3|E74N8-4-9",
+    "E74N10-3-27|E74N10-8-2",
+    "E74N10-13-49|E74N10-3-27",
+    "E74N10-24-42|E74N10-3-27",
+    "E74N10-3-27|E74N10-34-17",
+    "E75N10-30-47|E75N10-32-20",
+    "E75N10-22-24|E75N10-30-47",
+    "E75N10-30-47|E75N9-37-26",
+    "E75N10-30-47|E75N9-18-23",
+    "E75N10-30-47|E75N10-48-17",
+    "E74N10-41-39|E75N10-30-47",
+    "E75N6-30-30|E75N6-7-31",
+    "E75N6-11-42|E75N6-30-30",
+    "E75N6-30-30|E75N6-41-8",
+    "E75N6-14-10|E75N6-30-30",
+    "E75N9-18-23|E75N9-37-26",
+    "E75N9-37-26|E75N9-48-42",
+    "E75N9-18-23|E75N9-9-43",
+    "E75N9-18-23|E75N9-26-43",
+    "E74N10-26-1|E74N10-8-2",
+    "E74N10-26-1|E74N10-34-17",
+    "E75N10-48-17|E76N10-2-12",
+    "E75N10-47-3|E75N10-48-17",
+    "E75N10-48-17|E76N10-7-27",
+    "E75N10-32-20|E75N10-48-17",
+    "E75N10-40-3|E75N10-48-17",
+    "E76N6-15-49|E76N6-39-44",
+    "E76N6-15-49|E76N6-22-26",
+    "E76N6-15-49|E76N6-5-24",
+    "E74N10-41-39|E74N10-48-26",
+    "E74N10-34-17|E74N10-48-26",
+    "E74N10-48-26|E75N10-22-24",
+    "E74N10-48-26|E75N10-19-11",
+    "E74N10-24-42|E74N10-34-17",
+    "E74N10-34-17|E74N10-8-2",
+    "E75N8-47-36|E76N8-1-32",
+    "E75N8-34-28|E75N8-47-36",
+    "E75N8-47-36|E76N8-15-39",
+    "E75N8-23-48|E75N8-47-36",
+    "E75N10-19-11|E75N10-22-24",
+    "E75N10-19-11|E75N10-32-20",
+    "E75N10-19-11|E75N10-40-3",
+    "E74N10-13-49|E74N10-24-42",
+    "E74N10-24-42|E74N10-36-49",
+    "E74N10-24-42|E74N10-41-39",
+    "E75N7-44-27|E76N7-0-34",
+    "E75N7-32-20|E75N7-44-27",
+    "E75N7-44-27|E76N7-9-23",
+    "E75N7-44-27|E76N7-6-19",
+    "E75N6-11-42|E75N6-7-31",
+    "E75N6-14-10|E75N6-7-31",
+    "E76N8-15-39|E76N8-26-32",
+    "E76N8-26-32|E76N8-39-27",
+    "E76N8-16-16|E76N8-26-32",
+    "E76N8-26-32|E76N8-38-46",
+    "E76N8-1-32|E76N8-15-39",
+    "E75N8-40-20|E76N8-1-32",
+    "E76N8-1-32|E76N8-16-16",
+    "E75N10-22-24|E75N10-32-20",
+    "E74N10-41-39|E75N10-22-24",
+    "E74N10-36-49|E74N10-41-39",
+    "E75N6-41-8|E76N6-8-9",
+    "E75N6-14-10|E75N6-41-8",
+    "E75N6-41-8|E76N6-5-24",
+    "E75N9-26-43|E75N9-9-43",
+    "E75N7-12-29|E75N7-4-34",
+    "E75N7-12-29|E75N7-7-19",
+    "E75N7-12-29|E75N7-22-34",
+    "E75N7-12-29|E75N7-16-42",
+    "E75N7-12-29|E75N7-20-14",
+    "E75N7-16-42|E75N7-22-34",
+    "E75N6-14-10|E75N7-16-42",
+    "E75N8-15-8|E75N9-9-43",
+    "E75N7-20-14|E75N8-23-48",
+    "E75N8-23-33|E75N8-23-48",
+    "E75N8-1-35|E75N8-23-48",
+    "E75N8-0-18|E75N8-1-35",
+    "E75N8-1-35|E75N8-11-25",
+    "E75N8-11-25|E75N8-23-33",
+    "E75N8-11-25|E75N8-15-8",
+    "E76N6-5-24|E76N6-8-9",
+    "E76N6-22-26|E76N6-33-37",
+    "E76N6-22-26|E76N6-34-14",
+    "E76N6-22-26|E76N6-43-18",
+    "E76N6-49-34|E77N6-7-41",
+    "E76N6-33-37|E76N6-49-34",
+    "E76N6-39-44|E76N6-49-34",
+    "E76N6-43-18|E76N6-49-34",
+    "E76N7-0-34|E76N7-9-23",
+    "E75N7-22-34|E76N7-0-34",
+    "E75N7-32-20|E76N7-0-34",
+    "E76N7-31-27|E76N7-39-23",
+    "E76N7-31-27|E76N7-41-35",
+    "E76N7-22-41|E76N7-31-27",
+    "E76N7-31-27|E76N7-9-23",
+    "E76N8-16-16|E76N8-18-0",
+    "E76N8-16-16|E76N8-35-16",
+    "E75N8-40-20|E76N8-16-16",
+    "E75N9-48-42|E76N9-1-41",
+    "E75N8-15-8|E75N8-29-9",
+    "E75N8-29-9|E75N8-41-6",
+    "E75N8-29-9|E75N8-40-20",
+    "E75N8-26-24|E75N8-34-28",
+    "E75N8-34-28|E75N8-40-20",
+    "E76N6-16-4|E76N6-8-9",
+    "E76N6-16-4|E76N6-24-8",
+    "E76N6-16-4|E76N7-22-41",
+    "E76N6-33-37|E76N6-39-44",
+    "E76N6-34-14|E76N6-43-18",
+    "E76N6-43-18|E77N6-6-8",
+    "E76N6-33-37|E76N6-43-18",
+    "E76N6-24-8|E76N7-22-41",
+    "E76N7-22-41|E76N7-9-23",
+    "E76N8-18-0|E76N9-23-46",
+    "E76N8-18-0|E76N8-42-6",
+    "E76N8-18-0|E76N8-35-16",
+    "E76N8-39-27|E76N8-49-24",
+    "E76N8-39-27|E76N8-40-39",
+    "E76N8-35-16|E76N8-39-27",
+    "E76N8-49-24|E77N8-0-24",
+    "E76N8-35-16|E76N8-49-24",
+    "E76N8-40-39|E76N8-49-24",
+    "E76N8-38-46|E76N8-40-39",
+    "E75N7-20-14|E75N7-7-19",
+    "E75N7-20-14|E75N7-32-20",
+    "E75N7-20-14|E75N7-22-34",
+    "E75N8-15-8|E75N8-4-12",
+    "E75N8-15-8|E75N8-26-24",
+    "E75N7-22-34|E75N7-32-20",
+    "E75N10-40-3|E75N10-47-3",
+    "E75N10-32-20|E75N10-40-3",
+    "E75N8-0-18|E75N8-4-12",
+    "E76N6-24-8|E76N6-29-3",
+    "E76N6-24-8|E76N6-34-14",
+    "E76N6-34-14|E76N6-46-4",
+    "E76N6-46-4|E77N6-6-8",
+    "E76N8-35-16|E76N8-42-6",
+    "E76N8-42-6|E76N9-23-46",
+    "E75N10-47-3|E76N10-2-12",
+    "E75N7-0-32|E75N7-4-34",
+    "E76N7-6-19|E76N7-9-23",
+    "E77N10-26-25|E77N10-4-25",
+    "E76N10-29-26|E77N10-4-25",
+    "E76N10-40-13|E77N10-4-25",
+    "E77N10-4-25|E77N9-5-6",
+    "E77N10-4-25|E77N9-15-4",
+    "E77N10-21-0|E77N10-4-25",
+    "E76N9-34-4|E77N10-4-25",
+    "E77N10-26-25|E77N10-49-29",
+    "E77N10-44-3|E77N10-49-29",
+    "E77N10-49-29|E77N9-42-3",
+    "E77N8-34-11|E77N8-38-28",
+    "E77N8-20-24|E77N8-38-28",
+    "E77N8-38-28|E77N8-45-45",
+    "E77N8-24-44|E77N8-38-28",
+    "E76N10-26-8|E76N10-29-26",
+    "E76N10-29-26|E76N10-40-13",
+    "E76N10-29-26|E76N10-7-27",
+    "E76N10-18-47|E76N10-29-26",
+    "E76N10-29-26|E76N9-34-4",
+    "E76N10-2-12|E76N10-7-27",
+    "E76N10-2-12|E76N10-26-8",
+    "E76N9-18-18|E76N9-34-15",
+    "E76N10-18-47|E76N9-18-18",
+    "E76N9-18-18|E76N9-34-4",
+    "E76N9-1-41|E76N9-18-18",
+    "E77N7-12-22|E77N7-27-27",
+    "E77N7-10-38|E77N7-12-22",
+    "E77N7-12-22|E77N7-24-10",
+    "E77N7-12-22|E77N8-7-46",
+    "E76N9-23-46|E76N9-40-38",
+    "E76N9-1-41|E76N9-23-46",
+    "E76N10-18-47|E76N9-34-4",
+    "E76N10-18-47|E76N10-7-27",
+    "E77N6-22-29|E77N6-29-49",
+    "E77N8-23-6|E77N8-34-11",
+    "E77N8-20-24|E77N8-34-11",
+    "E77N10-26-25|E77N10-28-7",
+    "E77N10-21-0|E77N10-26-25",
+    "E77N10-26-25|E77N9-30-8",
+    "E77N10-26-25|E77N9-15-4",
+    "E77N10-26-25|E77N10-44-3",
+    "E77N10-26-25|E77N9-42-3",
+    "E76N10-26-8|E76N10-7-27",
+    "E77N6-22-20|E77N6-22-29",
+    "E77N6-22-29|E77N6-32-33",
+    "E77N6-22-29|E77N6-29-15",
+    "E77N6-22-29|E77N6-7-41",
+    "E76N9-34-15|E76N9-42-12",
+    "E76N9-34-15|E76N9-34-4",
+    "E76N9-38-27|E76N9-40-38",
+    "E76N9-40-38|E76N9-48-23",
+    "E76N9-34-4|E76N9-42-12",
+    "E76N9-42-12|E76N9-48-23",
+    "E77N7-22-36|E77N7-27-27",
+    "E77N7-27-27|E77N7-33-35",
+    "E77N7-27-27|E77N7-40-21",
+    "E77N7-40-21|E77N7-44-7",
+    "E77N7-24-10|E77N7-40-21",
+    "E77N8-0-24|E77N8-8-17",
+    "E77N8-0-24|E77N8-7-46",
+    "E76N10-26-8|E76N10-40-13",
+    "E77N6-21-11|E77N6-6-8",
+    "E77N6-21-11|E77N6-29-15",
+    "E77N6-22-20|E77N6-29-15",
+    "E77N6-29-15|E77N6-42-9",
+    "E77N6-29-15|E77N6-40-22",
+    "E77N6-29-15|E77N6-38-4",
+    "E77N6-29-15|E77N6-32-33",
+    "E77N6-32-33|E77N6-40-22",
+    "E77N8-16-39|E77N8-7-46",
+    "E77N8-24-44|E77N8-7-46",
+    "E77N7-10-38|E77N7-11-45",
+    "E77N7-11-45|E77N7-22-36",
+    "E77N7-22-36|E77N7-33-35",
+    "E77N7-33-35|E77N7-40-45",
+    "E77N6-38-4|E77N7-40-45",
+    "E77N7-40-45|E77N7-45-35",
+    "E77N7-24-10|E77N7-44-7",
+    "E77N8-6-4|E77N8-8-17",
+    "E77N8-20-24|E77N8-8-17",
+    "E77N8-23-6|E77N8-8-17",
+    "E77N8-16-39|E77N8-20-24",
+    "E77N8-20-24|E77N8-23-6",
+    "E77N8-20-24|E77N8-24-44",
+    "E77N8-23-6|E77N8-6-4",
+    "E77N8-16-39|E77N8-24-44",
+    "E77N7-17-5|E77N8-24-44",
+    "E77N8-24-44|E77N8-45-45",
+    "E77N10-21-0|E77N10-28-7",
+    "E76N9-38-27|E76N9-48-23",
+    "E76N9-48-23|E77N9-5-13",
+    "E76N9-48-23|E77N9-6-31",
+    "E77N9-5-39|E77N9-6-31",
+    "E77N9-21-32|E77N9-6-31",
+    "E77N9-20-21|E77N9-6-31",
+    "E77N9-5-13|E77N9-6-31",
+    "E77N9-17-41|E77N9-5-39",
+    "E77N9-17-41|E77N9-21-32",
+    "E77N9-20-21|E77N9-21-32",
+    "E77N9-35-32|E77N9-41-24",
+    "E77N9-35-32|E77N9-37-45",
+    "E77N9-35-32|E77N9-48-36",
+    "E77N9-29-18|E77N9-35-32",
+    "E77N9-26-46|E77N9-35-32",
+    "E77N10-28-7|E77N10-44-3",
+    "E77N9-5-13|E77N9-5-6",
+    "E77N9-15-4|E77N9-5-13",
+    "E77N9-15-4|E77N9-5-6",
+    "E77N9-15-4|E77N9-22-14",
+    "E77N9-15-4|E77N9-30-8",
+    "E77N9-17-41|E77N9-26-46",
+    "E77N9-20-21|E77N9-22-14",
+    "E77N9-22-14|E77N9-29-18",
+    "E77N9-22-14|E77N9-30-8",
+    "E77N9-26-46|E77N9-37-45",
+    "E77N9-29-18|E77N9-32-12",
+    "E77N9-29-18|E77N9-41-24",
+    "E77N9-48-36|E77N9-48-41",
+    "E77N9-37-45|E77N9-48-41",
+    "E77N6-11-49|E77N6-7-41",
+    "E77N6-21-11|E77N6-22-20",
+    "E77N6-21-11|E77N7-22-36",
+    "E77N6-38-4|E77N6-42-9",
+    "E77N6-42-9|E77N6-49-6",
+    "E77N7-17-5|E77N7-24-10",
+    "E77N9-40-18|E77N9-41-24",
+    "E77N9-42-3|E77N9-43-7",
+    "E77N9-30-8|E77N9-42-3",
+    "E77N9-30-8|E77N9-32-12",
+    "E77N9-37-45|E77N9-48-36"
+  ],
+  "economicEdges": [
+    "E75N9-18-23|E75N9-37-26",
+    "E75N9-37-26|E77N9-15-4",
+    "E74N9-2-9|E75N9-37-26",
+    "E74N9-39-28|E75N9-37-26",
+    "E75N9-37-26|E76N8-26-32",
+    "E75N9-37-26|E76N8-1-32",
+    "E75N8-29-9|E75N9-37-26",
+    "E75N9-37-26|E76N8-40-39",
+    "E75N9-37-26|E77N8-0-24",
+    "E75N9-37-26|E77N9-22-14",
+    "E75N9-37-26|E77N9-32-12",
+    "E73N9-26-13|E75N9-37-26",
+    "E75N8-4-12|E75N9-37-26",
+    "E75N9-37-26|E77N9-35-32",
+    "E74N9-41-48|E75N9-37-26",
+    "E75N9-26-43|E75N9-37-26",
+    "E74N8-26-35|E75N9-37-26",
+    "E74N8-14-22|E75N9-37-26",
+    "E75N9-37-26|E76N6-5-24",
+    "E74N7-27-37|E75N9-37-26",
+    "E75N9-37-26|E76N6-34-14",
+    "E74N7-16-28|E75N9-37-26",
+    "E74N6-37-13|E75N9-37-26",
+    "E74N6-36-42|E75N9-37-26",
+    "E74N7-9-47|E75N9-37-26",
+    "E73N7-47-13|E75N9-37-26",
+    "E74N6-11-39|E75N9-37-26",
+    "E73N7-14-43|E75N9-37-26",
+    "E75N9-18-23|E75N9-26-43",
+    "E74N9-39-28|E75N9-18-23",
+    "E75N8-29-9|E75N9-18-23",
+    "E75N8-4-12|E75N9-18-23",
+    "E74N9-2-9|E75N9-18-23",
+    "E75N9-18-23|E77N9-15-4",
+    "E74N8-26-35|E75N9-18-23",
+    "E75N9-18-23|E76N8-1-32",
+    "E74N9-41-48|E75N9-18-23",
+    "E75N9-18-23|E76N8-26-32",
+    "E75N9-18-23|E77N9-22-14",
+    "E75N9-18-23|E77N9-32-12",
+    "E73N9-26-13|E75N9-18-23",
+    "E75N9-18-23|E76N8-40-39",
+    "E75N9-18-23|E77N8-0-24",
+    "E74N8-14-22|E75N9-18-23",
+    "E75N9-18-23|E76N6-5-24",
+    "E75N9-18-23|E77N9-35-32",
+    "E74N7-27-37|E75N9-18-23",
+    "E75N9-18-23|E76N6-34-14",
+    "E74N7-16-28|E75N9-18-23",
+    "E74N6-37-13|E75N9-18-23",
+    "E74N6-36-42|E75N9-18-23",
+    "E74N7-9-47|E75N9-18-23",
+    "E73N7-47-13|E75N9-18-23",
+    "E74N6-11-39|E75N9-18-23",
+    "E73N7-14-43|E75N9-18-23",
+    "E73N8-37-36|E73N8-44-14",
+    "E73N8-12-39|E73N8-37-36",
+    "E73N7-31-13|E73N8-37-36",
+    "E73N7-14-43|E73N8-37-36",
+    "E76N8-1-32|E76N8-26-32",
+    "E76N8-26-32|E76N8-40-39",
+    "E76N8-26-32|E77N8-0-24",
+    "E75N8-29-9|E76N8-26-32",
+    "E75N8-4-12|E76N8-26-32",
+    "E74N8-26-35|E76N8-26-32",
+    "E75N9-26-43|E76N8-26-32",
+    "E74N9-41-48|E76N8-26-32",
+    "E76N8-26-32|E77N9-15-4",
+    "E76N8-26-32|E77N9-22-14",
+    "E76N6-5-24|E76N8-26-32",
+    "E74N7-27-37|E76N8-26-32",
+    "E76N6-34-14|E76N8-26-32",
+    "E76N8-26-32|E77N9-35-32",
+    "E76N8-26-32|E77N9-32-12",
+    "E74N7-16-28|E76N8-26-32",
+    "E74N6-37-13|E76N8-26-32",
+    "E74N6-36-42|E76N8-26-32",
+    "E74N7-9-47|E76N8-26-32",
+    "E73N7-47-13|E76N8-26-32",
+    "E74N6-11-39|E76N8-26-32",
+    "E74N9-2-9|E76N8-26-32",
+    "E74N9-39-28|E76N8-26-32",
+    "E73N9-26-13|E76N8-26-32",
+    "E73N7-14-43|E76N8-26-32",
+    "E74N8-14-22|E76N8-26-32",
+    "E74N8-14-22|E74N8-26-35",
+    "E74N8-14-22|E74N9-41-48",
+    "E74N8-14-22|E74N9-2-9",
+    "E74N8-14-22|E74N9-39-28",
+    "E73N9-26-13|E74N8-14-22",
+    "E74N8-14-22|E77N9-15-4",
+    "E74N8-14-22|E77N9-22-14",
+    "E74N8-14-22|E77N9-32-12",
+    "E74N8-14-22|E76N8-1-32",
+    "E74N8-14-22|E75N8-29-9",
+    "E74N8-14-22|E76N8-40-39",
+    "E74N8-14-22|E77N8-0-24",
+    "E74N8-14-22|E77N9-35-32",
+    "E74N8-14-22|E75N8-4-12",
+    "E74N8-14-22|E75N9-26-43",
+    "E74N8-14-22|E76N6-5-24",
+    "E74N7-27-37|E74N8-14-22",
+    "E74N8-14-22|E76N6-34-14",
+    "E74N7-16-28|E74N8-14-22",
+    "E74N6-37-13|E74N8-14-22",
+    "E74N6-36-42|E74N8-14-22",
+    "E74N7-9-47|E74N8-14-22",
+    "E73N7-47-13|E74N8-14-22",
+    "E74N6-11-39|E74N8-14-22",
+    "E73N7-14-43|E74N8-14-22",
+    "E75N8-29-9|E76N8-1-32",
+    "E76N8-1-32|E76N8-40-39",
+    "E76N8-1-32|E77N8-0-24",
+    "E75N8-4-12|E76N8-1-32",
+    "E74N8-26-35|E76N8-1-32",
+    "E75N9-26-43|E76N8-1-32",
+    "E74N9-41-48|E76N8-1-32",
+    "E76N8-1-32|E77N9-15-4",
+    "E76N6-5-24|E76N8-1-32",
+    "E76N8-1-32|E77N9-22-14",
+    "E74N7-27-37|E76N8-1-32",
+    "E76N6-34-14|E76N8-1-32",
+    "E74N7-16-28|E76N8-1-32",
+    "E74N6-37-13|E76N8-1-32",
+    "E74N6-36-42|E76N8-1-32",
+    "E76N8-1-32|E77N9-35-32",
+    "E76N8-1-32|E77N9-32-12",
+    "E74N7-9-47|E76N8-1-32",
+    "E73N7-47-13|E76N8-1-32",
+    "E74N6-11-39|E76N8-1-32",
+    "E74N9-2-9|E76N8-1-32",
+    "E74N9-39-28|E76N8-1-32",
+    "E73N9-26-13|E76N8-1-32",
+    "E73N7-14-43|E76N8-1-32",
+    "E76N6-33-37|E76N6-5-24",
+    "E76N6-34-14|E76N6-5-24",
+    "E76N6-5-24|E77N6-7-41",
+    "E76N6-5-24|E77N7-22-36",
+    "E74N6-37-13|E76N6-5-24",
+    "E74N6-36-42|E76N6-5-24",
+    "E76N6-5-24|E77N6-22-29",
+    "E76N6-5-24|E77N6-38-4",
+    "E76N6-5-24|E77N6-32-33",
+    "E74N7-27-37|E76N6-5-24",
+    "E74N8-26-35|E76N6-5-24",
+    "E75N8-4-12|E76N6-5-24",
+    "E74N7-16-28|E76N6-5-24",
+    "E75N8-29-9|E76N6-5-24",
+    "E74N9-41-48|E76N6-5-24",
+    "E74N7-9-47|E76N6-5-24",
+    "E75N9-26-43|E76N6-5-24",
+    "E73N7-47-13|E76N6-5-24",
+    "E74N6-11-39|E76N6-5-24",
+    "E76N6-5-24|E76N8-40-39",
+    "E76N6-5-24|E77N8-0-24",
+    "E76N6-5-24|E77N9-15-4",
+    "E76N6-5-24|E77N9-22-14",
+    "E73N7-14-43|E76N6-5-24",
+    "E76N6-5-24|E77N9-35-32",
+    "E76N6-5-24|E77N9-32-12",
+    "E74N9-2-9|E76N6-5-24",
+    "E74N9-39-28|E76N6-5-24",
+    "E73N9-26-13|E76N6-5-24",
+    "E74N7-16-28|E74N7-9-47",
+    "E73N7-47-13|E74N7-9-47",
+    "E74N6-11-39|E74N7-9-47",
+    "E74N7-27-37|E74N7-9-47",
+    "E74N6-37-13|E74N7-9-47",
+    "E74N6-36-42|E74N7-9-47",
+    "E73N7-31-13|E74N7-9-47",
+    "E73N7-14-43|E74N7-9-47",
+    "E74N7-9-47|E74N8-26-35",
+    "E74N7-9-47|E75N8-4-12",
+    "E74N7-9-47|E76N6-34-14",
+    "E74N7-9-47|E75N8-29-9",
+    "E74N7-9-47|E74N9-41-48",
+    "E74N7-9-47|E75N9-26-43",
+    "E74N7-9-47|E76N8-40-39",
+    "E74N7-9-47|E77N8-0-24",
+    "E74N7-9-47|E77N9-15-4",
+    "E74N7-9-47|E77N9-22-14",
+    "E74N7-9-47|E77N9-35-32",
+    "E74N7-9-47|E77N9-32-12",
+    "E74N7-9-47|E74N9-2-9",
+    "E74N7-9-47|E74N9-39-28",
+    "E73N9-26-13|E74N7-9-47",
+    "E74N7-16-28|E74N7-27-37",
+    "E73N7-47-13|E74N7-16-28",
+    "E73N7-31-13|E74N7-16-28",
+    "E74N6-37-13|E74N7-16-28",
+    "E74N6-11-39|E74N7-16-28",
+    "E74N6-36-42|E74N7-16-28",
+    "E74N7-16-28|E74N8-26-35",
+    "E74N7-16-28|E75N8-4-12",
+    "E74N7-16-28|E76N6-34-14",
+    "E74N7-16-28|E75N8-29-9",
+    "E74N7-16-28|E74N9-41-48",
+    "E74N7-16-28|E75N9-26-43",
+    "E73N7-14-43|E74N7-16-28",
+    "E74N7-16-28|E76N8-40-39",
+    "E74N7-16-28|E77N8-0-24",
+    "E74N7-16-28|E77N9-15-4",
+    "E74N7-16-28|E77N9-22-14",
+    "E74N7-16-28|E77N9-35-32",
+    "E74N7-16-28|E77N9-32-12",
+    "E74N7-16-28|E74N9-2-9",
+    "E74N7-16-28|E74N9-39-28",
+    "E73N9-26-13|E74N7-16-28",
+    "E77N6-22-29|E77N6-32-33",
+    "E77N6-22-29|E77N6-7-41",
+    "E77N6-22-29|E77N6-38-4",
+    "E77N6-22-29|E77N7-22-36",
+    "E76N6-34-14|E77N6-22-29",
+    "E76N6-33-37|E77N6-22-29",
+    "E75N8-29-9|E75N9-26-43",
+    "E75N8-4-12|E75N9-26-43",
+    "E74N8-26-35|E75N9-26-43",
+    "E74N9-41-48|E75N9-26-43",
+    "E75N9-26-43|E76N8-40-39",
+    "E75N9-26-43|E77N8-0-24",
+    "E74N7-27-37|E75N9-26-43",
+    "E75N9-26-43|E76N6-34-14",
+    "E75N9-26-43|E77N9-15-4",
+    "E74N6-37-13|E75N9-26-43",
+    "E74N6-36-42|E75N9-26-43",
+    "E75N9-26-43|E77N9-22-14",
+    "E73N7-47-13|E75N9-26-43",
+    "E74N6-11-39|E75N9-26-43",
+    "E75N9-26-43|E77N9-35-32",
+    "E75N9-26-43|E77N9-32-12",
+    "E74N9-2-9|E75N9-26-43",
+    "E74N9-39-28|E75N9-26-43",
+    "E73N7-14-43|E75N9-26-43",
+    "E73N9-26-13|E75N9-26-43",
+    "E74N8-26-35|E75N8-4-12",
+    "E74N8-26-35|E74N9-41-48",
+    "E74N8-26-35|E75N8-29-9",
+    "E74N8-26-35|E76N8-40-39",
+    "E74N8-26-35|E77N8-0-24",
+    "E74N7-27-37|E74N8-26-35",
+    "E74N8-26-35|E76N6-34-14",
+    "E74N6-37-13|E74N8-26-35",
+    "E74N6-36-42|E74N8-26-35",
+    "E74N8-26-35|E77N9-15-4",
+    "E73N7-47-13|E74N8-26-35",
+    "E74N6-11-39|E74N8-26-35",
+    "E74N8-26-35|E77N9-22-14",
+    "E74N8-26-35|E77N9-35-32",
+    "E74N8-26-35|E77N9-32-12",
+    "E73N7-14-43|E74N8-26-35",
+    "E74N8-26-35|E74N9-2-9",
+    "E74N8-26-35|E74N9-39-28",
+    "E73N9-26-13|E74N8-26-35",
+    "E73N8-12-39|E73N8-44-14",
+    "E73N7-31-13|E73N8-44-14",
+    "E73N7-14-43|E73N8-44-14",
+    "E73N9-26-13|E73N9-28-36",
+    "E73N9-2-24|E73N9-28-36",
+    "E75N8-29-9|E75N8-4-12",
+    "E75N8-29-9|E76N8-40-39",
+    "E75N8-29-9|E77N8-0-24",
+    "E74N9-41-48|E75N8-29-9",
+    "E75N8-29-9|E77N9-15-4",
+    "E75N8-29-9|E77N9-22-14",
+    "E74N7-27-37|E75N8-29-9",
+    "E75N8-29-9|E76N6-34-14",
+    "E75N8-29-9|E77N9-35-32",
+    "E75N8-29-9|E77N9-32-12",
+    "E74N6-37-13|E75N8-29-9",
+    "E74N6-36-42|E75N8-29-9",
+    "E73N7-47-13|E75N8-29-9",
+    "E74N6-11-39|E75N8-29-9",
+    "E74N9-2-9|E75N8-29-9",
+    "E74N9-39-28|E75N8-29-9",
+    "E73N9-26-13|E75N8-29-9",
+    "E73N7-14-43|E75N8-29-9",
+    "E73N7-14-43|E73N7-31-13",
+    "E73N7-14-43|E73N8-12-39",
+    "E73N7-14-43|E74N6-11-39",
+    "E73N7-14-43|E74N6-37-13",
+    "E73N7-14-43|E74N6-36-42",
+    "E73N7-14-43|E74N7-27-37",
+    "E73N7-14-43|E73N7-47-13",
+    "E73N7-14-43|E75N8-4-12",
+    "E73N7-14-43|E76N6-34-14",
+    "E73N7-14-43|E74N9-41-48",
+    "E73N7-14-43|E76N8-40-39",
+    "E73N7-14-43|E77N8-0-24",
+    "E73N7-14-43|E77N9-15-4",
+    "E73N7-14-43|E77N9-22-14",
+    "E73N7-14-43|E77N9-35-32",
+    "E73N7-14-43|E77N9-32-12",
+    "E73N7-14-43|E74N9-2-9",
+    "E73N7-14-43|E74N9-39-28",
+    "E73N7-14-43|E73N9-26-13",
+    "E73N7-31-13|E73N7-47-13",
+    "E73N7-47-13|E74N7-27-37",
+    "E73N7-47-13|E74N6-37-13",
+    "E73N7-47-13|E74N6-11-39",
+    "E73N7-47-13|E74N6-36-42",
+    "E73N7-47-13|E75N8-4-12",
+    "E73N7-47-13|E76N6-34-14",
+    "E73N7-47-13|E74N9-41-48",
+    "E73N7-47-13|E76N8-40-39",
+    "E73N7-47-13|E77N8-0-24",
+    "E73N7-47-13|E77N9-15-4",
+    "E73N7-47-13|E77N9-22-14",
+    "E73N7-47-13|E77N9-35-32",
+    "E73N7-47-13|E77N9-32-12",
+    "E73N7-47-13|E74N9-2-9",
+    "E73N7-47-13|E74N9-39-28",
+    "E73N7-47-13|E73N9-26-13",
+    "E74N6-11-39|E74N6-36-42",
+    "E74N6-11-39|E74N6-37-13",
+    "E74N6-11-39|E74N7-27-37",
+    "E74N6-11-39|E75N8-4-12",
+    "E74N6-11-39|E76N6-34-14",
+    "E74N6-11-39|E74N9-41-48",
+    "E74N6-11-39|E76N8-40-39",
+    "E74N6-11-39|E77N8-0-24",
+    "E74N6-11-39|E77N9-15-4",
+    "E74N6-11-39|E77N9-22-14",
+    "E74N6-11-39|E77N9-35-32",
+    "E74N6-11-39|E77N9-32-12",
+    "E74N6-11-39|E74N9-2-9",
+    "E74N6-11-39|E74N9-39-28",
+    "E73N9-26-13|E74N6-11-39",
+    "E77N6-32-33|E77N6-38-4",
+    "E77N6-32-33|E77N7-22-36",
+    "E76N6-34-14|E77N6-32-33",
+    "E76N6-33-37|E77N6-32-33",
+    "E77N6-32-33|E77N6-7-41",
+    "E77N8-0-24|E77N8-7-46",
+    "E77N7-10-38|E77N8-7-46",
+    "E77N7-24-10|E77N8-7-46",
+    "E77N8-20-24|E77N8-7-46",
+    "E77N7-22-36|E77N8-7-46",
+    "E77N6-38-4|E77N8-7-46",
+    "E77N7-45-35|E77N8-7-46",
+    "E77N7-10-38|E77N7-24-10",
+    "E77N7-10-38|E77N7-22-36",
+    "E77N6-38-4|E77N7-10-38",
+    "E77N7-10-38|E77N7-45-35",
+    "E77N8-0-24|E77N8-20-24",
+    "E77N7-24-10|E77N8-20-24",
+    "E77N9-22-14|E77N9-35-32",
+    "E77N9-32-12|E77N9-35-32",
+    "E77N9-15-4|E77N9-35-32",
+    "E76N8-40-39|E77N9-35-32",
+    "E77N8-0-24|E77N9-35-32",
+    "E75N8-4-12|E77N9-35-32",
+    "E74N9-2-9|E77N9-35-32",
+    "E74N9-39-28|E77N9-35-32",
+    "E74N9-41-48|E77N9-35-32",
+    "E73N9-26-13|E77N9-35-32",
+    "E74N7-27-37|E77N9-35-32",
+    "E76N6-34-14|E77N9-35-32",
+    "E74N6-37-13|E77N9-35-32",
+    "E74N6-36-42|E77N9-35-32",
+    "E73N9-26-13|E74N9-2-9",
+    "E74N9-2-9|E74N9-39-28",
+    "E74N9-2-9|E74N9-41-48",
+    "E74N9-2-9|E77N9-15-4",
+    "E74N9-2-9|E77N9-22-14",
+    "E74N9-2-9|E77N9-32-12",
+    "E74N9-2-9|E76N8-40-39",
+    "E74N9-2-9|E77N8-0-24",
+    "E74N9-2-9|E75N8-4-12",
+    "E74N7-27-37|E74N9-2-9",
+    "E74N9-2-9|E76N6-34-14",
+    "E74N6-37-13|E74N9-2-9",
+    "E74N6-36-42|E74N9-2-9",
+    "E73N9-2-24|E73N9-26-13",
+    "E74N9-39-28|E74N9-41-48",
+    "E74N9-41-48|E75N8-4-12",
+    "E74N9-41-48|E76N8-40-39",
+    "E74N9-41-48|E77N8-0-24",
+    "E74N7-27-37|E74N9-41-48",
+    "E74N9-41-48|E76N6-34-14",
+    "E73N9-26-13|E74N9-41-48",
+    "E74N6-37-13|E74N9-41-48",
+    "E74N6-36-42|E74N9-41-48",
+    "E74N9-41-48|E77N9-15-4",
+    "E74N9-41-48|E77N9-22-14",
+    "E74N9-41-48|E77N9-32-12",
+    "E76N6-33-37|E76N6-34-14",
+    "E76N6-34-14|E77N6-7-41",
+    "E76N6-34-14|E77N7-22-36",
+    "E76N6-34-14|E77N6-38-4",
+    "E74N6-37-13|E76N6-34-14",
+    "E74N6-36-42|E76N6-34-14",
+    "E75N8-4-12|E76N6-34-14",
+    "E74N7-27-37|E76N6-34-14",
+    "E76N6-34-14|E76N8-40-39",
+    "E76N6-34-14|E77N8-0-24",
+    "E76N6-34-14|E77N9-15-4",
+    "E76N6-34-14|E77N9-22-14",
+    "E76N6-34-14|E77N9-32-12",
+    "E74N9-39-28|E76N6-34-14",
+    "E73N9-26-13|E76N6-34-14",
+    "E76N6-33-37|E77N6-7-41",
+    "E76N6-33-37|E77N7-22-36",
+    "E76N6-33-37|E77N6-38-4",
+    "E75N8-4-12|E76N8-40-39",
+    "E75N8-4-12|E77N8-0-24",
+    "E74N7-27-37|E75N8-4-12",
+    "E75N8-4-12|E77N9-15-4",
+    "E74N6-37-13|E75N8-4-12",
+    "E74N6-36-42|E75N8-4-12",
+    "E75N8-4-12|E77N9-22-14",
+    "E75N8-4-12|E77N9-32-12",
+    "E74N9-39-28|E75N8-4-12",
+    "E73N9-26-13|E75N8-4-12",
+    "E73N9-26-13|E74N9-39-28",
+    "E74N9-39-28|E77N9-15-4",
+    "E74N9-39-28|E77N9-22-14",
+    "E74N9-39-28|E77N9-32-12",
+    "E74N9-39-28|E76N8-40-39",
+    "E74N9-39-28|E77N8-0-24",
+    "E74N7-27-37|E74N9-39-28",
+    "E74N6-37-13|E74N9-39-28",
+    "E74N6-36-42|E74N9-39-28",
+    "E73N9-26-13|E77N9-15-4",
+    "E73N9-26-13|E77N9-22-14",
+    "E73N9-26-13|E77N9-32-12",
+    "E73N9-26-13|E76N8-40-39",
+    "E73N9-26-13|E77N8-0-24",
+    "E73N9-26-13|E74N7-27-37",
+    "E73N9-26-13|E74N6-37-13",
+    "E73N9-26-13|E74N6-36-42",
+    "E77N6-7-41|E77N7-22-36",
+    "E77N6-38-4|E77N6-7-41",
+    "E77N6-38-4|E77N7-45-35",
+    "E77N6-38-4|E77N7-22-36",
+    "E77N6-38-4|E77N7-24-10",
+    "E77N7-22-36|E77N7-24-10",
+    "E77N7-22-36|E77N7-45-35",
+    "E77N7-24-10|E77N7-45-35",
+    "E77N7-24-10|E77N8-0-24",
+    "E74N6-36-42|E74N6-37-13",
+    "E74N6-36-42|E74N7-27-37",
+    "E74N6-36-42|E76N8-40-39",
+    "E74N6-36-42|E77N8-0-24",
+    "E74N6-36-42|E77N9-15-4",
+    "E74N6-36-42|E77N9-22-14",
+    "E74N6-36-42|E77N9-32-12",
+    "E74N6-37-13|E74N7-27-37",
+    "E74N6-37-13|E76N8-40-39",
+    "E74N6-37-13|E77N8-0-24",
+    "E74N6-37-13|E77N9-15-4",
+    "E74N6-37-13|E77N9-22-14",
+    "E74N6-37-13|E77N9-32-12",
+    "E77N9-15-4|E77N9-22-14",
+    "E77N9-15-4|E77N9-32-12",
+    "E76N8-40-39|E77N9-15-4",
+    "E77N8-0-24|E77N9-15-4",
+    "E74N7-27-37|E77N9-15-4",
+    "E77N9-22-14|E77N9-32-12",
+    "E76N8-40-39|E77N9-22-14",
+    "E77N8-0-24|E77N9-22-14",
+    "E74N7-27-37|E77N9-22-14",
+    "E73N7-31-13|E73N8-12-39",
+    "E76N8-40-39|E77N9-32-12",
+    "E77N8-0-24|E77N9-32-12",
+    "E74N7-27-37|E77N9-32-12",
+    "E74N7-27-37|E76N8-40-39",
+    "E74N7-27-37|E77N8-0-24",
+    "E76N8-40-39|E77N8-0-24"
+  ]
+}
