@@ -125,21 +125,18 @@ export class RealHaulingCorp extends Corp {
     }, 0);
 
     // Calculate current haul capacity from existing creeps
-    // Each CARRY part provides HAUL_PER_CARRY capacity (25 with 1:1 MOVE on roads)
-    // Prorate by remaining lifetime
     const currentHaulCapacity = this.creepNames.reduce((sum, name) => {
       const creep = Game.creeps[name];
       if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
       const carryParts = creep.getActiveBodyparts(CARRY);
-      const lifetimeFraction = ttl / CREEP_LIFETIME;
-      return sum + (carryParts * HAUL_PER_CARRY * lifetimeFraction);
+      return sum + (carryParts * HAUL_PER_CARRY);
     }, 0);
 
-    // Need enough capacity to handle demand (subtract both current AND committed)
-    const neededHaulCapacity = totalHaulDemand - currentHaulCapacity - this.committedWorkTicks;
+    // SIMPLIFIED LOGIC: Request 1 hauler at a time if we need more capacity
+    if (currentHaulCapacity < totalHaulDemand) {
+      // Request a standard hauler's worth of capacity
+      const standardHaulerCapacity = 4 * HAUL_PER_CARRY; // 4 CARRY parts
 
-    if (neededHaulCapacity > HAUL_PER_CARRY) {
       // Price based on expected transport revenue
       const pricePerHaul = TRANSPORT_FEE_PER_ENERGY * (1 + this.getMargin());
 
@@ -148,8 +145,8 @@ export class RealHaulingCorp extends Corp {
         corpId: this.id,
         type: "buy",
         resource: "carry-ticks",
-        quantity: neededHaulCapacity,
-        price: pricePerHaul * neededHaulCapacity,
+        quantity: standardHaulerCapacity,
+        price: pricePerHaul * standardHaulerCapacity,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -259,7 +256,7 @@ export class RealHaulingCorp extends Corp {
    * Also picks up maintenance haulers spawned by SpawningCorp with matching nodeId.
    */
   private pickupAssignedCreeps(): void {
-    const TICKS_PER_DELIVERY = 50; // Same as in sells()
+    const TICKS_PER_DELIVERY = 50;
 
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
@@ -270,22 +267,17 @@ export class RealHaulingCorp extends Corp {
       if ((matchesCorpId || matchesNodeId) && !this.creepNames.includes(name)) {
         this.creepNames.push(name);
 
-        // Fulfill commitment for delivered haul capacity (skip for maintenance haulers)
+        // Record expected lifetime production for amortized pricing
         if (!creep.memory.isMaintenanceHauler) {
-          const carryParts = creep.getActiveBodyparts(CARRY);
-          const deliveredCapacity = carryParts * HAUL_PER_CARRY;
-          this.fulfillWorkTicksCommitment(deliveredCapacity);
-
-          // Record expected lifetime production for amortized pricing
-          // capacity × deliveries over lifetime
           const capacity = creep.store.getCapacity();
           const expectedDeliveries = Math.floor(CREEP_LIFETIME / TICKS_PER_DELIVERY);
           const expectedDeliveredEnergy = capacity * expectedDeliveries;
           this.recordExpectedProduction(expectedDeliveredEnergy);
         }
 
-        const haulerType = creep.memory.isMaintenanceHauler ? "MAINTENANCE hauler" : "creep";
-        console.log(`[Hauling] Picked up ${haulerType} ${name} assigned to ${this.id}`);
+        const haulerType = creep.memory.isMaintenanceHauler ? "maintenance" : "regular";
+        const carryParts = creep.getActiveBodyparts(CARRY);
+        console.log(`[Hauling] Picked up ${haulerType} hauler ${name} (${carryParts} CARRY)`);
       }
     }
   }

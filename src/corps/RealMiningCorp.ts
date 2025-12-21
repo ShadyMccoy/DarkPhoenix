@@ -122,8 +122,10 @@ export class RealMiningCorp extends Corp {
    * Mining corp buys work-ticks (miner creeps) from SpawningCorps.
    * Requests work-ticks when we need more miners.
    *
-   * IMPORTANT: Limits requests based on available mining spots to prevent
-   * spawning more miners than can physically fit around the source.
+   * SIMPLIFIED LOGIC:
+   * - Only request 1 creep at a time (prevents over-ordering)
+   * - Calculate need based on current creeps only (no commitment tracking)
+   * - Respects mining spot limit as a physical constraint
    */
   buys(): Offer[] {
     // Ensure source analysis is available for mining spot count
@@ -132,42 +134,30 @@ export class RealMiningCorp extends Corp {
     // Get available mining spots - this limits how many creeps can mine
     const miningSpots = this.sourceMine ? getMiningSpots(this.sourceMine) : 1;
 
-    // Count current live creeps (not just work-ticks) to enforce spot limit
+    // Count current live creeps
     const currentCreepCount = this.creepNames.filter(n => Game.creeps[n]).length;
 
-    // Count pending/committed creeps (each contract = 1 creep typically)
-    // committedWorkTicks / CREEP_LIFETIME gives rough creep count
-    const pendingCreeps = Math.ceil(this.committedWorkTicks / CREEP_LIFETIME);
-
-    // Total creeps we'll have after pending orders are fulfilled
-    const totalCreeps = currentCreepCount + pendingCreeps;
-
     // Don't request more if we're at or above the mining spot limit
-    if (totalCreeps >= miningSpots) {
+    if (currentCreepCount >= miningSpots) {
       return [];
     }
 
-    // Calculate current work capacity from existing creeps
-    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
+    // Also check if we have enough work parts already
+    const currentWorkParts = this.creepNames.reduce((sum, name) => {
       const creep = Game.creeps[name];
       if (!creep) return sum;
-      // Count remaining work-ticks based on TTL
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const workParts = creep.getActiveBodyparts(WORK);
-      return sum + (workParts * ttl);
+      return sum + creep.getActiveBodyparts(WORK);
     }, 0);
 
-    // Calculate needed work-ticks (subtract both current capacity AND committed contracts)
-    // We want enough miners to fully harvest the source
-    const targetWorkTicks = this.desiredWorkParts * CREEP_LIFETIME;
-    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
+    // If we have enough work parts to fully harvest, don't request more
+    if (currentWorkParts >= this.desiredWorkParts) {
+      return [];
+    }
 
-    // Only request if we need significant capacity
-    if (neededWorkTicks < CREEP_LIFETIME) return [];
+    // Request exactly 1 creep's worth of work-ticks
+    const workTicksPerCreep = CREEP_LIFETIME;
 
     // Calculate bid price based on expected revenue
-    // Mining produces 2 energy per WORK per tick
-    // Each work-tick produces 2 energy, so value = 2 × energy sell price
     const pricePerWorkTick = DEFAULT_ENERGY_PRICE * 2 * (1 + this.getMargin());
 
     return [{
@@ -175,8 +165,8 @@ export class RealMiningCorp extends Corp {
       corpId: this.id,
       type: "buy",
       resource: "work-ticks",
-      quantity: neededWorkTicks,
-      price: pricePerWorkTick * neededWorkTicks,
+      quantity: workTicksPerCreep,
+      price: pricePerWorkTick * workTicksPerCreep,
       duration: CREEP_LIFETIME,
       location: this.getPosition()
     }];
@@ -252,18 +242,12 @@ export class RealMiningCorp extends Corp {
       ) {
         this.creepNames.push(name);
 
-        // Fulfill commitment for delivered work-ticks
-        const workParts = creep.getActiveBodyparts(WORK);
-        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
-        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
-
         // Record expected lifetime production for amortized pricing
-        // This prevents price spikes during bootstrapping by spreading
-        // the upfront creep cost over the full expected energy output
+        const workParts = creep.getActiveBodyparts(WORK);
         const expectedEnergy = workParts * 2 * CREEP_LIFETIME;
         this.recordExpectedProduction(expectedEnergy);
 
-        console.log(`[Mining] Picked up creep ${name} assigned to ${this.id} (expected ${expectedEnergy} energy)`);
+        console.log(`[Mining] Picked up miner ${name} (${workParts} WORK)`);
       }
     }
   }

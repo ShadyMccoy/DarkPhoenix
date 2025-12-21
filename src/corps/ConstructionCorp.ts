@@ -86,6 +86,11 @@ export class ConstructionCorp extends Corp {
   /**
    * Construction corp buys work-ticks (builder creeps) via the market.
    * Only requests builders when there's construction work to do.
+   *
+   * SIMPLIFIED LOGIC:
+   * - Only request 1 creep at a time (prevents over-ordering)
+   * - Calculate need based on current creeps only (no commitment tracking)
+   * - The market's natural capacity limiting handles throttling
    */
   buys(): Offer[] {
     const offers: Offer[] = [];
@@ -97,21 +102,15 @@ export class ConstructionCorp extends Corp {
     const constructionSites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) return [];
 
-    // Calculate current work-ticks capacity
-    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const workParts = creep.getActiveBodyparts(WORK);
-      return sum + (workParts * ttl);
-    }, 0);
+    // Count current active builders
+    const currentBuilders = this.creepNames.filter(name => Game.creeps[name]).length;
 
-    // Target: up to MAX_BUILDERS worth of capacity (subtract both current AND committed)
-    const targetWorkTicks = MAX_BUILDERS * CREEP_LIFETIME;
-    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
+    // Simple logic: if we have fewer than MAX_BUILDERS, request exactly 1 more
+    if (currentBuilders < MAX_BUILDERS) {
+      // Request exactly 1 creep's worth of work-ticks
+      const workTicksPerCreep = CREEP_LIFETIME; // 1 WORK part × lifetime
 
-    if (neededWorkTicks >= CREEP_LIFETIME) {
-      // Price based on construction value
+      // Price based on construction value (must be higher than SpawningCorp's ask)
       const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
       offers.push({
@@ -119,8 +118,8 @@ export class ConstructionCorp extends Corp {
         corpId: this.id,
         type: "buy",
         resource: "work-ticks",
-        quantity: neededWorkTicks,
-        price: pricePerWorkTick * neededWorkTicks,
+        quantity: workTicksPerCreep,
+        price: pricePerWorkTick * workTicksPerCreep,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -141,13 +140,7 @@ export class ConstructionCorp extends Corp {
         !this.creepNames.includes(name)
       ) {
         this.creepNames.push(name);
-
-        // Fulfill commitment for delivered work-ticks
-        const workParts = creep.getActiveBodyparts(WORK);
-        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
-        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
-
-        console.log(`[Construction] Picked up creep ${name} assigned to ${this.id}`);
+        console.log(`[Construction] Picked up builder ${name}`);
       }
     }
   }

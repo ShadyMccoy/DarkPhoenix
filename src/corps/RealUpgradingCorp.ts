@@ -62,24 +62,23 @@ export class RealUpgradingCorp extends Corp {
 
   /**
    * Upgrading corp buys work-ticks (upgrader creeps) and haul-energy (energy delivery).
+   *
+   * SIMPLIFIED LOGIC:
+   * - Only request 1 creep at a time (prevents over-ordering)
+   * - Calculate need based on current creeps only (no commitment tracking)
    */
   buys(): Offer[] {
     const offers: Offer[] = [];
 
-    // Buy work-ticks (upgrader creeps) if we need more capacity
-    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const workParts = creep.getActiveBodyparts(WORK);
-      return sum + (workParts * ttl);
-    }, 0);
+    // Count current active upgraders
+    const currentUpgraders = this.creepNames.filter(name => Game.creeps[name]).length;
 
-    // Target: at least 2 WORK parts worth of capacity (subtract both current AND committed)
-    const targetWorkTicks = 2 * CREEP_LIFETIME;
-    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
+    // Target: 2 upgraders. Request exactly 1 at a time.
+    const targetUpgraders = 2;
+    if (currentUpgraders < targetUpgraders) {
+      // Request exactly 1 creep's worth of work-ticks
+      const workTicksPerCreep = CREEP_LIFETIME;
 
-    if (neededWorkTicks >= CREEP_LIFETIME) {
       // Price based on expected RCL progress value
       const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
@@ -88,8 +87,8 @@ export class RealUpgradingCorp extends Corp {
         corpId: this.id,
         type: "buy",
         resource: "work-ticks",
-        quantity: neededWorkTicks,
-        price: pricePerWorkTick * neededWorkTicks,
+        quantity: workTicksPerCreep,
+        price: pricePerWorkTick * workTicksPerCreep,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -233,13 +232,7 @@ export class RealUpgradingCorp extends Corp {
         !this.creepNames.includes(name)
       ) {
         this.creepNames.push(name);
-
-        // Fulfill commitment for delivered work-ticks
-        const workParts = creep.getActiveBodyparts(WORK);
-        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
-        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
-
-        console.log(`[Upgrading] Picked up creep ${name} assigned to ${this.id}`);
+        console.log(`[Upgrading] Picked up upgrader ${name}`);
       }
     }
   }
