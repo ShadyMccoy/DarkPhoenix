@@ -16,7 +16,7 @@ export {
   type TelemetryConfig,
   type CoreTelemetry,
   type NodeTelemetry,
-  type TerrainTelemetry,
+  type EdgesTelemetry,
   type IntelTelemetry,
   type CorpsTelemetry,
   type ChainsTelemetry,

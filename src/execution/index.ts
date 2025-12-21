@@ -16,6 +16,9 @@ export {
   runBootstrapCorps,
   runRealCorps,
   runScoutCorps,
+  runConstructionCorps,
+  registerCorpsWithMarket,
+  runMarketClearing,
   logCorpStats,
 } from "./CorpRunner";
 

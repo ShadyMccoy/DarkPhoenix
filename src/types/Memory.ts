@@ -16,6 +16,7 @@ import {
   SerializedRealHaulingCorp,
   SerializedRealUpgradingCorp,
   SerializedScoutCorp,
+  SerializedConstructionCorp,
 } from "../corps";
 
 declare global {
@@ -71,9 +72,9 @@ declare global {
 
     /**
      * Economic edges between corp-hosting nodes.
-     * Format: Array of "nodeId1|nodeId2" strings (sorted alphabetically).
+     * Format: Map of "nodeId1|nodeId2" -> distance (sorted alphabetically).
      */
-    economicEdges?: string[];
+    economicEdges?: { [edge: string]: number };
 
     /**
      * Serialized chains for persistence.
@@ -114,6 +115,11 @@ declare global {
      * Serialized scout corps by room name.
      */
     scoutCorps?: { [roomName: string]: SerializedScoutCorp };
+
+    /**
+     * Serialized construction corps by room name.
+     */
+    constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
   }
 
   /**

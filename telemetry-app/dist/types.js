@@ -8,7 +8,7 @@
 export const TELEMETRY_SEGMENTS = {
     CORE: 0,
     NODES: 1,
-    TERRAIN: 2,
+    EDGES: 2, // Spatial and economic edges (compressed format)
     INTEL: 3,
     CORPS: 4,
     CHAINS: 5,

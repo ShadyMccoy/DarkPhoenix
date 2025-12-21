@@ -9,7 +9,7 @@
 export const TELEMETRY_SEGMENTS = {
   CORE: 0,
   NODES: 1,
-  TERRAIN: 2,
+  EDGES: 2,    // Spatial and economic edges (compressed format)
   INTEL: 3,
   CORPS: 4,
   CHAINS: 5,
@@ -74,8 +74,8 @@ export interface NodeTelemetry {
   nodes: NodeTelemetryNode[];
   /** Edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
   edges: string[];
-  /** Economic edges between nodes with resources. Format: "nodeId1|nodeId2" */
-  economicEdges?: string[];
+  /** Economic edges between nodes with resources. Format: "nodeId1|nodeId2" -> distance */
+  economicEdges?: { [edge: string]: number };
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -129,16 +129,18 @@ export interface NodeTelemetryNode {
 }
 
 /**
- * Terrain telemetry data structure (Segment 2).
+ * Edges telemetry data structure (Segment 2).
+ * Uses compressed numeric format to minimize size.
  */
-export interface TerrainTelemetry {
+export interface EdgesTelemetry {
   version: number;
   tick: number;
-  rooms: {
-    name: string;
-    terrain: string;
-    cachedAt: number;
-  }[];
+  /** Node IDs in index order - position = index for edge references */
+  nodeIndex: string[];
+  /** Spatial edges as [idx1, idx2] pairs (indices into nodeIndex) */
+  edges: [number, number][];
+  /** Economic edges as [idx1, idx2, distance] triples */
+  economicEdges: [number, number, number][];
 }
 
 /**
@@ -230,7 +232,7 @@ export interface ChainsTelemetry {
 export interface AllTelemetry {
   core: CoreTelemetry | null;
   nodes: NodeTelemetry | null;
-  terrain: TerrainTelemetry | null;
+  edges: EdgesTelemetry | null;
   intel: IntelTelemetry | null;
   corps: CorpsTelemetry | null;
   chains: ChainsTelemetry | null;

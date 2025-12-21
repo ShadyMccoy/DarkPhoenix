@@ -25,6 +25,10 @@ export interface SerializedCorp {
   createdAt: number;
   isActive: boolean;
   lastActivityTick: number;
+  // Production tracking for marginal cost pricing
+  unitsProduced: number;
+  unitsConsumed: number;
+  acquisitionCost: number;
 }
 
 /**
@@ -68,6 +72,15 @@ export abstract class Corp {
 
   /** Last tick this corp performed work */
   lastActivityTick: number = 0;
+
+  /** Units produced (energy harvested, carried, etc.) for marginal cost calculation */
+  unitsProduced: number = 0;
+
+  /** Units consumed (energy used) for tracking consumption */
+  unitsConsumed: number = 0;
+
+  /** Total acquisition cost for purchased inputs (for middleman corps like hauling) */
+  acquisitionCost: number = 0;
 
   /** Base margin for cost-plus pricing (10%) */
   private readonly BASE_MARGIN = 0.1;
@@ -164,6 +177,52 @@ export abstract class Corp {
   }
 
   /**
+   * Record production of units (for marginal cost calculation)
+   */
+  recordProduction(units: number): void {
+    if (units <= 0) return;
+    this.unitsProduced += units;
+  }
+
+  /**
+   * Record consumption of units
+   */
+  recordConsumption(units: number): void {
+    if (units <= 0) return;
+    this.unitsConsumed += units;
+  }
+
+  /**
+   * Record acquisition cost for purchased inputs (middleman corps)
+   */
+  recordAcquisition(cost: number, units: number): void {
+    if (cost <= 0 || units <= 0) return;
+    this.acquisitionCost += cost;
+    this.unitsProduced += units;
+  }
+
+  /**
+   * Get marginal cost per unit produced.
+   * For producers: totalCost / unitsProduced
+   * For middlemen: (acquisitionCost + operatingCost) / unitsProduced
+   */
+  getMarginalCost(): number {
+    if (this.unitsProduced === 0) return Infinity;
+    // Operating cost = totalCost - acquisitionCost (what we paid to produce/transport)
+    const operatingCost = this.totalCost - this.acquisitionCost;
+    return (this.acquisitionCost + operatingCost) / this.unitsProduced;
+  }
+
+  /**
+   * Get the sell price per unit using marginal cost + margin
+   */
+  getSellPrice(): number {
+    const marginalCost = this.getMarginalCost();
+    if (!isFinite(marginalCost)) return 1; // Default price when no production yet
+    return this.getPrice(marginalCost);
+  }
+
+  /**
    * Get actual ROI based on lifetime revenue and costs
    */
   getActualROI(): number {
@@ -239,7 +298,10 @@ export abstract class Corp {
       totalCost: this.totalCost,
       createdAt: this.createdAt,
       isActive: this.isActive,
-      lastActivityTick: this.lastActivityTick
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost
     };
   }
 
@@ -253,6 +315,9 @@ export abstract class Corp {
     this.createdAt = data.createdAt ?? 0;
     this.isActive = data.isActive ?? false;
     this.lastActivityTick = data.lastActivityTick ?? 0;
+    this.unitsProduced = data.unitsProduced ?? 0;
+    this.unitsConsumed = data.unitsConsumed ?? 0;
+    this.acquisitionCost = data.acquisitionCost ?? 0;
   }
 
   /**

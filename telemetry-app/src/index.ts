@@ -18,6 +18,7 @@ import {
   NodeTelemetry,
   NodeTelemetryNode,
   NodeTelemetryNodeCompact,
+  EdgesTelemetry,
   CorpsTelemetry,
 } from "./types.js";
 
@@ -85,7 +86,7 @@ const api = new ScreepsAPI({
 let telemetry: AllTelemetry = {
   core: null,
   nodes: null,
-  terrain: null,
+  edges: null,
   intel: null,
   corps: null,
   chains: null,
@@ -136,7 +137,7 @@ function normalizeNode(node: NodeTelemetryNodeCompact): NodeTelemetryNode {
 
 /**
  * Parse and normalize node telemetry.
- * Handles both v1 (legacy) and v2 (compact) formats.
+ * Handles v1 (legacy), v2-v4 (compact with edges), and v5+ (edges in segment 2).
  */
 function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
   if (!data) return null;
@@ -144,7 +145,7 @@ function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
     const raw = JSON.parse(data);
     if (!raw || !raw.nodes) return null;
 
-    // Check if this is v2 compact format (nodes have 'r' instead of 'roomName')
+    // Check if this is v2+ compact format (nodes have 'r' instead of 'roomName')
     const isCompact = raw.version >= 2 || (raw.nodes.length > 0 && 'r' in raw.nodes[0]);
 
     if (isCompact) {
@@ -152,8 +153,9 @@ function parseNodeTelemetry(data: string | null): NodeTelemetry | null {
         version: raw.version,
         tick: raw.tick,
         nodes: raw.nodes.map((n: NodeTelemetryNodeCompact) => normalizeNode(n)),
-        edges: raw.edges || [],
-        economicEdges: raw.economicEdges || [],
+        // edges are optional in v5+ (moved to segment 2)
+        edges: raw.edges,
+        economicEdges: raw.economicEdges,
         summary: raw.summary,
       };
     }
@@ -201,10 +203,11 @@ async function pollTelemetry(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Polling telemetry...`);
 
   try {
-    // Fetch core, nodes, and corps segments (with delay between to avoid rate limiting)
+    // Fetch core, nodes, edges, and corps segments (with delay between to avoid rate limiting)
     const segments = await api.readSegments([
       TELEMETRY_SEGMENTS.CORE,
       TELEMETRY_SEGMENTS.NODES,
+      TELEMETRY_SEGMENTS.EDGES,
       TELEMETRY_SEGMENTS.CORPS,
     ]);
 
@@ -212,7 +215,7 @@ async function pollTelemetry(): Promise<void> {
     const newTelemetry: AllTelemetry = {
       core: parseTelemetry<CoreTelemetry>(segments[TELEMETRY_SEGMENTS.CORE]),
       nodes: parseNodeTelemetry(segments[TELEMETRY_SEGMENTS.NODES]),
-      terrain: null,
+      edges: parseTelemetry<EdgesTelemetry>(segments[TELEMETRY_SEGMENTS.EDGES]),
       intel: null,
       corps: parseTelemetry<CorpsTelemetry>(segments[TELEMETRY_SEGMENTS.CORPS]),
       chains: null,
@@ -225,7 +228,8 @@ async function pollTelemetry(): Promise<void> {
     telemetry = newTelemetry;
 
     if (hasNewData && newTelemetry.core) {
-      console.log(`  Tick: ${newTelemetry.core.tick}, Nodes: ${newTelemetry.nodes?.summary?.totalNodes || 0}`);
+      const edgeCount = newTelemetry.edges?.edges?.length || 0;
+      console.log(`  Tick: ${newTelemetry.core.tick}, Nodes: ${newTelemetry.nodes?.summary?.totalNodes || 0}, Edges: ${edgeCount}`);
 
       // Save to local cache
       saveTelemetryCache(newTelemetry);

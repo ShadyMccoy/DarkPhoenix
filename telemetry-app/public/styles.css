@@ -376,6 +376,264 @@ tbody tr:hover {
   color: var(--accent);
 }
 
+.badge-econ {
+  background: rgba(74, 222, 128, 0.2);
+  color: var(--accent-green);
+  margin-right: 4px;
+}
+
+/* Node table enhancements */
+.controller-node {
+  background: rgba(233, 69, 96, 0.05);
+}
+
+.controller-node:hover {
+  background: rgba(233, 69, 96, 0.1);
+}
+
+/* Clickable rows */
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickable-row:hover {
+  background: var(--bg-secondary);
+}
+
+.controller-icon {
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.has-sources {
+  color: var(--accent-yellow);
+  font-weight: 600;
+}
+
+.remote-sources {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+.score-cell {
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+/* Network canvas cursor */
+#network-canvas {
+  cursor: grab;
+}
+
+#network-canvas:active {
+  cursor: grabbing;
+}
+
+/* Network layout with details panel */
+.network-layout {
+  display: flex;
+  gap: 15px;
+}
+
+.network-container {
+  flex: 1;
+}
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+/* Node details modal */
+.node-details-modal {
+  width: 380px;
+  max-width: 90vw;
+  max-height: 80vh;
+  background: var(--bg-card);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.details-header h4 {
+  margin: 0;
+  color: var(--accent-blue);
+  font-size: 1rem;
+}
+
+.details-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 5px;
+  line-height: 1;
+}
+
+.details-close:hover {
+  color: var(--accent);
+}
+
+.details-content {
+  padding: 15px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.details-hint {
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 20px;
+}
+
+.details-section {
+  margin-bottom: 15px;
+}
+
+.details-section h5 {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.details-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.details-row .label {
+  color: var(--text-secondary);
+}
+
+.details-row .value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.details-row .value.positive {
+  color: var(--accent-green);
+}
+
+.details-row .value.negative {
+  color: var(--accent);
+}
+
+.details-row .value.highlight {
+  color: var(--accent-yellow);
+}
+
+/* Source list in details */
+.source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.source-item {
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.source-item .source-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.source-item .source-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.source-item .source-type {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(96, 165, 250, 0.2);
+  color: var(--accent-blue);
+}
+
+.source-item .source-type.local {
+  background: rgba(74, 222, 128, 0.2);
+  color: var(--accent-green);
+}
+
+.source-item .source-stats {
+  display: flex;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.source-item .source-net {
+  color: var(--accent-green);
+  font-weight: 500;
+}
+
+/* Summary bar */
+.summary-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.summary-stat {
+  flex: 1;
+  text-align: center;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.summary-stat .stat-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+.summary-stat .stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   header {

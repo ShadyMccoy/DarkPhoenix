@@ -168,10 +168,11 @@
             <tr>
               <th>ID</th>
               <th>Room</th>
-              <th>Territory</th>
+              <th>Size</th>
               <th>Sources</th>
-              <th>Controller</th>
-              <th>ROI Score</th>
+              <th>Ctrl</th>
+              <th>Score</th>
+              <th>Open</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -218,6 +219,13 @@
               <option value="spatial">Spatial Network</option>
               <option value="economic">Economic Network</option>
             </select>
+            <label for="network-viz">Color:</label>
+            <select id="network-viz">
+              <option value="status">Status (Owned/Expansion)</option>
+              <option value="roi">ROI Estimate</option>
+              <option value="sources">Source Count</option>
+              <option value="openness">Openness</option>
+            </select>
           </div>
           <div class="network-legend">
             <span class="legend-item"><span class="legend-dot owned"></span> Owned</span>
@@ -226,8 +234,10 @@
             <span class="legend-item"><span class="legend-dot controller"></span> Controller</span>
           </div>
         </div>
-        <div class="network-container">
-          <canvas id="network-canvas" width="900" height="600"></canvas>
+        <div class="network-layout">
+          <div class="network-container">
+            <canvas id="network-canvas" width="800" height="600"></canvas>
+          </div>
         </div>
       </section>
 
@@ -252,6 +262,19 @@
         </table>
       </section>
     </main>
+  </div>
+
+  <!-- Node Details Modal (accessible from any tab) -->
+  <div id="node-details-overlay" class="modal-overlay hidden">
+    <div id="node-details" class="node-details-modal">
+      <div class="details-header">
+        <h4 id="details-title">Node Details</h4>
+        <button id="details-close" class="details-close">×</button>
+      </div>
+      <div id="details-content" class="details-content">
+        <p class="details-hint">Click a node to see details</p>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

@@ -38,6 +38,9 @@ import {
   runBootstrapCorps,
   runRealCorps,
   runScoutCorps,
+  runConstructionCorps,
+  registerCorpsWithMarket,
+  runMarketClearing,
   logCorpStats,
   persistState,
   cleanupDeadCreeps,
@@ -92,10 +95,16 @@ let corps: CorpRegistry = createCorpRegistry();
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
-  // Run corps (bootstrap, mining, hauling, upgrading, scouts)
+  // Run corps (bootstrap, mining, hauling, upgrading, scouts, construction)
   runBootstrapCorps(corps);
   runRealCorps(corps);
   runScoutCorps(corps);
+  runConstructionCorps(corps);
+
+  // Register corps with market and run market clearing
+  // This matches buy/sell offers and records transactions
+  registerCorpsWithMarket(corps);
+  runMarketClearing();
 
   // Initialize or restore colony
   colony = getOrCreateColony();
@@ -188,7 +197,8 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
     corps.miningCorps,
     corps.haulingCorps,
     corps.upgradingCorps,
-    corps.scoutCorps
+    corps.scoutCorps,
+    corps.constructionCorps
   );
 }
 

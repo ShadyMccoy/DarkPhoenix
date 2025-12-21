@@ -35,19 +35,11 @@ export const SCOUT_SPAWN_COOLDOWN = 50;
 export const JACK_BODY: BodyPartConstant[] = [WORK, CARRY, MOVE];
 export const JACK_COST = 200;
 
-/**
- * Miner creep body: focused on harvesting, minimal carrying.
- * Cost: 250 energy (WORK:100 + WORK:100 + MOVE:50)
- */
-export const MINER_BODY: BodyPartConstant[] = [WORK, WORK, MOVE];
-export const MINER_COST = 250;
+// Note: Miner bodies are now dynamically built by BodyBuilder based on
+// room.energyCapacityAvailable. See spawn/BodyBuilder.ts
 
-/**
- * Hauler creep body: focused on carrying, no work parts.
- * Cost: 200 energy (CARRY:50 + CARRY:50 + MOVE:50 + MOVE:50)
- */
-export const HAULER_BODY: BodyPartConstant[] = [CARRY, CARRY, MOVE, MOVE];
-export const HAULER_COST = 200;
+// Note: Hauler bodies are now dynamically built by BodyBuilder based on
+// energy flow rate and distance. See spawn/BodyBuilder.ts and RealHaulingCorp.ts
 
 /**
  * Upgrader creep body: work-focused with some carry capacity.
@@ -72,15 +64,11 @@ export const SCOUT_COST = 50;
  */
 export const MAX_JACKS = 3;
 
-/**
- * Maximum miners per source.
- */
-export const MAX_MINERS = 1;
+// Note: Max miners is now dynamically calculated based on available mining
+// spots and desired WORK parts. See RealMiningCorp.ts
 
-/**
- * Maximum haulers per room.
- */
-export const MAX_HAULERS = 2;
+// Note: Max haulers is now dynamically calculated based on energy flow rate
+// and distance. See RealHaulingCorp.ts
 
 /**
  * Maximum upgraders per room.
@@ -91,6 +79,34 @@ export const MAX_UPGRADERS = 2;
  * Maximum scouts per scout corp.
  */
 export const MAX_SCOUTS = 1;
+
+/**
+ * Maximum builders per construction corp.
+ */
+export const MAX_BUILDERS = 2;
+
+// =============================================================================
+// BUILDER-SPECIFIC CONSTANTS
+// =============================================================================
+
+/**
+ * Builder creep body: work-focused with carry and movement.
+ * Cost: 400 energy (WORK:100 + WORK:100 + CARRY:50 + CARRY:50 + MOVE:50 + MOVE:50)
+ */
+export const BUILDER_BODY: BodyPartConstant[] = [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
+export const BUILDER_COST = 400;
+
+/**
+ * Minimum profit required before construction corp will invest in extensions.
+ * This ensures the economy is stable before expanding.
+ */
+export const MIN_CONSTRUCTION_PROFIT = 500;
+
+/**
+ * Extension construction site progress total.
+ * An extension requires 3000 build progress to complete.
+ */
+export const EXTENSION_BUILD_PROGRESS = 3000;
 
 // =============================================================================
 // SCOUT-SPECIFIC CONSTANTS
@@ -115,3 +131,13 @@ export const MAX_INTEL_VALUE = 10;
  * Value multiplier per tick of staleness.
  */
 export const VALUE_PER_STALE_TICK = 0.001;
+
+// =============================================================================
+// CONTROLLER CONSTANTS
+// =============================================================================
+
+/**
+ * Threshold for controller downgrade timer that triggers urgency.
+ * At RCL 2+, controllers downgrade after 10,000 ticks without upgrading.
+ */
+export const CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD = 10000;

@@ -49,6 +49,12 @@ export {
   createScoutCorp
 } from "./ScoutCorp";
 
+export {
+  ConstructionCorp,
+  SerializedConstructionCorp,
+  createConstructionCorp
+} from "./ConstructionCorp";
+
 // Corp state types for pure projection functions
 export {
   MiningCorpState,

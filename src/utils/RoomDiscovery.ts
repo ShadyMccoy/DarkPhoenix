@@ -131,22 +131,25 @@ function buildRoomName(xDir: string, x: number, yDir: string, y: number): string
   return `${xDir}${x}${yDir}${y}`;
 }
 
+/** Default radius for room box discovery (3 = 7x7 grid) */
+export const DEFAULT_ROOM_BOX_RADIUS = 3;
+
 /**
- * Gets a 5x5 box of room names centered on the given room.
- * Returns all 25 rooms in the box, regardless of exits or accessibility.
+ * Gets a box of room names centered on the given room with configurable radius.
+ * A radius of 3 gives a 7x7 box (49 rooms), radius of 4 gives 9x9 (81 rooms), etc.
  *
  * @param centerRoom - The room at the center of the box
- * @returns Array of 25 room names in the 5x5 box
+ * @param radius - Distance from center (default 3 for 7x7)
+ * @returns Array of room names in the box
  */
-export function get5x5RoomBox(centerRoom: string): string[] {
+export function getRoomBox(centerRoom: string, radius: number = DEFAULT_ROOM_BOX_RADIUS): string[] {
   const parsed = parseRoomName(centerRoom);
   if (!parsed) return [centerRoom];
 
   const rooms: string[] = [];
 
-  // Iterate -2 to +2 for both axes
-  for (let dx = -2; dx <= 2; dx++) {
-    for (let dy = -2; dy <= 2; dy++) {
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
       // Calculate new coordinates, handling sector boundary crossings
       let newX = parsed.x + dx;
       let newY = parsed.y + dy;
@@ -175,18 +178,27 @@ export function get5x5RoomBox(centerRoom: string): string[] {
 }
 
 /**
- * Gets a 5x5 box of rooms centered on each owned room, combined.
+ * Gets a 7x7 box of room names centered on the given room.
+ * Convenience wrapper for getRoomBox with radius 3.
+ */
+export function get7x7RoomBox(centerRoom: string): string[] {
+  return getRoomBox(centerRoom, 3);
+}
+
+/**
+ * Gets a box of rooms centered on each owned room, combined.
  * Filters out closed rooms.
  *
- * @returns Set of room names in the combined 5x5 boxes
+ * @param radius - Distance from center (default 3 for 7x7)
+ * @returns Set of room names in the combined boxes
  */
-export function get5x5BoxAroundOwnedRooms(): Set<string> {
+export function getRoomBoxAroundOwnedRooms(radius: number = DEFAULT_ROOM_BOX_RADIUS): Set<string> {
   const rooms = new Set<string>();
 
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (room.controller?.my) {
-      const box = get5x5RoomBox(roomName);
+      const box = getRoomBox(roomName, radius);
       for (const boxRoom of box) {
         // Check if room is accessible
         const status = Game.map.getRoomStatus(boxRoom);
@@ -198,6 +210,14 @@ export function get5x5BoxAroundOwnedRooms(): Set<string> {
   }
 
   return rooms;
+}
+
+/**
+ * Gets a 7x7 box of rooms centered on each owned room, combined.
+ * Convenience wrapper for getRoomBoxAroundOwnedRooms with radius 3.
+ */
+export function get7x7BoxAroundOwnedRooms(): Set<string> {
+  return getRoomBoxAroundOwnedRooms(3);
 }
 
 /**

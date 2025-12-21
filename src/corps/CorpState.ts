@@ -134,7 +134,10 @@ export function createMiningState(
     totalCost: 0,
     createdAt: 0,
     isActive: false,
-    lastActivityTick: 0
+    lastActivityTick: 0,
+    unitsProduced: 0,
+    unitsConsumed: 0,
+    acquisitionCost: 0
   };
 }
 
@@ -158,7 +161,10 @@ export function createSpawningState(
     totalCost: 0,
     createdAt: 0,
     isActive: false,
-    lastActivityTick: 0
+    lastActivityTick: 0,
+    unitsProduced: 0,
+    unitsConsumed: 0,
+    acquisitionCost: 0
   };
 }
 
@@ -184,7 +190,10 @@ export function createUpgradingState(
     totalCost: 0,
     createdAt: 0,
     isActive: false,
-    lastActivityTick: 0
+    lastActivityTick: 0,
+    unitsProduced: 0,
+    unitsConsumed: 0,
+    acquisitionCost: 0
   };
 }
 
@@ -212,7 +221,10 @@ export function createHaulingState(
     totalCost: 0,
     createdAt: 0,
     isActive: false,
-    lastActivityTick: 0
+    lastActivityTick: 0,
+    unitsProduced: 0,
+    unitsConsumed: 0,
+    acquisitionCost: 0
   };
 }
 

@@ -7,7 +7,7 @@
  * ## Segment Layout
  * - Segment 0: Core telemetry (colony stats, money supply, creep counts)
  * - Segment 1: Node data (territories, resources, ROI)
- * - Segment 2: Room terrain cache (for rooms with vision or intel)
+ * - Segment 2: Edge data (spatial and economic edges, compressed format)
  * - Segment 3: Room intel data (scouted room information)
  * - Segment 4: Corps data (mining, hauling, upgrading corps)
  * - Segment 5: Active chains data
@@ -34,7 +34,7 @@ interface CreepTrackingCorp extends Corp {
 export const TELEMETRY_SEGMENTS = {
   CORE: 0,      // Colony stats, money supply, creep counts
   NODES: 1,     // Node territories, resources, ROI
-  TERRAIN: 2,   // Room terrain data
+  EDGES: 2,     // Spatial and economic edges (compressed format)
   INTEL: 3,     // Room intel from scouting
   CORPS: 4,     // Corps details
   CHAINS: 5,    // Active chains
@@ -91,6 +91,7 @@ export interface CoreTelemetry {
     haulers: number;
     upgraders: number;
     scouts: number;
+    builders: number;
   };
   /** Owned rooms summary */
   rooms: {
@@ -133,10 +134,10 @@ export interface NodeTelemetry {
     spans: string[];  // spansRooms
     econ?: boolean;   // is part of economic network (has corps)
   }[];
-  /** Spatial edges between nodes (adjacent territories). Format: "nodeId1|nodeId2" */
-  edges: string[];
-  /** Economic edges between corp-hosting nodes. Format: "nodeId1|nodeId2" */
-  economicEdges: string[];
+  /** @deprecated Edges moved to segment 2 (EdgesTelemetry) in version 5 */
+  edges?: string[];
+  /** @deprecated Economic edges moved to segment 2 (EdgesTelemetry) in version 5 */
+  economicEdges?: { [edge: string]: number };
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -147,19 +148,21 @@ export interface NodeTelemetry {
 }
 
 /**
- * Terrain telemetry data structure (Segment 2).
- * Terrain data is encoded efficiently: 0=plain, 1=wall, 2=swamp
+ * Edges telemetry data structure (Segment 2).
+ * Uses compressed numeric format to minimize size:
+ * - nodeIndex maps node position in nodes array to node ID
+ * - edges are [idx1, idx2] pairs (indices into nodeIndex)
+ * - economicEdges are [idx1, idx2, distance] triples
  */
-export interface TerrainTelemetry {
+export interface EdgesTelemetry {
   version: number;
   tick: number;
-  rooms: {
-    name: string;
-    /** Base64-encoded terrain data (2500 bytes = 50x50 tiles) */
-    terrain: string;
-    /** Last update tick */
-    cachedAt: number;
-  }[];
+  /** Node IDs in index order - position = index for edge references */
+  nodeIndex: string[];
+  /** Spatial edges as [idx1, idx2] pairs (indices into nodeIndex) */
+  edges: [number, number][];
+  /** Economic edges as [idx1, idx2, distance] triples */
+  economicEdges: [number, number, number][];
 }
 
 /**
@@ -286,7 +289,8 @@ export class Telemetry {
     miningCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    scoutCorps: { [roomName: string]: { getCreepCount(): number } }
+    scoutCorps: { [roomName: string]: { getCreepCount(): number } },
+    constructionCorps: { [roomName: string]: CreepTrackingCorp } = {}
   ): void {
     if (!this.config.enabled) return;
 
@@ -303,20 +307,19 @@ export class Telemetry {
     if (!shouldUpdate) return;
 
     // Update core telemetry (always)
-    this.updateCoreTelemetry(colony, bootstrapCorps, miningCorps, haulingCorps, upgradingCorps, scoutCorps);
+    this.updateCoreTelemetry(colony, bootstrapCorps, miningCorps, haulingCorps, upgradingCorps, scoutCorps, constructionCorps);
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
 
-    // Terrain telemetry disabled - too large for 100KB segment limit
-    // Clear segment 2 if it has stale data
-    RawMemory.segments[TELEMETRY_SEGMENTS.TERRAIN] = "";
+    // Update edges telemetry (segment 2 - compressed format)
+    this.updateEdgesTelemetry(colony);
 
     // Update intel telemetry
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(miningCorps, haulingCorps, upgradingCorps);
+    this.updateCorpsTelemetry(miningCorps, haulingCorps, upgradingCorps, constructionCorps);
 
     // Update chains telemetry
     this.updateChainsTelemetry(colony);
@@ -331,7 +334,8 @@ export class Telemetry {
     miningCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    scoutCorps: { [roomName: string]: { getCreepCount(): number } }
+    scoutCorps: { [roomName: string]: { getCreepCount(): number } },
+    constructionCorps: { [roomName: string]: CreepTrackingCorp }
   ): void {
     // Count creeps
     let bootstrapCount = 0;
@@ -339,6 +343,7 @@ export class Telemetry {
     let haulerCount = 0;
     let upgraderCount = 0;
     let scoutCount = 0;
+    let builderCount = 0;
 
     for (const roomName in bootstrapCorps) {
       bootstrapCount += bootstrapCorps[roomName].getCreepCount();
@@ -354,6 +359,9 @@ export class Telemetry {
     }
     for (const roomName in scoutCorps) {
       scoutCount += scoutCorps[roomName].getCreepCount();
+    }
+    for (const roomName in constructionCorps) {
+      builderCount += constructionCorps[roomName].getCreepCount();
     }
 
     // Get colony stats
@@ -426,6 +434,7 @@ export class Telemetry {
         haulers: haulerCount,
         upgraders: upgraderCount,
         scouts: scoutCount,
+        builders: builderCount,
       },
       rooms,
     };
@@ -457,7 +466,7 @@ export class Telemetry {
 
     // Build set of economic node IDs (nodes that appear in economic edges)
     const econNodeIds = new Set<string>();
-    for (const edge of Memory.economicEdges || []) {
+    for (const edge of Object.keys(Memory.economicEdges || {})) {
       const [id1, id2] = edge.split("|");
       econNodeIds.add(id1);
       econNodeIds.add(id2);
@@ -487,11 +496,9 @@ export class Telemetry {
     }));
 
     const telemetry: NodeTelemetry = {
-      version: 4,  // Bumped version for economic edges
+      version: 5,  // Version 5: edges moved to segment 2
       tick: Game.time,
       nodes: nodeData,
-      edges: Memory.nodeEdges || [],
-      economicEdges: Memory.economicEdges || [],
       summary: {
         totalNodes: nodes.length,
         ownedNodes,
@@ -506,6 +513,64 @@ export class Telemetry {
       console.log(`[Telemetry] Warning: Node segment ${json.length} bytes exceeds 100KB limit`);
     }
     RawMemory.segments[TELEMETRY_SEGMENTS.NODES] = json;
+  }
+
+  /**
+   * Updates edges telemetry (Segment 2).
+   * Uses compressed numeric format: edges as index pairs instead of string IDs.
+   */
+  private updateEdgesTelemetry(colony: Colony | undefined): void {
+    const nodes = colony?.getNodes() || [];
+
+    // Build node ID to index map (sorted same as nodes telemetry)
+    const sortedNodes = [...nodes].sort((a, b) => {
+      if (a.roi?.isOwned && !b.roi?.isOwned) return -1;
+      if (!a.roi?.isOwned && b.roi?.isOwned) return 1;
+      return (b.roi?.score || 0) - (a.roi?.score || 0);
+    });
+
+    const nodeIdToIndex = new Map<string, number>();
+    const nodeIndex: string[] = [];
+    sortedNodes.forEach((node, idx) => {
+      nodeIdToIndex.set(node.id, idx);
+      nodeIndex.push(node.id);
+    });
+
+    // Convert spatial edges to index pairs
+    const edges: [number, number][] = [];
+    for (const edge of Memory.nodeEdges || []) {
+      const [id1, id2] = edge.split("|");
+      const idx1 = nodeIdToIndex.get(id1);
+      const idx2 = nodeIdToIndex.get(id2);
+      if (idx1 !== undefined && idx2 !== undefined) {
+        edges.push([idx1, idx2]);
+      }
+    }
+
+    // Convert economic edges to index triples with distance
+    const economicEdges: [number, number, number][] = [];
+    for (const [edge, distance] of Object.entries(Memory.economicEdges || {})) {
+      const [id1, id2] = edge.split("|");
+      const idx1 = nodeIdToIndex.get(id1);
+      const idx2 = nodeIdToIndex.get(id2);
+      if (idx1 !== undefined && idx2 !== undefined) {
+        economicEdges.push([idx1, idx2, distance]);
+      }
+    }
+
+    const telemetry: EdgesTelemetry = {
+      version: 1,
+      tick: Game.time,
+      nodeIndex,
+      edges,
+      economicEdges,
+    };
+
+    const json = JSON.stringify(telemetry);
+    if (json.length > 100000) {
+      console.log(`[Telemetry] Warning: Edges segment ${json.length} bytes exceeds 100KB limit`);
+    }
+    RawMemory.segments[TELEMETRY_SEGMENTS.EDGES] = json;
   }
 
   /**
@@ -550,7 +615,8 @@ export class Telemetry {
   private updateCorpsTelemetry(
     miningCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
-    upgradingCorps: { [roomName: string]: CreepTrackingCorp }
+    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
+    constructionCorps: { [roomName: string]: CreepTrackingCorp }
   ): void {
     const corps: CorpsTelemetry["corps"] = [];
     const corpsByType: { [type: string]: number } = {};
@@ -596,6 +662,11 @@ export class Telemetry {
     // Add upgrading corps
     for (const roomName in upgradingCorps) {
       addCorp(upgradingCorps[roomName], roomName);
+    }
+
+    // Add construction corps
+    for (const roomName in constructionCorps) {
+      addCorp(constructionCorps[roomName], roomName);
     }
 
     const totalBalance = corps.reduce((sum, c) => sum + c.balance, 0);

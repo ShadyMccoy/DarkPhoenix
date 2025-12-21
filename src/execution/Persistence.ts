@@ -81,7 +81,7 @@ export function persistState(
 
   // Find economic neighbors: BFS from each economic node through non-economic nodes
   // Track cumulative distance and stop if > MAX_ECON_DISTANCE
-  const economicEdgeSet = new Set<string>();
+  const economicEdgeMap = new Map<string, number>();
   for (const startId of economicNodeIds) {
     const visited = new Map<string, number>(); // nodeId -> distance from start
     visited.set(startId, 0);
@@ -101,8 +101,12 @@ export function persistState(
         visited.set(neighbor, totalDist);
 
         if (economicNodeIds.has(neighbor)) {
-          // Found an economic neighbor - add edge (don't continue through it)
-          economicEdgeSet.add(createEdgeKey(startId, neighbor));
+          // Found an economic neighbor - add edge with distance (don't continue through it)
+          const edgeKey = createEdgeKey(startId, neighbor);
+          const existingDist = economicEdgeMap.get(edgeKey);
+          if (existingDist === undefined || totalDist < existingDist) {
+            economicEdgeMap.set(edgeKey, totalDist);
+          }
         } else {
           // Non-economic node - continue searching through it
           queue.push({ id: neighbor, dist: totalDist });
@@ -110,7 +114,12 @@ export function persistState(
       }
     }
   }
-  Memory.economicEdges = Array.from(economicEdgeSet);
+  // Convert Map to object
+  const econEdgesObj: { [edge: string]: number } = {};
+  economicEdgeMap.forEach((dist, edge) => {
+    econEdgesObj[edge] = dist;
+  });
+  Memory.economicEdges = econEdgesObj;
 
   // Persist bootstrap corps
   Memory.bootstrapCorps = {};
@@ -140,6 +149,12 @@ export function persistState(
   Memory.scoutCorps = {};
   for (const roomName in registry.scoutCorps) {
     Memory.scoutCorps[roomName] = registry.scoutCorps[roomName].serialize();
+  }
+
+  // Persist construction corps
+  Memory.constructionCorps = {};
+  for (const roomName in registry.constructionCorps) {
+    Memory.constructionCorps[roomName] = registry.constructionCorps[roomName].serialize();
   }
 }
 

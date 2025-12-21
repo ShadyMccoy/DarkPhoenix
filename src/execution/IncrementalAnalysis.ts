@@ -19,14 +19,14 @@ import {
   WorldPosition,
   CrossRoomPeak,
 } from "../spatial";
-import { get5x5BoxAroundOwnedRooms } from "../utils";
+import { get7x7BoxAroundOwnedRooms } from "../utils";
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
-/** TTL for multi-room analysis cache */
-export const MULTI_ROOM_ANALYSIS_CACHE_TTL = 500;
+/** TTL for multi-room analysis cache (5000 ticks ≈ ~4 hours) */
+export const MULTI_ROOM_ANALYSIS_CACHE_TTL = 5000;
 
 /** Max rooms to analyze per batch to avoid CPU timeout */
 const ROOMS_PER_BATCH = 9;
@@ -129,7 +129,7 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
       return true; // Use cached result
     }
 
-    const roomsToAnalyzeSet = get5x5BoxAroundOwnedRooms();
+    const roomsToAnalyzeSet = get7x7BoxAroundOwnedRooms();
     const allRooms = Array.from(roomsToAnalyzeSet);
 
     if (allRooms.length === 0) return true;

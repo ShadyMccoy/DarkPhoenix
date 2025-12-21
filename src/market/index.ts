@@ -33,3 +33,11 @@ export {
   recordDelivery,
   recordPayment
 } from "./Contract";
+
+export {
+  Market,
+  ClearingResult,
+  Transaction,
+  getMarket,
+  resetMarket
+} from "./Market";

@@ -10,11 +10,23 @@ let reconnectTimeout = null;
 let telemetry = {
   core: null,
   nodes: null,
-  terrain: null,
+  edges: null,  // Compressed edge data from segment 2
   intel: null,
   corps: null,
   chains: null,
   lastUpdate: 0,
+};
+
+// Cached hydrated nodes (with edges merged in)
+let hydratedNodesCache = null;
+let hydratedNodesTick = null;
+
+// Economic analysis constants
+const ECON = {
+  SOURCE_ENERGY_PER_TICK: 10,
+  CREEP_LIFESPAN: 1500,
+  BODY_COSTS: { move: 50, work: 100, carry: 50 },
+  MIN_EFFICIENCY: 0.3,
 };
 
 // DOM elements
@@ -74,10 +86,35 @@ const elements = {
   // Network
   networkCanvas: document.getElementById("network-canvas"),
   networkType: document.getElementById("network-type"),
+  networkViz: document.getElementById("network-viz"),
+
+  // Node details modal
+  nodeDetailsOverlay: document.getElementById("node-details-overlay"),
+  nodeDetails: document.getElementById("node-details"),
+  detailsTitle: document.getElementById("details-title"),
+  detailsContent: document.getElementById("details-content"),
+  detailsClose: document.getElementById("details-close"),
 };
 
 // Current network view type
 let currentNetworkType = "spatial";
+
+// Current visualization mode for node coloring
+let currentVizMode = "status";
+
+// Network canvas state for zoom/pan
+let networkState = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  isDragging: false,
+  didDrag: false,           // Track if mouse actually moved during drag
+  lastMouseX: 0,
+  lastMouseY: 0,
+  nodePositions: new Map(),  // Cache node canvas positions
+  nodes: [],                  // Current nodes data
+  hoveredNode: null,         // Currently hovered node
+};
 
 /**
  * Connect to WebSocket server.
@@ -115,6 +152,12 @@ function connect() {
       const message = JSON.parse(event.data);
       if (message.type === "telemetry") {
         telemetry = message.data;
+        // Clear hydration cache when new data arrives
+        hydratedNodesCache = null;
+        hydratedNodesTick = null;
+        // Log segment availability
+        const hasEdgesSegment = telemetry.edges && telemetry.edges.nodeIndex;
+        console.log(`[Telemetry] Received tick ${telemetry.core?.tick}, edges segment: ${hasEdgesSegment ? 'yes' : 'no'}`);
         updateUI();
       }
     } catch (e) {
@@ -137,6 +180,79 @@ function formatNumber(n) {
 function formatPercent(n, total) {
   if (!total) return "0%";
   return ((n / total) * 100).toFixed(1) + "%";
+}
+
+/**
+ * Decompress edges from segment 2 format.
+ * Converts numeric index pairs back to string edge keys.
+ * @param {Object} edgesData - The edges telemetry from segment 2
+ * @returns {Object} Object with { edges: string[], economicEdges: { [key: string]: number } }
+ */
+function decompressEdges(edgesData) {
+  if (!edgesData || !edgesData.nodeIndex) {
+    return { edges: [], economicEdges: {} };
+  }
+
+  const { nodeIndex, edges, economicEdges } = edgesData;
+
+  // Convert spatial edges: [idx1, idx2] -> "nodeId1|nodeId2"
+  const decompressedEdges = (edges || []).map(([idx1, idx2]) => {
+    const id1 = nodeIndex[idx1];
+    const id2 = nodeIndex[idx2];
+    // Sort to ensure consistent edge key ordering
+    return id1 < id2 ? `${id1}|${id2}` : `${id2}|${id1}`;
+  });
+
+  // Convert economic edges: [idx1, idx2, distance] -> { "nodeId1|nodeId2": distance }
+  const decompressedEconEdges = {};
+  for (const [idx1, idx2, distance] of (economicEdges || [])) {
+    const id1 = nodeIndex[idx1];
+    const id2 = nodeIndex[idx2];
+    const key = id1 < id2 ? `${id1}|${id2}` : `${id2}|${id1}`;
+    decompressedEconEdges[key] = distance;
+  }
+
+  return {
+    edges: decompressedEdges,
+    economicEdges: decompressedEconEdges,
+  };
+}
+
+/**
+ * Get nodes data with edges merged from segment 2.
+ * Falls back to edges on nodes object for backwards compatibility.
+ * Results are cached per tick to avoid re-hydrating on every call.
+ */
+function getNodesWithEdges() {
+  if (!telemetry.nodes) return null;
+
+  const currentTick = telemetry.nodes.tick;
+
+  // Return cached result if available for this tick
+  if (hydratedNodesCache && hydratedNodesTick === currentTick) {
+    return hydratedNodesCache;
+  }
+
+  // If edges segment is available, decompress and merge
+  if (telemetry.edges && telemetry.edges.nodeIndex) {
+    const { edges, economicEdges } = decompressEdges(telemetry.edges);
+    console.log(`[Edges] Hydrated ${edges.length} spatial edges, ${Object.keys(economicEdges).length} economic edges from segment 2`);
+    hydratedNodesCache = {
+      ...telemetry.nodes,
+      edges,
+      economicEdges,
+    };
+    hydratedNodesTick = currentTick;
+    return hydratedNodesCache;
+  }
+
+  // Fallback to edges on nodes object (backwards compatibility with v4 and earlier)
+  if (telemetry.nodes.edges) {
+    console.log(`[Edges] Using legacy edges from nodes segment: ${telemetry.nodes.edges.length} edges`);
+  }
+  hydratedNodesCache = telemetry.nodes;
+  hydratedNodesTick = currentTick;
+  return hydratedNodesCache;
 }
 
 /**
@@ -211,7 +327,7 @@ function updateUI() {
 
   // Update Network graph
   if (telemetry.nodes) {
-    drawNetworkGraph(telemetry.nodes, telemetry.corps, currentNetworkType);
+    drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
   }
 }
 
@@ -250,27 +366,80 @@ function updateNodesUI(nodes) {
   elements.nodesExpansion.textContent = nodes.summary.expansionCandidates;
   elements.nodesSources.textContent = nodes.summary.totalSources;
 
-  // Update table
-  elements.nodesTable.innerHTML = nodes.nodes
-    .sort((a, b) => (b.roi?.score || 0) - (a.roi?.score || 0))
-    .map(
-      (node) => `
-    <tr>
-      <td>${node.id}</td>
+  // Build economic adjacency map with distance-weighted neighbor counts
+  // Weight formula: (1500 - distance) / 1500 (closer nodes count more)
+  const econNeighbors = new Map();
+  if (nodes.economicEdges) {
+    if (Array.isArray(nodes.economicEdges)) {
+      // Legacy array format - count without weighting
+      for (const edge of nodes.economicEdges) {
+        const [a, b] = edge.split('|');
+        econNeighbors.set(a, (econNeighbors.get(a) || 0) + 1);
+        econNeighbors.set(b, (econNeighbors.get(b) || 0) + 1);
+      }
+    } else {
+      // New object format with distances
+      for (const [edge, distance] of Object.entries(nodes.economicEdges)) {
+        const [a, b] = edge.split('|');
+        const weight = (1500 - distance) / 1500;
+        econNeighbors.set(a, (econNeighbors.get(a) || 0) + weight);
+        econNeighbors.set(b, (econNeighbors.get(b) || 0) + weight);
+      }
+    }
+  }
+
+  // Update table - sort by controller nodes first, then by score
+  const sortedNodes = [...nodes.nodes].sort((a, b) => {
+    // Controller nodes first
+    const aHasCtrl = a.roi?.hasController ? 1 : 0;
+    const bHasCtrl = b.roi?.hasController ? 1 : 0;
+    if (aHasCtrl !== bHasCtrl) return bHasCtrl - aHasCtrl;
+    // Then by score
+    return (b.roi?.score || 0) - (a.roi?.score || 0);
+  });
+
+  elements.nodesTable.innerHTML = sortedNodes
+    .map((node) => {
+      const neighbors = econNeighbors.get(node.id) || 0;
+      const sourceCount = node.roi?.sourceCount || node.resources?.filter(r => r.type === 'source').length || 0;
+      const isEcon = node.econ;
+
+      // Calculate local sources (in this node)
+      const localSources = node.resources?.filter(r => r.type === 'source').length || 0;
+
+      return `
+    <tr class="clickable-row ${node.roi?.hasController ? 'controller-node' : ''}" data-node-id="${node.id}">
+      <td title="${node.id}">${node.id.length > 15 ? node.id.slice(0, 15) + '...' : node.id}</td>
       <td>${node.roomName}</td>
-      <td>${node.territorySize} tiles</td>
-      <td>${node.roi?.sourceCount || 0}</td>
-      <td>${node.roi?.hasController ? "Yes" : "No"}</td>
-      <td>${node.roi?.score?.toFixed(1) || "--"}</td>
+      <td>${node.territorySize}</td>
       <td>
+        <span class="${localSources > 0 ? 'has-sources' : ''}">${localSources}</span>
+        ${neighbors > 0 ? `<span class="remote-sources">+${neighbors.toFixed(1)} adj</span>` : ''}
+      </td>
+      <td>${node.roi?.hasController ? '<span class="controller-icon">◆</span>' : ''}</td>
+      <td class="score-cell">${node.roi?.score?.toFixed(1) || "--"}</td>
+      <td>${node.roi?.openness?.toFixed(1) || "--"}</td>
+      <td>
+        ${isEcon ? '<span class="badge badge-econ">Econ</span>' : ''}
         <span class="badge ${node.roi?.isOwned ? "badge-owned" : "badge-expansion"}">
-          ${node.roi?.isOwned ? "Owned" : "Expansion"}
+          ${node.roi?.isOwned ? "Owned" : "Exp"}
         </span>
       </td>
     </tr>
-  `
-    )
+  `;
+    })
     .join("");
+
+  // Add click handlers to table rows
+  elements.nodesTable.querySelectorAll('.clickable-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const nodeId = row.dataset.nodeId;
+      const node = nodes.nodes.find(n => n.id === nodeId);
+      if (node) {
+        showNodeDetails(node);
+      }
+    });
+  });
 }
 
 /**
@@ -354,6 +523,100 @@ const NODE_COLORS = [
 ];
 
 /**
+ * Interpolate between red -> yellow -> green based on normalized value (0-1).
+ */
+function interpolateColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  if (t < 0.5) {
+    // Red to Yellow (0 -> 0.5)
+    const r = 239;
+    const g = Math.round(68 + (204 - 68) * (t * 2));
+    const b = 68;
+    return `rgb(${r}, ${g}, ${b})`;
+  } else {
+    // Yellow to Green (0.5 -> 1)
+    const r = Math.round(239 - (239 - 74) * ((t - 0.5) * 2));
+    const g = Math.round(204 + (222 - 204) * ((t - 0.5) * 2));
+    const b = Math.round(68 + (128 - 68) * ((t - 0.5) * 2));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+}
+
+/**
+ * Compute visualization stats for color normalization.
+ */
+function computeVizStats(nodes) {
+  let minRoi = Infinity, maxRoi = -Infinity;
+  let minSources = Infinity, maxSources = -Infinity;
+  let minOpenness = Infinity, maxOpenness = -Infinity;
+
+  nodes.forEach((node) => {
+    const score = node.roi?.score ?? 0;
+    minRoi = Math.min(minRoi, score);
+    maxRoi = Math.max(maxRoi, score);
+
+    const sources = node.roi?.sourceCount || node.resources?.filter(r => r.type === "source").length || 0;
+    minSources = Math.min(minSources, sources);
+    maxSources = Math.max(maxSources, sources);
+
+    const openness = node.roi?.openness ?? 0;
+    minOpenness = Math.min(minOpenness, openness);
+    maxOpenness = Math.max(maxOpenness, openness);
+  });
+
+  return {
+    minRoi, maxRoi, roiRange: maxRoi - minRoi,
+    minSources, maxSources, sourceRange: maxSources - minSources,
+    minOpenness, maxOpenness, opennessRange: maxOpenness - minOpenness,
+  };
+}
+
+/**
+ * Get node fill color based on current visualization mode.
+ */
+function getNodeVizColor(node, vizStats) {
+  switch (currentVizMode) {
+    case "roi": {
+      const score = node.roi?.score ?? 0;
+      const normalized = vizStats.roiRange > 0
+        ? (score - vizStats.minRoi) / vizStats.roiRange
+        : 0.5;
+      return interpolateColor(normalized);
+    }
+    case "sources": {
+      const count = node.roi?.sourceCount || node.resources?.filter(r => r.type === "source").length || 0;
+      const normalized = vizStats.sourceRange > 0
+        ? (count - vizStats.minSources) / vizStats.sourceRange
+        : 0.5;
+      return interpolateColor(normalized);
+    }
+    case "openness": {
+      const openness = node.roi?.openness ?? 0;
+      const normalized = vizStats.opennessRange > 0
+        ? (openness - vizStats.minOpenness) / vizStats.opennessRange
+        : 0.5;
+      return interpolateColor(normalized);
+    }
+    case "status":
+    default:
+      return node.roi?.isOwned ? "#60a5fa" : "#facc15";
+  }
+}
+
+/**
+ * Get label for current visualization mode.
+ */
+function getVizModeLabel() {
+  switch (currentVizMode) {
+    case "roi": return "ROI Estimate";
+    case "sources": return "Source Count";
+    case "openness": return "Openness";
+    case "status":
+    default: return "Status";
+  }
+}
+
+/**
  * Parse room name to get world coordinates.
  * E.g., "W1N2" -> { wx: -1, wy: -2 }, "E3S1" -> { wx: 3, wy: 1 }
  */
@@ -425,6 +688,7 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
   }
 
   const nodes = nodesData.nodes;
+  networkState.nodes = nodes;  // Cache for hover detection
   const padding = 20;
 
   // Calculate world coordinates for each node based on peak position
@@ -456,16 +720,21 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
   minWY -= margin;
   maxWY += margin;
 
-  // Calculate scale to fit canvas
+  // Calculate base scale to fit canvas
   const worldWidth = maxWX - minWX;
   const worldHeight = maxWY - minWY;
   const scaleX = (canvas.width - padding * 2) / Math.max(worldWidth, 1);
   const scaleY = (canvas.height - padding * 2) / Math.max(worldHeight, 1);
-  const scale = Math.min(scaleX, scaleY);
+  const baseScale = Math.min(scaleX, scaleY);
 
-  // Center offset
-  const offsetX = padding + (canvas.width - padding * 2 - worldWidth * scale) / 2;
-  const offsetY = padding + (canvas.height - padding * 2 - worldHeight * scale) / 2;
+  // Apply user zoom/pan
+  const scale = baseScale * networkState.scale;
+
+  // Center offset with user pan
+  const baseCenterX = padding + (canvas.width - padding * 2 - worldWidth * baseScale) / 2;
+  const baseCenterY = padding + (canvas.height - padding * 2 - worldHeight * baseScale) / 2;
+  const offsetX = baseCenterX * networkState.scale + networkState.offsetX;
+  const offsetY = baseCenterY * networkState.scale + networkState.offsetY;
 
   // Helper to convert world coords to canvas coords
   const toCanvas = (worldX, worldY) => ({
@@ -503,12 +772,13 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
     ctx.fillText(room, topLeft.x + size / 2, topLeft.y + size / 2);
   });
 
-  // Calculate node positions
+  // Calculate node positions and cache for hover detection
   const nodePositions = new Map();
   nodes.forEach((node) => {
     const wc = nodeWorldCoords.get(node.id);
     nodePositions.set(node.id, toCanvas(wc.worldX, wc.worldY));
   });
+  networkState.nodePositions = nodePositions;
 
   // Get edges based on network type
   let edges;
@@ -517,7 +787,9 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
 
   if (networkType === "economic") {
     // Economic network: compute edges between corp-hosting nodes
-    edges = nodesData.economicEdges || computeEconomicEdges(nodesData, corpsData);
+    const econEdges = nodesData.economicEdges || computeEconomicEdges(nodesData, corpsData);
+    // Handle both object format (new) and array format (legacy/computed)
+    edges = Array.isArray(econEdges) ? econEdges : Object.keys(econEdges);
     edgeColor = "#4ade80";  // Green for economic connections
     edgeLabel = "Economic";
   } else {
@@ -583,9 +855,11 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
     maxOpenness = Math.max(maxOpenness, openness);
   });
 
+  // Compute visualization stats for color mapping
+  const vizStats = computeVizStats(nodes);
+
   nodes.forEach((node, idx) => {
     const pos = nodePositions.get(node.id);
-    const isOwned = node.roi?.isOwned;
     const colorIdx = idx % NODE_COLORS.length;
 
     // Check if this node should be faded (economic view, not in economic network)
@@ -600,10 +874,10 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
 
     ctx.globalAlpha = alpha;
 
-    // Node circle
+    // Node circle - use visualization mode for fill color
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, nodeRadius, 0, Math.PI * 2);
-    ctx.fillStyle = isOwned ? "#60a5fa" : "#facc15";
+    ctx.fillStyle = getNodeVizColor(node, vizStats);
     ctx.fill();
     ctx.strokeStyle = NODE_COLORS[colorIdx];
     ctx.lineWidth = 2;
@@ -648,16 +922,58 @@ function drawNetworkGraph(nodesData, corpsData, networkType = "spatial") {
   ctx.fillText(`Owned: ${nodesData.summary?.ownedNodes || 0}`, 10, 52);
   ctx.fillText(`Expansion: ${nodesData.summary?.expansionCandidates || 0}`, 10, 66);
 
-  // Size legend
+  // Visualization mode legend
+  const vizLabel = getVizModeLabel();
   ctx.fillStyle = "#888";
   ctx.font = "10px sans-serif";
+
+  if (currentVizMode === "status") {
+    // Status mode: show owned/expansion colors
+    ctx.fillText("Color = " + vizLabel, 10, canvas.height - 60);
+    ctx.fillStyle = "#60a5fa";
+    ctx.fillRect(10, canvas.height - 48, 12, 12);
+    ctx.fillStyle = "#888";
+    ctx.fillText("Owned", 26, canvas.height - 46);
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(70, canvas.height - 48, 12, 12);
+    ctx.fillStyle = "#888";
+    ctx.fillText("Expansion", 86, canvas.height - 46);
+  } else {
+    // Gradient modes: draw a gradient legend
+    ctx.fillText("Color = " + vizLabel, 10, canvas.height - 60);
+    const gradientWidth = 80;
+    for (let i = 0; i < gradientWidth; i++) {
+      ctx.fillStyle = interpolateColor(i / gradientWidth);
+      ctx.fillRect(10 + i, canvas.height - 48, 1, 12);
+    }
+    ctx.fillStyle = "#888";
+    ctx.fillText("Low", 10, canvas.height - 33);
+    ctx.fillText("High", 10 + gradientWidth - 20, canvas.height - 33);
+  }
+
+  // Size legend
+  ctx.fillStyle = "#888";
   ctx.fillText("Size = Peak Height", 10, canvas.height - 20);
 
-  // Edge color legend
+  // Edge color legend (right side bottom)
   ctx.fillStyle = edgeColor;
-  ctx.fillRect(10, canvas.height - 40, 12, 12);
+  ctx.fillRect(canvas.width - 100, canvas.height - 20, 12, 12);
   ctx.fillStyle = "#888";
-  ctx.fillText(`${edgeLabel} edges`, 26, canvas.height - 38);
+  ctx.fillText(`${edgeLabel} edges`, canvas.width - 84, canvas.height - 18);
+
+  // Zoom level indicator
+  if (networkState.scale !== 1) {
+    ctx.fillStyle = "#888";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(`Zoom: ${(networkState.scale * 100).toFixed(0)}%`, canvas.width - 10, canvas.height - 10);
+    ctx.fillText("Double-click to reset", canvas.width - 10, canvas.height - 22);
+  }
+
+  // Draw tooltip for hovered node (last, so it's on top)
+  if (networkState.hoveredNode) {
+    drawNodeTooltip(ctx, networkState.hoveredNode, canvas.width);
+  }
 }
 
 /**
@@ -718,9 +1034,529 @@ function setupNetworkTypeSelector() {
     currentNetworkType = e.target.value;
     // Redraw the network with the new type
     if (telemetry.nodes) {
-      drawNetworkGraph(telemetry.nodes, telemetry.corps, currentNetworkType);
+      drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
     }
   });
+}
+
+/**
+ * Setup network visualization mode selector.
+ */
+function setupNetworkVizSelector() {
+  elements.networkViz.addEventListener("change", (e) => {
+    currentVizMode = e.target.value;
+    // Redraw the network with the new visualization mode
+    if (telemetry.nodes) {
+      drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+    }
+  });
+}
+
+/**
+ * Setup network canvas mouse events for hover/zoom/pan.
+ */
+function setupNetworkCanvas() {
+  const canvas = elements.networkCanvas;
+
+  // Mouse wheel for zoom
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.5, Math.min(5, networkState.scale * zoomFactor));
+
+    // Adjust offset to zoom toward mouse position
+    const scaleChange = newScale / networkState.scale;
+    networkState.offsetX = mouseX - (mouseX - networkState.offsetX) * scaleChange;
+    networkState.offsetY = mouseY - (mouseY - networkState.offsetY) * scaleChange;
+    networkState.scale = newScale;
+
+    // Redraw
+    if (telemetry.nodes) {
+      drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+    }
+  });
+
+  // Mouse down for pan start
+  canvas.addEventListener("mousedown", (e) => {
+    networkState.isDragging = true;
+    networkState.didDrag = false;  // Reset drag tracking
+    networkState.lastMouseX = e.clientX;
+    networkState.lastMouseY = e.clientY;
+    canvas.style.cursor = "grabbing";
+  });
+
+  // Mouse move for pan and hover detection
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    if (networkState.isDragging) {
+      // Pan
+      const dx = e.clientX - networkState.lastMouseX;
+      const dy = e.clientY - networkState.lastMouseY;
+
+      // Track if we actually moved (threshold of 3px to avoid accidental micro-movements)
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        networkState.didDrag = true;
+      }
+
+      networkState.offsetX += dx;
+      networkState.offsetY += dy;
+      networkState.lastMouseX = e.clientX;
+      networkState.lastMouseY = e.clientY;
+
+      // Redraw
+      if (telemetry.nodes) {
+        drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+      }
+    } else {
+      // Check for node hover
+      const hoveredNode = findNodeAtPosition(mouseX, mouseY);
+      if (hoveredNode !== networkState.hoveredNode) {
+        networkState.hoveredNode = hoveredNode;
+        canvas.style.cursor = hoveredNode ? "pointer" : "grab";
+        // Redraw to show/hide tooltip
+        if (telemetry.nodes) {
+          drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+        }
+      }
+    }
+  });
+
+  // Mouse up for pan end
+  canvas.addEventListener("mouseup", () => {
+    networkState.isDragging = false;
+    elements.networkCanvas.style.cursor = networkState.hoveredNode ? "pointer" : "grab";
+  });
+
+  // Mouse leave
+  canvas.addEventListener("mouseleave", () => {
+    networkState.isDragging = false;
+    networkState.hoveredNode = null;
+    canvas.style.cursor = "grab";
+    if (telemetry.nodes) {
+      drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+    }
+  });
+
+  // Double click to reset zoom
+  canvas.addEventListener("dblclick", () => {
+    networkState.scale = 1;
+    networkState.offsetX = 0;
+    networkState.offsetY = 0;
+    if (telemetry.nodes) {
+      drawNetworkGraph(getNodesWithEdges(), telemetry.corps, currentNetworkType);
+    }
+  });
+
+  // Click to show node details
+  canvas.addEventListener("click", (e) => {
+    // Don't trigger click if we actually dragged
+    if (networkState.didDrag) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const clickedNode = findNodeAtPosition(mouseX, mouseY);
+
+    if (clickedNode) {
+      showNodeDetails(clickedNode);
+    }
+  });
+
+  // Set initial cursor
+  canvas.style.cursor = "grab";
+
+  // Setup close button for details modal
+  if (elements.detailsClose) {
+    elements.detailsClose.addEventListener("click", () => {
+      elements.nodeDetailsOverlay.classList.add("hidden");
+    });
+  }
+
+  // Close modal when clicking overlay background
+  if (elements.nodeDetailsOverlay) {
+    elements.nodeDetailsOverlay.addEventListener("click", (e) => {
+      if (e.target === elements.nodeDetailsOverlay) {
+        elements.nodeDetailsOverlay.classList.add("hidden");
+      }
+    });
+  }
+}
+
+/**
+ * Find node at canvas position.
+ */
+function findNodeAtPosition(x, y) {
+  for (const [nodeId, pos] of networkState.nodePositions) {
+    const node = networkState.nodes.find(n => n.id === nodeId);
+    if (!node) continue;
+
+    const radius = getNodeRadius(node);
+    const dx = x - pos.x;
+    const dy = y - pos.y;
+    if (dx * dx + dy * dy <= radius * radius) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get node radius based on openness.
+ */
+function getNodeRadius(node) {
+  const minNodeRadius = 6;
+  const maxNodeRadius = 20;
+  const openness = node.roi?.openness || 5;
+
+  // Use cached min/max if available
+  let minOpenness = 5, maxOpenness = 20;
+  if (networkState.nodes.length > 0) {
+    minOpenness = Math.min(...networkState.nodes.map(n => n.roi?.openness || 5));
+    maxOpenness = Math.max(...networkState.nodes.map(n => n.roi?.openness || 5));
+  }
+
+  const opennessRange = Math.max(maxOpenness - minOpenness, 1);
+  const normalizedOpenness = (openness - minOpenness) / opennessRange;
+  return minNodeRadius + normalizedOpenness * (maxNodeRadius - minNodeRadius);
+}
+
+/**
+ * Draw tooltip for hovered node.
+ */
+function drawNodeTooltip(ctx, node, canvasWidth) {
+  if (!node) return;
+
+  const pos = networkState.nodePositions.get(node.id);
+  if (!pos) return;
+
+  // Build tooltip text
+  const lines = [
+    `Node: ${node.id}`,
+    `Room: ${node.roomName}`,
+    `Territory: ${node.territorySize} tiles`,
+    `Sources: ${node.roi?.sourceCount || node.resources?.filter(r => r.type === "source").length || 0}`,
+    `Controller: ${node.roi?.hasController ? "Yes" : "No"}`,
+    `Openness: ${node.roi?.openness?.toFixed(1) || "--"}`,
+    `ROI Score: ${node.roi?.score?.toFixed(1) || "--"}`,
+    `Status: ${node.roi?.isOwned ? "Owned" : "Expansion"}`,
+  ];
+
+  if (node.econ !== undefined) {
+    lines.push(`Economic: ${node.econ ? "Yes" : "No"}`);
+  }
+
+  // Draw tooltip box
+  ctx.font = "12px monospace";
+  const padding = 8;
+  const lineHeight = 16;
+  const maxWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
+  const boxWidth = maxWidth + padding * 2;
+  const boxHeight = lines.length * lineHeight + padding * 2;
+
+  // Position tooltip to the right of node, or left if too close to edge
+  let tooltipX = pos.x + 20;
+  let tooltipY = pos.y - boxHeight / 2;
+
+  if (tooltipX + boxWidth > canvasWidth - 10) {
+    tooltipX = pos.x - boxWidth - 20;
+  }
+  if (tooltipY < 10) tooltipY = 10;
+
+  // Background
+  ctx.fillStyle = "rgba(26, 26, 46, 0.95)";
+  ctx.strokeStyle = "#60a5fa";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(tooltipX, tooltipY, boxWidth, boxHeight, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = "#eaeaea";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  lines.forEach((line, i) => {
+    // Highlight key values
+    if (line.startsWith("ROI Score:") || line.startsWith("Sources:")) {
+      ctx.fillStyle = "#facc15";
+    } else if (line.startsWith("Status:")) {
+      ctx.fillStyle = node.roi?.isOwned ? "#60a5fa" : "#4ade80";
+    } else {
+      ctx.fillStyle = "#eaeaea";
+    }
+    ctx.fillText(line, tooltipX + padding, tooltipY + padding + i * lineHeight);
+  });
+}
+
+/**
+ * Estimate distance between two positions.
+ */
+function estimateDistance(pos1, pos2) {
+  if (pos1.roomName === pos2.roomName) {
+    return Math.max(Math.abs(pos1.x - pos2.x), Math.abs(pos1.y - pos2.y));
+  }
+  const room1 = parseRoomCoords(pos1.roomName);
+  const room2 = parseRoomCoords(pos2.roomName);
+  const roomDist = Math.abs(room1.wx - room2.wx) + Math.abs(room1.wy - room2.wy);
+  return roomDist * 50 + Math.max(Math.abs(pos1.x - pos2.x), Math.abs(pos1.y - pos2.y));
+}
+
+/**
+ * Calculate mining cost per tick.
+ */
+function miningCostPerTick(sourcePos, spawnPos) {
+  const dist = estimateDistance(sourcePos, spawnPos);
+  const minerBody = 5 * ECON.BODY_COSTS.work + 1 * ECON.BODY_COSTS.carry + 3 * ECON.BODY_COSTS.move;
+  const baseCost = minerBody / ECON.CREEP_LIFESPAN;
+  const travelOverhead = (dist * 2) / ECON.CREEP_LIFESPAN;
+  return baseCost + travelOverhead * ECON.SOURCE_ENERGY_PER_TICK;
+}
+
+/**
+ * Calculate hauling cost per energy unit.
+ */
+function haulingCostPerEnergy(sourcePos, destPos) {
+  const dist = estimateDistance(sourcePos, destPos);
+  const haulerBody = 10 * ECON.BODY_COSTS.carry + 10 * ECON.BODY_COSTS.move;
+  const carryCapacity = 10 * 50;
+  const ticksPerTrip = Math.max(dist * 2, 1);
+  const energyPerTick = carryCapacity / ticksPerTrip;
+  const costPerTick = haulerBody / ECON.CREEP_LIFESPAN;
+  return costPerTick / energyPerTick;
+}
+
+/**
+ * Find reachable sources for a node via economic edges.
+ */
+function findReachableSources(node) {
+  const sources = [];
+  const nodesData = getNodesWithEdges();
+  if (!nodesData) return sources;
+
+  const nodeMap = new Map(nodesData.nodes.map(n => [n.id, n]));
+
+  // Local sources
+  if (node.resources) {
+    for (const r of node.resources) {
+      if (r.type === 'source') {
+        sources.push({
+          nodeId: node.id,
+          pos: { x: r.x, y: r.y, roomName: node.roomName },
+          local: true
+        });
+      }
+    }
+  }
+
+  // Remote sources via economic edges
+  const econEdgesRaw = nodesData.economicEdges || {};
+  const econEdgeKeys = Array.isArray(econEdgesRaw) ? econEdgesRaw : Object.keys(econEdgesRaw);
+  const neighbors = new Set();
+  for (const edge of econEdgeKeys) {
+    const [a, b] = edge.split('|');
+    if (a === node.id) neighbors.add(b);
+    if (b === node.id) neighbors.add(a);
+  }
+
+  for (const neighborId of neighbors) {
+    const neighbor = nodeMap.get(neighborId);
+    if (!neighbor || !neighbor.resources) continue;
+    for (const r of neighbor.resources) {
+      if (r.type === 'source') {
+        sources.push({
+          nodeId: neighbor.id,
+          pos: { x: r.x, y: r.y, roomName: neighbor.roomName },
+          local: false
+        });
+      }
+    }
+  }
+
+  return sources;
+}
+
+/**
+ * Show node details modal with economic analysis.
+ */
+function showNodeDetails(node) {
+  if (!elements.nodeDetailsOverlay) return;
+
+  elements.nodeDetailsOverlay.classList.remove("hidden");
+  elements.detailsTitle.textContent = node.id;
+
+  const hasController = node.roi?.hasController || node.resources?.some(r => r.type === 'controller');
+  const controllerRes = node.resources?.find(r => r.type === 'controller');
+
+  let html = `
+    <div class="details-section">
+      <h5>Node Info</h5>
+      <div class="details-row">
+        <span class="label">Room</span>
+        <span class="value">${node.roomName}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Territory</span>
+        <span class="value">${node.territorySize} tiles</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Openness</span>
+        <span class="value">${node.roi?.openness?.toFixed(1) || "--"}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">ROI Score</span>
+        <span class="value highlight">${node.roi?.score?.toFixed(1) || "--"}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Status</span>
+        <span class="value ${node.roi?.isOwned ? 'positive' : ''}">${node.roi?.isOwned ? "Owned" : "Expansion"}</span>
+      </div>
+    </div>
+  `;
+
+  // Resources section
+  const resources = node.resources || [];
+  const localSources = resources.filter(r => r.type === 'source');
+  const minerals = resources.filter(r => r.type === 'mineral');
+
+  html += `
+    <div class="details-section">
+      <h5>Resources</h5>
+      <div class="details-row">
+        <span class="label">Local Sources</span>
+        <span class="value ${localSources.length > 0 ? 'highlight' : ''}">${localSources.length}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Controller</span>
+        <span class="value">${hasController ? "Yes" : "No"}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Minerals</span>
+        <span class="value">${minerals.length}</span>
+      </div>
+    </div>
+  `;
+
+  // Economic analysis for controller nodes
+  if (hasController) {
+    const controllerPos = controllerRes
+      ? { x: controllerRes.x, y: controllerRes.y, roomName: node.roomName }
+      : { x: node.peakPosition?.x || 25, y: node.peakPosition?.y || 25, roomName: node.roomName };
+    const spawnPos = { x: node.peakPosition?.x || 25, y: node.peakPosition?.y || 25, roomName: node.roomName };
+
+    const reachableSources = findReachableSources(node);
+    const sourceAnalysis = [];
+    let totalGross = 0, totalCosts = 0;
+
+    for (const source of reachableSources) {
+      const gross = ECON.SOURCE_ENERGY_PER_TICK;
+      const miningCost = miningCostPerTick(source.pos, spawnPos);
+      const haulCost = haulingCostPerEnergy(source.pos, controllerPos) * gross;
+      const net = gross - miningCost - haulCost;
+      const efficiency = net / gross;
+      const distance = estimateDistance(source.pos, controllerPos);
+
+      if (efficiency >= ECON.MIN_EFFICIENCY) {
+        totalGross += gross;
+        totalCosts += miningCost + haulCost;
+        sourceAnalysis.push({ source, net, efficiency, distance, miningCost, haulCost });
+      }
+    }
+
+    sourceAnalysis.sort((a, b) => b.net - a.net);
+    const totalNet = totalGross - totalCosts;
+    const totalEfficiency = totalGross > 0 ? (totalNet / totalGross * 100).toFixed(0) : 0;
+
+    html += `
+      <div class="details-section">
+        <h5>Economic Analysis</h5>
+        <div class="summary-bar">
+          <div class="summary-stat">
+            <div class="stat-value">${totalNet.toFixed(1)}</div>
+            <div class="stat-label">Net E/tick</div>
+          </div>
+          <div class="summary-stat">
+            <div class="stat-value">${totalEfficiency}%</div>
+            <div class="stat-label">Efficiency</div>
+          </div>
+          <div class="summary-stat">
+            <div class="stat-value">${sourceAnalysis.length}</div>
+            <div class="stat-label">Sources</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (sourceAnalysis.length > 0) {
+      html += `
+        <div class="details-section">
+          <h5>Source Breakdown</h5>
+          <ul class="source-list">
+      `;
+
+      for (const { source, net, efficiency, distance } of sourceAnalysis.slice(0, 8)) {
+        const shortId = source.nodeId.length > 12 ? source.nodeId.slice(0, 12) + '...' : source.nodeId;
+        html += `
+          <li class="source-item">
+            <div class="source-header">
+              <span class="source-name" title="${source.nodeId}">${shortId}</span>
+              <span class="source-type ${source.local ? 'local' : ''}">${source.local ? 'Local' : 'Remote'}</span>
+            </div>
+            <div class="source-stats">
+              <span>${distance} tiles</span>
+              <span>${(efficiency * 100).toFixed(0)}% eff</span>
+              <span class="source-net">+${net.toFixed(1)}/tick</span>
+            </div>
+          </li>
+        `;
+      }
+
+      if (sourceAnalysis.length > 8) {
+        html += `<li class="source-item" style="text-align: center; color: var(--text-secondary);">+${sourceAnalysis.length - 8} more sources</li>`;
+      }
+
+      html += `</ul></div>`;
+    }
+
+    // Show filtered sources count
+    const filteredCount = reachableSources.length - sourceAnalysis.length;
+    if (filteredCount > 0) {
+      html += `<p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">${filteredCount} sources filtered (< 30% efficiency)</p>`;
+    }
+  } else {
+    // Non-controller node - show adjacent economic nodes
+    const nodesData = getNodesWithEdges();
+    if (nodesData && nodesData.economicEdges) {
+      const econEdgeKeys = Array.isArray(nodesData.economicEdges)
+        ? nodesData.economicEdges
+        : Object.keys(nodesData.economicEdges);
+      const neighbors = new Set();
+      for (const edge of econEdgeKeys) {
+        const [a, b] = edge.split('|');
+        if (a === node.id) neighbors.add(b);
+        if (b === node.id) neighbors.add(a);
+      }
+
+      if (neighbors.size > 0) {
+        html += `
+          <div class="details-section">
+            <h5>Economic Neighbors</h5>
+            <p style="color: var(--text-secondary); font-size: 0.85rem;">
+              Connected to ${neighbors.size} economic node${neighbors.size > 1 ? 's' : ''}
+            </p>
+          </div>
+        `;
+      }
+    }
+  }
+
+  elements.detailsContent.innerHTML = html;
 }
 
 /**
@@ -730,6 +1566,8 @@ function init() {
   setupTabs();
   setupRefreshButton();
   setupNetworkTypeSelector();
+  setupNetworkVizSelector();
+  setupNetworkCanvas();
   connect();
 }
 

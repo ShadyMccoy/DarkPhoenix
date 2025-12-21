@@ -25,7 +25,12 @@ import {
   ScoutCorp,
   createScoutCorp,
   SerializedScoutCorp,
+  ConstructionCorp,
+  createConstructionCorp,
+  SerializedConstructionCorp,
 } from "../corps";
+import { getMinableSources } from "../analysis";
+import { getMarket, ClearingResult } from "../market";
 
 /**
  * Container for all active corps, organized by type.
@@ -36,6 +41,7 @@ export interface CorpRegistry {
   haulingCorps: { [roomName: string]: RealHaulingCorp };
   upgradingCorps: { [roomName: string]: RealUpgradingCorp };
   scoutCorps: { [roomName: string]: ScoutCorp };
+  constructionCorps: { [roomName: string]: ConstructionCorp };
 }
 
 /**
@@ -48,6 +54,7 @@ export function createCorpRegistry(): CorpRegistry {
     haulingCorps: {},
     upgradingCorps: {},
     scoutCorps: {},
+    constructionCorps: {},
   };
 }
 
@@ -122,9 +129,9 @@ export function runRealCorps(registry: CorpRegistry): void {
     if (spawns.length === 0) continue;
 
     const spawn = spawns[0];
-    const sources = room.find(FIND_SOURCES);
+    const sources = getMinableSources(room);
 
-    // Initialize and run mining corps (one per source)
+    // Initialize and run mining corps (one per source, excludes source keeper sources)
     for (const source of sources) {
       let miningCorp = registry.miningCorps[source.id];
 
@@ -232,6 +239,94 @@ export function runScoutCorps(registry: CorpRegistry): void {
 }
 
 /**
+ * Run construction corps for all owned rooms.
+ *
+ * Construction corps build extensions when there's profit available.
+ * They place extensions along walls to stay out of the way.
+ */
+export function runConstructionCorps(registry: CorpRegistry): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+
+    // Only process owned rooms with spawns
+    if (!room.controller?.my) continue;
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) continue;
+
+    const spawn = spawns[0];
+
+    // Get or create construction corp for this room
+    let constructionCorp = registry.constructionCorps[roomName];
+
+    if (!constructionCorp) {
+      // Try to restore from memory
+      const saved = Memory.constructionCorps?.[roomName];
+      if (saved) {
+        constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId);
+        constructionCorp.deserialize(saved);
+        registry.constructionCorps[roomName] = constructionCorp;
+      } else {
+        // Create new
+        constructionCorp = createConstructionCorp(room, spawn);
+        constructionCorp.createdAt = Game.time;
+        registry.constructionCorps[roomName] = constructionCorp;
+        console.log(`[Construction] Created corp for ${roomName}`);
+      }
+    }
+
+    // Run the construction corp
+    constructionCorp.work(Game.time);
+  }
+}
+
+/**
+ * Register all corps with the market for trading.
+ */
+export function registerCorpsWithMarket(registry: CorpRegistry): void {
+  const market = getMarket();
+
+  // Register mining corps
+  for (const sourceId in registry.miningCorps) {
+    market.registerCorp(registry.miningCorps[sourceId]);
+  }
+
+  // Register hauling corps
+  for (const roomName in registry.haulingCorps) {
+    market.registerCorp(registry.haulingCorps[roomName]);
+  }
+
+  // Register upgrading corps
+  for (const roomName in registry.upgradingCorps) {
+    market.registerCorp(registry.upgradingCorps[roomName]);
+  }
+
+  // Register construction corps
+  for (const roomName in registry.constructionCorps) {
+    market.registerCorp(registry.constructionCorps[roomName]);
+  }
+
+  // Note: Bootstrap and Scout corps don't participate in the market
+}
+
+/**
+ * Run market clearing to match offers and record transactions.
+ * Should be called after all corps have run their work loops.
+ */
+export function runMarketClearing(): ClearingResult {
+  const market = getMarket();
+  const result = market.clear(Game.time);
+
+  // Log market activity periodically
+  if (Game.time % 100 === 0 && result.totalVolume > 0) {
+    console.log(`[Market] Cleared: ${result.contracts.length} contracts, ` +
+      `${result.totalVolume.toFixed(0)} volume, ` +
+      `avg price ${result.averagePrice.toFixed(3)}`);
+  }
+
+  return result;
+}
+
+/**
  * Log corp statistics.
  */
 export function logCorpStats(registry: CorpRegistry): void {
@@ -260,5 +355,10 @@ export function logCorpStats(registry: CorpRegistry): void {
     totalScouts += registry.scoutCorps[roomName].getCreepCount();
   }
 
-  console.log(`  Miners: ${totalMiners}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}`);
+  let totalBuilders = 0;
+  for (const roomName in registry.constructionCorps) {
+    totalBuilders += registry.constructionCorps[roomName].getCreepCount();
+  }
+
+  console.log(`  Miners: ${totalMiners}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
 }
