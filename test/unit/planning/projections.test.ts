@@ -39,19 +39,23 @@ describe("projections", () => {
   const spawnPos: Position = { x: 25, y: 25, roomName: "W1N1" };
   const sourcePos: Position = { x: 10, y: 10, roomName: "W1N1" };
   const controllerPos: Position = { x: 40, y: 40, roomName: "W1N1" };
+  // Dependency IDs (for clean operation architecture)
+  const sourceCorpId = "source-1";
+  const spawningCorpId = "spawning-1";
+  const miningCorpId = "mining-1";
 
   describe("projectMining", () => {
     it("should be a leaf node with no buy offers", () => {
       // Mining is a leaf node in the supply chain - it produces energy
       // from sources without supply chain dependencies
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys } = projectMining(state, 0);
 
       expect(buys).to.have.length(0);
     });
 
     it("should produce sell offer for energy", () => {
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { sells } = projectMining(state, 0);
 
       expect(sells).to.have.length(1);
@@ -60,7 +64,7 @@ describe("projections", () => {
     });
 
     it("should calculate energy output based on optimal work parts", () => {
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { sells } = projectMining(state, 0);
 
       const expectedWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
@@ -71,12 +75,12 @@ describe("projections", () => {
     });
 
     it("should reduce energy output when spawn position is far", () => {
-      const nearState = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY, spawnPos);
+      const nearState = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY, spawnPos);
       const { sells: nearSells } = projectMining(nearState, 0);
 
       // Remote source - longer travel time
       const remoteSource: Position = { x: 25, y: 25, roomName: "W2N1" };
-      const farState = createMiningState("mining-2", "node-2", remoteSource, SOURCE_ENERGY_CAPACITY, spawnPos);
+      const farState = createMiningState("mining-2", "node-2", sourceCorpId, spawningCorpId, remoteSource, SOURCE_ENERGY_CAPACITY, spawnPos);
       const { sells: farSells } = projectMining(farState, 0);
 
       // Far source should have less output due to travel time
@@ -84,7 +88,7 @@ describe("projections", () => {
     });
 
     it("should include location in sell offers", () => {
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { sells } = projectMining(state, 0);
 
       expect(sells[0].location).to.deep.equal(sourcePos);
@@ -92,7 +96,7 @@ describe("projections", () => {
 
     it("should set duration to creep lifetime", () => {
       // Mining is a leaf node - only check sells duration
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { sells } = projectMining(state, 0);
 
       expect(sells[0].duration).to.equal(CREEP_LIFETIME);
@@ -182,7 +186,7 @@ describe("projections", () => {
     const destPos: Position = { x: 25, y: 30, roomName: "W1N1" };
 
     it("should buy haul-demand", () => {
-      const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
+      const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
@@ -190,7 +194,7 @@ describe("projections", () => {
     });
 
     it("should sell delivered-energy", () => {
-      const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
+      const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { sells } = projectHauling(state, 0);
 
       expect(sells).to.have.length(1);
@@ -198,14 +202,14 @@ describe("projections", () => {
     });
 
     it("should have source position for buy offer", () => {
-      const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
+      const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { buys } = projectHauling(state, 0);
 
       expect(buys[0].location).to.deep.equal(sourcePos);
     });
 
     it("should have destination position for sell offer", () => {
-      const state = createHaulingState("hauling-1", "node-1", sourcePos, destPos, 100);
+      const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { sells } = projectHauling(state, 0);
 
       expect(sells[0].location).to.deep.equal(destPos);
@@ -214,7 +218,7 @@ describe("projections", () => {
 
   describe("project (dispatcher)", () => {
     it("should dispatch to projectMining for mining state", () => {
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const projection = project(state, 0);
 
       expect(projection.sells[0].resource).to.equal("energy");
@@ -245,7 +249,8 @@ describe("projections", () => {
         acquisitionCost: 0,
         committedWorkTicks: 0,
         committedEnergy: 0,
-        committedDeliveredEnergy: 0
+        committedDeliveredEnergy: 0,
+        lastPlannedTick: 0
       };
       const projection = project(state, 0);
 
@@ -257,7 +262,7 @@ describe("projections", () => {
   describe("projectAll", () => {
     it("should project multiple states", () => {
       const states = [
-        createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY),
+        createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY),
         createSpawningState("spawning-1", "node-1", spawnPos)
       ];
 
@@ -307,7 +312,7 @@ describe("projections", () => {
     it("should be a leaf node with no buy offers", () => {
       // projectMining is a LEAF NODE - it produces energy without supply chain dependencies
       // Work-ticks dependency is handled via labor allocation, not supply chain
-      const state = createMiningState("mining-1", "node-1", sourcePos, SOURCE_ENERGY_CAPACITY);
+      const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys, sells } = projectMining(state, 0);
 
       // Mining is a leaf node - no buy offers

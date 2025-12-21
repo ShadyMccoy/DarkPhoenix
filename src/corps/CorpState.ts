@@ -14,16 +14,37 @@ import { SerializedCorp } from "./Corp";
 import { Position } from "../market/Offer";
 
 /**
- * Mining corp state - harvests energy from sources
+ * Source corp state - passive energy source representation.
+ * Created first in the dependency chain.
+ */
+export interface SourceCorpState extends SerializedCorp {
+  type: "source";
+  /** Position of the source */
+  position: Position;
+  /** Source game object ID */
+  sourceId: string;
+  /** Energy capacity (e.g., 3000) */
+  energyCapacity: number;
+  /** Number of mining spots available */
+  miningSpots: number;
+}
+
+/**
+ * Mining corp state - harvests energy from sources.
+ * Depends on SourceCorp (sourceCorpId).
  */
 export interface MiningCorpState extends SerializedCorp {
   type: "mining";
+  /** ID of the SourceCorp this operation mines from (dependency) */
+  sourceCorpId: string;
   /** Position of the source being mined */
   position: Position;
   /** Energy capacity of the source (e.g., 3000) */
   sourceCapacity: number;
   /** Spawn position for travel time calculation, null if unknown */
   spawnPosition: Position | null;
+  /** ID of the SpawningCorp to get workers from */
+  spawningCorpId: string;
 }
 
 /**
@@ -51,11 +72,16 @@ export interface UpgradingCorpState extends SerializedCorp {
 }
 
 /**
- * Hauling corp state - transports resources between locations
+ * Hauling corp state - transports resources between locations.
+ * Depends on MiningOperation (miningCorpId).
  */
 export interface HaulingCorpState extends SerializedCorp {
   type: "hauling";
-  /** Pick-up location (where resources are collected) */
+  /** ID of the MiningOperation to pick up energy from (dependency) */
+  miningCorpId: string;
+  /** ID of the SpawningCorp to get haulers from */
+  spawningCorpId: string;
+  /** Pick-up location (where resources are collected) - from MiningOperation */
   sourcePosition: Position;
   /** Drop-off location (where resources are delivered) */
   destinationPosition: Position;
@@ -100,6 +126,7 @@ export interface ScoutCorpState extends SerializedCorp {
  * Union of all corp state types
  */
 export type AnyCorpState =
+  | SourceCorpState
   | MiningCorpState
   | SpawningCorpState
   | UpgradingCorpState
@@ -113,11 +140,51 @@ export type AnyCorpState =
 // =============================================================================
 
 /**
- * Create a minimal mining corp state for testing
+ * Create a source corp state (passive energy source).
+ * This is the first in the dependency chain.
+ */
+export function createSourceState(
+  id: string,
+  nodeId: string,
+  position: Position,
+  sourceId: string,
+  energyCapacity: number,
+  miningSpots: number
+): SourceCorpState {
+  return {
+    id,
+    type: "source",
+    nodeId,
+    position,
+    sourceId,
+    energyCapacity,
+    miningSpots,
+    balance: 0,
+    totalRevenue: 0,
+    totalCost: 0,
+    createdAt: 0,
+    isActive: false,
+    lastActivityTick: 0,
+    unitsProduced: 0,
+    expectedUnitsProduced: 0,
+    unitsConsumed: 0,
+    acquisitionCost: 0,
+    committedWorkTicks: 0,
+    committedEnergy: 0,
+    committedDeliveredEnergy: 0,
+    lastPlannedTick: 0
+  };
+}
+
+/**
+ * Create a mining corp state.
+ * Depends on SourceCorpState (must be created first).
  */
 export function createMiningState(
   id: string,
   nodeId: string,
+  sourceCorpId: string,
+  spawningCorpId: string,
   position: Position,
   sourceCapacity: number,
   spawnPosition: Position | null = null
@@ -126,6 +193,8 @@ export function createMiningState(
     id,
     type: "mining",
     nodeId,
+    sourceCorpId,
+    spawningCorpId,
     position,
     sourceCapacity,
     spawnPosition,
@@ -213,11 +282,14 @@ export function createUpgradingState(
 }
 
 /**
- * Create a minimal hauling corp state for testing
+ * Create a hauling corp state.
+ * Depends on MiningCorpState (must be created first).
  */
 export function createHaulingState(
   id: string,
   nodeId: string,
+  miningCorpId: string,
+  spawningCorpId: string,
   sourcePosition: Position,
   destinationPosition: Position,
   carryCapacity: number,
@@ -227,6 +299,8 @@ export function createHaulingState(
     id,
     type: "hauling",
     nodeId,
+    miningCorpId,
+    spawningCorpId,
     sourcePosition,
     destinationPosition,
     carryCapacity,

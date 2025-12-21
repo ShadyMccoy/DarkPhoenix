@@ -4,6 +4,7 @@ import { Offer, Position } from "../market/Offer";
  * Corp types in the economic system
  */
 export type CorpType =
+  | "source"
   | "mining"
   | "spawning"
   | "upgrading"

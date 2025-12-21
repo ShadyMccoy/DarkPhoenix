@@ -11,6 +11,7 @@
 
 import { Offer, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
 import {
+  SourceCorpState,
   MiningCorpState,
   SpawningCorpState,
   UpgradingCorpState,
@@ -43,6 +44,37 @@ export interface CorpProjection {
  * Empty projection for corps that don't participate in the market
  */
 const EMPTY_PROJECTION: CorpProjection = { buys: [], sells: [] };
+
+// =============================================================================
+// Source Projection
+// =============================================================================
+
+/**
+ * Calculate offers for a source corp.
+ *
+ * Source corps are PASSIVE:
+ * - Buy: nothing
+ * - Sell: energy-source (access to harvest from this source)
+ *
+ * The source is free to access - value is created when energy is harvested.
+ */
+export function projectSource(state: SourceCorpState, tick: number): CorpProjection {
+  return {
+    buys: [],
+    sells: [
+      {
+        id: createOfferId(state.id, "energy-source", tick),
+        corpId: state.id,
+        type: "sell",
+        resource: "energy-source",
+        quantity: state.energyCapacity,
+        price: 0, // Free resource - cost is in mining
+        duration: 300, // Regeneration cycle
+        location: state.position
+      }
+    ]
+  };
+}
 
 // =============================================================================
 // Mining Projection
@@ -331,6 +363,8 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
  */
 export function project(state: AnyCorpState, tick: number): CorpProjection {
   switch (state.type) {
+    case "source":
+      return projectSource(state, tick);
     case "mining":
       return projectMining(state, tick);
     case "spawning":

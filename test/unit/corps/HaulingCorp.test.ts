@@ -8,10 +8,13 @@ describe("HaulingCorp projections", () => {
   const sourcePosition: Position = { x: 10, y: 10, roomName: "W1N1" };
   const destPosition: Position = { x: 30, y: 30, roomName: "W1N1" };
   const carryCapacity = 500; // 10 CARRY parts × 50
+  // Dependency IDs (for clean operation architecture)
+  const miningCorpId = "mining-1";
+  const spawningCorpId = "spawning-1";
 
   describe("projectHauling", () => {
     it("should return buy offer for haul-demand", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
@@ -20,7 +23,7 @@ describe("HaulingCorp projections", () => {
     });
 
     it("should calculate haul-demand based on carry parts", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       // 500 capacity / 50 per CARRY = 10 CARRY parts
@@ -31,14 +34,14 @@ describe("HaulingCorp projections", () => {
     });
 
     it("should locate buy offer at source position", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       expect(buys[0].location).to.deep.equal(sourcePosition);
     });
 
     it("should return sell offer for delivered-energy", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { sells } = projectHauling(state, 0);
 
       expect(sells).to.have.length(1);
@@ -47,14 +50,14 @@ describe("HaulingCorp projections", () => {
     });
 
     it("should locate sell offer at destination position", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { sells } = projectHauling(state, 0);
 
       expect(sells[0].location).to.deep.equal(destPosition);
     });
 
     it("should calculate delivered-energy quantity based on trips", () => {
-      const state = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { sells } = projectHauling(state, 0);
 
       // Verify it's a positive number based on distance and capacity
@@ -62,11 +65,11 @@ describe("HaulingCorp projections", () => {
     });
 
     it("should apply margin based on balance", () => {
-      const poorState = createHaulingState("hauling-1", "node1", sourcePosition, destPosition, carryCapacity);
+      const poorState = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       poorState.balance = 0;
       const { sells: poorSells } = projectHauling(poorState, 0);
 
-      const richState = createHaulingState("hauling-2", "node1", sourcePosition, destPosition, carryCapacity);
+      const richState = createHaulingState("hauling-2", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       richState.balance = 10000;
       const { sells: richSells } = projectHauling(richState, 0);
 
@@ -79,12 +82,12 @@ describe("HaulingCorp projections", () => {
     it("should reduce throughput when distance is longer", () => {
       // Short distance
       const nearDest: Position = { x: 15, y: 15, roomName: "W1N1" };
-      const nearState = createHaulingState("hauling-1", "node1", sourcePosition, nearDest, carryCapacity);
+      const nearState = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, nearDest, carryCapacity);
       const { sells: nearSells } = projectHauling(nearState, 0);
 
       // Long distance (different room)
       const farDest: Position = { x: 30, y: 30, roomName: "W2N1" };
-      const farState = createHaulingState("hauling-2", "node2", sourcePosition, farDest, carryCapacity);
+      const farState = createHaulingState("hauling-2", "node2", miningCorpId, spawningCorpId, sourcePosition, farDest, carryCapacity);
       const { sells: farSells } = projectHauling(farState, 0);
 
       // Longer distance = fewer trips = less delivered energy

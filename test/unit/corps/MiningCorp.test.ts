@@ -12,19 +12,22 @@ import {
 describe("MiningCorp projections", () => {
   const defaultPosition: Position = { x: 10, y: 10, roomName: "W1N1" };
   const defaultSourceCapacity = SOURCE_ENERGY_CAPACITY; // 3000
+  // Dependency IDs (for clean operation architecture)
+  const sourceCorpId = "source-1";
+  const spawningCorpId = "spawning-1";
 
   describe("projectMining", () => {
     it("should be a leaf node with no buy offers", () => {
       // Mining is a leaf node in the supply chain - it produces energy
       // from sources without buying anything (no supply chain dependencies)
-      const state = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
+      const state = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       const { buys } = projectMining(state, 0);
 
       expect(buys).to.have.length(0);
     });
 
     it("should return sell offer for energy", () => {
-      const state = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
+      const state = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       const { sells } = projectMining(state, 0);
 
       expect(sells).to.have.length(1);
@@ -35,7 +38,7 @@ describe("MiningCorp projections", () => {
     });
 
     it("should calculate energy based on optimal work parts", () => {
-      const state = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
+      const state = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       const { sells } = projectMining(state, 0);
 
       // Source rate: 3000/300 = 10 energy/tick
@@ -47,11 +50,11 @@ describe("MiningCorp projections", () => {
     });
 
     it("should apply margin based on balance", () => {
-      const poorState = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity);
+      const poorState = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       poorState.balance = 0;
       const { sells: poorSells } = projectMining(poorState, 0);
 
-      const richState = createMiningState("mining-2", "node1", defaultPosition, defaultSourceCapacity);
+      const richState = createMiningState("mining-2", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       richState.balance = 10000;
       const { sells: richSells } = projectMining(richState, 0);
 
@@ -65,12 +68,12 @@ describe("MiningCorp projections", () => {
       const spawnPos: Position = { x: 25, y: 25, roomName: "W1N1" };
 
       // Near source (same room, moderate distance)
-      const nearState = createMiningState("mining-1", "node1", defaultPosition, defaultSourceCapacity, spawnPos);
+      const nearState = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity, spawnPos);
       const { sells: nearSells } = projectMining(nearState, 0);
 
       // Remote source (different room)
       const remotePos: Position = { x: 25, y: 25, roomName: "W2N1" };
-      const farState = createMiningState("mining-2", "node2", remotePos, defaultSourceCapacity, spawnPos);
+      const farState = createMiningState("mining-2", "node2", sourceCorpId, spawningCorpId, remotePos, defaultSourceCapacity, spawnPos);
       const { sells: farSells } = projectMining(farState, 0);
 
       // Remote mining should produce less energy due to travel time
