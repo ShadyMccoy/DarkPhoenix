@@ -26,6 +26,7 @@ export interface SerializedRealHaulingCorp extends SerializedCorp {
   lastSpawnAttempt: number;
   sourceData: { sourceId: string; flow: number; distanceToSpawn: number }[];
   lastAcquisitionPrice: number;
+  targetHaulers: number;
 }
 
 /**
@@ -58,6 +59,9 @@ export class RealHaulingCorp extends Corp {
 
   /** Last acquisition price paid for energy (from miners) */
   private lastAcquisitionPrice: number = 0.1;
+
+  /** Target number of haulers (computed during planning) */
+  private targetHaulers: number = 2;
 
   constructor(nodeId: string, spawnId: string) {
     super("hauling", nodeId);
@@ -111,33 +115,43 @@ export class RealHaulingCorp extends Corp {
   }
 
   /**
-   * Hauling corp buys carry-ticks from SpawningCorp and energy from miners.
-   *
-   * Carry-ticks needed = Σ(flow × distance) for all sources we serve.
-   * This captures both throughput requirements and distance costs.
+   * Plan hauling operations. Called periodically to compute targets.
+   * Analyzes sources and distances to determine optimal hauler count.
    */
-  buys(): Offer[] {
-    const offers: Offer[] = [];
+  plan(tick: number): void {
+    super.plan(tick);
+
+    // Ensure source data is populated
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (spawn) {
+      this.analyzeSources(spawn.room, spawn);
+    }
 
     // Calculate total haul demand: Σ(flow × distance)
     const totalHaulDemand = this.sourceData.reduce((sum, source) => {
       return sum + (source.flow * source.distanceToSpawn);
     }, 0);
 
-    // Calculate current haul capacity from existing creeps
-    const currentHaulCapacity = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const carryParts = creep.getActiveBodyparts(CARRY);
-      return sum + (carryParts * HAUL_PER_CARRY);
-    }, 0);
+    // Each hauler provides ~4 CARRY parts × HAUL_PER_CARRY capacity
+    const capacityPerHauler = 4 * HAUL_PER_CARRY;
+    this.targetHaulers = Math.max(1, Math.ceil(totalHaulDemand / capacityPerHauler));
+  }
 
-    // SIMPLIFIED LOGIC: Request 1 hauler at a time if we need more capacity
-    if (currentHaulCapacity < totalHaulDemand) {
-      // Request a standard hauler's worth of capacity
-      const standardHaulerCapacity = 4 * HAUL_PER_CARRY; // 4 CARRY parts
+  /**
+   * Hauling corp buys carry-ticks from SpawningCorp and energy from miners.
+   *
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current haulers < target, request 1 more
+   */
+  buys(): Offer[] {
+    const offers: Offer[] = [];
 
-      // Price based on expected transport revenue
+    // Count current live haulers
+    const currentHaulers = this.creepNames.filter(n => Game.creeps[n]).length;
+
+    // Request 1 hauler if below target
+    if (currentHaulers < this.targetHaulers) {
+      const standardHaulerCapacity = 4 * HAUL_PER_CARRY;
       const pricePerHaul = TRANSPORT_FEE_PER_ENERGY * (1 + this.getMargin());
 
       offers.push({
@@ -494,6 +508,7 @@ export class RealHaulingCorp extends Corp {
       lastSpawnAttempt: this.lastSpawnAttempt,
       sourceData: this.sourceData,
       lastAcquisitionPrice: this.lastAcquisitionPrice,
+      targetHaulers: this.targetHaulers,
     };
   }
 
@@ -506,6 +521,7 @@ export class RealHaulingCorp extends Corp {
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
     this.sourceData = data.sourceData || [];
     this.lastAcquisitionPrice = data.lastAcquisitionPrice || 0.1;
+    this.targetHaulers = data.targetHaulers || 2;
   }
 }
 

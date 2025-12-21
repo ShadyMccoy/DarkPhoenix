@@ -29,6 +29,7 @@ export interface SerializedRealMiningCorp extends SerializedCorp {
   creepNames: string[];
   lastSpawnAttempt: number;
   desiredWorkParts: number;
+  targetMiners: number;
 }
 
 /**
@@ -63,6 +64,9 @@ export class RealMiningCorp extends Corp {
 
   /** Cached source analysis (populated on first work() call) */
   private sourceMine: SourceMine | null = null;
+
+  /** Target number of miners (computed during planning) */
+  private targetMiners: number = 1;
 
   constructor(
     nodeId: string,
@@ -119,38 +123,38 @@ export class RealMiningCorp extends Corp {
   }
 
   /**
-   * Mining corp buys work-ticks (miner creeps) from SpawningCorps.
-   * Requests work-ticks when we need more miners.
-   *
-   * SIMPLIFIED LOGIC:
-   * - Only request 1 creep at a time (prevents over-ordering)
-   * - Calculate need based on current creeps only (no commitment tracking)
-   * - Respects mining spot limit as a physical constraint
+   * Plan mining operations. Called periodically to compute targets.
+   * Analyzes the source to determine optimal miner count.
    */
-  buys(): Offer[] {
-    // Ensure source analysis is available for mining spot count
+  plan(tick: number): void {
+    super.plan(tick);
     this.ensureSourceAnalyzed();
 
-    // Get available mining spots - this limits how many creeps can mine
+    // Get physical constraints
     const miningSpots = this.sourceMine ? getMiningSpots(this.sourceMine) : 1;
 
+    // Calculate miners needed for desired work parts
+    // Assume each miner has ~5 WORK parts (adjusts based on energy capacity)
+    const avgWorkPerMiner = Math.max(1, Math.floor(this.desiredWorkParts / miningSpots));
+    const minersForWorkParts = Math.ceil(this.desiredWorkParts / avgWorkPerMiner);
+
+    // Target is minimum of spots available and miners needed
+    this.targetMiners = Math.min(miningSpots, minersForWorkParts);
+  }
+
+  /**
+   * Mining corp buys work-ticks (miner creeps) from SpawningCorps.
+   *
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current miners < target, request 1 more
+   * - Planning determines the target based on source analysis
+   */
+  buys(): Offer[] {
     // Count current live creeps
-    const currentCreepCount = this.creepNames.filter(n => Game.creeps[n]).length;
+    const currentMiners = this.creepNames.filter(n => Game.creeps[n]).length;
 
-    // Don't request more if we're at or above the mining spot limit
-    if (currentCreepCount >= miningSpots) {
-      return [];
-    }
-
-    // Also check if we have enough work parts already
-    const currentWorkParts = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      return sum + creep.getActiveBodyparts(WORK);
-    }, 0);
-
-    // If we have enough work parts to fully harvest, don't request more
-    if (currentWorkParts >= this.desiredWorkParts) {
+    // If we have enough miners, don't request more
+    if (currentMiners >= this.targetMiners) {
       return [];
     }
 
@@ -302,6 +306,7 @@ export class RealMiningCorp extends Corp {
       creepNames: this.creepNames,
       lastSpawnAttempt: this.lastSpawnAttempt,
       desiredWorkParts: this.desiredWorkParts,
+      targetMiners: this.targetMiners,
     };
   }
 
@@ -313,6 +318,7 @@ export class RealMiningCorp extends Corp {
     this.creepNames = data.creepNames || [];
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
     this.desiredWorkParts = data.desiredWorkParts || DEFAULT_DESIRED_WORK;
+    this.targetMiners = data.targetMiners || 1;
   }
 }
 

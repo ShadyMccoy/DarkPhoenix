@@ -141,7 +141,8 @@ export function createMiningState(
     acquisitionCost: 0,
     committedWorkTicks: 0,
     committedEnergy: 0,
-    committedDeliveredEnergy: 0
+    committedDeliveredEnergy: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -172,7 +173,8 @@ export function createSpawningState(
     acquisitionCost: 0,
     committedWorkTicks: 0,
     committedEnergy: 0,
-    committedDeliveredEnergy: 0
+    committedDeliveredEnergy: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -205,7 +207,8 @@ export function createUpgradingState(
     acquisitionCost: 0,
     committedWorkTicks: 0,
     committedEnergy: 0,
-    committedDeliveredEnergy: 0
+    committedDeliveredEnergy: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -240,7 +243,8 @@ export function createHaulingState(
     acquisitionCost: 0,
     committedWorkTicks: 0,
     committedEnergy: 0,
-    committedDeliveredEnergy: 0
+    committedDeliveredEnergy: 0,
+    lastPlannedTick: 0
   };
 }
 

@@ -31,6 +31,7 @@ export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   creepNames: string[];
   lastPlacementAttempt: number;
+  targetBuilders: number;
 }
 
 /**
@@ -71,6 +72,9 @@ export class ConstructionCorp extends Corp {
   /** Last tick we attempted to place extensions */
   private lastPlacementAttempt: number = 0;
 
+  /** Target number of builders (computed during planning) */
+  private targetBuilders: number = 0;
+
   constructor(nodeId: string, spawnId: string) {
     super("building", nodeId);
     this.spawnId = spawnId;
@@ -84,36 +88,53 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Construction corp buys work-ticks (builder creeps) via the market.
-   * Only requests builders when there's construction work to do.
-   *
-   * SIMPLIFIED LOGIC:
-   * - Only request 1 creep at a time (prevents over-ordering)
-   * - Calculate need based on current creeps only (no commitment tracking)
-   * - The market's natural capacity limiting handles throttling
+   * Plan construction operations. Called periodically to compute targets.
+   * Determines how many builders are needed based on construction sites.
    */
-  buys(): Offer[] {
-    const offers: Offer[] = [];
+  plan(tick: number): void {
+    super.plan(tick);
 
-    // Check if there's construction to do
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return [];
+    if (!spawn) {
+      this.targetBuilders = 0;
+      return;
+    }
 
     const constructionSites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (constructionSites.length === 0) return [];
+    if (constructionSites.length === 0) {
+      this.targetBuilders = 0;
+      return;
+    }
+
+    // Calculate total work remaining
+    const totalWorkRemaining = constructionSites.reduce((sum, site) => {
+      return sum + (site.progressTotal - site.progress);
+    }, 0);
+
+    // Roughly 1 builder per 50k work remaining, capped at MAX_BUILDERS
+    const buildersNeeded = Math.min(MAX_BUILDERS, Math.ceil(totalWorkRemaining / 50000));
+    this.targetBuilders = Math.max(1, buildersNeeded);
+  }
+
+  /**
+   * Construction corp buys work-ticks (builder creeps) via the market.
+   *
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current builders < target, request 1 more
+   */
+  buys(): Offer[] {
+    // If no target builders (no construction), don't request
+    if (this.targetBuilders === 0) return [];
 
     // Count current active builders
     const currentBuilders = this.creepNames.filter(name => Game.creeps[name]).length;
 
-    // Simple logic: if we have fewer than MAX_BUILDERS, request exactly 1 more
-    if (currentBuilders < MAX_BUILDERS) {
-      // Request exactly 1 creep's worth of work-ticks
-      const workTicksPerCreep = CREEP_LIFETIME; // 1 WORK part × lifetime
-
-      // Price based on construction value (must be higher than SpawningCorp's ask)
+    // Request 1 builder if below target
+    if (currentBuilders < this.targetBuilders) {
+      const workTicksPerCreep = CREEP_LIFETIME;
       const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
-      offers.push({
+      return [{
         id: createOfferId(this.id, "work-ticks", Game.time),
         corpId: this.id,
         type: "buy",
@@ -122,10 +143,10 @@ export class ConstructionCorp extends Corp {
         price: pricePerWorkTick * workTicksPerCreep,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
-      });
+      }];
     }
 
-    return offers;
+    return [];
   }
 
   /**
@@ -451,6 +472,7 @@ export class ConstructionCorp extends Corp {
       spawnId: this.spawnId,
       creepNames: this.creepNames,
       lastPlacementAttempt: this.lastPlacementAttempt,
+      targetBuilders: this.targetBuilders,
     };
   }
 
@@ -461,6 +483,7 @@ export class ConstructionCorp extends Corp {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
+    this.targetBuilders = data.targetBuilders || 0;
   }
 }
 

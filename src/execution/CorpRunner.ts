@@ -157,6 +157,10 @@ export function runRealCorps(registry: CorpRegistry): void {
         }
       }
 
+      // Run periodic planning if needed
+      if (miningCorp.shouldPlan(Game.time)) {
+        miningCorp.plan(Game.time);
+      }
       miningCorp.work(Game.time);
     }
 
@@ -177,6 +181,10 @@ export function runRealCorps(registry: CorpRegistry): void {
       }
     }
 
+    // Run periodic planning if needed
+    if (haulingCorp.shouldPlan(Game.time)) {
+      haulingCorp.plan(Game.time);
+    }
     haulingCorp.work(Game.time);
 
     // Initialize and run upgrading corp (one per room)
@@ -196,6 +204,10 @@ export function runRealCorps(registry: CorpRegistry): void {
       }
     }
 
+    // Run periodic planning if needed
+    if (upgradingCorp.shouldPlan(Game.time)) {
+      upgradingCorp.plan(Game.time);
+    }
     upgradingCorp.work(Game.time);
   }
 }
@@ -280,7 +292,10 @@ export function runConstructionCorps(registry: CorpRegistry): void {
       }
     }
 
-    // Run the construction corp
+    // Run periodic planning if needed
+    if (constructionCorp.shouldPlan(Game.time)) {
+      constructionCorp.plan(Game.time);
+    }
     constructionCorp.work(Game.time);
   }
 }

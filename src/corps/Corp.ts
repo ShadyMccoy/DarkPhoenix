@@ -34,6 +34,8 @@ export interface SerializedCorp {
   committedWorkTicks: number;
   committedEnergy: number;
   committedDeliveredEnergy: number;
+  // Planning state
+  lastPlannedTick: number;
 }
 
 /**
@@ -98,6 +100,12 @@ export abstract class Corp {
 
   /** Delivered-energy committed via contracts but not yet fulfilled (prevents double-selling) */
   committedDeliveredEnergy: number = 0;
+
+  /** Last tick when planning was performed */
+  lastPlannedTick: number = 0;
+
+  /** How often to re-run planning (ticks) */
+  protected static readonly PLANNING_INTERVAL = 100;
 
   /** Base margin for cost-plus pricing (10%) */
   private readonly BASE_MARGIN = 0.1;
@@ -372,6 +380,23 @@ export abstract class Corp {
   }
 
   /**
+   * Check if planning should be run this tick.
+   * Planning is periodic - runs every PLANNING_INTERVAL ticks.
+   */
+  shouldPlan(tick: number): boolean {
+    return tick - this.lastPlannedTick >= Corp.PLANNING_INTERVAL;
+  }
+
+  /**
+   * Run planning to compute targets. Called periodically, not every tick.
+   * Subclasses override this to analyze state and set their targets.
+   * Default implementation does nothing.
+   */
+  plan(tick: number): void {
+    this.lastPlannedTick = tick;
+  }
+
+  /**
    * Serialize corp state for persistence
    */
   serialize(): SerializedCorp {
@@ -391,7 +416,8 @@ export abstract class Corp {
       acquisitionCost: this.acquisitionCost,
       committedWorkTicks: this.committedWorkTicks,
       committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
     };
   }
 
@@ -412,6 +438,7 @@ export abstract class Corp {
     this.committedWorkTicks = data.committedWorkTicks ?? 0;
     this.committedEnergy = data.committedEnergy ?? 0;
     this.committedDeliveredEnergy = data.committedDeliveredEnergy ?? 0;
+    this.lastPlannedTick = data.lastPlannedTick ?? 0;
   }
 
   /**

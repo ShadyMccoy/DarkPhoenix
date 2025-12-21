@@ -28,6 +28,7 @@ export interface SerializedRealUpgradingCorp extends SerializedCorp {
   spawnId: string;
   creepNames: string[];
   lastSpawnAttempt: number;
+  targetUpgraders: number;
 }
 
 /**
@@ -48,6 +49,9 @@ export class RealUpgradingCorp extends Corp {
   /** Last tick we attempted to spawn */
   private lastSpawnAttempt: number = 0;
 
+  /** Target number of upgraders (computed during planning) */
+  private targetUpgraders: number = 2;
+
   constructor(nodeId: string, spawnId: string) {
     super("upgrading", nodeId);
     this.spawnId = spawnId;
@@ -61,11 +65,37 @@ export class RealUpgradingCorp extends Corp {
   }
 
   /**
+   * Plan upgrading operations. Called periodically to compute targets.
+   * Adjusts target upgraders based on controller level and downgrade risk.
+   */
+  plan(tick: number): void {
+    super.plan(tick);
+
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn?.room.controller) {
+      this.targetUpgraders = 1;
+      return;
+    }
+
+    const controller = spawn.room.controller;
+    const rcl = controller.level;
+
+    // Base target: 1 upgrader at RCL 1-2, 2 at RCL 3+
+    let target = rcl <= 2 ? 1 : 2;
+
+    // Increase if controller is at risk of downgrading
+    if (controller.ticksToDowngrade < CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD * 0.3) {
+      target = Math.max(target, 3);
+    }
+
+    this.targetUpgraders = target;
+  }
+
+  /**
    * Upgrading corp buys work-ticks (upgrader creeps) and haul-energy (energy delivery).
    *
-   * SIMPLIFIED LOGIC:
-   * - Only request 1 creep at a time (prevents over-ordering)
-   * - Calculate need based on current creeps only (no commitment tracking)
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current upgraders < target, request 1 more
    */
   buys(): Offer[] {
     const offers: Offer[] = [];
@@ -73,13 +103,9 @@ export class RealUpgradingCorp extends Corp {
     // Count current active upgraders
     const currentUpgraders = this.creepNames.filter(name => Game.creeps[name]).length;
 
-    // Target: 2 upgraders. Request exactly 1 at a time.
-    const targetUpgraders = 2;
-    if (currentUpgraders < targetUpgraders) {
-      // Request exactly 1 creep's worth of work-ticks
+    // Request 1 upgrader if below target
+    if (currentUpgraders < this.targetUpgraders) {
       const workTicksPerCreep = CREEP_LIFETIME;
-
-      // Price based on expected RCL progress value
       const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
       offers.push({
@@ -303,6 +329,7 @@ export class RealUpgradingCorp extends Corp {
       spawnId: this.spawnId,
       creepNames: this.creepNames,
       lastSpawnAttempt: this.lastSpawnAttempt,
+      targetUpgraders: this.targetUpgraders,
     };
   }
 
@@ -313,6 +340,7 @@ export class RealUpgradingCorp extends Corp {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
+    this.targetUpgraders = data.targetUpgraders || 2;
   }
 }
 
