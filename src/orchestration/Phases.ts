@@ -21,6 +21,7 @@
 import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { ChainPlanner } from "../planning/ChainPlanner";
+import { OfferCollector } from "../planning/OfferCollector";
 import { SerializedChain, Chain, deserializeChain, serializeChain } from "../planning/Chain";
 import { Contract } from "../market/Contract";
 import { AnyCorpState } from "../corps/CorpState";
@@ -271,19 +272,28 @@ export function runPlanningPhase(
 ): PlanningResult {
   console.log(`[Planning] Running planning phase at tick ${tick}`);
 
-  // Create planner and register corps
-  const planner = new ChainPlanner();
-
   // Collect all corp states from Real*Corps
   const corpStates = collectCorpStates(corps);
+
+  // Create offer collector and populate from corp states
+  const collector = new OfferCollector();
+  collector.collectFromCorpStates(corpStates, tick);
+
+  // Get mint values from colony
+  const mintValues = colony.getMintValues();
+
+  // Create planner with collector and mint values
+  const planner = new ChainPlanner(collector, mintValues);
+
+  // Register corp states with planner
   planner.registerCorpStates(corpStates, tick);
 
-  // Register nodes for context
+  // Register nodes for context (economic edges)
   const nodes = colony.getNodes();
   planner.registerNodes(nodes, tick);
 
-  // Find optimal chains
-  const chains = planner.findOptimalChains();
+  // Find viable chains (profit > 0)
+  const chains = planner.findViableChains(tick);
 
   // Convert chains to contracts for execution
   const contracts = chainsToContracts(chains, tick);
@@ -303,6 +313,9 @@ export function runPlanningPhase(
 
 /**
  * Collect corp states from all Real*Corps in the registry.
+ *
+ * Note: Only Real*Corps (Mining, Hauling, Upgrading) have toCorpState().
+ * SpawningCorp uses the market system instead of the planning system.
  */
 function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
   const states: AnyCorpState[] = [];
@@ -310,34 +323,23 @@ function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
   // Mining corps
   for (const sourceId in corps.miningCorps) {
     const corp = corps.miningCorps[sourceId];
-    if (typeof corp.toCorpState === "function") {
-      states.push(corp.toCorpState());
-    }
+    states.push(corp.toCorpState());
   }
 
   // Hauling corps
   for (const roomName in corps.haulingCorps) {
     const corp = corps.haulingCorps[roomName];
-    if (typeof corp.toCorpState === "function") {
-      states.push(corp.toCorpState());
-    }
+    states.push(corp.toCorpState());
   }
 
   // Upgrading corps
   for (const roomName in corps.upgradingCorps) {
     const corp = corps.upgradingCorps[roomName];
-    if (typeof corp.toCorpState === "function") {
-      states.push(corp.toCorpState());
-    }
+    states.push(corp.toCorpState());
   }
 
-  // Spawning corps
-  for (const spawnId in corps.spawningCorps) {
-    const corp = corps.spawningCorps[spawnId];
-    if (typeof corp.toCorpState === "function") {
-      states.push(corp.toCorpState());
-    }
-  }
+  // Note: SpawningCorp doesn't have toCorpState() - it uses the market system
+  // for work-ticks trading, not the chain planner
 
   return states;
 }

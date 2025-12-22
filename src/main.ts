@@ -6,25 +6,27 @@
  *
  * ## Phased Architecture
  *
- * ### NEW NODES (rare - when recalculateTerrain runs)
- * Survey phase: Nodes inventory their territory, corps are instantiated.
+ * ### EVERY TICK (execution)
+ * 1. INIT: Lazy hydration from Memory (once per code push)
+ * 2. EXECUTE: Run all corps (spawning, mining, hauling, upgrading, etc.)
+ * 3. PERSIST: Save state to Memory
  *
  * ### EVERY 5000 TICKS (planning)
- * 1. Offer Phase: Corps generate buy/sell offers via projections
- * 2. Planning Phase: GOAP planner finds best value chains
- * 3. Contracts are stored in Memory
- *
- * ### EVERY TICK (execution)
- * 1. Hydrate corps from memory
- * 2. Each corp runs its actions
- * 3. Market clearing for spawn contracts
+ * 1. SURVEY: Analyze territory, create corps from node resources
+ * 2. MARKET: Register offers, run market clearing
+ * 3. PLAN: Find optimal chains, store contracts in Memory
  *
  * ## Key Components
  * - Colony: Economic coordinator (treasury, surveying)
  * - Nodes: Territory-based regions (from spatial peak detection)
  * - Corps: Business units that buy/sell resources
  * - Chains: Production paths linking corps (from planning)
- * - Contracts: Executable agreements from chains
+ * - Contracts: Executable agreements stored in Memory
+ *
+ * ## Console Commands
+ * - global.survey() - Force run survey phase
+ * - global.plan() - Force run planning phase
+ * - global.status() - Show orchestration status
  *
  * @module main
  */
@@ -119,19 +121,15 @@ let corps: CorpRegistry = createCorpRegistry();
  *
  * ## Phased Execution
  *
- * ### Every Tick (Execution Phase)
- * 1. Hydrate corps from memory (via CorpRunner)
- * 2. Run all corps (spawning, bootstrap, mining, hauling, upgrading, etc.)
- * 3. Market clearing for spawn contracts
+ * ### Every Tick
+ * 1. INIT: Lazy hydration from Memory (once per code push)
+ * 2. EXECUTE: Run all corps
+ * 3. PERSIST: Save state
  *
  * ### Every 5000 Ticks (Planning Phase)
- * 1. Collect offers from all corps via projections
- * 2. Run chain planner to find optimal chains
- * 3. Store contracts in Memory for execution
- *
- * ### On Node Creation (Survey Phase)
- * Survey phase runs when recalculateTerrain creates new nodes.
- * Corps are instantiated based on node resources.
+ * 1. SURVEY: Analyze territory, create corps from node resources
+ * 2. MARKET: Register offers, run market clearing
+ * 3. PLAN: Find optimal chains, store contracts
  *
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
@@ -144,8 +142,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // This is a no-op if corps are already in the global cache
   initCorps(corps);
 
+  // Initialize or restore colony (needed for planning and persistence)
+  colony = getOrCreateColony();
+
+  // Make state available globally for debugging
+  global.colony = colony;
+  global.corps = corps;
+
   // ===========================================================================
-  // PHASE 1: EXECUTION - Run all corps (every tick)
+  // PHASE 1: EXECUTE - Run all corps (every tick)
   // ===========================================================================
 
   // Run spawning corps first (they process pending spawn orders)
@@ -158,49 +163,37 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runConstructionCorps(corps);
 
   // ===========================================================================
-  // PHASE 2: MARKET - Match spawn offers to contracts (every tick)
-  // ===========================================================================
-
-  // Register all corps with market and run market clearing
-  // This matches buy/sell offers (including work-ticks for spawning)
-  registerCorpsWithMarket(corps);
-  const clearingResult = runMarketClearing();
-
-  // Process spawn contracts - routes work-ticks contracts to SpawningCorps
-  processSpawnContracts(clearingResult.contracts, corps);
-
-  // ===========================================================================
-  // PHASE 3: COLONY - Territory and surveying
-  // ===========================================================================
-
-  // Initialize or restore colony
-  colony = getOrCreateColony();
-
-  // Make state available globally for debugging
-  global.colony = colony;
-  global.corps = corps;
-
-  // Run incremental multi-room spatial analysis (SURVEY phase for new nodes)
-  // Starts when cache expires or no nodes exist, spreads work across multiple ticks
-  if (isAnalysisInProgress() || Game.time % NEARBY_ROOM_EXPANSION_INTERVAL === 0 || colony.getNodes().length === 0) {
-    runIncrementalAnalysis(colony);
-  }
-
-  // Run the colony economic coordination (surveying, stats)
-  colony.run(Game.time);
-
-  // ===========================================================================
-  // PHASE 4: PLANNING - Find optimal chains (every 5000 ticks)
+  // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
   // ===========================================================================
 
   if (shouldRunPlanning(Game.time)) {
+    console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
+
+    // --- SURVEY: Analyze territory and create corps ---
+    // Run incremental multi-room spatial analysis
+    if (isAnalysisInProgress() || colony.getNodes().length === 0) {
+      runIncrementalAnalysis(colony);
+    }
+
+    // Run the colony economic coordination (surveying, stats)
+    colony.run(Game.time);
+
+    // --- MARKET: Register offers and clear market ---
+    registerCorpsWithMarket(corps);
+    const clearingResult = runMarketClearing();
+
+    // Process spawn contracts - routes work-ticks contracts to SpawningCorps
+    processSpawnContracts(clearingResult.contracts, corps);
+
+    // --- PLAN: Find optimal chains ---
     const planningResult = runPlanningPhase(corps, colony, Game.time);
     setLastPlanningTick(Game.time);
-    console.log(`[Planning] Created ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
+
+    console.log(`[Planning] Complete: ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
   }
 
   // ===========================================================================
-  // PHASE 5: PERSISTENCE - Save state and update telemetry
+  // PHASE 3: PERSIST - Save state and update telemetry (every tick)
   // ===========================================================================
 
   // Persist all state
