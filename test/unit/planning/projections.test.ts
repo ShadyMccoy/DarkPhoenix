@@ -45,13 +45,14 @@ describe("projections", () => {
   const miningCorpId = "mining-1";
 
   describe("projectMining", () => {
-    it("should be a leaf node with no buy offers", () => {
-      // Mining is a leaf node in the supply chain - it produces energy
-      // from sources without supply chain dependencies
+    it("should buy spawn-capacity for miners", () => {
+      // Mining buys spawn-capacity to get miners continuously supplied
       const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys } = projectMining(state, 0);
 
-      expect(buys).to.have.length(0);
+      expect(buys).to.have.length(1);
+      expect(buys[0].resource).to.equal("spawn-capacity");
+      expect(buys[0].type).to.equal("buy");
     });
 
     it("should produce sell offer for energy", () => {
@@ -104,66 +105,67 @@ describe("projections", () => {
   });
 
   describe("projectSpawning", () => {
-    it("should produce buy offer for energy", () => {
+    it("should not produce buy offers (energy delivered by haulers)", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const { buys } = projectSpawning(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].resource).to.equal("energy");
-      expect(buys[0].type).to.equal("buy");
+      expect(buys).to.have.length(0);
     });
 
-    it("should produce sell offers for work-ticks and haul-demand", () => {
+    it("should produce sell offer for spawn-capacity", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const { sells } = projectSpawning(state, 0);
 
-      expect(sells).to.have.length(2);
-      const resources = sells.map(s => s.resource);
-      expect(resources).to.include("work-ticks");
-      expect(resources).to.include("haul-demand");
+      expect(sells).to.have.length(1);
+      expect(sells[0].resource).to.equal("spawn-capacity");
+      expect(sells[0].type).to.equal("sell");
     });
 
-    it("should sell work-ticks for creep lifetime", () => {
-      const state = createSpawningState("spawning-1", "node-1", spawnPos);
+    it("should sell spawn-capacity equal to energy capacity", () => {
+      const energyCapacity = 550;
+      const state = createSpawningState("spawning-1", "node-1", spawnPos, energyCapacity);
       const { sells } = projectSpawning(state, 0);
 
-      const workTicksOffer = sells.find(s => s.resource === "work-ticks");
-      expect(workTicksOffer!.quantity).to.equal(CREEP_LIFETIME);
+      expect(sells[0].quantity).to.equal(energyCapacity);
     });
 
-    it("should buy energy equal to worker body cost", () => {
-      const state = createSpawningState("spawning-1", "node-1", spawnPos);
-      const { buys } = projectSpawning(state, 0);
+    it("should not offer capacity when spawning", () => {
+      const state = createSpawningState("spawning-1", "node-1", spawnPos, 300, 0, true);
+      const { sells } = projectSpawning(state, 0);
 
-      const workerCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
-      expect(buys[0].quantity).to.equal(workerCost);
+      expect(sells).to.have.length(0);
+    });
+
+    it("should not offer capacity when queue is full", () => {
+      const state = createSpawningState("spawning-1", "node-1", spawnPos, 300, 10, false);
+      const { sells } = projectSpawning(state, 0);
+
+      expect(sells).to.have.length(0);
     });
 
     it("should have lower margin with higher balance", () => {
       const poorState = createSpawningState("spawning-1", "node-1", spawnPos);
       poorState.balance = 0;
       const { sells: poorSells } = projectSpawning(poorState, 0);
-      const poorWorkTicks = poorSells.find(s => s.resource === "work-ticks")!;
 
       const richState = createSpawningState("spawning-2", "node-1", spawnPos);
       richState.balance = 10000;
       const { sells: richSells } = projectSpawning(richState, 0);
-      const richWorkTicks = richSells.find(s => s.resource === "work-ticks")!;
 
       // Rich corp should have lower price (lower margin)
-      expect(richWorkTicks.price).to.be.lessThan(poorWorkTicks.price);
+      expect(richSells[0].price).to.be.lessThan(poorSells[0].price);
     });
   });
 
   describe("projectUpgrading", () => {
-    it("should buy both delivered-energy and work-ticks", () => {
+    it("should buy both delivered-energy and spawn-capacity", () => {
       const state = createUpgradingState("upgrading-1", "node-1", spawningCorpId, controllerPos, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
       const resources = buys.map(b => b.resource);
       expect(resources).to.include("delivered-energy");
-      expect(resources).to.include("work-ticks");
+      expect(resources).to.include("spawn-capacity");
     });
 
     it("should sell rcl-progress", () => {
@@ -185,12 +187,12 @@ describe("projections", () => {
   describe("projectHauling", () => {
     const destPos: Position = { x: 25, y: 30, roomName: "W1N1" };
 
-    it("should buy haul-demand", () => {
+    it("should buy spawn-capacity", () => {
       const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
-      expect(buys[0].resource).to.equal("haul-demand");
+      expect(buys[0].resource).to.equal("spawn-capacity");
     });
 
     it("should sell delivered-energy", () => {
@@ -228,7 +230,7 @@ describe("projections", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const projection = project(state, 0);
 
-      expect(projection.sells[0].resource).to.equal("work-ticks");
+      expect(projection.sells[0].resource).to.equal("spawn-capacity");
     });
 
     it("should return empty projection for scout state", () => {
@@ -308,17 +310,17 @@ describe("projections", () => {
     });
   });
 
-  describe("mining as leaf node", () => {
-    it("should be a leaf node with no buy offers", () => {
-      // projectMining is a LEAF NODE - it produces energy without supply chain dependencies
-      // Work-ticks dependency is handled via labor allocation, not supply chain
+  describe("mining corp behavior", () => {
+    it("should buy spawn-capacity and sell energy", () => {
+      // Mining buys spawn-capacity to get miners, sells energy
       const state = createMiningState("mining-1", "node-1", sourceCorpId, spawningCorpId, sourcePos, SOURCE_ENERGY_CAPACITY);
       const { buys, sells } = projectMining(state, 0);
 
-      // Mining is a leaf node - no buy offers
-      expect(buys).to.have.length(0);
+      // Mining buys spawn-capacity for creeps
+      expect(buys).to.have.length(1);
+      expect(buys[0].resource).to.equal("spawn-capacity");
 
-      // But still produces energy based on optimal work parts
+      // And still produces energy based on optimal work parts
       const expectedWorkParts = calculateOptimalWorkParts(SOURCE_ENERGY_CAPACITY);
       const expectedEnergy = expectedWorkParts * HARVEST_RATE * CREEP_LIFETIME;
       expect(sells[0].quantity).to.equal(expectedEnergy);

@@ -59,14 +59,28 @@ export interface MiningCorpState extends SerializedCorp {
 }
 
 /**
- * Spawning corp state - produces creeps
+ * Spawning corp state - produces creeps for other corps.
+ *
+ * SpawningCorp is the origin of labor in the production chain.
+ * It sells spawn-capacity - the ability to continuously supply creeps.
+ *
+ * Key economics:
+ * - Base cost = energy to spawn body parts
+ * - Effective cost = base_cost × (lifetime / useful_lifetime)
+ * - Useful lifetime = CREEP_LIFETIME - travel_time_to_work_site
+ *
+ * Example: 750 ticks travel = 50% useful life = 2× effective cost
  */
 export interface SpawningCorpState extends SerializedCorp {
   type: "spawning";
   /** Position of the spawn structure */
   position: Position;
-  /** Energy capacity available for spawning */
+  /** Max energy capacity available for spawning (e.g., 300, 550, 1300) */
   energyCapacity: number;
+  /** Number of pending spawn orders in queue */
+  pendingOrderCount: number;
+  /** Whether spawn is currently spawning a creep */
+  isSpawning: boolean;
 }
 
 /**
@@ -240,13 +254,18 @@ export function createMiningState(
 }
 
 /**
- * Create a minimal spawning corp state for testing
+ * Create a spawning corp state.
+ *
+ * SpawningCorp is the origin of labor in production chains.
+ * It sells spawn-capacity with distance-aware pricing.
  */
 export function createSpawningState(
   id: string,
   nodeId: string,
   position: Position,
-  energyCapacity: number = 300
+  energyCapacity: number = 300,
+  pendingOrderCount: number = 0,
+  isSpawning: boolean = false
 ): SpawningCorpState {
   return {
     id,
@@ -254,6 +273,8 @@ export function createSpawningState(
     nodeId,
     position,
     energyCapacity,
+    pendingOrderCount,
+    isSpawning,
     balance: 0,
     totalRevenue: 0,
     totalCost: 0,

@@ -9,7 +9,7 @@
  * @module planning/projections
  */
 
-import { Offer, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
+import { Offer, createOfferId } from "../market/Offer";
 import {
   SourceCorpState,
   MiningCorpState,
@@ -86,9 +86,12 @@ const MIN_ENERGY_PRICE = 0.05;
 /**
  * Calculate offers for a mining corp.
  *
- * Mining corps are LEAF NODES in the supply chain:
- * - Buy: nothing (raw producer - extracts energy from source)
+ * Mining corps:
+ * - Buy: spawn-capacity (need miners continuously supplied)
  * - Sell: energy at source location
+ *
+ * The spawn-capacity buy is expressed as energy cost of the desired miner body.
+ * Distance from spawn to source affects effective cost (travel reduces useful work time).
  *
  * Supports both planning mode (projected values) and runtime mode (actual creeps).
  * When actualWorkParts/actualTotalTTL are provided, uses actual creep data.
@@ -127,18 +130,32 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
     return { buys: [], sells: [] };
   }
 
-  // Calculate input cost for pricing (amortized spawn cost)
+  // Calculate miner body cost (what we need to buy from spawn)
   const body = designMiningCreep(workParts);
   const spawnCost = calculateBodyCost(body);
+
+  // Calculate input cost for pricing (amortized spawn cost)
   const inputCostPerUnit = expectedOutput > 0 ? spawnCost / expectedOutput : 0;
 
   const margin = calculateMargin(state.balance);
   const calculatedPrice = inputCostPerUnit * (1 + margin);
   const sellPrice = Math.max(calculatedPrice, MIN_ENERGY_PRICE);
 
-  // Mining is a leaf node - no buy offers
   return {
-    buys: [],
+    buys: [
+      {
+        id: createOfferId(state.id, "spawn-capacity", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "spawn-capacity",
+        // Quantity = energy cost of desired miner body
+        // This expresses "I need a creep that costs X energy"
+        quantity: spawnCost,
+        price: 0, // Price determined by spawn + distance
+        duration: CREEP_LIFETIME,
+        location: state.position // Work site - distance from spawn affects price
+      }
+    ],
     sells: [
       {
         id: createOfferId(state.id, "energy", tick),
@@ -161,67 +178,54 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
 /**
  * Calculate offers for a spawning corp.
  *
- * Spawning corps:
- * - Buy: energy (to spawn creeps)
- * - Sell: work-ticks (creep labor time for miners/upgraders)
- * - Sell: haul-demand (hauling capacity for haulers)
+ * SpawningCorp is the ORIGIN of labor in production chains.
+ * It sells spawn-capacity - the ability to continuously supply creeps.
  *
- * Price is based on body part costs amortized over lifetime.
+ * Key economics:
+ * - Corps buy creeps expressed as body parts at their work location
+ * - Base cost = energy to spawn the body
+ * - Effective cost = base_cost × (lifetime / useful_lifetime)
+ * - Useful lifetime = CREEP_LIFETIME - travel_time_to_work_site
+ *
+ * Example: 750 ticks travel = 50% useful life = 2× effective cost
+ *
+ * The spawn-capacity resource represents:
+ * - Quantity: energy capacity available per spawn cycle
+ * - Price: base energy cost (1:1, no markup on raw capacity)
+ * - Distance adjustment happens when chain planner matches buyer to spawn
+ *
+ * SpawningCorp sells:
+ * - spawn-capacity: ability to spawn creeps (quantity = energy/cycle)
+ *
+ * SpawningCorp buys: nothing
+ * - Energy is delivered to spawn by haulers as Priority 1 behavior
  */
 export function projectSpawning(state: SpawningCorpState, tick: number): CorpProjection {
-  // Standard worker creep cost (WORK + CARRY + MOVE)
-  const workerCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
+  // If spawn is busy or queue is full, don't offer capacity
+  if (state.isSpawning || state.pendingOrderCount >= 10) {
+    return { buys: [], sells: [] };
+  }
 
-  // Energy needed to spawn one worker
-  const energyNeeded = workerCost;
+  // Available capacity = energy capacity per spawn
+  // This represents how big a creep the spawn can produce
+  const availableCapacity = state.energyCapacity;
 
-  // Work-ticks produced = 1 WORK part × lifetime
-  const workTicksProduced = CREEP_LIFETIME;
-
-  // Price per work-tick = spawn cost / lifetime
-  const costPerWorkTick = workerCost / CREEP_LIFETIME;
+  // Price is 1:1 with energy - the base cost of spawning
+  // Distance penalty is applied by the chain planner when matching
+  const pricePerEnergy = 1.0;
 
   const margin = calculateMargin(state.balance);
-  const sellPricePerWorkTick = costPerWorkTick * (1 + margin);
-
-  // Haul-demand capacity: assume 4 CARRY parts worth
-  const haulerCarryParts = 4;
-  const haulCapacityProduced = haulerCarryParts * HAUL_PER_CARRY; // 100 HAUL
-  const haulerCost = haulerCarryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
-  const costPerHaul = haulerCost / (haulCapacityProduced * CREEP_LIFETIME);
-  const sellPricePerHaul = costPerHaul * (1 + margin);
 
   return {
-    buys: [
-      {
-        id: createOfferId(state.id, "energy", tick),
-        corpId: state.id,
-        type: "buy",
-        resource: "energy",
-        quantity: energyNeeded,
-        price: 0, // Price determined by seller
-        duration: CREEP_LIFETIME,
-        location: state.position
-      }
-    ],
+    buys: [],
     sells: [
       {
-        id: createOfferId(state.id, "work-ticks", tick),
+        id: createOfferId(state.id, "spawn-capacity", tick),
         corpId: state.id,
         type: "sell",
-        resource: "work-ticks",
-        quantity: workTicksProduced,
-        price: sellPricePerWorkTick * workTicksProduced,
-        duration: CREEP_LIFETIME,
-        location: state.position
-      },
-      {
-        id: createOfferId(state.id, "haul-demand", tick),
-        corpId: state.id,
-        type: "sell",
-        resource: "haul-demand",
-        quantity: haulCapacityProduced,
-        price: sellPricePerHaul * haulCapacityProduced,
+        resource: "spawn-capacity",
+        quantity: availableCapacity,
+        price: pricePerEnergy * availableCapacity * (1 + margin),
         duration: CREEP_LIFETIME,
         location: state.position
       }
@@ -238,7 +242,7 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
  *
  * Upgrading corps:
  * - Buy: delivered-energy (from haulers)
- * - Buy: work-ticks (need upgrader creep)
+ * - Buy: spawn-capacity (need upgrader creep continuously supplied)
  * - Sell: rcl-progress (controller points)
  *
  * 1 WORK part + 1 energy = 1 upgrade point per tick
@@ -251,13 +255,15 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
 
   // Assume 1 WORK part for simplicity
   const workParts = 1;
-  const workTicksNeeded = workParts * CREEP_LIFETIME;
 
   // Energy consumption = 1 per upgrade action per WORK part
   const energyNeeded = workParts * effectiveLifetime;
 
   // RCL progress = energy consumed (1:1 ratio)
   const rclProgress = energyNeeded;
+
+  // Calculate upgrader body cost (WORK + CARRY + MOVE = 200 energy)
+  const upgraderBodyCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
 
   // RCL progress "mints" credits - it's the terminal value sink
   // Price is 0 because this is where value is created in the system
@@ -275,14 +281,15 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
         location: state.position
       },
       {
-        id: createOfferId(state.id, "work-ticks", tick),
+        id: createOfferId(state.id, "spawn-capacity", tick),
         corpId: state.id,
         type: "buy",
-        resource: "work-ticks",
-        quantity: workTicksNeeded,
-        price: 0,
+        resource: "spawn-capacity",
+        // Quantity = energy cost of desired upgrader body
+        quantity: upgraderBodyCost,
+        price: 0, // Price determined by spawn + distance
         duration: CREEP_LIFETIME,
-        location: state.position
+        location: state.position // Controller location - distance from spawn affects price
       }
     ],
     sells: [
@@ -311,8 +318,11 @@ const MIN_TRANSPORT_FEE = 0.05;
  * Calculate offers for a hauling corp.
  *
  * Hauling corps:
- * - Buy: haul-demand (need hauler creep capacity)
+ * - Buy: spawn-capacity (need hauler creep continuously supplied)
  * - Sell: delivered-energy (transport service)
+ *
+ * Haulers are expressed as CARRY parts. E.g., [CARRY,CARRY,CARRY,MOVE,MOVE,MOVE]
+ * Distance from spawn affects effective cost.
  *
  * Supports both planning mode (projected values) and runtime mode (actual creeps).
  * When actualCarryCapacity/actualTotalTTL are provided, uses actual creep data.
@@ -350,9 +360,8 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
     return { buys: [], sells: [] };
   }
 
-  // Calculate haul demand needed
+  // Calculate CARRY parts needed for desired capacity
   const carryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
-  const haulDemandNeeded = carryParts * HAUL_PER_CARRY;
 
   // Energy transported per lifetime
   let energyTransported = tripsPerLifetime * carryCapacity;
@@ -366,25 +375,27 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
     return { buys: [], sells: [] };
   }
 
-  // Hauler body cost (CARRY + MOVE per unit)
-  const haulerCost = carryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
+  // Hauler body cost (CARRY + MOVE per part for 1:1 ratio on roads)
+  const haulerBodyCost = carryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
 
   const margin = calculateMargin(state.balance);
-  const costPerEnergy = energyTransported > 0 ? haulerCost / energyTransported : 0;
+  const costPerEnergy = energyTransported > 0 ? haulerBodyCost / energyTransported : 0;
   const calculatedPrice = costPerEnergy * (1 + margin);
   const pricePerEnergy = Math.max(calculatedPrice, MIN_TRANSPORT_FEE);
 
   return {
     buys: [
       {
-        id: createOfferId(state.id, "haul-demand", tick),
+        id: createOfferId(state.id, "spawn-capacity", tick),
         corpId: state.id,
         type: "buy",
-        resource: "haul-demand",
-        quantity: haulDemandNeeded,
-        price: 0,
+        resource: "spawn-capacity",
+        // Quantity = energy cost of desired hauler body
+        // E.g., 4 CARRY + 4 MOVE = 400 energy
+        quantity: haulerBodyCost,
+        price: 0, // Price determined by spawn + distance
         duration: CREEP_LIFETIME,
-        location: state.sourcePosition
+        location: state.sourcePosition // Pickup location - distance from spawn affects price
       }
     ],
     sells: [

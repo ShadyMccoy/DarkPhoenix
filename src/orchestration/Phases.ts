@@ -312,13 +312,22 @@ export function runPlanningPhase(
 }
 
 /**
- * Collect corp states from all Real*Corps in the registry.
+ * Collect corp states from all corps in the registry.
  *
- * Note: Only Real*Corps (Mining, Hauling, Upgrading) have toCorpState().
- * SpawningCorp uses the market system instead of the planning system.
+ * All corps with toCorpState() are included for chain planning:
+ * - SpawningCorp: origin of labor (sells spawn-capacity)
+ * - MiningCorp: extracts energy (buys spawn-capacity, sells energy)
+ * - HaulingCorp: transports energy (buys spawn-capacity, sells delivered-energy)
+ * - UpgradingCorp: upgrades controller (buys spawn-capacity + delivered-energy, sells rcl-progress)
  */
 function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
   const states: AnyCorpState[] = [];
+
+  // Spawning corps - origin of labor in production chains
+  for (const spawnId in corps.spawningCorps) {
+    const corp = corps.spawningCorps[spawnId];
+    states.push(corp.toCorpState());
+  }
 
   // Mining corps
   for (const sourceId in corps.miningCorps) {
@@ -337,9 +346,6 @@ function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
     const corp = corps.upgradingCorps[roomName];
     states.push(corp.toCorpState());
   }
-
-  // Note: SpawningCorp doesn't have toCorpState() - it uses the market system
-  // for work-ticks trading, not the chain planner
 
   return states;
 }

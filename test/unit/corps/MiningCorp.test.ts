@@ -6,7 +6,9 @@ import {
   HARVEST_RATE,
   CREEP_LIFETIME,
   SOURCE_ENERGY_CAPACITY,
-  calculateOptimalWorkParts
+  calculateOptimalWorkParts,
+  designMiningCreep,
+  calculateBodyCost
 } from "../../../src/planning/EconomicConstants";
 
 describe("MiningCorp projections", () => {
@@ -17,13 +19,20 @@ describe("MiningCorp projections", () => {
   const spawningCorpId = "spawning-1";
 
   describe("projectMining", () => {
-    it("should be a leaf node with no buy offers", () => {
-      // Mining is a leaf node in the supply chain - it produces energy
-      // from sources without buying anything (no supply chain dependencies)
+    it("should buy spawn-capacity for miners", () => {
+      // MiningCorp needs creeps continuously supplied from SpawningCorp
       const state = createMiningState("mining-1", "node1", sourceCorpId, spawningCorpId, defaultPosition, defaultSourceCapacity);
       const { buys } = projectMining(state, 0);
 
-      expect(buys).to.have.length(0);
+      expect(buys).to.have.length(1);
+      expect(buys[0].type).to.equal("buy");
+      expect(buys[0].resource).to.equal("spawn-capacity");
+
+      // Quantity = energy cost of miner body
+      const workParts = calculateOptimalWorkParts(defaultSourceCapacity);
+      const body = designMiningCreep(workParts);
+      const expectedCost = calculateBodyCost(body);
+      expect(buys[0].quantity).to.equal(expectedCost);
     });
 
     it("should return sell offer for energy", () => {

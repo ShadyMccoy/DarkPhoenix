@@ -10,14 +10,14 @@ describe("UpgradingCorp projections", () => {
   const spawningCorpId = "spawning-1";
 
   describe("projectUpgrading", () => {
-    it("should return buy offers for delivered-energy and work-ticks", () => {
+    it("should return buy offers for delivered-energy and spawn-capacity", () => {
       const state = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
       const resources = buys.map((o) => o.resource);
       expect(resources).to.include("delivered-energy");
-      expect(resources).to.include("work-ticks");
+      expect(resources).to.include("spawn-capacity");
     });
 
     it("should locate offers at controller", () => {

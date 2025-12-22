@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { Position, HAUL_PER_CARRY } from "../../../src/market/Offer";
 import { createHaulingState } from "../../../src/corps/CorpState";
 import { projectHauling } from "../../../src/planning/projections";
-import { CREEP_LIFETIME, CARRY_CAPACITY } from "../../../src/planning/EconomicConstants";
+import { CREEP_LIFETIME, CARRY_CAPACITY, BODY_PART_COST } from "../../../src/planning/EconomicConstants";
 
 describe("HaulingCorp projections", () => {
   const sourcePosition: Position = { x: 10, y: 10, roomName: "W1N1" };
@@ -13,24 +13,24 @@ describe("HaulingCorp projections", () => {
   const spawningCorpId = "spawning-1";
 
   describe("projectHauling", () => {
-    it("should return buy offer for haul-demand", () => {
+    it("should return buy offer for spawn-capacity", () => {
       const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       expect(buys).to.have.length(1);
       expect(buys[0].type).to.equal("buy");
-      expect(buys[0].resource).to.equal("haul-demand");
+      expect(buys[0].resource).to.equal("spawn-capacity");
     });
 
-    it("should calculate haul-demand based on carry parts", () => {
+    it("should calculate spawn-capacity based on hauler body cost", () => {
       const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
       // 500 capacity / 50 per CARRY = 10 CARRY parts
-      // 10 CARRY × 25 HAUL per CARRY = 250 haul-demand
+      // 10 CARRY + 10 MOVE = 10 × (50 + 50) = 1000 energy
       const expectedCarryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
-      const expectedHaulDemand = expectedCarryParts * HAUL_PER_CARRY;
-      expect(buys[0].quantity).to.equal(expectedHaulDemand);
+      const expectedBodyCost = expectedCarryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
+      expect(buys[0].quantity).to.equal(expectedBodyCost);
     });
 
     it("should locate buy offer at source position", () => {

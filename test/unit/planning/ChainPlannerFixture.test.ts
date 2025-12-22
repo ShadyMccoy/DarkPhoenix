@@ -91,10 +91,11 @@ describe("ChainPlanner with Fixtures", () => {
       const stats = collector.getStats();
       expect(stats.totalOffers).to.be.greaterThan(0);
 
-      // SpawningCorp sells work-ticks
-      // MiningCorp sells energy (is a leaf node - no buys)
+      // SpawningCorp sells spawn-capacity
+      // MiningCorp buys spawn-capacity and sells energy
       expect(collector.hasSellOffers("energy")).to.be.true;
-      expect(collector.hasSellOffers("work-ticks")).to.be.true;
+      expect(collector.hasSellOffers("spawn-capacity")).to.be.true;
+      expect(collector.hasBuyOffers("spawn-capacity")).to.be.true;
     });
   });
 
@@ -253,17 +254,17 @@ describe("ChainPlanner with Fixtures", () => {
       // Note: mining is a leaf node (no buy offers)
       expect(allBuys.length).to.be.greaterThan(0);
 
-      // Should have sell offers (mining sells energy, spawning sells work-ticks)
+      // Should have sell offers (mining sells energy, spawning sells spawn-capacity)
       expect(allSells.length).to.be.greaterThan(0);
 
       // Verify resources
       const buyResources = allBuys.map((o) => o.resource);
       const sellResources = allSells.map((o) => o.resource);
 
-      // Spawning buys energy
-      expect(buyResources).to.include("energy");
+      // Mining buys spawn-capacity, Spawning sells spawn-capacity
+      expect(buyResources).to.include("spawn-capacity");
       expect(sellResources).to.include("energy");
-      expect(sellResources).to.include("work-ticks");
+      expect(sellResources).to.include("spawn-capacity");
     });
   });
 
@@ -278,12 +279,11 @@ describe("ChainPlanner with Fixtures", () => {
       const stats = collector.getStats();
       expect(stats.totalOffers).to.be.greaterThan(0);
 
-      // Mining sells energy, spawning sells work-ticks
+      // Mining buys spawn-capacity, sells energy
+      // Spawning sells spawn-capacity
       expect(collector.hasSellOffers("energy")).to.be.true;
-      expect(collector.hasSellOffers("work-ticks")).to.be.true;
-
-      // Spawning buys energy (mining is a leaf node with no buy offers)
-      expect(collector.hasBuyOffers("energy")).to.be.true;
+      expect(collector.hasSellOffers("spawn-capacity")).to.be.true;
+      expect(collector.hasBuyOffers("spawn-capacity")).to.be.true;
     });
 
     it("should register corpStates in ChainPlanner", () => {
@@ -304,10 +304,10 @@ describe("ChainPlanner with Fixtures", () => {
       const stats = collector.getStats();
       expect(stats.totalOffers).to.be.greaterThan(0);
 
-      // SourceCorp sells energy-source, Mining sells energy, Spawning sells work-ticks
+      // SourceCorp sells energy-source, Mining sells energy, Spawning sells spawn-capacity
       // HaulingCorp sells delivered-energy
       expect(collector.hasSellOffers("energy")).to.be.true;
-      expect(collector.hasSellOffers("work-ticks")).to.be.true;
+      expect(collector.hasSellOffers("spawn-capacity")).to.be.true;
       expect(collector.hasSellOffers("delivered-energy")).to.be.true;
     });
 
@@ -322,12 +322,12 @@ describe("ChainPlanner with Fixtures", () => {
       // Source sells energy-source (passive)
       expect(collector.hasSellOffers("energy-source")).to.be.true;
 
-      // Mining sells energy (leaf node)
+      // Mining buys spawn-capacity, sells energy
       expect(collector.hasSellOffers("energy")).to.be.true;
+      expect(collector.hasBuyOffers("spawn-capacity")).to.be.true;
 
-      // Spawning sells work-ticks and haul-demand
-      expect(collector.hasSellOffers("work-ticks")).to.be.true;
-      expect(collector.hasSellOffers("haul-demand")).to.be.true;
+      // Spawning sells spawn-capacity
+      expect(collector.hasSellOffers("spawn-capacity")).to.be.true;
 
       // Hauling sells delivered-energy (bridges mining -> upgrading)
       expect(collector.hasSellOffers("delivered-energy")).to.be.true;
