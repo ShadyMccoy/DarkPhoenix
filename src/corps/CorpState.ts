@@ -32,6 +32,9 @@ export interface SourceCorpState extends SerializedCorp {
 /**
  * Mining corp state - harvests energy from sources.
  * Depends on SourceCorp (sourceCorpId).
+ *
+ * Supports both planning (projected values) and runtime (actual values).
+ * When runtime fields are provided, projections use actual creep data.
  */
 export interface MiningCorpState extends SerializedCorp {
   type: "mining";
@@ -45,6 +48,14 @@ export interface MiningCorpState extends SerializedCorp {
   spawnPosition: Position | null;
   /** ID of the SpawningCorp to get workers from */
   spawningCorpId: string;
+
+  // === Runtime fields (optional, from actual creeps) ===
+  /** Actual total work parts across all creeps (runtime) */
+  actualWorkParts?: number;
+  /** Actual total remaining TTL across all creeps (runtime) */
+  actualTotalTTL?: number;
+  /** Number of active creeps (runtime) */
+  activeCreepCount?: number;
 }
 
 /**
@@ -77,6 +88,8 @@ export interface UpgradingCorpState extends SerializedCorp {
 /**
  * Hauling corp state - transports resources between locations.
  * Depends on MiningOperation (miningCorpId).
+ *
+ * Supports both planning (projected values) and runtime (actual values).
  */
 export interface HaulingCorpState extends SerializedCorp {
   type: "hauling";
@@ -92,6 +105,14 @@ export interface HaulingCorpState extends SerializedCorp {
   carryCapacity: number;
   /** Spawn position for travel time calculation, null if unknown */
   spawnPosition: Position | null;
+
+  // === Runtime fields (optional, from actual creeps) ===
+  /** Actual total carry capacity across all creeps (runtime) */
+  actualCarryCapacity?: number;
+  /** Actual total remaining TTL across all creeps (runtime) */
+  actualTotalTTL?: number;
+  /** Number of active creeps (runtime) */
+  activeCreepCount?: number;
 }
 
 /**

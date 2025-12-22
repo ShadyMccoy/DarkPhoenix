@@ -12,13 +12,12 @@ import { Offer, Position, createOfferId } from "../market/Offer";
 import { SourceMine } from "../types/SourceMine";
 import { analyzeSource, getMiningSpots } from "../analysis/SourceAnalysis";
 import { buildMinerBody, calculateCreepsNeeded } from "../spawn/BodyBuilder";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY } from "../planning/EconomicConstants";
+import { MiningCorpState } from "./CorpState";
+import { projectMining } from "../planning/projections";
 
 /** Default/minimum price when no production history (credits per energy) */
 const DEFAULT_ENERGY_PRICE = 0.1;
-
-/** Minimum price floor to prevent selling at 0 when costs haven't been tracked */
-const MIN_ENERGY_PRICE = 0.05;
 
 /**
  * Serialized state specific to RealMiningCorp
@@ -82,44 +81,74 @@ export class RealMiningCorp extends Corp {
 
   /**
    * Mining corp sells energy at marginal cost + margin.
-   * Price = (creep cost / lifetime energy) × (1 + margin)
    *
-   * Offers long-term energy based on miner lifespans, minus already-committed energy.
+   * Delegates to projectMining() for unified offer calculation.
+   * Provides actual creep data via toCorpState() for runtime accuracy.
    */
   sells(): Offer[] {
-    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
-    if (activeCreeps === 0) return [];
+    const state = this.toCorpState();
+    const projection = projectMining(state, Game.time);
+    return projection.sells;
+  }
 
-    // Calculate long-term energy production based on remaining TTL
-    // Each WORK part produces 2 energy per tick
-    const energyCapacity = this.creepNames.reduce((sum, name) => {
+  /**
+   * Convert current runtime state to MiningCorpState for projection.
+   * Bridges runtime (actual creeps) to planning model (CorpState).
+   */
+  toCorpState(): MiningCorpState {
+    // Calculate actual work parts and TTL from live creeps
+    let actualWorkParts = 0;
+    let actualTotalTTL = 0;
+    let activeCreepCount = 0;
+
+    for (const name of this.creepNames) {
       const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const workParts = creep.getActiveBodyparts(WORK);
-      return sum + (workParts * 2 * ttl); // energy over remaining lifespan
-    }, 0);
+      if (creep) {
+        actualWorkParts += creep.getActiveBodyparts(WORK);
+        actualTotalTTL += creep.ticksToLive ?? CREEP_LIFETIME;
+        activeCreepCount++;
+      }
+    }
 
-    // Subtract already-committed energy to prevent double-selling
-    const availableEnergy = energyCapacity - this.committedEnergy;
+    // Get source info
+    const source = Game.getObjectById(this.sourceId as Id<Source>);
+    const sourceCapacity = source?.energyCapacity ?? SOURCE_ENERGY_CAPACITY;
 
-    if (availableEnergy <= 0) return [];
+    // Get spawn position
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnPosition = spawn
+      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
+      : null;
 
-    // Get sell price per energy unit with minimum floor
-    // This prevents selling at price 0 when no costs have been incurred yet
-    const calculatedPrice = this.getSellPrice();
-    const pricePerEnergy = Math.max(calculatedPrice, MIN_ENERGY_PRICE);
-
-    return [{
-      id: createOfferId(this.id, "energy", Game.time),
-      corpId: this.id,
-      type: "sell",
-      resource: "energy",
-      quantity: availableEnergy,
-      price: pricePerEnergy * availableEnergy, // Total price for contract
-      duration: CREEP_LIFETIME,
-      location: this.getPosition()
-    }];
+    return {
+      id: this.id,
+      type: "mining",
+      nodeId: this.nodeId,
+      sourceCorpId: this.sourceId, // Using sourceId as sourceCorpId
+      spawningCorpId: this.spawnId, // Using spawnId as spawningCorpId
+      position: this.getPosition(),
+      sourceCapacity,
+      spawnPosition,
+      // Runtime fields for actual creep data
+      actualWorkParts,
+      actualTotalTTL,
+      activeCreepCount,
+      // Economic state from Corp base class
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
   }
 
   /**

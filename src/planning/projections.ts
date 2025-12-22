@@ -80,6 +80,9 @@ export function projectSource(state: SourceCorpState, tick: number): CorpProject
 // Mining Projection
 // =============================================================================
 
+/** Minimum price floor to prevent selling at 0 */
+const MIN_ENERGY_PRICE = 0.05;
+
 /**
  * Calculate offers for a mining corp.
  *
@@ -87,22 +90,42 @@ export function projectSource(state: SourceCorpState, tick: number): CorpProject
  * - Buy: nothing (raw producer - extracts energy from source)
  * - Sell: energy at source location
  *
- * Note: Work-ticks dependency is handled separately via labor allocation,
- * not through the supply chain. For chain building, mining is the origin
- * of value (energy) without dependencies.
+ * Supports both planning mode (projected values) and runtime mode (actual creeps).
+ * When actualWorkParts/actualTotalTTL are provided, uses actual creep data.
+ * Otherwise, calculates optimal values for planning projections.
  *
  * Price is based on amortized spawn cost over effective lifetime.
  */
 export function projectMining(state: MiningCorpState, tick: number): CorpProjection {
-  const workParts = calculateOptimalWorkParts(state.sourceCapacity);
+  // Use actual values if available (runtime), otherwise calculate optimal (planning)
+  const isRuntime = state.actualWorkParts !== undefined && state.actualTotalTTL !== undefined;
 
-  // Calculate effective output considering travel time
-  const effectiveLifetime = state.spawnPosition
-    ? calculateEffectiveWorkTime(state.spawnPosition, state.position)
-    : CREEP_LIFETIME;
+  let expectedOutput: number;
+  let workParts: number;
 
-  // Energy output = work parts × harvest rate × effective time
-  const expectedOutput = workParts * HARVEST_RATE * effectiveLifetime;
+  if (isRuntime && state.activeCreepCount && state.activeCreepCount > 0) {
+    // Runtime mode: use actual creep data
+    workParts = state.actualWorkParts!;
+    const avgTTL = state.actualTotalTTL! / state.activeCreepCount;
+    expectedOutput = workParts * HARVEST_RATE * avgTTL;
+
+    // Subtract already-committed energy
+    expectedOutput = Math.max(0, expectedOutput - state.committedEnergy);
+  } else if (isRuntime) {
+    // Runtime mode but no active creeps
+    return { buys: [], sells: [] };
+  } else {
+    // Planning mode: calculate optimal values
+    workParts = calculateOptimalWorkParts(state.sourceCapacity);
+    const effectiveLifetime = state.spawnPosition
+      ? calculateEffectiveWorkTime(state.spawnPosition, state.position)
+      : CREEP_LIFETIME;
+    expectedOutput = workParts * HARVEST_RATE * effectiveLifetime;
+  }
+
+  if (expectedOutput <= 0) {
+    return { buys: [], sells: [] };
+  }
 
   // Calculate input cost for pricing (amortized spawn cost)
   const body = designMiningCreep(workParts);
@@ -110,10 +133,10 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
   const inputCostPerUnit = expectedOutput > 0 ? spawnCost / expectedOutput : 0;
 
   const margin = calculateMargin(state.balance);
-  const sellPrice = inputCostPerUnit * (1 + margin);
+  const calculatedPrice = inputCostPerUnit * (1 + margin);
+  const sellPrice = Math.max(calculatedPrice, MIN_ENERGY_PRICE);
 
   // Mining is a leaf node - no buy offers
-  // It produces energy from the source without supply chain dependencies
   return {
     buys: [],
     sells: [
@@ -281,6 +304,9 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
 // Hauling Projection
 // =============================================================================
 
+/** Minimum transport fee per energy */
+const MIN_TRANSPORT_FEE = 0.05;
+
 /**
  * Calculate offers for a hauling corp.
  *
@@ -288,41 +314,65 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
  * - Buy: haul-demand (need hauler creep capacity)
  * - Sell: delivered-energy (transport service)
  *
- * Haul demand = flow × distance, where:
- * - flow = throughput rate (energy/tick) to transport
- * - distance = one-way distance from source to destination
- *
- * Each CARRY part provides HAUL_PER_CARRY (25) capacity.
+ * Supports both planning mode (projected values) and runtime mode (actual creeps).
+ * When actualCarryCapacity/actualTotalTTL are provided, uses actual creep data.
  */
 export function projectHauling(state: HaulingCorpState, tick: number): CorpProjection {
+  // Use actual values if available (runtime), otherwise calculate projected (planning)
+  const isRuntime = state.actualCarryCapacity !== undefined && state.actualTotalTTL !== undefined;
+
+  let carryCapacity: number;
+  let effectiveLifetime: number;
+
+  if (isRuntime && state.activeCreepCount && state.activeCreepCount > 0) {
+    // Runtime mode: use actual creep data
+    carryCapacity = state.actualCarryCapacity!;
+    effectiveLifetime = state.actualTotalTTL! / state.activeCreepCount;
+  } else if (isRuntime) {
+    // Runtime mode but no active creeps
+    return { buys: [], sells: [] };
+  } else {
+    // Planning mode: use configured capacity
+    carryCapacity = state.carryCapacity;
+    effectiveLifetime = state.spawnPosition
+      ? calculateEffectiveWorkTime(state.spawnPosition, state.sourcePosition)
+      : CREEP_LIFETIME;
+  }
+
   // Calculate one-way distance
   const distance = calculateTravelTime(state.sourcePosition, state.destinationPosition);
-  const roundTripTime = distance * 2;
+  const roundTripTime = Math.max(distance * 2, 1); // Avoid division by zero
 
   // Trips per lifetime
-  const effectiveLifetime = state.spawnPosition
-    ? calculateEffectiveWorkTime(state.spawnPosition, state.sourcePosition)
-    : CREEP_LIFETIME;
+  const tripsPerLifetime = Math.floor(effectiveLifetime / roundTripTime);
 
-  const tripsPerLifetime = roundTripTime > 0
-    ? Math.floor(effectiveLifetime / roundTripTime)
-    : 0;
+  if (tripsPerLifetime <= 0) {
+    return { buys: [], sells: [] };
+  }
 
   // Calculate haul demand needed
-  // carryCapacity represents the total carry capacity needed
-  // haul-demand = (carryCapacity / CARRY_CAPACITY) × HAUL_PER_CARRY
-  const carryParts = Math.ceil(state.carryCapacity / CARRY_CAPACITY);
+  const carryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
   const haulDemandNeeded = carryParts * HAUL_PER_CARRY;
 
   // Energy transported per lifetime
-  const energyTransported = tripsPerLifetime * state.carryCapacity;
+  let energyTransported = tripsPerLifetime * carryCapacity;
+
+  // Subtract already-committed delivery
+  if (isRuntime) {
+    energyTransported = Math.max(0, energyTransported - state.committedDeliveredEnergy);
+  }
+
+  if (energyTransported <= 0) {
+    return { buys: [], sells: [] };
+  }
 
   // Hauler body cost (CARRY + MOVE per unit)
   const haulerCost = carryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
 
   const margin = calculateMargin(state.balance);
   const costPerEnergy = energyTransported > 0 ? haulerCost / energyTransported : 0;
-  const pricePerEnergy = costPerEnergy * (1 + margin);
+  const calculatedPrice = costPerEnergy * (1 + margin);
+  const pricePerEnergy = Math.max(calculatedPrice, MIN_TRANSPORT_FEE);
 
   return {
     buys: [

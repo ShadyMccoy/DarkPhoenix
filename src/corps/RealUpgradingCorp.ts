@@ -11,6 +11,8 @@ import { Offer, Position, createOfferId } from "../market/Offer";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { buildUpgraderBody, UpgraderBodyResult } from "../spawn/BodyBuilder";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { UpgradingCorpState } from "./CorpState";
+import { projectUpgrading } from "../planning/projections";
 
 /** Base value per energy for upgrading (what we're willing to pay) */
 const BASE_ENERGY_VALUE = 0.5;
@@ -58,10 +60,59 @@ export class RealUpgradingCorp extends Corp {
   }
 
   /**
-   * Upgrading corp doesn't sell anything - it's a pure consumer
+   * Upgrading corp sells rcl-progress (controller upgrade points).
+   *
+   * Delegates to projectUpgrading() for unified offer calculation.
+   * RCL progress is the terminal value sink - it "mints" credits in the economy.
    */
   sells(): Offer[] {
-    return [];
+    const state = this.toCorpState();
+    const projection = projectUpgrading(state, Game.time);
+    return projection.sells;
+  }
+
+  /**
+   * Convert current runtime state to UpgradingCorpState for projection.
+   * Bridges runtime (actual creeps) to planning model (CorpState).
+   */
+  toCorpState(): UpgradingCorpState {
+    // Get spawn and controller positions
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnPosition = spawn
+      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
+      : null;
+
+    const controller = spawn?.room.controller;
+    const controllerPosition = controller
+      ? { x: controller.pos.x, y: controller.pos.y, roomName: controller.pos.roomName }
+      : this.getPosition();
+
+    const controllerLevel = controller?.level ?? 1;
+
+    return {
+      id: this.id,
+      type: "upgrading",
+      nodeId: this.nodeId,
+      spawningCorpId: this.spawnId,
+      position: controllerPosition,
+      controllerLevel,
+      spawnPosition,
+      // Economic state from Corp base class
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
   }
 
   /**

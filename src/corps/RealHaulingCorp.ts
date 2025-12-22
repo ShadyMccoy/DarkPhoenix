@@ -12,10 +12,15 @@ import { Offer, Position, createOfferId, HAUL_PER_CARRY } from "../market/Offer"
 import { analyzeSource, getMinableSources } from "../analysis/SourceAnalysis";
 import { buildHaulerBody, HaulerBodyResult } from "../spawn/BodyBuilder";
 import { SourceMine } from "../types/SourceMine";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, CARRY_CAPACITY } from "../planning/EconomicConstants";
+import { HaulingCorpState } from "./CorpState";
+import { projectHauling } from "../planning/projections";
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
+
+/** Default carry capacity for planning */
+const DEFAULT_CARRY_CAPACITY = 200;
 
 /**
  * Serialized state specific to RealHaulingCorp
@@ -69,49 +74,108 @@ export class RealHaulingCorp extends Corp {
   }
 
   /**
-   * Hauling corp sells haul-energy (the transport service).
-   * Price = acquisition cost + transport cost + margin
+   * Hauling corp sells delivered-energy (the transport service).
    *
-   * Offers long-term delivery capacity based on hauler lifespans, minus already-committed.
+   * Delegates to projectHauling() for unified offer calculation.
+   * Provides actual creep data via toCorpState() for runtime accuracy.
    */
   sells(): Offer[] {
-    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
-    if (activeCreeps === 0) return [];
+    const state = this.toCorpState();
+    const projection = projectHauling(state, Game.time);
+    return projection.sells;
+  }
 
-    // Calculate long-term delivery capacity based on remaining TTL
-    // Estimate: 1 delivery per 50 ticks on average (pickup + travel + deliver)
-    const TICKS_PER_DELIVERY = 50;
-    const deliveryCapacity = this.creepNames.reduce((sum, name) => {
+  /**
+   * Convert current runtime state to HaulingCorpState for projection.
+   * Bridges runtime (actual creeps) to planning model (CorpState).
+   */
+  toCorpState(): HaulingCorpState {
+    // Calculate actual carry capacity and TTL from live creeps
+    let actualCarryCapacity = 0;
+    let actualTotalTTL = 0;
+    let activeCreepCount = 0;
+
+    for (const name of this.creepNames) {
       const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const capacity = creep.store.getCapacity();
-      const deliveriesRemaining = Math.floor(ttl / TICKS_PER_DELIVERY);
-      return sum + (capacity * deliveriesRemaining);
-    }, 0);
+      if (creep) {
+        actualCarryCapacity += creep.store.getCapacity();
+        actualTotalTTL += creep.ticksToLive ?? CREEP_LIFETIME;
+        activeCreepCount++;
+      }
+    }
 
-    // Subtract already-committed haul-energy to prevent double-selling
-    const availableDelivery = deliveryCapacity - this.committedDeliveredEnergy;
+    // Get spawn position
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnPosition = spawn
+      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
+      : null;
 
-    if (availableDelivery <= 0) return [];
+    // Determine source and destination positions
+    // Source: average of all source positions (or spawn if no sources)
+    // Destination: spawn or controller
+    const sourcePos = this.getAverageSourcePosition() ?? spawnPosition ?? this.getPosition();
+    const destPos = this.getDestinationPosition() ?? spawnPosition ?? this.getPosition();
 
-    // Calculate sell price per energy: acquisition cost + transport fee + margin
-    const transportCost = this.getTransportCostPerEnergy();
-    const totalCostPerEnergy = this.lastAcquisitionPrice + transportCost;
-    // Ensure minimum price even when no cost data yet
-    const minCostPerEnergy = Math.max(totalCostPerEnergy, TRANSPORT_FEE_PER_ENERGY);
-    const sellPricePerUnit = this.getPrice(minCostPerEnergy);
+    return {
+      id: this.id,
+      type: "hauling",
+      nodeId: this.nodeId,
+      miningCorpId: "mining-" + this.nodeId, // Placeholder - should be set properly
+      spawningCorpId: this.spawnId,
+      sourcePosition: sourcePos,
+      destinationPosition: destPos,
+      carryCapacity: DEFAULT_CARRY_CAPACITY,
+      spawnPosition,
+      // Runtime fields for actual creep data
+      actualCarryCapacity,
+      actualTotalTTL,
+      activeCreepCount,
+      // Economic state from Corp base class
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
+  }
 
-    return [{
-      id: createOfferId(this.id, "haul-energy", Game.time),
-      corpId: this.id,
-      type: "sell",
-      resource: "haul-energy",
-      quantity: availableDelivery,
-      price: sellPricePerUnit * availableDelivery, // Total price for full contract
-      duration: CREEP_LIFETIME,
-      location: this.getPosition()
-    }];
+  /**
+   * Get average position of all sources (for source pickup location).
+   */
+  private getAverageSourcePosition(): Position | null {
+    if (this.sourceData.length === 0) return null;
+
+    // For simplicity, use the first source's position
+    const firstSource = Game.getObjectById(this.sourceData[0].sourceId as Id<Source>);
+    if (firstSource) {
+      return { x: firstSource.pos.x, y: firstSource.pos.y, roomName: firstSource.pos.roomName };
+    }
+    return null;
+  }
+
+  /**
+   * Get destination position (controller for upgrading, or spawn).
+   */
+  private getDestinationPosition(): Position | null {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return null;
+
+    // Prefer controller if available
+    const controller = spawn.room.controller;
+    if (controller) {
+      return { x: controller.pos.x, y: controller.pos.y, roomName: controller.pos.roomName };
+    }
+
+    return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
   }
 
   /**
