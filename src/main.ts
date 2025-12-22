@@ -2,28 +2,29 @@
  * @fileoverview Main game loop entry point.
  *
  * This is the entry point for the Screeps AI. It orchestrates the colony
- * economic system using a graph-based architecture.
+ * economic system using a phased architecture.
  *
- * ## Architecture Overview
+ * ## Phased Architecture
  *
- * The system uses an economic model where:
- * - Colony: Top-level orchestrator managing all economic activity
- * - Nodes: Territory-based regions (derived from spatial peak detection)
- * - Corps: Business units that buy/sell resources (mining, hauling, upgrading)
- * - Chains: Production paths linking corps together
- * - BootstrapCorp: Fallback corp that keeps colony alive with basic creeps
+ * ### NEW NODES (rare - when recalculateTerrain runs)
+ * Survey phase: Nodes inventory their territory, corps are instantiated.
  *
- * ## Execution Flow
+ * ### EVERY 5000 TICKS (planning)
+ * 1. Offer Phase: Corps generate buy/sell offers via projections
+ * 2. Planning Phase: GOAP planner finds best value chains
+ * 3. Contracts are stored in Memory
  *
- * Each tick:
- * 1. Run bootstrap corps (fallback to keep colony alive)
- * 2. Run real corps (mining, hauling, upgrading)
- * 3. Run scout corps (room exploration)
- * 4. Initialize colony and run economic tick
- * 5. Run incremental spatial analysis (spread across multiple ticks)
- * 6. Persist state to memory
- * 7. Update telemetry and render visualization
- * 8. Clean up dead creep memory
+ * ### EVERY TICK (execution)
+ * 1. Hydrate corps from memory
+ * 2. Each corp runs its actions
+ * 3. Market clearing for spawn contracts
+ *
+ * ## Key Components
+ * - Colony: Economic coordinator (treasury, surveying)
+ * - Nodes: Territory-based regions (from spatial peak detection)
+ * - Corps: Business units that buy/sell resources
+ * - Chains: Production paths linking corps (from planning)
+ * - Contracts: Executable agreements from chains
  *
  * @module main
  */
@@ -56,6 +57,13 @@ import {
   renderNodeVisuals,
   renderSpatialVisuals,
 } from "./execution";
+import {
+  shouldRunPlanning,
+  runPlanningPhase,
+  PLANNING_INTERVAL,
+  loadContracts,
+  setLastPlanningTick,
+} from "./orchestration";
 import "./types/Memory";
 
 // =============================================================================
@@ -99,31 +107,27 @@ let corps: CorpRegistry = createCorpRegistry();
 /**
  * Main game loop - executed every tick.
  *
- * ## Orchestration Architecture
+ * ## Phased Execution
  *
- * The game loop has two parallel systems:
+ * ### Every Tick (Execution Phase)
+ * 1. Hydrate corps from memory (via CorpRunner)
+ * 2. Run all corps (spawning, bootstrap, mining, hauling, upgrading, etc.)
+ * 3. Market clearing for spawn contracts
  *
- * 1. **Real Corps (CorpRunner)** - Actual creep control
- *    - CorpRegistry: Contains all Real*Corps (RealMiningCorp, RealHaulingCorp, etc.)
- *    - These corps control creeps, generate offers, and participate in the market
- *    - Managed by run*Corps() functions from execution/CorpRunner
+ * ### Every 5000 Ticks (Planning Phase)
+ * 1. Collect offers from all corps via projections
+ * 2. Run chain planner to find optimal chains
+ * 3. Store contracts in Memory for execution
  *
- * 2. **Colony** - Economic coordination
- *    - Manages nodes (territories from spatial analysis)
- *    - Provides treasury (seed capital, money supply tracking)
- *    - Surveys nodes for potential corps (ROI calculation)
- *    - NOTE: Colony.run() does NOT run corps - that's handled by CorpRunner
- *
- * The market system connects these:
- * - Real corps register offers (buys/sells)
- * - Market clearing matches offers to create contracts
- * - SpawningCorp processes spawn contracts to create creeps
+ * ### On Node Creation (Survey Phase)
+ * Survey phase runs when recalculateTerrain creates new nodes.
+ * Corps are instantiated based on node resources.
  *
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
   // ===========================================================================
-  // PHASE 1: Run all Real Corps (creep control)
+  // PHASE 1: EXECUTION - Run all corps (every tick)
   // ===========================================================================
 
   // Run spawning corps first (they process pending spawn orders)
@@ -136,7 +140,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runConstructionCorps(corps);
 
   // ===========================================================================
-  // PHASE 2: Market clearing (match offers to create contracts)
+  // PHASE 2: MARKET - Match spawn offers to contracts (every tick)
   // ===========================================================================
 
   // Register all corps with market and run market clearing
@@ -148,7 +152,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   processSpawnContracts(clearingResult.contracts, corps);
 
   // ===========================================================================
-  // PHASE 3: Colony coordination (territories, treasury, surveying)
+  // PHASE 3: COLONY - Territory and surveying
   // ===========================================================================
 
   // Initialize or restore colony
@@ -158,17 +162,27 @@ export const loop = ErrorMapper.wrapLoop(() => {
   global.colony = colony;
   global.corps = corps;
 
-  // Run incremental multi-room spatial analysis
+  // Run incremental multi-room spatial analysis (SURVEY phase for new nodes)
   // Starts when cache expires or no nodes exist, spreads work across multiple ticks
   if (isAnalysisInProgress() || Game.time % NEARBY_ROOM_EXPANSION_INTERVAL === 0 || colony.getNodes().length === 0) {
     runIncrementalAnalysis(colony);
   }
 
-  // Run the colony economic coordination (surveying, stats - NOT corp execution)
+  // Run the colony economic coordination (surveying, stats)
   colony.run(Game.time);
 
   // ===========================================================================
-  // PHASE 4: Persistence, telemetry, visualization
+  // PHASE 4: PLANNING - Find optimal chains (every 5000 ticks)
+  // ===========================================================================
+
+  if (shouldRunPlanning(Game.time)) {
+    const planningResult = runPlanningPhase(corps, colony, Game.time);
+    setLastPlanningTick(Game.time);
+    console.log(`[Planning] Created ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
+  }
+
+  // ===========================================================================
+  // PHASE 5: PERSISTENCE - Save state and update telemetry
   // ===========================================================================
 
   // Persist all state
