@@ -58,19 +58,20 @@ export interface ColonyStats {
 }
 
 /**
- * Colony is the top-level orchestrator for the economic system.
+ * Colony is the top-level economic coordinator.
  *
- * The colony:
- * 1. Manages nodes (territories)
- * 2. Surveys for potential corps
- * 3. Collects offers from all corps
- * 4. Finds viable chains (profitable paths from resources to goals)
- * 5. Funds chains from treasury
- * 6. Runs all active corps
- * 7. Settles payments for delivered work
- * 8. Mints credits for achievements
- * 9. Applies taxation (money destruction)
- * 10. Prunes dead corps
+ * The colony manages:
+ * 1. Nodes (territories) - spatial regions identified by peak detection
+ * 2. Treasury (CreditLedger) - seed capital and money supply
+ * 3. Surveys - identifying potential corps in territories
+ * 4. Statistics - tracking economic health
+ *
+ * NOTE: Actual corp execution is handled by CorpRunner in the execution module.
+ * Real*Corps (RealMiningCorp, RealHaulingCorp, etc.) are managed via CorpRegistry,
+ * not via node.corps. This class provides economic infrastructure (treasury,
+ * surveying) but doesn't directly run corps.
+ *
+ * See main.ts for the full game loop orchestration.
  */
 export class Colony {
   /** All nodes in this colony */
@@ -127,44 +128,30 @@ export class Colony {
   }
 
   /**
-   * Main colony tick - run all economic activity
+   * Main colony tick - run economic coordination.
+   *
+   * NOTE: This does NOT run corps - that's handled by CorpRunner in main.ts.
+   * This method handles:
+   * - Bootstrap (initial seed capital)
+   * - Node surveying (identify potential corps)
+   * - Chain aging (lifecycle management)
+   * - Stats updates
+   *
+   * The node.corps arrays are unused in the current architecture.
+   * Real corps execution happens via CorpRegistry/CorpRunner.
    */
   run(tick: number): void {
     this.currentTick = tick;
 
-    // Bootstrap if needed
+    // Bootstrap if needed (mint seed capital)
     if (!this.bootstrapped) {
       this.bootstrap();
     }
 
-    // 1. Survey nodes for new opportunities
+    // Survey nodes for new opportunities (ROI calculation)
     this.surveyNodes();
 
-    // 2. Collect offers from all corps
-    const offers = this.collectAllOffers();
-
-    // 3. Find viable chains
-    const viableChains = this.findViableChains(offers);
-
-    // 4. Fund best chains
-    this.fundChains(viableChains);
-
-    // 5. Run all active corps
-    this.runCorps();
-
-    // 6. Settle payments for delivered work
-    this.settlePayments();
-
-    // 7. Mint credits for achievements
-    this.mintForAchievements();
-
-    // 8. Apply taxation
-    this.applyTaxation();
-
-    // 9. Prune dead corps
-    this.pruneDead();
-
-    // 10. Age active chains
+    // Age active chains (lifecycle tracking)
     this.ageChains();
 
     // Update stats
@@ -230,8 +217,14 @@ export class Colony {
     // and available treasury funds
   }
 
+  // ===========================================================================
+  // DEPRECATED: These methods operate on node.corps which is always empty.
+  // Real corps are managed by CorpRegistry/CorpRunner, not stored in nodes.
+  // Kept for reference and potential future refactoring.
+  // ===========================================================================
+
   /**
-   * Collect all offers from all corps in all nodes
+   * @deprecated node.corps is always empty - real corps use CorpRegistry
    */
   private collectAllOffers(): Offer[] {
     const offers: Offer[] = [];
@@ -242,25 +235,19 @@ export class Colony {
   }
 
   /**
-   * Find viable chains from offers
+   * @deprecated Uses offers from empty node.corps
    */
-  private findViableChains(offers: Offer[]): Chain[] {
-    // In full implementation, this would use ChainPlanner
-    // For now, return active chains that are still viable
+  private findViableChains(_offers: Offer[]): Chain[] {
     return filterViable(this.activeChains);
   }
 
   /**
-   * Fund chains from treasury
+   * @deprecated Operates on empty node.corps
    */
   private fundChains(chains: Chain[]): void {
-    // Sort by profitability
     const sorted = sortByProfit(chains);
-
-    // Select non-overlapping chains
     const selected = selectNonOverlapping(sorted);
 
-    // Fund each chain if we can afford it
     for (const chain of selected) {
       if (chain.funded) continue;
 
@@ -272,7 +259,6 @@ export class Colony {
         this.ledger.spend(chain.totalCost);
         chain.funded = true;
 
-        // Activate participating corps
         for (const segment of chain.segments) {
           const corp = this.findCorp(segment.corpId);
           if (corp) {
@@ -280,7 +266,6 @@ export class Colony {
           }
         }
 
-        // Add to active chains if not already there
         if (!this.activeChains.includes(chain)) {
           this.activeChains.push(chain);
         }
@@ -289,7 +274,7 @@ export class Colony {
   }
 
   /**
-   * Run all active corps
+   * @deprecated node.corps is always empty - real corps use CorpRunner
    */
   private runCorps(): void {
     for (const node of this.nodes) {
@@ -302,61 +287,31 @@ export class Colony {
   }
 
   /**
-   * Settle payments for delivered work
+   * @deprecated Operates on empty node.corps
    */
   private settlePayments(): void {
     for (const chain of this.activeChains) {
       if (!chain.funded) continue;
 
-      // Pay each segment for delivered work
       for (const segment of chain.segments) {
         const corp = this.findCorp(segment.corpId);
         if (!corp) continue;
 
-        // In full implementation, track actual deliveries
-        // For now, assume steady delivery over chain duration
-        const tickPayment = segment.outputPrice / 1500; // Spread over creep lifetime
+        const tickPayment = segment.outputPrice / 1500;
         corp.recordRevenue(tickPayment);
       }
     }
   }
 
   /**
-   * Mint credits for achievements
-   *
-   * TODO: Re-implement when Real*Corps are connected to projections.
-   * Previously used UpgradingModel for tracking upgrade work, but that's
-   * now handled by projection functions which are for planning, not runtime.
-   * Runtime corps (Real*Corps) should implement getUpgradeWorkThisTick().
+   * @deprecated Needs Real*Corps data from CorpRegistry, not node.corps
    */
   private mintForAchievements(): void {
-    // TODO: Implement when Real*Corps are connected
-    // For now, upgrading corps are tracked via projections for planning,
-    // not runtime tracking. Real*Corps will need to implement:
-    // - getUpgradeWorkThisTick(): number
-    // - getControllerLevel(): number
-    //
-    // Example future implementation:
-    // for (const node of this.nodes) {
-    //   const upgraders = getCorpsByType(node, "upgrading");
-    //   for (const upgrader of upgraders) {
-    //     if ('getUpgradeWorkThisTick' in upgrader) {
-    //       const upgradeWork = (upgrader as any).getUpgradeWorkThisTick();
-    //       if (upgradeWork > 0) {
-    //         const rcl = (upgrader as any).getControllerLevel();
-    //         const mintRate = rcl < 8
-    //           ? getMintValue(this.mintValues, "rcl_upgrade")
-    //           : getMintValue(this.mintValues, "gcl_upgrade");
-    //         const mintAmount = upgradeWork * (mintRate / 1000);
-    //         this.ledger.mint(mintAmount, `upgrade-rcl${rcl}`);
-    //       }
-    //     }
-    //   }
-    // }
+    // Not implemented - would need access to CorpRegistry
   }
 
   /**
-   * Apply taxation to all corps
+   * @deprecated node.corps is always empty
    */
   private applyTaxation(): void {
     let totalTaxed = 0;
@@ -372,7 +327,7 @@ export class Colony {
   }
 
   /**
-   * Prune dead corps from all nodes
+   * @deprecated node.corps is always empty
    */
   private pruneDead(): void {
     for (const node of this.nodes) {
@@ -382,7 +337,6 @@ export class Colony {
         this.config.corpGracePeriod
       );
 
-      // Remove pruned corps from active chains
       for (const corp of pruned) {
         this.removeCorpFromChains(corp.id);
       }
@@ -390,14 +344,12 @@ export class Colony {
   }
 
   /**
-   * Remove a corp from all chains
+   * @deprecated Operates on activeChains which use empty node.corps
    */
   private removeCorpFromChains(corpId: string): void {
-    // Mark chains using this corp as incomplete
     for (const chain of this.activeChains) {
       const usesCorr = chain.segments.some((s) => s.corpId === corpId);
       if (usesCorr) {
-        // Deactivate the chain
         chain.funded = false;
         for (const segment of chain.segments) {
           const corp = this.findCorp(segment.corpId);
@@ -408,7 +360,6 @@ export class Colony {
       }
     }
 
-    // Remove defunct chains
     this.activeChains = this.activeChains.filter((chain) =>
       chain.segments.every((s) => this.findCorp(s.corpId) !== undefined)
     );
@@ -427,7 +378,8 @@ export class Colony {
   }
 
   /**
-   * Find a corp by ID across all nodes
+   * Find a corp by ID across all nodes.
+   * @deprecated node.corps is always empty - real corps use CorpRegistry
    */
   findCorp(corpId: string): Corp | undefined {
     for (const node of this.nodes) {
@@ -438,7 +390,8 @@ export class Colony {
   }
 
   /**
-   * Get all corps across all nodes
+   * Get all corps across all nodes.
+   * @deprecated node.corps is always empty - real corps use CorpRegistry
    */
   getAllCorps(): Corp[] {
     const corps: Corp[] = [];

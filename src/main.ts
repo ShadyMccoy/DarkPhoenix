@@ -99,9 +99,33 @@ let corps: CorpRegistry = createCorpRegistry();
 /**
  * Main game loop - executed every tick.
  *
+ * ## Orchestration Architecture
+ *
+ * The game loop has two parallel systems:
+ *
+ * 1. **Real Corps (CorpRunner)** - Actual creep control
+ *    - CorpRegistry: Contains all Real*Corps (RealMiningCorp, RealHaulingCorp, etc.)
+ *    - These corps control creeps, generate offers, and participate in the market
+ *    - Managed by run*Corps() functions from execution/CorpRunner
+ *
+ * 2. **Colony** - Economic coordination
+ *    - Manages nodes (territories from spatial analysis)
+ *    - Provides treasury (seed capital, money supply tracking)
+ *    - Surveys nodes for potential corps (ROI calculation)
+ *    - NOTE: Colony.run() does NOT run corps - that's handled by CorpRunner
+ *
+ * The market system connects these:
+ * - Real corps register offers (buys/sells)
+ * - Market clearing matches offers to create contracts
+ * - SpawningCorp processes spawn contracts to create creeps
+ *
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
+  // ===========================================================================
+  // PHASE 1: Run all Real Corps (creep control)
+  // ===========================================================================
+
   // Run spawning corps first (they process pending spawn orders)
   runSpawningCorps(corps);
 
@@ -111,6 +135,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runScoutCorps(corps);
   runConstructionCorps(corps);
 
+  // ===========================================================================
+  // PHASE 2: Market clearing (match offers to create contracts)
+  // ===========================================================================
+
   // Register all corps with market and run market clearing
   // This matches buy/sell offers (including work-ticks for spawning)
   registerCorpsWithMarket(corps);
@@ -118,6 +146,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Process spawn contracts - routes work-ticks contracts to SpawningCorps
   processSpawnContracts(clearingResult.contracts, corps);
+
+  // ===========================================================================
+  // PHASE 3: Colony coordination (territories, treasury, surveying)
+  // ===========================================================================
 
   // Initialize or restore colony
   colony = getOrCreateColony();
@@ -132,8 +164,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
     runIncrementalAnalysis(colony);
   }
 
-  // Run the colony economic tick
+  // Run the colony economic coordination (surveying, stats - NOT corp execution)
   colony.run(Game.time);
+
+  // ===========================================================================
+  // PHASE 4: Persistence, telemetry, visualization
+  // ===========================================================================
 
   // Persist all state
   persistState(colony, corps, getAnalysisCache());
