@@ -2,28 +2,31 @@
  * @fileoverview Main game loop entry point.
  *
  * This is the entry point for the Screeps AI. It orchestrates the colony
- * economic system using a graph-based architecture.
+ * economic system using a phased architecture.
  *
- * ## Architecture Overview
+ * ## Phased Architecture
  *
- * The system uses an economic model where:
- * - Colony: Top-level orchestrator managing all economic activity
- * - Nodes: Territory-based regions (derived from spatial peak detection)
- * - Corps: Business units that buy/sell resources (mining, hauling, upgrading)
- * - Chains: Production paths linking corps together
- * - BootstrapCorp: Fallback corp that keeps colony alive with basic creeps
+ * ### EVERY TICK (execution)
+ * 1. INIT: Lazy hydration from Memory (once per code push)
+ * 2. EXECUTE: Run all corps (spawning, mining, hauling, upgrading, etc.)
+ * 3. PERSIST: Save state to Memory
  *
- * ## Execution Flow
+ * ### EVERY 5000 TICKS (planning)
+ * 1. SURVEY: Analyze territory, create corps from node resources
+ * 2. MARKET: Register offers, run market clearing
+ * 3. PLAN: Find optimal chains, store contracts in Memory
  *
- * Each tick:
- * 1. Run bootstrap corps (fallback to keep colony alive)
- * 2. Run real corps (mining, hauling, upgrading)
- * 3. Run scout corps (room exploration)
- * 4. Initialize colony and run economic tick
- * 5. Run incremental spatial analysis (spread across multiple ticks)
- * 6. Persist state to memory
- * 7. Update telemetry and render visualization
- * 8. Clean up dead creep memory
+ * ## Key Components
+ * - Colony: Economic coordinator (treasury, surveying)
+ * - Nodes: Territory-based regions (from spatial peak detection)
+ * - Corps: Business units that buy/sell resources
+ * - Chains: Production paths linking corps (from planning)
+ * - Contracts: Executable agreements stored in Memory
+ *
+ * ## Console Commands
+ * - global.survey() - Force run survey phase
+ * - global.plan() - Force run planning phase
+ * - global.status() - Show orchestration status
  *
  * @module main
  */
@@ -56,6 +59,18 @@ import {
   renderNodeVisuals,
   renderSpatialVisuals,
 } from "./execution";
+import {
+  initCorps,
+  shouldRunPlanning,
+  runPlanningPhase,
+  runSurveyPhase,
+  getOrchestrationStatus,
+  PLANNING_INTERVAL,
+  loadContracts,
+  loadChains,
+  setLastPlanningTick,
+  setLastSurveyTick,
+} from "./orchestration";
 import "./types/Memory";
 
 // =============================================================================
@@ -75,6 +90,11 @@ declare global {
       log: any;
       colony: Colony | undefined;
       corps: CorpRegistry;
+      // Orchestration commands
+      survey: () => void;
+      plan: () => void;
+      status: () => void;
+      // Legacy commands
       recalculateTerrain: () => void;
       resetAnalysis: () => void;
       showNodes: () => void;
@@ -99,9 +119,40 @@ let corps: CorpRegistry = createCorpRegistry();
 /**
  * Main game loop - executed every tick.
  *
+ * ## Phased Execution
+ *
+ * ### Every Tick
+ * 1. INIT: Lazy hydration from Memory (once per code push)
+ * 2. EXECUTE: Run all corps
+ * 3. PERSIST: Save state
+ *
+ * ### Every 5000 Ticks (Planning Phase)
+ * 1. SURVEY: Analyze territory, create corps from node resources
+ * 2. MARKET: Register offers, run market clearing
+ * 3. PLAN: Find optimal chains, store contracts
+ *
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
+  // ===========================================================================
+  // PHASE 0: INIT - Lazy initialization (once per code push)
+  // ===========================================================================
+
+  // Initialize corps from Memory if cache is empty (after code push)
+  // This is a no-op if corps are already in the global cache
+  initCorps(corps);
+
+  // Initialize or restore colony (needed for planning and persistence)
+  colony = getOrCreateColony();
+
+  // Make state available globally for debugging
+  global.colony = colony;
+  global.corps = corps;
+
+  // ===========================================================================
+  // PHASE 1: EXECUTE - Run all corps (every tick)
+  // ===========================================================================
+
   // Run spawning corps first (they process pending spawn orders)
   runSpawningCorps(corps);
 
@@ -111,29 +162,39 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runScoutCorps(corps);
   runConstructionCorps(corps);
 
-  // Register all corps with market and run market clearing
-  // This matches buy/sell offers (including work-ticks for spawning)
-  registerCorpsWithMarket(corps);
-  const clearingResult = runMarketClearing();
+  // ===========================================================================
+  // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
+  // ===========================================================================
 
-  // Process spawn contracts - routes work-ticks contracts to SpawningCorps
-  processSpawnContracts(clearingResult.contracts, corps);
+  if (shouldRunPlanning(Game.time)) {
+    console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
-  // Initialize or restore colony
-  colony = getOrCreateColony();
+    // --- SURVEY: Analyze territory and create corps ---
+    // Run incremental multi-room spatial analysis
+    if (isAnalysisInProgress() || colony.getNodes().length === 0) {
+      runIncrementalAnalysis(colony);
+    }
 
-  // Make state available globally for debugging
-  global.colony = colony;
-  global.corps = corps;
+    // Run the colony economic coordination (surveying, stats)
+    colony.run(Game.time);
 
-  // Run incremental multi-room spatial analysis
-  // Starts when cache expires or no nodes exist, spreads work across multiple ticks
-  if (isAnalysisInProgress() || Game.time % NEARBY_ROOM_EXPANSION_INTERVAL === 0 || colony.getNodes().length === 0) {
-    runIncrementalAnalysis(colony);
+    // --- MARKET: Register offers and clear market ---
+    registerCorpsWithMarket(corps);
+    const clearingResult = runMarketClearing();
+
+    // Process spawn contracts - routes work-ticks contracts to SpawningCorps
+    processSpawnContracts(clearingResult.contracts, corps);
+
+    // --- PLAN: Find optimal chains ---
+    const planningResult = runPlanningPhase(corps, colony, Game.time);
+    setLastPlanningTick(Game.time);
+
+    console.log(`[Planning] Complete: ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
   }
 
-  // Run the colony economic tick
-  colony.run(Game.time);
+  // ===========================================================================
+  // PHASE 3: PERSIST - Save state and update telemetry (every tick)
+  // ===========================================================================
 
   // Persist all state
   persistState(colony, corps, getAnalysisCache());
@@ -234,6 +295,110 @@ function logStats(colony: Colony, corps: CorpRegistry): void {
 // =============================================================================
 // CONSOLE COMMANDS
 // =============================================================================
+
+// -----------------------------------------------------------------------------
+// ORCHESTRATION COMMANDS
+// -----------------------------------------------------------------------------
+
+/**
+ * Run survey phase to create corps from node resources.
+ * Call from console: `global.survey()`
+ *
+ * Survey examines all nodes and creates corps based on resources:
+ * - Source -> MiningCorp
+ * - Spawn -> SpawningCorp
+ * - Owned room -> HaulingCorp, UpgradingCorp
+ */
+global.survey = () => {
+  if (!colony) {
+    console.log("[Survey] No colony exists. Run global.recalculateTerrain() first.");
+    return;
+  }
+
+  const result = runSurveyPhase(colony, corps, Game.time);
+  setLastSurveyTick(Game.time);
+
+  console.log("\n=== Survey Results ===");
+  console.log(`Nodes surveyed: ${result.nodesSurveyed}`);
+  console.log(`Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`);
+  console.log(`Corps created: ${result.corpsCreated.mining} mining, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`);
+};
+
+/**
+ * Force run planning phase to find optimal chains.
+ * Call from console: `global.plan()`
+ *
+ * Planning:
+ * 1. Collects offers from all corps via projections
+ * 2. Runs chain planner to find optimal chains
+ * 3. Stores contracts in Memory
+ */
+global.plan = () => {
+  if (!colony) {
+    console.log("[Planning] No colony exists. Run global.recalculateTerrain() first.");
+    return;
+  }
+
+  const result = runPlanningPhase(corps, colony, Game.time);
+  setLastPlanningTick(Game.time);
+
+  console.log("\n=== Planning Results ===");
+  console.log(`Chains found: ${result.chains.length}`);
+  console.log(`Contracts created: ${result.contracts.length}`);
+
+  if (result.chains.length > 0) {
+    console.log("\nTop chains:");
+    for (const chain of result.chains.slice(0, 5)) {
+      console.log(`  ${chain.id}: profit=${chain.profit.toFixed(2)}, segments=${chain.segments.length}`);
+    }
+  }
+};
+
+/**
+ * Show orchestration status.
+ * Call from console: `global.status()`
+ *
+ * Shows:
+ * - Last survey/planning tick
+ * - Active chains and contracts
+ * - Corp counts by type
+ */
+global.status = () => {
+  const chains = loadChains();
+  const contracts = loadContracts();
+  const activeContracts = contracts.filter(c =>
+    Game.time < c.startTick + c.duration && c.delivered < c.quantity
+  );
+
+  console.log("\n=== Orchestration Status ===");
+  console.log(`Current tick: ${Game.time}`);
+  console.log(`Last survey: ${Memory.lastSurveyTick ?? "never"}`);
+  console.log(`Last planning: ${Memory.lastPlanningTick ?? "never"}`);
+  console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
+
+  console.log("\n=== Chains & Contracts ===");
+  console.log(`Active chains: ${chains.length}`);
+  console.log(`Active contracts: ${activeContracts.length} / ${contracts.length} total`);
+
+  console.log("\n=== Corps ===");
+  console.log(`Mining: ${Object.keys(corps.miningCorps).length}`);
+  console.log(`Hauling: ${Object.keys(corps.haulingCorps).length}`);
+  console.log(`Upgrading: ${Object.keys(corps.upgradingCorps).length}`);
+  console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
+  console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
+  console.log(`Scout: ${Object.keys(corps.scoutCorps).length}`);
+  console.log(`Construction: ${Object.keys(corps.constructionCorps).length}`);
+
+  if (colony) {
+    console.log("\n=== Colony ===");
+    console.log(`Nodes: ${colony.getNodes().length}`);
+    console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
+  }
+};
+
+// -----------------------------------------------------------------------------
+// LEGACY COMMANDS
+// -----------------------------------------------------------------------------
 
 /**
  * Force recalculation of multi-room spatial analysis.

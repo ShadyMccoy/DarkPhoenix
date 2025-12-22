@@ -19,9 +19,11 @@ import {
 } from "./EconomicConstants";
 import {
   AnyCorpState,
+  createSourceState,
   createMiningState,
   createSpawningState,
-  createUpgradingState
+  createUpgradingState,
+  createHaulingState
 } from "../corps/CorpState";
 
 /**
@@ -127,10 +129,8 @@ export function hydrateFixture(
     }
   }
 
-  // Second pass: create nodes and corp states
+  // Second pass: create nodes
   const nodes: Node[] = [];
-  const allCorpStates: AnyCorpState[] = [];
-  let corpIndex = 0;
 
   for (const fixtureNode of fixture.nodes) {
     const peakPosition: Position = {
@@ -165,108 +165,211 @@ export function hydrateFixture(
       node.resources.push(nodeResource);
     }
 
-    // Create CorpState for projection functions
-    const corpState = createCorpStateForNode(
-      fixtureNode,
-      node,
-      spawns,
-      idGen,
-      corpIndex
-    );
-
-    if (corpState) {
-      allCorpStates.push(corpState);
-      corpIndex++;
-    }
-
     nodes.push(node);
   }
+
+  // Third pass: create corp states with proper dependency chain
+  // Order: SpawningCorps -> SourceCorps -> MiningOperations -> UpgradingCorps
+  const allCorpStates = createCorpStatesWithDependencies(
+    fixture.nodes,
+    nodes,
+    spawns,
+    idGen
+  );
 
   return { nodes, spawns, corpStates: allCorpStates };
 }
 
 /**
- * Create CorpState for a node based on its resources.
- * Priority: spawn > source > controller
+ * Create corp states with proper dependency chain.
+ *
+ * Order (enforces clean operation structure):
+ * 1. SpawningCorps (from spawns)
+ * 2. SourceCorps (passive, from sources)
+ * 3. MiningOperations (depend on SourceCorp + SpawningCorp)
+ * 4. HaulingOperations (depend on MiningOperation + SpawningCorp)
+ * 5. UpgradingCorps (depend on SpawningCorp, consumes delivered-energy)
+ *
+ * This ensures dependencies are created before the operations that need them.
  */
-function createCorpStateForNode(
-  fixtureNode: FixtureNode,
-  node: Node,
+function createCorpStatesWithDependencies(
+  fixtureNodes: FixtureNode[],
+  nodes: Node[],
   spawns: Position[],
-  idGen: (type: string, nodeId: string, index: number) => string,
-  index: number
-): AnyCorpState | null {
-  const hasSpawn = fixtureNode.resourceNodes.some((r) => r.type === "spawn");
-  const hasSources = fixtureNode.resourceNodes.some((r) => r.type === "source");
-  const hasController = fixtureNode.resourceNodes.some(
-    (r) => r.type === "controller"
-  );
+  idGen: (type: string, nodeId: string, index: number) => string
+): AnyCorpState[] {
+  const corpStates: AnyCorpState[] = [];
+  let corpIndex = 0;
 
-  const nodePosition: Position = {
-    x: fixtureNode.position.x,
-    y: fixtureNode.position.y,
-    roomName: fixtureNode.roomName
-  };
+  // Track IDs for dependency resolution
+  let spawningCorpId: string | null = null;
+  const sourceCorpIds: Map<string, string> = new Map(); // sourceResourceId -> sourceCorpId
+  // Track mining corps for hauling dependency
+  const miningCorps: Array<{ id: string; position: Position; nodeId: string }> = [];
 
-  if (hasSpawn) {
-    const spawnResource = fixtureNode.resourceNodes.find(
-      (r) => r.type === "spawn"
-    )!;
-    const spawnPosition: Position = {
-      x: spawnResource.position.x,
-      y: spawnResource.position.y,
-      roomName: fixtureNode.roomName
-    };
+  // Pass 1: Create SpawningCorps first
+  for (let i = 0; i < fixtureNodes.length; i++) {
+    const fixtureNode = fixtureNodes[i];
+    const node = nodes[i];
 
-    const corpId = idGen("spawning", node.id, index);
-    return createSpawningState(
-      corpId,
-      node.id,
-      spawnPosition,
-      spawnResource.capacity ?? 300
-    );
+    for (const resource of fixtureNode.resourceNodes) {
+      if (resource.type === "spawn") {
+        const spawnPosition: Position = {
+          x: resource.position.x,
+          y: resource.position.y,
+          roomName: fixtureNode.roomName
+        };
+
+        spawningCorpId = idGen("spawning", node.id, corpIndex++);
+        const spawningState = createSpawningState(
+          spawningCorpId,
+          node.id,
+          spawnPosition,
+          resource.capacity ?? 300
+        );
+        corpStates.push(spawningState);
+      }
+    }
   }
 
-  if (hasSources) {
-    const totalCapacity = fixtureNode.resourceNodes
-      .filter((r) => r.type === "source")
-      .reduce((sum, r) => sum + (r.capacity ?? SOURCE_ENERGY_CAPACITY), 0);
+  // Use a placeholder if no spawn found
+  if (!spawningCorpId) {
+    spawningCorpId = "unknown-spawn";
+  }
 
-    const nearestSpawn = findNearestSpawn(nodePosition, spawns);
-    const corpId = idGen("mining", node.id, index);
+  // Pass 2: Create SourceCorps for each source
+  for (let i = 0; i < fixtureNodes.length; i++) {
+    const fixtureNode = fixtureNodes[i];
+    const node = nodes[i];
 
-    return createMiningState(
-      corpId,
-      node.id,
-      nodePosition,
-      totalCapacity,
+    for (const resource of fixtureNode.resourceNodes) {
+      if (resource.type === "source") {
+        const sourcePosition: Position = {
+          x: resource.position.x,
+          y: resource.position.y,
+          roomName: fixtureNode.roomName
+        };
+
+        const sourceResourceId = `source-${node.id}-${resource.position.x}-${resource.position.y}`;
+        const sourceCorpId = idGen("source", node.id, corpIndex++);
+        sourceCorpIds.set(sourceResourceId, sourceCorpId);
+
+        const sourceState = createSourceState(
+          sourceCorpId,
+          node.id,
+          sourcePosition,
+          sourceResourceId, // sourceId (game object ID placeholder)
+          resource.capacity ?? SOURCE_ENERGY_CAPACITY,
+          1 // miningSpots (default to 1)
+        );
+        corpStates.push(sourceState);
+      }
+    }
+  }
+
+  // Pass 3: Create MiningOperations that reference SourceCorps
+  for (let i = 0; i < fixtureNodes.length; i++) {
+    const fixtureNode = fixtureNodes[i];
+    const node = nodes[i];
+
+    for (const resource of fixtureNode.resourceNodes) {
+      if (resource.type === "source") {
+        const sourcePosition: Position = {
+          x: resource.position.x,
+          y: resource.position.y,
+          roomName: fixtureNode.roomName
+        };
+
+        const sourceResourceId = `source-${node.id}-${resource.position.x}-${resource.position.y}`;
+        const sourceCorpId = sourceCorpIds.get(sourceResourceId) ?? "unknown-source";
+        const nearestSpawn = findNearestSpawn(sourcePosition, spawns);
+
+        const miningCorpId = idGen("mining", node.id, corpIndex++);
+        const miningState = createMiningState(
+          miningCorpId,
+          node.id,
+          sourceCorpId,
+          spawningCorpId,
+          sourcePosition,
+          resource.capacity ?? SOURCE_ENERGY_CAPACITY,
+          nearestSpawn
+        );
+        corpStates.push(miningState);
+
+        // Track for hauling dependency
+        miningCorps.push({ id: miningCorpId, position: sourcePosition, nodeId: node.id });
+      }
+    }
+  }
+
+  // Find controller position for hauling destination (default to spawn if no controller)
+  let controllerPosition: Position | null = null;
+  for (const fixtureNode of fixtureNodes) {
+    for (const resource of fixtureNode.resourceNodes) {
+      if (resource.type === "controller") {
+        controllerPosition = {
+          x: resource.position.x,
+          y: resource.position.y,
+          roomName: fixtureNode.roomName
+        };
+        break;
+      }
+    }
+    if (controllerPosition) break;
+  }
+
+  // Pass 4: Create HaulingOperations that reference MiningOperations
+  // Each mining operation needs a corresponding hauling operation to move energy
+  const DEFAULT_CARRY_CAPACITY = 500; // 10 CARRY parts × 50
+  for (const miningCorp of miningCorps) {
+    const nearestSpawn = findNearestSpawn(miningCorp.position, spawns);
+    // Destination: controller if available, otherwise spawn
+    const destination = controllerPosition ?? nearestSpawn ?? miningCorp.position;
+
+    const haulingCorpId = idGen("hauling", miningCorp.nodeId, corpIndex++);
+    const haulingState = createHaulingState(
+      haulingCorpId,
+      miningCorp.nodeId,
+      miningCorp.id, // miningCorpId dependency
+      spawningCorpId!,
+      miningCorp.position, // sourcePosition (pick up from mining location)
+      destination, // destinationPosition (deliver to controller/spawn)
+      DEFAULT_CARRY_CAPACITY,
       nearestSpawn
     );
+    corpStates.push(haulingState);
   }
 
-  if (hasController) {
-    const controllerResource = fixtureNode.resourceNodes.find(
-      (r) => r.type === "controller"
-    )!;
-    const controllerPosition: Position = {
-      x: controllerResource.position.x,
-      y: controllerResource.position.y,
-      roomName: fixtureNode.roomName
-    };
+  // Pass 5: Create UpgradingCorps (depend on SpawningCorp for work-ticks)
+  for (let i = 0; i < fixtureNodes.length; i++) {
+    const fixtureNode = fixtureNodes[i];
+    const node = nodes[i];
 
-    const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
-    const corpId = idGen("upgrading", node.id, index);
+    for (const resource of fixtureNode.resourceNodes) {
+      if (resource.type === "controller") {
+        const controllerPosition: Position = {
+          x: resource.position.x,
+          y: resource.position.y,
+          roomName: fixtureNode.roomName
+        };
 
-    return createUpgradingState(
-      corpId,
-      node.id,
-      controllerPosition,
-      controllerResource.capacity ?? 1,
-      nearestSpawn
-    );
+        const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
+        const upgradingCorpId = idGen("upgrading", node.id, corpIndex++);
+
+        const upgradingState = createUpgradingState(
+          upgradingCorpId,
+          node.id,
+          spawningCorpId!, // spawningCorpId dependency
+          controllerPosition,
+          resource.capacity ?? 1,
+          nearestSpawn
+        );
+        corpStates.push(upgradingState);
+      }
+    }
   }
 
-  return null;
+  return corpStates;
 }
 
 /**

@@ -10,6 +10,7 @@
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 import { SerializedChain } from "../planning/Chain";
+import { Contract } from "../market/Contract";
 import {
   SerializedBootstrapCorp,
   SerializedRealMiningCorp,
@@ -81,6 +82,22 @@ declare global {
      * Serialized chains for persistence.
      */
     chains?: { [chainId: string]: SerializedChain };
+
+    /**
+     * Active contracts from planning phase.
+     * Contracts are created every PLANNING_INTERVAL ticks.
+     */
+    contracts?: { [contractId: string]: Contract };
+
+    /**
+     * Tick when last planning phase was run.
+     */
+    lastPlanningTick?: number;
+
+    /**
+     * Tick when last survey phase was run.
+     */
+    lastSurveyTick?: number;
 
     /**
      * Room map cache metadata (tick when last computed).

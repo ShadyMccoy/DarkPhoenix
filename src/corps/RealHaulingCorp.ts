@@ -12,10 +12,15 @@ import { Offer, Position, createOfferId, HAUL_PER_CARRY } from "../market/Offer"
 import { analyzeSource, getMinableSources } from "../analysis/SourceAnalysis";
 import { buildHaulerBody, HaulerBodyResult } from "../spawn/BodyBuilder";
 import { SourceMine } from "../types/SourceMine";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, CARRY_CAPACITY } from "../planning/EconomicConstants";
+import { HaulingCorpState } from "./CorpState";
+import { projectHauling } from "../planning/projections";
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
+
+/** Default carry capacity for planning */
+const DEFAULT_CARRY_CAPACITY = 200;
 
 /**
  * Serialized state specific to RealHaulingCorp
@@ -26,6 +31,7 @@ export interface SerializedRealHaulingCorp extends SerializedCorp {
   lastSpawnAttempt: number;
   sourceData: { sourceId: string; flow: number; distanceToSpawn: number }[];
   lastAcquisitionPrice: number;
+  targetHaulers: number;
 }
 
 /**
@@ -59,88 +65,157 @@ export class RealHaulingCorp extends Corp {
   /** Last acquisition price paid for energy (from miners) */
   private lastAcquisitionPrice: number = 0.1;
 
+  /** Target number of haulers (computed during planning) */
+  private targetHaulers: number = 2;
+
   constructor(nodeId: string, spawnId: string) {
     super("hauling", nodeId);
     this.spawnId = spawnId;
   }
 
   /**
-   * Hauling corp sells haul-energy (the transport service).
-   * Price = acquisition cost + transport cost + margin
+   * Hauling corp sells delivered-energy (the transport service).
    *
-   * Offers long-term delivery capacity based on hauler lifespans, minus already-committed.
+   * Delegates to projectHauling() for unified offer calculation.
+   * Provides actual creep data via toCorpState() for runtime accuracy.
    */
   sells(): Offer[] {
-    const activeCreeps = this.creepNames.filter(n => Game.creeps[n]).length;
-    if (activeCreeps === 0) return [];
-
-    // Calculate long-term delivery capacity based on remaining TTL
-    // Estimate: 1 delivery per 50 ticks on average (pickup + travel + deliver)
-    const TICKS_PER_DELIVERY = 50;
-    const deliveryCapacity = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const capacity = creep.store.getCapacity();
-      const deliveriesRemaining = Math.floor(ttl / TICKS_PER_DELIVERY);
-      return sum + (capacity * deliveriesRemaining);
-    }, 0);
-
-    // Subtract already-committed haul-energy to prevent double-selling
-    const availableDelivery = deliveryCapacity - this.committedDeliveredEnergy;
-
-    if (availableDelivery <= 0) return [];
-
-    // Calculate sell price per energy: acquisition cost + transport fee + margin
-    const transportCost = this.getTransportCostPerEnergy();
-    const totalCostPerEnergy = this.lastAcquisitionPrice + transportCost;
-    // Ensure minimum price even when no cost data yet
-    const minCostPerEnergy = Math.max(totalCostPerEnergy, TRANSPORT_FEE_PER_ENERGY);
-    const sellPricePerUnit = this.getPrice(minCostPerEnergy);
-
-    return [{
-      id: createOfferId(this.id, "haul-energy", Game.time),
-      corpId: this.id,
-      type: "sell",
-      resource: "haul-energy",
-      quantity: availableDelivery,
-      price: sellPricePerUnit * availableDelivery, // Total price for full contract
-      duration: CREEP_LIFETIME,
-      location: this.getPosition()
-    }];
+    const state = this.toCorpState();
+    const projection = projectHauling(state, Game.time);
+    return projection.sells;
   }
 
   /**
-   * Hauling corp buys carry-ticks from SpawningCorp and energy from miners.
-   *
-   * Carry-ticks needed = Σ(flow × distance) for all sources we serve.
-   * This captures both throughput requirements and distance costs.
+   * Convert current runtime state to HaulingCorpState for projection.
+   * Bridges runtime (actual creeps) to planning model (CorpState).
    */
-  buys(): Offer[] {
-    const offers: Offer[] = [];
+  toCorpState(): HaulingCorpState {
+    // Calculate actual carry capacity and TTL from live creeps
+    let actualCarryCapacity = 0;
+    let actualTotalTTL = 0;
+    let activeCreepCount = 0;
+
+    for (const name of this.creepNames) {
+      const creep = Game.creeps[name];
+      if (creep) {
+        actualCarryCapacity += creep.store.getCapacity();
+        actualTotalTTL += creep.ticksToLive ?? CREEP_LIFETIME;
+        activeCreepCount++;
+      }
+    }
+
+    // Get spawn position
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnPosition = spawn
+      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
+      : null;
+
+    // Determine source and destination positions
+    // Source: average of all source positions (or spawn if no sources)
+    // Destination: spawn or controller
+    const sourcePos = this.getAverageSourcePosition() ?? spawnPosition ?? this.getPosition();
+    const destPos = this.getDestinationPosition() ?? spawnPosition ?? this.getPosition();
+
+    return {
+      id: this.id,
+      type: "hauling",
+      nodeId: this.nodeId,
+      miningCorpId: "mining-" + this.nodeId, // Placeholder - should be set properly
+      spawningCorpId: this.spawnId,
+      sourcePosition: sourcePos,
+      destinationPosition: destPos,
+      carryCapacity: DEFAULT_CARRY_CAPACITY,
+      spawnPosition,
+      // Runtime fields for actual creep data
+      actualCarryCapacity,
+      actualTotalTTL,
+      activeCreepCount,
+      // Economic state from Corp base class
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
+  }
+
+  /**
+   * Get average position of all sources (for source pickup location).
+   */
+  private getAverageSourcePosition(): Position | null {
+    if (this.sourceData.length === 0) return null;
+
+    // For simplicity, use the first source's position
+    const firstSource = Game.getObjectById(this.sourceData[0].sourceId as Id<Source>);
+    if (firstSource) {
+      return { x: firstSource.pos.x, y: firstSource.pos.y, roomName: firstSource.pos.roomName };
+    }
+    return null;
+  }
+
+  /**
+   * Get destination position (controller for upgrading, or spawn).
+   */
+  private getDestinationPosition(): Position | null {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return null;
+
+    // Prefer controller if available
+    const controller = spawn.room.controller;
+    if (controller) {
+      return { x: controller.pos.x, y: controller.pos.y, roomName: controller.pos.roomName };
+    }
+
+    return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
+  }
+
+  /**
+   * Plan hauling operations. Called periodically to compute targets.
+   * Analyzes sources and distances to determine optimal hauler count.
+   */
+  plan(tick: number): void {
+    super.plan(tick);
+
+    // Ensure source data is populated
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (spawn) {
+      this.analyzeSources(spawn.room, spawn);
+    }
 
     // Calculate total haul demand: Σ(flow × distance)
     const totalHaulDemand = this.sourceData.reduce((sum, source) => {
       return sum + (source.flow * source.distanceToSpawn);
     }, 0);
 
-    // Calculate current haul capacity from existing creeps
-    // Each CARRY part provides HAUL_PER_CARRY capacity (25 with 1:1 MOVE on roads)
-    // Prorate by remaining lifetime
-    const currentHaulCapacity = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const carryParts = creep.getActiveBodyparts(CARRY);
-      const lifetimeFraction = ttl / CREEP_LIFETIME;
-      return sum + (carryParts * HAUL_PER_CARRY * lifetimeFraction);
-    }, 0);
+    // Each hauler provides ~4 CARRY parts × HAUL_PER_CARRY capacity
+    const capacityPerHauler = 4 * HAUL_PER_CARRY;
+    this.targetHaulers = Math.max(1, Math.ceil(totalHaulDemand / capacityPerHauler));
+  }
 
-    // Need enough capacity to handle demand (subtract both current AND committed)
-    const neededHaulCapacity = totalHaulDemand - currentHaulCapacity - this.committedWorkTicks;
+  /**
+   * Hauling corp buys carry-ticks from SpawningCorp and energy from miners.
+   *
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current haulers < target, request 1 more
+   */
+  buys(): Offer[] {
+    const offers: Offer[] = [];
 
-    if (neededHaulCapacity > HAUL_PER_CARRY) {
-      // Price based on expected transport revenue
+    // Count current live haulers
+    const currentHaulers = this.creepNames.filter(n => Game.creeps[n]).length;
+
+    // Request 1 hauler if below target
+    if (currentHaulers < this.targetHaulers) {
+      const standardHaulerCapacity = 4 * HAUL_PER_CARRY;
       const pricePerHaul = TRANSPORT_FEE_PER_ENERGY * (1 + this.getMargin());
 
       offers.push({
@@ -148,8 +223,8 @@ export class RealHaulingCorp extends Corp {
         corpId: this.id,
         type: "buy",
         resource: "carry-ticks",
-        quantity: neededHaulCapacity,
-        price: pricePerHaul * neededHaulCapacity,
+        quantity: standardHaulerCapacity,
+        price: pricePerHaul * standardHaulerCapacity,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -259,7 +334,7 @@ export class RealHaulingCorp extends Corp {
    * Also picks up maintenance haulers spawned by SpawningCorp with matching nodeId.
    */
   private pickupAssignedCreeps(): void {
-    const TICKS_PER_DELIVERY = 50; // Same as in sells()
+    const TICKS_PER_DELIVERY = 50;
 
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
@@ -270,22 +345,17 @@ export class RealHaulingCorp extends Corp {
       if ((matchesCorpId || matchesNodeId) && !this.creepNames.includes(name)) {
         this.creepNames.push(name);
 
-        // Fulfill commitment for delivered haul capacity (skip for maintenance haulers)
+        // Record expected lifetime production for amortized pricing
         if (!creep.memory.isMaintenanceHauler) {
-          const carryParts = creep.getActiveBodyparts(CARRY);
-          const deliveredCapacity = carryParts * HAUL_PER_CARRY;
-          this.fulfillWorkTicksCommitment(deliveredCapacity);
-
-          // Record expected lifetime production for amortized pricing
-          // capacity × deliveries over lifetime
           const capacity = creep.store.getCapacity();
           const expectedDeliveries = Math.floor(CREEP_LIFETIME / TICKS_PER_DELIVERY);
           const expectedDeliveredEnergy = capacity * expectedDeliveries;
           this.recordExpectedProduction(expectedDeliveredEnergy);
         }
 
-        const haulerType = creep.memory.isMaintenanceHauler ? "MAINTENANCE hauler" : "creep";
-        console.log(`[Hauling] Picked up ${haulerType} ${name} assigned to ${this.id}`);
+        const haulerType = creep.memory.isMaintenanceHauler ? "maintenance" : "regular";
+        const carryParts = creep.getActiveBodyparts(CARRY);
+        console.log(`[Hauling] Picked up ${haulerType} hauler ${name} (${carryParts} CARRY)`);
       }
     }
   }
@@ -502,6 +572,7 @@ export class RealHaulingCorp extends Corp {
       lastSpawnAttempt: this.lastSpawnAttempt,
       sourceData: this.sourceData,
       lastAcquisitionPrice: this.lastAcquisitionPrice,
+      targetHaulers: this.targetHaulers,
     };
   }
 
@@ -514,6 +585,7 @@ export class RealHaulingCorp extends Corp {
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
     this.sourceData = data.sourceData || [];
     this.lastAcquisitionPrice = data.lastAcquisitionPrice || 0.1;
+    this.targetHaulers = data.targetHaulers || 2;
   }
 }
 

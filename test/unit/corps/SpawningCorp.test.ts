@@ -9,54 +9,56 @@ import {
 
 describe("SpawningCorp projections", () => {
   const defaultPosition: Position = { x: 25, y: 25, roomName: "W1N1" };
+  const defaultEnergyCapacity = 300;
 
   describe("projectSpawning", () => {
-    it("should return buy offer for energy", () => {
-      const state = createSpawningState("spawning-1", "node1", defaultPosition);
+    it("should not have buy offers (energy delivered by haulers)", () => {
+      // SpawningCorp doesn't buy through the market
+      // Energy is delivered to spawn by haulers as Priority 1 behavior
+      const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity);
       const { buys } = projectSpawning(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].type).to.equal("buy");
-      expect(buys[0].resource).to.equal("energy");
-      expect(buys[0].location).to.deep.equal(defaultPosition);
+      expect(buys).to.have.length(0);
     });
 
-    it("should buy energy equal to worker body cost", () => {
-      const state = createSpawningState("spawning-1", "node1", defaultPosition);
-      const { buys } = projectSpawning(state, 0);
-
-      // Standard worker: WORK + CARRY + MOVE = 100 + 50 + 50 = 200
-      const workerCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
-      expect(buys[0].quantity).to.equal(workerCost);
-    });
-
-    it("should return sell offer for work-ticks", () => {
-      const state = createSpawningState("spawning-1", "node1", defaultPosition);
+    it("should return sell offer for spawn-capacity", () => {
+      const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity);
       const { sells } = projectSpawning(state, 0);
 
-      // SpawningCorp sells both work-ticks and haul-demand
-      expect(sells).to.have.length(2);
-      const workTicksOffer = sells.find(s => s.resource === "work-ticks");
-      expect(workTicksOffer).to.exist;
-      expect(workTicksOffer!.type).to.equal("sell");
-      expect(workTicksOffer!.resource).to.equal("work-ticks");
-      expect(workTicksOffer!.location).to.deep.equal(defaultPosition);
+      expect(sells).to.have.length(1);
+      expect(sells[0].type).to.equal("sell");
+      expect(sells[0].resource).to.equal("spawn-capacity");
+      expect(sells[0].location).to.deep.equal(defaultPosition);
     });
 
-    it("should sell work-ticks for full creep lifetime", () => {
-      const state = createSpawningState("spawning-1", "node1", defaultPosition);
+    it("should sell spawn-capacity equal to energy capacity", () => {
+      const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity);
       const { sells } = projectSpawning(state, 0);
 
-      // 1 WORK part × 1500 ticks = 1500 work-ticks
-      expect(sells[0].quantity).to.equal(CREEP_LIFETIME);
+      // Spawn capacity = how much energy worth of creep can be spawned
+      expect(sells[0].quantity).to.equal(defaultEnergyCapacity);
+    });
+
+    it("should not offer capacity when spawn is busy", () => {
+      const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity, 0, true);
+      const { sells } = projectSpawning(state, 0);
+
+      expect(sells).to.have.length(0);
+    });
+
+    it("should not offer capacity when queue is full", () => {
+      const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity, 10, false);
+      const { sells } = projectSpawning(state, 0);
+
+      expect(sells).to.have.length(0);
     });
 
     it("should apply margin based on balance", () => {
-      const poorState = createSpawningState("spawning-1", "node1", defaultPosition);
+      const poorState = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity);
       poorState.balance = 0;
       const { sells: poorSells } = projectSpawning(poorState, 0);
 
-      const richState = createSpawningState("spawning-2", "node1", defaultPosition);
+      const richState = createSpawningState("spawning-2", "node1", defaultPosition, defaultEnergyCapacity);
       richState.balance = 10000;
       const { sells: richSells } = projectSpawning(richState, 0);
 

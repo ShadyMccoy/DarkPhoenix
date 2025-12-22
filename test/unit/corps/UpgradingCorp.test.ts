@@ -6,20 +6,22 @@ import { CREEP_LIFETIME } from "../../../src/planning/EconomicConstants";
 
 describe("UpgradingCorp projections", () => {
   const controllerPosition: Position = { x: 25, y: 25, roomName: "W1N1" };
+  // Dependency ID for clean operation architecture
+  const spawningCorpId = "spawning-1";
 
   describe("projectUpgrading", () => {
-    it("should return buy offers for delivered-energy and work-ticks", () => {
-      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+    it("should return buy offers for delivered-energy and spawn-capacity", () => {
+      const state = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1);
       const { buys } = projectUpgrading(state, 0);
 
       expect(buys).to.have.length(2);
       const resources = buys.map((o) => o.resource);
       expect(resources).to.include("delivered-energy");
-      expect(resources).to.include("work-ticks");
+      expect(resources).to.include("spawn-capacity");
     });
 
     it("should locate offers at controller", () => {
-      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const state = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1);
       const { buys } = projectUpgrading(state, 0);
 
       for (const offer of buys) {
@@ -28,7 +30,7 @@ describe("UpgradingCorp projections", () => {
     });
 
     it("should return sell offer for rcl-progress", () => {
-      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const state = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1);
       const { sells } = projectUpgrading(state, 0);
 
       expect(sells).to.have.length(1);
@@ -38,7 +40,7 @@ describe("UpgradingCorp projections", () => {
     });
 
     it("should have zero price for rcl-progress (mints credits)", () => {
-      const state = createUpgradingState("upgrading-1", "node1", controllerPosition, 1);
+      const state = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1);
       const { sells } = projectUpgrading(state, 0);
 
       // RCL progress is the terminal value sink - it mints credits
@@ -51,12 +53,12 @@ describe("UpgradingCorp projections", () => {
       const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
 
       // Near controller (same room)
-      const nearState = createUpgradingState("upgrading-1", "node1", controllerPosition, 1, spawnPos);
+      const nearState = createUpgradingState("upgrading-1", "node1", spawningCorpId, controllerPosition, 1, spawnPos);
       const { sells: nearSells } = projectUpgrading(nearState, 0);
 
       // Remote controller (different room)
       const remoteControllerPos: Position = { x: 25, y: 25, roomName: "W2N1" };
-      const farState = createUpgradingState("upgrading-2", "node2", remoteControllerPos, 1, spawnPos);
+      const farState = createUpgradingState("upgrading-2", "node2", spawningCorpId, remoteControllerPos, 1, spawnPos);
       const { sells: farSells } = projectUpgrading(farState, 0);
 
       // Remote upgrading should produce less RCL progress due to travel time

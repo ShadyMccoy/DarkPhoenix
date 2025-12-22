@@ -11,6 +11,8 @@ import { Offer, Position, createOfferId } from "../market/Offer";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { buildUpgraderBody, UpgraderBodyResult } from "../spawn/BodyBuilder";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { UpgradingCorpState } from "./CorpState";
+import { projectUpgrading } from "../planning/projections";
 
 /** Base value per energy for upgrading (what we're willing to pay) */
 const BASE_ENERGY_VALUE = 0.5;
@@ -28,6 +30,7 @@ export interface SerializedRealUpgradingCorp extends SerializedCorp {
   spawnId: string;
   creepNames: string[];
   lastSpawnAttempt: number;
+  targetUpgraders: number;
 }
 
 /**
@@ -48,39 +51,112 @@ export class RealUpgradingCorp extends Corp {
   /** Last tick we attempted to spawn */
   private lastSpawnAttempt: number = 0;
 
+  /** Target number of upgraders (computed during planning) */
+  private targetUpgraders: number = 2;
+
   constructor(nodeId: string, spawnId: string) {
     super("upgrading", nodeId);
     this.spawnId = spawnId;
   }
 
   /**
-   * Upgrading corp doesn't sell anything - it's a pure consumer
+   * Upgrading corp sells rcl-progress (controller upgrade points).
+   *
+   * Delegates to projectUpgrading() for unified offer calculation.
+   * RCL progress is the terminal value sink - it "mints" credits in the economy.
    */
   sells(): Offer[] {
-    return [];
+    const state = this.toCorpState();
+    const projection = projectUpgrading(state, Game.time);
+    return projection.sells;
+  }
+
+  /**
+   * Convert current runtime state to UpgradingCorpState for projection.
+   * Bridges runtime (actual creeps) to planning model (CorpState).
+   */
+  toCorpState(): UpgradingCorpState {
+    // Get spawn and controller positions
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnPosition = spawn
+      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
+      : null;
+
+    const controller = spawn?.room.controller;
+    const controllerPosition = controller
+      ? { x: controller.pos.x, y: controller.pos.y, roomName: controller.pos.roomName }
+      : this.getPosition();
+
+    const controllerLevel = controller?.level ?? 1;
+
+    return {
+      id: this.id,
+      type: "upgrading",
+      nodeId: this.nodeId,
+      spawningCorpId: this.spawnId,
+      position: controllerPosition,
+      controllerLevel,
+      spawnPosition,
+      // Economic state from Corp base class
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
+  }
+
+  /**
+   * Plan upgrading operations. Called periodically to compute targets.
+   * Adjusts target upgraders based on controller level and downgrade risk.
+   */
+  plan(tick: number): void {
+    super.plan(tick);
+
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn?.room.controller) {
+      this.targetUpgraders = 1;
+      return;
+    }
+
+    const controller = spawn.room.controller;
+    const rcl = controller.level;
+
+    // Base target: 1 upgrader at RCL 1-2, 2 at RCL 3+
+    let target = rcl <= 2 ? 1 : 2;
+
+    // Increase if controller is at risk of downgrading
+    if (controller.ticksToDowngrade < CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD * 0.3) {
+      target = Math.max(target, 3);
+    }
+
+    this.targetUpgraders = target;
   }
 
   /**
    * Upgrading corp buys work-ticks (upgrader creeps) and haul-energy (energy delivery).
+   *
+   * EXECUTION LOGIC (uses targets from planning):
+   * - If current upgraders < target, request 1 more
    */
   buys(): Offer[] {
     const offers: Offer[] = [];
 
-    // Buy work-ticks (upgrader creeps) if we need more capacity
-    const currentWorkTicks = this.creepNames.reduce((sum, name) => {
-      const creep = Game.creeps[name];
-      if (!creep) return sum;
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const workParts = creep.getActiveBodyparts(WORK);
-      return sum + (workParts * ttl);
-    }, 0);
+    // Count current active upgraders
+    const currentUpgraders = this.creepNames.filter(name => Game.creeps[name]).length;
 
-    // Target: at least 2 WORK parts worth of capacity (subtract both current AND committed)
-    const targetWorkTicks = 2 * CREEP_LIFETIME;
-    const neededWorkTicks = targetWorkTicks - currentWorkTicks - this.committedWorkTicks;
-
-    if (neededWorkTicks >= CREEP_LIFETIME) {
-      // Price based on expected RCL progress value
+    // Request 1 upgrader if below target
+    if (currentUpgraders < this.targetUpgraders) {
+      const workTicksPerCreep = CREEP_LIFETIME;
       const pricePerWorkTick = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
 
       offers.push({
@@ -88,8 +164,8 @@ export class RealUpgradingCorp extends Corp {
         corpId: this.id,
         type: "buy",
         resource: "work-ticks",
-        quantity: neededWorkTicks,
-        price: pricePerWorkTick * neededWorkTicks,
+        quantity: workTicksPerCreep,
+        price: pricePerWorkTick * workTicksPerCreep,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -233,13 +309,7 @@ export class RealUpgradingCorp extends Corp {
         !this.creepNames.includes(name)
       ) {
         this.creepNames.push(name);
-
-        // Fulfill commitment for delivered work-ticks
-        const workParts = creep.getActiveBodyparts(WORK);
-        const deliveredWorkTicks = workParts * CREEP_LIFETIME;
-        this.fulfillWorkTicksCommitment(deliveredWorkTicks);
-
-        console.log(`[Upgrading] Picked up creep ${name} assigned to ${this.id}`);
+        console.log(`[Upgrading] Picked up upgrader ${name}`);
       }
     }
   }
@@ -310,6 +380,7 @@ export class RealUpgradingCorp extends Corp {
       spawnId: this.spawnId,
       creepNames: this.creepNames,
       lastSpawnAttempt: this.lastSpawnAttempt,
+      targetUpgraders: this.targetUpgraders,
     };
   }
 
@@ -320,6 +391,7 @@ export class RealUpgradingCorp extends Corp {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
+    this.targetUpgraders = data.targetUpgraders || 2;
   }
 }
 

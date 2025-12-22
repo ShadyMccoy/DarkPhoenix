@@ -18,6 +18,7 @@ import {
   calculateSpawnTime,
 } from "../planning/EconomicConstants";
 import { buildMinerBody, buildHaulerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { SpawningCorpState } from "./CorpState";
 
 /**
  * Types of creeps that can be spawned
@@ -269,6 +270,41 @@ export class SpawningCorp extends Corp {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
     }
     return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+  }
+
+  /**
+   * Convert to SpawningCorpState for projection-based planning.
+   *
+   * SpawningCorp is the origin of labor in production chains.
+   * The state includes spawn position and capacity for distance-aware pricing.
+   */
+  toCorpState(): SpawningCorpState {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const isSpawning = spawn ? !!spawn.spawning : false;
+
+    return {
+      id: this.id,
+      type: "spawning",
+      nodeId: this.nodeId,
+      position: this.getPosition(),
+      energyCapacity: this.energyCapacity,
+      pendingOrderCount: this.pendingOrders.length,
+      isSpawning,
+      balance: this.balance,
+      totalRevenue: this.totalRevenue,
+      totalCost: this.totalCost,
+      createdAt: this.createdAt,
+      isActive: this.isActive,
+      lastActivityTick: this.lastActivityTick,
+      unitsProduced: this.unitsProduced,
+      expectedUnitsProduced: this.expectedUnitsProduced,
+      unitsConsumed: this.unitsConsumed,
+      acquisitionCost: this.acquisitionCost,
+      committedWorkTicks: this.committedWorkTicks,
+      committedEnergy: this.committedEnergy,
+      committedDeliveredEnergy: this.committedDeliveredEnergy,
+      lastPlannedTick: this.lastPlannedTick
+    };
   }
 
   /**

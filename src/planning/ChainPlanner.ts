@@ -126,26 +126,63 @@ export class ChainPlanner {
   }
 
   /**
-   * Register corps for lookup during chain building
+   * Register corps for lookup during chain building.
+   *
+   * If corps have a toCorpState() method (like Real*Corps), they are
+   * automatically registered as CorpStates for projection-based planning.
+   * Otherwise, falls back to direct Corp interface (legacy path).
+   *
+   * @deprecated Prefer registerCorpStates() for new code
    */
-  registerCorps(corps: Corp[]): void {
+  registerCorps(corps: Corp[], tick: number = 0): void {
     this.corpRegistry.clear();
     this.corpToNode.clear();
+    this.currentTick = tick;
+
     for (const corp of corps) {
-      this.corpRegistry.set(corp.id, corp);
+      // Check if corp has toCorpState() method (Real*Corps)
+      const corpWithState = corp as Corp & { toCorpState?: () => AnyCorpState };
+      if (typeof corpWithState.toCorpState === "function") {
+        // Use CorpState path for unified projection-based planning
+        const state = corpWithState.toCorpState();
+        this.corpStateRegistry.set(state.id, state);
+        this.corpToNode.set(state.id, state.nodeId);
+      } else {
+        // Legacy path for test mocks and old corps
+        this.corpRegistry.set(corp.id, corp);
+      }
     }
   }
 
   /**
-   * Register corps from nodes
+   * Register corps from nodes.
+   *
+   * If corps have a toCorpState() method (like Real*Corps), they are
+   * automatically registered as CorpStates for projection-based planning.
+   *
+   * @deprecated Prefer registerCorpStates() for new code
    */
-  registerNodes(nodes: Node[]): void {
+  registerNodes(nodes: Node[], tick: number = 0): void {
     this.corpRegistry.clear();
+    this.corpStateRegistry.clear();
+    this.projectionCache.clear();
     this.corpToNode.clear();
+    this.currentTick = tick;
+
     for (const node of nodes) {
       for (const corp of node.corps) {
-        this.corpRegistry.set(corp.id, corp);
-        this.corpToNode.set(corp.id, node.id);
+        // Check if corp has toCorpState() method (Real*Corps)
+        const corpWithState = corp as Corp & { toCorpState?: () => AnyCorpState };
+        if (typeof corpWithState.toCorpState === "function") {
+          // Use CorpState path for unified projection-based planning
+          const state = corpWithState.toCorpState();
+          this.corpStateRegistry.set(state.id, state);
+          this.corpToNode.set(state.id, state.nodeId);
+        } else {
+          // Legacy path for test mocks
+          this.corpRegistry.set(corp.id, corp);
+          this.corpToNode.set(corp.id, node.id);
+        }
       }
     }
     this.updateEconomicNodeIds();

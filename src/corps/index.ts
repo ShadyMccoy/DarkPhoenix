@@ -65,6 +65,7 @@ export {
 
 // Corp state types for pure projection functions
 export {
+  SourceCorpState,
   MiningCorpState,
   SpawningCorpState,
   UpgradingCorpState,
@@ -73,9 +74,16 @@ export {
   BootstrapCorpState,
   ScoutCorpState,
   AnyCorpState,
+  createSourceState,
   createMiningState,
   createSpawningState,
   createUpgradingState,
   createHaulingState,
   getCorpPosition
 } from "./CorpState";
+
+// Registry for dependency resolution
+export {
+  CorpStateRegistry,
+  createCorpStateRegistry
+} from "./CorpStateRegistry";
