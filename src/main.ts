@@ -58,6 +58,7 @@ import {
   renderSpatialVisuals,
 } from "./execution";
 import {
+  initCorps,
   shouldRunPlanning,
   runPlanningPhase,
   runSurveyPhase,
@@ -135,6 +136,14 @@ let corps: CorpRegistry = createCorpRegistry();
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
+  // ===========================================================================
+  // PHASE 0: INIT - Lazy initialization (once per code push)
+  // ===========================================================================
+
+  // Initialize corps from Memory if cache is empty (after code push)
+  // This is a no-op if corps are already in the global cache
+  initCorps(corps);
+
   // ===========================================================================
   // PHASE 1: EXECUTION - Run all corps (every tick)
   // ===========================================================================

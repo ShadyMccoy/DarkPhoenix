@@ -2,6 +2,7 @@
  * @fileoverview Orchestration module exports.
  *
  * This module contains the phased orchestration logic:
+ * - Init phase (once per code push, lazy initialization)
  * - Survey phase (when nodes are created)
  * - Planning phase (every 5000 ticks)
  * - Execution phase (every tick)
@@ -13,6 +14,10 @@ export {
   // Constants
   PLANNING_INTERVAL,
   CONTRACT_DURATION,
+  // Init phase (lazy initialization)
+  needsInit,
+  initCorps,
+  InitResult,
   // Survey phase
   runSurveyPhase,
   SurveyResult,

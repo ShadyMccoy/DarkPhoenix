@@ -28,12 +28,22 @@ import { Node, NodeResource } from "../nodes/Node";
 import {
   RealMiningCorp,
   createRealMiningCorp,
+  SerializedRealMiningCorp,
   RealHaulingCorp,
   createRealHaulingCorp,
+  SerializedRealHaulingCorp,
   RealUpgradingCorp,
   createRealUpgradingCorp,
+  SerializedRealUpgradingCorp,
   SpawningCorp,
   createSpawningCorp,
+  SerializedSpawningCorp,
+  BootstrapCorp,
+  SerializedBootstrapCorp,
+  ScoutCorp,
+  SerializedScoutCorp,
+  ConstructionCorp,
+  SerializedConstructionCorp,
 } from "../corps";
 
 /** Planning interval in ticks */
@@ -41,6 +51,183 @@ export const PLANNING_INTERVAL = 5000;
 
 /** Contract duration (creep lifetime) */
 export const CONTRACT_DURATION = 1500;
+
+// =============================================================================
+// INIT PHASE (once per code push, lazy initialization)
+// =============================================================================
+
+/**
+ * Result of the init phase.
+ */
+export interface InitResult {
+  /** Whether initialization was needed (cache was empty) */
+  wasNeeded: boolean;
+  /** Corps hydrated from memory */
+  corpsHydrated: {
+    mining: number;
+    hauling: number;
+    upgrading: number;
+    spawning: number;
+    bootstrap: number;
+    scout: number;
+    construction: number;
+  };
+}
+
+/**
+ * Check if corps registry needs initialization.
+ * Returns true if the global cache is empty (after code push).
+ */
+export function needsInit(corps: CorpRegistry): boolean {
+  // Check if any corps exist in the registry
+  const hasCorps =
+    Object.keys(corps.miningCorps).length > 0 ||
+    Object.keys(corps.haulingCorps).length > 0 ||
+    Object.keys(corps.upgradingCorps).length > 0 ||
+    Object.keys(corps.spawningCorps).length > 0 ||
+    Object.keys(corps.bootstrapCorps).length > 0;
+
+  return !hasCorps;
+}
+
+/**
+ * Initialize corps from Memory.
+ *
+ * This is a lazy initialization that only runs when the global cache
+ * is empty (typically after a code push that resets module state).
+ *
+ * Corps are hydrated from their serialized state in Memory.
+ * If Memory is also empty, corps will be created by the survey phase.
+ *
+ * @param corps - The corp registry to populate
+ * @returns Init result
+ */
+export function initCorps(corps: CorpRegistry): InitResult {
+  const result: InitResult = {
+    wasNeeded: false,
+    corpsHydrated: {
+      mining: 0,
+      hauling: 0,
+      upgrading: 0,
+      spawning: 0,
+      bootstrap: 0,
+      scout: 0,
+      construction: 0
+    }
+  };
+
+  // Check if init is needed
+  if (!needsInit(corps)) {
+    return result;
+  }
+
+  result.wasNeeded = true;
+  console.log(`[Init] Hydrating corps from Memory (cache was empty)`);
+
+  // Hydrate mining corps
+  if (Memory.miningCorps) {
+    for (const sourceId in Memory.miningCorps) {
+      const saved = Memory.miningCorps[sourceId];
+      if (saved && !corps.miningCorps[sourceId]) {
+        const miningCorp = new RealMiningCorp(saved.nodeId, saved.spawnId, saved.sourceId);
+        miningCorp.deserialize(saved);
+        corps.miningCorps[sourceId] = miningCorp;
+        result.corpsHydrated.mining++;
+      }
+    }
+  }
+
+  // Hydrate hauling corps
+  if (Memory.haulingCorps) {
+    for (const roomName in Memory.haulingCorps) {
+      const saved = Memory.haulingCorps[roomName];
+      if (saved && !corps.haulingCorps[roomName]) {
+        const haulingCorp = new RealHaulingCorp(saved.nodeId, saved.spawnId);
+        haulingCorp.deserialize(saved);
+        corps.haulingCorps[roomName] = haulingCorp;
+        result.corpsHydrated.hauling++;
+      }
+    }
+  }
+
+  // Hydrate upgrading corps
+  if (Memory.upgradingCorps) {
+    for (const roomName in Memory.upgradingCorps) {
+      const saved = Memory.upgradingCorps[roomName];
+      if (saved && !corps.upgradingCorps[roomName]) {
+        const upgradingCorp = new RealUpgradingCorp(saved.nodeId, saved.spawnId);
+        upgradingCorp.deserialize(saved);
+        corps.upgradingCorps[roomName] = upgradingCorp;
+        result.corpsHydrated.upgrading++;
+      }
+    }
+  }
+
+  // Hydrate spawning corps
+  if (Memory.spawningCorps) {
+    for (const spawnId in Memory.spawningCorps) {
+      const saved = Memory.spawningCorps[spawnId];
+      if (saved && !corps.spawningCorps[spawnId]) {
+        const spawningCorp = new SpawningCorp(saved.nodeId, spawnId, saved.energyCapacity);
+        spawningCorp.deserialize(saved);
+        corps.spawningCorps[spawnId] = spawningCorp;
+        result.corpsHydrated.spawning++;
+      }
+    }
+  }
+
+  // Hydrate bootstrap corps
+  if (Memory.bootstrapCorps) {
+    for (const roomName in Memory.bootstrapCorps) {
+      const saved = Memory.bootstrapCorps[roomName];
+      if (saved && !corps.bootstrapCorps[roomName]) {
+        const bootstrapCorp = new BootstrapCorp(saved.nodeId, saved.spawnId, saved.sourceId);
+        bootstrapCorp.deserialize(saved);
+        corps.bootstrapCorps[roomName] = bootstrapCorp;
+        result.corpsHydrated.bootstrap++;
+      }
+    }
+  }
+
+  // Hydrate scout corps
+  if (Memory.scoutCorps) {
+    for (const roomName in Memory.scoutCorps) {
+      const saved = Memory.scoutCorps[roomName];
+      if (saved && !corps.scoutCorps[roomName]) {
+        const scoutCorp = new ScoutCorp(saved.nodeId, saved.spawnId);
+        scoutCorp.deserialize(saved);
+        corps.scoutCorps[roomName] = scoutCorp;
+        result.corpsHydrated.scout++;
+      }
+    }
+  }
+
+  // Hydrate construction corps
+  if (Memory.constructionCorps) {
+    for (const roomName in Memory.constructionCorps) {
+      const saved = Memory.constructionCorps[roomName];
+      if (saved && !corps.constructionCorps[roomName]) {
+        const constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId);
+        constructionCorp.deserialize(saved);
+        corps.constructionCorps[roomName] = constructionCorp;
+        result.corpsHydrated.construction++;
+      }
+    }
+  }
+
+  const totalHydrated =
+    result.corpsHydrated.mining +
+    result.corpsHydrated.hauling +
+    result.corpsHydrated.upgrading +
+    result.corpsHydrated.spawning +
+    result.corpsHydrated.bootstrap +
+    result.corpsHydrated.scout +
+    result.corpsHydrated.construction;
+
+  console.log(`[Init] Hydrated ${totalHydrated} corps from Memory`);
+
+  return result;
+}
 
 // =============================================================================
 // PLANNING PHASE (every 5000 ticks)
