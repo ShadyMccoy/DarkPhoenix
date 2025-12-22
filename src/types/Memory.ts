@@ -95,6 +95,11 @@ declare global {
     lastPlanningTick?: number;
 
     /**
+     * Tick when last survey phase was run.
+     */
+    lastSurveyTick?: number;
+
+    /**
      * Room map cache metadata (tick when last computed).
      */
     roomMapCache?: { [roomName: string]: number };

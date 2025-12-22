@@ -13,6 +13,11 @@ export {
   // Constants
   PLANNING_INTERVAL,
   CONTRACT_DURATION,
+  // Survey phase
+  runSurveyPhase,
+  SurveyResult,
+  getLastSurveyTick,
+  setLastSurveyTick,
   // Planning phase
   shouldRunPlanning,
   runPlanningPhase,
@@ -20,6 +25,8 @@ export {
   // Execution phase
   runExecutionPhase,
   ExecutionResult,
+  // Status
+  getOrchestrationStatus,
   // Persistence
   loadChains,
   loadContracts,

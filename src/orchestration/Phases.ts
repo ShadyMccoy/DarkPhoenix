@@ -24,6 +24,17 @@ import { ChainPlanner } from "../planning/ChainPlanner";
 import { SerializedChain, Chain, deserializeChain, serializeChain } from "../planning/Chain";
 import { Contract } from "../market/Contract";
 import { AnyCorpState } from "../corps/CorpState";
+import { Node, NodeResource } from "../nodes/Node";
+import {
+  RealMiningCorp,
+  createRealMiningCorp,
+  RealHaulingCorp,
+  createRealHaulingCorp,
+  RealUpgradingCorp,
+  createRealUpgradingCorp,
+  SpawningCorp,
+  createSpawningCorp,
+} from "../corps";
 
 /** Planning interval in ticks */
 export const PLANNING_INTERVAL = 5000;
@@ -294,18 +305,197 @@ function countCorps(corps: CorpRegistry): number {
 // =============================================================================
 
 /**
- * Survey phase is triggered when new nodes are created.
- * This happens during recalculateTerrain() -> runIncrementalAnalysis().
- *
- * The survey creates corps based on node resources:
- * - Source -> MiningCorp
- * - Controller -> UpgradingCorp
- * - Spawn -> SpawningCorp
- * - Territory paths -> HaulingCorp
- *
- * Currently, CorpRunner handles this implicitly by scanning rooms.
- * Future: Make this explicit via Node.survey() -> create corps.
+ * Result of the survey phase.
  */
+export interface SurveyResult {
+  /** Number of nodes surveyed */
+  nodesSurveyed: number;
+  /** Corps created during survey */
+  corpsCreated: {
+    mining: number;
+    hauling: number;
+    upgrading: number;
+    spawning: number;
+  };
+  /** Resources found */
+  resourcesFound: {
+    sources: number;
+    controllers: number;
+    spawns: number;
+  };
+}
+
+/**
+ * Run the survey phase.
+ *
+ * Surveys all nodes in the colony and creates corps based on resources:
+ * - Source -> MiningCorp (one per source)
+ * - Controller -> UpgradingCorp (one per room)
+ * - Spawn -> SpawningCorp (one per spawn)
+ * - Owned room -> HaulingCorp (one per room)
+ *
+ * @param colony - The colony with nodes to survey
+ * @param corps - The corp registry to populate
+ * @param tick - Current game tick
+ * @returns Survey result
+ */
+export function runSurveyPhase(
+  colony: Colony,
+  corps: CorpRegistry,
+  tick: number
+): SurveyResult {
+  console.log(`[Survey] Running survey phase at tick ${tick}`);
+
+  const result: SurveyResult = {
+    nodesSurveyed: 0,
+    corpsCreated: { mining: 0, hauling: 0, upgrading: 0, spawning: 0 },
+    resourcesFound: { sources: 0, controllers: 0, spawns: 0 }
+  };
+
+  const nodes = colony.getNodes();
+
+  // Track rooms we've processed (for hauling/upgrading which are per-room)
+  const processedRooms = new Set<string>();
+
+  for (const node of nodes) {
+    result.nodesSurveyed++;
+
+    // Get room visibility
+    const room = Game.rooms[node.roomName];
+    if (!room) continue;
+
+    // Only create corps for owned rooms
+    if (!room.controller?.my) continue;
+
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) continue;
+
+    const spawn = spawns[0];
+
+    // Survey node resources and create corps
+    for (const resource of node.resources) {
+      switch (resource.type) {
+        case "source":
+          result.resourcesFound.sources++;
+          // Create mining corp if not exists
+          if (!corps.miningCorps[resource.id]) {
+            const source = Game.getObjectById(resource.id as Id<Source>);
+            if (source) {
+              const miningCorp = createRealMiningCorp(room, spawn, source);
+              miningCorp.createdAt = tick;
+              corps.miningCorps[resource.id] = miningCorp;
+              result.corpsCreated.mining++;
+              console.log(`[Survey] Created MiningCorp for source ${resource.id.slice(-4)}`);
+            }
+          }
+          break;
+
+        case "controller":
+          result.resourcesFound.controllers++;
+          break;
+
+        case "spawn":
+          result.resourcesFound.spawns++;
+          // Create spawning corp if not exists
+          if (!corps.spawningCorps[resource.id]) {
+            const spawnObj = Game.getObjectById(resource.id as Id<StructureSpawn>);
+            if (spawnObj) {
+              const spawningCorp = createSpawningCorp(spawnObj);
+              spawningCorp.createdAt = tick;
+              corps.spawningCorps[resource.id] = spawningCorp;
+              result.corpsCreated.spawning++;
+              console.log(`[Survey] Created SpawningCorp for spawn ${spawnObj.name}`);
+            }
+          }
+          break;
+      }
+    }
+
+    // Create room-level corps (hauling, upgrading) once per room
+    if (!processedRooms.has(node.roomName)) {
+      processedRooms.add(node.roomName);
+
+      // Create hauling corp if not exists
+      if (!corps.haulingCorps[node.roomName]) {
+        const haulingCorp = createRealHaulingCorp(room, spawn);
+        haulingCorp.createdAt = tick;
+        corps.haulingCorps[node.roomName] = haulingCorp;
+        result.corpsCreated.hauling++;
+        console.log(`[Survey] Created HaulingCorp for room ${node.roomName}`);
+      }
+
+      // Create upgrading corp if not exists
+      if (!corps.upgradingCorps[node.roomName]) {
+        const upgradingCorp = createRealUpgradingCorp(room, spawn);
+        upgradingCorp.createdAt = tick;
+        corps.upgradingCorps[node.roomName] = upgradingCorp;
+        result.corpsCreated.upgrading++;
+        console.log(`[Survey] Created UpgradingCorp for room ${node.roomName}`);
+      }
+    }
+  }
+
+  console.log(`[Survey] Surveyed ${result.nodesSurveyed} nodes, created ${
+    result.corpsCreated.mining + result.corpsCreated.hauling +
+    result.corpsCreated.upgrading + result.corpsCreated.spawning
+  } corps`);
+
+  return result;
+}
+
+/**
+ * Get the last survey tick from memory.
+ */
+export function getLastSurveyTick(): number {
+  return Memory.lastSurveyTick ?? 0;
+}
+
+/**
+ * Set the last survey tick in memory.
+ */
+export function setLastSurveyTick(tick: number): void {
+  Memory.lastSurveyTick = tick;
+}
+
+/**
+ * Get orchestration status for debugging.
+ */
+export function getOrchestrationStatus(): {
+  lastSurveyTick: number;
+  lastPlanningTick: number;
+  activeChains: number;
+  activeContracts: number;
+  corpCounts: {
+    mining: number;
+    hauling: number;
+    upgrading: number;
+    spawning: number;
+    bootstrap: number;
+    scout: number;
+    construction: number;
+  };
+} {
+  const chains = loadChains();
+  const contracts = loadContracts();
+
+  return {
+    lastSurveyTick: getLastSurveyTick(),
+    lastPlanningTick: getLastPlanningTick(),
+    activeChains: chains.length,
+    activeContracts: contracts.filter(c =>
+      Game.time < c.startTick + c.duration && c.delivered < c.quantity
+    ).length,
+    corpCounts: {
+      mining: 0,
+      hauling: 0,
+      upgrading: 0,
+      spawning: 0,
+      bootstrap: 0,
+      scout: 0,
+      construction: 0
+    }
+  };
+}
 
 /**
  * Get the last planning tick from memory.
