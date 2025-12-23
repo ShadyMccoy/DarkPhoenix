@@ -70,6 +70,8 @@ import {
   loadChains,
   setLastPlanningTick,
   setLastSurveyTick,
+  runInvestmentPhase,
+  getInvestmentSummary,
 } from "./orchestration";
 import "./types/Memory";
 
@@ -94,6 +96,7 @@ declare global {
       survey: () => void;
       plan: () => void;
       status: () => void;
+      invest: () => void;
       // Legacy commands
       recalculateTerrain: () => void;
       resetAnalysis: () => void;
@@ -188,6 +191,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // Run the colony economic coordination (surveying, stats)
     colony.run(Game.time, corps);
 
+    // --- INVESTMENT: Allocate capital (forward capital flow) ---
+    // This runs before market clearing to distribute capital to corps
+    // Corps with capital will have limited demand based on their budget
+    const investmentResult = runInvestmentPhase(corps, colony, Game.time);
+
     // --- MARKET: Register offers and clear market ---
     registerCorpsWithMarket(corps);
     const clearingResult = runMarketClearing();
@@ -200,6 +208,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
     setLastPlanningTick(Game.time);
 
     console.log(`[Planning] Complete: ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
+    console.log(`[Planning] Investments: ${investmentResult.investments.length}, Capital chains: ${investmentResult.chains.length}`);
   }
 
   // ===========================================================================
@@ -404,6 +413,35 @@ global.status = () => {
     console.log(`Nodes: ${colony.getNodes().length}`);
     console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
   }
+};
+
+/**
+ * Show investment status (forward capital flow).
+ * Call from console: `global.invest()`
+ *
+ * Shows:
+ * - Active investments and capital allocated
+ * - Corps with capital
+ * - Portfolio ROI
+ */
+global.invest = () => {
+  if (!colony) {
+    console.log("[Investment] No colony exists.");
+    return;
+  }
+
+  const summary = getInvestmentSummary(colony);
+
+  console.log("\n=== Investment Status (Forward Capital Flow) ===");
+  console.log(`Active investments: ${summary.activeInvestments}`);
+  console.log(`Total deployed: ${summary.totalDeployed.toFixed(0)}`);
+  console.log(`Total returns: ${summary.totalReturns.toFixed(0)}`);
+  console.log(`Portfolio ROI: ${(summary.averageROI * 100).toFixed(1)}%`);
+
+  console.log("\n=== Capital Flow Model ===");
+  console.log("Bank → Investments → Goal Corps → Suppliers → Workers");
+  console.log("Capital flows FORWARD from treasury investments");
+  console.log("Throughput is determined by investment allocation");
 };
 
 // -----------------------------------------------------------------------------

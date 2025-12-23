@@ -32,6 +32,7 @@ import {
 } from "./EconomicConstants";
 import { calculateMargin, SerializedCorp } from "../corps/Corp";
 import { isActive, remainingQuantity } from "../market/Contract";
+import { getCapitalBudget } from "../market/CapitalBudget";
 
 /**
  * Calculate committed sell quantity for a resource from contracts.
@@ -526,4 +527,245 @@ export function collectSells(projections: CorpProjection[]): Offer[] {
     result.push(...p.sells);
   }
   return result;
+}
+
+// =============================================================================
+// Capital-Aware Projections (Forward Capital Flow Model)
+// =============================================================================
+
+/**
+ * Capital-aware upgrading projection.
+ *
+ * In the forward capital flow model, the upgrader's demand is LIMITED
+ * by available capital from investment contracts, rather than being infinite.
+ *
+ * This creates the key economic insight:
+ * - Bank invests capital in upgrader
+ * - Upgrader can only buy as much as their capital allows
+ * - Throughput is determined by investment, not by infinite demand
+ */
+export function projectUpgradingWithCapital(
+  state: UpgradingCorpState,
+  tick: number
+): CorpProjection {
+  // Get capital budget for this corp
+  const budget = getCapitalBudget(state.id);
+  const availableCapital = budget.getAvailableCapital();
+
+  // If no capital, fall back to standard projection (backward-compatible)
+  if (availableCapital <= 0) {
+    return projectUpgrading(state, tick);
+  }
+
+  // Calculate effective work time for spawn-capacity needs
+  const effectiveLifetime = state.spawnPosition
+    ? calculateEffectiveWorkTime(state.spawnPosition, state.position)
+    : CREEP_LIFETIME;
+
+  // Calculate upgrader body cost
+  const upgraderBodyCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
+
+  // Estimate how much energy we can buy with our capital
+  // Reserve some capital for spawn costs
+  const spawnReserve = upgraderBodyCost * 2; // For 2 upgraders
+  const energyBudget = Math.max(0, availableCapital - spawnReserve);
+
+  // Energy demand is limited by capital, not infinite
+  // Assume energy costs ~0.2 credits per unit (transport + mining)
+  const estimatedEnergyPrice = 0.2;
+  const energyNeeded = Math.floor(energyBudget / estimatedEnergyPrice);
+
+  if (energyNeeded <= 0) {
+    return { buys: [], sells: [] };
+  }
+
+  // RCL progress = energy consumed (1:1 ratio)
+  const rclProgress = energyNeeded;
+
+  // Calculate spawn needs based on actual throughput
+  const upgradersNeeded = Math.ceil(energyNeeded / (effectiveLifetime * 1));
+  const totalSpawnCapacityNeeded = upgraderBodyCost * Math.max(1, upgradersNeeded);
+
+  return {
+    buys: [
+      {
+        id: createOfferId(state.id, "delivered-energy", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "delivered-energy",
+        quantity: energyNeeded,
+        // Price = capital allocated for energy purchases
+        price: energyBudget,
+        duration: CREEP_LIFETIME,
+        location: state.position
+      },
+      {
+        id: createOfferId(state.id, "spawn-capacity", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "spawn-capacity",
+        quantity: totalSpawnCapacityNeeded,
+        // Price = capital reserved for spawn
+        price: spawnReserve,
+        duration: CREEP_LIFETIME,
+        location: state.position
+      }
+    ],
+    sells: [
+      {
+        id: createOfferId(state.id, "rcl-progress", tick),
+        corpId: state.id,
+        type: "sell",
+        resource: "rcl-progress",
+        quantity: rclProgress,
+        price: 0, // Terminal value - mints credits
+        duration: CREEP_LIFETIME,
+        location: state.position
+      }
+    ]
+  };
+}
+
+/**
+ * Capital-aware hauling projection.
+ *
+ * When a hauler has capital from a buyer (upgrader/spawn),
+ * they can bid competitively for mining output.
+ */
+export function projectHaulingWithCapital(
+  state: HaulingCorpState,
+  tick: number
+): CorpProjection {
+  // Get capital budget for this corp
+  const budget = getCapitalBudget(state.id);
+  const availableCapital = budget.getAvailableCapital();
+
+  // If no capital, fall back to standard projection
+  if (availableCapital <= 0) {
+    return projectHauling(state, tick);
+  }
+
+  // Use actual values if available (runtime), otherwise calculate projected (planning)
+  const isRuntime = state.actualCarryCapacity !== undefined && state.actualTotalTTL !== undefined;
+
+  let carryCapacity: number;
+  let effectiveLifetime: number;
+
+  if (isRuntime && state.activeCreepCount && state.activeCreepCount > 0) {
+    carryCapacity = state.actualCarryCapacity!;
+    effectiveLifetime = state.actualTotalTTL! / state.activeCreepCount;
+  } else if (isRuntime) {
+    return { buys: [], sells: [] };
+  } else {
+    carryCapacity = state.carryCapacity;
+    effectiveLifetime = state.spawnPosition
+      ? calculateEffectiveWorkTime(state.spawnPosition, state.sourcePosition)
+      : CREEP_LIFETIME;
+  }
+
+  const distance = calculateTravelTime(state.sourcePosition, state.destinationPosition);
+  const roundTripTime = Math.max(distance * 2, 1);
+  const tripsPerLifetime = Math.floor(effectiveLifetime / roundTripTime);
+
+  if (tripsPerLifetime <= 0) {
+    return { buys: [], sells: [] };
+  }
+
+  const carryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
+  let energyTransported = tripsPerLifetime * carryCapacity;
+
+  if (isRuntime) {
+    const committedDelivery = getCommittedSellQuantity(state, "delivered-energy", tick);
+    energyTransported = Math.max(0, energyTransported - committedDelivery);
+  }
+
+  if (energyTransported <= 0) {
+    return { buys: [], sells: [] };
+  }
+
+  // Hauler body cost
+  const haulerBodyCost = carryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
+
+  // Allocate capital: spawn costs vs energy purchase
+  const spawnCost = haulerBodyCost;
+  const energyBudget = Math.max(0, availableCapital - spawnCost);
+
+  // Calculate competitive bid for energy
+  const energyPricePerUnit = energyTransported > 0 ? energyBudget / energyTransported : 0;
+
+  const margin = calculateMargin(state.balance);
+  const costPerEnergy = energyTransported > 0 ? haulerBodyCost / energyTransported : 0;
+  const calculatedPrice = costPerEnergy * (1 + margin);
+  const pricePerEnergy = Math.max(calculatedPrice, MIN_TRANSPORT_FEE);
+
+  return {
+    buys: [
+      {
+        id: createOfferId(state.id, "energy", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "energy",
+        quantity: energyTransported,
+        // Price = what we're willing to pay from our capital
+        price: energyBudget,
+        duration: CREEP_LIFETIME,
+        location: state.sourcePosition
+      },
+      {
+        id: createOfferId(state.id, "spawn-capacity", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "spawn-capacity",
+        quantity: haulerBodyCost,
+        price: spawnCost,
+        duration: CREEP_LIFETIME,
+        location: state.sourcePosition
+      }
+    ],
+    sells: [
+      {
+        id: createOfferId(state.id, "delivered-energy", tick),
+        corpId: state.id,
+        type: "sell",
+        resource: "delivered-energy",
+        quantity: energyTransported,
+        price: pricePerEnergy * energyTransported,
+        duration: CREEP_LIFETIME,
+        location: state.destinationPosition
+      }
+    ]
+  };
+}
+
+/**
+ * Capital-aware projection dispatcher.
+ *
+ * Uses capital-aware projections for corps that have capital budgets.
+ * Falls back to standard projections for corps without capital.
+ */
+export function projectWithCapital(state: AnyCorpState, tick: number): CorpProjection {
+  // Check if this corp has capital
+  const budget = getCapitalBudget(state.id);
+  const hasCapital = budget.getAvailableCapital() > 0;
+
+  switch (state.type) {
+    case "upgrading":
+      return hasCapital
+        ? projectUpgradingWithCapital(state, tick)
+        : projectUpgrading(state, tick);
+    case "hauling":
+      return hasCapital
+        ? projectHaulingWithCapital(state, tick)
+        : projectHauling(state, tick);
+    // Other corps use standard projections
+    default:
+      return project(state, tick);
+  }
+}
+
+/**
+ * Project all corps with capital awareness.
+ */
+export function projectAllWithCapital(states: AnyCorpState[], tick: number): CorpProjection[] {
+  return states.map((s) => projectWithCapital(s, tick));
 }

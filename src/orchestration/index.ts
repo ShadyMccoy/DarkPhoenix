@@ -4,6 +4,7 @@
  * This module contains the phased orchestration logic:
  * - Init phase (once per code push, lazy initialization)
  * - Survey phase (when nodes are created)
+ * - Investment phase (allocates capital before planning)
  * - Planning phase (every 5000 ticks)
  * - Execution phase (every tick)
  *
@@ -38,3 +39,16 @@ export {
   getLastPlanningTick,
   setLastPlanningTick,
 } from "./Phases";
+
+export {
+  // Investment phase (forward capital flow)
+  runInvestmentPhase,
+  shouldRefreshInvestments,
+  recordInvestmentDelivery,
+  getCorpCapital,
+  getInvestmentSummary,
+  getInvestmentState,
+  resetInvestmentState,
+  InvestmentPhaseResult,
+  InvestmentState,
+} from "./InvestmentPhase";
