@@ -8,6 +8,9 @@ import {
   parseRoomName,
   effectivePrice,
   landedCostForCreep,
+  creepProductivityFactor,
+  rawQuantityForEffectiveWork,
+  effectiveQuantityFromCreep,
   canMatch,
   createOfferId,
   sortByEffectivePrice,
@@ -126,6 +129,74 @@ describe("Offer", () => {
       const a: Position = { x: 10, y: 10, roomName: "invalid" };
       const b: Position = { x: 20, y: 20, roomName: "W1N1" };
       expect(estimateCrossRoomDistance(a, b)).to.equal(Infinity);
+    });
+  });
+
+  describe("creepProductivityFactor()", () => {
+    it("should return 1.0 at same location", () => {
+      const spawnPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      const workPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      expect(creepProductivityFactor(spawnPos, workPos)).to.equal(1);
+    });
+
+    it("should return 0.5 when travel takes half the lifetime", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 760, y: 10, roomName: "W1N1" }; // 750 tiles away
+      expect(creepProductivityFactor(spawnPos, workPos)).to.equal(0.5);
+    });
+
+    it("should return 0 for unreachable locations", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 10, y: 10, roomName: "invalid" };
+      expect(creepProductivityFactor(spawnPos, workPos)).to.equal(0);
+    });
+
+    it("should return 0 when travel exceeds lifetime", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 1510, y: 10, roomName: "W1N1" }; // 1500+ tiles away
+      expect(creepProductivityFactor(spawnPos, workPos)).to.equal(0);
+    });
+  });
+
+  describe("rawQuantityForEffectiveWork()", () => {
+    it("should return same quantity at same location", () => {
+      const spawnPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      const workPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      expect(rawQuantityForEffectiveWork(10000, spawnPos, workPos)).to.equal(10000);
+    });
+
+    it("should double purchase when productivity is 50%", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 760, y: 10, roomName: "W1N1" }; // 750 tiles, 50% productivity
+      // Need 10,000 effective, must buy 20,000 raw
+      expect(rawQuantityForEffectiveWork(10000, spawnPos, workPos)).to.equal(20000);
+    });
+
+    it("should return Infinity for unreachable locations", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 10, y: 10, roomName: "invalid" };
+      expect(rawQuantityForEffectiveWork(10000, spawnPos, workPos)).to.equal(Infinity);
+    });
+  });
+
+  describe("effectiveQuantityFromCreep()", () => {
+    it("should return same quantity at same location", () => {
+      const spawnPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      const workPos: Position = { x: 25, y: 25, roomName: "W1N1" };
+      expect(effectiveQuantityFromCreep(10000, spawnPos, workPos)).to.equal(10000);
+    });
+
+    it("should halve effective quantity when productivity is 50%", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 760, y: 10, roomName: "W1N1" }; // 750 tiles, 50% productivity
+      // Buy 20,000 raw, receive 10,000 effective
+      expect(effectiveQuantityFromCreep(20000, spawnPos, workPos)).to.equal(10000);
+    });
+
+    it("should return 0 for unreachable locations", () => {
+      const spawnPos: Position = { x: 10, y: 10, roomName: "W1N1" };
+      const workPos: Position = { x: 10, y: 10, roomName: "invalid" };
+      expect(effectiveQuantityFromCreep(10000, spawnPos, workPos)).to.equal(0);
     });
   });
 

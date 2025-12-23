@@ -152,13 +152,98 @@ const CREEP_DELIVERY_RESOURCES = new Set([
 const CREEP_LIFETIME = 1500;
 
 /**
+ * Calculate the productivity factor for a creep based on travel distance.
+ *
+ * This is the fraction of lifetime spent working (not traveling).
+ * - Same location: factor = 1.0 (100% productive)
+ * - 750 tiles away: factor = 0.5 (50% productive)
+ * - 1500 tiles away: factor ≈ 0 (no productive time)
+ *
+ * @param spawnLocation Where the creep is spawned
+ * @param workLocation Where the creep will work
+ * @param creepLifetime Optional custom lifetime (default: CREEP_LIFETIME)
+ * @returns Productivity factor (0 to 1)
+ */
+export function creepProductivityFactor(
+  spawnLocation: Position,
+  workLocation: Position,
+  creepLifetime: number = CREEP_LIFETIME
+): number {
+  const travelTime = manhattanDistance(spawnLocation, workLocation);
+
+  if (travelTime === Infinity || travelTime >= creepLifetime) {
+    return 0;
+  }
+
+  return (creepLifetime - travelTime) / creepLifetime;
+}
+
+/**
+ * Calculate how much raw spawn-capacity a buyer needs to purchase
+ * to receive a desired amount of effective work at their location.
+ *
+ * This is the BUYER'S perspective: "I need X effective work, how much do I buy?"
+ *
+ * Example:
+ * - Buyer needs 10,000 effective work-ticks at their source
+ * - Spawn is 750 tiles away (50% productivity)
+ * - Buyer must purchase 20,000 raw work-ticks
+ *
+ * @param effectiveQuantityNeeded Effective work the buyer needs
+ * @param spawnLocation Where the creep is spawned
+ * @param workLocation Where the creep will work (buyer's location)
+ * @param creepLifetime Optional custom lifetime (default: CREEP_LIFETIME)
+ * @returns Raw quantity buyer must purchase (Infinity if unreachable)
+ */
+export function rawQuantityForEffectiveWork(
+  effectiveQuantityNeeded: number,
+  spawnLocation: Position,
+  workLocation: Position,
+  creepLifetime: number = CREEP_LIFETIME
+): number {
+  const factor = creepProductivityFactor(spawnLocation, workLocation, creepLifetime);
+
+  if (factor <= 0) {
+    return Infinity; // Can't get any effective work from this spawn
+  }
+
+  return effectiveQuantityNeeded / factor;
+}
+
+/**
+ * Calculate the effective quantity a buyer receives from a spawn-capacity offer.
+ *
+ * This is the BUYER'S perspective: "If I buy this offer, how much effective work do I get?"
+ *
+ * Example:
+ * - Spawn offers 20,000 work-ticks of capacity
+ * - Spawn is 750 tiles away (50% productivity)
+ * - Buyer receives 10,000 effective work-ticks
+ *
+ * @param rawQuantity Raw spawn-capacity quantity in the offer
+ * @param spawnLocation Where the creep is spawned
+ * @param workLocation Where the creep will work (buyer's location)
+ * @param creepLifetime Optional custom lifetime (default: CREEP_LIFETIME)
+ * @returns Effective quantity buyer receives (0 if unreachable)
+ */
+export function effectiveQuantityFromCreep(
+  rawQuantity: number,
+  spawnLocation: Position,
+  workLocation: Position,
+  creepLifetime: number = CREEP_LIFETIME
+): number {
+  const factor = creepProductivityFactor(spawnLocation, workLocation, creepLifetime);
+  return rawQuantity * factor;
+}
+
+/**
  * Calculate the landed cost for creep-based resources (spawn-capacity).
  *
  * For creeps, the "landed cost" factors in reduced effective work time due to
  * travel distance. A creep from a farther spawn spends more time walking and
  * less time working, so the cost per unit of productive work is higher.
  *
- * Formula: landedCost = basePrice * (CREEP_LIFETIME / effectiveWorkTime)
+ * Formula: landedCost = basePrice / productivityFactor
  *
  * This scales the price inversely with productivity:
  * - A creep that walks 100 ticks has 1400 work ticks → 1.07x price multiplier
@@ -177,20 +262,16 @@ export function landedCostForCreep(
   workLocation: Position,
   creepLifetime: number = CREEP_LIFETIME
 ): number {
-  const travelTime = manhattanDistance(spawnLocation, workLocation);
+  const factor = creepProductivityFactor(spawnLocation, workLocation, creepLifetime);
 
-  if (travelTime === Infinity) {
+  if (factor <= 0) {
     return Infinity; // Can't reach the work location
   }
 
-  const effectiveWorkTime = Math.max(1, creepLifetime - travelTime);
-
-  // Scale price by the productivity loss due to travel
-  // If effectiveWorkTime = creepLifetime, multiplier = 1.0 (no penalty)
-  // If effectiveWorkTime = creepLifetime/2, multiplier = 2.0 (double price)
-  const multiplier = creepLifetime / effectiveWorkTime;
-
-  return basePrice * multiplier;
+  // Price scales inversely with productivity
+  // If factor = 1.0 (local), price unchanged
+  // If factor = 0.5 (remote), price doubles
+  return basePrice / factor;
 }
 
 /**
