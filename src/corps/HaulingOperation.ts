@@ -98,7 +98,8 @@ export class HaulingOperation extends Corp {
       return sum + (capacity * deliveries);
     }, 0);
 
-    const availableCapacity = deliveryCapacity - this.committedDeliveredEnergy;
+    const committedDelivery = this.getCommittedSellQuantity("haul-energy", Game.time);
+    const availableCapacity = deliveryCapacity - committedDelivery;
     if (availableCapacity <= 0) return [];
 
     const pricePerEnergy = TRANSPORT_FEE * (1 + this.getMargin());
@@ -184,9 +185,6 @@ export class HaulingOperation extends Corp {
         const result = creep.pickup(target);
         if (result === ERR_NOT_IN_RANGE) {
           creep.moveTo(target);
-        } else if (result === OK) {
-          const pickedUp = Math.min(target.amount, creep.store.getFreeCapacity());
-          this.fulfillEnergyCommitment(pickedUp);
         }
       }
     }
@@ -209,7 +207,6 @@ export class HaulingOperation extends Corp {
         creep.moveTo(target);
       } else if (result === OK) {
         this.recordProduction(creep.store[RESOURCE_ENERGY]);
-        this.fulfillDeliveredEnergyCommitment(creep.store[RESOURCE_ENERGY]);
       }
       return;
     }
@@ -225,7 +222,6 @@ export class HaulingOperation extends Corp {
     } else {
       creep.drop(RESOURCE_ENERGY);
       this.recordProduction(creep.store[RESOURCE_ENERGY]);
-      this.fulfillDeliveredEnergyCommitment(creep.store[RESOURCE_ENERGY]);
     }
   }
 

@@ -1,4 +1,5 @@
 import { Offer, Position } from "../market/Offer";
+import { Contract, isActive, remainingQuantity } from "../market/Contract";
 
 /**
  * Corp types in the economic system
@@ -31,12 +32,10 @@ export interface SerializedCorp {
   expectedUnitsProduced: number;
   unitsConsumed: number;
   acquisitionCost: number;
-  // Contract commitment tracking
-  committedWorkTicks: number;
-  committedEnergy: number;
-  committedDeliveredEnergy: number;
   // Planning state
   lastPlannedTick: number;
+  // Active contracts this corp is party to
+  contracts: Contract[];
 }
 
 /**
@@ -93,17 +92,11 @@ export abstract class Corp {
   /** Total acquisition cost for purchased inputs (for middleman corps like hauling) */
   acquisitionCost: number = 0;
 
-  /** Work-ticks committed via contracts but not yet delivered (prevents double-ordering) */
-  committedWorkTicks: number = 0;
-
-  /** Energy committed via contracts but not yet delivered (prevents double-selling) */
-  committedEnergy: number = 0;
-
-  /** Delivered-energy committed via contracts but not yet fulfilled (prevents double-selling) */
-  committedDeliveredEnergy: number = 0;
-
   /** Last tick when planning was performed */
   lastPlannedTick: number = 0;
+
+  /** Contracts this corp is party to (as buyer or seller) */
+  contracts: Contract[] = [];
 
   /** How often to re-run planning (ticks) */
   protected static readonly PLANNING_INTERVAL = 100;
@@ -238,57 +231,62 @@ export abstract class Corp {
   }
 
   /**
-   * Record work-ticks commitment from a matched contract.
-   * Prevents double-ordering by tracking what's already been ordered.
+   * Add a contract to this corp's list.
+   * Called by Market when a contract is created.
    */
-  recordWorkTicksCommitment(workTicks: number): void {
-    if (workTicks <= 0) return;
-    this.committedWorkTicks += workTicks;
+  addContract(contract: Contract): void {
+    // Avoid duplicates
+    if (!this.contracts.find(c => c.id === contract.id)) {
+      this.contracts.push(contract);
+    }
   }
 
   /**
-   * Fulfill work-ticks commitment when creep is delivered.
-   * Called when a creep assigned to this corp starts working.
+   * Remove a contract from this corp's list.
    */
-  fulfillWorkTicksCommitment(workTicks: number): void {
-    if (workTicks <= 0) return;
-    this.committedWorkTicks = Math.max(0, this.committedWorkTicks - workTicks);
+  removeContract(contractId: string): void {
+    this.contracts = this.contracts.filter(c => c.id !== contractId);
   }
 
   /**
-   * Record energy commitment from a matched contract.
-   * Prevents double-selling by tracking what's already been sold.
+   * Get active contracts where this corp is the seller.
    */
-  recordEnergyCommitment(energy: number): void {
-    if (energy <= 0) return;
-    this.committedEnergy += energy;
+  getSellContracts(tick: number): Contract[] {
+    return this.contracts.filter(c => c.sellerId === this.id && isActive(c, tick));
   }
 
   /**
-   * Fulfill energy commitment when energy is delivered.
-   * Called when energy is actually transferred to the buyer.
+   * Get active contracts where this corp is the buyer.
    */
-  fulfillEnergyCommitment(energy: number): void {
-    if (energy <= 0) return;
-    this.committedEnergy = Math.max(0, this.committedEnergy - energy);
+  getBuyContracts(tick: number): Contract[] {
+    return this.contracts.filter(c => c.buyerId === this.id && isActive(c, tick));
   }
 
   /**
-   * Record delivered-energy commitment from a matched contract.
-   * Prevents double-selling by tracking what's already been sold.
+   * Get total committed quantity for a resource where this corp is the seller.
+   * This is the remaining quantity to deliver on active contracts.
    */
-  recordDeliveredEnergyCommitment(energy: number): void {
-    if (energy <= 0) return;
-    this.committedDeliveredEnergy += energy;
+  getCommittedSellQuantity(resource: string, tick: number): number {
+    return this.getSellContracts(tick)
+      .filter(c => c.resource === resource)
+      .reduce((sum, c) => sum + remainingQuantity(c), 0);
   }
 
   /**
-   * Fulfill delivered-energy commitment when energy is delivered.
-   * Called when delivered-energy is actually provided to the buyer.
+   * Get total committed quantity for a resource where this corp is the buyer.
+   * This is the remaining quantity to receive on active contracts.
    */
-  fulfillDeliveredEnergyCommitment(energy: number): void {
-    if (energy <= 0) return;
-    this.committedDeliveredEnergy = Math.max(0, this.committedDeliveredEnergy - energy);
+  getCommittedBuyQuantity(resource: string, tick: number): number {
+    return this.getBuyContracts(tick)
+      .filter(c => c.resource === resource)
+      .reduce((sum, c) => sum + remainingQuantity(c), 0);
+  }
+
+  /**
+   * Clean up expired/completed contracts.
+   */
+  pruneContracts(tick: number): void {
+    this.contracts = this.contracts.filter(c => isActive(c, tick));
   }
 
   /**
@@ -415,10 +413,8 @@ export abstract class Corp {
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
-      committedWorkTicks: this.committedWorkTicks,
-      committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy,
-      lastPlannedTick: this.lastPlannedTick
+      lastPlannedTick: this.lastPlannedTick,
+      contracts: this.contracts
     };
   }
 
@@ -436,10 +432,8 @@ export abstract class Corp {
     this.expectedUnitsProduced = data.expectedUnitsProduced ?? 0;
     this.unitsConsumed = data.unitsConsumed ?? 0;
     this.acquisitionCost = data.acquisitionCost ?? 0;
-    this.committedWorkTicks = data.committedWorkTicks ?? 0;
-    this.committedEnergy = data.committedEnergy ?? 0;
-    this.committedDeliveredEnergy = data.committedDeliveredEnergy ?? 0;
     this.lastPlannedTick = data.lastPlannedTick ?? 0;
+    this.contracts = data.contracts ?? [];
   }
 
   /**

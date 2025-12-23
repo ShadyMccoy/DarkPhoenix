@@ -207,10 +207,8 @@ export function createSourceState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    committedWorkTicks: 0,
-    committedEnergy: 0,
-    committedDeliveredEnergy: 0,
-    lastPlannedTick: 0
+    lastPlannedTick: 0,
+    contracts: []
   };
 }
 
@@ -246,10 +244,8 @@ export function createMiningState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    committedWorkTicks: 0,
-    committedEnergy: 0,
-    committedDeliveredEnergy: 0,
-    lastPlannedTick: 0
+    lastPlannedTick: 0,
+    contracts: []
   };
 }
 
@@ -285,10 +281,8 @@ export function createSpawningState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    committedWorkTicks: 0,
-    committedEnergy: 0,
-    committedDeliveredEnergy: 0,
-    lastPlannedTick: 0
+    lastPlannedTick: 0,
+    contracts: []
   };
 }
 
@@ -322,10 +316,8 @@ export function createUpgradingState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    committedWorkTicks: 0,
-    committedEnergy: 0,
-    committedDeliveredEnergy: 0,
-    lastPlannedTick: 0
+    lastPlannedTick: 0,
+    contracts: []
   };
 }
 
@@ -363,10 +355,8 @@ export function createHaulingState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    committedWorkTicks: 0,
-    committedEnergy: 0,
-    committedDeliveredEnergy: 0,
-    lastPlannedTick: 0
+    lastPlannedTick: 0,
+    contracts: []
   };
 }
 

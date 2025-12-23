@@ -141,10 +141,8 @@ export class RealHaulingCorp extends Corp {
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
-      committedWorkTicks: this.committedWorkTicks,
-      committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy,
-      lastPlannedTick: this.lastPlannedTick
+      lastPlannedTick: this.lastPlannedTick,
+      contracts: this.contracts
     };
   }
 
@@ -244,8 +242,9 @@ export class RealHaulingCorp extends Corp {
         return sum + (capacity * deliveriesRemaining);
       }, 0);
 
-      // Subtract already-committed energy to prevent double-ordering
-      const energyNeeded = energyCapacity - this.committedEnergy;
+      // Subtract already-committed energy from buy contracts to prevent double-ordering
+      const committedEnergy = this.getCommittedBuyQuantity("energy", Game.time);
+      const energyNeeded = energyCapacity - committedEnergy;
 
       if (energyNeeded > 0) {
         const maxBuyPricePerUnit = this.lastAcquisitionPrice * 1.5;
@@ -432,10 +431,6 @@ export class RealHaulingCorp extends Corp {
         const result = creep.pickup(target);
         if (result === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        } else if (result === OK) {
-          // Fulfill energy commitment as we receive energy from miners
-          const pickedUp = Math.min(target.amount, creep.store.getFreeCapacity());
-          this.fulfillEnergyCommitment(pickedUp);
         }
         return;
       }
@@ -454,10 +449,6 @@ export class RealHaulingCorp extends Corp {
         const result = creep.withdraw(target, RESOURCE_ENERGY);
         if (result === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        } else if (result === OK) {
-          // Fulfill energy commitment as we receive energy
-          const withdrawn = Math.min(target.store[RESOURCE_ENERGY], creep.store.getFreeCapacity());
-          this.fulfillEnergyCommitment(withdrawn);
         }
         return;
       }
@@ -500,8 +491,6 @@ export class RealHaulingCorp extends Corp {
             (target as StructureSpawn | StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY)
           );
           this.recordProduction(transferred);
-          // Fulfill delivered-energy commitment
-          this.fulfillDeliveredEnergyCommitment(transferred);
         }
         return;
       }
@@ -532,8 +521,6 @@ export class RealHaulingCorp extends Corp {
           target.store.getFreeCapacity(RESOURCE_ENERGY)
         );
         this.recordProduction(transferred);
-        // Fulfill delivered-energy commitment
-        this.fulfillDeliveredEnergyCommitment(transferred);
       }
       return;
     }
@@ -544,8 +531,6 @@ export class RealHaulingCorp extends Corp {
         const dropped = creep.store[RESOURCE_ENERGY];
         creep.drop(RESOURCE_ENERGY);
         this.recordProduction(dropped);
-        // Fulfill delivered-energy commitment
-        this.fulfillDeliveredEnergyCommitment(dropped);
       } else {
         creep.moveTo(room.controller, {
           visualizePathStyle: { stroke: "#ffffff" },

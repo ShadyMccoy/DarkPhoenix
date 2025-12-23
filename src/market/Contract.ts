@@ -34,6 +34,9 @@ export interface Contract {
 
   /** Amount paid so far */
   paid: number;
+
+  /** Creep IDs assigned to execute this contract */
+  creepIds: string[];
 }
 
 /**
@@ -184,7 +187,8 @@ export function createContract(
     duration,
     startTick,
     delivered: 0,
-    paid: 0
+    paid: 0,
+    creepIds: []
   };
 }
 
@@ -203,4 +207,23 @@ export function recordDelivery(contract: Contract, amount: number): void {
  */
 export function recordPayment(contract: Contract, amount: number): void {
   contract.paid = Math.min(contract.price, contract.paid + amount);
+}
+
+/**
+ * Assign a creep to a contract
+ */
+export function assignCreep(contract: Contract, creepId: string): void {
+  if (!contract.creepIds.includes(creepId)) {
+    contract.creepIds.push(creepId);
+  }
+}
+
+/**
+ * Remove a creep from a contract
+ */
+export function unassignCreep(contract: Contract, creepId: string): void {
+  const index = contract.creepIds.indexOf(creepId);
+  if (index !== -1) {
+    contract.creepIds.splice(index, 1);
+  }
 }

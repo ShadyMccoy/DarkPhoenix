@@ -226,6 +226,16 @@ export class Market {
         );
         contracts.push(contract);
 
+        // Assign contract to both buyer and seller corps
+        const seller = this.corps.get(sellOffer.corpId);
+        const buyer = this.corps.get(buyOffer.corpId);
+        if (seller) {
+          seller.addContract(contract);
+        }
+        if (buyer) {
+          buyer.addContract(contract);
+        }
+
         console.log(`[Market] Matched: ${sellOffer.resource} x${tradeQty} @ ${tradePricePerUnit.toFixed(3)}/unit (${contract.sellerId.slice(-6)} → ${contract.buyerId.slice(-6)})`);
 
         // Record transaction
@@ -304,26 +314,12 @@ export class Market {
     const seller = this.corps.get(sellerId);
     if (seller) {
       seller.recordRevenue(totalPayment);
-
-      // Record energy commitment for the seller (prevents double-selling)
-      if (resource === "energy") {
-        seller.recordEnergyCommitment(quantity);
-      } else if (resource === "delivered-energy" || resource === "haul-energy") {
-        seller.recordDeliveredEnergyCommitment(quantity);
-      }
     }
 
     // Update buyer: record cost
     const buyer = this.corps.get(buyerId);
     if (buyer) {
       buyer.recordCost(totalPayment);
-
-      // Record energy commitment for the buyer (prevents double-ordering)
-      if (resource === "energy") {
-        buyer.recordEnergyCommitment(quantity);
-      } else if (resource === "delivered-energy" || resource === "haul-energy") {
-        buyer.recordDeliveredEnergyCommitment(quantity);
-      }
 
       // For middleman corps (hauling), also record acquisition cost
       if (buyer.type === "hauling") {

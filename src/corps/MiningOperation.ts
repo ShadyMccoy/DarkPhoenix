@@ -89,7 +89,8 @@ export class MiningOperation extends Corp {
       return sum + (workParts * 2 * ttl);
     }, 0);
 
-    const availableEnergy = energyCapacity - this.committedEnergy;
+    const committedEnergy = this.getCommittedSellQuantity("energy", Game.time);
+    const availableEnergy = energyCapacity - committedEnergy;
     if (availableEnergy <= 0) return [];
 
     return [{
@@ -150,7 +151,6 @@ export class MiningOperation extends Corp {
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
       this.recordProduction(workParts * 2);
-      this.fulfillEnergyCommitment(workParts * 2);
     }
 
     // Drop when full
