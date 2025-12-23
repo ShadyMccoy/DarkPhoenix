@@ -1,0 +1,68 @@
+{
+  "name": "Live Room E75N8",
+  "purpose": "Real scenario from live game at tick 72298813. Tests planning against actual room layout.",
+  "description": "E75N8 owned room with 2 sources, controller, and spawn. RCL 3 with 450 energy capacity. Two sources at very different distances from spawn.",
+  "nodes": [
+    {
+      "roomName": "E75N8",
+      "position": { "x": 26, "y": 10 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 26, "y": 10 },
+          "capacity": 450
+        }
+      ],
+      "territorySize": 50,
+      "comment": "Spawn node - estimated position near controller"
+    },
+    {
+      "roomName": "E75N8",
+      "position": { "x": 33, "y": 3 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 33, "y": 3 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 123,
+      "comment": "Source 1 - close to spawn (~15 tiles)"
+    },
+    {
+      "roomName": "E75N8",
+      "position": { "x": 4, "y": 16 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 4, "y": 16 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 77,
+      "comment": "Source 2 - far from spawn (~28 tiles)"
+    },
+    {
+      "roomName": "E75N8",
+      "position": { "x": 24, "y": 5 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 24, "y": 5 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50,
+      "comment": "Controller - RCL 3"
+    }
+  ],
+  "config": {
+    "tick": 72298813,
+    "budget": 10000,
+    "deterministicIds": true
+  },
+  "expectations": {
+    "minViableChains": 1,
+    "comment": "At minimum, we should have one viable mining chain"
+  }
+}

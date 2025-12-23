@@ -12,13 +12,16 @@ describe("SpawningCorp projections", () => {
   const defaultEnergyCapacity = 300;
 
   describe("projectSpawning", () => {
-    it("should not have buy offers (energy delivered by haulers)", () => {
-      // SpawningCorp doesn't buy through the market
-      // Energy is delivered to spawn by haulers as Priority 1 behavior
+    it("should buy delivered-energy for extensions refill", () => {
+      // SpawningCorp buys delivered-energy to compete for hauler services
+      // This models spawn/extensions needing to be filled
       const state = createSpawningState("spawning-1", "node1", defaultPosition, defaultEnergyCapacity);
       const { buys } = projectSpawning(state, 0);
 
-      expect(buys).to.have.length(0);
+      expect(buys).to.have.length(1);
+      expect(buys[0].type).to.equal("buy");
+      expect(buys[0].resource).to.equal("delivered-energy");
+      expect(buys[0].quantity).to.equal(defaultEnergyCapacity);
     });
 
     it("should return sell offer for spawn-capacity", () => {

@@ -279,18 +279,26 @@ export function runPlanningPhase(
   const collector = new OfferCollector();
   collector.collectFromCorpStates(corpStates, tick);
 
+  // Debug: Log what offers were collected
+  const stats = collector.getStats();
+  console.log(`[Planning] Collected ${stats.totalOffers} offers (${stats.sellOffers} sell, ${stats.buyOffers} buy)`);
+  for (const resource in stats.resources) {
+    const r = stats.resources[resource];
+    console.log(`  ${resource}: ${r.sellCount} sell (qty ${r.sellQuantity}), ${r.buyCount} buy (qty ${r.buyQuantity})`);
+  }
+
   // Get mint values from colony
   const mintValues = colony.getMintValues();
+  console.log(`[Planning] Mint values: rcl_upgrade=${mintValues.rcl_upgrade}, gcl_upgrade=${mintValues.gcl_upgrade}`);
 
   // Create planner with collector and mint values
   const planner = new ChainPlanner(collector, mintValues);
 
   // Register corp states with planner
+  // Note: Don't call registerNodes() after this - it clears corpStateRegistry!
+  // Economic edges require a NodeNavigator to be set via planner.setNavigator()
   planner.registerCorpStates(corpStates, tick);
-
-  // Register nodes for context (economic edges)
-  const nodes = colony.getNodes();
-  planner.registerNodes(nodes, tick);
+  console.log(`[Planning] Registered ${corpStates.length} corp states`);
 
   // Find viable chains (profit > 0)
   const chains = planner.findViableChains(tick);

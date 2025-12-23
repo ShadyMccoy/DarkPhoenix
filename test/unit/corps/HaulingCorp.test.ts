@@ -13,31 +13,53 @@ describe("HaulingCorp projections", () => {
   const spawningCorpId = "spawning-1";
 
   describe("projectHauling", () => {
-    it("should return buy offer for spawn-capacity", () => {
+    it("should return buy offers for energy and spawn-capacity", () => {
       const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].type).to.equal("buy");
-      expect(buys[0].resource).to.equal("spawn-capacity");
+      expect(buys).to.have.length(2);
+
+      const energyBuy = buys.find(b => b.resource === "energy");
+      const spawnBuy = buys.find(b => b.resource === "spawn-capacity");
+
+      expect(energyBuy).to.not.be.undefined;
+      expect(energyBuy!.type).to.equal("buy");
+      expect(spawnBuy).to.not.be.undefined;
+      expect(spawnBuy!.type).to.equal("buy");
     });
 
     it("should calculate spawn-capacity based on hauler body cost", () => {
       const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
+      const spawnBuy = buys.find(b => b.resource === "spawn-capacity")!;
+
       // 500 capacity / 50 per CARRY = 10 CARRY parts
       // 10 CARRY + 10 MOVE = 10 × (50 + 50) = 1000 energy
       const expectedCarryParts = Math.ceil(carryCapacity / CARRY_CAPACITY);
       const expectedBodyCost = expectedCarryParts * (BODY_PART_COST.carry + BODY_PART_COST.move);
-      expect(buys[0].quantity).to.equal(expectedBodyCost);
+      expect(spawnBuy.quantity).to.equal(expectedBodyCost);
     });
 
-    it("should locate buy offer at source position", () => {
+    it("should locate buy offers at source position", () => {
       const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
       const { buys } = projectHauling(state, 0);
 
-      expect(buys[0].location).to.deep.equal(sourcePosition);
+      // Both energy and spawn-capacity buys should be at source position
+      for (const buy of buys) {
+        expect(buy.location).to.deep.equal(sourcePosition);
+      }
+    });
+
+    it("should buy energy matching the amount to be delivered", () => {
+      const state = createHaulingState("hauling-1", "node1", miningCorpId, spawningCorpId, sourcePosition, destPosition, carryCapacity);
+      const { buys, sells } = projectHauling(state, 0);
+
+      const energyBuy = buys.find(b => b.resource === "energy")!;
+      const deliveredEnergySell = sells.find(s => s.resource === "delivered-energy")!;
+
+      // Energy bought should equal energy delivered (same quantity, different location)
+      expect(energyBuy.quantity).to.equal(deliveredEnergySell.quantity);
     });
 
     it("should return sell offer for delivered-energy", () => {

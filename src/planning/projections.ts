@@ -179,26 +179,23 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
  * Calculate offers for a spawning corp.
  *
  * SpawningCorp is the ORIGIN of labor in production chains.
- * It sells spawn-capacity - the ability to continuously supply creeps.
+ * It sells spawn-capacity AND buys delivered-energy (for extensions).
  *
  * Key economics:
- * - Corps buy creeps expressed as body parts at their work location
- * - Base cost = energy to spawn the body
- * - Effective cost = base_cost × (lifetime / useful_lifetime)
- * - Useful lifetime = CREEP_LIFETIME - travel_time_to_work_site
- *
- * Example: 750 ticks travel = 50% useful life = 2× effective cost
+ * - Spawn sells spawn-capacity to mining/hauling/upgrading corps
+ * - Spawn buys delivered-energy for refilling extensions
+ * - The buy is NOT a dependency for the sell - they're parallel concerns
+ * - This allows spawn to compete with upgrader for hauler services
  *
  * The spawn-capacity resource represents:
  * - Quantity: energy capacity available per spawn cycle
- * - Price: base energy cost (1:1, no markup on raw capacity)
- * - Distance adjustment happens when chain planner matches buyer to spawn
+ * - Price: base energy cost + margin
  *
- * SpawningCorp sells:
- * - spawn-capacity: ability to spawn creeps (quantity = energy/cycle)
+ * SpawningCorp buys: delivered-energy (for extensions refill)
+ * SpawningCorp sells: spawn-capacity (creep spawning service)
  *
- * SpawningCorp buys: nothing
- * - Energy is delivered to spawn by haulers as Priority 1 behavior
+ * Note: The chain planner treats spawning as an "origin" - its buys
+ * create separate demand chains, but don't block its spawn-capacity sells.
  */
 export function projectSpawning(state: SpawningCorpState, tick: number): CorpProjection {
   // If spawn is busy or queue is full, don't offer capacity
@@ -210,6 +207,10 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
   // This represents how big a creep the spawn can produce
   const availableCapacity = state.energyCapacity;
 
+  // Spawn needs energy delivered to refill extensions
+  // This creates demand that competes with upgrader
+  const energyNeeded = availableCapacity;
+
   // Price is 1:1 with energy - the base cost of spawning
   // Distance penalty is applied by the chain planner when matching
   const pricePerEnergy = 1.0;
@@ -217,7 +218,18 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
   const margin = calculateMargin(state.balance);
 
   return {
-    buys: [],
+    buys: [
+      {
+        id: createOfferId(state.id, "delivered-energy", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "delivered-energy",
+        quantity: energyNeeded,
+        price: 0, // Price determined by hauler's sell price
+        duration: CREEP_LIFETIME,
+        location: state.position
+      }
+    ],
     sells: [
       {
         id: createOfferId(state.id, "spawn-capacity", tick),
@@ -237,33 +249,46 @@ export function projectSpawning(state: SpawningCorpState, tick: number): CorpPro
 // Upgrading Projection
 // =============================================================================
 
+/** Large demand for upgrading - essentially "give me all you can" */
+const UPGRADER_ENERGY_DEMAND = 100000;
+
 /**
  * Calculate offers for an upgrading corp.
  *
  * Upgrading corps:
- * - Buy: delivered-energy (from haulers)
- * - Buy: spawn-capacity (need upgrader creep continuously supplied)
+ * - Buy: delivered-energy (from haulers) - essentially unlimited demand
+ * - Buy: spawn-capacity (need upgrader creeps continuously supplied)
  * - Sell: rcl-progress (controller points)
+ *
+ * The upgrader has large/unlimited demand for energy. The limiting factor
+ * should be supply (mining + hauling capacity), not demand.
  *
  * 1 WORK part + 1 energy = 1 upgrade point per tick
  */
 export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpProjection {
-  // Calculate effective work time
+  // Calculate effective work time for spawn-capacity needs
   const effectiveLifetime = state.spawnPosition
     ? calculateEffectiveWorkTime(state.spawnPosition, state.position)
     : CREEP_LIFETIME;
 
-  // Assume 1 WORK part for simplicity
-  const workParts = 1;
-
-  // Energy consumption = 1 per upgrade action per WORK part
-  const energyNeeded = workParts * effectiveLifetime;
+  // Upgrader wants as much energy as it can get
+  // The chain planner will build multiple chains to satisfy this demand
+  // until supply (mining/hauling) is exhausted
+  const energyNeeded = UPGRADER_ENERGY_DEMAND;
 
   // RCL progress = energy consumed (1:1 ratio)
+  // This will be the fulfilled amount, not the demand
   const rclProgress = energyNeeded;
 
   // Calculate upgrader body cost (WORK + CARRY + MOVE = 200 energy)
+  // Scale spawn needs based on how much energy we expect to process
+  // More energy = more upgraders needed
   const upgraderBodyCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
+
+  // Need multiple upgraders to process large energy amounts
+  // Rough estimate: 1 upgrader processes ~1500 energy per lifetime
+  const upgradersNeeded = Math.ceil(energyNeeded / (effectiveLifetime * 1));
+  const totalSpawnCapacityNeeded = upgraderBodyCost * upgradersNeeded;
 
   // RCL progress "mints" credits - it's the terminal value sink
   // Price is 0 because this is where value is created in the system
@@ -285,8 +310,7 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
         corpId: state.id,
         type: "buy",
         resource: "spawn-capacity",
-        // Quantity = energy cost of desired upgrader body
-        quantity: upgraderBodyCost,
+        quantity: totalSpawnCapacityNeeded,
         price: 0, // Price determined by spawn + distance
         duration: CREEP_LIFETIME,
         location: state.position // Controller location - distance from spawn affects price
@@ -318,8 +342,12 @@ const MIN_TRANSPORT_FEE = 0.05;
  * Calculate offers for a hauling corp.
  *
  * Hauling corps:
+ * - Buy: energy (from mining corps at source location)
  * - Buy: spawn-capacity (need hauler creep continuously supplied)
- * - Sell: delivered-energy (transport service)
+ * - Sell: delivered-energy (transport service to destination)
+ *
+ * This creates the supply chain: Mining → Hauling → Upgrading
+ * Hauling buys raw energy at the source and sells delivered-energy at destination.
  *
  * Haulers are expressed as CARRY parts. E.g., [CARRY,CARRY,CARRY,MOVE,MOVE,MOVE]
  * Distance from spawn affects effective cost.
@@ -385,6 +413,17 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
 
   return {
     buys: [
+      {
+        id: createOfferId(state.id, "energy", tick),
+        corpId: state.id,
+        type: "buy",
+        resource: "energy",
+        // Quantity = energy we want to pick up and transport
+        quantity: energyTransported,
+        price: 0, // Price determined by mining's sell price
+        duration: CREEP_LIFETIME,
+        location: state.sourcePosition // Pickup location - must match mining's sell location
+      },
       {
         id: createOfferId(state.id, "spawn-capacity", tick),
         corpId: state.id,

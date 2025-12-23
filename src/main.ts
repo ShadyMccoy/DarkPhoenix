@@ -163,6 +163,16 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runConstructionCorps(corps);
 
   // ===========================================================================
+  // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)
+  // ===========================================================================
+
+  // Continue incremental analysis if one is in progress
+  // This must happen OUTSIDE the planning phase check to spread across ticks
+  if (isAnalysisInProgress()) {
+    runIncrementalAnalysis(colony);
+  }
+
+  // ===========================================================================
   // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
   // ===========================================================================
 
@@ -170,13 +180,13 @@ export const loop = ErrorMapper.wrapLoop(() => {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
     // --- SURVEY: Analyze territory and create corps ---
-    // Run incremental multi-room spatial analysis
-    if (isAnalysisInProgress() || colony.getNodes().length === 0) {
+    // Start incremental multi-room spatial analysis if no nodes exist
+    if (colony.getNodes().length === 0 && !isAnalysisInProgress()) {
       runIncrementalAnalysis(colony);
     }
 
     // Run the colony economic coordination (surveying, stats)
-    colony.run(Game.time);
+    colony.run(Game.time, corps);
 
     // --- MARKET: Register offers and clear market ---
     registerCorpsWithMarket(corps);

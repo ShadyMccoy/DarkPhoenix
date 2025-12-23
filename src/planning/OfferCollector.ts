@@ -212,6 +212,55 @@ export class OfferCollector {
   }
 
   /**
+   * Consume capacity from an offer (reduce its quantity).
+   * Used by iterative chain building to track consumed resources.
+   *
+   * @param offerId - The offer ID to consume from
+   * @param quantity - Amount to consume
+   * @returns true if consumption was successful, false if offer not found or insufficient
+   */
+  consumeOffer(offerId: string, quantity: number): boolean {
+    const offer = this.allOffers.find(o => o.id === offerId);
+    if (!offer || offer.quantity < quantity) {
+      return false;
+    }
+
+    offer.quantity -= quantity;
+    return true;
+  }
+
+  /**
+   * Get remaining quantity for an offer.
+   */
+  getOfferQuantity(offerId: string): number {
+    const offer = this.allOffers.find(o => o.id === offerId);
+    return offer?.quantity ?? 0;
+  }
+
+  /**
+   * Create a snapshot of current offer quantities for restoration.
+   */
+  snapshot(): Map<string, number> {
+    const snap = new Map<string, number>();
+    for (const offer of this.allOffers) {
+      snap.set(offer.id, offer.quantity);
+    }
+    return snap;
+  }
+
+  /**
+   * Restore offer quantities from a snapshot.
+   */
+  restore(snap: Map<string, number>): void {
+    for (const offer of this.allOffers) {
+      const qty = snap.get(offer.id);
+      if (qty !== undefined) {
+        offer.quantity = qty;
+      }
+    }
+  }
+
+  /**
    * Clear all collected offers (call at end of tick)
    */
   clear(): void {

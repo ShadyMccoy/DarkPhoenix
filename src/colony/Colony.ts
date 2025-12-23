@@ -1,15 +1,10 @@
 import { CreditLedger } from "./CreditLedger";
 import { MintValues, DEFAULT_MINT_VALUES, getMintValue } from "./MintValues";
-import { Corp } from "../corps/Corp";
 import { Offer } from "../market/Offer";
-import {
-  Node,
-  collectNodeOffers,
-  pruneDead,
-  getCorpsByType
-} from "../nodes/Node";
+import { Node, collectNodeOffers } from "../nodes/Node";
+import { CorpRegistry } from "../execution/CorpRunner";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
-import { Chain, filterViable, sortByProfit, selectNonOverlapping } from "../planning/Chain";
+import { Chain, filterViable } from "../planning/Chain";
 
 /**
  * Colony configuration
@@ -136,11 +131,8 @@ export class Colony {
    * - Node surveying (identify potential corps)
    * - Chain aging (lifecycle management)
    * - Stats updates
-   *
-   * The node.corps arrays are unused in the current architecture.
-   * Real corps execution happens via CorpRegistry/CorpRunner.
    */
-  run(tick: number): void {
+  run(tick: number, corpRegistry: CorpRegistry): void {
     this.currentTick = tick;
 
     // Bootstrap if needed (mint seed capital)
@@ -155,7 +147,7 @@ export class Colony {
     this.ageChains();
 
     // Update stats
-    this.updateStats();
+    this.updateStats(corpRegistry);
   }
 
   /**
@@ -242,130 +234,6 @@ export class Colony {
   }
 
   /**
-   * @deprecated Operates on empty node.corps
-   */
-  private fundChains(chains: Chain[]): void {
-    const sorted = sortByProfit(chains);
-    const selected = selectNonOverlapping(sorted);
-
-    for (const chain of selected) {
-      if (chain.funded) continue;
-
-      const canAfford = this.ledger.canAfford(
-        chain.totalCost + this.config.minTreasuryBuffer
-      );
-
-      if (canAfford) {
-        this.ledger.spend(chain.totalCost);
-        chain.funded = true;
-
-        for (const segment of chain.segments) {
-          const corp = this.findCorp(segment.corpId);
-          if (corp) {
-            corp.activate(this.currentTick);
-          }
-        }
-
-        if (!this.activeChains.includes(chain)) {
-          this.activeChains.push(chain);
-        }
-      }
-    }
-  }
-
-  /**
-   * @deprecated node.corps is always empty - real corps use CorpRunner
-   */
-  private runCorps(): void {
-    for (const node of this.nodes) {
-      for (const corp of node.corps) {
-        if (corp.isActive) {
-          corp.work(this.currentTick);
-        }
-      }
-    }
-  }
-
-  /**
-   * @deprecated Operates on empty node.corps
-   */
-  private settlePayments(): void {
-    for (const chain of this.activeChains) {
-      if (!chain.funded) continue;
-
-      for (const segment of chain.segments) {
-        const corp = this.findCorp(segment.corpId);
-        if (!corp) continue;
-
-        const tickPayment = segment.outputPrice / 1500;
-        corp.recordRevenue(tickPayment);
-      }
-    }
-  }
-
-  /**
-   * @deprecated Needs Real*Corps data from CorpRegistry, not node.corps
-   */
-  private mintForAchievements(): void {
-    // Not implemented - would need access to CorpRegistry
-  }
-
-  /**
-   * @deprecated node.corps is always empty
-   */
-  private applyTaxation(): void {
-    let totalTaxed = 0;
-
-    for (const node of this.nodes) {
-      for (const corp of node.corps) {
-        const taxAmount = corp.applyTax(this.config.taxRate);
-        totalTaxed += taxAmount;
-      }
-    }
-
-    this.ledger.recordTaxDestroyed(totalTaxed);
-  }
-
-  /**
-   * @deprecated node.corps is always empty
-   */
-  private pruneDead(): void {
-    for (const node of this.nodes) {
-      const pruned = pruneDead(
-        node,
-        this.currentTick,
-        this.config.corpGracePeriod
-      );
-
-      for (const corp of pruned) {
-        this.removeCorpFromChains(corp.id);
-      }
-    }
-  }
-
-  /**
-   * @deprecated Operates on activeChains which use empty node.corps
-   */
-  private removeCorpFromChains(corpId: string): void {
-    for (const chain of this.activeChains) {
-      const usesCorr = chain.segments.some((s) => s.corpId === corpId);
-      if (usesCorr) {
-        chain.funded = false;
-        for (const segment of chain.segments) {
-          const corp = this.findCorp(segment.corpId);
-          if (corp) {
-            corp.deactivate();
-          }
-        }
-      }
-    }
-
-    this.activeChains = this.activeChains.filter((chain) =>
-      chain.segments.every((s) => this.findCorp(s.corpId) !== undefined)
-    );
-  }
-
-  /**
    * Age all active chains
    */
   private ageChains(): void {
@@ -378,49 +246,53 @@ export class Colony {
   }
 
   /**
-   * Find a corp by ID across all nodes.
-   * @deprecated node.corps is always empty - real corps use CorpRegistry
-   */
-  findCorp(corpId: string): Corp | undefined {
-    for (const node of this.nodes) {
-      const corp = node.corps.find((c) => c.id === corpId);
-      if (corp) return corp;
-    }
-    return undefined;
-  }
-
-  /**
-   * Get all corps across all nodes.
-   * @deprecated node.corps is always empty - real corps use CorpRegistry
-   */
-  getAllCorps(): Corp[] {
-    const corps: Corp[] = [];
-    for (const node of this.nodes) {
-      corps.push(...node.corps);
-    }
-    return corps;
-  }
-
-  /**
    * Update colony statistics
    */
-  private updateStats(): void {
-    const allCorps = this.getAllCorps();
-    const activeCorps = allCorps.filter((c) => c.isActive);
+  private updateStats(corpRegistry: CorpRegistry): void {
     const moneySupply = this.ledger.getMoneySupply();
 
-    const totalROI = allCorps.reduce((sum, c) => sum + c.getActualROI(), 0);
-    const avgROI = allCorps.length > 0 ? totalROI / allCorps.length : 0;
+    // Count corps from registry
+    const totalCorps =
+      Object.keys(corpRegistry.bootstrapCorps).length +
+      Object.keys(corpRegistry.miningCorps).length +
+      Object.keys(corpRegistry.haulingCorps).length +
+      Object.keys(corpRegistry.upgradingCorps).length +
+      Object.keys(corpRegistry.scoutCorps).length +
+      Object.keys(corpRegistry.constructionCorps).length +
+      Object.keys(corpRegistry.spawningCorps).length;
+
+    // Count active corps (those with creeps)
+    let activeCorps = 0;
+    for (const corp of Object.values(corpRegistry.bootstrapCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.miningCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.haulingCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.upgradingCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.scoutCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.constructionCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    // Spawning corps are active if they exist
+    activeCorps += Object.keys(corpRegistry.spawningCorps).length;
 
     this.stats = {
       nodeCount: this.nodes.length,
-      totalCorps: allCorps.length,
-      activeCorps: activeCorps.length,
+      totalCorps,
+      activeCorps,
       activeChains: this.activeChains.filter((c) => c.funded).length,
       totalMinted: moneySupply.minted,
       totalTaxed: moneySupply.taxed,
       treasuryBalance: moneySupply.treasury,
-      averageROI: avgROI
+      averageROI: 0
     };
   }
 
@@ -487,28 +359,6 @@ export class Colony {
     if (!this.activeChains.some((c) => c.id === chain.id)) {
       this.activeChains.push(chain);
     }
-  }
-
-  /**
-   * Manually fund a chain (bypasses normal flow)
-   */
-  fundChain(chainId: string): boolean {
-    const chain = this.activeChains.find((c) => c.id === chainId);
-    if (!chain || chain.funded) return false;
-
-    if (!this.ledger.canAfford(chain.totalCost)) return false;
-
-    this.ledger.spend(chain.totalCost);
-    chain.funded = true;
-
-    for (const segment of chain.segments) {
-      const corp = this.findCorp(segment.corpId);
-      if (corp) {
-        corp.activate(this.currentTick);
-      }
-    }
-
-    return true;
   }
 
   /**

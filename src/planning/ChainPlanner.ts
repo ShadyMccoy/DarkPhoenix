@@ -365,20 +365,57 @@ export class ChainPlanner {
   }
 
   /**
-   * Find all viable chains (profit > 0)
+   * Find all viable chains (profit > 0) by iteratively building and consuming offers.
+   *
+   * Algorithm:
+   * 1. Find all goals that can mint credits
+   * 2. For each goal, try to build a chain with current offer capacity
+   * 3. Collect all built chains and sort by profit
+   * 4. Take the best chain and consume its matched offers
+   * 5. Repeat from step 2 until no more chains can be built
+   *
+   * This allows multiple chains to share the same goal (e.g., multiple mining
+   * chains feeding the same upgrader) by progressively consuming offer capacity.
    */
   findViableChains(tick: number): Chain[] {
-    const goals = this.findGoals();
-    const chains: Chain[] = [];
+    const allChains: Chain[] = [];
+    const maxIterations = 100; // Safety limit
 
-    for (const goal of goals) {
-      const chain = this.buildChainForGoal(goal, tick);
-      if (chain) {
-        chains.push(chain);
+    for (let i = 0; i < maxIterations; i++) {
+      // Find all goals and try to build chains
+      const goals = this.findGoals();
+      const candidateChains: Array<{ chain: Chain; consumedOffers: ConsumedOffer[] }> = [];
+
+      for (const goal of goals) {
+        const result = this.buildChainWithTracking(goal, tick);
+        if (result) {
+          candidateChains.push(result);
+        }
+      }
+
+      // No more viable chains
+      if (candidateChains.length === 0) {
+        break;
+      }
+
+      // Sort by profit and take the best
+      candidateChains.sort((a, b) => b.chain.profit - a.chain.profit);
+      const best = candidateChains[0];
+
+      // Only add if profitable
+      if (best.chain.profit <= 0) {
+        break;
+      }
+
+      allChains.push(best.chain);
+
+      // Consume the matched offers so they can't be used again
+      for (const consumed of best.consumedOffers) {
+        this.collector.consumeOffer(consumed.offerId, consumed.quantity);
       }
     }
 
-    return filterViable(sortByProfit(chains));
+    return sortByProfit(allChains);
   }
 
   /**
@@ -495,8 +532,86 @@ export class ChainPlanner {
   }
 
   /**
+   * Build a chain for a goal and track which offers are consumed.
+   * Used by iterative chain building to know what to subtract.
+   */
+  private buildChainWithTracking(
+    goal: ChainGoal,
+    tick: number
+  ): { chain: Chain; consumedOffers: ConsumedOffer[] } | null {
+    // Check corp exists in either registry
+    if (!this.hasCorp(goal.corpId)) return null;
+
+    // Get what the goal corp needs
+    const buyOffers = this.getCorpBuys(goal.corpId);
+    if (buyOffers.length === 0) return null;
+
+    // Build chain by tracing inputs
+    const segments: ChainSegment[] = [];
+    const allConsumed: ConsumedOffer[] = [];
+    let success = true;
+    let totalInputCost = 0;
+
+    for (const buyOffer of buyOffers) {
+      const result = this.traceInput(
+        {
+          resource: buyOffer.resource,
+          quantity: buyOffer.quantity,
+          location: goal.position,
+          buyerCorpId: goal.corpId
+        },
+        0,
+        []
+      );
+
+      if (!result.success) {
+        success = false;
+        break;
+      }
+
+      segments.push(...result.segments);
+      allConsumed.push(...result.consumedOffers);
+      totalInputCost += result.cost;
+    }
+
+    if (!success) return null;
+
+    // Calculate actual throughput from consumed offers
+    // For RCL progress, throughput = delivered-energy consumed
+    const deliveredEnergyConsumed = allConsumed
+      .filter(c => c.resource === "delivered-energy")
+      .reduce((sum, c) => sum + c.quantity, 0);
+
+    // If no delivered-energy (shouldn't happen for upgrading), use goal quantity
+    const actualThroughput = deliveredEnergyConsumed > 0 ? deliveredEnergyConsumed : goal.quantity;
+
+    // Add the goal corp's segment with actual throughput
+    const goalMargin = this.getCorpMargin(goal.corpId);
+    const goalType = this.getCorpType(goal.corpId);
+    if (!goalType) return null;
+
+    segments.push(
+      buildSegment(
+        goal.corpId,
+        goalType,
+        goal.resource,
+        actualThroughput, // Use actual throughput, not demand
+        totalInputCost,
+        goalMargin
+      )
+    );
+
+    // Calculate mint value based on ACTUAL throughput, not demand
+    const mintValue = goal.mintValuePerUnit * actualThroughput;
+    const chain = createChain(createChainId(goal.corpId, tick), segments, mintValue);
+
+    return { chain, consumedOffers: allConsumed };
+  }
+
+  /**
    * Trace an input requirement back to its source.
    * When using economic edges, only traverses economically connected nodes.
+   * Tracks all consumed offers for iterative chain building.
    */
   private traceInput(
     requirement: InputRequirement,
@@ -504,7 +619,7 @@ export class ChainPlanner {
     visited: string[]
   ): TraceResult {
     if (depth >= this.maxDepth) {
-      return { success: false, segments: [], cost: 0 };
+      return { success: false, segments: [], cost: 0, consumedOffers: [] };
     }
 
     // Find sell offers for this resource
@@ -534,11 +649,15 @@ export class ChainPlanner {
       // Avoid cycles
       if (visited.includes(sellOffer.corpId)) continue;
 
-      // Check quantity
-      if (sellOffer.quantity < requirement.quantity) continue;
+      // Skip if no quantity available
+      if (sellOffer.quantity <= 0) continue;
 
       // Check corp exists in either registry
       if (!this.hasCorp(sellOffer.corpId)) continue;
+
+      // Use partial fulfillment - take what's available
+      // This allows spawn to provide smaller creeps than requested
+      const fulfilledQuantity = Math.min(sellOffer.quantity, requirement.quantity);
 
       // Calculate effective price including distance
       // Use economic edges if available, otherwise fall back to position-based
@@ -560,25 +679,40 @@ export class ChainPlanner {
 
       if (!sellerType || !sellerPosition) continue;
 
-      if (sellerBuyOffers.length === 0) {
-        // Leaf node (raw production like mining)
+      // Track this offer as consumed
+      const thisConsumed: ConsumedOffer = {
+        offerId: sellOffer.id,
+        corpId: sellOffer.corpId,
+        resource: sellOffer.resource,
+        quantity: fulfilledQuantity
+      };
+
+      // Spawning corps are "origin" nodes - they sell spawn-capacity without
+      // needing their buys fulfilled. Their delivered-energy buy is for extensions
+      // refill but doesn't block spawn-capacity sales.
+      const isOriginCorp = sellerType === "spawning";
+
+      if (sellerBuyOffers.length === 0 || isOriginCorp) {
+        // Leaf/origin node (raw production like spawning)
         const segment = buildSegment(
           sellOffer.corpId,
           sellerType,
           requirement.resource,
-          requirement.quantity,
-          0, // Leaf has no input cost
+          fulfilledQuantity,
+          0, // Origin has no input cost for this chain
           sellerMargin
         );
         return {
           success: true,
           segments: [segment],
-          cost: segment.outputPrice
+          cost: segment.outputPrice,
+          consumedOffers: [thisConsumed]
         };
       }
 
       // Recursive: trace seller's inputs
       const childSegments: ChainSegment[] = [];
+      const childConsumed: ConsumedOffer[] = [];
       let inputCost = 0;
       let allInputsFound = true;
 
@@ -600,6 +734,7 @@ export class ChainPlanner {
         }
 
         childSegments.push(...result.segments);
+        childConsumed.push(...result.consumedOffers);
         inputCost += result.cost;
       }
 
@@ -608,7 +743,7 @@ export class ChainPlanner {
           sellOffer.corpId,
           sellerType,
           requirement.resource,
-          requirement.quantity,
+          fulfilledQuantity,
           inputCost,
           sellerMargin
         );
@@ -616,13 +751,14 @@ export class ChainPlanner {
         return {
           success: true,
           segments: [...childSegments, segment],
-          cost: segment.outputPrice
+          cost: segment.outputPrice,
+          consumedOffers: [...childConsumed, thisConsumed]
         };
       }
     }
 
     // No valid supplier found
-    return { success: false, segments: [], cost: 0 };
+    return { success: false, segments: [], cost: 0, consumedOffers: [] };
   }
 
   /**
@@ -648,6 +784,18 @@ interface TraceResult {
   success: boolean;
   segments: ChainSegment[];
   cost: number;
+  /** Offers consumed by this trace (for iterative chain building) */
+  consumedOffers: ConsumedOffer[];
+}
+
+/**
+ * Record of an offer that was consumed during chain building
+ */
+interface ConsumedOffer {
+  offerId: string;
+  corpId: string;
+  resource: string;
+  quantity: number;
 }
 
 /**
