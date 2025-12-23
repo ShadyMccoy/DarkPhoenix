@@ -30,6 +30,7 @@ describe("Contract", () => {
     startTick: 0,
     delivered: 0,
     paid: 0,
+    creepIds: [],
     ...overrides
   });
 
