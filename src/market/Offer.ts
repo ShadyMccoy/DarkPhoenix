@@ -138,11 +138,69 @@ const ABSTRACT_RESOURCES = new Set([
 ]);
 
 /**
+ * Resources where distance affects effective work time rather than hauling cost.
+ * For these resources, the "landed cost" is based on reduced productivity due to travel.
+ */
+const CREEP_DELIVERY_RESOURCES = new Set([
+  "spawn-capacity",
+]);
+
+/**
+ * Default creep lifetime in ticks (Screeps constant).
+ * Used for landed cost calculations.
+ */
+const CREEP_LIFETIME = 1500;
+
+/**
+ * Calculate the landed cost for creep-based resources (spawn-capacity).
+ *
+ * For creeps, the "landed cost" factors in reduced effective work time due to
+ * travel distance. A creep from a farther spawn spends more time walking and
+ * less time working, so the cost per unit of productive work is higher.
+ *
+ * Formula: landedCost = basePrice * (CREEP_LIFETIME / effectiveWorkTime)
+ *
+ * This scales the price inversely with productivity:
+ * - A creep that walks 100 ticks has 1400 work ticks → 1.07x price multiplier
+ * - A creep that walks 300 ticks has 1200 work ticks → 1.25x price multiplier
+ * - A creep that walks 750 ticks has 750 work ticks → 2.0x price multiplier
+ *
+ * @param basePrice The base spawn-capacity price
+ * @param spawnLocation Where the creep is spawned
+ * @param workLocation Where the creep will work (buyer's location)
+ * @param creepLifetime Optional custom lifetime (default: CREEP_LIFETIME)
+ * @returns The landed cost accounting for travel time penalty
+ */
+export function landedCostForCreep(
+  basePrice: number,
+  spawnLocation: Position,
+  workLocation: Position,
+  creepLifetime: number = CREEP_LIFETIME
+): number {
+  const travelTime = manhattanDistance(spawnLocation, workLocation);
+
+  if (travelTime === Infinity) {
+    return Infinity; // Can't reach the work location
+  }
+
+  const effectiveWorkTime = Math.max(1, creepLifetime - travelTime);
+
+  // Scale price by the productivity loss due to travel
+  // If effectiveWorkTime = creepLifetime, multiplier = 1.0 (no penalty)
+  // If effectiveWorkTime = creepLifetime/2, multiplier = 2.0 (double price)
+  const multiplier = creepLifetime / effectiveWorkTime;
+
+  return basePrice * multiplier;
+}
+
+/**
  * Calculate effective price including distance penalty.
  * Hauling resources costs money, so distant offers are more expensive.
  *
- * Note: Abstract resources (work-ticks, etc.) don't incur hauling costs
- * since they represent labor delivered by creep movement, not physical goods.
+ * Handles three categories of resources:
+ * 1. Abstract resources (work-ticks, etc.) - no distance penalty
+ * 2. Creep delivery resources (spawn-capacity) - travel time penalty
+ * 3. Physical resources (energy) - hauling cost penalty
  *
  * @param offer The sell offer
  * @param buyerLocation Where the buyer needs the resource
@@ -158,6 +216,11 @@ export function effectivePrice(
   // Abstract resources don't require physical hauling
   if (ABSTRACT_RESOURCES.has(offer.resource)) {
     return offer.price;
+  }
+
+  // Creep delivery resources use travel time penalty instead of hauling cost
+  if (CREEP_DELIVERY_RESOURCES.has(offer.resource)) {
+    return landedCostForCreep(offer.price, offer.location, buyerLocation);
   }
 
   const distance = manhattanDistance(offer.location, buyerLocation);

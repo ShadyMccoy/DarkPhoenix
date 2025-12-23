@@ -1,4 +1,4 @@
-import { Offer, Position, effectivePrice } from "../market/Offer";
+import { Offer, Position, effectivePrice, landedCostForCreep } from "../market/Offer";
 import { Corp, CorpType, calculateMargin } from "../corps/Corp";
 import { MintValues, getMintValue } from "../colony/MintValues";
 import {
@@ -344,9 +344,19 @@ export class ChainPlanner {
     return this.navigator.getDistance(fromNodeId, toNodeId, "economic");
   }
 
+  /** Set of creep delivery resources that use travel time penalty */
+  private static readonly CREEP_DELIVERY_RESOURCES = new Set(["spawn-capacity"]);
+
+  /** Default creep lifetime for landed cost calculations */
+  private static readonly CREEP_LIFETIME = 1500;
+
   /**
    * Calculate effective price for an offer using economic edges.
    * Similar to effectivePrice but uses economic distance.
+   *
+   * Handles three categories of resources:
+   * 1. Creep delivery resources (spawn-capacity) - travel time penalty
+   * 2. Physical resources (energy) - hauling cost penalty
    *
    * @param offer - The sell offer
    * @param buyerCorpId - The buying corp's ID
@@ -361,6 +371,15 @@ export class ChainPlanner {
     if (distance === Infinity) {
       return Infinity;
     }
+
+    // Creep delivery resources use travel time penalty instead of hauling cost
+    if (ChainPlanner.CREEP_DELIVERY_RESOURCES.has(offer.resource)) {
+      const effectiveWorkTime = Math.max(1, ChainPlanner.CREEP_LIFETIME - distance);
+      const multiplier = ChainPlanner.CREEP_LIFETIME / effectiveWorkTime;
+      return offer.price * multiplier;
+    }
+
+    // Physical resources use hauling cost
     return offer.price + distance * haulingCostPerTile * offer.quantity;
   }
 
