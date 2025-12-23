@@ -210,6 +210,12 @@ declare global {
      * room's HaulingCorp but don't fulfill contract commitments.
      */
     isMaintenanceHauler?: boolean;
+
+    /**
+     * Target room for scout creeps.
+     * Each scout gets assigned a unique room to explore.
+     */
+    targetRoom?: string;
   }
 }
 

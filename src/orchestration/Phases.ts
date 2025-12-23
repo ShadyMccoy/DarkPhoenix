@@ -380,7 +380,8 @@ function chainsToContracts(chains: Chain[], tick: number): Contract[] {
         duration: CONTRACT_DURATION,
         startTick: tick,
         delivered: 0,
-        paid: 0
+        paid: 0,
+        creepIds: []
       });
     }
   }

@@ -23,7 +23,7 @@ import { SpawningCorpState } from "./CorpState";
 /**
  * Types of creeps that can be spawned
  */
-export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder";
+export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder" | "scout";
 
 /**
  * A queued spawn order from a matched contract
@@ -68,6 +68,13 @@ const DEFAULT_WORK_TICKS_CAPACITY = CREEP_LIFETIME * 5; // 5 WORK parts worth
  * 8 CARRY parts × 25 HAUL per CARRY = 200 HAUL capacity per creep.
  */
 const DEFAULT_HAUL_CAPACITY = HAUL_PER_CARRY * 8; // 8 CARRY parts worth
+
+/**
+ * Default move-ticks capacity per spawn per cycle.
+ * Scouts are cheap (1 MOVE = 50 energy) so capacity is high.
+ * 10 scouts × 1500 ticks = 15000 move-ticks.
+ */
+const DEFAULT_MOVE_TICKS_CAPACITY = CREEP_LIFETIME * 10;
 
 /**
  * Maximum age of a pending order before it expires (in ticks).
@@ -201,6 +208,33 @@ export class SpawningCorp extends Corp {
         resource: "carry-ticks",
         quantity: availableHaulCapacity,
         price: pricePerHaul * availableHaulCapacity,
+        duration: CREEP_LIFETIME,
+        location: this.getPosition()
+      });
+    }
+
+    // Move-ticks offer (for scouts)
+    // Scouts are cheap: 1 MOVE = 50 energy, lifetime = 1500 ticks
+    const pendingMoveTicks = this.pendingOrders
+      .filter(o => o.creepType === "scout")
+      .reduce((sum, order) => sum + order.workTicksRequested, 0);
+
+    const availableMoveTicks = isSpawning
+      ? 0
+      : Math.max(0, DEFAULT_MOVE_TICKS_CAPACITY - pendingMoveTicks);
+
+    if (availableMoveTicks > 0) {
+      // Price per move-tick = MOVE cost / lifetime
+      const costPerMoveTick = BODY_PART_COST.move / CREEP_LIFETIME;
+      const pricePerMoveTick = costPerMoveTick * (1 + this.getMargin());
+
+      offers.push({
+        id: createOfferId(this.id, "move-ticks", Game.time),
+        corpId: this.id,
+        type: "sell",
+        resource: "move-ticks",
+        quantity: availableMoveTicks,
+        price: pricePerMoveTick * availableMoveTicks,
         duration: CREEP_LIFETIME,
         location: this.getPosition()
       });
@@ -368,11 +402,12 @@ export class SpawningCorp extends Corp {
       const name = `${order.creepType}-${order.buyerCorpId.slice(-6)}-${tick}`;
 
       // Map creep type to workType
-      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade" | "build"> = {
+      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
         miner: "harvest",
         hauler: "haul",
         upgrader: "upgrade",
-        builder: "build"
+        builder: "build",
+        scout: "scout"
       };
 
       // Spawn the creep with corpId set to buyer
@@ -397,6 +432,11 @@ export class SpawningCorp extends Corp {
           const haulCapacityProduced = carryParts * HAUL_PER_CARRY;
           this.recordProduction(haulCapacityProduced);
           console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${carryParts} CARRY, ${haulCapacityProduced} HAUL, ${bodyCost} energy)`);
+        } else if (order.creepType === "scout") {
+          const moveParts = body.filter(p => p === MOVE).length;
+          const moveTicksProduced = moveParts * CREEP_LIFETIME;
+          this.recordProduction(moveTicksProduced);
+          console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${moveParts} MOVE, ${bodyCost} energy)`);
         } else {
           const workParts = body.filter(p => p === WORK).length;
           const workTicksProduced = workParts * CREEP_LIFETIME;
@@ -521,6 +561,11 @@ export class SpawningCorp extends Corp {
           body.push(MOVE);
         }
         return body.length > 0 ? body : [WORK, CARRY, MOVE];
+      }
+      case "scout": {
+        // Scouts are minimal: just 1 MOVE part for fast exploration
+        // Cost: 50 energy, lifetime: 1500 ticks
+        return [MOVE];
       }
       default:
         // Fallback: basic worker

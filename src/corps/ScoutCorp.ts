@@ -14,17 +14,17 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position } from "../market/Offer";
+import { Offer, Position, createOfferId } from "../market/Offer";
 import {
-  SCOUT_BODY,
   SCOUT_COST,
-  MAX_SCOUTS,
-  SCOUT_SPAWN_COOLDOWN,
   STALE_THRESHOLD,
   MAX_SCOUT_DISTANCE,
   MAX_INTEL_VALUE,
   VALUE_PER_STALE_TICK,
+  SCOUT_BUDGET_PER_CYCLE,
+  SCOUT_PLANNING_INTERVAL,
 } from "./CorpConstants";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 
 /**
  * Serialized state specific to ScoutCorp
@@ -32,8 +32,7 @@ import {
 export interface SerializedScoutCorp extends SerializedCorp {
   spawnId: string;
   creepNames: string[];
-  lastSpawnAttempt: number;
-  targetRoom: string | null;
+  lastPurchaseTick: number;
   blockedRooms: string[];
 }
 
@@ -53,11 +52,8 @@ export class ScoutCorp extends Corp {
   /** Names of creeps owned by this corp */
   private creepNames: string[] = [];
 
-  /** Last tick we attempted to spawn */
-  private lastSpawnAttempt: number = 0;
-
-  /** Current target room for scouting */
-  private targetRoom: string | null = null;
+  /** Last tick we purchased scouts in the market */
+  private lastPurchaseTick: number = 0;
 
   /** Rooms that are blocked/unreachable */
   private blockedRooms: Set<string> = new Set();
@@ -75,10 +71,106 @@ export class ScoutCorp extends Corp {
   }
 
   /**
-   * Scout doesn't buy anything in the market system.
+   * Scout buys move-ticks from SpawningCorp at planning intervals.
+   *
+   * Budget: ~500 energy per planning cycle (every 5000 ticks).
+   * At 50 energy per scout, this allows up to 10 scouts per cycle.
+   * Only buys if there are stale rooms to explore.
    */
   buys(): Offer[] {
-    return [];
+    const currentTick = Game.time;
+
+    // Only buy at planning intervals
+    if (currentTick - this.lastPurchaseTick < SCOUT_PLANNING_INTERVAL) {
+      return [];
+    }
+
+    // Check if there are stale rooms to scout
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return [];
+
+    const staleRoomCount = this.countStaleRooms(spawn.room.name);
+    if (staleRoomCount === 0) {
+      return [];
+    }
+
+    // Calculate how many scouts we can buy with budget
+    // Budget = 500 energy, scout cost = 50 energy
+    const scoutsNeeded = Math.min(staleRoomCount, Math.floor(SCOUT_BUDGET_PER_CYCLE / SCOUT_COST));
+
+    if (scoutsNeeded <= 0) {
+      return [];
+    }
+
+    // Each scout = 1 MOVE part = 1500 move-ticks (lifetime)
+    const moveTicksPerScout = CREEP_LIFETIME;
+    const totalMoveTicks = scoutsNeeded * moveTicksPerScout;
+
+    // Price: we're willing to pay up to budget for the scouts
+    const pricePerMoveTick = SCOUT_BUDGET_PER_CYCLE / totalMoveTicks;
+
+    // Mark that we've made a purchase request this cycle
+    this.lastPurchaseTick = currentTick;
+
+    return [{
+      id: createOfferId(this.id, "move-ticks", currentTick),
+      corpId: this.id,
+      type: "buy",
+      resource: "move-ticks",
+      quantity: totalMoveTicks,
+      price: pricePerMoveTick * totalMoveTicks,
+      duration: CREEP_LIFETIME,
+      location: this.getPosition()
+    }];
+  }
+
+  /**
+   * Count how many stale rooms are available for scouting.
+   */
+  private countStaleRooms(startRoom: string): number {
+    if (!Memory.roomIntel) {
+      Memory.roomIntel = {};
+    }
+
+    let staleCount = 0;
+    const visited = new Set<string>();
+    const queue: { roomName: string; distance: number }[] = [
+      { roomName: startRoom, distance: 0 },
+    ];
+    visited.add(startRoom);
+
+    while (queue.length > 0) {
+      const { roomName, distance } = queue.shift()!;
+
+      if (roomName !== startRoom) {
+        if (!this.blockedRooms.has(roomName)) {
+          const intel = Memory.roomIntel[roomName];
+          const age = intel ? Game.time - intel.lastVisit : Infinity;
+          if (age >= STALE_THRESHOLD) {
+            staleCount++;
+          }
+        }
+      }
+
+      if (distance >= MAX_SCOUT_DISTANCE) continue;
+
+      const exits = Game.map.describeExits(roomName);
+      if (!exits) continue;
+
+      for (const direction in exits) {
+        const adjacentRoom = exits[direction as ExitKey];
+        if (!adjacentRoom) continue;
+        if (visited.has(adjacentRoom)) continue;
+
+        const status = Game.map.getRoomStatus(adjacentRoom);
+        if (status.status === "closed") continue;
+
+        visited.add(adjacentRoom);
+        queue.push({ roomName: adjacentRoom, distance: distance + 1 });
+      }
+    }
+
+    return staleCount;
   }
 
   /**
@@ -93,7 +185,7 @@ export class ScoutCorp extends Corp {
   }
 
   /**
-   * Main work loop - spawn scouts and run their behavior.
+   * Main work loop - pick up market-spawned scouts and run their behavior.
    */
   work(tick: number): void {
     this.lastActivityTick = tick;
@@ -101,14 +193,12 @@ export class ScoutCorp extends Corp {
     // Clean up dead creeps
     this.creepNames = this.creepNames.filter((name) => Game.creeps[name]);
 
-    // Get spawn
+    // Pick up any creeps spawned for us by SpawningCorp
+    this.pickUpSpawnedCreeps();
+
+    // Get spawn for home room reference
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
-
-    // Try to spawn if we need more scouts
-    if (this.creepNames.length < MAX_SCOUTS) {
-      this.trySpawn(spawn, tick);
-    }
 
     // Run creep behavior
     for (const name of this.creepNames) {
@@ -120,49 +210,98 @@ export class ScoutCorp extends Corp {
   }
 
   /**
-   * Attempt to spawn a new scout creep.
+   * Pick up creeps that were spawned by SpawningCorp for this corp.
+   * SpawningCorp sets memory.corpId to the buyer's ID.
+   * Each scout gets assigned a unique target room.
    */
-  private trySpawn(spawn: StructureSpawn, tick: number): void {
-    // Respect cooldown
-    if (tick - this.lastSpawnAttempt < SCOUT_SPAWN_COOLDOWN) {
-      return;
+  private pickUpSpawnedCreeps(): void {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return;
+
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id && !this.creepNames.includes(name)) {
+        this.creepNames.push(name);
+
+        // Assign a unique target room to this scout
+        const target = this.findStaleRoomExcluding(spawn.room.name, this.getAssignedTargets());
+        if (target) {
+          creep.memory.targetRoom = target;
+          console.log(`[Scout] Picked up market-spawned scout ${name}, assigned to ${target}`);
+        } else {
+          console.log(`[Scout] Picked up market-spawned scout ${name}, no stale rooms available`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get list of rooms already assigned to other scouts.
+   */
+  private getAssignedTargets(): Set<string> {
+    const assigned = new Set<string>();
+    for (const name of this.creepNames) {
+      const creep = Game.creeps[name];
+      if (creep?.memory.targetRoom) {
+        assigned.add(creep.memory.targetRoom);
+      }
+    }
+    return assigned;
+  }
+
+  /**
+   * Find a stale room, excluding rooms already assigned to other scouts.
+   *
+   * TODO: Use the node graph for faster room lookup instead of BFS.
+   * The node graph already has room adjacency info and can quickly find
+   * the oldest nearby room. Scouts should greedily pick rooms based on
+   * staleness, searching from their current position (not spawn).
+   */
+  private findStaleRoomExcluding(startRoom: string, excludeRooms: Set<string>): string | null {
+    if (!Memory.roomIntel) {
+      Memory.roomIntel = {};
     }
 
-    // Check if spawn is busy
-    if (spawn.spawning) {
-      return;
+    const visited = new Set<string>();
+    const queue: { roomName: string; distance: number }[] = [
+      { roomName: startRoom, distance: 0 },
+    ];
+    visited.add(startRoom);
+
+    while (queue.length > 0) {
+      const { roomName, distance } = queue.shift()!;
+
+      if (roomName !== startRoom) {
+        if (this.blockedRooms.has(roomName)) continue;
+        if (excludeRooms.has(roomName)) continue;
+
+        const intel = Memory.roomIntel[roomName];
+        const age = intel ? Game.time - intel.lastVisit : Infinity;
+
+        if (age >= STALE_THRESHOLD) {
+          return roomName;
+        }
+      }
+
+      if (distance >= MAX_SCOUT_DISTANCE) continue;
+
+      const exits = Game.map.describeExits(roomName);
+      if (!exits) continue;
+
+      for (const direction in exits) {
+        const adjacentRoom = exits[direction as ExitKey];
+        if (!adjacentRoom) continue;
+        if (visited.has(adjacentRoom)) continue;
+
+        const status = Game.map.getRoomStatus(adjacentRoom);
+        if (status.status === "closed") continue;
+
+        visited.add(adjacentRoom);
+        queue.push({ roomName: adjacentRoom, distance: distance + 1 });
+      }
     }
 
-    // Check energy
-    if (spawn.store[RESOURCE_ENERGY] < SCOUT_COST) {
-      return;
-    }
-
-    // Only spawn if we have a stale room to scout
-    const target = this.findStaleRoom(spawn.room.name);
-    if (!target) {
-      return;
-    }
-
-    // Generate unique name
-    const name = `scout-${this.id.slice(-6)}-${tick}`;
-
-    // Attempt spawn
-    const result = spawn.spawnCreep(SCOUT_BODY, name, {
-      memory: {
-        corpId: this.id,
-        workType: "scout" as const,
-      },
-    });
-
-    this.lastSpawnAttempt = tick;
-
-    if (result === OK) {
-      this.creepNames.push(name);
-      this.targetRoom = target;
-      this.recordCost(SCOUT_COST);
-      console.log(`[Scout] Spawned ${name} to explore ${target}`);
-    }
+    return null;
   }
 
   /**
@@ -226,47 +365,61 @@ export class ScoutCorp extends Corp {
 
   /**
    * Run behavior for a single scout creep.
+   * Each scout has its own target room stored in memory.
    */
   private runCreep(creep: Creep, homeRoom: string): void {
+    const targetRoom = creep.memory.targetRoom as string | undefined;
+
     // If we're in the target room, record intel and find new target
-    if (this.targetRoom && creep.room.name === this.targetRoom && this.targetRoom !== homeRoom) {
+    if (targetRoom && creep.room.name === targetRoom && targetRoom !== homeRoom) {
       const value = this.recordRoomIntel(creep.room);
       this.recordRevenue(value);
-      console.log(`[Scout] ${creep.name} recorded intel for ${this.targetRoom} (value: ${value.toFixed(2)})`);
+      console.log(`[Scout] ${creep.name} recorded intel for ${targetRoom} (value: ${value.toFixed(2)})`);
 
-      // Find next target from current room (not just home)
-      this.targetRoom = this.findStaleRoom(creep.room.name) || this.findStaleRoom(homeRoom);
+      // Find next target from current room, excluding other scouts' targets
+      const excludeRooms = this.getAssignedTargets();
+      excludeRooms.delete(targetRoom); // Allow reassigning our old target to ourselves
+      const newTarget = this.findStaleRoomExcluding(creep.room.name, excludeRooms)
+        || this.findStaleRoomExcluding(homeRoom, excludeRooms);
 
-      if (!this.targetRoom) {
+      if (newTarget) {
+        creep.memory.targetRoom = newTarget;
+      } else {
         // No more stale rooms, return home
-        this.targetRoom = homeRoom;
+        creep.memory.targetRoom = homeRoom;
       }
     }
 
-    // If we're home and have no target, find one
-    if (!this.targetRoom || this.targetRoom === creep.room.name) {
-      this.targetRoom = this.findStaleRoom(homeRoom);
+    // If we have no target or are at target, find one
+    const currentTarget = creep.memory.targetRoom as string | undefined;
+    if (!currentTarget || currentTarget === creep.room.name) {
+      const excludeRooms = this.getAssignedTargets();
+      const newTarget = this.findStaleRoomExcluding(homeRoom, excludeRooms);
 
-      // If still no target, just wait
-      if (!this.targetRoom) {
+      if (newTarget) {
+        creep.memory.targetRoom = newTarget;
+      } else {
+        // No stale rooms, just wait
         return;
       }
     }
 
     // Move toward target room using direct room pathfinding
-    if (creep.room.name !== this.targetRoom) {
-      const targetPos = new RoomPosition(25, 25, this.targetRoom);
+    const finalTarget = creep.memory.targetRoom as string;
+    if (creep.room.name !== finalTarget) {
+      const targetPos = new RoomPosition(25, 25, finalTarget);
       const result = creep.moveTo(targetPos, {
         visualizePathStyle: { stroke: "#00ff00" },
         reusePath: 10,
       });
       if (result === ERR_NO_PATH) {
         // Mark room as blocked and find new target
-        console.log(`[Scout] ${creep.name} can't reach ${this.targetRoom}, marking as blocked`);
-        this.blockedRooms.add(this.targetRoom);
-        this.targetRoom = this.findStaleRoom(homeRoom);
+        console.log(`[Scout] ${creep.name} can't reach ${finalTarget}, marking as blocked`);
+        this.blockedRooms.add(finalTarget);
+        const excludeRooms = this.getAssignedTargets();
+        creep.memory.targetRoom = this.findStaleRoomExcluding(homeRoom, excludeRooms) || undefined;
       } else if (result !== OK && result !== ERR_TIRED) {
-        console.log(`[Scout] ${creep.name} moveTo failed: ${result}, target: ${this.targetRoom}`);
+        console.log(`[Scout] ${creep.name} moveTo failed: ${result}, target: ${finalTarget}`);
       }
     }
   }
@@ -355,13 +508,6 @@ export class ScoutCorp extends Corp {
   }
 
   /**
-   * Get current target room.
-   */
-  getTargetRoom(): string | null {
-    return this.targetRoom;
-  }
-
-  /**
    * Serialize for persistence.
    */
   serialize(): SerializedScoutCorp {
@@ -369,8 +515,7 @@ export class ScoutCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       creepNames: this.creepNames,
-      lastSpawnAttempt: this.lastSpawnAttempt,
-      targetRoom: this.targetRoom,
+      lastPurchaseTick: this.lastPurchaseTick,
       blockedRooms: Array.from(this.blockedRooms),
     };
   }
@@ -381,8 +526,7 @@ export class ScoutCorp extends Corp {
   deserialize(data: SerializedScoutCorp): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
-    this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
-    this.targetRoom = data.targetRoom || null;
+    this.lastPurchaseTick = data.lastPurchaseTick || 0;
     this.blockedRooms = new Set(data.blockedRooms || []);
   }
 }

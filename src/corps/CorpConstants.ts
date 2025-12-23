@@ -113,6 +113,18 @@ export const EXTENSION_BUILD_PROGRESS = 3000;
 // =============================================================================
 
 /**
+ * Budget for scouting per planning cycle (in energy equivalent).
+ * At 50 energy per scout, this allows ~10 scouts per planning cycle.
+ */
+export const SCOUT_BUDGET_PER_CYCLE = 500;
+
+/**
+ * Planning interval for scout purchases (ticks).
+ * Scouts are bought in bulk at planning time, not continuously.
+ */
+export const SCOUT_PLANNING_INTERVAL = 5000;
+
+/**
  * How old room intel must be before it's worth updating (ticks).
  */
 export const STALE_THRESHOLD = 5000;
