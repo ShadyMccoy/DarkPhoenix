@@ -300,10 +300,8 @@ export class SpawningCorp extends Corp {
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
-      committedWorkTicks: this.committedWorkTicks,
-      committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy,
-      lastPlannedTick: this.lastPlannedTick
+      lastPlannedTick: this.lastPlannedTick,
+      contracts: this.contracts
     };
   }
 

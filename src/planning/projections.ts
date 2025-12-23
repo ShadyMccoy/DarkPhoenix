@@ -30,7 +30,18 @@ import {
   BODY_PART_COST,
   CARRY_CAPACITY
 } from "./EconomicConstants";
-import { calculateMargin } from "../corps/Corp";
+import { calculateMargin, SerializedCorp } from "../corps/Corp";
+import { isActive, remainingQuantity } from "../market/Contract";
+
+/**
+ * Calculate committed sell quantity for a resource from contracts.
+ * This is the remaining quantity to deliver on active sell contracts.
+ */
+function getCommittedSellQuantity(state: SerializedCorp, resource: string, tick: number): number {
+  return (state.contracts || [])
+    .filter(c => c.sellerId === state.id && c.resource === resource && isActive(c, tick))
+    .reduce((sum, c) => sum + remainingQuantity(c), 0);
+}
 
 /**
  * Projection result - buy and sell offers for a corp
@@ -112,8 +123,9 @@ export function projectMining(state: MiningCorpState, tick: number): CorpProject
     const avgTTL = state.actualTotalTTL! / state.activeCreepCount;
     expectedOutput = workParts * HARVEST_RATE * avgTTL;
 
-    // Subtract already-committed energy
-    expectedOutput = Math.max(0, expectedOutput - state.committedEnergy);
+    // Subtract already-committed energy from active sell contracts
+    const committedEnergy = getCommittedSellQuantity(state, "energy", tick);
+    expectedOutput = Math.max(0, expectedOutput - committedEnergy);
   } else if (isRuntime) {
     // Runtime mode but no active creeps
     return { buys: [], sells: [] };
@@ -394,9 +406,10 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
   // Energy transported per lifetime
   let energyTransported = tripsPerLifetime * carryCapacity;
 
-  // Subtract already-committed delivery
+  // Subtract already-committed delivery from active sell contracts
   if (isRuntime) {
-    energyTransported = Math.max(0, energyTransported - state.committedDeliveredEnergy);
+    const committedDelivery = getCommittedSellQuantity(state, "delivered-energy", tick);
+    energyTransported = Math.max(0, energyTransported - committedDelivery);
   }
 
   if (energyTransported <= 0) {

@@ -559,24 +559,20 @@ global.forgiveDebt = (amount: number = 1000) => {
     totalRevenue: number;
     totalCost: number;
     id: string;
-    committedWorkTicks: number;
-    committedEnergy: number;
-    committedDeliveredEnergy: number;
     unitsProduced: number;
     expectedUnitsProduced: number;
     unitsConsumed: number;
     acquisitionCost: number;
+    contracts: unknown[];
   }) => {
     corp.balance = amount;
     corp.totalRevenue = 0;
     corp.totalCost = 0;
-    corp.committedWorkTicks = 0;
-    corp.committedEnergy = 0;
-    corp.committedDeliveredEnergy = 0;
     corp.unitsProduced = 0;
     corp.expectedUnitsProduced = 0;
     corp.unitsConsumed = 0;
     corp.acquisitionCost = 0;
+    corp.contracts = []; // Clear all contracts
     corpsReset++;
   };
 

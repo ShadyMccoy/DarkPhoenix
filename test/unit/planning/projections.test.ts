@@ -249,10 +249,8 @@ describe("projections", () => {
         expectedUnitsProduced: 0,
         unitsConsumed: 0,
         acquisitionCost: 0,
-        committedWorkTicks: 0,
-        committedEnergy: 0,
-        committedDeliveredEnergy: 0,
-        lastPlannedTick: 0
+        lastPlannedTick: 0,
+        contracts: []
       };
       const projection = project(state, 0);
 

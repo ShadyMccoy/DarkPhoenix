@@ -376,8 +376,8 @@ export function processSpawnContracts(
     const creepType = mapCorpTypeToCreepType(buyerCorpType);
     if (!creepType) continue;
 
-    // Record commitment on buyer corp to prevent double-ordering
-    buyerCorp.recordWorkTicksCommitment(contract.quantity);
+    // Contract is already assigned to the buyer corp via Market.matchOffers
+    // No need for separate commitment tracking
 
     if (contract.resource === "carry-ticks") {
       spawningCorp.queueSpawn({

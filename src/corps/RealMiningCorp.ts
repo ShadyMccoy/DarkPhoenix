@@ -144,10 +144,8 @@ export class RealMiningCorp extends Corp {
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
-      committedWorkTicks: this.committedWorkTicks,
-      committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy,
-      lastPlannedTick: this.lastPlannedTick
+      lastPlannedTick: this.lastPlannedTick,
+      contracts: this.contracts
     };
   }
 
@@ -300,8 +298,6 @@ export class RealMiningCorp extends Corp {
       const workParts = creep.getActiveBodyparts(WORK);
       const energyHarvested = workParts * 2;
       this.recordProduction(energyHarvested);
-      // Fulfill energy commitment as we produce
-      this.fulfillEnergyCommitment(energyHarvested);
     }
 
     // Drop energy when full (let haulers pick it up)

@@ -108,10 +108,8 @@ export class RealUpgradingCorp extends Corp {
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
-      committedWorkTicks: this.committedWorkTicks,
-      committedEnergy: this.committedEnergy,
-      committedDeliveredEnergy: this.committedDeliveredEnergy,
-      lastPlannedTick: this.lastPlannedTick
+      lastPlannedTick: this.lastPlannedTick,
+      contracts: this.contracts
     };
   }
 
@@ -186,8 +184,9 @@ export class RealUpgradingCorp extends Corp {
         return sum + (workParts * ttl); // energy consumed over remaining lifespan
       }, 0);
 
-      // Subtract already-committed haul-energy to prevent double-ordering
-      const energyNeeded = energyCapacity - this.committedDeliveredEnergy;
+      // Subtract already-committed haul-energy from buy contracts to prevent double-ordering
+      const committedDeliveredEnergy = this.getCommittedBuyQuantity("haul-energy", Game.time);
+      const energyNeeded = energyCapacity - committedDeliveredEnergy;
 
       if (energyNeeded > 0) {
         const bidPricePerUnit = BASE_ENERGY_VALUE * urgency;
@@ -353,12 +352,7 @@ export class RealUpgradingCorp extends Corp {
 
       if (nearbyDropped.length > 0) {
         const target = nearbyDropped[0];
-        const result = creep.pickup(target);
-        if (result === OK) {
-          // Fulfill delivered-energy commitment as we receive energy
-          const pickedUp = Math.min(target.amount, creep.store.getFreeCapacity());
-          this.fulfillDeliveredEnergyCommitment(pickedUp);
-        }
+        creep.pickup(target);
       }
       // Otherwise just wait - hauler will transfer energy to us
     }
