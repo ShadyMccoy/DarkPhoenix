@@ -267,8 +267,9 @@ export class InvestmentPlanner {
         const position = getStatePosition(state);
         if (!position) continue;
 
-        // Estimate supply chain cost
-        const supplyChainCost = this.estimateSupplyChainCost(corpId);
+        // Estimate supply chain cost PER UNIT (not total)
+        const totalSupplyChainCost = this.estimateSupplyChainCost(corpId);
+        const costPerUnit = offer.quantity > 0 ? totalSupplyChainCost / offer.quantity : totalSupplyChainCost;
         const mintValuePerUnit = this.getMintValueForResource(offer.resource);
 
         // Calculate historical or estimated ROI
@@ -280,8 +281,8 @@ export class InvestmentPlanner {
           position,
           maxThroughput: offer.quantity,
           historicalROI,
-          suggestedRate: suggestInvestmentRate(mintValuePerUnit, supplyChainCost),
-          suggestedBudget: offer.quantity * suggestInvestmentRate(mintValuePerUnit, supplyChainCost),
+          suggestedRate: suggestInvestmentRate(mintValuePerUnit, costPerUnit),
+          suggestedBudget: offer.quantity * suggestInvestmentRate(mintValuePerUnit, costPerUnit),
           supplyChainDepth: this.estimateSupplyChainDepth(corpId)
         });
       }
