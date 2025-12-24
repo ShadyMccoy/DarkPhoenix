@@ -105,11 +105,13 @@ describe("projections", () => {
   });
 
   describe("projectSpawning", () => {
-    it("should not produce buy offers (energy delivered by haulers)", () => {
+    it("should produce buy offer for delivered-energy", () => {
       const state = createSpawningState("spawning-1", "node-1", spawnPos);
       const { buys } = projectSpawning(state, 0);
 
-      expect(buys).to.have.length(0);
+      expect(buys).to.have.length(1);
+      expect(buys[0].resource).to.equal("delivered-energy");
+      expect(buys[0].type).to.equal("buy");
     });
 
     it("should produce sell offer for spawn-capacity", () => {
@@ -187,12 +189,13 @@ describe("projections", () => {
   describe("projectHauling", () => {
     const destPos: Position = { x: 25, y: 30, roomName: "W1N1" };
 
-    it("should buy spawn-capacity", () => {
+    it("should buy energy and spawn-capacity", () => {
       const state = createHaulingState("hauling-1", "node-1", miningCorpId, spawningCorpId, sourcePos, destPos, 100);
       const { buys } = projectHauling(state, 0);
 
-      expect(buys).to.have.length(1);
-      expect(buys[0].resource).to.equal("spawn-capacity");
+      expect(buys).to.have.length(2);
+      expect(buys[0].resource).to.equal("energy");
+      expect(buys[1].resource).to.equal("spawn-capacity");
     });
 
     it("should sell delivered-energy", () => {
@@ -276,7 +279,7 @@ describe("projections", () => {
     it("should collect all buy offers from projections", () => {
       const projections: CorpProjection[] = [
         { buys: [{ id: "1", corpId: "c1", type: "buy", resource: "energy", quantity: 100, price: 0, duration: 100 }], sells: [] },
-        { buys: [{ id: "2", corpId: "c2", type: "buy", resource: "work-ticks", quantity: 200, price: 0, duration: 100 }], sells: [] }
+        { buys: [{ id: "2", corpId: "c2", type: "buy", resource: "spawning", quantity: 200, price: 0, duration: 100 }], sells: [] }
       ];
 
       const buys = collectBuys(projections);
@@ -289,7 +292,7 @@ describe("projections", () => {
     it("should collect all sell offers from projections", () => {
       const projections: CorpProjection[] = [
         { buys: [], sells: [{ id: "1", corpId: "c1", type: "sell", resource: "energy", quantity: 100, price: 10, duration: 100 }] },
-        { buys: [], sells: [{ id: "2", corpId: "c2", type: "sell", resource: "work-ticks", quantity: 200, price: 20, duration: 100 }] }
+        { buys: [], sells: [{ id: "2", corpId: "c2", type: "sell", resource: "spawning", quantity: 200, price: 20, duration: 100 }] }
       ];
 
       const sells = collectSells(projections);

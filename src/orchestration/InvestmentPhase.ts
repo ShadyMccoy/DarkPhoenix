@@ -186,8 +186,8 @@ function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
   }
 
   // Mining corps
-  for (const sourceId in corps.miningCorps) {
-    states.push(corps.miningCorps[sourceId].toCorpState());
+  for (const sourceId in corps.harvestCorps) {
+    states.push(corps.harvestCorps[sourceId].toCorpState());
   }
 
   // Hauling corps

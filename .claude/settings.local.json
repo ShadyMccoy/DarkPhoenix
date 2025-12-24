@@ -44,7 +44,10 @@
       "Bash(git checkout:*)",
       "Bash(npx vitest:*)",
       "Bash(grep:*)",
-      "Bash(npx ts-node:*)"
+      "Bash(npx ts-node:*)",
+      "Bash(git mv:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

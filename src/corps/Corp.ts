@@ -249,6 +249,14 @@ export abstract class Corp {
   }
 
   /**
+   * Remove all contracts with the specified resource types.
+   * Used for cleaning up legacy contracts after resource type migrations.
+   */
+  removeContractsByResource(resources: Set<string>): void {
+    this.contracts = this.contracts.filter(c => !resources.has(c.resource));
+  }
+
+  /**
    * Get active contracts where this corp is the seller.
    */
   getSellContracts(tick: number): Contract[] {
@@ -450,9 +458,30 @@ export abstract class Corp {
 
   /**
    * Perform work for this tick.
-   * Each corp type implements its specific behavior.
+   * @deprecated Use execute() for contract-driven execution
    */
   abstract work(tick: number): void;
+
+  /**
+   * Execute work to fulfill contracts.
+   * Contracts ALWAYS drive the work - no contracts means no work.
+   *
+   * Subclasses should override this to implement contract-driven execution:
+   * - Iterate through contracts where this corp is buyer/seller
+   * - Execute work to fulfill each contract
+   * - Record delivery on contracts as work is done
+   *
+   * Default implementation delegates to work() for backwards compatibility
+   * during migration. New/refactored corps should override this properly.
+   *
+   * @param contracts - Active contracts where this corp is party
+   * @param tick - Current game tick
+   */
+  execute(contracts: Contract[], tick: number): void {
+    this.lastActivityTick = tick;
+    // Backwards compatibility - migrate corps to override this
+    this.work(tick);
+  }
 
   /**
    * Get the primary position for this corp.

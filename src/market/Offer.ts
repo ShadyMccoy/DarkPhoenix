@@ -1,3 +1,5 @@
+import { CreepSpec } from "./Contract";
+
 /**
  * Position in the game world for location-based calculations.
  * Abstract from Screeps RoomPosition.
@@ -38,6 +40,13 @@ export interface Offer {
 
   /** Where the resource is located (for distance calculations) */
   location?: Position;
+
+  /**
+   * Creep specification for spawn resource offers (work-ticks, carry-ticks).
+   * Specifies the type and body configuration the buyer needs.
+   * Carried through to Contract when offer is matched.
+   */
+  creepSpec?: CreepSpec;
 }
 
 /**
@@ -45,12 +54,10 @@ export interface Offer {
  */
 export type ResourceType =
   | "energy"
-  | "work-ticks"
-  | "carry-ticks"
-  | "move-ticks"
+  | "spawning"      // Unified spawn capacity (measured in energy cost)
   | "haul-demand"
-  | "rcl-progress"
-  | "spawn-time";
+  | "haul-energy"   // Delivered energy service
+  | "rcl-progress";
 
 /**
  * HAUL capacity per CARRY part (with 1:1 MOVE on roads).
@@ -129,11 +136,9 @@ export function parseRoomName(
  * These include labor-time resources that are delivered by creep movement.
  */
 const ABSTRACT_RESOURCES = new Set([
-  "work-ticks",
-  "carry-ticks",
-  "move-ticks",
+  "spawning",
   "haul-demand",
-  "spawn-time",
+  "haul-energy",
   "rcl-progress",
 ]);
 

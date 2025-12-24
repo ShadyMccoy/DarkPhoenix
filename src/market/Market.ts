@@ -214,7 +214,7 @@ export class Market {
         // Price = max(seller's ask, buyer's bid) - captures urgency premium
         const tradePricePerUnit = Math.max(sellPricePerUnit, buyPricePerUnit);
 
-        // Create contract
+        // Create contract - pass creepSpec from buyer's offer
         const contract = createContract(
           sellOffer.corpId,
           buyOffer.corpId,
@@ -222,7 +222,10 @@ export class Market {
           tradeQty,
           tradePricePerUnit * tradeQty,
           Math.min(sellOffer.duration, buyOffer.duration),
-          tick
+          tick,
+          999, // maxCreeps default
+          0,   // travelTime default
+          buyOffer.creepSpec // buyer specifies what creep they need
         );
         contracts.push(contract);
 
@@ -349,6 +352,24 @@ export class Market {
   }
 
   /**
+   * Get a specific contract by ID.
+   * This is the source of truth - corps should use this for contract state.
+   */
+  getContract(contractId: string): Contract | undefined {
+    return this.contracts.get(contractId);
+  }
+
+  /**
+   * Update a contract in the central store.
+   * Use this when modifying contract state (e.g., assigning creeps).
+   */
+  updateContract(contract: Contract): void {
+    if (this.contracts.has(contract.id)) {
+      this.contracts.set(contract.id, contract);
+    }
+  }
+
+  /**
    * Get transaction history
    */
   getTransactions(): Transaction[] {
@@ -403,6 +424,38 @@ export class Market {
       ask: lowestAsk === Infinity ? 0 : lowestAsk,
       spread: lowestAsk === Infinity ? 0 : lowestAsk - highestBid
     };
+  }
+
+  /**
+   * Clean up orphaned contracts.
+   * Removes contracts where the sellerId or buyerId no longer exists
+   * in the registered corps. This can happen when corps are recreated
+   * with new IDs after a code push or simulation restart.
+   *
+   * @returns Number of contracts removed
+   */
+  cleanupOrphanedContracts(): number {
+    const corpIds = new Set(this.corps.keys());
+    const orphanedIds: string[] = [];
+
+    for (const [contractId, contract] of this.contracts) {
+      const sellerExists = corpIds.has(contract.sellerId);
+      const buyerExists = corpIds.has(contract.buyerId);
+
+      if (!sellerExists || !buyerExists) {
+        orphanedIds.push(contractId);
+      }
+    }
+
+    for (const id of orphanedIds) {
+      this.contracts.delete(id);
+    }
+
+    if (orphanedIds.length > 0) {
+      console.log(`[Market] Cleaned up ${orphanedIds.length} orphaned contracts`);
+    }
+
+    return orphanedIds.length;
   }
 
   /**

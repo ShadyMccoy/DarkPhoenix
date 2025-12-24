@@ -16,7 +16,7 @@
  * @example
  * const mine: SourceMine = {
  *   sourceId: '5bbcac219099fc01' as Id<Source>,
- *   HarvestPositions: [new RoomPosition(24, 25, 'W1N1')],
+ *   harvestPositions: [new RoomPosition(24, 25, 'W1N1')],
  *   flow: 10,
  *   distanceToSpawn: 15
  * };
@@ -29,7 +29,7 @@ export interface SourceMine {
    * Valid positions adjacent to the source where harvesters can stand.
    * Sorted by distance to spawn (closest first) for optimal assignment.
    */
-  HarvestPositions: RoomPosition[];
+  harvestPositions: RoomPosition[];
 
   /**
    * Expected energy flow rate (energy per tick).

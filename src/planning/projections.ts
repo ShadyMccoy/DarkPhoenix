@@ -113,25 +113,26 @@ const MIN_ENERGY_PRICE = 0.05;
  */
 export function projectMining(state: MiningCorpState, tick: number): CorpProjection {
   // Use actual values if available (runtime), otherwise calculate optimal (planning)
-  const isRuntime = state.actualWorkParts !== undefined && state.actualTotalTTL !== undefined;
+  const hasRuntimeData = state.actualWorkParts !== undefined &&
+    state.actualTotalTTL !== undefined &&
+    state.activeCreepCount !== undefined &&
+    state.activeCreepCount > 0;
 
   let expectedOutput: number;
   let workParts: number;
 
-  if (isRuntime && state.activeCreepCount && state.activeCreepCount > 0) {
-    // Runtime mode: use actual creep data
+  if (hasRuntimeData) {
+    // Runtime mode: use actual creep data for more accurate projections
     workParts = state.actualWorkParts!;
-    const avgTTL = state.actualTotalTTL! / state.activeCreepCount;
+    const avgTTL = state.actualTotalTTL! / state.activeCreepCount!;
     expectedOutput = workParts * HARVEST_RATE * avgTTL;
 
     // Subtract already-committed energy from active sell contracts
     const committedEnergy = getCommittedSellQuantity(state, "energy", tick);
     expectedOutput = Math.max(0, expectedOutput - committedEnergy);
-  } else if (isRuntime) {
-    // Runtime mode but no active creeps
-    return { buys: [], sells: [] };
   } else {
-    // Planning mode: calculate optimal values
+    // Planning mode: calculate optimal values based on source capacity
+    // This is used both for initial planning AND when corps have no creeps yet
     workParts = calculateOptimalWorkParts(state.sourceCapacity);
     const effectiveLifetime = state.spawnPosition
       ? calculateEffectiveWorkTime(state.spawnPosition, state.position)
@@ -289,9 +290,10 @@ export function projectUpgrading(state: UpgradingCorpState, tick: number): CorpP
   // until supply (mining/hauling) is exhausted
   const energyNeeded = UPGRADER_ENERGY_DEMAND;
 
-  // RCL progress = energy consumed (1:1 ratio)
-  // This will be the fulfilled amount, not the demand
-  const rclProgress = energyNeeded;
+  // RCL progress scales with effective lifetime
+  // When upgraders travel far, they have less time to work, producing less output
+  const lifetimeRatio = effectiveLifetime / CREEP_LIFETIME;
+  const rclProgress = Math.floor(energyNeeded * lifetimeRatio);
 
   // Calculate upgrader body cost (WORK + CARRY + MOVE = 200 energy)
   // Scale spawn needs based on how much energy we expect to process
@@ -370,20 +372,21 @@ const MIN_TRANSPORT_FEE = 0.05;
  */
 export function projectHauling(state: HaulingCorpState, tick: number): CorpProjection {
   // Use actual values if available (runtime), otherwise calculate projected (planning)
-  const isRuntime = state.actualCarryCapacity !== undefined && state.actualTotalTTL !== undefined;
+  const hasRuntimeData = state.actualCarryCapacity !== undefined &&
+    state.actualTotalTTL !== undefined &&
+    state.activeCreepCount !== undefined &&
+    state.activeCreepCount > 0;
 
   let carryCapacity: number;
   let effectiveLifetime: number;
 
-  if (isRuntime && state.activeCreepCount && state.activeCreepCount > 0) {
-    // Runtime mode: use actual creep data
+  if (hasRuntimeData) {
+    // Runtime mode: use actual creep data for more accurate projections
     carryCapacity = state.actualCarryCapacity!;
-    effectiveLifetime = state.actualTotalTTL! / state.activeCreepCount;
-  } else if (isRuntime) {
-    // Runtime mode but no active creeps
-    return { buys: [], sells: [] };
+    effectiveLifetime = state.actualTotalTTL! / state.activeCreepCount!;
   } else {
     // Planning mode: use configured capacity
+    // This is used both for initial planning AND when corps have no creeps yet
     carryCapacity = state.carryCapacity;
     effectiveLifetime = state.spawnPosition
       ? calculateEffectiveWorkTime(state.spawnPosition, state.sourcePosition)
@@ -408,7 +411,7 @@ export function projectHauling(state: HaulingCorpState, tick: number): CorpProje
   let energyTransported = tripsPerLifetime * carryCapacity;
 
   // Subtract already-committed delivery from active sell contracts
-  if (isRuntime) {
+  if (hasRuntimeData) {
     const committedDelivery = getCommittedSellQuantity(state, "delivered-energy", tick);
     energyTransported = Math.max(0, energyTransported - committedDelivery);
   }

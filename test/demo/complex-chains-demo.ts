@@ -166,16 +166,15 @@ console.log(`    Hauler input cost:           ${haulerInputCost.toFixed(2)}`);
 // CHAIN 3: Spawning Chain (Multiple Outputs)
 // ============================================================================
 console.log("\n" + "=".repeat(70));
-console.log("CHAIN 3: Spawning Chain (Energy → Creep Body Parts)");
+console.log("CHAIN 3: Spawning Chain (Energy → Creeps)");
 console.log("=".repeat(70));
 console.log(`
-  Spawning converts energy into body parts (work-ticks, haul-demand):
+  Spawning converts energy into creeps:
 
-  Mining → Hauling → Spawning → [work-ticks]  → Miners, Upgraders
-                              → [haul-demand] → Haulers
+  Mining → Hauling → Spawning → [spawning] → Miners, Upgraders, Haulers
 
-  work-ticks: WORK part × lifetime (for miners, upgraders)
-  haul-demand: flow × distance capacity (for haulers)
+  spawning: Unified spawn capacity measured in energy units.
+  CreepSpec on the contract defines what kind of creep to spawn.
 `);
 
 // Build the supply chain to spawner
@@ -192,7 +191,7 @@ const sHaulerMargin = calculateMargin(2000);
 spawnCost = calculatePrice(spawnCost, sHaulerMargin);
 spawnSegments.push(buildSegment("spawn-hauler", "hauling", "energy", 3000, spawnSegments[0].outputPrice, sHaulerMargin));
 
-// Spawning (converts energy to work-ticks)
+// Spawning (converts energy to spawn capacity)
 // Spawning cost: energy for body + spawn time opportunity cost
 const spawnMargin = calculateMargin(3000);
 const bodyEnergyCost = spawnCost; // Energy consumed by spawn
@@ -202,8 +201,8 @@ const spawnOutput = calculatePrice(totalSpawnInput, spawnMargin);
 spawnSegments.push({
   corpId: "spawner",
   corpType: "spawning",
-  resource: "work-ticks",
-  quantity: 1500, // WORK parts * ticks lifetime
+  resource: "spawning",
+  quantity: 550, // Energy cost of creep body
   inputCost: totalSpawnInput,
   margin: spawnMargin,
   outputPrice: spawnOutput
@@ -250,7 +249,7 @@ function buildConstructionChain(structureType: string, mintValue: number): Chain
   // Spawning builder creep
   const s = calculateMargin(2000);
   cost = calculatePrice(cost + 30, s); // +30 for spawn time
-  segs.push(buildSegment("builder-spawn", "spawning", "work-ticks", 500, segs[1].outputPrice + 30, s));
+  segs.push(buildSegment("builder-spawn", "spawning", "spawning", 400, segs[1].outputPrice + 30, s));
 
   // Building
   const b = calculateMargin(0);
@@ -381,7 +380,7 @@ for (let i = 0; i < longChainCorps.length; i++) {
   longCost = calculatePrice(longCost, margin);
 
   const resource = corp.type === "upgrading" ? "rcl-progress" :
-                   corp.type === "spawning" ? "work-ticks" : "energy";
+                   corp.type === "spawning" ? "spawning" : "energy";
 
   longSegments.push({
     corpId: corp.id,

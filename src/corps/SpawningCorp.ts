@@ -10,15 +10,21 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
+import { Offer, Position, HAUL_PER_CARRY } from "../market/Offer";
 import {
   BODY_PART_COST,
   CREEP_LIFETIME,
-  calculateBodyCost,
-  calculateSpawnTime,
 } from "../planning/EconomicConstants";
-import { buildMinerBody, buildHaulerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildMinerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { SpawningCorpState } from "./CorpState";
+import { projectSpawning } from "../planning/projections";
+import {
+  hasPendingRequests,
+  fulfillCreepRequest,
+  Contract,
+  isActive
+} from "../market/Contract";
+import { getMarket } from "../market/Market";
 
 /**
  * Types of creeps that can be spawned
@@ -57,45 +63,6 @@ export interface SerializedSpawningCorp extends SerializedCorp {
 }
 
 /**
- * Default work-ticks capacity per spawn per cycle.
- * Based on typical spawn throughput.
- */
-const DEFAULT_WORK_TICKS_CAPACITY = CREEP_LIFETIME * 5; // 5 WORK parts worth
-
-/**
- * Default carry-ticks capacity per spawn per cycle.
- * Based on typical spawn throughput for haulers.
- * 8 CARRY parts × 25 HAUL per CARRY = 200 HAUL capacity per creep.
- */
-const DEFAULT_HAUL_CAPACITY = HAUL_PER_CARRY * 8; // 8 CARRY parts worth
-
-/**
- * Default move-ticks capacity per spawn per cycle.
- * Scouts are cheap (1 MOVE = 50 energy) so capacity is high.
- * 10 scouts × 1500 ticks = 15000 move-ticks.
- */
-const DEFAULT_MOVE_TICKS_CAPACITY = CREEP_LIFETIME * 10;
-
-/**
- * Maximum age of a pending order before it expires (in ticks).
- * Orders older than this are pruned to prevent queue buildup.
- * Set to ~2 creep lifetimes to give reasonable time for energy recovery.
- */
-const ORDER_EXPIRATION_TICKS = CREEP_LIFETIME * 2; // 3000 ticks
-
-/**
- * Maximum number of pending orders before new orders are rejected.
- * Prevents runaway queue growth when spawn is energy-starved.
- */
-const MAX_PENDING_ORDERS = 10;
-
-/**
- * Energy threshold below which spawn is considered "starving".
- * When starving with pending orders, spawn will prioritize maintenance haulers.
- */
-const ENERGY_STARVATION_THRESHOLD = 200;
-
-/**
  * Minimum ticks stuck before spawning a maintenance hauler.
  * Prevents spawning maintenance haulers too eagerly.
  */
@@ -120,9 +87,6 @@ export class SpawningCorp extends Corp {
   /** ID of the spawn structure */
   private spawnId: string;
 
-  /** Pending spawn orders from matched contracts */
-  private pendingOrders: SpawnOrder[] = [];
-
   /** Energy capacity available for spawning */
   private energyCapacity: number;
 
@@ -143,156 +107,25 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * SpawningCorp sells work-ticks and carry-ticks capacity.
-   * Price is based on amortized spawn cost over lifetime.
+   * SpawningCorp sells spawn-capacity.
+   *
+   * Delegates to projectSpawning() for unified offer calculation.
    */
   sells(): Offer[] {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return [];
-
-    const offers: Offer[] = [];
-
-    // Calculate work-ticks already committed in pending orders
-    const pendingWorkTicks = this.pendingOrders
-      .filter(o => o.creepType !== "hauler")
-      .reduce((sum, order) => sum + order.workTicksRequested, 0);
-
-    // Calculate carry-ticks already committed
-    const pendingHaulDemand = this.pendingOrders
-      .filter(o => o.creepType === "hauler")
-      .reduce((sum, order) => sum + (order.haulDemandRequested ?? 0), 0);
-
-    // Calculate available capacity (subtract pending commitments)
-    const isSpawning = !!spawn.spawning;
-
-    // Work-ticks offer
-    const availableWorkTicks = isSpawning
-      ? 0
-      : Math.max(0, DEFAULT_WORK_TICKS_CAPACITY - pendingWorkTicks);
-
-    if (availableWorkTicks > 0) {
-      // Price per work-tick = spawn cost / lifetime
-      // For a basic worker (WORK + CARRY + MOVE = 200 energy), lifetime = 1500
-      const basicWorkerCost = BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move;
-      const costPerWorkTick = basicWorkerCost / CREEP_LIFETIME;
-      const pricePerWorkTick = costPerWorkTick * (1 + this.getMargin());
-
-      offers.push({
-        id: createOfferId(this.id, "work-ticks", Game.time),
-        corpId: this.id,
-        type: "sell",
-        resource: "work-ticks",
-        quantity: availableWorkTicks,
-        price: pricePerWorkTick * availableWorkTicks,
-        duration: CREEP_LIFETIME,
-        location: this.getPosition()
-      });
-    }
-
-    // Carry-ticks offer (for haulers)
-    const availableHaulCapacity = isSpawning
-      ? 0
-      : Math.max(0, DEFAULT_HAUL_CAPACITY - pendingHaulDemand);
-
-    if (availableHaulCapacity > 0) {
-      // Price per HAUL = (CARRY + MOVE cost) / (HAUL_PER_CARRY × lifetime)
-      // Each CARRY part needs a MOVE part for 1:1 on roads
-      const carryMoveCost = BODY_PART_COST.carry + BODY_PART_COST.move; // 100 energy
-      const costPerHaul = carryMoveCost / (HAUL_PER_CARRY * CREEP_LIFETIME);
-      const pricePerHaul = costPerHaul * (1 + this.getMargin());
-
-      offers.push({
-        id: createOfferId(this.id, "carry-ticks", Game.time),
-        corpId: this.id,
-        type: "sell",
-        resource: "carry-ticks",
-        quantity: availableHaulCapacity,
-        price: pricePerHaul * availableHaulCapacity,
-        duration: CREEP_LIFETIME,
-        location: this.getPosition()
-      });
-    }
-
-    // Move-ticks offer (for scouts)
-    // Scouts are cheap: 1 MOVE = 50 energy, lifetime = 1500 ticks
-    const pendingMoveTicks = this.pendingOrders
-      .filter(o => o.creepType === "scout")
-      .reduce((sum, order) => sum + order.workTicksRequested, 0);
-
-    const availableMoveTicks = isSpawning
-      ? 0
-      : Math.max(0, DEFAULT_MOVE_TICKS_CAPACITY - pendingMoveTicks);
-
-    if (availableMoveTicks > 0) {
-      // Price per move-tick = MOVE cost / lifetime
-      const costPerMoveTick = BODY_PART_COST.move / CREEP_LIFETIME;
-      const pricePerMoveTick = costPerMoveTick * (1 + this.getMargin());
-
-      offers.push({
-        id: createOfferId(this.id, "move-ticks", Game.time),
-        corpId: this.id,
-        type: "sell",
-        resource: "move-ticks",
-        quantity: availableMoveTicks,
-        price: pricePerMoveTick * availableMoveTicks,
-        duration: CREEP_LIFETIME,
-        location: this.getPosition()
-      });
-    }
-
-    return offers;
+    const state = this.toCorpState();
+    const projection = projectSpawning(state, Game.time);
+    return projection.sells;
   }
 
   /**
-   * SpawningCorp doesn't buy through the market.
+   * SpawningCorp buys delivered-energy (for extensions refill).
    *
-   * Energy is delivered to spawn/extensions by haulers as their Priority 1 behavior.
-   * SpawningCorp just waits for spawn.store[RESOURCE_ENERGY] to fill up.
-   * The "cost" of spawning is tracked when we actually spawn (recordCost in work()).
+   * Delegates to projectSpawning() for unified offer calculation.
    */
   buys(): Offer[] {
-    return [];
-  }
-
-  /**
-   * Queue a spawn order from a matched contract.
-   * Returns false if queue is full (order rejected).
-   */
-  queueSpawn(order: SpawnOrder): boolean {
-    // Reject if queue is full to prevent runaway growth
-    if (this.pendingOrders.length >= MAX_PENDING_ORDERS) {
-      console.log(`[Spawning] Order rejected - queue full (${this.pendingOrders.length}/${MAX_PENDING_ORDERS})`);
-      return false;
-    }
-    this.pendingOrders.push(order);
-    return true;
-  }
-
-  /**
-   * Clear all pending orders (emergency reset).
-   * Use when the spawn queue is deadlocked.
-   */
-  clearPendingOrders(): number {
-    const count = this.pendingOrders.length;
-    this.pendingOrders = [];
-    console.log(`[Spawning] Cleared ${count} pending orders from ${this.id}`);
-    return count;
-  }
-
-  /**
-   * Prune expired orders from the queue.
-   * Called at the start of work() to clean up stale orders.
-   */
-  private pruneExpiredOrders(currentTick: number): void {
-    const initialCount = this.pendingOrders.length;
-    this.pendingOrders = this.pendingOrders.filter(order => {
-      const age = currentTick - order.queuedAt;
-      return age < ORDER_EXPIRATION_TICKS;
-    });
-    const prunedCount = initialCount - this.pendingOrders.length;
-    if (prunedCount > 0) {
-      console.log(`[Spawning] Pruned ${prunedCount} expired orders (age > ${ORDER_EXPIRATION_TICKS} ticks)`);
-    }
+    const state = this.toCorpState();
+    const projection = projectSpawning(state, Game.time);
+    return projection.buys;
   }
 
   /**
@@ -322,7 +155,7 @@ export class SpawningCorp extends Corp {
       nodeId: this.nodeId,
       position: this.getPosition(),
       energyCapacity: this.energyCapacity,
-      pendingOrderCount: this.pendingOrders.length,
+      pendingOrderCount: this.getPendingOrderCount(),
       isSpawning,
       balance: this.balance,
       totalRevenue: this.totalRevenue,
@@ -340,15 +173,12 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Main work loop - process pending spawn orders.
-   * Includes self-sustaining logic: if spawn is energy-starved and stuck,
-   * it will spawn maintenance haulers using its own balance.
+   * Main work loop - process contracts with pending spawn requests.
+   * Only spawns when a buyer corp has requested a creep via the contract.
+   * Includes self-sustaining logic for energy starvation recovery.
    */
   work(tick: number): void {
     this.lastActivityTick = tick;
-
-    // Prune expired orders to prevent queue buildup
-    this.pruneExpiredOrders(tick);
 
     // Clean up dead maintenance haulers
     this.maintenanceHaulerNames = this.maintenanceHaulerNames.filter(n => Game.creeps[n]);
@@ -357,51 +187,63 @@ export class SpawningCorp extends Corp {
     if (!spawn || spawn.spawning) return;
 
     const currentEnergy = spawn.store[RESOURCE_ENERGY];
+    const market = getMarket();
 
-    // Check if we're stuck (have orders but can't afford any of them)
-    if (this.pendingOrders.length > 0) {
-      const canAffordAny = this.pendingOrders.some(order => {
-        const body = this.designBodyForOrder(order);
+    // Find contracts with pending requests
+    const contractsWithRequests: Contract[] = [];
+    for (const localContract of this.contracts) {
+      if (localContract.sellerId !== this.id) continue;
+      if (!isActive(localContract, tick)) continue;
+
+      const contract = market.getContract(localContract.id) ?? localContract;
+      if (hasPendingRequests(contract)) {
+        contractsWithRequests.push(contract);
+      }
+    }
+
+    // Check if we're stuck (have pending requests but can't afford any)
+    if (contractsWithRequests.length > 0) {
+      const canAffordAny = contractsWithRequests.some(contract => {
+        const creepType = this.getCreepTypeFromContract(contract);
+        if (!creepType) return false;
+        const body = this.designBodyForContract(contract, creepType);
         const cost = this.calculateBodyCost(body);
         return currentEnergy >= cost;
       });
 
       if (!canAffordAny) {
-        // We're stuck - track how long
         if (this.stuckSince === 0) {
           this.stuckSince = tick;
         }
 
         const ticksStuck = tick - this.stuckSince;
 
-        // If stuck long enough and have enough for a maintenance hauler, spawn one
+        // If stuck long enough, spawn maintenance hauler
         if (ticksStuck >= STARVATION_TICKS_THRESHOLD &&
             currentEnergy >= MIN_MAINTENANCE_HAULER_COST &&
-            this.maintenanceHaulerNames.length < 2) { // Max 2 maintenance haulers
+            this.maintenanceHaulerNames.length < 2) {
           this.spawnMaintenanceHauler(spawn, tick);
           return;
         }
       } else {
-        // Not stuck anymore
         this.stuckSince = 0;
       }
     } else {
       this.stuckSince = 0;
     }
 
-    // Process pending orders - find one we can afford
-    for (let i = 0; i < this.pendingOrders.length; i++) {
-      const order = this.pendingOrders[i];
-      const body = this.designBodyForOrder(order);
+    // Process contracts with pending requests - find one we can afford
+    for (const contract of contractsWithRequests) {
+      const creepType = this.getCreepTypeFromContract(contract);
+      if (!creepType) continue;
+
+      const body = this.designBodyForContract(contract, creepType);
       const bodyCost = this.calculateBodyCost(body);
 
-      // Skip orders we can't afford
       if (currentEnergy < bodyCost) continue;
 
-      // Generate creep name
-      const name = `${order.creepType}-${order.buyerCorpId.slice(-6)}-${tick}`;
+      const name = `${creepType}-${contract.buyerId.slice(-6)}-${tick}`;
 
-      // Map creep type to workType
       const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
         miner: "harvest",
         hauler: "haul",
@@ -410,41 +252,108 @@ export class SpawningCorp extends Corp {
         scout: "scout"
       };
 
-      // Spawn the creep with corpId set to buyer
       const result = spawn.spawnCreep(body, name, {
         memory: {
-          corpId: order.buyerCorpId,
-          workType: workTypeMap[order.creepType],
+          corpId: contract.buyerId,
+          workType: workTypeMap[creepType],
           spawnedBy: this.id,
-          contractId: order.contractId
+          contractId: contract.id
         }
       });
 
       if (result === OK) {
-        // Remove from queue and record cost
-        this.pendingOrders.splice(i, 1);
         this.recordCost(bodyCost);
-        this.stuckSince = 0; // Reset stuck timer on successful spawn
+        this.stuckSince = 0;
 
-        // Track production based on creep type
-        if (order.creepType === "hauler") {
+        // Fulfill the request (assigns creep and decrements pendingRequests)
+        fulfillCreepRequest(contract, name);
+
+        // Track production
+        if (creepType === "hauler") {
           const carryParts = body.filter(p => p === CARRY).length;
           const haulCapacityProduced = carryParts * HAUL_PER_CARRY;
           this.recordProduction(haulCapacityProduced);
-          console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${carryParts} CARRY, ${haulCapacityProduced} HAUL, ${bodyCost} energy)`);
-        } else if (order.creepType === "scout") {
+          console.log(`[Spawning] Fulfilled: ${name} for ${contract.buyerId} (${carryParts} CARRY, ${bodyCost} energy)`);
+        } else if (creepType === "scout") {
           const moveParts = body.filter(p => p === MOVE).length;
           const moveTicksProduced = moveParts * CREEP_LIFETIME;
           this.recordProduction(moveTicksProduced);
-          console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${moveParts} MOVE, ${bodyCost} energy)`);
+          console.log(`[Spawning] Fulfilled: ${name} for ${contract.buyerId} (${moveParts} MOVE, ${bodyCost} energy)`);
         } else {
           const workParts = body.filter(p => p === WORK).length;
           const workTicksProduced = workParts * CREEP_LIFETIME;
           this.recordProduction(workTicksProduced);
-          console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${workParts} WORK, ${bodyCost} energy)`);
+          console.log(`[Spawning] Fulfilled: ${name} for ${contract.buyerId} (${workParts} WORK, ${bodyCost} energy)`);
         }
         return; // Only spawn one per tick
       }
+    }
+  }
+
+  /**
+   * Get creep type from contract's creepSpec.
+   * CreepSpec is required for spawning contracts.
+   */
+  private getCreepTypeFromContract(contract: Contract): SpawnableCreepType | null {
+    if (!contract.creepSpec) {
+      console.log(`[Spawning] Contract ${contract.id} missing creepSpec - cannot spawn`);
+      return null;
+    }
+    return contract.creepSpec.role;
+  }
+
+  /**
+   * Design body for a contract-based spawn request.
+   */
+  private designBodyForContract(
+    contract: Contract,
+    creepType: SpawnableCreepType
+  ): BodyPartConstant[] {
+    const spec = contract.creepSpec;
+
+    switch (creepType) {
+      case "miner": {
+        // Use workParts from spec, or default to 5 (saturates a source)
+        const targetWorkParts = spec?.workParts ?? 5;
+        const result = buildMinerBody(targetWorkParts, this.energyCapacity);
+        return result.body;
+      }
+      case "hauler": {
+        // Use carryParts from spec, or default to 8
+        const targetCarryParts = spec?.carryParts ?? 8;
+        const body: BodyPartConstant[] = [];
+        const maxParts = Math.floor(this.energyCapacity / (BODY_PART_COST.carry + BODY_PART_COST.move));
+        const actualCarryParts = Math.min(targetCarryParts, maxParts, 25);
+        for (let i = 0; i < actualCarryParts; i++) {
+          body.push(CARRY);
+        }
+        for (let i = 0; i < actualCarryParts; i++) {
+          body.push(MOVE);
+        }
+        return body;
+      }
+      case "upgrader": {
+        // Use workParts from spec, or default to 5
+        const targetWorkParts = spec?.workParts ?? 5;
+        const result = buildUpgraderBody(this.energyCapacity, targetWorkParts);
+        return result.body;
+      }
+      case "builder": {
+        // Builders are similar to upgraders
+        const targetWorkParts = spec?.workParts ?? 2;
+        const result = buildUpgraderBody(this.energyCapacity, targetWorkParts);
+        return result.body;
+      }
+      case "scout": {
+        const targetMoveParts = spec?.moveParts ?? 1;
+        const body: BodyPartConstant[] = [];
+        for (let i = 0; i < targetMoveParts; i++) {
+          body.push(MOVE);
+        }
+        return body;
+      }
+      default:
+        return [WORK, CARRY, MOVE];
     }
   }
 
@@ -508,72 +417,6 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Design a creep body for a spawn order.
-   * Body type is determined by creepType and sized by workTicksRequested or haulDemandRequested.
-   */
-  private designBodyForOrder(order: SpawnOrder): BodyPartConstant[] {
-    switch (order.creepType) {
-      case "miner": {
-        // Calculate desired WORK parts from work-ticks
-        // work-ticks = WORK parts × lifetime
-        const desiredWorkParts = Math.max(1, Math.ceil(order.workTicksRequested / CREEP_LIFETIME));
-        const result = buildMinerBody(desiredWorkParts, this.energyCapacity);
-        return result.body;
-      }
-      case "hauler": {
-        // Calculate desired CARRY parts from carry-ticks
-        // carry-ticks = CARRY parts × HAUL_PER_CARRY
-        const haulDemand = order.haulDemandRequested ?? 100;
-        const desiredCarryParts = Math.max(2, Math.ceil(haulDemand / HAUL_PER_CARRY));
-        // Build hauler with 1:1 CARRY:MOVE ratio for full speed on roads
-        const body: BodyPartConstant[] = [];
-        const maxParts = Math.floor(this.energyCapacity / (BODY_PART_COST.carry + BODY_PART_COST.move));
-        const actualCarryParts = Math.min(desiredCarryParts, maxParts, 25); // Max 50 body parts total
-        for (let i = 0; i < actualCarryParts; i++) {
-          body.push(CARRY);
-        }
-        for (let i = 0; i < actualCarryParts; i++) {
-          body.push(MOVE);
-        }
-        return body;
-      }
-      case "upgrader": {
-        const desiredWorkParts = Math.max(1, Math.ceil(order.workTicksRequested / CREEP_LIFETIME));
-        const result = buildUpgraderBody(this.energyCapacity, desiredWorkParts);
-        return result.body;
-      }
-      case "builder": {
-        // Builders need WORK, CARRY, and MOVE in balanced proportions
-        // Each set: 1 WORK + 1 CARRY + 1 MOVE = 200 energy
-        const desiredWorkParts = Math.max(1, Math.ceil(order.workTicksRequested / CREEP_LIFETIME));
-        const setSize = 200; // WORK(100) + CARRY(50) + MOVE(50)
-        const maxSets = Math.floor(this.energyCapacity / setSize);
-        const actualSets = Math.min(desiredWorkParts, maxSets, 16); // Max 48 parts (16 sets)
-
-        const body: BodyPartConstant[] = [];
-        for (let i = 0; i < actualSets; i++) {
-          body.push(WORK);
-        }
-        for (let i = 0; i < actualSets; i++) {
-          body.push(CARRY);
-        }
-        for (let i = 0; i < actualSets; i++) {
-          body.push(MOVE);
-        }
-        return body.length > 0 ? body : [WORK, CARRY, MOVE];
-      }
-      case "scout": {
-        // Scouts are minimal: just 1 MOVE part for fast exploration
-        // Cost: 50 energy, lifetime: 1500 ticks
-        return [MOVE];
-      }
-      default:
-        // Fallback: basic worker
-        return [WORK, CARRY, MOVE];
-    }
-  }
-
-  /**
    * Calculate energy cost of a body.
    */
   private calculateBodyCost(body: BodyPartConstant[]): number {
@@ -591,10 +434,16 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Get number of pending orders.
+   * Get number of pending creep requests across all contracts.
    */
   getPendingOrderCount(): number {
-    return this.pendingOrders.length;
+    let count = 0;
+    for (const contract of this.contracts) {
+      if (contract.sellerId === this.id) {
+        count += contract.pendingRequests;
+      }
+    }
+    return count;
   }
 
   /**
@@ -611,7 +460,7 @@ export class SpawningCorp extends Corp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
-      pendingOrders: this.pendingOrders,
+      pendingOrders: [], // Deprecated - kept for interface compat
       energyCapacity: this.energyCapacity,
       stuckSince: this.stuckSince,
       maintenanceHaulerNames: this.maintenanceHaulerNames
@@ -623,7 +472,7 @@ export class SpawningCorp extends Corp {
    */
   deserialize(data: SerializedSpawningCorp): void {
     super.deserialize(data);
-    this.pendingOrders = data.pendingOrders || [];
+    // pendingOrders deprecated - spawn now uses contract.pendingRequests
     this.energyCapacity = data.energyCapacity || 300;
     this.stuckSince = data.stuckSince || 0;
     this.maintenanceHaulerNames = data.maintenanceHaulerNames || [];

@@ -213,10 +213,11 @@ Energy abundant ← Price falls ← Mining less profitable ← More energy produ
 - [x] Market clearing
 
 ### Phase 2 ✅ Complete (Dec 2024)
-- [x] Spawn time market (`SpawningCorp` sells `work-ticks`)
-- [x] Price-driven spawning decisions (corps buy work-ticks via market)
+- [x] Spawn time market (`SpawningCorp` sells unified `spawning` capacity)
+- [x] Price-driven spawning decisions (corps buy spawning via market)
 - [x] Multi-room offer routing (remote mining "just works")
 - [x] Contract fulfillment via `processSpawnContracts()`
+- [x] CreepSpec-based spawning (buyer specifies role/body via creepSpec)
 
 ### Phase 3
 - [ ] Mineral/boost markets
@@ -265,34 +266,38 @@ Tick 1001:
 
 ### Overview
 
-As of December 2024, spawning is fully market-driven. Corps no longer spawn creeps directly - they buy `work-ticks` from `SpawningCorp` through the market.
+As of December 2024, spawning is fully market-driven. Corps no longer spawn creeps directly - they buy `spawning` capacity from `SpawningCorp` through the market.
+
+**Unified Spawning Resource**: All creep types (miners, haulers, upgraders, scouts, builders) are requested via a single `spawning` resource type. The quantity is measured in energy units (the cost of the creep body). The `creepSpec` on the contract defines what kind of creep to spawn.
 
 ### Key Components
 
 | File | Purpose |
 |------|---------|
-| `src/corps/SpawningCorp.ts` | Manages spawn structures, sells work-ticks, queues spawn orders |
-| `src/corps/RealMiningCorp.ts` | Buys work-ticks via `buys()`, picks up assigned creeps |
-| `src/corps/RealHaulingCorp.ts` | Same pattern - buys work-ticks, picks up creeps |
-| `src/corps/RealUpgradingCorp.ts` | Same pattern - buys work-ticks + delivered-energy |
+| `src/corps/SpawningCorp.ts` | Manages spawn structures, sells spawning capacity, queues spawn orders |
+| `src/corps/HarvestCorp.ts` | Buys spawning via `buys()` with creepSpec for miners |
+| `src/corps/CarryCorp.ts` | Buys spawning with creepSpec for haulers |
+| `src/corps/UpgradingCorp.ts` | Buys spawning with creepSpec for upgraders |
+| `src/corps/ScoutCorp.ts` | Buys spawning with creepSpec for scouts |
+| `src/corps/ConstructionCorp.ts` | Buys spawning with creepSpec for builders |
 | `src/execution/CorpRunner.ts` | `processSpawnContracts()` routes contracts to SpawningCorps |
 
 ### Flow
 
 ```
-1. MiningCorp.buys() → offers to buy "work-ticks"
-2. SpawningCorp.sells() → offers to sell "work-ticks"
-3. runMarketClearing() → matches offers, creates contracts
+1. MiningCorp.buys() → offers to buy "spawning" with creepSpec { role: "miner", workParts: 5 }
+2. SpawningCorp.sells() → offers to sell "spawning" (energy capacity)
+3. runMarketClearing() → matches offers, creates contracts (creepSpec carried through)
 4. processSpawnContracts() → queues spawn order on SpawningCorp
-5. SpawningCorp.work() → spawns creep with memory.corpId = buyerCorpId
-6. MiningCorp.pickupAssignedCreeps() → scans for creeps with matching corpId
+5. SpawningCorp.work() → spawns creep based on creepSpec, sets memory.corpId = buyerCorpId
+6. MiningCorp.execute() → picks up creeps assigned to its contracts
 ```
 
 ### Why This Matters for Remote Mining
 
 With market-driven spawning, room boundaries become invisible:
 
-- A spawn in room A can fulfill a work-ticks contract from a mining corp targeting a source in room B
+- A spawn in room A can fulfill a spawning contract from a mining corp targeting a source in room B
 - The market automatically routes based on price (distance factors into effective price)
 - No special "remote mining" logic needed - it's just economics
 
@@ -354,9 +359,9 @@ If creeps aren't being assigned:
 
 ### Future: Boosted Creeps (Minerals)
 
-The `work-ticks` abstraction is designed for future extension:
+The unified `spawning` resource is designed for future extension:
 
 - Minerals boost body parts (e.g., +100% harvest rate)
-- A boosted WORK part = 2 effective work-ticks per tick
-- SpawningCorp with lab access could offer cheaper effective work-ticks
-- Could introduce `boosted-work-ticks` or price by effectiveness
+- A boosted WORK part = 2x effective productivity
+- SpawningCorp with lab access could offer "boosted" creeps at premium
+- Buyers could specify boost requirements in creepSpec

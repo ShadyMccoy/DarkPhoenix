@@ -31,6 +31,10 @@ describe("Contract", () => {
     delivered: 0,
     paid: 0,
     creepIds: [],
+    maxCreeps: 1,
+    pendingRequests: 0,
+    claimed: 0,
+    travelTime: 0,
     ...overrides
   });
 

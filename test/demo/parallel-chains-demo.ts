@@ -57,7 +57,7 @@ function buildMiningChain(
   // Spawning (dedicated upgrader)
   const sMargin = calculateMargin(5000);
   cost = calculatePrice(cost + 50, sMargin); // +50 spawn time cost
-  segments.push(buildSegment(`${name}-spawn`, "spawning", "work-ticks", 1500, segments[1].outputPrice + 50, sMargin));
+  segments.push(buildSegment(`${name}-spawn`, "spawning", "spawning", 550, segments[1].outputPrice + 50, sMargin));
 
   // Upgrading
   const uMargin = calculateMargin(0);
@@ -226,7 +226,7 @@ function buildChainWithSharedSpawn(name: string, distancePenalty: number): Chain
   // Spawning (SHARED!)
   const sMargin = calculateMargin(5000);
   cost = calculatePrice(cost + 50, sMargin);
-  segments.push(buildSegment("shared-spawn", "spawning", "work-ticks", 1500, segments[1].outputPrice + 50, sMargin));
+  segments.push(buildSegment("shared-spawn", "spawning", "spawning", 550, segments[1].outputPrice + 50, sMargin));
 
   // Upgrading (unique)
   const uMargin = calculateMargin(0);

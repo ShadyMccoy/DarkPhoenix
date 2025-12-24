@@ -287,7 +287,7 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
   telemetry.update(
     colony,
     corps.bootstrapCorps,
-    corps.miningCorps,
+    corps.harvestCorps,
     corps.haulingCorps,
     corps.upgradingCorps,
     corps.scoutCorps,
@@ -340,7 +340,7 @@ global.survey = () => {
   console.log("\n=== Survey Results ===");
   console.log(`Nodes surveyed: ${result.nodesSurveyed}`);
   console.log(`Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`);
-  console.log(`Corps created: ${result.corpsCreated.mining} mining, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`);
+  console.log(`Corps created: ${result.corpsCreated.harvest} harvest, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`);
 };
 
 /**
@@ -400,7 +400,7 @@ global.status = () => {
   console.log(`Active contracts: ${activeContracts.length} / ${contracts.length} total`);
 
   console.log("\n=== Corps ===");
-  console.log(`Mining: ${Object.keys(corps.miningCorps).length}`);
+  console.log(`Mining: ${Object.keys(corps.harvestCorps).length}`);
   console.log(`Hauling: ${Object.keys(corps.haulingCorps).length}`);
   console.log(`Upgrading: ${Object.keys(corps.upgradingCorps).length}`);
   console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
@@ -590,7 +590,6 @@ global.exportNodes = (): string => {
  */
 global.forgiveDebt = (amount: number = 1000) => {
   let corpsReset = 0;
-  let pendingOrdersCleared = 0;
 
   const resetCorp = (corp: {
     balance: number;
@@ -615,8 +614,8 @@ global.forgiveDebt = (amount: number = 1000) => {
   };
 
   // Reset all corp types
-  for (const id in corps.miningCorps) {
-    resetCorp(corps.miningCorps[id]);
+  for (const id in corps.harvestCorps) {
+    resetCorp(corps.harvestCorps[id]);
   }
   for (const id in corps.haulingCorps) {
     resetCorp(corps.haulingCorps[id]);
@@ -632,9 +631,7 @@ global.forgiveDebt = (amount: number = 1000) => {
     // Give SpawningCorp extra balance for maintenance haulers (3x normal)
     // This allows the spawn to self-sustain and break energy starvation
     corps.spawningCorps[id].balance = amount * 3;
-    // Clear pending spawn orders
-    const cleared = corps.spawningCorps[id].clearPendingOrders();
-    pendingOrdersCleared += cleared;
+    // Note: pending requests are now part of contracts, cleared via resetMarket()
   }
 
   // Reset market contracts and transactions
@@ -643,27 +640,31 @@ global.forgiveDebt = (amount: number = 1000) => {
   console.log(`[GodMode] Full market reset complete:`);
   console.log(`  - ${corpsReset} corps reset to balance=${amount}`);
   console.log(`  - SpawningCorps given extra balance=${amount * 3} (for maintenance haulers)`);
-  console.log(`  - ${pendingOrdersCleared} pending spawn orders cleared`);
   console.log(`  - Market contracts and transactions cleared`);
   console.log(`  - All commitment tracking reset`);
 };
 
 /**
- * Clear all pending spawn orders from all SpawningCorps.
+ * Clear all pending spawn requests by resetting contract pendingRequests.
  * Use this to recover from a deadlocked spawn queue.
  * Call from console: `global.clearSpawnQueue()`
  */
 global.clearSpawnQueue = () => {
   let totalCleared = 0;
 
+  // Clear pending requests on all spawn contracts
   for (const id in corps.spawningCorps) {
     const spawningCorp = corps.spawningCorps[id];
-    const cleared = spawningCorp.clearPendingOrders();
-    totalCleared += cleared;
+    for (const contract of spawningCorp.contracts) {
+      if (contract.pendingRequests > 0) {
+        totalCleared += contract.pendingRequests;
+        contract.pendingRequests = 0;
+      }
+    }
   }
 
-  console.log(`[GodMode] Cleared ${totalCleared} pending spawn orders from all SpawningCorps`);
-  console.log(`[GodMode] SpawningCorps can now sell work-ticks again`);
+  console.log(`[GodMode] Cleared ${totalCleared} pending spawn requests from contracts`);
+  console.log(`[GodMode] SpawningCorps can now process new requests`);
 };
 
 /**
@@ -698,7 +699,7 @@ global.marketStatus = () => {
     }
   };
 
-  for (const id in corps.miningCorps) collectOffers(corps.miningCorps[id]);
+  for (const id in corps.harvestCorps) collectOffers(corps.harvestCorps[id]);
   for (const id in corps.haulingCorps) collectOffers(corps.haulingCorps[id]);
   for (const id in corps.upgradingCorps) collectOffers(corps.upgradingCorps[id]);
   for (const id in corps.spawningCorps) collectOffers(corps.spawningCorps[id]);

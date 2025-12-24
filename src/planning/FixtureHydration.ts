@@ -205,7 +205,7 @@ function createCorpStatesWithDependencies(
   let spawningCorpId: string | null = null;
   const sourceCorpIds: Map<string, string> = new Map(); // sourceResourceId -> sourceCorpId
   // Track mining corps for hauling dependency
-  const miningCorps: Array<{ id: string; position: Position; nodeId: string }> = [];
+  const harvestCorps: Array<{ id: string; position: Position; nodeId: string }> = [];
 
   // Pass 1: Create SpawningCorps first
   for (let i = 0; i < fixtureNodes.length; i++) {
@@ -297,7 +297,7 @@ function createCorpStatesWithDependencies(
         corpStates.push(miningState);
 
         // Track for hauling dependency
-        miningCorps.push({ id: miningCorpId, position: sourcePosition, nodeId: node.id });
+        harvestCorps.push({ id: miningCorpId, position: sourcePosition, nodeId: node.id });
       }
     }
   }
@@ -321,7 +321,7 @@ function createCorpStatesWithDependencies(
   // Pass 4: Create HaulingOperations that reference MiningOperations
   // Each mining operation needs a corresponding hauling operation to move energy
   const DEFAULT_CARRY_CAPACITY = 500; // 10 CARRY parts × 50
-  for (const miningCorp of miningCorps) {
+  for (const miningCorp of harvestCorps) {
     const nearestSpawn = findNearestSpawn(miningCorp.position, spawns);
     // Destination: controller if available, otherwise spawn
     const destination = controllerPosition ?? nearestSpawn ?? miningCorp.position;

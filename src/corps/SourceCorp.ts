@@ -15,6 +15,8 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position, createOfferId } from "../market/Offer";
+import { countMiningSpots } from "../analysis/SourceAnalysis";
+import { SOURCE_REGEN_TIME, PLANNING_EPOCH } from "../planning/EconomicConstants";
 
 /**
  * Serialized state specific to SourceCorp
@@ -45,6 +47,15 @@ export class SourceCorp extends Corp {
   /** Number of spots available for mining */
   readonly miningSpots: number;
 
+  /**
+   * Energy produced per planning epoch.
+   * Calculated as: (energyCapacity / regenTime) * PLANNING_EPOCH
+   * For a 3000 capacity source: (3000/300) * 5000 = 50,000 energy
+   */
+  get energyPerEpoch(): number {
+    return (this.energyCapacity / SOURCE_REGEN_TIME) * PLANNING_EPOCH;
+  }
+
   constructor(
     sourceId: string,
     position: Position,
@@ -62,19 +73,17 @@ export class SourceCorp extends Corp {
 
   /**
    * SourceCorp sells access to the energy source.
-   * Quantity is the energy capacity available per regeneration cycle.
+   * Quantity is the total energy available per planning epoch.
    */
   sells(): Offer[] {
-    // Sell access to this source
-    // Price is 0 - it's free to access, but you need miners to harvest
     return [{
       id: createOfferId(this.id, "energy-source", Game.time),
       corpId: this.id,
       type: "sell",
       resource: "energy-source",
-      quantity: this.energyCapacity,
+      quantity: this.energyPerEpoch,
       price: 0, // Free resource, cost is in mining
-      duration: 300, // Regeneration cycle
+      duration: PLANNING_EPOCH,
       location: this.position
     }];
   }
@@ -139,15 +148,14 @@ export class SourceCorp extends Corp {
 
 /**
  * Create a SourceCorp from a game Source object.
+ * Automatically calculates mining spots from terrain.
  */
-export function createSourceCorp(
-  source: Source,
-  miningSpots: number
-): SourceCorp {
+export function createSourceCorp(source: Source): SourceCorp {
   const position: Position = {
     x: source.pos.x,
     y: source.pos.y,
     roomName: source.pos.roomName
   };
+  const miningSpots = countMiningSpots(source);
   return new SourceCorp(source.id, position, source.energyCapacity, miningSpots);
 }

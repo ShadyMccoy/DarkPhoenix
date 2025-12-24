@@ -62,7 +62,7 @@ export interface ColonyStats {
  * 4. Statistics - tracking economic health
  *
  * NOTE: Actual corp execution is handled by CorpRunner in the execution module.
- * Real*Corps (RealMiningCorp, RealHaulingCorp, etc.) are managed via CorpRegistry,
+ * Corps (HarvestCorp, CarryCorp, etc.) are managed via CorpRegistry,
  * not via node.corps. This class provides economic infrastructure (treasury,
  * surveying) but doesn't directly run corps.
  *
@@ -254,7 +254,7 @@ export class Colony {
     // Count corps from registry
     const totalCorps =
       Object.keys(corpRegistry.bootstrapCorps).length +
-      Object.keys(corpRegistry.miningCorps).length +
+      Object.keys(corpRegistry.harvestCorps).length +
       Object.keys(corpRegistry.haulingCorps).length +
       Object.keys(corpRegistry.upgradingCorps).length +
       Object.keys(corpRegistry.scoutCorps).length +
@@ -266,7 +266,7 @@ export class Colony {
     for (const corp of Object.values(corpRegistry.bootstrapCorps)) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.miningCorps)) {
+    for (const corp of Object.values(corpRegistry.harvestCorps)) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
     for (const corp of Object.values(corpRegistry.haulingCorps)) {

@@ -70,20 +70,37 @@ export function analyzeSource(
 
   return {
     sourceId: source.id,
-    HarvestPositions: harvestPositions,
+    harvestPositions,
     flow: 10, // 5 WORK parts = 10 energy/tick (full harvest rate)
     distanceToSpawn,
   };
 }
 
 /**
- * Gets the number of available mining spots for a source.
+ * Counts walkable tiles adjacent to a source.
  *
- * @param sourceMine - The analyzed source configuration
+ * Simpler than analyzeSource() - just counts spots without
+ * needing spawn position for distance sorting.
+ *
+ * @param source - The energy source to analyze
  * @returns Number of positions where miners can stand
  */
-export function getMiningSpots(sourceMine: SourceMine): number {
-  return sourceMine.HarvestPositions.length;
+export function countMiningSpots(source: Source): number {
+  const terrain = source.room.getTerrain();
+  let count = 0;
+
+  for (const offset of ADJACENT_OFFSETS) {
+    const x = source.pos.x + offset.x;
+    const y = source.pos.y + offset.y;
+
+    if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+
+    if (terrain.get(x, y) !== TERRAIN_MASK_WALL) {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 /**

@@ -26,22 +26,22 @@ export {
 } from "./BootstrapCorp";
 
 export {
-  RealMiningCorp,
-  SerializedRealMiningCorp,
-  createRealMiningCorp
-} from "./RealMiningCorp";
+  HarvestCorp,
+  SerializedHarvestCorp,
+  createHarvestCorp
+} from "./HarvestCorp";
 
 export {
-  RealHaulingCorp,
-  SerializedRealHaulingCorp,
-  createRealHaulingCorp
-} from "./RealHaulingCorp";
+  CarryCorp,
+  SerializedCarryCorp,
+  createCarryCorp
+} from "./CarryCorp";
 
 export {
-  RealUpgradingCorp,
-  SerializedRealUpgradingCorp,
-  createRealUpgradingCorp
-} from "./RealUpgradingCorp";
+  UpgradingCorp,
+  SerializedUpgradingCorp,
+  createUpgradingCorp
+} from "./UpgradingCorp";
 
 export {
   ScoutCorp,

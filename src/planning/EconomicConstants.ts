@@ -65,14 +65,25 @@ export const SPAWN_TIME_PER_PART = 3;
 export const SOURCE_REGEN_TIME = 300;
 
 /**
- * Standard source energy capacity (Screeps constant)
+ * Source energy capacity in claimed rooms (Screeps constant)
  */
 export const SOURCE_ENERGY_CAPACITY = 3000;
 
 /**
- * Source energy per tick (capacity / regen time)
+ * Source energy capacity in unclaimed/unowned rooms (Screeps constant)
+ */
+export const SOURCE_ENERGY_CAPACITY_UNCLAIMED = 1500;
+
+/**
+ * Source energy per tick in claimed rooms (capacity / regen time)
  */
 export const SOURCE_ENERGY_PER_TICK = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TIME; // 10 energy/tick
+
+/**
+ * Planning epoch duration in ticks.
+ * This is the time horizon for economic planning and offer calculations.
+ */
+export const PLANNING_EPOCH = 5000;
 
 /**
  * Parse room name to get coordinates.

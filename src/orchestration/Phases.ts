@@ -25,17 +25,18 @@ import { OfferCollector } from "../planning/OfferCollector";
 import { SerializedChain, Chain, deserializeChain, serializeChain } from "../planning/Chain";
 import { Contract } from "../market/Contract";
 import { AnyCorpState } from "../corps/CorpState";
+import { getMarket } from "../market/Market";
 import { Node, NodeResource } from "../nodes/Node";
 import {
-  RealMiningCorp,
-  createRealMiningCorp,
-  SerializedRealMiningCorp,
-  RealHaulingCorp,
-  createRealHaulingCorp,
-  SerializedRealHaulingCorp,
-  RealUpgradingCorp,
-  createRealUpgradingCorp,
-  SerializedRealUpgradingCorp,
+  HarvestCorp,
+  createHarvestCorp,
+  SerializedHarvestCorp,
+  CarryCorp,
+  createCarryCorp,
+  SerializedCarryCorp,
+  UpgradingCorp,
+  createUpgradingCorp,
+  SerializedUpgradingCorp,
   SpawningCorp,
   createSpawningCorp,
   SerializedSpawningCorp,
@@ -65,7 +66,7 @@ export interface InitResult {
   wasNeeded: boolean;
   /** Corps hydrated from memory */
   corpsHydrated: {
-    mining: number;
+    harvest: number;
     hauling: number;
     upgrading: number;
     spawning: number;
@@ -82,7 +83,7 @@ export interface InitResult {
 export function needsInit(corps: CorpRegistry): boolean {
   // Check if any corps exist in the registry
   const hasCorps =
-    Object.keys(corps.miningCorps).length > 0 ||
+    Object.keys(corps.harvestCorps).length > 0 ||
     Object.keys(corps.haulingCorps).length > 0 ||
     Object.keys(corps.upgradingCorps).length > 0 ||
     Object.keys(corps.spawningCorps).length > 0 ||
@@ -107,7 +108,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
   const result: InitResult = {
     wasNeeded: false,
     corpsHydrated: {
-      mining: 0,
+      harvest: 0,
       hauling: 0,
       upgrading: 0,
       spawning: 0,
@@ -125,15 +126,32 @@ export function initCorps(corps: CorpRegistry): InitResult {
   result.wasNeeded = true;
   console.log(`[Init] Hydrating corps from Memory (cache was empty)`);
 
-  // Hydrate mining corps
-  if (Memory.miningCorps) {
-    for (const sourceId in Memory.miningCorps) {
-      const saved = Memory.miningCorps[sourceId];
-      if (saved && !corps.miningCorps[sourceId]) {
-        const miningCorp = new RealMiningCorp(saved.nodeId, saved.spawnId, saved.sourceId);
-        miningCorp.deserialize(saved);
-        corps.miningCorps[sourceId] = miningCorp;
-        result.corpsHydrated.mining++;
+  // Restore Market state first (source of truth for contracts/creep assignments)
+  if (Memory.market) {
+    // Clean up legacy resource types before deserializing
+    const legacyResources = ["work-ticks", "carry-ticks", "move-ticks"];
+    const originalCount = Memory.market.contracts?.length ?? 0;
+    Memory.market.contracts = (Memory.market.contracts ?? []).filter(
+      (c: { resource: string }) => !legacyResources.includes(c.resource)
+    );
+    const removedCount = originalCount - (Memory.market.contracts?.length ?? 0);
+    if (removedCount > 0) {
+      console.log(`[Init] Removed ${removedCount} legacy contracts (work-ticks/carry-ticks/move-ticks)`);
+    }
+
+    getMarket().deserialize(Memory.market);
+    console.log(`[Init] Restored Market with ${Memory.market.contracts?.length ?? 0} contracts`);
+  }
+
+  // Hydrate harvest corps
+  if (Memory.harvestCorps) {
+    for (const sourceId in Memory.harvestCorps) {
+      const saved = Memory.harvestCorps[sourceId];
+      if (saved && !corps.harvestCorps[sourceId]) {
+        const harvestCorp = new HarvestCorp(saved.nodeId, saved.spawnId, saved.sourceId);
+        harvestCorp.deserialize(saved);
+        corps.harvestCorps[sourceId] = harvestCorp;
+        result.corpsHydrated.harvest++;
       }
     }
   }
@@ -143,7 +161,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
     for (const roomName in Memory.haulingCorps) {
       const saved = Memory.haulingCorps[roomName];
       if (saved && !corps.haulingCorps[roomName]) {
-        const haulingCorp = new RealHaulingCorp(saved.nodeId, saved.spawnId);
+        const haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId);
         haulingCorp.deserialize(saved);
         corps.haulingCorps[roomName] = haulingCorp;
         result.corpsHydrated.hauling++;
@@ -156,7 +174,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
     for (const roomName in Memory.upgradingCorps) {
       const saved = Memory.upgradingCorps[roomName];
       if (saved && !corps.upgradingCorps[roomName]) {
-        const upgradingCorp = new RealUpgradingCorp(saved.nodeId, saved.spawnId);
+        const upgradingCorp = new UpgradingCorp(saved.nodeId, saved.spawnId);
         upgradingCorp.deserialize(saved);
         corps.upgradingCorps[roomName] = upgradingCorp;
         result.corpsHydrated.upgrading++;
@@ -217,7 +235,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
   }
 
   const totalHydrated =
-    result.corpsHydrated.mining +
+    result.corpsHydrated.harvest +
     result.corpsHydrated.hauling +
     result.corpsHydrated.upgrading +
     result.corpsHydrated.spawning +
@@ -337,9 +355,9 @@ function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
     states.push(corp.toCorpState());
   }
 
-  // Mining corps
-  for (const sourceId in corps.miningCorps) {
-    const corp = corps.miningCorps[sourceId];
+  // Harvest corps
+  for (const sourceId in corps.harvestCorps) {
+    const corp = corps.harvestCorps[sourceId];
     states.push(corp.toCorpState());
   }
 
@@ -370,6 +388,9 @@ function chainsToContracts(chains: Chain[], tick: number): Contract[] {
       const seller = chain.segments[i];
       const buyer = chain.segments[i + 1];
 
+      // Default maxCreeps: 1 for work-ticks (mining spots), 999 for others
+      const maxCreeps = seller.resource === "work-ticks" ? 1 : 999;
+
       contracts.push({
         id: `${chain.id}-${i}`,
         sellerId: seller.corpId,
@@ -381,7 +402,11 @@ function chainsToContracts(chains: Chain[], tick: number): Contract[] {
         startTick: tick,
         delivered: 0,
         paid: 0,
-        creepIds: []
+        creepIds: [],
+        maxCreeps,
+        pendingRequests: 0,
+        claimed: 0,
+        travelTime: 0 // TODO: Calculate from seller/buyer positions
       });
     }
   }
@@ -494,7 +519,7 @@ export function runExecutionPhase(
  */
 function countCorps(corps: CorpRegistry): number {
   let count = 0;
-  count += Object.keys(corps.miningCorps).length;
+  count += Object.keys(corps.harvestCorps).length;
   count += Object.keys(corps.haulingCorps).length;
   count += Object.keys(corps.upgradingCorps).length;
   count += Object.keys(corps.spawningCorps).length;
@@ -516,7 +541,7 @@ export interface SurveyResult {
   nodesSurveyed: number;
   /** Corps created during survey */
   corpsCreated: {
-    mining: number;
+    harvest: number;
     hauling: number;
     upgrading: number;
     spawning: number;
@@ -552,7 +577,7 @@ export function runSurveyPhase(
 
   const result: SurveyResult = {
     nodesSurveyed: 0,
-    corpsCreated: { mining: 0, hauling: 0, upgrading: 0, spawning: 0 },
+    corpsCreated: { harvest: 0, hauling: 0, upgrading: 0, spawning: 0 },
     resourcesFound: { sources: 0, controllers: 0, spawns: 0 }
   };
 
@@ -581,15 +606,15 @@ export function runSurveyPhase(
       switch (resource.type) {
         case "source":
           result.resourcesFound.sources++;
-          // Create mining corp if not exists
-          if (!corps.miningCorps[resource.id]) {
+          // Create harvest corp if not exists
+          if (!corps.harvestCorps[resource.id]) {
             const source = Game.getObjectById(resource.id as Id<Source>);
             if (source) {
-              const miningCorp = createRealMiningCorp(room, spawn, source);
-              miningCorp.createdAt = tick;
-              corps.miningCorps[resource.id] = miningCorp;
-              result.corpsCreated.mining++;
-              console.log(`[Survey] Created MiningCorp for source ${resource.id.slice(-4)}`);
+              const harvestCorp = createHarvestCorp(room, spawn, source);
+              harvestCorp.createdAt = tick;
+              corps.harvestCorps[resource.id] = harvestCorp;
+              result.corpsCreated.harvest++;
+              console.log(`[Survey] Created HarvestCorp for source ${resource.id.slice(-4)}`);
             }
           }
           break;
@@ -621,7 +646,7 @@ export function runSurveyPhase(
 
       // Create hauling corp if not exists
       if (!corps.haulingCorps[node.roomName]) {
-        const haulingCorp = createRealHaulingCorp(room, spawn);
+        const haulingCorp = createCarryCorp(room, spawn);
         haulingCorp.createdAt = tick;
         corps.haulingCorps[node.roomName] = haulingCorp;
         result.corpsCreated.hauling++;
@@ -630,7 +655,7 @@ export function runSurveyPhase(
 
       // Create upgrading corp if not exists
       if (!corps.upgradingCorps[node.roomName]) {
-        const upgradingCorp = createRealUpgradingCorp(room, spawn);
+        const upgradingCorp = createUpgradingCorp(room, spawn);
         upgradingCorp.createdAt = tick;
         corps.upgradingCorps[node.roomName] = upgradingCorp;
         result.corpsCreated.upgrading++;
@@ -640,7 +665,7 @@ export function runSurveyPhase(
   }
 
   console.log(`[Survey] Surveyed ${result.nodesSurveyed} nodes, created ${
-    result.corpsCreated.mining + result.corpsCreated.hauling +
+    result.corpsCreated.harvest + result.corpsCreated.hauling +
     result.corpsCreated.upgrading + result.corpsCreated.spawning
   } corps`);
 

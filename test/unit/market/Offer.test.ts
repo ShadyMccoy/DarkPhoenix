@@ -307,12 +307,12 @@ describe("Offer", () => {
       expect(result).to.be.closeTo(321.43, 0.1);
     });
 
-    it("should not add penalty for abstract resources like work-ticks", () => {
+    it("should not add penalty for abstract resources like spawning", () => {
       const offer: Offer = {
         id: "test",
         corpId: "corp1",
         type: "sell",
-        resource: "work-ticks",
+        resource: "spawning",
         quantity: 1000,
         price: 100,
         duration: 1500,
@@ -361,7 +361,7 @@ describe("Offer", () => {
         id: "sell1",
         corpId: "corp2",
         type: "sell",
-        resource: "work-ticks",
+        resource: "spawning",
         quantity: 100,
         price: 60,
         duration: 100
@@ -395,7 +395,7 @@ describe("Offer", () => {
   describe("createOfferId()", () => {
     it("should create unique IDs", () => {
       const id1 = createOfferId("corp1", "energy", 1000);
-      const id2 = createOfferId("corp1", "work-ticks", 1000);
+      const id2 = createOfferId("corp1", "spawning", 1000);
       const id3 = createOfferId("corp1", "energy", 1001);
 
       expect(id1).to.not.equal(id2);

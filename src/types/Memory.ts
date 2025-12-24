@@ -11,11 +11,12 @@ import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 import { SerializedChain } from "../planning/Chain";
 import { Contract } from "../market/Contract";
+import { Transaction } from "../market/Market";
 import {
   SerializedBootstrapCorp,
-  SerializedRealMiningCorp,
-  SerializedRealHaulingCorp,
-  SerializedRealUpgradingCorp,
+  SerializedHarvestCorp,
+  SerializedCarryCorp,
+  SerializedUpgradingCorp,
   SerializedScoutCorp,
   SerializedConstructionCorp,
   SerializedSpawningCorp,
@@ -115,19 +116,19 @@ declare global {
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
 
     /**
-     * Serialized mining corps by source ID.
+     * Serialized harvest corps by source ID.
      */
-    miningCorps?: { [sourceId: string]: SerializedRealMiningCorp };
+    harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
 
     /**
      * Serialized hauling corps by room name.
      */
-    haulingCorps?: { [roomName: string]: SerializedRealHaulingCorp };
+    haulingCorps?: { [roomName: string]: SerializedCarryCorp };
 
     /**
      * Serialized upgrading corps by room name.
      */
-    upgradingCorps?: { [roomName: string]: SerializedRealUpgradingCorp };
+    upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
 
     /**
      * Serialized scout corps by room name.
@@ -143,6 +144,15 @@ declare global {
      * Serialized spawning corps by spawn ID.
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
+
+    /**
+     * Serialized market state (central contract store).
+     * This is the source of truth for contract state including creep assignments.
+     */
+    market?: {
+      contracts: Contract[];
+      transactions: Transaction[];
+    };
   }
 
   /**

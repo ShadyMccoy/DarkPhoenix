@@ -348,7 +348,7 @@ export class Telemetry {
   update(
     colony: Colony | undefined,
     bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
-    miningCorps: { [sourceId: string]: CreepTrackingCorp },
+    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
@@ -370,7 +370,7 @@ export class Telemetry {
     if (!shouldUpdate) return;
 
     // Update core telemetry (always)
-    this.updateCoreTelemetry(colony, bootstrapCorps, miningCorps, haulingCorps, upgradingCorps, scoutCorps, constructionCorps);
+    this.updateCoreTelemetry(colony, bootstrapCorps, harvestCorps, haulingCorps, upgradingCorps, scoutCorps, constructionCorps);
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
@@ -382,13 +382,13 @@ export class Telemetry {
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(miningCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
+    this.updateCorpsTelemetry(harvestCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
 
     // Update chains telemetry
     this.updateChainsTelemetry(colony);
 
     // Update market telemetry
-    this.updateMarketTelemetry(miningCorps, haulingCorps, upgradingCorps, spawningCorps);
+    this.updateMarketTelemetry(harvestCorps, haulingCorps, upgradingCorps, spawningCorps);
   }
 
   /**
@@ -397,7 +397,7 @@ export class Telemetry {
   private updateCoreTelemetry(
     colony: Colony | undefined,
     bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
-    miningCorps: { [sourceId: string]: CreepTrackingCorp },
+    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
@@ -414,8 +414,8 @@ export class Telemetry {
     for (const roomName in bootstrapCorps) {
       bootstrapCount += bootstrapCorps[roomName].getCreepCount();
     }
-    for (const sourceId in miningCorps) {
-      minerCount += miningCorps[sourceId].getCreepCount();
+    for (const sourceId in harvestCorps) {
+      minerCount += harvestCorps[sourceId].getCreepCount();
     }
     for (const roomName in haulingCorps) {
       haulerCount += haulingCorps[roomName].getCreepCount();
@@ -679,7 +679,7 @@ export class Telemetry {
    * Updates corps telemetry (Segment 4).
    */
   private updateCorpsTelemetry(
-    miningCorps: { [sourceId: string]: CreepTrackingCorp },
+    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     constructionCorps: { [roomName: string]: CreepTrackingCorp },
@@ -712,8 +712,8 @@ export class Telemetry {
     };
 
     // Add mining corps
-    for (const sourceId in miningCorps) {
-      const corp = miningCorps[sourceId];
+    for (const sourceId in harvestCorps) {
+      const corp = harvestCorps[sourceId];
       // Extract room from source ID (format is like "xxxxRoomName")
       const roomName = Object.keys(Game.rooms).find(r =>
         Game.rooms[r].find(FIND_SOURCES).some(s => s.id === sourceId)
@@ -833,7 +833,7 @@ export class Telemetry {
    * Shows current offers and recent contracts.
    */
   private updateMarketTelemetry(
-    miningCorps: { [sourceId: string]: CreepTrackingCorp },
+    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
     haulingCorps: { [roomName: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     spawningCorps: { [spawnId: string]: SpawningCorpLike }
@@ -868,7 +868,7 @@ export class Telemetry {
     };
 
     // Collect from all corp types
-    for (const id in miningCorps) collectOffers(miningCorps[id]);
+    for (const id in harvestCorps) collectOffers(harvestCorps[id]);
     for (const id in haulingCorps) collectOffers(haulingCorps[id]);
     for (const id in upgradingCorps) collectOffers(upgradingCorps[id]);
     for (const id in spawningCorps) collectOffers(spawningCorps[id]);

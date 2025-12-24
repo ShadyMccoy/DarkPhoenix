@@ -69,10 +69,10 @@ describe("OfferCollector", () => {
 
     it("should separate offers by resource type", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy"));
-      collector.addOffer(createTestOffer("o2", "sell", "work-ticks"));
+      collector.addOffer(createTestOffer("o2", "sell", "spawning"));
 
       expect(collector.getSellOffers("energy")).to.have.length(1);
-      expect(collector.getSellOffers("work-ticks")).to.have.length(1);
+      expect(collector.getSellOffers("spawning")).to.have.length(1);
     });
   });
 
@@ -84,7 +84,7 @@ describe("OfferCollector", () => {
       corp1.setSells([createTestOffer("o1", "sell", "energy", { corpId: "corp1" })]);
 
       const corp2 = new MockCorp("corp2", "spawning", "node1", pos);
-      corp2.setSells([createTestOffer("o2", "sell", "work-ticks", { corpId: "corp2" })]);
+      corp2.setSells([createTestOffer("o2", "sell", "spawning", { corpId: "corp2" })]);
       corp2.setBuys([createTestOffer("o3", "buy", "energy", { corpId: "corp2" })]);
 
       const nodes: Node[] = [{
@@ -102,7 +102,7 @@ describe("OfferCollector", () => {
 
       expect(collector.getAllOffers()).to.have.length(3);
       expect(collector.getSellOffers("energy")).to.have.length(1);
-      expect(collector.getSellOffers("work-ticks")).to.have.length(1);
+      expect(collector.getSellOffers("spawning")).to.have.length(1);
       expect(collector.getBuyOffers("energy")).to.have.length(1);
     });
 
@@ -157,26 +157,26 @@ describe("OfferCollector", () => {
   describe("getAvailableResources()", () => {
     it("should list all resource types with sell offers", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy"));
-      collector.addOffer(createTestOffer("o2", "sell", "work-ticks"));
-      collector.addOffer(createTestOffer("o3", "buy", "carry-ticks"));
+      collector.addOffer(createTestOffer("o2", "sell", "spawning"));
+      collector.addOffer(createTestOffer("o3", "buy", "haul-energy"));
 
       const available = collector.getAvailableResources();
       expect(available).to.include("energy");
-      expect(available).to.include("work-ticks");
-      expect(available).to.not.include("carry-ticks");
+      expect(available).to.include("spawning");
+      expect(available).to.not.include("haul-energy");
     });
   });
 
   describe("getRequestedResources()", () => {
     it("should list all resource types with buy offers", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy"));
-      collector.addOffer(createTestOffer("o2", "buy", "work-ticks"));
-      collector.addOffer(createTestOffer("o3", "buy", "carry-ticks"));
+      collector.addOffer(createTestOffer("o2", "buy", "spawning"));
+      collector.addOffer(createTestOffer("o3", "buy", "haul-energy"));
 
       const requested = collector.getRequestedResources();
       expect(requested).to.not.include("energy");
-      expect(requested).to.include("work-ticks");
-      expect(requested).to.include("carry-ticks");
+      expect(requested).to.include("spawning");
+      expect(requested).to.include("haul-energy");
     });
   });
 
@@ -230,7 +230,7 @@ describe("OfferCollector", () => {
     it("should filter offers by corp ID", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy", { corpId: "corp1" }));
       collector.addOffer(createTestOffer("o2", "sell", "energy", { corpId: "corp2" }));
-      collector.addOffer(createTestOffer("o3", "buy", "work-ticks", { corpId: "corp1" }));
+      collector.addOffer(createTestOffer("o3", "buy", "spawning", { corpId: "corp1" }));
 
       const corp1Offers = collector.getCorpOffers("corp1");
       expect(corp1Offers).to.have.length(2);
@@ -243,7 +243,7 @@ describe("OfferCollector", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy", { quantity: 100 }));
       collector.addOffer(createTestOffer("o2", "sell", "energy", { quantity: 200 }));
       collector.addOffer(createTestOffer("o3", "buy", "energy", { quantity: 50 }));
-      collector.addOffer(createTestOffer("o4", "sell", "work-ticks", { quantity: 500 }));
+      collector.addOffer(createTestOffer("o4", "sell", "spawning", { quantity: 500 }));
 
       const stats = collector.getStats();
 
@@ -261,13 +261,13 @@ describe("OfferCollector", () => {
   describe("clear()", () => {
     it("should remove all offers", () => {
       collector.addOffer(createTestOffer("o1", "sell", "energy"));
-      collector.addOffer(createTestOffer("o2", "buy", "work-ticks"));
+      collector.addOffer(createTestOffer("o2", "buy", "spawning"));
 
       collector.clear();
 
       expect(collector.getAllOffers()).to.have.length(0);
       expect(collector.getSellOffers("energy")).to.have.length(0);
-      expect(collector.getBuyOffers("work-ticks")).to.have.length(0);
+      expect(collector.getBuyOffers("spawning")).to.have.length(0);
     });
   });
 });
