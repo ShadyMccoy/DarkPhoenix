@@ -226,6 +226,12 @@ declare global {
      * Each scout gets assigned a unique room to explore.
      */
     targetRoom?: string;
+
+    /**
+     * Assigned source ID for hauler creeps.
+     * Used to prevent thrashing by giving each hauler a stable route.
+     */
+    assignedSourceId?: string;
   }
 }
 

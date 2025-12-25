@@ -225,13 +225,87 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Check how much energy is waiting to be picked up (dropped + containers).
+   * Used to determine if we need more haulers.
+   */
+  private getAvailableEnergyForPickup(): number {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return 0;
+
+    const room = spawn.room;
+    let available = 0;
+
+    // Count dropped energy
+    const dropped = room.find(FIND_DROPPED_RESOURCES, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY,
+    });
+    for (const d of dropped) {
+      available += d.amount;
+    }
+
+    // Count energy in containers (near sources)
+    const containers = room.find(FIND_STRUCTURES, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+    }) as StructureContainer[];
+    for (const c of containers) {
+      available += c.store[RESOURCE_ENERGY];
+    }
+
+    return available;
+  }
+
+  /**
+   * Get current hauler carry capacity.
+   */
+  private getCurrentCarryCapacity(): number {
+    const creeps = this.getAssignedCreeps();
+    let capacity = 0;
+    for (const creep of creeps) {
+      capacity += creep.store.getCapacity();
+    }
+
+    // Also count maintenance haulers
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (spawn) {
+      for (const name in Game.creeps) {
+        const creep = Game.creeps[name];
+        if (creep.memory.corpId === this.nodeId && creep.memory.workType === "haul") {
+          if (!creeps.some(c => c.name === creep.name)) {
+            capacity += creep.store.getCapacity();
+          }
+        }
+      }
+    }
+
+    return capacity;
+  }
+
+  /**
    * Carry corp buys energy and spawn-capacity.
    *
    * Delegates to projectHauling() for unified offer calculation.
+   * IMPORTANT: Pauses spawn requests if there's no energy to haul,
+   * or if current hauler capacity exceeds available energy.
    */
   buys(): Offer[] {
     const state = this.toCorpState();
     const projection = projectHauling(state, Game.time);
+
+    // Check if we should pause requesting more haulers
+    const availableEnergy = this.getAvailableEnergyForPickup();
+    const currentCapacity = this.getCurrentCarryCapacity();
+
+    // If we have more capacity than energy waiting, don't request more haulers
+    // Allow some buffer (2x) to account for continuous mining
+    const energyThreshold = currentCapacity * 2;
+
+    if (availableEnergy < energyThreshold && currentCapacity > 0) {
+      // We have enough haulers - only return energy buy offers, not spawn-capacity
+      return projection.buys.filter(offer => offer.resource !== "spawn-capacity");
+    }
+
     return projection.buys;
   }
 
@@ -374,50 +448,90 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Get or assign a source for this hauler.
+   * Uses creep memory to persist assignment across ticks.
+   * Distributes haulers across sources based on their index.
+   */
+  private getAssignedSource(creep: Creep, sources: Source[]): Source | null {
+    if (sources.length === 0) return null;
+
+    // Check if creep already has an assigned source
+    if (creep.memory.assignedSourceId) {
+      const assigned = Game.getObjectById(creep.memory.assignedSourceId as Id<Source>);
+      if (assigned) return assigned;
+      // Source no longer exists, clear assignment
+      delete creep.memory.assignedSourceId;
+    }
+
+    // Assign this creep to a source
+    // Get all haulers assigned to this corp
+    const allHaulers = this.getAssignedCreeps();
+    const myIndex = allHaulers.findIndex(c => c.name === creep.name);
+
+    // Distribute haulers round-robin across sources
+    const sourceIndex = myIndex >= 0 ? myIndex % sources.length : 0;
+    const assignedSource = sources[sourceIndex];
+
+    creep.memory.assignedSourceId = assignedSource.id;
+    return assignedSource;
+  }
+
+  /**
    * Pick up energy from the ground or containers.
+   * Haulers are assigned to specific sources to prevent thrashing.
    */
   private pickupEnergy(creep: Creep, room: Room): void {
-    // First try dropped energy (pick up any amount)
+    const sources = room.find(FIND_SOURCES);
+    const assignedSource = this.getAssignedSource(creep, sources);
+
+    // First try dropped energy near assigned source (within range 5)
     const dropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY,
+      filter: (r) => {
+        if (r.resourceType !== RESOURCE_ENERGY) return false;
+        // If we have an assigned source, prefer energy near it
+        if (assignedSource) {
+          return r.pos.getRangeTo(assignedSource) <= 5;
+        }
+        return true;
+      },
     });
 
     if (dropped.length > 0) {
-      const target = creep.pos.findClosestByPath(dropped);
-      if (target) {
-        const result = creep.pickup(target);
-        if (result === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+      // Pick the largest pile near our source instead of closest
+      const target = dropped.reduce((best, curr) =>
+        curr.amount > best.amount ? curr : best
+      );
+      const result = creep.pickup(target);
+      if (result === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
       }
+      return;
     }
 
-    // Then try containers
+    // If no dropped energy near assigned source, check containers near it
     const containers = room.find(FIND_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+      filter: (s) => {
+        if (s.structureType !== STRUCTURE_CONTAINER) return false;
+        if ((s as StructureContainer).store[RESOURCE_ENERGY] === 0) return false;
+        if (assignedSource) {
+          return s.pos.getRangeTo(assignedSource) <= 3;
+        }
+        return true;
+      },
     }) as StructureContainer[];
 
     if (containers.length > 0) {
-      const target = creep.pos.findClosestByPath(containers);
-      if (target) {
-        const result = creep.withdraw(target, RESOURCE_ENERGY);
-        if (result === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+      const target = containers[0]; // Take first container near source
+      const result = creep.withdraw(target, RESOURCE_ENERGY);
+      if (result === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
       }
+      return;
     }
 
-    // If nothing to pick up, move towards sources (where miners drop)
-    const sources = room.find(FIND_SOURCES);
-    if (sources.length > 0) {
-      const source = creep.pos.findClosestByPath(sources);
-      if (source && creep.pos.getRangeTo(source) > 3) {
-        creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
-      }
+    // If nothing to pick up, move towards assigned source (where miners drop)
+    if (assignedSource && creep.pos.getRangeTo(assignedSource) > 3) {
+      creep.moveTo(assignedSource, { visualizePathStyle: { stroke: "#ffaa00" } });
     }
   }
 
