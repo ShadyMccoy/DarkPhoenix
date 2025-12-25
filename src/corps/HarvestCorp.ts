@@ -11,7 +11,6 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Offer, Position } from "../market/Offer";
 import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { MiningCorpState } from "./CorpState";
-import { getMarket } from "../market/Market";
 import { projectMining } from "../planning/projections";
 import {
   Contract,
@@ -70,19 +69,17 @@ export class HarvestCorp extends Corp {
 
   /**
    * Get active creeps assigned to this corp from contracts.
-   * Reads directly from Market's contract store (source of truth).
+   * Contracts are assigned directly by ChainPlanner.
    */
   private getActiveCreeps(): Creep[] {
-    const market = getMarket();
     const creeps: Creep[] = [];
     const seen = new Set<string>();
 
-    // Get creeps from buy contracts (Market is source of truth)
-    for (const localContract of this.contracts) {
-      if (localContract.buyerId !== this.id) continue;
-      if (!isActive(localContract, Game.time)) continue;
+    // Get creeps from buy contracts
+    for (const contract of this.contracts) {
+      if (contract.buyerId !== this.id) continue;
+      if (!isActive(contract, Game.time)) continue;
 
-      const contract = market.getContract(localContract.id) ?? localContract;
       for (const creepName of contract.creepIds) {
         if (seen.has(creepName)) continue;
         seen.add(creepName);
@@ -250,8 +247,6 @@ export class HarvestCorp extends Corp {
     const source = Game.getObjectById(this.sourceId as Id<Source>);
     if (!source) return;
 
-    const market = getMarket();
-
     // Get sell contracts for energy (we sell to haulers)
     const sellContracts = contracts.filter(
       c => c.sellerId === this.id && c.resource === "energy" && isActive(c, tick)
@@ -265,13 +260,10 @@ export class HarvestCorp extends Corp {
     // Execute harvesting for creeps assigned to our buy contracts
     // (creeps we bought from SpawningCorp)
     for (const contract of buyContracts) {
-      // Get the market's authoritative contract copy
-      const marketContract = market.getContract(contract.id) ?? contract;
-
       // Request creeps using the option mechanism
-      this.requestCreepsForContract(marketContract);
+      this.requestCreepsForContract(contract);
 
-      for (const creepName of marketContract.creepIds) {
+      for (const creepName of contract.creepIds) {
         const creep = Game.creeps[creepName];
         if (creep && !creep.spawning) {
           this.runHarvesterForContract(creep, source, sellContracts);
@@ -335,13 +327,9 @@ export class HarvestCorp extends Corp {
 
       // Record delivery on sell contracts
       if (sellContracts.length > 0) {
-        const market = getMarket();
         const perContract = energyHarvested / sellContracts.length;
-        for (const localContract of sellContracts) {
-          const contract = market.getContract(localContract.id);
-          if (contract) {
-            recordDelivery(contract, perContract);
-          }
+        for (const contract of sellContracts) {
+          recordDelivery(contract, perContract);
         }
       }
 

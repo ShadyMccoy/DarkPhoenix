@@ -44,9 +44,6 @@ import {
   runScoutCorps,
   runConstructionCorps,
   runSpawningCorps,
-  registerCorpsWithMarket,
-  runMarketClearing,
-  processSpawnContracts,
   logCorpStats,
   persistState,
   cleanupDeadCreeps,
@@ -55,7 +52,6 @@ import {
   resetAnalysis,
   restoreVisualizationCache,
   runIncrementalAnalysis,
-  MULTI_ROOM_ANALYSIS_CACHE_TTL,
   renderNodeVisuals,
   renderSpatialVisuals,
 } from "./execution";
@@ -64,14 +60,11 @@ import {
   shouldRunPlanning,
   runPlanningPhase,
   runSurveyPhase,
-  getOrchestrationStatus,
   PLANNING_INTERVAL,
   loadContracts,
   loadChains,
   setLastPlanningTick,
   setLastSurveyTick,
-  runInvestmentPhase,
-  getInvestmentSummary,
 } from "./orchestration";
 import "./types/Memory";
 
@@ -96,7 +89,6 @@ declare global {
       survey: () => void;
       plan: () => void;
       status: () => void;
-      invest: () => void;
       // Legacy commands
       recalculateTerrain: () => void;
       resetAnalysis: () => void;
@@ -191,24 +183,13 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // Run the colony economic coordination (surveying, stats)
     colony.run(Game.time, corps);
 
-    // --- INVESTMENT: Allocate capital (forward capital flow) ---
-    // This runs before market clearing to distribute capital to corps
-    // Corps with capital will have limited demand based on their budget
-    const investmentResult = runInvestmentPhase(corps, colony, Game.time);
-
-    // --- MARKET: Register offers and clear market ---
-    registerCorpsWithMarket(corps);
-    const clearingResult = runMarketClearing();
-
-    // Process spawn contracts - routes work-ticks contracts to SpawningCorps
-    processSpawnContracts(clearingResult.contracts, corps);
-
-    // --- PLAN: Find optimal chains ---
+    // --- PLAN: Find optimal chains and assign contracts ---
+    // ChainPlanner finds viable chains, creates contracts, and assigns them to corps
+    // This is the unified economic planning - no separate market clearing needed
     const planningResult = runPlanningPhase(corps, colony, Game.time);
     setLastPlanningTick(Game.time);
 
     console.log(`[Planning] Complete: ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
-    console.log(`[Planning] Investments: ${investmentResult.investments.length}, Capital chains: ${investmentResult.chains.length}`);
   }
 
   // ===========================================================================
@@ -413,35 +394,6 @@ global.status = () => {
     console.log(`Nodes: ${colony.getNodes().length}`);
     console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
   }
-};
-
-/**
- * Show investment status (forward capital flow).
- * Call from console: `global.invest()`
- *
- * Shows:
- * - Active investments and capital allocated
- * - Corps with capital
- * - Portfolio ROI
- */
-global.invest = () => {
-  if (!colony) {
-    console.log("[Investment] No colony exists.");
-    return;
-  }
-
-  const summary = getInvestmentSummary(colony);
-
-  console.log("\n=== Investment Status (Forward Capital Flow) ===");
-  console.log(`Active investments: ${summary.activeInvestments}`);
-  console.log(`Total deployed: ${summary.totalDeployed.toFixed(0)}`);
-  console.log(`Total returns: ${summary.totalReturns.toFixed(0)}`);
-  console.log(`Portfolio ROI: ${(summary.averageROI * 100).toFixed(1)}%`);
-
-  console.log("\n=== Capital Flow Model ===");
-  console.log("Bank → Investments → Goal Corps → Suppliers → Workers");
-  console.log("Capital flows FORWARD from treasury investments");
-  console.log("Throughput is determined by investment allocation");
 };
 
 // -----------------------------------------------------------------------------

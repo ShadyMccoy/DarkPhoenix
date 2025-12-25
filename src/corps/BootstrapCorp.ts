@@ -27,7 +27,7 @@ import {
  * Ticks the spawn must be stuck (no creeps, low energy) before bootstrap activates.
  * This ensures bootstrap is truly a rare fallback, not a regular occurrence.
  */
-const BOOTSTRAP_STARVATION_THRESHOLD = 100;
+const BOOTSTRAP_STARVATION_THRESHOLD = 20;
 
 /**
  * Energy threshold below which we consider the spawn potentially starving.
@@ -135,8 +135,9 @@ export class BootstrapCorp extends Corp {
     const ourCreepNames = new Set(this.creepNames);
     const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
 
-    // If other corps have creeps, reset starvation - we're not needed
-    if (otherCreeps.length > 0) {
+    // Only yield to other corps if they have enough creeps to sustain (3+)
+    // If there are just 1-2 struggling creeps, bootstrap should help
+    if (otherCreeps.length >= 3) {
       this.starvationStartTick = 0;
       // Still run our existing creeps until they die
       for (const name of this.creepNames) {
@@ -148,9 +149,9 @@ export class BootstrapCorp extends Corp {
       return;
     }
 
-    // Check for starvation condition: no other creeps AND low energy
-    const isStarving = spawn.store[RESOURCE_ENERGY] < BOOTSTRAP_ENERGY_THRESHOLD &&
-                       allCreeps.length === 0;
+    // Check for starvation condition: few creeps AND low energy (in room)
+    const isStarving = spawn.room.energyAvailable < BOOTSTRAP_ENERGY_THRESHOLD &&
+                       otherCreeps.length < 3;
 
     if (isStarving) {
       // Start or continue starvation timer
@@ -198,8 +199,8 @@ export class BootstrapCorp extends Corp {
       return;
     }
 
-    // Check energy
-    if (spawn.store[RESOURCE_ENERGY] < JACK_COST) {
+    // Check energy (use room energy to include extensions)
+    if (spawn.room.energyAvailable < JACK_COST) {
       return;
     }
 
@@ -308,8 +309,8 @@ export class BootstrapCorp extends Corp {
     const ourCreepNames = new Set(this.creepNames);
     const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
 
-    // If other corps have creeps, bootstrap has no value
-    if (otherCreeps.length > 0) {
+    // If other corps have enough creeps (3+), bootstrap has no value
+    if (otherCreeps.length >= 3) {
       return 0;
     }
 
@@ -336,8 +337,8 @@ export class BootstrapCorp extends Corp {
     const ourCreepNames = new Set(this.creepNames);
     const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
 
-    // Never activate if other corps have creeps
-    if (otherCreeps.length > 0) return false;
+    // Only yield if other corps have enough creeps (3+) to sustain
+    if (otherCreeps.length >= 3) return false;
 
     // If we have bootstrap creeps, continue working (to finish recovery)
     if (this.creepNames.filter((n) => Game.creeps[n]).length > 0) {

@@ -24,7 +24,6 @@ import {
   Contract,
   isActive
 } from "../market/Contract";
-import { getMarket } from "../market/Market";
 
 /**
  * Types of creeps that can be spawned
@@ -73,6 +72,18 @@ const STARVATION_TICKS_THRESHOLD = 50;
  * 1 CARRY + 1 MOVE = 100 energy
  */
 const MIN_MAINTENANCE_HAULER_COST = 100;
+
+/**
+ * Spawn priority by creep type (lower = higher priority).
+ * Miners are spawned first since they produce energy that everything else needs.
+ */
+const SPAWN_PRIORITY: Record<SpawnableCreepType, number> = {
+  miner: 1,
+  hauler: 2,
+  upgrader: 3,
+  builder: 4,
+  scout: 5
+};
 
 /**
  * SpawningCorp manages a spawn structure and sells work-ticks.
@@ -186,20 +197,27 @@ export class SpawningCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return;
 
-    const currentEnergy = spawn.store[RESOURCE_ENERGY];
-    const market = getMarket();
-
+    const currentEnergy = spawn.room.energyAvailable;
     // Find contracts with pending requests
+    // Contracts are now managed directly via this.contracts (ChainPlanner assigns them)
     const contractsWithRequests: Contract[] = [];
-    for (const localContract of this.contracts) {
-      if (localContract.sellerId !== this.id) continue;
-      if (!isActive(localContract, tick)) continue;
+    for (const contract of this.contracts) {
+      if (contract.sellerId !== this.id) continue;
+      if (!isActive(contract, tick)) continue;
 
-      const contract = market.getContract(localContract.id) ?? localContract;
       if (hasPendingRequests(contract)) {
         contractsWithRequests.push(contract);
       }
     }
+
+    // Sort by spawn priority (miners first, then haulers, etc.)
+    contractsWithRequests.sort((a, b) => {
+      const typeA = this.getCreepTypeFromContract(a);
+      const typeB = this.getCreepTypeFromContract(b);
+      const priorityA = typeA ? SPAWN_PRIORITY[typeA] : 99;
+      const priorityB = typeB ? SPAWN_PRIORITY[typeB] : 99;
+      return priorityA - priorityB;
+    });
 
     // Check if we're stuck (have pending requests but can't afford any)
     if (contractsWithRequests.length > 0) {
@@ -362,7 +380,7 @@ export class SpawningCorp extends Corp {
    * This is paid for by SpawningCorp's own balance to break energy starvation.
    */
   private spawnMaintenanceHauler(spawn: StructureSpawn, tick: number): void {
-    const currentEnergy = spawn.store[RESOURCE_ENERGY];
+    const currentEnergy = spawn.room.energyAvailable;
 
     // Build the biggest hauler we can afford with current energy
     // Each CARRY+MOVE pair costs 100 energy

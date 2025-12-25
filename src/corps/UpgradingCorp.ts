@@ -18,7 +18,6 @@ import {
   requestCreep,
   replacementsNeeded
 } from "../market/Contract";
-import { getMarket } from "../market/Market";
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -53,16 +52,14 @@ export class UpgradingCorp extends Corp {
    * Reads from buy contracts where we purchased spawning capacity.
    */
   private getActiveCreeps(): Creep[] {
-    const market = getMarket();
     const creeps: Creep[] = [];
     const seen = new Set<string>();
 
-    for (const localContract of this.contracts) {
-      if (localContract.buyerId !== this.id) continue;
-      if (localContract.resource !== "spawning") continue;
-      if (!isActive(localContract, Game.time)) continue;
+    for (const contract of this.contracts) {
+      if (contract.buyerId !== this.id) continue;
+      if (contract.resource !== "spawn-capacity") continue;
+      if (!isActive(contract, Game.time)) continue;
 
-      const contract = market.getContract(localContract.id) ?? localContract;
       for (const creepName of contract.creepIds) {
         if (seen.has(creepName)) continue;
         seen.add(creepName);
@@ -202,21 +199,17 @@ export class UpgradingCorp extends Corp {
     const controller = room.controller;
     if (!controller) return;
 
-    const market = getMarket();
-
-    // Get buy contracts for spawning (we buy from SpawningCorp)
+    // Get buy contracts for spawn-capacity (we buy from SpawningCorp)
     const buyContracts = contracts.filter(
-      c => c.buyerId === this.id && c.resource === "spawning" && isActive(c, tick)
+      c => c.buyerId === this.id && c.resource === "spawn-capacity" && isActive(c, tick)
     );
 
     // Execute upgrading for creeps assigned to our buy contracts
     for (const contract of buyContracts) {
-      const marketContract = market.getContract(contract.id) ?? contract;
-
       // Request creeps using the option mechanism
-      this.requestCreepsForContract(marketContract);
+      this.requestCreepsForContract(contract);
 
-      for (const creepName of marketContract.creepIds) {
+      for (const creepName of contract.creepIds) {
         const creep = Game.creeps[creepName];
         if (creep && !creep.spawning) {
           this.runUpgrader(creep, room, controller);

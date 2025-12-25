@@ -23,7 +23,6 @@ import {
   requestCreep,
   replacementsNeeded
 } from "../market/Contract";
-import { getMarket } from "../market/Market";
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
@@ -268,6 +267,7 @@ export class CarryCorp extends Corp {
   /**
    * Execute work to fulfill contracts.
    * Contracts drive the work - creeps assigned to contracts do hauling.
+   * Also runs maintenance haulers spawned directly by SpawningCorp.
    */
   execute(contracts: Contract[], tick: number): void {
     this.lastActivityTick = tick;
@@ -279,26 +279,35 @@ export class CarryCorp extends Corp {
     }
 
     const room = spawn.room;
-    const market = getMarket();
 
-    // Get buy contracts for spawning (we buy from SpawningCorp)
+    // Track which creeps we've already run (to avoid duplicates)
+    const ranCreeps = new Set<string>();
+
+    // Get buy contracts for spawn-capacity (we buy from SpawningCorp)
     const buyContracts = contracts.filter(
-      c => c.buyerId === this.id && c.resource === "spawning" && isActive(c, tick)
+      c => c.buyerId === this.id && c.resource === "spawn-capacity" && isActive(c, tick)
     );
 
     // Execute hauling for creeps assigned to our buy contracts
     for (const contract of buyContracts) {
-      // Get the market's authoritative contract copy
-      const marketContract = market.getContract(contract.id) ?? contract;
-
       // Request creeps using the option mechanism
-      this.requestCreepsForContract(marketContract);
+      this.requestCreepsForContract(contract);
 
-      for (const creepName of marketContract.creepIds) {
+      for (const creepName of contract.creepIds) {
         const creep = Game.creeps[creepName];
         if (creep && !creep.spawning) {
           this.runHauler(creep, room, spawn);
+          ranCreeps.add(creepName);
         }
+      }
+    }
+
+    // Also run maintenance haulers (spawned by SpawningCorp with corpId matching our nodeId)
+    for (const name in Game.creeps) {
+      if (ranCreeps.has(name)) continue;
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.nodeId && creep.memory.workType === "haul" && !creep.spawning) {
+        this.runHauler(creep, room, spawn);
       }
     }
   }

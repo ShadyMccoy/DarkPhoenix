@@ -22,10 +22,9 @@ import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { ChainPlanner } from "../planning/ChainPlanner";
 import { OfferCollector } from "../planning/OfferCollector";
-import { SerializedChain, Chain, deserializeChain, serializeChain } from "../planning/Chain";
-import { Contract } from "../market/Contract";
+import { SerializedChain, Chain, ChainSegment, deserializeChain, serializeChain } from "../planning/Chain";
+import { Contract, CreepSpec } from "../market/Contract";
 import { AnyCorpState } from "../corps/CorpState";
-import { getMarket } from "../market/Market";
 import { Node, NodeResource } from "../nodes/Node";
 import {
   HarvestCorp,
@@ -126,21 +125,16 @@ export function initCorps(corps: CorpRegistry): InitResult {
   result.wasNeeded = true;
   console.log(`[Init] Hydrating corps from Memory (cache was empty)`);
 
-  // Restore Market state first (source of truth for contracts/creep assignments)
-  if (Memory.market) {
-    // Clean up legacy resource types before deserializing
+  // Clean up legacy resource types from Memory.contracts if present
+  if (Memory.contracts) {
     const legacyResources = ["work-ticks", "carry-ticks", "move-ticks"];
-    const originalCount = Memory.market.contracts?.length ?? 0;
-    Memory.market.contracts = (Memory.market.contracts ?? []).filter(
-      (c: { resource: string }) => !legacyResources.includes(c.resource)
-    );
-    const removedCount = originalCount - (Memory.market.contracts?.length ?? 0);
-    if (removedCount > 0) {
-      console.log(`[Init] Removed ${removedCount} legacy contracts (work-ticks/carry-ticks/move-ticks)`);
+    for (const contractId in Memory.contracts) {
+      const contract = Memory.contracts[contractId];
+      if (contract && legacyResources.includes(contract.resource)) {
+        delete Memory.contracts[contractId];
+        console.log(`[Init] Removed legacy contract: ${contractId}`);
+      }
     }
-
-    getMarket().deserialize(Memory.market);
-    console.log(`[Init] Restored Market with ${Memory.market.contracts?.length ?? 0} contracts`);
   }
 
   // Hydrate harvest corps
@@ -328,7 +322,11 @@ export function runPlanningPhase(
   storeChains(chains);
   storeContracts(contracts);
 
-  console.log(`[Planning] Found ${chains.length} chains, ${contracts.length} contracts`);
+  // Assign contracts to corps for execution
+  // This is the key step that makes ChainPlanner contracts executable
+  const assignedCount = assignContractsToCorps(contracts, corps);
+
+  console.log(`[Planning] Found ${chains.length} chains, ${contracts.length} contracts (${assignedCount} assigned)`);
 
   return {
     chains,
@@ -377,6 +375,27 @@ function collectCorpStates(corps: CorpRegistry): AnyCorpState[] {
 }
 
 /**
+ * Derive creepSpec from buyer's corp type.
+ * Used when creating spawn-capacity contracts so SpawningCorp knows what to spawn.
+ */
+function getCreepSpecForBuyer(buyerSegment: ChainSegment): CreepSpec | undefined {
+  switch (buyerSegment.corpType) {
+    case "mining":
+      return { role: "miner", workParts: 5 };
+    case "hauling":
+      return { role: "hauler", carryParts: 8 };
+    case "upgrading":
+      return { role: "upgrader", workParts: 2 };
+    case "building":
+      return { role: "builder", workParts: 2 };
+    case "scout":
+      return { role: "scout", moveParts: 1 };
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Convert planned chains to executable contracts.
  */
 function chainsToContracts(chains: Chain[], tick: number): Contract[] {
@@ -390,6 +409,11 @@ function chainsToContracts(chains: Chain[], tick: number): Contract[] {
 
       // Default maxCreeps: 1 for work-ticks (mining spots), 999 for others
       const maxCreeps = seller.resource === "work-ticks" ? 1 : 999;
+
+      // For spawn-capacity contracts, derive creepSpec from buyer's corp type
+      const creepSpec = seller.resource === "spawn-capacity"
+        ? getCreepSpecForBuyer(buyer)
+        : undefined;
 
       contracts.push({
         id: `${chain.id}-${i}`,
@@ -406,7 +430,8 @@ function chainsToContracts(chains: Chain[], tick: number): Contract[] {
         maxCreeps,
         pendingRequests: 0,
         claimed: 0,
-        travelTime: 0 // TODO: Calculate from seller/buyer positions
+        travelTime: 0, // TODO: Calculate from seller/buyer positions
+        creepSpec
       });
     }
   }
@@ -437,6 +462,69 @@ function storeContracts(contracts: Contract[]): void {
   for (const contract of contracts) {
     Memory.contracts[contract.id] = contract;
   }
+}
+
+/**
+ * Find a corp by ID in the registry.
+ * Returns the corp if found, undefined otherwise.
+ */
+function findCorpById(corpId: string, corps: CorpRegistry): { addContract: (c: Contract) => void } | undefined {
+  // Check each corp type registry
+  for (const id in corps.harvestCorps) {
+    if (corps.harvestCorps[id].id === corpId) return corps.harvestCorps[id];
+  }
+  for (const id in corps.haulingCorps) {
+    if (corps.haulingCorps[id].id === corpId) return corps.haulingCorps[id];
+  }
+  for (const id in corps.upgradingCorps) {
+    if (corps.upgradingCorps[id].id === corpId) return corps.upgradingCorps[id];
+  }
+  for (const id in corps.spawningCorps) {
+    if (corps.spawningCorps[id].id === corpId) return corps.spawningCorps[id];
+  }
+  for (const id in corps.constructionCorps) {
+    if (corps.constructionCorps[id].id === corpId) return corps.constructionCorps[id];
+  }
+  for (const id in corps.bootstrapCorps) {
+    if (corps.bootstrapCorps[id].id === corpId) return corps.bootstrapCorps[id];
+  }
+  for (const id in corps.scoutCorps) {
+    if (corps.scoutCorps[id].id === corpId) return corps.scoutCorps[id];
+  }
+  return undefined;
+}
+
+/**
+ * Assign contracts to corps for execution.
+ *
+ * This is the key integration point that makes ChainPlanner contracts executable.
+ * Each contract is assigned to both the seller and buyer corps.
+ *
+ * @returns Number of contract assignments made (2 per contract if both corps found)
+ */
+function assignContractsToCorps(contracts: Contract[], corps: CorpRegistry): number {
+  let assigned = 0;
+
+  for (const contract of contracts) {
+    const seller = findCorpById(contract.sellerId, corps);
+    const buyer = findCorpById(contract.buyerId, corps);
+
+    if (seller) {
+      seller.addContract(contract);
+      assigned++;
+    } else {
+      console.log(`[Planning] Warning: Seller corp not found: ${contract.sellerId}`);
+    }
+
+    if (buyer) {
+      buyer.addContract(contract);
+      assigned++;
+    } else {
+      console.log(`[Planning] Warning: Buyer corp not found: ${contract.buyerId}`);
+    }
+  }
+
+  return assigned;
 }
 
 /**

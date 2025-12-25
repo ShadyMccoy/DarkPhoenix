@@ -20,7 +20,7 @@
 
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
-import { getMarket } from "../market/Market";
+import { deserializeChain, SerializedChain } from "../planning/Chain";
 
 /**
  * Interface for corps that track creeps.
@@ -308,6 +308,14 @@ export interface MarketTelemetry {
     /** Total transactions in history */
     totalTransactions: number;
   };
+  /** Capacity analysis: offered capacity vs committed capacity by resource */
+  capacity?: {
+    [resource: string]: {
+      offered: number;
+      committed: number;
+      remaining: number;
+    };
+  };
 }
 
 /**
@@ -384,8 +392,8 @@ export class Telemetry {
     // Update corps telemetry
     this.updateCorpsTelemetry(harvestCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
 
-    // Update chains telemetry
-    this.updateChainsTelemetry(colony);
+    // Update chains telemetry (reads from Memory.chains)
+    this.updateChainsTelemetry();
 
     // Update market telemetry
     this.updateMarketTelemetry(harvestCorps, haulingCorps, upgradingCorps, spawningCorps);
@@ -786,18 +794,23 @@ export class Telemetry {
 
   /**
    * Updates chains telemetry (Segment 5).
+   * Reads from Memory.chains (latest planned chains from ChainPlanner).
    */
-  private updateChainsTelemetry(colony: Colony | undefined): void {
-    const activeChains = colony?.getActiveChains() || [];
+  private updateChainsTelemetry(): void {
+    // Load chains from Memory (populated by ChainPlanner during planning phase)
+    const memoryChains = Memory.chains || {};
+    const plannedChains = Object.values(memoryChains).map((data: SerializedChain) =>
+      deserializeChain(data)
+    );
 
-    const chains: ChainsTelemetry["chains"] = activeChains.map(chain => ({
+    const chains: ChainsTelemetry["chains"] = plannedChains.map(chain => ({
       id: chain.id,
       funded: chain.funded,
       age: chain.age,
       leafCost: chain.leafCost,
       totalCost: chain.totalCost,
       mintValue: chain.mintValue,
-      profit: chain.mintValue - chain.totalCost,
+      profit: chain.profit,
       segments: chain.segments.map(seg => ({
         corpType: seg.corpType,
         resource: seg.resource,
@@ -807,11 +820,22 @@ export class Telemetry {
       })),
     }));
 
+    // Sort by profit (highest first)
+    chains.sort((a, b) => b.profit - a.profit);
+
     const fundedChains = chains.filter(c => c.funded).length;
     const totalProfit = chains.reduce((sum, c) => sum + c.profit, 0);
     const avgChainAge = chains.length > 0
       ? chains.reduce((sum, c) => sum + c.age, 0) / chains.length
       : 0;
+
+    // Calculate resource commitments from contracts
+    const contracts = Memory.contracts ? Object.values(Memory.contracts) : [];
+    const commitmentsByResource: { [resource: string]: number } = {};
+    for (const contract of contracts) {
+      const c = contract as { resource: string; quantity: number };
+      commitmentsByResource[c.resource] = (commitmentsByResource[c.resource] || 0) + c.quantity;
+    }
 
     const telemetry: ChainsTelemetry = {
       version: 1,
@@ -838,8 +862,6 @@ export class Telemetry {
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     spawningCorps: { [spawnId: string]: SpawningCorpLike }
   ): void {
-    const market = getMarket();
-
     // Collect all current offers from corps
     const buyOffers: MarketTelemetry["offers"]["buys"] = [];
     const sellOffers: MarketTelemetry["offers"]["sells"] = [];
@@ -873,9 +895,9 @@ export class Telemetry {
     for (const id in upgradingCorps) collectOffers(upgradingCorps[id]);
     for (const id in spawningCorps) collectOffers(spawningCorps[id]);
 
-    // Get recent contracts from market
-    const recentContracts = market.getContracts().slice(-20); // Last 20 contracts
-    const contracts: MarketTelemetry["contracts"] = recentContracts.map(c => ({
+    // Get contracts from Memory (created by ChainPlanner)
+    const memoryContracts = Memory.contracts ? Object.values(Memory.contracts) : [];
+    const contracts: MarketTelemetry["contracts"] = memoryContracts.slice(-20).map(c => ({
       sellerId: c.sellerId,
       buyerId: c.buyerId,
       resource: c.resource,
@@ -883,19 +905,42 @@ export class Telemetry {
       totalPrice: c.price,
     }));
 
-    // Get transaction history (last 100 for analysis)
-    const recentTransactions = market.getRecentTransactions(500);
-    const transactions: MarketTelemetry["transactions"] = recentTransactions.slice(-100).map(t => ({
-      tick: t.tick,
-      sellerId: t.sellerId,
-      buyerId: t.buyerId,
-      resource: t.resource,
-      quantity: t.quantity,
-      pricePerUnit: t.pricePerUnit,
-      totalPayment: t.totalPayment,
-    }));
+    // Calculate capacity vs commitments by resource
+    // Offers = available capacity, Contracts = committed capacity
+    const capacityByResource: { [resource: string]: { offered: number; committed: number } } = {};
+
+    // Sum sell offers (available capacity)
+    for (const offer of sellOffers) {
+      if (!capacityByResource[offer.resource]) {
+        capacityByResource[offer.resource] = { offered: 0, committed: 0 };
+      }
+      capacityByResource[offer.resource].offered += offer.quantity;
+    }
+
+    // Sum contract commitments
+    for (const contract of memoryContracts) {
+      const c = contract as { resource: string; quantity: number };
+      if (!capacityByResource[c.resource]) {
+        capacityByResource[c.resource] = { offered: 0, committed: 0 };
+      }
+      capacityByResource[c.resource].committed += c.quantity;
+    }
 
     const totalVolume = contracts.reduce((sum, c) => sum + c.quantity, 0);
+
+    // Transaction history - contracts are the primary mechanism now
+    const transactions: MarketTelemetry["transactions"] = [];
+
+    // Build capacity analysis with remaining capacity
+    const capacity: MarketTelemetry["capacity"] = {};
+    for (const resource in capacityByResource) {
+      const cap = capacityByResource[resource];
+      capacity[resource] = {
+        offered: cap.offered,
+        committed: cap.committed,
+        remaining: cap.offered - cap.committed,
+      };
+    }
 
     const telemetry: MarketTelemetry = {
       version: 1,
@@ -911,8 +956,9 @@ export class Telemetry {
         totalSellOffers: sellOffers.length,
         totalContracts: contracts.length,
         totalVolume,
-        totalTransactions: recentTransactions.length,
+        totalTransactions: transactions.length,
       },
+      capacity,
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.MARKET] = JSON.stringify(telemetry);

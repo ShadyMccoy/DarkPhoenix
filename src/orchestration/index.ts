@@ -4,9 +4,11 @@
  * This module contains the phased orchestration logic:
  * - Init phase (once per code push, lazy initialization)
  * - Survey phase (when nodes are created)
- * - Investment phase (allocates capital before planning)
- * - Planning phase (every 5000 ticks)
+ * - Planning phase (every 5000 ticks) - unified ChainPlanner-based planning
  * - Execution phase (every tick)
+ *
+ * The ChainPlanner is the single source of truth for economic planning.
+ * It finds viable chains, creates contracts, and assigns them to corps.
  *
  * @module orchestration
  */
@@ -24,7 +26,7 @@ export {
   SurveyResult,
   getLastSurveyTick,
   setLastSurveyTick,
-  // Planning phase
+  // Planning phase (unified ChainPlanner-based)
   shouldRunPlanning,
   runPlanningPhase,
   PlanningResult,
@@ -39,16 +41,3 @@ export {
   getLastPlanningTick,
   setLastPlanningTick,
 } from "./Phases";
-
-export {
-  // Investment phase (forward capital flow)
-  runInvestmentPhase,
-  shouldRefreshInvestments,
-  recordInvestmentDelivery,
-  getCorpCapital,
-  getInvestmentSummary,
-  getInvestmentState,
-  resetInvestmentState,
-  InvestmentPhaseResult,
-  InvestmentState,
-} from "./InvestmentPhase";
