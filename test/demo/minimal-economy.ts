@@ -780,3 +780,325 @@ console.log("");
 const effLoss = twoSourceEfficiency - blockedEfficiency;
 console.log(`Blocking diagonals costs ${effLoss.toFixed(1)}% efficiency`);
 console.log(`  because Source1's leftover must travel 2D instead of D.\n`);
+
+// ============================================================================
+// RANDOM SCENARIO GENERATOR
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ RANDOM TOPOLOGY SCENARIOS                                   │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+interface Point {
+  x: number;
+  y: number;
+  label: string;
+}
+
+// Chebyshev distance (Screeps distance)
+function chebyshev(a: Point, b: Point): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+// Calculate optimal 2-source economy given distances
+function calculate2SourceEconomy(
+  d_s1_spawn: number,
+  d_s1_ctrl: number,
+  d_s2_spawn: number,
+  d_s2_ctrl: number
+): {
+  efficiency: number;
+  upgradeRate: number;
+  routing: string;
+  s1ToSpawn: number;
+  s1ToCtrl: number;
+  s2ToSpawn: number;
+  s2ToCtrl: number;
+} {
+  const minerCost = 2 * (MINER_COST / LIFETIME);
+  const workCost = WORK_COST / LIFETIME;
+  const partCost = CARRY_COST + MOVE_COST;
+
+  // Round trips for each route
+  const rt_s1_spawn = 2 * d_s1_spawn + 2;
+  const rt_s1_ctrl = 2 * d_s1_ctrl + 2;
+  const rt_s2_spawn = 2 * d_s2_spawn + 2;
+  const rt_s2_ctrl = 2 * d_s2_ctrl + 2;
+
+  // Haul cost coefficients
+  const k_s1_spawn = (rt_s1_spawn / 50) * (partCost / LIFETIME);
+  const k_s1_ctrl = (rt_s1_ctrl / 50) * (partCost / LIFETIME);
+  const k_s2_spawn = (rt_s2_spawn / 50) * (partCost / LIFETIME);
+  const k_s2_ctrl = (rt_s2_ctrl / 50) * (partCost / LIFETIME);
+
+  // We need to find optimal routing. There are several cases:
+  // Case A: S1 handles spawn, S2 handles ctrl (S1 leftover → ctrl)
+  // Case B: S2 handles spawn, S1 handles ctrl (S2 leftover → ctrl)
+  // Case C: Both contribute to spawn and ctrl proportionally
+
+  // For simplicity, we'll try both primary assignments and pick the best
+
+  // Case A: S1 → Spawn primary, S2 → Ctrl primary
+  // S1 sends O to spawn (k_s1_spawn), leftover (10-O) to ctrl (k_s1_ctrl)
+  // S2 sends 10 to ctrl (k_s2_ctrl)
+  // O = minerCost + O*k_s1_spawn + (10-O)*k_s1_ctrl + 10*k_s2_ctrl + (20-O)*workCost
+  // O = minerCost + O*k_s1_spawn + 10*k_s1_ctrl - O*k_s1_ctrl + 10*k_s2_ctrl + 20*workCost - O*workCost
+  // O(1 + k_s1_ctrl - k_s1_spawn + workCost) = minerCost + 10*k_s1_ctrl + 10*k_s2_ctrl + 20*workCost
+  const numA = minerCost + 10 * k_s1_ctrl + 10 * k_s2_ctrl + 20 * workCost;
+  const denA = 1 + k_s1_ctrl - k_s1_spawn + workCost;
+  const O_A = numA / denA;
+  const W_A = 20 - O_A;
+  const valid_A = O_A >= 0 && O_A <= 10 && W_A >= 0;
+
+  // Case B: S2 → Spawn primary, S1 → Ctrl primary
+  // S2 sends O to spawn (k_s2_spawn), leftover (10-O) to ctrl (k_s2_ctrl)
+  // S1 sends 10 to ctrl (k_s1_ctrl)
+  const numB = minerCost + 10 * k_s2_ctrl + 10 * k_s1_ctrl + 20 * workCost;
+  const denB = 1 + k_s2_ctrl - k_s2_spawn + workCost;
+  const O_B = numB / denB;
+  const W_B = 20 - O_B;
+  const valid_B = O_B >= 0 && O_B <= 10 && W_B >= 0;
+
+  // Case C: Split evenly (each source sends half overhead, half upgrade)
+  // This is suboptimal when distances differ, but we check it anyway
+  const avgK_spawn = (k_s1_spawn + k_s2_spawn) / 2;
+  const avgK_ctrl = (k_s1_ctrl + k_s2_ctrl) / 2;
+  const numC = minerCost + 20 * avgK_spawn + 20 * workCost;
+  const denC = 1 + avgK_spawn - avgK_ctrl + workCost;
+  const O_C = numC / denC;
+  const W_C = 20 - O_C;
+
+  // Pick best valid option
+  let best = { O: O_C, W: W_C, routing: "split" };
+
+  if (valid_A && W_A > best.W) {
+    best = { O: O_A, W: W_A, routing: "S1→Spawn, S2→Ctrl" };
+  }
+  if (valid_B && W_B > best.W) {
+    best = { O: O_B, W: W_B, routing: "S2→Spawn, S1→Ctrl" };
+  }
+
+  // Calculate actual flows for best routing
+  let s1ToSpawn = 0, s1ToCtrl = 0, s2ToSpawn = 0, s2ToCtrl = 0;
+
+  if (best.routing === "S1→Spawn, S2→Ctrl") {
+    s1ToSpawn = best.O;
+    s1ToCtrl = 10 - best.O;
+    s2ToSpawn = 0;
+    s2ToCtrl = 10;
+  } else if (best.routing === "S2→Spawn, S1→Ctrl") {
+    s1ToSpawn = 0;
+    s1ToCtrl = 10;
+    s2ToSpawn = best.O;
+    s2ToCtrl = 10 - best.O;
+  } else {
+    // Split evenly
+    s1ToSpawn = best.O / 2;
+    s1ToCtrl = 10 - s1ToSpawn;
+    s2ToSpawn = best.O / 2;
+    s2ToCtrl = 10 - s2ToSpawn;
+  }
+
+  return {
+    efficiency: (best.W / 20) * 100,
+    upgradeRate: best.W,
+    routing: best.routing,
+    s1ToSpawn,
+    s1ToCtrl,
+    s2ToSpawn,
+    s2ToCtrl,
+  };
+}
+
+// Generate random scenarios
+function generateRandomScenario(seed: number): {
+  sources: Point[];
+  spawn: Point;
+  controller: Point;
+} {
+  // Simple LCG for reproducible "random" numbers
+  let state = seed;
+  const rand = () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+
+  // Room is 50x50, but we'll use 10-40 to avoid edges
+  const randPos = () => Math.floor(rand() * 30) + 10;
+
+  return {
+    sources: [
+      { x: randPos(), y: randPos(), label: "S1" },
+      { x: randPos(), y: randPos(), label: "S2" },
+    ],
+    spawn: { x: randPos(), y: randPos(), label: "Spawn" },
+    controller: { x: randPos(), y: randPos(), label: "Ctrl" },
+  };
+}
+
+// Run several random scenarios
+const seeds = [42, 137, 256, 314, 999, 2024];
+
+console.log("Generating 6 random room layouts...\n");
+
+console.log("┌───────┬─────────────────────────────────────┬──────────────────────────────┬────────┐");
+console.log("│ Seed  │ Distances (S1↔Sp, S1↔Ct, S2↔Sp, S2↔Ct) │ Optimal Routing              │ Eff    │");
+console.log("├───────┼─────────────────────────────────────┼──────────────────────────────┼────────┤");
+
+const scenarioResults: Array<{
+  seed: number;
+  scenario: ReturnType<typeof generateRandomScenario>;
+  distances: { s1Spawn: number; s1Ctrl: number; s2Spawn: number; s2Ctrl: number };
+  result: ReturnType<typeof calculate2SourceEconomy>;
+}> = [];
+
+for (const seed of seeds) {
+  const scenario = generateRandomScenario(seed);
+  const s1 = scenario.sources[0];
+  const s2 = scenario.sources[1];
+  const sp = scenario.spawn;
+  const ct = scenario.controller;
+
+  const d_s1_spawn = chebyshev(s1, sp);
+  const d_s1_ctrl = chebyshev(s1, ct);
+  const d_s2_spawn = chebyshev(s2, sp);
+  const d_s2_ctrl = chebyshev(s2, ct);
+
+  const result = calculate2SourceEconomy(d_s1_spawn, d_s1_ctrl, d_s2_spawn, d_s2_ctrl);
+
+  scenarioResults.push({
+    seed,
+    scenario,
+    distances: { s1Spawn: d_s1_spawn, s1Ctrl: d_s1_ctrl, s2Spawn: d_s2_spawn, s2Ctrl: d_s2_ctrl },
+    result,
+  });
+
+  const distStr = `${d_s1_spawn.toString().padStart(2)}, ${d_s1_ctrl.toString().padStart(2)}, ${d_s2_spawn.toString().padStart(2)}, ${d_s2_ctrl.toString().padStart(2)}`;
+  const routeStr = result.routing.padEnd(28);
+  const effStr = result.efficiency.toFixed(1).padStart(5) + "%";
+
+  console.log(`│ ${seed.toString().padStart(5)} │           ${distStr}            │ ${routeStr} │ ${effStr} │`);
+}
+
+console.log("└───────┴─────────────────────────────────────┴──────────────────────────────┴────────┘\n");
+
+// Show detailed breakdown of most interesting scenarios
+const sortedByEff = [...scenarioResults].sort((a, b) => a.result.efficiency - b.result.efficiency);
+const worstScenario = sortedByEff[0];
+const bestScenario = sortedByEff[sortedByEff.length - 1];
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ DETAILED: Best vs Worst Random Layout                      │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+for (const item of [
+  { label: "WORST", data: worstScenario },
+  { label: "BEST", data: bestScenario },
+]) {
+  const { seed, scenario, distances, result } = item.data;
+  const s1 = scenario.sources[0];
+  const s2 = scenario.sources[1];
+  const sp = scenario.spawn;
+  const ct = scenario.controller;
+
+  console.log(`${item.label} Layout (seed=${seed}, efficiency=${result.efficiency.toFixed(1)}%):`);
+  console.log("");
+  console.log("  Positions:");
+  console.log(`    S1: (${s1.x}, ${s1.y})    S2: (${s2.x}, ${s2.y})`);
+  console.log(`    Spawn: (${sp.x}, ${sp.y})    Controller: (${ct.x}, ${ct.y})`);
+  console.log("");
+  console.log("  Distances:");
+  console.log(`    S1 → Spawn: ${distances.s1Spawn}    S1 → Ctrl: ${distances.s1Ctrl}`);
+  console.log(`    S2 → Spawn: ${distances.s2Spawn}    S2 → Ctrl: ${distances.s2Ctrl}`);
+  console.log("");
+  console.log(`  Optimal Routing: ${result.routing}`);
+  console.log(`    S1 → Spawn: ${result.s1ToSpawn.toFixed(2)}/tick`);
+  console.log(`    S1 → Ctrl:  ${result.s1ToCtrl.toFixed(2)}/tick`);
+  console.log(`    S2 → Spawn: ${result.s2ToSpawn.toFixed(2)}/tick`);
+  console.log(`    S2 → Ctrl:  ${result.s2ToCtrl.toFixed(2)}/tick`);
+  console.log("");
+  console.log(`  Upgrade Rate: ${result.upgradeRate.toFixed(2)}/tick`);
+  console.log(`  Efficiency:   ${result.efficiency.toFixed(1)}%`);
+  console.log("");
+}
+
+// Show what makes a good vs bad layout
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ INSIGHTS: What makes a good layout?                        │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Calculate "efficiency score" metrics
+const avgDistances = scenarioResults.map(s => {
+  const d = s.distances;
+  return {
+    seed: s.seed,
+    avgDist: (d.s1Spawn + d.s1Ctrl + d.s2Spawn + d.s2Ctrl) / 4,
+    minSpawn: Math.min(d.s1Spawn, d.s2Spawn),
+    minCtrl: Math.min(d.s1Ctrl, d.s2Ctrl),
+    sumMin: Math.min(d.s1Spawn, d.s2Spawn) + Math.min(d.s1Ctrl, d.s2Ctrl),
+    efficiency: s.result.efficiency,
+  };
+});
+
+console.log("Distance vs Efficiency correlation:\n");
+console.log("  Seed   AvgDist  MinSpawn  MinCtrl  SumOfMins  Efficiency");
+console.log("  ─────  ───────  ────────  ───────  ─────────  ──────────");
+
+for (const m of avgDistances.sort((a, b) => b.efficiency - a.efficiency)) {
+  console.log(
+    `  ${m.seed.toString().padStart(5)}  ` +
+    `${m.avgDist.toFixed(1).padStart(7)}  ` +
+    `${m.minSpawn.toString().padStart(8)}  ` +
+    `${m.minCtrl.toString().padStart(7)}  ` +
+    `${m.sumMin.toString().padStart(9)}  ` +
+    `${m.efficiency.toFixed(1).padStart(9)}%`
+  );
+}
+
+console.log("");
+console.log("Key insight: Efficiency depends on the SUM OF MINIMUM distances:");
+console.log("  - min(S1→Spawn, S2→Spawn): closest source handles spawn overhead");
+console.log("  - min(S1→Ctrl, S2→Ctrl): closest source handles upgrades");
+console.log("  - Lower sum = higher efficiency\n");
+
+// Edge case: what if spawn and controller are very close?
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ EDGE CASE: Spawn and Controller at same location           │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// If spawn = controller, then source→spawn = source→ctrl
+// This means we don't need separate haul routes!
+const colocatedResult = calculate2SourceEconomy(30, 30, 30, 30);
+console.log("If Spawn and Controller are at the same position:");
+console.log(`  All distances = 30`);
+console.log(`  Efficiency: ${colocatedResult.efficiency.toFixed(1)}%`);
+console.log(`  (Same as equidistant case - no routing advantage)\n`);
+
+// What about spawn between sources?
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ OPTIMAL LAYOUT: Sources flanking Spawn-Controller axis     │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Ideal: S1 close to Spawn, S2 close to Controller
+console.log("Testing: S1 near Spawn (D=10), S2 near Controller (D=10)\n");
+
+const idealResult = calculate2SourceEconomy(10, 40, 40, 10);
+console.log("  Distances:");
+console.log("    S1 → Spawn: 10    S1 → Ctrl: 40");
+console.log("    S2 → Spawn: 40    S2 → Ctrl: 10");
+console.log("");
+console.log(`  Routing: ${idealResult.routing}`);
+console.log(`  Efficiency: ${idealResult.efficiency.toFixed(1)}%`);
+console.log("");
+
+// Compare to worst case: both sources far from both destinations
+const worstCaseResult = calculate2SourceEconomy(40, 40, 40, 40);
+console.log("Worst case: All distances = 40");
+console.log(`  Efficiency: ${worstCaseResult.efficiency.toFixed(1)}%`);
+console.log("");
+
+// Asymmetric case
+const asymResult = calculate2SourceEconomy(10, 10, 50, 50);
+console.log("One source close (10), one far (50):");
+console.log(`  Efficiency: ${asymResult.efficiency.toFixed(1)}%`);
+console.log("  (Close source handles everything efficiently)\n");
