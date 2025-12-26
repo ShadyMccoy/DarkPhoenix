@@ -8,19 +8,8 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
-import { MiningCorpState } from "./CorpState";
-import { projectMining } from "../planning/projections";
-import {
-  Contract,
-  isActive,
-  recordDelivery,
-  canRequestCreep,
-  requestCreep,
-  replacementsNeeded
-} from "../market/Contract";
-
 
 /**
  * Serialized state specific to HarvestCorp
@@ -68,38 +57,13 @@ export class HarvestCorp extends Corp {
   private accountedCreeps: Set<string> = new Set();
 
   /**
-   * Get active creeps assigned to this corp from contracts.
-   * Contracts are assigned directly by ChainPlanner.
+   * Get active creeps assigned to this corp.
    */
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
     const seen = new Set<string>();
 
-    // Get creeps from buy contracts
-    for (const contract of this.contracts) {
-      if (contract.buyerId !== this.id) continue;
-      if (!isActive(contract, Game.time)) continue;
-
-      for (const creepName of contract.creepIds) {
-        if (seen.has(creepName)) continue;
-        seen.add(creepName);
-
-        const creep = Game.creeps[creepName];
-        if (creep && !creep.spawning) {
-          creeps.push(creep);
-
-          // Record expected production once per creep (session-only tracking)
-          if (!this.accountedCreeps.has(creepName)) {
-            this.accountedCreeps.add(creepName);
-            const workParts = creep.getActiveBodyparts(WORK);
-            const expectedEnergy = workParts * 2 * CREEP_LIFETIME;
-            this.recordExpectedProduction(expectedEnergy);
-          }
-        }
-      }
-    }
-
-    // Fallback: scan for creeps with our corpId not in contracts
+    // Scan for creeps with our corpId
     for (const name in Game.creeps) {
       if (seen.has(name)) continue;
       const creep = Game.creeps[name];
@@ -132,90 +96,12 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * HarvestCorp sells energy.
-   *
-   * Delegates to projectMining() for unified offer calculation.
-   * Always generates offers based on source capacity (for planning visibility).
-   */
-  sells(): Offer[] {
-    const state = this.toCorpState();
-    const projection = projectMining(state, Game.time);
-    return projection.sells;
-  }
-
-  /**
-   * Convert current runtime state to MiningCorpState for projection.
-   * Bridges runtime (actual creeps) to planning model (CorpState).
-   */
-  toCorpState(): MiningCorpState {
-    // Calculate actual work parts and TTL from live creeps
-    const creeps = this.getActiveCreeps();
-    let actualWorkParts = 0;
-    let actualTotalTTL = 0;
-
-    for (const creep of creeps) {
-      actualWorkParts += creep.getActiveBodyparts(WORK);
-      actualTotalTTL += creep.ticksToLive ?? CREEP_LIFETIME;
-    }
-    const activeCreepCount = creeps.length;
-
-    // Get source info
-    const source = Game.getObjectById(this.sourceId as Id<Source>);
-    const sourceCapacity = source?.energyCapacity ?? SOURCE_ENERGY_CAPACITY;
-
-    // Get spawn position
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    const spawnPosition = spawn
-      ? { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName }
-      : null;
-
-    return {
-      id: this.id,
-      type: "mining",
-      nodeId: this.nodeId,
-      sourceCorpId: this.sourceId, // Using sourceId as sourceCorpId
-      spawningCorpId: this.spawnId, // Using spawnId as spawningCorpId
-      position: this.getPosition(),
-      sourceCapacity,
-      spawnPosition,
-      // Runtime fields for actual creep data
-      actualWorkParts,
-      actualTotalTTL,
-      activeCreepCount,
-      // Economic state from Corp base class
-      balance: this.balance,
-      totalRevenue: this.totalRevenue,
-      totalCost: this.totalCost,
-      createdAt: this.createdAt,
-      isActive: this.isActive,
-      lastActivityTick: this.lastActivityTick,
-      unitsProduced: this.unitsProduced,
-      expectedUnitsProduced: this.expectedUnitsProduced,
-      unitsConsumed: this.unitsConsumed,
-      acquisitionCost: this.acquisitionCost,
-      lastPlannedTick: this.lastPlannedTick,
-      contracts: this.contracts
-    };
-  }
-
-  /**
    * Plan harvesting operations. Called periodically to compute targets.
    */
   plan(tick: number): void {
     super.plan(tick);
     // One harvester with 5 WORK parts saturates a standard source (10 energy/tick)
     this.targetMiners = 1;
-  }
-
-  /**
-   * HarvestCorp buys spawn-capacity from SpawningCorps.
-   *
-   * Delegates to projectMining() for unified offer calculation.
-   */
-  buys(): Offer[] {
-    const state = this.toCorpState();
-    const projection = projectMining(state, Game.time);
-    return projection.buys;
   }
 
   /**
@@ -230,87 +116,25 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * @deprecated Use execute() for contract-driven execution
+   * Main work loop - run harvester creeps.
    */
   work(tick: number): void {
-    // Legacy - delegates to execute with contracts from this.contracts
-    this.execute(this.contracts, tick);
-  }
-
-  /**
-   * Execute work to fulfill contracts.
-   * Contracts drive the work - creeps assigned to contracts do harvesting.
-   */
-  execute(contracts: Contract[], tick: number): void {
     this.lastActivityTick = tick;
 
     const source = Game.getObjectById(this.sourceId as Id<Source>);
     if (!source) return;
 
-    // Get sell contracts for energy (we sell to haulers)
-    const sellContracts = contracts.filter(
-      c => c.sellerId === this.id && c.resource === "energy" && isActive(c, tick)
-    );
-
-    // Get buy contracts for spawning (we buy from SpawningCorp)
-    const buyContracts = contracts.filter(
-      c => c.buyerId === this.id && isActive(c, tick)
-    );
-
-    // Execute harvesting for creeps assigned to our buy contracts
-    // (creeps we bought from SpawningCorp)
-    for (const contract of buyContracts) {
-      // Request creeps using the option mechanism
-      this.requestCreepsForContract(contract);
-
-      for (const creepName of contract.creepIds) {
-        const creep = Game.creeps[creepName];
-        if (creep && !creep.spawning) {
-          this.runHarvesterForContract(creep, source, sellContracts);
-
-          // Record expected production for new creeps
-          if (!this.accountedCreeps.has(creepName)) {
-            this.accountedCreeps.add(creepName);
-            const workParts = creep.getActiveBodyparts(WORK);
-            const expectedEnergy = workParts * 2 * CREEP_LIFETIME;
-            this.recordExpectedProduction(expectedEnergy);
-          }
-        }
-      }
+    // Run all assigned creeps
+    const creeps = this.getActiveCreeps();
+    for (const creep of creeps) {
+      this.runHarvester(creep, source);
     }
   }
 
   /**
-   * Request creeps from a spawn contract using the option mechanism.
-   * Requests initial creeps or replacements for dying creeps.
+   * Run a single harvester creep.
    */
-  private requestCreepsForContract(contract: Contract): void {
-    // If we have no creeps yet, request initial creep
-    if (contract.creepIds.length === 0 && canRequestCreep(contract)) {
-      requestCreep(contract);
-      return;
-    }
-
-    // Check if any creeps need replacements based on TTL vs travel time
-    const numReplacements = replacementsNeeded(contract, (creepId) => {
-      const creep = Game.creeps[creepId];
-      return creep?.ticksToLive;
-    });
-
-    for (let i = 0; i < numReplacements; i++) {
-      if (!requestCreep(contract)) break;
-    }
-  }
-
-  /**
-   * Run harvester and record delivery on sell contracts.
-   * Returns amount harvested.
-   */
-  private runHarvesterForContract(
-    creep: Creep,
-    source: Source,
-    sellContracts: Contract[]
-  ): number {
+  private runHarvester(creep: Creep, source: Source): number {
     const result = creep.harvest(source);
 
     if (result === ERR_NOT_IN_RANGE) {
@@ -324,14 +148,6 @@ export class HarvestCorp extends Corp {
 
       // Track production for marginal cost
       this.recordProduction(energyHarvested);
-
-      // Record delivery on sell contracts
-      if (sellContracts.length > 0) {
-        const perContract = energyHarvested / sellContracts.length;
-        for (const contract of sellContracts) {
-          recordDelivery(contract, perContract);
-        }
-      }
 
       return energyHarvested;
     }
@@ -354,15 +170,21 @@ export class HarvestCorp extends Corp {
   }
 
   /**
+   * Get desired work parts for this source.
+   */
+  getDesiredWorkParts(): number {
+    return this.desiredWorkParts;
+  }
+
+  /**
    * Serialize for persistence.
-   * Note: creepNames not persisted - contracts are source of truth.
    */
   serialize(): SerializedHarvestCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
       sourceId: this.sourceId,
-      creepNames: [], // Deprecated - kept for interface compat
+      creepNames: [],
       lastSpawnAttempt: this.lastSpawnAttempt,
       desiredWorkParts: this.desiredWorkParts,
       targetMiners: this.targetMiners,

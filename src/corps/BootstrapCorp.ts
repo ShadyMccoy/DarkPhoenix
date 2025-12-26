@@ -16,7 +16,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import {
   JACK_BODY,
   JACK_COST,
@@ -83,21 +83,6 @@ export class BootstrapCorp extends Corp {
     super("bootstrap", nodeId);
     this.spawnId = spawnId;
     this.sourceId = sourceId;
-  }
-
-  /**
-   * Bootstrap doesn't sell anything in the market system.
-   * It operates outside the normal economic flow.
-   */
-  sells(): Offer[] {
-    return [];
-  }
-
-  /**
-   * Bootstrap doesn't buy anything in the market system.
-   */
-  buys(): Offer[] {
-    return [];
   }
 
   /**
