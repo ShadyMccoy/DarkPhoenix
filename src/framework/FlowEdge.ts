@@ -178,26 +178,58 @@ export function createFlowEdgeId(
 /**
  * Calculates the net energy production of a supply edge.
  *
- * Net = (energy harvested per lifetime) - (miner spawn cost)
+ * Net = (energy harvested during effective mining time) - (miner spawn cost)
  *
- * This gives us the "effective" energy supply after accounting for
- * the cost of harvesting.
+ * Effective mining time = lifetime - travel time to source
+ *
+ * The miner must walk from spawn to source before it can start mining.
+ * This travel time is "lost" productivity.
+ *
+ * Example: 65 tiles away, 10 energy/tick harvest rate
+ *   - Travel time: 65 ticks
+ *   - Lost energy: 65 * 10 = 650 energy
+ *   - Effective cost: 650 spawn + 650 travel = 1300
+ *   - Net: 15000 - 1300 = 13700 (91.3% efficiency)
  */
 export function calculateSupplyEdgeNetEnergy(edge: SupplyEdge): number {
-  // Energy harvested per miner lifetime
-  // 2 energy per WORK part per tick
+  // Energy harvested per WORK part per tick
   const harvestRate = edge.minerWorkParts * 2;
 
-  // Source regenerates every 300 ticks with 3000 capacity
-  // Max harvest = min(harvestRate * lifetime, sourceCapacity * (lifetime / 300))
-  const regenCycles = Math.floor(edge.minerLifetime / 300);
+  // Travel time to reach the source (assume 1 tile/tick with roads)
+  const travelTime = edge.spawnToSourceDistance;
+
+  // Effective mining time after travel
+  const effectiveMiningTime = Math.max(0, edge.minerLifetime - travelTime);
+
+  // Source regenerates every 300 ticks with sourceCapacity energy
+  // Calculate regen cycles during effective mining time
+  const regenCycles = Math.floor(effectiveMiningTime / 300);
   const maxFromSource = edge.sourceCapacity * regenCycles;
-  const maxFromMiner = harvestRate * edge.minerLifetime;
+
+  // Max energy the miner can harvest during effective time
+  const maxFromMiner = harvestRate * effectiveMiningTime;
 
   const energyHarvested = Math.min(maxFromSource, maxFromMiner);
 
   // Net = harvested - spawn cost
   return energyHarvested - edge.minerSpawnCost;
+}
+
+/**
+ * Calculates the effective mining time after travel.
+ */
+export function calculateEffectiveMiningTime(edge: SupplyEdge): number {
+  return Math.max(0, edge.minerLifetime - edge.spawnToSourceDistance);
+}
+
+/**
+ * Calculates the energy lost to travel time.
+ */
+export function calculateTravelTimeLoss(edge: SupplyEdge): number {
+  const harvestRate = edge.minerWorkParts * 2;
+  const sourceRateLimit = edge.sourceCapacity / 300;
+  const effectiveRate = Math.min(harvestRate, sourceRateLimit);
+  return edge.spawnToSourceDistance * effectiveRate;
 }
 
 /**

@@ -62,6 +62,8 @@ export {
   createCarryEdge,
   calculateSupplyEdgeNetEnergy,
   calculateSupplyEdgeNetPerTick,
+  calculateEffectiveMiningTime,
+  calculateTravelTimeLoss,
   calculateCarryEdgeThroughput,
   calculateCarryEdgeCostPerEnergy,
   calculateCarryEdgeEfficiency,
