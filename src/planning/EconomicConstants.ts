@@ -10,7 +10,7 @@
  * - Travel time reduces effective work time, making remote mining more expensive
  */
 
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 
 /**
  * Body part types used in creep design

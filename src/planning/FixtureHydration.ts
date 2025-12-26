@@ -11,7 +11,7 @@
  * a live Screeps game environment.
  */
 
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
 import {
   calculateTravelTime,

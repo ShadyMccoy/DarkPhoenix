@@ -15,7 +15,7 @@
  */
 
 import { Node } from "./Node";
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 
 /**
  * Edge type in the node graph.

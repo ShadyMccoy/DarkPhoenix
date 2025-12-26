@@ -11,7 +11,7 @@
  */
 
 import { SerializedCorp } from "./Corp";
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 
 /**
  * Source corp state - passive energy source representation.
