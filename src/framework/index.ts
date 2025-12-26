@@ -96,3 +96,14 @@ export {
 
 // Integration with node system
 export { buildFlowNetworkFromNodes } from "./FlowIntegration";
+
+// Min-cost max-flow routing
+export {
+  FlowNode,
+  FlowArc,
+  FlowGraph,
+  FlowRoutingResult,
+  buildFlowGraph,
+  solveMinCostMaxFlow,
+  formatFlowRouting,
+} from "./FlowRouter";
