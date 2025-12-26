@@ -1102,3 +1102,331 @@ const asymResult = calculate2SourceEconomy(10, 10, 50, 50);
 console.log("One source close (10), one far (50):");
 console.log(`  Efficiency: ${asymResult.efficiency.toFixed(1)}%`);
 console.log("  (Close source handles everything efficiently)\n");
+
+// ============================================================================
+// LARGE SCALE: 20 Sources, 5 Spawns, 5 Controllers
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ LARGE SCALE: 20 Sources, 5 Spawns, 5 Controllers           │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+interface Node {
+  id: string;
+  x: number;
+  y: number;
+  type: "source" | "spawn" | "controller";
+}
+
+interface Flow {
+  from: string;
+  to: string;
+  amount: number;
+  distance: number;
+  carryParts: number;
+}
+
+function generateLargeScenario(seed: number): {
+  sources: Node[];
+  spawns: Node[];
+  controllers: Node[];
+} {
+  let state = seed;
+  const rand = () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+
+  // Use larger space: 100x100 (like a multi-room area)
+  const randPos = () => Math.floor(rand() * 80) + 10;
+
+  const sources: Node[] = [];
+  const spawns: Node[] = [];
+  const controllers: Node[] = [];
+
+  for (let i = 0; i < 20; i++) {
+    sources.push({ id: `S${i + 1}`, x: randPos(), y: randPos(), type: "source" });
+  }
+
+  for (let i = 0; i < 5; i++) {
+    spawns.push({ id: `Spawn${i + 1}`, x: randPos(), y: randPos(), type: "spawn" });
+  }
+
+  for (let i = 0; i < 5; i++) {
+    controllers.push({ id: `Ctrl${i + 1}`, x: randPos(), y: randPos(), type: "controller" });
+  }
+
+  return { sources, spawns, controllers };
+}
+
+function chebyshevNodes(a: Node, b: Node): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+function solveLargeEconomy(
+  sources: Node[],
+  spawns: Node[],
+  controllers: Node[],
+): {
+  flows: Flow[];
+  totalHarvest: number;
+  totalOverhead: number;
+  totalUpgrade: number;
+  efficiency: number;
+  spawnFlows: Flow[];
+  ctrlFlows: Flow[];
+} {
+  const minerCostPerTick = MINER_COST / LIFETIME;
+  const workCostPerTick = WORK_COST / LIFETIME;
+  const partCost = CARRY_COST + MOVE_COST;
+
+  const numSources = sources.length;
+  const totalHarvest = numSources * 10;  // 10 energy/tick per source
+  const totalMinerCost = numSources * minerCostPerTick;
+
+  // For each source, find nearest spawn and nearest controller
+  const sourceInfo = sources.map(src => {
+    const spawnDists = spawns.map(sp => ({ spawn: sp, dist: chebyshevNodes(src, sp) }));
+    const ctrlDists = controllers.map(ct => ({ ctrl: ct, dist: chebyshevNodes(src, ct) }));
+
+    spawnDists.sort((a, b) => a.dist - b.dist);
+    ctrlDists.sort((a, b) => a.dist - b.dist);
+
+    return {
+      source: src,
+      nearestSpawn: spawnDists[0].spawn,
+      spawnDist: spawnDists[0].dist,
+      nearestCtrl: ctrlDists[0].ctrl,
+      ctrlDist: ctrlDists[0].dist,
+      allSpawnDists: spawnDists,
+      allCtrlDists: ctrlDists,
+    };
+  });
+
+  // Greedy allocation:
+  // 1. Calculate total overhead needed (iteratively since it depends on allocation)
+  // 2. Assign each source to send some to spawn, rest to controller
+
+  // Initial estimate: use average distances
+  const avgSpawnDist = sourceInfo.reduce((sum, s) => sum + s.spawnDist, 0) / numSources;
+  const avgCtrlDist = sourceInfo.reduce((sum, s) => sum + s.ctrlDist, 0) / numSources;
+
+  const avgRtSpawn = 2 * avgSpawnDist + 2;
+  const avgRtCtrl = 2 * avgCtrlDist + 2;
+
+  const kSpawn = (avgRtSpawn / 50) * (partCost / LIFETIME);
+  const kCtrl = (avgRtCtrl / 50) * (partCost / LIFETIME);
+
+  // Solve for overhead O:
+  // O = totalMinerCost + O*kSpawn + (totalHarvest-O)*kCtrl + (totalHarvest-O)*workCostPerTick
+  // O = totalMinerCost + O*kSpawn + totalHarvest*kCtrl - O*kCtrl + totalHarvest*workCost - O*workCost
+  // O(1 + kCtrl - kSpawn + workCost) = totalMinerCost + totalHarvest*(kCtrl + workCost)
+  const overheadEstimate =
+    (totalMinerCost + totalHarvest * (kCtrl + workCostPerTick)) /
+    (1 + kCtrl - kSpawn + workCostPerTick);
+
+  // Now allocate flows
+  // Each source sends a fraction of its output to spawn (proportional to overhead/harvest)
+  const overheadFraction = overheadEstimate / totalHarvest;
+
+  const spawnFlows: Flow[] = [];
+  const ctrlFlows: Flow[] = [];
+
+  let totalSpawnHaulCost = 0;
+  let totalCtrlHaulCost = 0;
+
+  for (const info of sourceInfo) {
+    const toSpawn = 10 * overheadFraction;
+    const toCtrl = 10 - toSpawn;
+
+    const rtSpawn = 2 * info.spawnDist + 2;
+    const rtCtrl = 2 * info.ctrlDist + 2;
+
+    const spawnCarry = toSpawn * rtSpawn / 50;
+    const ctrlCarry = toCtrl * rtCtrl / 50;
+
+    spawnFlows.push({
+      from: info.source.id,
+      to: info.nearestSpawn.id,
+      amount: toSpawn,
+      distance: info.spawnDist,
+      carryParts: spawnCarry,
+    });
+
+    ctrlFlows.push({
+      from: info.source.id,
+      to: info.nearestCtrl.id,
+      amount: toCtrl,
+      distance: info.ctrlDist,
+      carryParts: ctrlCarry,
+    });
+
+    totalSpawnHaulCost += (spawnCarry * partCost) / LIFETIME;
+    totalCtrlHaulCost += (ctrlCarry * partCost) / LIFETIME;
+  }
+
+  const totalUpgrade = totalHarvest - overheadEstimate;
+  const upgraderCost = (totalUpgrade * WORK_COST) / LIFETIME;
+
+  const actualOverhead = totalMinerCost + totalSpawnHaulCost + totalCtrlHaulCost + upgraderCost;
+
+  // Refine with actual overhead
+  const refinedUpgrade = totalHarvest - actualOverhead;
+  const efficiency = (refinedUpgrade / totalHarvest) * 100;
+
+  return {
+    flows: [...spawnFlows, ...ctrlFlows],
+    totalHarvest,
+    totalOverhead: actualOverhead,
+    totalUpgrade: refinedUpgrade,
+    efficiency,
+    spawnFlows,
+    ctrlFlows,
+  };
+}
+
+// Generate and solve a large scenario
+const largeScenario = generateLargeScenario(12345);
+
+console.log("Generated layout (100×100 space):");
+console.log(`  Sources:     ${largeScenario.sources.length}`);
+console.log(`  Spawns:      ${largeScenario.spawns.length}`);
+console.log(`  Controllers: ${largeScenario.controllers.length}`);
+console.log("");
+
+// Show node positions in a compact way
+console.log("Node positions:");
+console.log("  Sources:");
+for (let i = 0; i < largeScenario.sources.length; i += 5) {
+  const batch = largeScenario.sources.slice(i, i + 5);
+  console.log("    " + batch.map(s => `${s.id}(${s.x},${s.y})`).join("  "));
+}
+console.log("");
+console.log("  Spawns:");
+console.log("    " + largeScenario.spawns.map(s => `${s.id}(${s.x},${s.y})`).join("  "));
+console.log("");
+console.log("  Controllers:");
+console.log("    " + largeScenario.controllers.map(c => `${c.id}(${c.x},${c.y})`).join("  "));
+console.log("");
+
+const largeResult = solveLargeEconomy(
+  largeScenario.sources,
+  largeScenario.spawns,
+  largeScenario.controllers
+);
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ FLOW SUMMARY                                                │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Group flows by destination
+const spawnGroups = new Map<string, Flow[]>();
+const ctrlGroups = new Map<string, Flow[]>();
+
+for (const flow of largeResult.spawnFlows) {
+  if (!spawnGroups.has(flow.to)) spawnGroups.set(flow.to, []);
+  spawnGroups.get(flow.to)!.push(flow);
+}
+
+for (const flow of largeResult.ctrlFlows) {
+  if (!ctrlGroups.has(flow.to)) ctrlGroups.set(flow.to, []);
+  ctrlGroups.get(flow.to)!.push(flow);
+}
+
+console.log("Spawn Energy Intake:");
+for (const [spawnId, flows] of spawnGroups) {
+  const total = flows.reduce((sum, f) => sum + f.amount, 0);
+  const avgDist = flows.reduce((sum, f) => sum + f.distance, 0) / flows.length;
+  const totalCarry = flows.reduce((sum, f) => sum + f.carryParts, 0);
+  console.log(`  ${spawnId}: ${total.toFixed(1)}/tick from ${flows.length} sources (avg dist: ${avgDist.toFixed(0)}, ${totalCarry.toFixed(1)}C)`);
+}
+console.log("");
+
+console.log("Controller Upgrade Rates:");
+for (const [ctrlId, flows] of ctrlGroups) {
+  const total = flows.reduce((sum, f) => sum + f.amount, 0);
+  const avgDist = flows.reduce((sum, f) => sum + f.distance, 0) / flows.length;
+  const totalCarry = flows.reduce((sum, f) => sum + f.carryParts, 0);
+  console.log(`  ${ctrlId}: ${total.toFixed(1)}/tick from ${flows.length} sources (avg dist: ${avgDist.toFixed(0)}, ${totalCarry.toFixed(1)}C)`);
+}
+console.log("");
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ ECONOMY TOTALS                                              │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+const totalSpawnCarry = largeResult.spawnFlows.reduce((sum, f) => sum + f.carryParts, 0);
+const totalCtrlCarry = largeResult.ctrlFlows.reduce((sum, f) => sum + f.carryParts, 0);
+const totalMinerWork = largeScenario.sources.length * MINER_WORK;
+const totalMinerMove = largeScenario.sources.length * MINER_MOVE;
+
+console.log(`  Gross Harvest:    ${largeResult.totalHarvest.toFixed(1)}/tick (${largeScenario.sources.length} sources × 10)`);
+console.log(`  Total Overhead:   ${largeResult.totalOverhead.toFixed(2)}/tick`);
+console.log(`  Net Upgrading:    ${largeResult.totalUpgrade.toFixed(2)}/tick`);
+console.log(`  Efficiency:       ${largeResult.efficiency.toFixed(1)}%`);
+console.log("");
+
+console.log("Body Part Totals:");
+console.log(`  Miners:       ${totalMinerWork}W + ${totalMinerMove}M (${largeScenario.sources.length} miners)`);
+console.log(`  Spawn haul:   ${totalSpawnCarry.toFixed(1)}C + ${totalSpawnCarry.toFixed(1)}M`);
+console.log(`  Ctrl haul:    ${totalCtrlCarry.toFixed(1)}C + ${totalCtrlCarry.toFixed(1)}M`);
+console.log(`  Upgraders:    ${largeResult.totalUpgrade.toFixed(1)}W`);
+console.log(`  ───────────────────`);
+console.log(`  Total WORK:   ${(totalMinerWork + largeResult.totalUpgrade).toFixed(1)}`);
+console.log(`  Total CARRY:  ${(totalSpawnCarry + totalCtrlCarry).toFixed(1)}`);
+console.log(`  Total MOVE:   ${(totalMinerMove + totalSpawnCarry + totalCtrlCarry).toFixed(1)}`);
+console.log("");
+
+// Distance analysis
+const allSpawnDists = largeResult.spawnFlows.map(f => f.distance);
+const allCtrlDists = largeResult.ctrlFlows.map(f => f.distance);
+
+console.log("Distance Statistics:");
+console.log(`  Spawn hauls:  min=${Math.min(...allSpawnDists)}, max=${Math.max(...allSpawnDists)}, avg=${(allSpawnDists.reduce((a, b) => a + b) / allSpawnDists.length).toFixed(1)}`);
+console.log(`  Ctrl hauls:   min=${Math.min(...allCtrlDists)}, max=${Math.max(...allCtrlDists)}, avg=${(allCtrlDists.reduce((a, b) => a + b) / allCtrlDists.length).toFixed(1)}`);
+console.log("");
+
+// Compare to if everything was at distance 30
+const baselineResult = solveLargeEconomy(
+  largeScenario.sources.map(s => ({ ...s, x: 0, y: 0 })),
+  [{ id: "Spawn1", x: 30, y: 0, type: "spawn" as const }],
+  [{ id: "Ctrl1", x: 0, y: 30, type: "controller" as const }],
+);
+
+console.log("Comparison to baseline (all distances = 30):");
+console.log(`  Baseline efficiency:  ${baselineResult.efficiency.toFixed(1)}%`);
+console.log(`  Actual efficiency:    ${largeResult.efficiency.toFixed(1)}%`);
+console.log(`  Difference:           ${(largeResult.efficiency - baselineResult.efficiency).toFixed(1)}%`);
+console.log("");
+
+// Try a few more seeds
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ MULTIPLE RANDOM LAYOUTS                                     │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+const largeSeeds = [12345, 54321, 99999, 11111, 77777];
+
+console.log("  Seed    AvgSpawnDist  AvgCtrlDist  Efficiency  Upgrade/tick");
+console.log("  ─────   ────────────  ───────────  ──────────  ────────────");
+
+for (const seed of largeSeeds) {
+  const scenario = generateLargeScenario(seed);
+  const result = solveLargeEconomy(scenario.sources, scenario.spawns, scenario.controllers);
+
+  const avgSpawnD = result.spawnFlows.reduce((sum, f) => sum + f.distance, 0) / result.spawnFlows.length;
+  const avgCtrlD = result.ctrlFlows.reduce((sum, f) => sum + f.distance, 0) / result.ctrlFlows.length;
+
+  console.log(
+    `  ${seed.toString().padStart(5)}   ` +
+    `${avgSpawnD.toFixed(1).padStart(12)}  ` +
+    `${avgCtrlD.toFixed(1).padStart(11)}  ` +
+    `${result.efficiency.toFixed(1).padStart(9)}%  ` +
+    `${result.totalUpgrade.toFixed(1).padStart(11)}`
+  );
+}
+console.log("");
+
+// Show what drives efficiency
+console.log("Key insight: With 5 spawns and 5 controllers spread across the map,");
+console.log("each source finds a nearby destination, reducing average haul distance.");
+console.log("More infrastructure = shorter average distances = higher efficiency.\n");
