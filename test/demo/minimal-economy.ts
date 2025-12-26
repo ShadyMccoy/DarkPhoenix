@@ -1430,3 +1430,287 @@ console.log("");
 console.log("Key insight: With 5 spawns and 5 controllers spread across the map,");
 console.log("each source finds a nearby destination, reducing average haul distance.");
 console.log("More infrastructure = shorter average distances = higher efficiency.\n");
+
+// ============================================================================
+// WEIGHTED SINK SYSTEM
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ WEIGHTED SINK SYSTEM: Prioritized Energy Distribution      │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("After RCL-up, we need to prioritize different sinks:");
+console.log("  - Spawn overhead (critical - must stay alive)");
+console.log("  - Extensions (high priority for increased spawn capacity)");
+console.log("  - Towers (medium-high for defense)");
+console.log("  - Controller (low priority during build phase)");
+console.log("");
+
+interface WeightedSink {
+  id: string;
+  type: "spawn" | "extension" | "tower" | "controller" | "construction";
+  x: number;
+  y: number;
+  priority: number;     // Higher = more important (1-100)
+  demand: number;       // Energy needed per tick (or build progress needed)
+  capacity?: number;    // Max energy this sink can accept per tick
+}
+
+interface WeightedFlow {
+  from: string;
+  to: string;
+  amount: number;
+  distance: number;
+  carryParts: number;
+  sinkType: string;
+  priority: number;
+}
+
+function solveWeightedEconomy(
+  sources: Node[],
+  sinks: WeightedSink[],
+): {
+  flows: WeightedFlow[];
+  totalHarvest: number;
+  distribution: Map<string, number>;
+  unmetDemand: Map<string, number>;
+} {
+  const numSources = sources.length;
+  const totalHarvest = numSources * 10;
+  const minerCostPerTick = numSources * (MINER_COST / LIFETIME);
+
+  // Sort sinks by priority (highest first)
+  const sortedSinks = [...sinks].sort((a, b) => b.priority - a.priority);
+
+  // Available energy after miner overhead (rough initial estimate)
+  let availableEnergy = totalHarvest - minerCostPerTick;
+
+  const flows: WeightedFlow[] = [];
+  const distribution = new Map<string, number>();
+  const unmetDemand = new Map<string, number>();
+
+  // For each sink, find nearest source and allocate energy
+  const sourceEnergy = new Map<string, number>();
+  for (const src of sources) {
+    sourceEnergy.set(src.id, 10);  // Each source produces 10/tick
+  }
+
+  for (const sink of sortedSinks) {
+    // Find sources sorted by distance to this sink
+    const sourceDists = sources
+      .map(src => ({
+        source: src,
+        dist: Math.max(Math.abs(src.x - sink.x), Math.abs(src.y - sink.y)),
+        available: sourceEnergy.get(src.id) || 0,
+      }))
+      .filter(s => s.available > 0)
+      .sort((a, b) => a.dist - b.dist);
+
+    let needed = Math.min(sink.demand, sink.capacity || Infinity);
+    let allocated = 0;
+
+    for (const { source, dist, available } of sourceDists) {
+      if (needed <= 0) break;
+
+      const take = Math.min(available, needed);
+      const rt = 2 * dist + 2;
+      const carryParts = take * rt / 50;
+
+      flows.push({
+        from: source.id,
+        to: sink.id,
+        amount: take,
+        distance: dist,
+        carryParts,
+        sinkType: sink.type,
+        priority: sink.priority,
+      });
+
+      sourceEnergy.set(source.id, available - take);
+      needed -= take;
+      allocated += take;
+    }
+
+    distribution.set(sink.id, allocated);
+    if (needed > 0) {
+      unmetDemand.set(sink.id, needed);
+    }
+  }
+
+  return { flows, totalHarvest, distribution, unmetDemand };
+}
+
+// Example: Post-RCL scenario with extensions to build
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ SCENARIO: Just hit RCL 3 - need to build 5 extensions      │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Create a simple 2-source room layout
+const postRclSources: Node[] = [
+  { id: "S1", x: 10, y: 25, type: "source" },
+  { id: "S2", x: 40, y: 25, type: "source" },
+];
+
+const postRclSinks: WeightedSink[] = [
+  // Spawn overhead is CRITICAL - priority 100
+  { id: "Spawn", type: "spawn", x: 25, y: 25, priority: 100, demand: 3.0, capacity: 10 },
+
+  // Extensions under construction - high priority during build phase
+  { id: "Ext1", type: "construction", x: 23, y: 24, priority: 80, demand: 1.0, capacity: 5 },
+  { id: "Ext2", type: "construction", x: 27, y: 24, priority: 80, demand: 1.0, capacity: 5 },
+  { id: "Ext3", type: "construction", x: 23, y: 26, priority: 80, demand: 1.0, capacity: 5 },
+  { id: "Ext4", type: "construction", x: 27, y: 26, priority: 80, demand: 1.0, capacity: 5 },
+  { id: "Ext5", type: "construction", x: 25, y: 27, priority: 80, demand: 1.0, capacity: 5 },
+
+  // Controller upgrading - LOW priority during build phase
+  { id: "Ctrl", type: "controller", x: 45, y: 10, priority: 10, demand: 50, capacity: 50 },
+];
+
+console.log("Sink priorities:");
+console.log("  Spawn overhead:  100 (critical - always first)");
+console.log("  Extension build:  80 (high during RCL-up)");
+console.log("  Controller:       10 (paused during build)\n");
+
+const postRclResult = solveWeightedEconomy(postRclSources, postRclSinks);
+
+console.log("Energy Distribution by Priority:\n");
+
+// Group flows by sink type
+const byType = new Map<string, { amount: number; carry: number }>();
+for (const flow of postRclResult.flows) {
+  const key = flow.sinkType;
+  const existing = byType.get(key) || { amount: 0, carry: 0 };
+  existing.amount += flow.amount;
+  existing.carry += flow.carryParts;
+  byType.set(key, existing);
+}
+
+console.log("  Sink Type       Priority   Energy/tick   CARRY parts");
+console.log("  ─────────       ────────   ───────────   ───────────");
+for (const [type, data] of [...byType.entries()].sort((a, b) => {
+  const pA = postRclSinks.find(s => s.type === a[0])?.priority || 0;
+  const pB = postRclSinks.find(s => s.type === b[0])?.priority || 0;
+  return pB - pA;
+})) {
+  const sink = postRclSinks.find(s => s.type === type);
+  const pri = sink?.priority || 0;
+  console.log(`  ${type.padEnd(14)}  ${pri.toString().padStart(6)}     ${data.amount.toFixed(2).padStart(8)}      ${data.carry.toFixed(1).padStart(8)}`);
+}
+console.log("");
+
+// Show unmet demand
+if (postRclResult.unmetDemand.size > 0) {
+  console.log("Unmet Demand:");
+  for (const [sinkId, unmet] of postRclResult.unmetDemand) {
+    const sink = postRclSinks.find(s => s.id === sinkId);
+    console.log(`  ${sinkId}: needs ${unmet.toFixed(1)} more/tick (priority ${sink?.priority})`);
+  }
+  console.log("");
+}
+
+// Calculate total stats
+const totalAllocated = [...byType.values()].reduce((sum, d) => sum + d.amount, 0);
+const totalCarry = [...byType.values()].reduce((sum, d) => sum + d.carry, 0);
+
+console.log("  ┌──────────────────────────────────────────────────────────┐");
+console.log(`  │  Total harvest:     ${postRclResult.totalHarvest.toFixed(1)}/tick (${postRclSources.length} sources)          │`);
+console.log(`  │  Allocated:         ${totalAllocated.toFixed(1)}/tick                          │`);
+console.log(`  │  To building:       ${(byType.get("construction")?.amount || 0).toFixed(1)}/tick (extensions)             │`);
+console.log(`  │  To controller:     ${(byType.get("controller")?.amount || 0).toFixed(1)}/tick (minimal)                │`);
+console.log("  └──────────────────────────────────────────────────────────┘\n");
+
+// ============================================================================
+// COMPARE: Normal operation vs Build phase
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ COMPARISON: Normal Operation vs Build Phase                │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Normal operation: controller has high priority
+const normalSinks: WeightedSink[] = [
+  { id: "Spawn", type: "spawn", x: 25, y: 25, priority: 100, demand: 3.0, capacity: 10 },
+  { id: "Ctrl", type: "controller", x: 45, y: 10, priority: 90, demand: 50, capacity: 50 },
+];
+
+const normalResult = solveWeightedEconomy(postRclSources, normalSinks);
+const normalToCtrl = normalResult.flows
+  .filter(f => f.sinkType === "controller")
+  .reduce((sum, f) => sum + f.amount, 0);
+
+const buildToCtrl = postRclResult.flows
+  .filter(f => f.sinkType === "controller")
+  .reduce((sum, f) => sum + f.amount, 0);
+
+const buildToConstruction = postRclResult.flows
+  .filter(f => f.sinkType === "construction")
+  .reduce((sum, f) => sum + f.amount, 0);
+
+console.log("                        Normal Mode     Build Mode");
+console.log("                        ───────────     ──────────");
+console.log(`  Controller priority       90              10`);
+console.log(`  Build site priority       --              80`);
+console.log("");
+console.log(`  To controller          ${normalToCtrl.toFixed(1)}/tick        ${buildToCtrl.toFixed(1)}/tick`);
+console.log(`  To building                --           ${buildToConstruction.toFixed(1)}/tick`);
+console.log("");
+console.log("Energy redirected to building: " +
+  (normalToCtrl - buildToCtrl).toFixed(1) + "/tick\n");
+
+// ============================================================================
+// DYNAMIC PRIORITY ADJUSTMENT
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ DYNAMIC PRIORITY: As extensions complete                   │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("As construction sites complete, priority shifts back to controller:\n");
+
+console.log("  Sites Remaining   Build Priority   Ctrl Priority   To Ctrl");
+console.log("  ───────────────   ──────────────   ─────────────   ───────");
+
+for (let remaining = 5; remaining >= 0; remaining--) {
+  // Dynamic priority: build sites reduce priority as they complete
+  const buildPri = remaining > 0 ? 80 : 0;
+  // Controller increases priority as build sites complete
+  const ctrlPri = 10 + (5 - remaining) * 16;  // 10 → 90 as sites complete
+
+  const dynamicSinks: WeightedSink[] = [
+    { id: "Spawn", type: "spawn", x: 25, y: 25, priority: 100, demand: 3.0, capacity: 10 },
+  ];
+
+  // Add remaining build sites
+  for (let i = 0; i < remaining; i++) {
+    dynamicSinks.push({
+      id: `Ext${i + 1}`,
+      type: "construction",
+      x: 25,
+      y: 25,
+      priority: buildPri,
+      demand: 1.0,
+      capacity: 5,
+    });
+  }
+
+  dynamicSinks.push({
+    id: "Ctrl",
+    type: "controller",
+    x: 45,
+    y: 10,
+    priority: ctrlPri,
+    demand: 50,
+    capacity: 50,
+  });
+
+  const result = solveWeightedEconomy(postRclSources, dynamicSinks);
+  const toCtrl = result.flows
+    .filter(f => f.sinkType === "controller")
+    .reduce((sum, f) => sum + f.amount, 0);
+
+  console.log(`        ${remaining}                 ${buildPri.toString().padStart(2)}               ${ctrlPri.toString().padStart(2)}          ${toCtrl.toFixed(1)}/tick`);
+}
+
+console.log("");
+console.log("As build sites complete (5→0), controller priority rises (10→90),");
+console.log("and upgrade rate returns to normal.\n");
