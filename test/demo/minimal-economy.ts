@@ -622,3 +622,161 @@ console.log("");
 console.log("Note: Efficiency is the SAME because all distances are D.");
 console.log("      With Chebyshev distance, topology doesn't affect efficiency!");
 console.log("      (Only distance D matters, not the shape)\n");
+
+// ============================================================================
+// TWO-SOURCE SCENARIO: Blocked Diagonals (Wall in the way)
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ TWO-SOURCE ECONOMY (Blocked Diagonals)                      │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("Topology: Square with walls blocking diagonals");
+console.log("");
+console.log("    SOURCE1 ───D─── SOURCE2");
+console.log("       │             │");
+console.log("       D    WALL     D");
+console.log("       │             │");
+console.log("     SPAWN ───D─── CONTROLLER");
+console.log("");
+console.log("Distances:");
+console.log("  Source1 → Spawn:      D   (short)");
+console.log("  Source2 → Controller: D   (short)");
+console.log("  Source1 → Controller: 2D  (must go around)");
+console.log("  Source2 → Spawn:      2D  (must go around)\n");
+
+console.log("Optimal routing:");
+console.log("  - Source1 → Spawn (D): handles spawn overhead");
+console.log("  - Source2 → Controller (D): handles upgrading");
+console.log("  - Source1 excess → Controller (2D): if overhead < 10/tick\n");
+
+// With blocked diagonals:
+// - Source1 produces 10/tick, is D from Spawn, 2D from Controller
+// - Source2 produces 10/tick, is 2D from Spawn, D from Controller
+//
+// Optimal assignment:
+// - Source1 handles ALL spawn overhead (D route)
+// - Source2 handles ALL upgrading (D route)
+// - Source1's leftover goes to Controller via 2D route
+
+const blockedMinerCost = 2 * minerSpawnOverhead;  // 0.867/tick
+
+// Let's define:
+// - O = total overhead needed at spawn
+// - W = total upgrade rate
+// - O + W = 20
+//
+// Source1 delivers O to spawn (route D)
+// Source2 delivers W to controller (route D)
+// If O < 10: Source1's leftover (10 - O) goes to controller (route 2D)
+// If O > 10: Source2 must help with spawn (route 2D)
+
+// Overhead = 2×miner + source1→spawn hauler + source2→ctrl hauler + source1→ctrl hauler (if any) + upgrader
+// This is complex because Source1's leftover uses a longer route!
+
+const rtShort = 2 * DISTANCE + 2;  // D route = 62 ticks
+const rtLong = 2 * (2 * DISTANCE) + 2;  // 2D route = 122 ticks
+
+const kShort = (rtShort / 50) * (carryPartCost / LIFETIME);
+const kLong = (rtLong / 50) * (carryPartCost / LIFETIME);
+
+// Assume overhead O < 10 (Source1 can cover it)
+// Source1 delivers O to spawn, and (10 - O) to controller
+// Source2 delivers 10 to controller
+// Total to controller W = (10 - O) + 10 = 20 - O
+
+// Hauling costs:
+// - Source1 → Spawn (D): O × kShort
+// - Source1 → Controller (2D): (10 - O) × kLong
+// - Source2 → Controller (D): 10 × kShort
+
+// Total overhead = miners + all hauling + upgrader work
+// O = blockedMinerCost + O×kShort + (10-O)×kLong + 10×kShort + W×workCost
+// O = blockedMinerCost + O×kShort + 10×kLong - O×kLong + 10×kShort + (20-O)×workCost
+// O = blockedMinerCost + O×kShort - O×kLong + 10×kLong + 10×kShort + 20×workCost - O×workCost
+// O + O×kLong - O×kShort + O×workCost = blockedMinerCost + 10×kLong + 10×kShort + 20×workCost
+// O × (1 + kLong - kShort + workCost) = blockedMinerCost + 10×(kLong + kShort) + 20×workCost
+
+const blockedNumerator = blockedMinerCost + 10 * (kLong + kShort) + 20 * workCostPerTick;
+const blockedDenominator = 1 + kLong - kShort + workCostPerTick;
+const blockedOverhead = blockedNumerator / blockedDenominator;
+const blockedUpgradeRate = 20 - blockedOverhead;
+
+// Verify O < 10
+const source1ToSpawn = blockedOverhead;
+const source1ToController = 10 - blockedOverhead;  // leftover
+const source2ToController = 10;
+
+// Calculate hauler parts
+const blocked_spawnHaulCarry = source1ToSpawn * rtShort / 50;
+const blocked_s1CtrlHaulCarry = source1ToController * rtLong / 50;
+const blocked_s2CtrlHaulCarry = source2ToController * rtShort / 50;
+const blocked_totalCtrlCarry = blocked_s1CtrlHaulCarry + blocked_s2CtrlHaulCarry;
+
+const blocked_spawnHaulCost = (blocked_spawnHaulCarry * carryPartCost) / LIFETIME;
+const blocked_s1CtrlHaulCost = (blocked_s1CtrlHaulCarry * carryPartCost) / LIFETIME;
+const blocked_s2CtrlHaulCost = (blocked_s2CtrlHaulCarry * carryPartCost) / LIFETIME;
+const blocked_upgraderWorkCost = (blockedUpgradeRate * WORK_COST) / LIFETIME;
+
+const blockedEfficiency = (blockedUpgradeRate / twoSourceHarvest) * 100;
+
+console.log(`With D=${DISTANCE}:\n`);
+
+console.log("Energy Flow:");
+console.log(`  Source1 → Spawn (D):        ${source1ToSpawn.toFixed(2)}/tick (overhead)`);
+console.log(`  Source1 → Controller (2D):  ${source1ToController.toFixed(2)}/tick (leftover)`);
+console.log(`  Source2 → Controller (D):   ${source2ToController.toFixed(2)}/tick`);
+console.log(`  ─────────────────────────────────`);
+console.log(`  Total to Controller:        ${blockedUpgradeRate.toFixed(2)}/tick\n`);
+
+console.log("Hauler Requirements:");
+console.log(`  Source1 → Spawn (D):       ${blocked_spawnHaulCarry.toFixed(1)}C (rt ${rtShort} ticks)`);
+console.log(`  Source1 → Controller (2D): ${blocked_s1CtrlHaulCarry.toFixed(1)}C (rt ${rtLong} ticks) ← LONG ROUTE`);
+console.log(`  Source2 → Controller (D):  ${blocked_s2CtrlHaulCarry.toFixed(1)}C (rt ${rtShort} ticks)\n`);
+
+console.log("Overhead breakdown:");
+console.log(`  2× Miners:              ${blockedMinerCost.toFixed(3)}/tick`);
+console.log(`  S1→Spawn hauler (D):    ${blocked_spawnHaulCost.toFixed(3)}/tick (${blocked_spawnHaulCarry.toFixed(1)}C)`);
+console.log(`  S1→Ctrl hauler (2D):    ${blocked_s1CtrlHaulCost.toFixed(3)}/tick (${blocked_s1CtrlHaulCarry.toFixed(1)}C)`);
+console.log(`  S2→Ctrl hauler (D):     ${blocked_s2CtrlHaulCost.toFixed(3)}/tick (${blocked_s2CtrlHaulCarry.toFixed(1)}C)`);
+console.log(`  Upgrader WORK:          ${blocked_upgraderWorkCost.toFixed(3)}/tick (${blockedUpgradeRate.toFixed(1)}W)`);
+console.log(`  ─────────────────────`);
+console.log(`  Total overhead:         ${blockedOverhead.toFixed(3)}/tick\n`);
+
+console.log("  ┌──────────────────────────────────────────────────────────┐");
+console.log(`  │  Gross Harvest:      ${twoSourceHarvest.toFixed(2)}/tick (2 sources)           │`);
+console.log(`  │  Net Upgrading:      ${blockedUpgradeRate.toFixed(2)}/tick                     │`);
+console.log(`  │  Efficiency:         ${blockedEfficiency.toFixed(1)}%                          │`);
+console.log("  └──────────────────────────────────────────────────────────┘\n");
+
+// Body parts for blocked scenario
+const blockedTotalWork = 2 * MINER_WORK + blockedUpgradeRate;
+const blockedTotalCarry = blocked_spawnHaulCarry + blocked_s1CtrlHaulCarry + blocked_s2CtrlHaulCarry;
+const blockedTotalMove = 2 * MINER_MOVE + blockedTotalCarry;
+
+console.log("Body Part Requirements:");
+console.log(`  Mining:    ${2 * MINER_WORK}W + ${2 * MINER_MOVE}M (2 miners)`);
+console.log(`  Hauling:   ${blocked_spawnHaulCarry.toFixed(1)}C (S1→Spawn) + ${blocked_s1CtrlHaulCarry.toFixed(1)}C (S1→Ctrl) + ${blocked_s2CtrlHaulCarry.toFixed(1)}C (S2→Ctrl)`);
+console.log(`  Upgrading: ${blockedUpgradeRate.toFixed(1)}W`);
+console.log(`  ─────────────────`);
+console.log(`  Total:     ${blockedTotalWork.toFixed(1)}W + ${blockedTotalCarry.toFixed(1)}C + ${blockedTotalMove.toFixed(1)}M\n`);
+
+// Three-way comparison
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ COMPARISON: 1 Source vs 2 Sources (Open vs Blocked)        │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("                        1 Source    2 Src (Open)   2 Src (Blocked)");
+console.log("                        ─────────   ────────────   ───────────────");
+console.log(`  Gross harvest         ${harvestPerTick.toFixed(1)}/tick    ${twoSourceHarvest.toFixed(1)}/tick      ${twoSourceHarvest.toFixed(1)}/tick`);
+console.log(`  Net upgrading         ${upgradeRate.toFixed(1)}/tick    ${twoSourceUpgradeRate.toFixed(1)}/tick      ${blockedUpgradeRate.toFixed(1)}/tick`);
+console.log(`  Efficiency            ${efficiency.toFixed(1)}%       ${twoSourceEfficiency.toFixed(1)}%          ${blockedEfficiency.toFixed(1)}%`);
+console.log("");
+console.log(`  WORK parts            ${totalWorkParts.toFixed(1)}        ${twoTotalWork.toFixed(1)}           ${blockedTotalWork.toFixed(1)}`);
+console.log(`  CARRY parts           ${totalCarryParts.toFixed(1)}        ${twoTotalCarry.toFixed(1)}           ${blockedTotalCarry.toFixed(1)}`);
+console.log(`  MOVE parts            ${totalMoveParts.toFixed(1)}        ${twoTotalMove.toFixed(1)}           ${blockedTotalMove.toFixed(1)}`);
+console.log("");
+
+const effLoss = twoSourceEfficiency - blockedEfficiency;
+console.log(`Blocking diagonals costs ${effLoss.toFixed(1)}% efficiency`);
+console.log(`  because Source1's leftover must travel 2D instead of D.\n`);
