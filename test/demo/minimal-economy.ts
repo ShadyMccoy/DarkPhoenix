@@ -222,173 +222,210 @@ console.log(`  ─────────────────`);
 console.log(`  Total:     ${totalWorkParts.toFixed(1)}W + ${totalCarryParts.toFixed(1)}C + ${totalMoveParts.toFixed(1)}M\n`);
 
 // ============================================================================
-// SIDE-BY-SIDE COMPARISON: 1:1 vs 2:1 vs 2:1+Roads
+// EFFICIENCY CALCULATION FUNCTION
+// ============================================================================
+
+interface ScenarioResult {
+  name: string;
+  distance: number;
+  roundTrip: number;
+  carryParts: number;
+  upgradeWork: number;
+  upgradeCarry: number;
+  totalSpawnOverhead: number;
+  roadMaintenance: number;
+  netUpgrade: number;
+  efficiency: number;
+}
+
+function calculateScenarios(D: number, harvestRate: number): ScenarioResult[] {
+  const minerOverhead = MINER_COST / LIFETIME;
+  const cost_1to1 = CARRY_COST + MOVE_COST;  // 100 per CARRY
+  const cost_2to1 = CARRY_COST + MOVE_COST / 2;  // 75 per CARRY
+  const workCostPerTick = WORK_COST / LIFETIME;
+
+  // Round trip times
+  const rt_1to1 = 2 * D + 2;
+  const rt_2to1_noRoad = 3 * D + 2;
+  const rt_2to1_road = 2 * D + 2;
+
+  const results: ScenarioResult[] = [];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 1: 1:1 No Roads
+  // ─────────────────────────────────────────────────────────────────────────
+  {
+    const carryParts = harvestRate * rt_1to1 / 50;
+    const haulerOverhead = (carryParts * cost_1to1) / LIFETIME;
+    const energyForUpgrade = harvestRate - minerOverhead - haulerOverhead;
+
+    const upgHaulCost = (rt_1to1 / 50) * cost_1to1 / LIFETIME;
+    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
+    const upgRate = energyForUpgrade / upgTotalCost;
+    const upgCarry = upgRate * rt_1to1 / 50;
+
+    const totalOverhead = minerOverhead + haulerOverhead + (upgCarry * cost_1to1 + upgRate * WORK_COST) / LIFETIME;
+
+    results.push({
+      name: "1:1 No Roads",
+      distance: D,
+      roundTrip: rt_1to1,
+      carryParts: carryParts,
+      upgradeWork: upgRate,
+      upgradeCarry: upgCarry,
+      totalSpawnOverhead: totalOverhead,
+      roadMaintenance: 0,
+      netUpgrade: upgRate,
+      efficiency: (upgRate / harvestRate) * 100,
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 2: 2:1 No Roads (half speed loaded)
+  // ─────────────────────────────────────────────────────────────────────────
+  {
+    const carryParts = harvestRate * rt_2to1_noRoad / 50;
+    const haulerOverhead = (carryParts * cost_2to1) / LIFETIME;
+    const energyForUpgrade = harvestRate - minerOverhead - haulerOverhead;
+
+    const upgHaulCost = (rt_2to1_noRoad / 50) * cost_2to1 / LIFETIME;
+    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
+    const upgRate = energyForUpgrade / upgTotalCost;
+    const upgCarry = upgRate * rt_2to1_noRoad / 50;
+
+    const totalOverhead = minerOverhead + haulerOverhead + (upgCarry * cost_2to1 + upgRate * WORK_COST) / LIFETIME;
+
+    results.push({
+      name: "2:1 No Roads",
+      distance: D,
+      roundTrip: rt_2to1_noRoad,
+      carryParts: carryParts,
+      upgradeWork: upgRate,
+      upgradeCarry: upgCarry,
+      totalSpawnOverhead: totalOverhead,
+      roadMaintenance: 0,
+      netUpgrade: upgRate,
+      efficiency: (upgRate / harvestRate) * 100,
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 3: 2:1 + Roads (full speed, but maintenance cost)
+  // ─────────────────────────────────────────────────────────────────────────
+  {
+    const carryParts = harvestRate * rt_2to1_road / 50;
+
+    // Road traffic and decay for source route
+    const haulerBodyParts = carryParts * 1.5;  // CARRY + MOVE
+    const tripsPerTick = 1 / rt_2to1_road;
+    const sourceTraffic = tripsPerTick * 2 * haulerBodyParts;
+
+    const baseDecay = ROAD_DECAY_RATE / 1000;
+    const sourceDecay = baseDecay * (1 + sourceTraffic);
+    const sourceLife = ROAD_MAX_HITS / sourceDecay;
+    const sourceMaint = D * ROAD_ENERGY_COST / sourceLife;
+
+    // Estimate controller route (iterate once for accuracy)
+    const estUpgCarry = carryParts * 0.7;  // rough estimate
+    const ctrlTraffic = tripsPerTick * 2 * (estUpgCarry * 1.5);
+    const ctrlDecay = baseDecay * (1 + ctrlTraffic);
+    const ctrlLife = ROAD_MAX_HITS / ctrlDecay;
+    const ctrlMaint = D * ROAD_ENERGY_COST / ctrlLife;
+
+    const totalMaint = sourceMaint + ctrlMaint;
+
+    const haulerOverhead = (carryParts * cost_2to1) / LIFETIME;
+    const roadMinerCost = MINER_WORK * WORK_COST + Math.ceil(MINER_WORK / 2) * MOVE_COST;
+    const roadMinerOverhead = roadMinerCost / LIFETIME;
+
+    const energyForUpgrade = harvestRate - roadMinerOverhead - haulerOverhead - totalMaint;
+
+    const upgHaulCost = (rt_2to1_road / 50) * cost_2to1 / LIFETIME;
+    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
+    const upgRate = energyForUpgrade / upgTotalCost;
+    const upgCarry = upgRate * rt_2to1_road / 50;
+
+    const totalOverhead = roadMinerOverhead + haulerOverhead + (upgCarry * cost_2to1 + upgRate * WORK_COST) / LIFETIME;
+
+    results.push({
+      name: "2:1 + Roads",
+      distance: D,
+      roundTrip: rt_2to1_road,
+      carryParts: carryParts,
+      upgradeWork: upgRate,
+      upgradeCarry: upgCarry,
+      totalSpawnOverhead: totalOverhead,
+      roadMaintenance: totalMaint,
+      netUpgrade: upgRate,
+      efficiency: (upgRate / harvestRate) * 100,
+    });
+  }
+
+  return results;
+}
+
+// ============================================================================
+// MULTI-DISTANCE COMPARISON
 // ============================================================================
 
 console.log("┌─────────────────────────────────────────────────────────────┐");
-console.log("│ HAULER COMPARISON: 1:1 vs 2:1 vs 2:1+Roads                  │");
+console.log("│ EFFICIENCY BY DISTANCE: 1:1 vs 2:1 vs 2:1+Roads             │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Round trip calculations:
-// - Empty CARRY doesn't generate fatigue, so empty haulers move at full speed
-// - 1:1 no roads:  D (empty) + D (loaded) + 2 = 2D + 2
-// - 2:1 no roads:  D (empty, full speed) + 2D (loaded, half speed) + 2 = 3D + 2
-// - 2:1 w/ roads:  D (empty) + D (loaded, roads compensate) + 2 = 2D + 2
+console.log("Round trip formulas (empty CARRY = full speed):");
+console.log("  1:1 no roads:  2D + 2   (full speed both ways)");
+console.log("  2:1 no roads:  3D + 2   (half speed when loaded)");
+console.log("  2:1 + roads:   2D + 2   (roads restore full speed)\n");
 
-const roundTrip_1to1 = 2 * DISTANCE + 2;       // 62 at D=30
-const roundTrip_2to1_noRoad = 3 * DISTANCE + 2; // 92 at D=30 (half speed when loaded)
-const roundTrip_2to1_road = 2 * DISTANCE + 2;   // 62 at D=30 (roads restore full speed)
+const distances = [10, 20, 30, 50, 75, 100];
 
-console.log("Round trip times (empty CARRY = full speed):");
-console.log(`  1:1 no roads:  D + D + 2 = ${roundTrip_1to1} ticks`);
-console.log(`  2:1 no roads:  D + 2D + 2 = ${roundTrip_2to1_noRoad} ticks (half speed loaded)`);
-console.log(`  2:1 w/ roads:  D + D + 2 = ${roundTrip_2to1_road} ticks (roads restore speed)\n`);
+console.log("┌──────────┬────────────────────────────────────────────────────────────────────┐");
+console.log("│ Distance │  1:1 No Roads       2:1 No Roads       2:1 + Roads      Winner    │");
+console.log("├──────────┼────────────────────────────────────────────────────────────────────┤");
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCENARIO 1: 1:1 NO ROADS (already calculated above)
-// ─────────────────────────────────────────────────────────────────────────────
-const scenario_1to1 = {
-  name: "1:1 No Roads",
-  minerWork: MINER_WORK,
-  minerMove: MINER_MOVE,
-  minerCost: MINER_COST,
-  roundTrip: roundTrip_1to1,
-  carryParts: carryPartsNeeded,
-  haulerMoveParts: carryPartsNeeded,  // 1:1 ratio
-  haulerCostPerCarry: CARRY_COST + MOVE_COST,  // 100
-  upgradeWork: upgradeWorkParts,
-  upgradeCarry: upgradeCarryParts,
-  upgradeMove: upgradeCarryParts,  // 1:1
-  totalSpawnOverhead: totalSpawnOverhead,
-  netUpgrade: netOutput,
-  efficiency: efficiency,
-  roadMaintenance: 0,
-};
+for (const D of distances) {
+  // Calculate harvest rate for this distance (miner travel affects it)
+  const minerTravelTime = D;
+  const minerEffectiveTime = LIFETIME - minerTravelTime;
+  const minerRegenCycles = Math.floor(minerEffectiveTime / SOURCE_REGEN);
+  const grossHarvest = minerRegenCycles * SOURCE_CAPACITY;
+  const harvestRate = grossHarvest / LIFETIME;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCENARIO 2: 2:1 NO ROADS (slower when loaded)
-// ─────────────────────────────────────────────────────────────────────────────
+  const scenarios = calculateScenarios(D, harvestRate);
+  const best = scenarios.reduce((a, b) => a.efficiency > b.efficiency ? a : b);
 
-// CARRY parts needed for 2:1 no roads (longer round trip)
-const carryParts_2to1_noRoad = harvestPerTick * roundTrip_2to1_noRoad / 50;
-const haulerCost_2to1 = CARRY_COST + MOVE_COST / 2;  // 75 per CARRY
+  const s1 = scenarios[0];
+  const s2 = scenarios[1];
+  const s3 = scenarios[2];
 
-// Miner still needs to walk at half speed when loaded with WORK parts? No, miner walks empty
-// Actually miner walks with WORK parts (fatigue generating), so needs enough MOVE
-// On plains: 5 WORK = 10 fatigue/tick, needs 5 MOVE to stay at 1 tile/tick
-// But we could go slower... let's use 3 MOVE (same as 1:1 scenario for simplicity)
+  const eff1 = s1.efficiency.toFixed(1).padStart(5) + "%";
+  const eff2 = s2.efficiency.toFixed(1).padStart(5) + "%";
+  const eff3 = s3.efficiency.toFixed(1).padStart(5) + "%";
 
-// Calculate hauler overhead for 2:1 no roads
-const haulerOverhead_2to1_noRoad = (carryParts_2to1_noRoad * haulerCost_2to1) / LIFETIME;
+  const winner = best.name === "1:1 No Roads" ? "1:1" :
+                 best.name === "2:1 No Roads" ? "2:1" : "Roads";
 
-// Energy for upgrading
-const energyForUpgrading_2to1 = harvestPerTick - minerSpawnOverhead - haulerOverhead_2to1_noRoad;
+  const marker1 = best.name === "1:1 No Roads" ? " ✓" : "  ";
+  const marker2 = best.name === "2:1 No Roads" ? " ✓" : "  ";
+  const marker3 = best.name === "2:1 + Roads" ? " ✓" : "  ";
 
-// Upgrade haulers also 2:1 (slower)
-const upgradeRoundTrip_2to1_noRoad = 3 * DISTANCE + 2;
-const upgradeHaulCost_2to1 = (upgradeRoundTrip_2to1_noRoad / 50) * haulerCost_2to1 / LIFETIME;
-const upgradeTotalCost_2to1 = upgradeHaulCost_2to1 + upgradeWorkCostPerTick + 1;
-const upgradeRate_2to1_noRoad = energyForUpgrading_2to1 / upgradeTotalCost_2to1;
+  console.log(`│  D=${D.toString().padEnd(4)}  │  ${eff1}${marker1}            ${eff2}${marker2}            ${eff3}${marker3}       ${winner.padEnd(6)}   │`);
+}
 
-const upgradeCarry_2to1_noRoad = upgradeRate_2to1_noRoad * upgradeRoundTrip_2to1_noRoad / 50;
-const upgradeHaulOverhead_2to1 = (upgradeCarry_2to1_noRoad * haulerCost_2to1) / LIFETIME;
-const upgradeWorkOverhead_2to1 = (upgradeRate_2to1_noRoad * WORK_COST) / LIFETIME;
-const totalSpawnOverhead_2to1 = minerSpawnOverhead + haulerOverhead_2to1_noRoad + upgradeHaulOverhead_2to1 + upgradeWorkOverhead_2to1;
+console.log("└──────────┴────────────────────────────────────────────────────────────────────┘\n");
 
-const scenario_2to1_noRoad = {
-  name: "2:1 No Roads",
-  minerWork: MINER_WORK,
-  minerMove: MINER_MOVE,
-  minerCost: MINER_COST,
-  roundTrip: roundTrip_2to1_noRoad,
-  carryParts: carryParts_2to1_noRoad,
-  haulerMoveParts: carryParts_2to1_noRoad / 2,
-  haulerCostPerCarry: haulerCost_2to1,
-  upgradeWork: upgradeRate_2to1_noRoad,
-  upgradeCarry: upgradeCarry_2to1_noRoad,
-  upgradeMove: upgradeCarry_2to1_noRoad / 2,
-  totalSpawnOverhead: totalSpawnOverhead_2to1,
-  netUpgrade: upgradeRate_2to1_noRoad,
-  efficiency: (upgradeRate_2to1_noRoad / harvestPerTick) * 100,
-  roadMaintenance: 0,
-};
+// ============================================================================
+// DETAILED BREAKDOWN AT D=30
+// ============================================================================
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCENARIO 3: 2:1 WITH ROADS (full speed both ways)
-// ─────────────────────────────────────────────────────────────────────────────
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ DETAILED BREAKDOWN AT D=30                                  │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Miner with roads: can use fewer MOVE (2:1 ratio on roads)
-const roadMinerMoveParts = Math.ceil(MINER_WORK / 2);  // 3 MOVE for 5 WORK on roads
-const roadMinerCost = MINER_WORK * WORK_COST + roadMinerMoveParts * MOVE_COST;
-
-// Haulers with roads: 2:1 CARRY:MOVE, full speed
-const carryParts_2to1_road = harvestPerTick * roundTrip_2to1_road / 50;  // same as 1:1
-
-// Calculate road traffic and decay
-const roadTiles = 2 * DISTANCE;
-const roadHaulerBodyParts = carryParts_2to1_road * 1.5;  // CARRY + MOVE parts
-const haulerTripsPerTick = 1 / roundTrip_2to1_road;
-const sourceRouteTrafficPerTick = haulerTripsPerTick * 2 * roadHaulerBodyParts;
-
-// Upgrade route traffic (estimated, will refine after calculating upgrade rate)
-const estUpgradeCarry = upgradeCarryParts;  // use 1:1 estimate
-const upgradeRouteTrafficPerTick = (1 / roundTrip_2to1_road) * 2 * (estUpgradeCarry * 1.5);
-
-// Decay calculation
-const baseDecayPerTick = ROAD_DECAY_RATE / 1000;  // 0.1 hits/tick
-const sourceDecay = baseDecayPerTick * (1 + sourceRouteTrafficPerTick);
-const controllerDecay = baseDecayPerTick * (1 + upgradeRouteTrafficPerTick);
-
-const sourceLifetime = ROAD_MAX_HITS / sourceDecay;
-const controllerLifetime = ROAD_MAX_HITS / controllerDecay;
-
-const sourceMaintCost = DISTANCE * ROAD_ENERGY_COST / sourceLifetime;
-const controllerMaintCost = DISTANCE * ROAD_ENERGY_COST / controllerLifetime;
-const totalRoadMaint = sourceMaintCost + controllerMaintCost;
-
-// Roads spawn costs
-const roadMinerOverhead = roadMinerCost / LIFETIME;
-const roadHaulerOverhead = (carryParts_2to1_road * haulerCost_2to1) / LIFETIME;
-
-// Energy for upgrading with roads
-const roadEnergyForUpgrading = harvestPerTick - roadMinerOverhead - roadHaulerOverhead - totalRoadMaint;
-const roadUpgradeHaulCostPerTick = (roundTrip_2to1_road / 50) * haulerCost_2to1 / LIFETIME;
-const roadUpgradeTotalCostPerEnergyTick = roadUpgradeHaulCostPerTick + upgradeWorkCostPerTick + 1;
-const roadActualUpgradeRate = roadEnergyForUpgrading / roadUpgradeTotalCostPerEnergyTick;
-
-const roadActualUpgradeCarry = roadActualUpgradeRate * roundTrip_2to1_road / 50;
-const roadActualUpgradeHaulOverhead = (roadActualUpgradeCarry * haulerCost_2to1) / LIFETIME;
-const roadActualUpgradeWorkOverhead = (roadActualUpgradeRate * WORK_COST) / LIFETIME;
-const roadTotalSpawnOverhead = roadMinerOverhead + roadHaulerOverhead + roadActualUpgradeHaulOverhead + roadActualUpgradeWorkOverhead;
-
-const scenario_2to1_road = {
-  name: "2:1 + Roads",
-  minerWork: MINER_WORK,
-  minerMove: roadMinerMoveParts,
-  minerCost: roadMinerCost,
-  roundTrip: roundTrip_2to1_road,
-  carryParts: carryParts_2to1_road,
-  haulerMoveParts: carryParts_2to1_road / 2,
-  haulerCostPerCarry: haulerCost_2to1,
-  upgradeWork: roadActualUpgradeRate,
-  upgradeCarry: roadActualUpgradeCarry,
-  upgradeMove: roadActualUpgradeCarry / 2,
-  totalSpawnOverhead: roadTotalSpawnOverhead,
-  netUpgrade: roadActualUpgradeRate,
-  efficiency: (roadActualUpgradeRate / harvestPerTick) * 100,
-  roadMaintenance: totalRoadMaint,
-  roadTiles: roadTiles,
-  sourceLifetime: sourceLifetime,
-  controllerLifetime: controllerLifetime,
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// THREE-WAY COMPARISON OUTPUT
-// ─────────────────────────────────────────────────────────────────────────────
-
-const s1 = scenario_1to1;
-const s2 = scenario_2to1_noRoad;
-const s3 = scenario_2to1_road;
+const detailScenarios = calculateScenarios(30, harvestPerTick);
+const s1 = detailScenarios[0];
+const s2 = detailScenarios[1];
+const s3 = detailScenarios[2];
 
 console.log("                         1:1 No Road    2:1 No Road    2:1 + Roads");
 console.log("                         ───────────    ───────────    ───────────");
@@ -396,11 +433,10 @@ console.log("");
 console.log("HAULER CONFIG:");
 console.log(`  Round trip             ${s1.roundTrip} ticks       ${s2.roundTrip} ticks       ${s3.roundTrip} ticks`);
 console.log(`  CARRY:MOVE ratio       1:1            2:1            2:1`);
-console.log(`  Cost per CARRY         ${s1.haulerCostPerCarry}             ${s2.haulerCostPerCarry}             ${s3.haulerCostPerCarry}`);
+console.log(`  Cost per CARRY         100            75             75`);
 console.log("");
 console.log("SOURCE→SPAWN HAULING:");
 console.log(`  CARRY parts            ${s1.carryParts.toFixed(1)}           ${s2.carryParts.toFixed(1)}           ${s3.carryParts.toFixed(1)}`);
-console.log(`  MOVE parts             ${s1.haulerMoveParts.toFixed(1)}           ${s2.haulerMoveParts.toFixed(1)}            ${s3.haulerMoveParts.toFixed(1)}`);
 console.log("");
 console.log("UPGRADING:");
 console.log(`  WORK parts             ${s1.upgradeWork.toFixed(1)}            ${s2.upgradeWork.toFixed(1)}            ${s3.upgradeWork.toFixed(1)}`);
@@ -418,16 +454,87 @@ console.log("  └────────────────────�
 console.log("");
 
 // Find winner
-const scenarios = [s1, s2, s3];
-const best = scenarios.reduce((a, b) => a.efficiency > b.efficiency ? a : b);
+const allScenarios = [s1, s2, s3];
+const best = allScenarios.reduce((a, b) => a.efficiency > b.efficiency ? a : b);
 console.log(`  WINNER: ${best.name} at ${best.efficiency.toFixed(1)}% efficiency ✓\n`);
 
-// Body parts comparison
-console.log("BODY PARTS:");
-for (const s of scenarios) {
-  const totalW = s.minerWork + s.upgradeWork;
-  const totalC = s.carryParts + s.upgradeCarry;
-  const totalM = s.minerMove + s.haulerMoveParts + s.upgradeMove;
-  console.log(`  ${s.name.padEnd(14)} ${totalW.toFixed(1)}W + ${totalC.toFixed(1)}C + ${totalM.toFixed(1)}M = ${(totalW + totalC + totalM).toFixed(1)} parts`);
+// ============================================================================
+// SCALING ANALYSIS
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ SCALING ANALYSIS                                            │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Calculate efficiency delta at each distance
+console.log("Efficiency Gap Analysis:");
+console.log("");
+console.log("  Distance   1:1 vs 2:1 Gap    1:1 vs Roads Gap   Efficiency Loss/10tiles");
+console.log("  ────────   ──────────────    ────────────────   ──────────────────────");
+
+let prevEff: number | null = null;
+for (const D of distances) {
+  const minerEffTime = LIFETIME - D;
+  const regenCycles = Math.floor(minerEffTime / SOURCE_REGEN);
+  const grossHarvest = regenCycles * SOURCE_CAPACITY;
+  const harvestRate = grossHarvest / LIFETIME;
+
+  const scenarios = calculateScenarios(D, harvestRate);
+  const gap_2to1 = scenarios[0].efficiency - scenarios[1].efficiency;
+  const gap_roads = scenarios[0].efficiency - scenarios[2].efficiency;
+
+  const effLoss = prevEff !== null ? (prevEff - scenarios[0].efficiency) : 0;
+  prevEff = scenarios[0].efficiency;
+
+  console.log(`    D=${D.toString().padEnd(4)}      +${gap_2to1.toFixed(1)}%             +${gap_roads.toFixed(1)}%               ${D > 10 ? "-" + effLoss.toFixed(1) + "%" : "  --"}`);
 }
+console.log("");
+
+console.log("Key Findings:");
+console.log("");
+console.log("  ┌────────────────────────────────────────────────────────────────┐");
+console.log("  │  1:1 No Roads ALWAYS wins for single-source economy           │");
+console.log("  └────────────────────────────────────────────────────────────────┘");
+console.log("");
+console.log("  Why 1:1 beats 2:1 despite cheaper body parts:");
+console.log("");
+console.log("    The naive analysis compares:");
+console.log("      1:1: (2D+2) × 100/50/1500 = (2D+2) × 0.00133 cost/energy");
+console.log("      2:1: (3D+2) × 75/50/1500  = (3D+2) × 0.00100 cost/energy");
+console.log("");
+console.log("    This suggests 2:1 wins when D > 2. But this ignores:");
+console.log("");
+console.log("    1. ROUND TRIP TIME COMPOUNDS");
+console.log("       - 2:1 needs 50% more CARRY parts to match throughput");
+console.log("       - At D=30: 1:1 needs 9.9C, 2:1 needs 14.7C");
+console.log("       - The 50% penalty in parts overwhelms 25% savings per part");
+console.log("");
+console.log("    2. UPGRADE ROUTE DOUBLES THE PENALTY");
+console.log("       - Energy also needs hauling to controller");
+console.log("       - 2:1 pays the 50% round trip penalty twice");
+console.log("");
+console.log("    3. THE MATH:");
+console.log("       - 2:1 cost per CARRY: 75 (25% savings)");
+console.log("       - 2:1 round trip: 3D+2 vs 2D+2 (50% longer)");
+console.log("       - Net: 0.75 × 1.5 = 1.125 → 12.5% MORE expensive");
+console.log("");
+console.log("  Why Roads lose:");
+console.log("");
+console.log("    - Roads give 2:1 the same speed as 1:1 (2D+2 round trip)");
+console.log("    - But road maintenance eats into savings");
+console.log("    - At D=30: 0.51 energy/tick road cost vs 0.31 spawn savings");
+console.log("    - Roads only win with SHARED routes (multiple sources)");
+console.log("");
+
+// Summary table
+console.log("Decision Matrix:");
+console.log("");
+console.log("  ┌───────────────────┬─────────────────────────────────────────┐");
+console.log("  │ Scenario          │ Recommended Strategy                    │");
+console.log("  ├───────────────────┼─────────────────────────────────────────┤");
+console.log("  │ Single source     │ 1:1 No Roads (always)                   │");
+console.log("  │ 2+ sources, D<30  │ 1:1 No Roads (road cost > spawn cost)   │");
+console.log("  │ 2+ sources, D>50  │ 2:1 + Roads (shared roads amortize)     │");
+console.log("  │ SK room hauling   │ 2:1 + Roads (very long distances)       │");
+console.log("  └───────────────────┴─────────────────────────────────────────┘");
 console.log("");
