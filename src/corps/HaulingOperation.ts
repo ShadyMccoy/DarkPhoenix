@@ -1,25 +1,13 @@
 /**
  * @fileoverview HaulingOperation - Clean implementation of hauling.
  *
- * ARCHITECTURE:
- * - Constructor takes corp IDs (dependencies from planner)
- * - Sells: haul-energy (delivered energy)
- * - Buys: carry-ticks (from SpawningCorp), energy (from MiningCorp)
- * - work() is pure: just runs creeps doing pickup/deliver
- *
- * The planner creates this with:
- *   new HaulingOperation(miningCorpId, spawningCorpId, destinationPosition)
- *
  * @module corps/HaulingOperation
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position, createOfferId, HAUL_PER_CARRY } from "../market/Offer";
+import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { MiningOperation } from "./MiningOperation";
-
-/** Transport fee per energy */
-const TRANSPORT_FEE = 0.05;
 
 /**
  * Serialized state for HaulingOperation
@@ -34,32 +22,14 @@ export interface SerializedHaulingOperation extends SerializedCorp {
 
 /**
  * HaulingOperation - transports energy from source to destination.
- *
- * Dependencies (explicit in constructor):
- * - miningOp: the MiningOperation to pick up energy from (provides pickup position)
- * - spawningCorpId: where to get carry-ticks from
- * - deliveryPosition: where to drop energy (spawn or controller)
- *
- * Buys: carry-ticks (haulers), energy (from miners)
- * Sells: haul-energy (delivered energy)
  */
 export class HaulingOperation extends Corp {
-  // === DEPENDENCIES (from planner) ===
   private readonly miningOp: MiningOperation;
   private readonly spawningCorpId: string;
   private readonly deliveryPosition: Position;
-
-  // === RUNTIME STATE ===
   private creepNames: string[] = [];
   private targetHaulers: number = 1;
 
-  /**
-   * Create a hauling operation.
-   *
-   * @param miningOp - The MiningOperation to pick up energy from
-   * @param spawningCorpId - ID of the SpawningCorp to get haulers from
-   * @param deliveryPosition - Where to deliver energy (spawn/controller area)
-   */
   constructor(miningOp: MiningOperation, spawningCorpId: string, deliveryPosition: Position) {
     const nodeId = `hauling-${miningOp.id.slice(-8)}`;
     super("hauling", nodeId);
@@ -67,12 +37,10 @@ export class HaulingOperation extends Corp {
     this.spawningCorpId = spawningCorpId;
     this.deliveryPosition = deliveryPosition;
 
-    // Calculate haulers needed based on distance
     const distance = this.calculateDistance();
     this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
   }
 
-  // === ACCESSORS (data comes from MiningOperation) ===
   private get pickupPosition(): Position {
     return this.miningOp.getPosition();
   }
@@ -80,67 +48,9 @@ export class HaulingOperation extends Corp {
   private calculateDistance(): number {
     const pickup = this.pickupPosition;
     const delivery = this.deliveryPosition;
-    // Simple manhattan distance
     return Math.abs(pickup.x - delivery.x) + Math.abs(pickup.y - delivery.y);
   }
 
-  // === SELLS: haul-energy (delivered energy) ===
-  sells(): Offer[] {
-    const creeps = this.getCreeps();
-    if (creeps.length === 0) return [];
-
-    // Calculate delivery capacity
-    const TICKS_PER_DELIVERY = 50;
-    const deliveryCapacity = creeps.reduce((sum, creep) => {
-      const ttl = creep.ticksToLive ?? CREEP_LIFETIME;
-      const capacity = creep.store.getCapacity();
-      const deliveries = Math.floor(ttl / TICKS_PER_DELIVERY);
-      return sum + (capacity * deliveries);
-    }, 0);
-
-    const committedDelivery = this.getCommittedSellQuantity("haul-energy", Game.time);
-    const availableCapacity = deliveryCapacity - committedDelivery;
-    if (availableCapacity <= 0) return [];
-
-    const pricePerEnergy = TRANSPORT_FEE * (1 + this.getMargin());
-
-    return [{
-      id: createOfferId(this.id, "haul-energy", Game.time),
-      corpId: this.id,
-      type: "sell",
-      resource: "haul-energy",
-      quantity: availableCapacity,
-      price: pricePerEnergy * availableCapacity,
-      duration: CREEP_LIFETIME,
-      location: this.deliveryPosition
-    }];
-  }
-
-  // === BUYS: carry-ticks ===
-  buys(): Offer[] {
-    const offers: Offer[] = [];
-    const currentHaulers = this.getCreeps().length;
-
-    // Buy carry-ticks if below target
-    if (currentHaulers < this.targetHaulers) {
-      const capacity = 4 * HAUL_PER_CARRY; // Standard hauler
-
-      offers.push({
-        id: createOfferId(this.id, "carry-ticks", Game.time),
-        corpId: this.id,
-        type: "buy",
-        resource: "carry-ticks",
-        quantity: capacity,
-        price: TRANSPORT_FEE * capacity * (1 + this.getMargin()),
-        duration: CREEP_LIFETIME,
-        location: this.pickupPosition
-      });
-    }
-
-    return offers;
-  }
-
-  // === WORK: pure execution ===
   work(tick: number): void {
     this.lastActivityTick = tick;
     this.pickupCreeps();
@@ -152,11 +62,7 @@ export class HaulingOperation extends Corp {
     }
   }
 
-  /**
-   * Run hauler behavior - pure function of creep state.
-   */
   private runHauler(creep: Creep): void {
-    // Switch state based on energy
     if (creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
     } else if (creep.store.getFreeCapacity() === 0) {
@@ -171,7 +77,6 @@ export class HaulingOperation extends Corp {
   }
 
   private pickupEnergy(creep: Creep): void {
-    // Find dropped energy near pickup position
     const room = Game.rooms[this.pickupPosition.roomName];
     if (!room) return;
 
@@ -191,11 +96,9 @@ export class HaulingOperation extends Corp {
   }
 
   private deliverEnergy(creep: Creep): void {
-    // Deliver to spawn or drop at controller
     const room = Game.rooms[this.deliveryPosition.roomName];
     if (!room) return;
 
-    // Find spawn that needs energy
     const spawns = room.find(FIND_MY_SPAWNS, {
       filter: s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
     });
@@ -211,7 +114,6 @@ export class HaulingOperation extends Corp {
       return;
     }
 
-    // Otherwise drop at delivery position (controller area)
     const targetPos = new RoomPosition(
       this.deliveryPosition.x,
       this.deliveryPosition.y,
@@ -249,7 +151,6 @@ export class HaulingOperation extends Corp {
 
   plan(tick: number): void {
     super.plan(tick);
-    // Recalculate target based on distance (data from MiningOperation)
     const distance = this.calculateDistance();
     this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
   }
@@ -271,9 +172,6 @@ export class HaulingOperation extends Corp {
     this.targetHaulers = data.targetHaulers || 1;
   }
 
-  /**
-   * Get the MiningOperation this hauls from.
-   */
   getMiningOperation(): MiningOperation {
     return this.miningOp;
   }

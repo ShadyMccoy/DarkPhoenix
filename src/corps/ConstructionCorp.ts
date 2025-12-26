@@ -5,36 +5,16 @@
  * It only invests in construction when there's accumulated profit,
  * ensuring the economy is stable before expanding.
  *
- * NOTE: This is an auxiliary corp - it participates in the market for
- * creep spawning (buys work-ticks) but does NOT participate in the
- * main energy->RCL production chain planned by ChainPlanner.
- *
- * Extension placement strategy:
- * - Place extensions close to spawns (2-8 tiles away)
- * - Keep the immediate spawn area (1 tile) clear for creep movement
- * - Avoid blocking important paths (near sources, controller)
- *
  * @module corps/ConstructionCorp
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position, createOfferId } from "../market/Offer";
+import { Position } from "../types/Position";
 import {
   MAX_BUILDERS,
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
-import { CREEP_LIFETIME, BODY_PART_COST } from "../planning/EconomicConstants";
-import { CreepSpec } from "../market/Contract";
-import {
-  Contract,
-  isActive,
-  canRequestCreep,
-  requestCreep,
-  replacementsNeeded
-} from "../market/Contract";
-
-/** Base value per energy for construction (higher than upgrading to prioritize finishing builds) */
-const BASE_ENERGY_VALUE = 0.6;
+import { BODY_PART_COST } from "../planning/EconomicConstants";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -66,12 +46,6 @@ const PLACEMENT_COOLDOWN = 100;
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
- *
- * This corp:
- * - Buys work-ticks from SpawningCorp via contracts
- * - Places extension construction sites when profitable
- * - Builds structures to improve spawn capacity
- * - Revenue is internal (infrastructure value), not sold to other corps
  */
 export class ConstructionCorp extends Corp {
   /** ID of the spawn to use */
@@ -89,43 +63,21 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Get active creeps assigned to this corp from contracts.
-   * Reads from buy contracts where we purchased spawning capacity.
+   * Get active creeps assigned to this corp.
    */
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
-    const seen = new Set<string>();
-
-    for (const contract of this.contracts) {
-      if (contract.buyerId !== this.id) continue;
-      if (contract.resource !== "spawn-capacity") continue;
-      if (!isActive(contract, Game.time)) continue;
-
-      for (const creepName of contract.creepIds) {
-        if (seen.has(creepName)) continue;
-        seen.add(creepName);
-
-        const creep = Game.creeps[creepName];
-        if (creep && !creep.spawning) {
-          creeps.push(creep);
-        }
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id && creep.memory.workType === "build" && !creep.spawning) {
+        creeps.push(creep);
       }
     }
-
     return creeps;
   }
 
   /**
-   * Construction corp doesn't sell anything - it's a pure consumer.
-   * Infrastructure value is internal, not traded to other corps.
-   */
-  sells(): Offer[] {
-    return [];
-  }
-
-  /**
-   * Plan construction operations. Called periodically to compute targets.
-   * Determines how many builders are needed based on construction sites.
+   * Plan construction operations.
    */
   plan(tick: number): void {
     super.plan(tick);
@@ -142,51 +94,12 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // Calculate total work remaining
     const totalWorkRemaining = constructionSites.reduce((sum, site) => {
       return sum + (site.progressTotal - site.progress);
     }, 0);
 
-    // Roughly 1 builder per 50k work remaining, capped at MAX_BUILDERS
     const buildersNeeded = Math.min(MAX_BUILDERS, Math.ceil(totalWorkRemaining / 50000));
     this.targetBuilders = Math.max(1, buildersNeeded);
-  }
-
-  /**
-   * Construction corp buys spawning capacity (builder creeps) via the market.
-   */
-  buys(): Offer[] {
-    if (this.targetBuilders === 0) return [];
-
-    // Count current active builders from contracts
-    const currentBuilders = this.getCreepCount();
-
-    // Request 1 builder if below target
-    if (currentBuilders < this.targetBuilders) {
-      // Builder body: 2 WORK + 2 CARRY + 2 MOVE = 400 energy
-      const builderWorkParts = 2;
-      const builderEnergyCost = builderWorkParts * (BODY_PART_COST.work + BODY_PART_COST.carry + BODY_PART_COST.move);
-      const pricePerEnergy = BASE_ENERGY_VALUE * 2 * (1 + this.getMargin());
-
-      const creepSpec: CreepSpec = {
-        role: "builder",
-        workParts: builderWorkParts
-      };
-
-      return [{
-        id: createOfferId(this.id, "spawning", Game.time),
-        corpId: this.id,
-        type: "buy",
-        resource: "spawning",
-        quantity: builderEnergyCost,
-        price: pricePerEnergy * builderEnergyCost,
-        duration: CREEP_LIFETIME,
-        location: this.getPosition(),
-        creepSpec
-      }];
-    }
-
-    return [];
   }
 
   /**
@@ -201,17 +114,9 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * @deprecated Use execute() for contract-driven execution
+   * Main work loop - run builder creeps.
    */
   work(tick: number): void {
-    this.execute(this.contracts, tick);
-  }
-
-  /**
-   * Execute work to fulfill contracts.
-   * Contracts drive the work - creeps assigned to contracts do building.
-   */
-  execute(contracts: Contract[], tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -233,46 +138,13 @@ export class ConstructionCorp extends Corp {
 
     const canBuildMore = currentExtensions + constructionSites.length < maxExtensions;
 
-    // Try to place new extension sites if we have profit and room for more
     if (canBuildMore && this.balance >= MIN_CONSTRUCTION_PROFIT) {
       this.tryPlaceExtension(room, spawn, tick);
     }
 
-    // Get buy contracts for spawn-capacity (we buy from SpawningCorp)
-    const buyContracts = contracts.filter(
-      c => c.buyerId === this.id && c.resource === "spawn-capacity" && isActive(c, tick)
-    );
-
-    // Execute building for creeps assigned to our buy contracts
-    for (const contract of buyContracts) {
-      // Request creeps using the option mechanism
-      this.requestCreepsForContract(contract);
-
-      for (const creepName of contract.creepIds) {
-        const creep = Game.creeps[creepName];
-        if (creep && !creep.spawning) {
-          this.runBuilder(creep, room);
-        }
-      }
-    }
-  }
-
-  /**
-   * Request creeps from a spawn contract using the option mechanism.
-   */
-  private requestCreepsForContract(contract: Contract): void {
-    if (contract.creepIds.length === 0 && canRequestCreep(contract)) {
-      requestCreep(contract);
-      return;
-    }
-
-    const numReplacements = replacementsNeeded(contract, (creepId) => {
-      const creep = Game.creeps[creepId];
-      return creep?.ticksToLive;
-    });
-
-    for (let i = 0; i < numReplacements; i++) {
-      if (!requestCreep(contract)) break;
+    const creeps = this.getActiveCreeps();
+    for (const creep of creeps) {
+      this.runBuilder(creep, room);
     }
   }
 
@@ -307,7 +179,6 @@ export class ConstructionCorp extends Corp {
     const spawns = room.find(FIND_MY_SPAWNS);
     const avoidPositions = new Set<string>();
 
-    // Avoid tiles immediately adjacent to spawns
     for (const s of spawns) {
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
@@ -316,7 +187,6 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // Avoid tiles near sources
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
       for (let dx = -2; dx <= 2; dx++) {
@@ -326,7 +196,6 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // Avoid tiles near controller
     if (room.controller) {
       for (let dx = -3; dx <= 3; dx++) {
         for (let dy = -3; dy <= 3; dy++) {
@@ -335,7 +204,6 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // Get existing structures and construction sites to avoid
     const structures = room.find(FIND_STRUCTURES);
     const sites = room.find(FIND_CONSTRUCTION_SITES);
     for (const s of structures) {
@@ -345,13 +213,11 @@ export class ConstructionCorp extends Corp {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
     }
 
-    // Scan the room for positions near spawns
     for (let x = 2; x < 48; x++) {
       for (let y = 2; y < 48; y++) {
         if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
         if (avoidPositions.has(`${x},${y}`)) continue;
 
-        // Count open neighbors for pathing
         let openNeighbors = 0;
         for (let dx = -1; dx <= 1; dx++) {
           for (let dy = -1; dy <= 1; dy++) {
@@ -368,7 +234,6 @@ export class ConstructionCorp extends Corp {
 
         if (openNeighbors < 3) continue;
 
-        // Calculate distance to nearest spawn
         let minDistToSpawn = Infinity;
         for (const s of spawns) {
           const dist = Math.max(Math.abs(x - s.pos.x), Math.abs(y - s.pos.y));
@@ -392,7 +257,6 @@ export class ConstructionCorp extends Corp {
    * Run behavior for a builder creep.
    */
   private runBuilder(creep: Creep, room: Room): void {
-    // State transition
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
       creep.say("pickup");
@@ -467,7 +331,7 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Get number of active builder creeps from contracts.
+   * Get number of active builder creeps.
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;

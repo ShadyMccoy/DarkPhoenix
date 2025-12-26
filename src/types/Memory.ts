@@ -10,8 +10,6 @@
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 import { SerializedChain } from "../planning/Chain";
-import { Contract } from "../market/Contract";
-import { Transaction } from "../market/Market";
 import {
   SerializedBootstrapCorp,
   SerializedHarvestCorp,
@@ -85,12 +83,6 @@ declare global {
     chains?: { [chainId: string]: SerializedChain };
 
     /**
-     * Active contracts from planning phase.
-     * Contracts are created every PLANNING_INTERVAL ticks.
-     */
-    contracts?: { [contractId: string]: Contract };
-
-    /**
      * Tick when last planning phase was run.
      */
     lastPlanningTick?: number;
@@ -144,15 +136,6 @@ declare global {
      * Serialized spawning corps by spawn ID.
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
-
-    /**
-     * Serialized market state (central contract store).
-     * This is the source of truth for contract state including creep assignments.
-     */
-    market?: {
-      contracts: Contract[];
-      transactions: Transaction[];
-    };
   }
 
   /**

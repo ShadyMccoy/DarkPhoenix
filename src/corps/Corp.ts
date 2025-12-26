@@ -1,5 +1,4 @@
-import { Offer, Position } from "../market/Offer";
-import { Contract, isActive, remainingQuantity } from "../market/Contract";
+import { Position } from "../types/Position";
 
 /**
  * Corp types in the economic system
@@ -34,23 +33,20 @@ export interface SerializedCorp {
   acquisitionCost: number;
   // Planning state
   lastPlannedTick: number;
-  // Active contracts this corp is party to
-  contracts: Contract[];
 }
 
 /**
  * Corp is the base class for all economic entities in the colony.
  *
  * A Corp represents a business unit that:
- * - Posts buy/sell offers for resources
- * - Maintains a credit balance
- * - Uses cost-plus pricing with margin based on wealth
- * - Tracks ROI for performance evaluation
+ * - Receives work assignments from FlowEconomy
+ * - Maintains a credit balance for cost tracking
+ * - Tracks production metrics for efficiency analysis
  *
- * Corps compete within the market by:
- * - Wealthy corps have lower margins (undercut competition)
- * - Corps with negative ROI eventually go bankrupt
- * - Successful corps accumulate wealth and grow
+ * In the flow-based economy:
+ * - FlowEconomy calculates optimal resource allocation
+ * - Corps receive MinerAssignment/HaulerAssignment/SinkAllocation
+ * - Corps execute work based on these assignments
  */
 export abstract class Corp {
   /** Unique identifier for this corp */
@@ -94,9 +90,6 @@ export abstract class Corp {
 
   /** Last tick when planning was performed */
   lastPlannedTick: number = 0;
-
-  /** Contracts this corp is party to (as buyer or seller) */
-  contracts: Contract[] = [];
 
   /** How often to re-run planning (ticks) */
   protected static readonly PLANNING_INTERVAL = 100;
@@ -231,73 +224,6 @@ export abstract class Corp {
   }
 
   /**
-   * Add a contract to this corp's list.
-   * Called by Market when a contract is created.
-   */
-  addContract(contract: Contract): void {
-    // Avoid duplicates
-    if (!this.contracts.find(c => c.id === contract.id)) {
-      this.contracts.push(contract);
-    }
-  }
-
-  /**
-   * Remove a contract from this corp's list.
-   */
-  removeContract(contractId: string): void {
-    this.contracts = this.contracts.filter(c => c.id !== contractId);
-  }
-
-  /**
-   * Remove all contracts with the specified resource types.
-   * Used for cleaning up legacy contracts after resource type migrations.
-   */
-  removeContractsByResource(resources: Set<string>): void {
-    this.contracts = this.contracts.filter(c => !resources.has(c.resource));
-  }
-
-  /**
-   * Get active contracts where this corp is the seller.
-   */
-  getSellContracts(tick: number): Contract[] {
-    return this.contracts.filter(c => c.sellerId === this.id && isActive(c, tick));
-  }
-
-  /**
-   * Get active contracts where this corp is the buyer.
-   */
-  getBuyContracts(tick: number): Contract[] {
-    return this.contracts.filter(c => c.buyerId === this.id && isActive(c, tick));
-  }
-
-  /**
-   * Get total committed quantity for a resource where this corp is the seller.
-   * This is the remaining quantity to deliver on active contracts.
-   */
-  getCommittedSellQuantity(resource: string, tick: number): number {
-    return this.getSellContracts(tick)
-      .filter(c => c.resource === resource)
-      .reduce((sum, c) => sum + remainingQuantity(c), 0);
-  }
-
-  /**
-   * Get total committed quantity for a resource where this corp is the buyer.
-   * This is the remaining quantity to receive on active contracts.
-   */
-  getCommittedBuyQuantity(resource: string, tick: number): number {
-    return this.getBuyContracts(tick)
-      .filter(c => c.resource === resource)
-      .reduce((sum, c) => sum + remainingQuantity(c), 0);
-  }
-
-  /**
-   * Clean up expired/completed contracts.
-   */
-  pruneContracts(tick: number): void {
-    this.contracts = this.contracts.filter(c => isActive(c, tick));
-  }
-
-  /**
    * Get marginal cost per unit produced.
    * For producers: totalCost / unitsProduced
    * For middlemen: (acquisitionCost + operatingCost) / unitsProduced
@@ -422,7 +348,6 @@ export abstract class Corp {
       unitsConsumed: this.unitsConsumed,
       acquisitionCost: this.acquisitionCost,
       lastPlannedTick: this.lastPlannedTick,
-      contracts: this.contracts
     };
   }
 
@@ -441,51 +366,17 @@ export abstract class Corp {
     this.unitsConsumed = data.unitsConsumed ?? 0;
     this.acquisitionCost = data.acquisitionCost ?? 0;
     this.lastPlannedTick = data.lastPlannedTick ?? 0;
-    this.contracts = data.contracts ?? [];
   }
 
   /**
-   * Get sell offers this corp is making.
-   * Each corp type implements this based on what it produces.
-   */
-  abstract sells(): Offer[];
-
-  /**
-   * Get buy offers (what this corp needs as inputs).
-   * Each corp type implements this based on its requirements.
-   */
-  abstract buys(): Offer[];
-
-  /**
    * Perform work for this tick.
-   * @deprecated Use execute() for contract-driven execution
+   * Subclasses implement this to perform their specific work.
    */
   abstract work(tick: number): void;
 
   /**
-   * Execute work to fulfill contracts.
-   * Contracts ALWAYS drive the work - no contracts means no work.
-   *
-   * Subclasses should override this to implement contract-driven execution:
-   * - Iterate through contracts where this corp is buyer/seller
-   * - Execute work to fulfill each contract
-   * - Record delivery on contracts as work is done
-   *
-   * Default implementation delegates to work() for backwards compatibility
-   * during migration. New/refactored corps should override this properly.
-   *
-   * @param contracts - Active contracts where this corp is party
-   * @param tick - Current game tick
-   */
-  execute(contracts: Contract[], tick: number): void {
-    this.lastActivityTick = tick;
-    // Backwards compatibility - migrate corps to override this
-    this.work(tick);
-  }
-
-  /**
    * Get the primary position for this corp.
-   * Used for distance calculations in offer matching.
+   * Used for distance calculations.
    */
   abstract getPosition(): Position;
 }

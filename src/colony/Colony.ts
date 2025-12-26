@@ -1,7 +1,6 @@
 import { CreditLedger } from "./CreditLedger";
-import { MintValues, DEFAULT_MINT_VALUES, getMintValue } from "./MintValues";
-import { Offer } from "../market/Offer";
-import { Node, collectNodeOffers } from "../nodes/Node";
+import { MintValues, DEFAULT_MINT_VALUES } from "./MintValues";
+import { Node } from "../nodes/Node";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { Chain, filterViable } from "../planning/Chain";
@@ -207,30 +206,6 @@ export class Colony {
     // For now, log potential corps
     // In full implementation, would create corps based on ROI
     // and available treasury funds
-  }
-
-  // ===========================================================================
-  // DEPRECATED: These methods operate on node.corps which is always empty.
-  // Real corps are managed by CorpRegistry/CorpRunner, not stored in nodes.
-  // Kept for reference and potential future refactoring.
-  // ===========================================================================
-
-  /**
-   * @deprecated node.corps is always empty - real corps use CorpRegistry
-   */
-  private collectAllOffers(): Offer[] {
-    const offers: Offer[] = [];
-    for (const node of this.nodes) {
-      offers.push(...collectNodeOffers(node));
-    }
-    return offers;
-  }
-
-  /**
-   * @deprecated Uses offers from empty node.corps
-   */
-  private findViableChains(_offers: Offer[]): Chain[] {
-    return filterViable(this.activeChains);
   }
 
   /**
