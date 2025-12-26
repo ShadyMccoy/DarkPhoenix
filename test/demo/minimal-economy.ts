@@ -65,20 +65,18 @@ console.log("┌─────────────────────�
 console.log("│ SUPPLY SIDE: Mining                                         │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Miner travels from spawn to source
+// Source production rate (this is what we're trying to extract)
+const sourceRatePerTick = SOURCE_CAPACITY / SOURCE_REGEN;  // 3000/300 = 10 energy/tick
+const harvestPerTick = sourceRatePerTick;
+
+// Miner travels from spawn to source once per lifetime
 const minerTravelTime = DISTANCE;
-const minerEffectiveTime = LIFETIME - minerTravelTime;
-const minerRegenCycles = Math.floor(minerEffectiveTime / SOURCE_REGEN);
-const grossHarvest = minerRegenCycles * SOURCE_CAPACITY;
-const harvestPerTick = grossHarvest / LIFETIME;
 
 console.log("Miner:");
 console.log(`  Body: ${MINER_WORK}W ${MINER_MOVE}M = ${MINER_COST} energy`);
-console.log(`  Travel to source: ${minerTravelTime} ticks`);
-console.log(`  Effective mining time: ${minerEffectiveTime} ticks`);
-console.log(`  Regen cycles captured: ${minerRegenCycles}`);
-console.log(`  Gross harvest: ${grossHarvest} energy/lifetime`);
-console.log(`  Harvest rate: ${harvestPerTick.toFixed(2)} energy/tick\n`);
+console.log(`  Source rate: ${SOURCE_CAPACITY}/${SOURCE_REGEN} = ${sourceRatePerTick.toFixed(1)} energy/tick`);
+console.log(`  Miner capacity: ${MINER_WORK}W × 2 = ${MINER_WORK * 2} energy/tick (sufficient)`);
+console.log(`  Travel time: ${minerTravelTime} ticks (one-time per lifetime)`);
 
 // Miner spawn overhead (amortized)
 const minerSpawnOverhead = MINER_COST / LIFETIME;
@@ -384,12 +382,8 @@ console.log("│ Distance │  1:1 No Roads       2:1 No Roads       2:1 + Roads
 console.log("├──────────┼────────────────────────────────────────────────────────────────────┤");
 
 for (const D of distances) {
-  // Calculate harvest rate for this distance (miner travel affects it)
-  const minerTravelTime = D;
-  const minerEffectiveTime = LIFETIME - minerTravelTime;
-  const minerRegenCycles = Math.floor(minerEffectiveTime / SOURCE_REGEN);
-  const grossHarvest = minerRegenCycles * SOURCE_CAPACITY;
-  const harvestRate = grossHarvest / LIFETIME;
+  // Source always produces 10 energy/tick regardless of distance
+  const harvestRate = SOURCE_CAPACITY / SOURCE_REGEN;  // 10 energy/tick
 
   const scenarios = calculateScenarios(D, harvestRate);
   const best = scenarios.reduce((a, b) => a.efficiency > b.efficiency ? a : b);
@@ -474,10 +468,8 @@ console.log("  ────────   ────────────�
 
 let prevEff: number | null = null;
 for (const D of distances) {
-  const minerEffTime = LIFETIME - D;
-  const regenCycles = Math.floor(minerEffTime / SOURCE_REGEN);
-  const grossHarvest = regenCycles * SOURCE_CAPACITY;
-  const harvestRate = grossHarvest / LIFETIME;
+  // Source always produces 10 energy/tick
+  const harvestRate = SOURCE_CAPACITY / SOURCE_REGEN;
 
   const scenarios = calculateScenarios(D, harvestRate);
   const gap_2to1 = scenarios[0].efficiency - scenarios[1].efficiency;
