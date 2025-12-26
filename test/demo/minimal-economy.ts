@@ -83,101 +83,116 @@ const minerSpawnOverhead = MINER_COST / LIFETIME;
 console.log(`  Spawn overhead: ${MINER_COST} / ${LIFETIME} = ${minerSpawnOverhead.toFixed(3)}/tick\n`);
 
 // ============================================================================
-// HAULING: Source → Spawn
+// HAULING: Two routes from Source (equilateral triangle topology)
 // ============================================================================
 
 console.log("┌─────────────────────────────────────────────────────────────┐");
-console.log("│ HAULING: Source → Spawn                                     │");
+console.log("│ HAULING: Source → Spawn AND Source → Controller            │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Formula: CARRY_parts = S × (2D + 2) / 50
-// Round trip = 2D + 2 (walking both ways + 1 tick pickup + 1 tick dropoff)
+console.log("Topology: Equilateral triangle, all edges = D");
+console.log("  - Source → Spawn:      hauls energy for creep overhead");
+console.log("  - Source → Controller: hauls energy directly for upgrading\n");
+
+// Round trip = 2D + 2 for both routes (same distance)
 const haulerRoundTrip = DISTANCE * 2 + 2;
+const carryPartCost = CARRY_COST + MOVE_COST;  // 100 energy per CARRY (1:1)
 
-// Exact CARRY parts needed (no rounding!)
-const carryPartsNeeded = harvestPerTick * haulerRoundTrip / 50;
+// We need to solve a system of equations:
+// Let O = energy/tick to spawn (overhead), W = energy/tick to controller (upgrade)
+// O + W = 10 (total harvest)
+//
+// Overhead consists of:
+//   - Miner:              0.433/tick (fixed)
+//   - Source→Spawn haul:  (O × rt/50) × 100/1500
+//   - Source→Ctrl haul:   (W × rt/50) × 100/1500
+//   - Upgrader WORK:      W × 100/1500
+//
+// O = minerCost + spawnHaulCost + ctrlHaulCost + upgraderCost
+// O = 0.433 + O×k + W×k + W×0.0667   where k = rt/50 × 100/1500
 
-// Spawn cost: each CARRY part needs 1 MOVE part (1:1 ratio for roads)
-// Cost per CARRY part = CARRY_COST + MOVE_COST = 100
-const carryPartCost = CARRY_COST + MOVE_COST;  // 100 energy per CARRY part
-const haulerSpawnOverhead = (carryPartsNeeded * carryPartCost) / LIFETIME;
+const k = (haulerRoundTrip / 50) * (carryPartCost / LIFETIME);  // haul cost coefficient
+const workCostPerTick = WORK_COST / LIFETIME;  // 0.0667
 
-// For display: equivalent hauler count (fractional)
-const equivalentHaulers = carryPartsNeeded / HAULER_CARRY;
+// Solve: O = 0.433 + O×k + W×k + W×0.0667
+//        O(1-k) = 0.433 + W×(k + 0.0667)
+//        O = (0.433 + W×(k + 0.0667)) / (1-k)
+// And:   O + W = 10
+//        W = 10 - O
 
-console.log("Hauling (Source → Spawn):");
-console.log(`  Round trip: 2×${DISTANCE} + 2 = ${haulerRoundTrip} ticks`);
-console.log(`  Required throughput: ${harvestPerTick.toFixed(2)} energy/tick`);
-console.log(`  CARRY parts needed: ${harvestPerTick.toFixed(2)} × ${haulerRoundTrip} / 50 = ${carryPartsNeeded.toFixed(2)}`);
-console.log(`  Equivalent haulers: ${equivalentHaulers.toFixed(2)} (at ${HAULER_CARRY}C each)`);
-console.log(`  Spawn cost: ${carryPartsNeeded.toFixed(2)} × ${carryPartCost} / ${LIFETIME} = ${haulerSpawnOverhead.toFixed(3)}/tick\n`);
+// Substituting:
+// O = (0.433 + (10-O)×(k + 0.0667)) / (1-k)
+// O(1-k) = 0.433 + (10-O)×(k + 0.0667)
+// O - O×k = 0.433 + 10k + 0.667 - O×k - O×0.0667
+// O = 0.433 + 10k + 0.667 - O×0.0667
+// O(1 + 0.0667) = 0.433 + 10k + 0.667
+// O = (0.433 + 10k + 0.667) / 1.0667
+
+const overhead = (minerSpawnOverhead + 10 * k + 10 * workCostPerTick) / (1 + workCostPerTick);
+const upgradeRate = harvestPerTick - overhead;
+
+// Now calculate individual components
+const spawnHaulCarry = overhead * haulerRoundTrip / 50;
+const ctrlHaulCarry = upgradeRate * haulerRoundTrip / 50;
+const spawnHaulCost = (spawnHaulCarry * carryPartCost) / LIFETIME;
+const ctrlHaulCost = (ctrlHaulCarry * carryPartCost) / LIFETIME;
+const upgraderWorkCost = (upgradeRate * WORK_COST) / LIFETIME;
+
+console.log(`Round trip: 2×${DISTANCE} + 2 = ${haulerRoundTrip} ticks\n`);
+
+console.log("Source → Spawn (for creep overhead):");
+console.log(`  Energy to haul:  ${overhead.toFixed(2)}/tick`);
+console.log(`  CARRY parts:     ${spawnHaulCarry.toFixed(2)}`);
+console.log(`  Spawn cost:      ${spawnHaulCost.toFixed(3)}/tick\n`);
+
+console.log("Source → Controller (for upgrading):");
+console.log(`  Energy to haul:  ${upgradeRate.toFixed(2)}/tick`);
+console.log(`  CARRY parts:     ${ctrlHaulCarry.toFixed(2)}`);
+console.log(`  Spawn cost:      ${ctrlHaulCost.toFixed(3)}/tick\n`);
+
+// For backwards compatibility with rest of file
+const carryPartsNeeded = spawnHaulCarry;
+const haulerSpawnOverhead = spawnHaulCost;
+const upgradeCarryParts = ctrlHaulCarry;
+const upgradeWorkParts = upgradeRate;
 
 // ============================================================================
-// SPAWN: Energy arriving
+// SPAWN: Energy Balance
 // ============================================================================
 
 console.log("┌─────────────────────────────────────────────────────────────┐");
 console.log("│ SPAWN: Energy Balance                                       │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// With exact CARRY parts, throughput matches harvest exactly
-const energyArriving = harvestPerTick;
-const spawnOverheadTotal = minerSpawnOverhead + haulerSpawnOverhead;
+const spawnOverheadTotal = minerSpawnOverhead + spawnHaulCost + ctrlHaulCost + upgraderWorkCost;
 
-console.log("Energy arriving at spawn:");
-console.log(`  From haulers: ${energyArriving.toFixed(2)} energy/tick\n`);
-
-console.log("Spawn overhead (creep costs):");
-console.log(`  Miner:   ${minerSpawnOverhead.toFixed(3)}/tick`);
-console.log(`  Haulers: ${haulerSpawnOverhead.toFixed(3)}/tick (${carryPartsNeeded.toFixed(1)} CARRY parts)`);
+console.log("Spawn overhead (all creep costs):");
+console.log(`  Miner:              ${minerSpawnOverhead.toFixed(3)}/tick`);
+console.log(`  Source→Spawn haul:  ${spawnHaulCost.toFixed(3)}/tick (${spawnHaulCarry.toFixed(1)}C)`);
+console.log(`  Source→Ctrl haul:   ${ctrlHaulCost.toFixed(3)}/tick (${ctrlHaulCarry.toFixed(1)}C)`);
+console.log(`  Upgrader WORK:      ${upgraderWorkCost.toFixed(3)}/tick (${upgradeRate.toFixed(1)}W)`);
 console.log(`  ─────────────────────`);
-console.log(`  Subtotal: ${spawnOverheadTotal.toFixed(3)}/tick\n`);
+console.log(`  Total overhead:     ${spawnOverheadTotal.toFixed(3)}/tick`);
+console.log(`  Energy to spawn:    ${overhead.toFixed(2)}/tick (just enough for overhead)\n`);
 
 // ============================================================================
-// UPGRADING: Spawn → Controller
+// UPGRADING: Source → Controller (direct)
 // ============================================================================
 
 console.log("┌─────────────────────────────────────────────────────────────┐");
-console.log("│ UPGRADING: Spawn → Controller                               │");
+console.log("│ UPGRADING: Source → Controller (direct hauling)            │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Upgrader model: WORK parts stationed at controller, haulers bring energy
-// Each WORK part upgrades 1 energy/tick (when energy available)
-// Upgrader body: need CARRY to pick up from container, MOVE to get there once
+// Energy is hauled directly from source to controller
+// This is more efficient than source→spawn→controller!
 
-// Hauling to controller: same formula as source→spawn
-// CARRY_parts = S × (2D + 2) / 50
-const upgradeHaulDistance = DISTANCE;  // spawn → controller
-const upgradeHaulRoundTrip = upgradeHaulDistance * 2 + 2;
+console.log("Direct haul from source (not via spawn):");
+console.log(`  Energy arriving at controller: ${upgradeRate.toFixed(2)}/tick`);
+console.log(`  Upgrade rate: ${upgradeRate.toFixed(2)} energy/tick`);
+console.log(`  WORK parts: ${upgradeRate.toFixed(2)}`);
+console.log(`  Haul CARRY parts: ${ctrlHaulCarry.toFixed(2)}\n`);
 
-// Energy available for upgrading (after mining/hauling overhead)
-const energyForUpgrading = energyArriving - spawnOverheadTotal;
-
-// For each 1 energy/tick of upgrading, we need:
-//   - Hauling: (2D + 2) / 50 CARRY parts → cost = (2D + 2) / 50 × 100 / 1500 per tick
-//   - Working: 1 WORK part → cost = 100 / 1500 per tick (simplified, ignoring MOVE/CARRY on upgrader)
-const upgradeHaulCostPerTick = (upgradeHaulRoundTrip / 50) * carryPartCost / LIFETIME;
-const upgradeWorkCostPerTick = WORK_COST / LIFETIME;  // per WORK part
-const upgradeTotalCostPerEnergyTick = upgradeHaulCostPerTick + upgradeWorkCostPerTick + 1;  // +1 for the energy itself
-
-// How much can we upgrade?
-const actualUpgradeRate = energyForUpgrading / upgradeTotalCostPerEnergyTick;
-const upgradeWorkParts = actualUpgradeRate;  // 1 WORK = 1 energy/tick
-const upgradeCarryParts = actualUpgradeRate * upgradeHaulRoundTrip / 50;
-const upgraderSpawnOverhead = (upgradeWorkParts * WORK_COST + upgradeCarryParts * carryPartCost) / LIFETIME;
-
-console.log("Upgrading (Spawn → Controller):");
-console.log(`  Haul distance: ${upgradeHaulDistance} tiles (round trip: ${upgradeHaulRoundTrip} ticks)`);
-console.log(`  Energy available: ${energyForUpgrading.toFixed(2)}/tick`);
-console.log(`  Cost per 1 energy/tick upgrade:`);
-console.log(`    - Energy consumed: 1.000`);
-console.log(`    - Haul cost: ${upgradeHaulCostPerTick.toFixed(3)}/tick (${(upgradeHaulRoundTrip/50).toFixed(2)} CARRY parts)`);
-console.log(`    - Work cost: ${upgradeWorkCostPerTick.toFixed(3)}/tick (1 WORK part)`);
-console.log(`    - Total: ${upgradeTotalCostPerEnergyTick.toFixed(3)}/tick`);
-console.log(`  Upgrade rate: ${actualUpgradeRate.toFixed(2)} energy/tick`);
-console.log(`  WORK parts: ${upgradeWorkParts.toFixed(2)}`);
-console.log(`  CARRY parts (hauling): ${upgradeCarryParts.toFixed(2)}`);
-console.log(`  Spawn overhead: ${upgraderSpawnOverhead.toFixed(3)}/tick\n`);
+const upgraderSpawnOverhead = upgraderWorkCost + ctrlHaulCost;
 
 // ============================================================================
 // SUMMARY
@@ -187,35 +202,36 @@ console.log("┌─────────────────────�
 console.log("│ ECONOMY SUMMARY                                             │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-const totalSpawnOverhead = minerSpawnOverhead + haulerSpawnOverhead + upgraderSpawnOverhead;
-const netOutput = actualUpgradeRate;
+const totalSpawnOverhead = spawnOverheadTotal;
+const netOutput = upgradeRate;
 
 console.log("Energy Flow (per tick):");
-console.log("  ┌────────────────────────────────────────────────────────┐");
-console.log(`  │  Gross Harvest:        ${harvestPerTick.toFixed(2).padStart(8)}                    │`);
-console.log("  │  ──────────────────────────────────────────────────    │");
-console.log(`  │  Miner spawn cost:     ${minerSpawnOverhead.toFixed(2).padStart(8)}  (${MINER_WORK}W)           │`);
-console.log(`  │  Hauler spawn cost:    ${haulerSpawnOverhead.toFixed(2).padStart(8)}  (${carryPartsNeeded.toFixed(1)}C)          │`);
-console.log(`  │  Upgrader spawn cost:  ${upgraderSpawnOverhead.toFixed(2).padStart(8)}  (${upgradeWorkParts.toFixed(1)}W + ${upgradeCarryParts.toFixed(1)}C) │`);
-console.log("  │  ──────────────────────────────────────────────────    │");
-console.log(`  │  Total overhead:       ${totalSpawnOverhead.toFixed(2).padStart(8)}                    │`);
-console.log(`  │  Net to upgrading:     ${netOutput.toFixed(2).padStart(8)}                    │`);
-console.log("  └────────────────────────────────────────────────────────┘\n");
+console.log("  ┌──────────────────────────────────────────────────────────┐");
+console.log(`  │  Gross Harvest:           ${harvestPerTick.toFixed(2).padStart(6)}                      │`);
+console.log("  │  ────────────────────────────────────────────────────    │");
+console.log(`  │  Miner:                   ${minerSpawnOverhead.toFixed(2).padStart(6)}  (${MINER_WORK}W)             │`);
+console.log(`  │  Source→Spawn hauler:     ${spawnHaulCost.toFixed(2).padStart(6)}  (${spawnHaulCarry.toFixed(1)}C)            │`);
+console.log(`  │  Source→Ctrl hauler:      ${ctrlHaulCost.toFixed(2).padStart(6)}  (${ctrlHaulCarry.toFixed(1)}C)           │`);
+console.log(`  │  Upgrader WORK:           ${upgraderWorkCost.toFixed(2).padStart(6)}  (${upgradeRate.toFixed(1)}W)            │`);
+console.log("  │  ────────────────────────────────────────────────────    │");
+console.log(`  │  Total overhead:          ${totalSpawnOverhead.toFixed(2).padStart(6)}                      │`);
+console.log(`  │  Net to upgrading:        ${netOutput.toFixed(2).padStart(6)}                      │`);
+console.log("  └──────────────────────────────────────────────────────────┘\n");
 
 const efficiency = (netOutput / harvestPerTick) * 100;
 console.log(`Overall Efficiency: ${efficiency.toFixed(1)}%`);
 console.log(`  (${netOutput.toFixed(2)} upgrade work from ${harvestPerTick.toFixed(2)} gross harvest)\n`);
 
 // Body part totals
-const totalWorkParts = MINER_WORK + upgradeWorkParts;
-const totalCarryParts = carryPartsNeeded + upgradeCarryParts;
+const totalWorkParts = MINER_WORK + upgradeRate;
+const totalCarryParts = spawnHaulCarry + ctrlHaulCarry;
 const totalMoveParts = MINER_MOVE + totalCarryParts;  // 1:1 for haulers, miners have fewer
 
 console.log("Body Part Requirements (fractional):");
 console.log(`  Mining:    ${MINER_WORK}W + ${MINER_MOVE}M`);
-console.log(`  Hauling:   ${carryPartsNeeded.toFixed(1)}C + ${carryPartsNeeded.toFixed(1)}M (source→spawn)`);
-console.log(`             ${upgradeCarryParts.toFixed(1)}C + ${upgradeCarryParts.toFixed(1)}M (spawn→controller)`);
-console.log(`  Upgrading: ${upgradeWorkParts.toFixed(1)}W`);
+console.log(`  Hauling:   ${spawnHaulCarry.toFixed(1)}C + ${spawnHaulCarry.toFixed(1)}M (source→spawn)`);
+console.log(`             ${ctrlHaulCarry.toFixed(1)}C + ${ctrlHaulCarry.toFixed(1)}M (source→controller)`);
+console.log(`  Upgrading: ${upgradeRate.toFixed(1)}W`);
 console.log(`  ─────────────────`);
 console.log(`  Total:     ${totalWorkParts.toFixed(1)}W + ${totalCarryParts.toFixed(1)}C + ${totalMoveParts.toFixed(1)}M\n`);
 
@@ -249,32 +265,33 @@ function calculateScenarios(D: number, harvestRate: number): ScenarioResult[] {
 
   const results: ScenarioResult[] = [];
 
+  // Direct haul model: Source → Spawn (overhead only) + Source → Controller (upgrading)
+  // Solve: O = minerCost + (O × k_spawn) + (W × k_ctrl) + (W × workCost)
+  // Where O + W = harvestRate
+
   // ─────────────────────────────────────────────────────────────────────────
   // SCENARIO 1: 1:1 No Roads
   // ─────────────────────────────────────────────────────────────────────────
   {
-    const carryParts = harvestRate * rt_1to1 / 50;
-    const haulerOverhead = (carryParts * cost_1to1) / LIFETIME;
-    const energyForUpgrade = harvestRate - minerOverhead - haulerOverhead;
+    const k = (rt_1to1 / 50) * (cost_1to1 / LIFETIME);
+    const O = (minerOverhead + harvestRate * k + harvestRate * workCostPerTick) / (1 + workCostPerTick);
+    const W = harvestRate - O;
 
-    const upgHaulCost = (rt_1to1 / 50) * cost_1to1 / LIFETIME;
-    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
-    const upgRate = energyForUpgrade / upgTotalCost;
-    const upgCarry = upgRate * rt_1to1 / 50;
-
-    const totalOverhead = minerOverhead + haulerOverhead + (upgCarry * cost_1to1 + upgRate * WORK_COST) / LIFETIME;
+    const spawnCarry = O * rt_1to1 / 50;
+    const ctrlCarry = W * rt_1to1 / 50;
+    const totalOverhead = O;
 
     results.push({
       name: "1:1 No Roads",
       distance: D,
       roundTrip: rt_1to1,
-      carryParts: carryParts,
-      upgradeWork: upgRate,
-      upgradeCarry: upgCarry,
+      carryParts: spawnCarry,
+      upgradeWork: W,
+      upgradeCarry: ctrlCarry,
       totalSpawnOverhead: totalOverhead,
       roadMaintenance: 0,
-      netUpgrade: upgRate,
-      efficiency: (upgRate / harvestRate) * 100,
+      netUpgrade: W,
+      efficiency: (W / harvestRate) * 100,
     });
   }
 
@@ -282,28 +299,25 @@ function calculateScenarios(D: number, harvestRate: number): ScenarioResult[] {
   // SCENARIO 2: 2:1 No Roads (half speed loaded)
   // ─────────────────────────────────────────────────────────────────────────
   {
-    const carryParts = harvestRate * rt_2to1_noRoad / 50;
-    const haulerOverhead = (carryParts * cost_2to1) / LIFETIME;
-    const energyForUpgrade = harvestRate - minerOverhead - haulerOverhead;
+    const k = (rt_2to1_noRoad / 50) * (cost_2to1 / LIFETIME);
+    const O = (minerOverhead + harvestRate * k + harvestRate * workCostPerTick) / (1 + workCostPerTick);
+    const W = harvestRate - O;
 
-    const upgHaulCost = (rt_2to1_noRoad / 50) * cost_2to1 / LIFETIME;
-    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
-    const upgRate = energyForUpgrade / upgTotalCost;
-    const upgCarry = upgRate * rt_2to1_noRoad / 50;
-
-    const totalOverhead = minerOverhead + haulerOverhead + (upgCarry * cost_2to1 + upgRate * WORK_COST) / LIFETIME;
+    const spawnCarry = O * rt_2to1_noRoad / 50;
+    const ctrlCarry = W * rt_2to1_noRoad / 50;
+    const totalOverhead = O;
 
     results.push({
       name: "2:1 No Roads",
       distance: D,
       roundTrip: rt_2to1_noRoad,
-      carryParts: carryParts,
-      upgradeWork: upgRate,
-      upgradeCarry: upgCarry,
+      carryParts: spawnCarry,
+      upgradeWork: W,
+      upgradeCarry: ctrlCarry,
       totalSpawnOverhead: totalOverhead,
       roadMaintenance: 0,
-      netUpgrade: upgRate,
-      efficiency: (upgRate / harvestRate) * 100,
+      netUpgrade: W,
+      efficiency: (W / harvestRate) * 100,
     });
   }
 
@@ -311,51 +325,37 @@ function calculateScenarios(D: number, harvestRate: number): ScenarioResult[] {
   // SCENARIO 3: 2:1 + Roads (full speed, but maintenance cost)
   // ─────────────────────────────────────────────────────────────────────────
   {
-    const carryParts = harvestRate * rt_2to1_road / 50;
-
-    // Road traffic and decay for source route
-    const haulerBodyParts = carryParts * 1.5;  // CARRY + MOVE
-    const tripsPerTick = 1 / rt_2to1_road;
-    const sourceTraffic = tripsPerTick * 2 * haulerBodyParts;
-
+    // Road maintenance: 2 routes × D tiles each
+    // Simplified: assume moderate traffic decay
     const baseDecay = ROAD_DECAY_RATE / 1000;
-    const sourceDecay = baseDecay * (1 + sourceTraffic);
-    const sourceLife = ROAD_MAX_HITS / sourceDecay;
-    const sourceMaint = D * ROAD_ENERGY_COST / sourceLife;
+    const avgTraffic = 0.5;  // simplified estimate
+    const avgDecay = baseDecay * (1 + avgTraffic);
+    const avgLife = ROAD_MAX_HITS / avgDecay;
+    const roadMaint = 2 * D * ROAD_ENERGY_COST / avgLife;
 
-    // Estimate controller route (iterate once for accuracy)
-    const estUpgCarry = carryParts * 0.7;  // rough estimate
-    const ctrlTraffic = tripsPerTick * 2 * (estUpgCarry * 1.5);
-    const ctrlDecay = baseDecay * (1 + ctrlTraffic);
-    const ctrlLife = ROAD_MAX_HITS / ctrlDecay;
-    const ctrlMaint = D * ROAD_ENERGY_COST / ctrlLife;
-
-    const totalMaint = sourceMaint + ctrlMaint;
-
-    const haulerOverhead = (carryParts * cost_2to1) / LIFETIME;
     const roadMinerCost = MINER_WORK * WORK_COST + Math.ceil(MINER_WORK / 2) * MOVE_COST;
     const roadMinerOverhead = roadMinerCost / LIFETIME;
 
-    const energyForUpgrade = harvestRate - roadMinerOverhead - haulerOverhead - totalMaint;
+    const k = (rt_2to1_road / 50) * (cost_2to1 / LIFETIME);
+    const availableHarvest = harvestRate - roadMaint;
+    const O = (roadMinerOverhead + availableHarvest * k + availableHarvest * workCostPerTick) / (1 + workCostPerTick);
+    const W = availableHarvest - O;
 
-    const upgHaulCost = (rt_2to1_road / 50) * cost_2to1 / LIFETIME;
-    const upgTotalCost = upgHaulCost + workCostPerTick + 1;
-    const upgRate = energyForUpgrade / upgTotalCost;
-    const upgCarry = upgRate * rt_2to1_road / 50;
-
-    const totalOverhead = roadMinerOverhead + haulerOverhead + (upgCarry * cost_2to1 + upgRate * WORK_COST) / LIFETIME;
+    const spawnCarry = O * rt_2to1_road / 50;
+    const ctrlCarry = W * rt_2to1_road / 50;
+    const totalOverhead = O + roadMaint;
 
     results.push({
       name: "2:1 + Roads",
       distance: D,
       roundTrip: rt_2to1_road,
-      carryParts: carryParts,
-      upgradeWork: upgRate,
-      upgradeCarry: upgCarry,
-      totalSpawnOverhead: totalOverhead,
-      roadMaintenance: totalMaint,
-      netUpgrade: upgRate,
-      efficiency: (upgRate / harvestRate) * 100,
+      carryParts: spawnCarry,
+      upgradeWork: W,
+      upgradeCarry: ctrlCarry,
+      totalSpawnOverhead: O,
+      roadMaintenance: roadMaint,
+      netUpgrade: W,
+      efficiency: (W / harvestRate) * 100,
     });
   }
 
