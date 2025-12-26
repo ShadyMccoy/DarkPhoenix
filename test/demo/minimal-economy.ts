@@ -306,24 +306,28 @@ const sourceMaintCost = DISTANCE * ROAD_ENERGY_COST / sourceLifetime;
 const controllerMaintCost = DISTANCE * ROAD_ENERGY_COST / controllerLifetime;
 const totalRoadMaint = sourceMaintCost + controllerMaintCost;
 
-// Roads spawn costs
+// Roads spawn costs for mining/hauling (fixed costs)
 const roadMinerOverhead = roadMinerCost / LIFETIME;
 const roadHaulerOverhead = (carryPartsNeeded * roadCarryPartCost) / LIFETIME;
-const roadUpgradeHaulOverhead = (roadUpgradeCarryParts * roadCarryPartCost) / LIFETIME;
-const roadUpgradeWorkOverhead = (upgradeWorkParts * WORK_COST) / LIFETIME;
-
-const roadTotalSpawnOverhead = roadMinerOverhead + roadHaulerOverhead + roadUpgradeHaulOverhead + roadUpgradeWorkOverhead;
-const roadTotalOverhead = roadTotalSpawnOverhead + totalRoadMaint;
 
 // Recalculate upgrade rate with roads (more energy available due to lower spawn costs)
-const roadEnergyForUpgrading = harvestPerTick - roadMinerOverhead - roadHaulerOverhead;
+const roadEnergyForUpgrading = harvestPerTick - roadMinerOverhead - roadHaulerOverhead - totalRoadMaint;
 const roadUpgradeHaulCostPerTick = (upgradeHaulRoundTrip / 50) * roadCarryPartCost / LIFETIME;
 const roadUpgradeTotalCostPerEnergyTick = roadUpgradeHaulCostPerTick + upgradeWorkCostPerTick + 1;
 const roadActualUpgradeRate = roadEnergyForUpgrading / roadUpgradeTotalCostPerEnergyTick;
 
+// Now calculate upgrade overhead with the NEW rate
+const roadActualUpgradeCarry = roadActualUpgradeRate * upgradeHaulRoundTrip / 50;
+const roadActualUpgradeHaulOverhead = (roadActualUpgradeCarry * roadCarryPartCost) / LIFETIME;
+const roadActualUpgradeWorkOverhead = (roadActualUpgradeRate * WORK_COST) / LIFETIME;
+
+// Total spawn overhead with correct values
+const roadTotalSpawnOverhead = roadMinerOverhead + roadHaulerOverhead + roadActualUpgradeHaulOverhead + roadActualUpgradeWorkOverhead;
+const roadTotalOverhead = roadTotalSpawnOverhead + totalRoadMaint;
+
 // Final roads numbers
 const roadNetUpgrade = roadActualUpgradeRate;
-const roadFinalOverhead = harvestPerTick - roadNetUpgrade;
+const roadFinalOverhead = harvestPerTick - roadNetUpgrade;  // Should equal roadTotalOverhead
 const roadEfficiency = (roadNetUpgrade / harvestPerTick) * 100;
 
 const roads = {
@@ -335,12 +339,13 @@ const roads = {
   haulerMoveParts: roadHaulerMoveParts,
   haulerCostPerCarry: roadCarryPartCost,
 
-  upgradeWork: roadActualUpgradeRate,  // more upgrade work possible
-  upgradeCarry: roadActualUpgradeRate * upgradeHaulRoundTrip / 50,
-  upgradeMove: roadActualUpgradeRate * upgradeHaulRoundTrip / 50 / 2,
+  upgradeWork: roadActualUpgradeRate,
+  upgradeCarry: roadActualUpgradeCarry,
+  upgradeMove: roadActualUpgradeCarry / 2,  // 2:1 on roads
 
   totalSpawnOverhead: roadTotalSpawnOverhead,
   roadMaintenance: totalRoadMaint,
+  totalOverhead: roadTotalOverhead,
   netUpgrade: roadNetUpgrade,
   efficiency: roadEfficiency,
 };
