@@ -12,8 +12,9 @@
 ## Architecture
 
 - [Architecture Overview](ARCHITECTURE.md)
+- [MFMC Migration Plan](MFMC_MIGRATION_PLAN.md)
 - [Economic Framework](ECONOMIC_FRAMEWORK.md)
-- [Market Architecture](market-architecture.md)
+- [Corps System](ROUTINES.md)
 - [Spatial System](SPATIAL_SYSTEM.md)
 
 ## In-Depth

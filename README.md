@@ -1,6 +1,6 @@
-# DarkPhoenix - Screeps Economic AI
+# DarkPhoenix - Screeps Flow-Based AI
 
-A Screeps AI that models a colony as a profit-seeking economy. Instead of hardcoded state machines, operations compete for resources through price signals and economic mechanisms.
+A Screeps AI that uses max-flow min-cost (MFMC) algorithms for optimal resource allocation. Instead of hardcoded state machines or slow market price discovery, a centralized solver allocates energy based on priority weights and transport costs.
 
 ## Quick Start
 
@@ -19,146 +19,111 @@ npm run push-main
 
 ## The Core Idea
 
-Most Screeps AIs are state machines: "if energy low, spawn harvester." This works, but it's brittle. Add new features and the logic tangles.
+Most Screeps AIs use either:
+- **State machines**: "if energy low, spawn harvester" - brittle, hard to extend
+- **Market economies**: price discovery through supply/demand - slow to converge, circular dependencies
 
-DarkPhoenix takes a different approach: **let the market decide**.
+DarkPhoenix takes a different approach: **flow-based allocation**.
 
-Instead of hardcoding what to do, we define *operations* (small units of work with inputs, outputs, and costs) and let economic actors compete to fund them. Good decisions emerge from price signals, not explicit rules.
+A centralized FlowSolver models the colony as a network of sources (energy producers), sinks (energy consumers), and edges (transport paths). Each tick, it computes the optimal allocation based on:
+- **Priorities**: Spawn is always critical (100), towers spike during combat (95), construction rises after RCL-up (80)
+- **Costs**: Transport distance affects which source serves which sink
+- **Capacity**: Each source has limited output, each edge has limited throughput
 
 ## Architecture Overview
 
 ```
 src/
 ├── main.ts              # Game loop entry point
-├── core/                # Base classes
-│   └── RoomRoutine.ts   # Routine lifecycle & economic tracking
-├── routines/            # Colony operations
-│   ├── Bootstrap.ts     # Early-game setup
-│   ├── EnergyMining.ts  # Harvester management
-│   ├── EnergyCarrying.ts # Logistics
-│   └── Construction.ts  # Builder management
+├── flow/                # Flow-based economy
+│   ├── FlowGraph.ts     # Network of sources, sinks, edges
+│   ├── FlowSolver.ts    # MFMC allocation algorithm
+│   └── PriorityManager.ts # Dynamic priority calculation
+├── corps/               # Business units
+│   ├── MiningCorp.ts    # Harvester management
+│   ├── HaulingCorp.ts   # Logistics
+│   ├── UpgradingCorp.ts # Controller upgrades
+│   └── SpawningCorp.ts  # Creep production
+├── nodes/               # Territory regions
+│   └── Node.ts          # Spatial territory with resources
 ├── spatial/             # Room analysis
 │   └── RoomMap.ts       # Peak detection & territories
-├── planning/            # GOAP planning
-│   └── Agent.ts         # Goal-oriented behavior
+├── planning/            # Chain validation
+│   └── ChainPlanner.ts  # Complete path verification
 ├── types/               # Domain types
-│   ├── SourceMine.ts    # Mining configuration
-│   └── EnergyRoute.ts   # Transport routes
 └── utils/               # Utilities
-    └── ErrorMapper.ts   # Error handling
 ```
 
-## Economic Framework
+## Flow-Based Economy
 
-### Colony Hierarchy
+### How It Works
 
 ```
-Colony (single AI controlling all rooms)
-  └── Room (per-room operations)
-        └── Routine (per-domain: mining, logistics, construction)
-              └── Creep (smallest executable unit)
+SOURCES (Energy Producers)
+├── Source A: 10 energy/tick
+└── Source B: 10 energy/tick
+
+         ↓ FlowSolver allocates by priority ↓
+
+SINKS (Energy Consumers)
+├── Spawn (priority 100): Gets energy first
+├── Tower (priority 95 during combat): Defense priority
+├── Construction (priority 80): Building phase
+├── Controller (priority 70): Normal upgrading
+└── Storage (priority 5): Excess buffer
 ```
 
-### Requirements/Outputs Pattern
+### Priority-Based Allocation
 
-Every routine declares explicit resource contracts:
+Priorities adjust dynamically based on game state:
 
 ```typescript
-// EnergyMining routine
-requirements: [
-  { type: 'work', size: 2 },      // 2 WORK parts
-  { type: 'move', size: 1 },      // 1 MOVE part
-  { type: 'spawn_time', size: 150 } // Spawn time
-]
+// After RCL-up with 5 construction sites
+context = { rcl: 3, constructionSites: 5, hostileCreeps: 0 }
+priorities = { spawn: 100, construction: 80, controller: 10 }
+// → Energy flows: Spawn 15%, Construction 60%, Controller 25%
 
-outputs: [
-  { type: 'energy', size: 10 }    // ~10 energy/tick
-]
+// After construction complete
+context = { rcl: 3, constructionSites: 0, hostileCreeps: 0 }
+priorities = { spawn: 100, construction: 0, controller: 70 }
+// → Energy flows: Spawn 15%, Controller 85%
 ```
 
-This enables:
-- **ROI Calculation**: `(actualValue - cost) / cost`
-- **Performance Tracking**: Historical records per routine
-- **Market Coordination**: Resources flow where they're most valuable
+### Benefits Over Markets
 
-### Design Principles
+| Aspect | Market-Based | Flow-Based |
+|--------|--------------|------------|
+| Bootstrap problem | Circular: corps need energy to make offers | Single solve: no dependencies |
+| State changes | Slow price discovery | Instant priority update |
+| Optimization | Local (each corp decides) | Global (solver sees all) |
+| Complexity | O(offers²) matching | O(sources × sinks) |
 
-1. **Emergent over explicit** - Don't hardcode "build extensions before towers." Let the market discover optimal strategies.
+## Corps System
 
-2. **Tolerate failure** - Operations can fail. The system recovers through redundancy and adaptation.
+Corps are business units that execute allocated work:
 
-3. **Small operations** - The smaller the operation, the more opportunities for optimization.
-
-4. **Test via simulation** - Generate random rooms, measure ROI, iterate.
-
-## Routine System
-
-### Bootstrap (RCL 1-2)
-
-Manages multi-purpose "jack" creeps for colony initialization:
-
-| Property | Value |
-|----------|-------|
-| Body | `[WORK, CARRY, MOVE]` |
-| Cost | 200 energy |
-| Quantity | 2 maintained |
-| Behavior | Harvest -> Deliver -> Upgrade |
-
-### EnergyMining
-
-Dedicated harvesters at each energy source:
-
-| Property | Value |
-|----------|-------|
-| Body | `[WORK, WORK, MOVE]` |
-| Cost | 200 energy |
-| Output | ~10 energy/tick |
-| Auto-build | Containers at 500+ piles |
-
-### EnergyCarrying
-
-Route-based logistics between sources and consumers:
-
-| Property | Value |
-|----------|-------|
-| Body | `[CARRY, CARRY, MOVE, MOVE]` |
-| Cost | 200 energy |
-| Capacity | 100 energy |
-| Routing | Waypoint-based cycles |
-
-### Construction
-
-One builder per active construction site:
-
-| Property | Value |
-|----------|-------|
-| Body | `[WORK, CARRY, MOVE]` |
-| Cost | 200 energy |
-| Lifecycle | Self-terminating on completion |
+| Corp | Purpose | Allocation Source |
+|------|---------|-------------------|
+| MiningCorp | Harvest energy sources | FlowSource assignment |
+| HaulingCorp | Transport resources | FlowEdge assignment |
+| UpgradingCorp | Upgrade controller | Controller sink allocation |
+| ConstructionCorp | Build structures | Construction sink allocation |
+| SpawningCorp | Spawn creeps | Spawn capacity |
+| BootstrapCorp | Emergency recovery | Starvation fallback only |
 
 ## Spatial Analysis
 
-The `RoomMap` system uses sophisticated algorithms to identify optimal building locations:
+The `RoomMap` system identifies optimal locations:
 
-### Distance Transform
+### Distance Transform → Peak Detection → Territory Division
 
 ```
-Wall Distance --> Invert --> Distance Transform --> Find Peaks
-     0              HIGH          HIGH VALUES          LOCAL MAX
-   (walls)          (walls)       (open areas)         (building zones)
+Wall Distance → Invert → Distance Transform → Find Peaks
+     0           HIGH         HIGH VALUES        LOCAL MAX
+   (walls)      (walls)      (open areas)    (building zones)
 ```
 
-### Peak Detection
-
-- Finds local maxima (most open areas)
-- Clusters same-height tiles into plateaus
-- Calculates centroids for precise positioning
-
-### Territory Division
-
-- BFS flood fill from peaks
-- Each tile assigned to nearest peak
-- Enables zone-based resource allocation
+Peaks become territory centers. Each tile is assigned to its nearest peak, creating natural zones for resource allocation.
 
 ## Development
 
@@ -190,11 +155,11 @@ docker-compose down    # Stop server
 
 | Directory | Purpose |
 |-----------|---------|
-| `src/` | Source code |
-| `src/core/` | Base classes and lifecycle management |
-| `src/routines/` | Colony operation routines |
+| `src/flow/` | Flow-based economy (MFMC solver, priority manager) |
+| `src/corps/` | Business units executing allocated work |
+| `src/nodes/` | Territory regions derived from spatial analysis |
 | `src/spatial/` | Room analysis and territory mapping |
-| `src/planning/` | GOAP behavior planning system |
+| `src/planning/` | Chain planning and validation |
 | `src/types/` | TypeScript interfaces and domain types |
 | `src/utils/` | Utility functions and helpers |
 | `docs/` | Extended documentation |
@@ -203,25 +168,24 @@ docker-compose down    # Stop server
 ## Documentation
 
 - [Architecture Overview](docs/ARCHITECTURE.md) - System design and components
-- [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - Market mechanics and ROI tracking
-- [Routine System](docs/ROUTINES.md) - Colony operations guide
-- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territory division
+- [MFMC Migration Plan](docs/MFMC_MIGRATION_PLAN.md) - Flow-based economy design
+- [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - Resource allocation and ROI
+- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territories
 
 ## Roadmap
 
 ### Implemented
-- Bootstrap routine for early-game
-- Energy mining with dedicated harvesters
-- Construction management
+- Flow-based resource allocation (MFMC solver)
+- Priority-weighted energy distribution
 - Spatial analysis with peak detection
-- Performance tracking with ROI metrics
+- Territory-based node system
+- Corps executing allocated work
 
 ### Planned
-- Multi-room coordination
-- Full market-driven pricing
-- Defense operations
-- Remote mining
-- Advanced logistics optimization
+- Multi-room flow networks
+- Defense priority escalation
+- Remote mining as extended territories
+- Mineral/boost flow integration
 
 ## Contributing
 

@@ -4,7 +4,14 @@ This document describes the RoomMap spatial analysis system used for colony plan
 
 ## Overview
 
-The spatial system analyzes room terrain to identify optimal locations for:
+The spatial system analyzes room terrain to identify optimal locations and creates the foundation for flow-based resource allocation.
+
+**Key outputs used by MFMC:**
+- **Peaks** → Become territory centers (Nodes)
+- **Territories** → Define Node boundaries for FlowGraph
+- **Distance metrics** → Feed into FlowEdge cost calculations
+
+The system identifies optimal locations for:
 
 - Base placement
 - Extension clusters
