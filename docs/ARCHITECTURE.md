@@ -6,9 +6,9 @@ This document describes the high-level architecture of the DarkPhoenix Screeps A
 
 DarkPhoenix is built around three core principles:
 
-1. **Economic Decision Making** - Operations compete for resources through contracts
+1. **Flow-Based Resource Allocation** - A centralized solver optimally allocates energy using max-flow min-cost algorithms
 2. **Domain-Driven Organization** - Code organized by business domain, not technical concerns
-3. **Routine-Based Lifecycle** - Consistent execution pattern across all operations
+3. **Priority-Weighted Decision Making** - Dynamic priorities direct resources where they're needed most
 
 ## Module Structure
 
@@ -16,61 +16,106 @@ DarkPhoenix is built around three core principles:
 src/
 ├── main.ts              # Entry point and game loop
 ├── core/                # Foundation layer
-├── routines/            # Business operations
+├── flow/                # Flow-based economy (MFMC solver)
+├── corps/               # Business units (Mining, Hauling, etc.)
+├── nodes/               # Territory regions
 ├── spatial/             # Room analysis
-├── planning/            # Decision making
+├── planning/            # Chain planning
 ├── types/               # Domain interfaces
 └── utils/               # Shared utilities
 ```
 
-### Core Layer (`src/core/`)
+### Flow Layer (`src/flow/`)
 
-The foundation of the routine system.
+The central economic engine using max-flow min-cost allocation.
 
-#### RoomRoutine
+#### FlowEconomy
 
-Abstract base class providing:
+Main coordinator replacing the old market system:
 
-- **Creep Management**: Track and manage assigned creeps by role
-- **Spawn Queue**: Request creep spawning with body specifications
-- **Economic Contracts**: Requirements/outputs declarations
-- **Performance Tracking**: ROI calculation and history
-- **Serialization**: Persist/restore state across ticks
+- **FlowGraph**: Network of sources, sinks, and edges
+- **FlowSolver**: Allocates energy by priority and distance
+- **PriorityManager**: Dynamic priority calculation based on game state
 
 ```typescript
-abstract class RoomRoutine {
-  // Lifecycle
-  runRoutine(room: Room): void;
-  abstract routine(room: Room): void;
-  abstract calcSpawnQueue(room: Room): void;
+class FlowEconomy {
+  // Called each tick
+  update(context: PriorityContext): void {
+    // 1. Update sink priorities based on context
+    this.graph.updatePriorities(context);
 
-  // Economic
-  getRequirements(): ResourceContract[];
-  getOutputs(): ResourceContract[];
-  getAverageROI(): number;
+    // 2. Solve flow allocation
+    const problem = this.graph.getFlowProblem();
+    this.solution = this.solver.solve(problem);
+  }
 
-  // Persistence
-  serialize(): any;
-  deserialize(data: any): void;
+  // Get allocations
+  getMinerAssignment(sourceId: string): MinerAssignment | null;
+  getHaulerAssignments(nodeId: string): HaulerAssignment[];
+  getSinkAllocation(sinkId: string): number;
 }
 ```
 
-### Routines Layer (`src/routines/`)
+#### Flow Types
 
-Concrete implementations of colony operations.
+```typescript
+// Energy sources (producers)
+interface FlowSource {
+  id: string;
+  nodeId: string;
+  position: Position;
+  capacity: number;       // Energy per tick
+  assigned: boolean;
+}
 
-| Routine | Purpose | Creep Role |
-|---------|---------|------------|
-| Bootstrap | Early-game initialization | Jack |
-| EnergyMining | Source harvesting | Harvester |
-| EnergyCarrying | Resource transport | Carrier |
-| Construction | Structure building | Builder |
+// Energy sinks (consumers)
+interface FlowSink {
+  id: string;
+  nodeId: string;
+  position: Position;
+  type: SinkType;
+  priority: number;       // 1-100, higher = more important
+  demand: number;
+  currentAllocation: number;
+}
 
-Each routine is self-contained:
-- Owns specific creeps
-- Defines its resource contracts
-- Manages its own logic
-- Tracks its own performance
+type SinkType =
+  | "spawn"          // Critical - priority 100
+  | "extension"      // High during spawning
+  | "tower"          // High during defense
+  | "construction"   // High after RCL-up
+  | "controller"     // Normal upgrading
+  | "storage";       // Lowest - excess only
+```
+
+### Corps Layer (`src/corps/`)
+
+Business units that execute allocated work.
+
+| Corp | Purpose | Resources |
+|------|---------|-----------|
+| MiningCorp | Source harvesting | FlowSource allocation |
+| HaulingCorp | Resource transport | FlowEdge assignments |
+| UpgradingCorp | Controller upgrades | Controller sink allocation |
+| ConstructionCorp | Structure building | Construction sink allocation |
+| SpawningCorp | Creep production | Spawn capacity |
+| BootstrapCorp | Emergency fallback | Starvation recovery only |
+
+Each corp receives allocations from the FlowSolver and executes accordingly.
+
+### Nodes Layer (`src/nodes/`)
+
+Territory-based spatial regions derived from peak detection.
+
+```typescript
+interface Node {
+  id: string;                    // e.g., "W1N1-25-30"
+  peakPosition: Position;
+  positions: Position[];
+  roomName: string;
+  resources: NodeResource[];
+}
+```
 
 ### Spatial Layer (`src/spatial/`)
 
@@ -83,15 +128,12 @@ Provides sophisticated spatial analysis:
 1. **Distance Transform** - Calculate openness metrics
 2. **Peak Detection** - Find optimal building locations
 3. **Territory Division** - Assign tiles to zones
-4. **Visualization** - Debug overlay rendering
-
-Key interfaces:
 
 ```typescript
 interface Peak {
-  tiles: RoomPosition[];    // All tiles at peak height
-  center: RoomPosition;     // Centroid
-  height: number;           // Openness value
+  tiles: RoomPosition[];
+  center: RoomPosition;
+  height: number;
 }
 
 interface Territory {
@@ -102,23 +144,16 @@ interface Territory {
 
 ### Planning Layer (`src/planning/`)
 
-Goal-Oriented Action Planning (GOAP) framework.
-
-#### Components
-
-- **Action**: Operations with preconditions, effects, and cost
-- **Goal**: Desired world states with priorities
-- **WorldState**: Current state tracking
-- **Agent**: Decision-making entity
+Chain planning for validating complete production paths.
 
 ```typescript
-// Example: Mining action
-const harvestAction = new Action(
-  'harvest',
-  new Map([['atSource', true]]),      // Preconditions
-  new Map([['hasEnergy', true]]),     // Effects
-  1                                    // Cost
-);
+class ChainPlanner {
+  // Find chains from sources to sinks
+  findViableChains(graph: FlowGraph): Chain[];
+
+  // Validate chain completeness
+  isChainComplete(chain: Chain): boolean;
+}
 ```
 
 ### Types Layer (`src/types/`)
@@ -138,30 +173,9 @@ interface SourceMine {
 }
 ```
 
-#### EnergyRoute
-
-Logistics route definition:
-
-```typescript
-interface EnergyRoute {
-  waypoints: RouteWaypoint[];
-  Carriers: CarrierAssignment[];
-}
-```
-
 ### Utils Layer (`src/utils/`)
 
-Shared utility functions.
-
-#### ErrorMapper
-
-Wraps the game loop with error handling:
-
-```typescript
-export const loop = ErrorMapper.wrapLoop(() => {
-  // Game logic here
-});
-```
+Shared utility functions including ErrorMapper for error handling.
 
 ## Execution Flow
 
@@ -171,20 +185,28 @@ export const loop = ErrorMapper.wrapLoop(() => {
 1. Game Loop Start
    │
 2. For Each Room:
-   ├── Initialize/Deserialize Routines
-   │   ├── Bootstrap (always present)
-   │   ├── EnergyMining (per source)
-   │   └── Construction (per site)
+   ├── Build/Update FlowGraph
+   │   ├── Discover sources
+   │   ├── Discover sinks (spawn, controller, sites)
+   │   └── Build edges with distances
    │
-   ├── For Each Routine:
-   │   ├── RemoveDeadCreeps()
-   │   ├── calcSpawnQueue()
-   │   ├── AddNewlySpawnedCreeps()
-   │   ├── SpawnCreeps()
-   │   ├── calculateExpectedValue()
-   │   └── routine()
+   ├── Update Priorities (PriorityManager)
+   │   ├── Check threat level → tower priority
+   │   ├── Check construction sites → build priority
+   │   ├── Check spawn queue → extension priority
+   │   └── Check downgrade timer → controller priority
    │
-   ├── Serialize Routines to Memory
+   ├── Solve Flow Allocation (FlowSolver)
+   │   ├── Calculate total production capacity
+   │   ├── Calculate overhead (miners + haulers)
+   │   ├── Allocate by priority (greedy)
+   │   └── Return assignments
+   │
+   ├── Execute Corps
+   │   ├── MiningCorp.work() - harvest assigned sources
+   │   ├── HaulingCorp.work() - transport on assigned edges
+   │   ├── UpgradingCorp.work() - upgrade with allocation
+   │   └── ConstructionCorp.work() - build with allocation
    │
    └── Update RoomMap (every 100 ticks)
    │
@@ -193,28 +215,28 @@ export const loop = ErrorMapper.wrapLoop(() => {
 4. Game Loop End
 ```
 
-### Routine Lifecycle Detail
+### Priority-Based Allocation
 
-```
-runRoutine(room)
-    │
-    ├── RemoveDeadCreeps()
-    │   └── Filter out IDs for dead creeps
-    │
-    ├── calcSpawnQueue(room)
-    │   └── Determine needed spawns
-    │
-    ├── AddNewlySpawnedCreeps(room)
-    │   └── Find and assign idle creeps
-    │
-    ├── SpawnCreeps(room)
-    │   └── Execute spawn requests
-    │
-    ├── calculateExpectedValue()
-    │   └── Compute outputs - requirements
-    │
-    └── routine(room)
-        └── Custom behavior logic
+```typescript
+// Example priority context
+context = {
+  rcl: 3,
+  constructionSites: 5,
+  hostileCreeps: 0,
+  spawnQueue: 2
+}
+
+// Results in priorities:
+priorities = {
+  spawn: 100,        // Always critical
+  extension: 90,     // High - spawns queued
+  construction: 80,  // High - sites exist
+  controller: 10,    // Low - building phase
+  storage: 5         // Lowest
+}
+
+// Energy flows accordingly:
+// Spawn: 15%, Extensions: 25%, Construction: 50%, Controller: 10%
 ```
 
 ## Memory Architecture
@@ -223,11 +245,9 @@ runRoutine(room)
 
 ```typescript
 Memory.rooms[roomName] = {
-  routines: {
-    bootstrap: [BootstrapState[]],
-    energyMines: [EnergyMiningState[]],
-    construction: [ConstructionState[]]
-  }
+  flowGraph: FlowGraphState,
+  corps: CorpState[],
+  nodes: NodeState[]
 }
 ```
 
@@ -235,18 +255,11 @@ Memory.rooms[roomName] = {
 
 ```typescript
 Memory.creeps[creepName] = {
-  role: string  // e.g., "jack", "busyHarvester"
+  role: string,
+  corpId: string,
+  assignment: string  // Source/edge/sink ID
 }
 ```
-
-### Role Naming Convention
-
-| Role | Idle State | Active State |
-|------|------------|--------------|
-| Jack | `jack` | `busyjack` |
-| Harvester | `harvester` | `busyHarvester` |
-| Carrier | `carrier` | `busyCarrier` |
-| Builder | `builder` | `busyBuilder` |
 
 ## Caching Strategy
 
@@ -259,74 +272,47 @@ const roomMapCache: { [roomName: string]: { map: RoomMap, tick: number } };
 const ROOM_MAP_CACHE_TTL = 100; // Recalculate every 100 ticks
 ```
 
-### Performance History
+### Flow Solution Cache
 
-Each routine keeps bounded history:
-
-```typescript
-// Only last 100 records in memory
-if (this.performanceHistory.length > 100) {
-  this.performanceHistory = this.performanceHistory.slice(-100);
-}
-
-// Only last 20 records persisted
-serialize() {
-  return {
-    performanceHistory: this.performanceHistory.slice(-20)
-  };
-}
-```
+Flow solutions are recalculated when:
+- Priority context changes significantly
+- Sources/sinks are added or removed
+- Every N ticks as a fallback
 
 ## Extension Points
 
-### Adding a New Routine
+### Adding a New Sink Type
 
-1. Create class extending `RoomRoutine`
-2. Implement `routine()` and `calcSpawnQueue()`
-3. Define requirements and outputs
-4. Register in `main.ts` getRoomRoutines()
+1. Add to `SinkType` union
+2. Update `PriorityManager.calculatePriorities()`
+3. Update `FlowGraph.discoverSinks()`
+4. Create corresponding Corp if needed
 
-```typescript
-// src/routines/MyRoutine.ts
-export class MyRoutine extends RoomRoutine {
-  name = 'myRoutine';
+### Adding a New Corp
 
-  constructor(pos: RoomPosition) {
-    super(pos, { worker: [] });
-    this.requirements = [{ type: 'work', size: 1 }];
-    this.outputs = [{ type: 'result', size: 5 }];
-  }
-
-  routine(room: Room): void {
-    // Custom logic
-  }
-
-  calcSpawnQueue(room: Room): void {
-    // Spawn decisions
-  }
-}
-```
-
-### Adding a New Creep Role
-
-1. Define body composition
-2. Add role to routine's creepIds
-3. Implement behavior in routine()
-4. Handle in spawn queue
+1. Create class in `src/corps/`
+2. Implement `work()` to execute allocated resources
+3. Register with FlowEconomy
 
 ## Design Decisions
 
-### Why Routines Over Creep-Centric
+### Why Flow-Based Over Market-Based
 
-**Problem**: Creep-centric code ("harvester does X, carrier does Y") becomes tangled as roles interact.
+**Problem**: Market-based systems have circular dependencies (corps need energy to make offers, offers need corps) and slow price discovery.
 
-**Solution**: Routine-centric code groups related creeps and their coordination logic together.
+**Solution**: Single equilibrium solve considers all flows together. No bootstrapping problem.
 
-### Why Economic Contracts
+### Why Priority Weights Over Price Signals
 
-**Problem**: Hard to compare operation effectiveness or prioritize resources.
+**Problem**: Price discovery is slow and can be unstable.
 
-**Solution**: Explicit requirements/outputs enable ROI calculation and market-driven coordination.
+**Solution**: Explicit priority values enable instant response to state changes (defense, RCL-up, etc.).
+
+### Why Centralized Solver
+
+**Problem**: Local decisions (each corp optimizing independently) miss global optimization opportunities.
+
+**Solution**: FlowSolver considers all sources, sinks, and edges together for optimal allocation.
 
 ### Why Spatial Peaks
 
@@ -334,8 +320,8 @@ export class MyRoutine extends RoomRoutine {
 
 **Solution**: Distance transform identifies mathematically optimal open areas.
 
-### Why Waypoint Routing
+### Why Territory-Based Nodes
 
-**Problem**: Direct A-to-B pathfinding is expensive and rigid.
+**Problem**: Room boundaries are arbitrary game constraints.
 
-**Solution**: Waypoint routes are cheap to evaluate and support complex logistics patterns.
+**Solution**: Territories reflect actual spatial structure. Remote mining is "just another territory."

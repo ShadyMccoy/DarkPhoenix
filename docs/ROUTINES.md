@@ -1,77 +1,198 @@
-# Routine System
+# Corps System
 
-This document describes the colony operation routines in detail.
+This document describes the corps (business units) that execute work based on flow allocations.
 
 ## Overview
 
-Routines are the primary units of colony operation. Each routine:
+Corps are the execution layer of the flow-based economy. Each corp:
 
-- Manages specific creeps
-- Defines resource contracts
-- Executes domain-specific logic
-- Tracks its own performance
+- Receives allocations from the FlowSolver
+- Manages assigned creeps
+- Executes domain-specific work
+- Reports actual performance for ROI tracking
 
-## RoomRoutine Base Class
+## Corp Base Class
 
-All routines extend the abstract `RoomRoutine` class.
-
-### Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | `string` | Unique routine identifier |
-| `_position` | `RoomPosition` | Center of operation |
-| `creepIds` | `{ [role]: Id<Creep>[] }` | Assigned creeps by role |
-| `spawnQueue` | `SpawnRequest[]` | Pending spawn requests |
-| `requirements` | `ResourceContract[]` | Input resources needed |
-| `outputs` | `ResourceContract[]` | Output resources produced |
-| `performanceHistory` | `PerformanceRecord[]` | Historical performance |
-
-### Lifecycle Methods
+All corps share common functionality:
 
 ```typescript
-// Main entry point - called every tick
-runRoutine(room: Room): void;
+abstract class Corp {
+  id: string;
+  nodeId: string;
+  creepIds: string[];
 
-// Custom routine logic - implement in subclass
-abstract routine(room: Room): void;
+  // Get allocations from FlowEconomy
+  abstract getAssignments(): Assignment[];
 
-// Spawn decisions - implement in subclass
-abstract calcSpawnQueue(room: Room): void;
+  // Execute work with assigned creeps
+  abstract work(): void;
 
-// Internal lifecycle
-RemoveDeadCreeps(): void;
-AddNewlySpawnedCreeps(room: Room): void;
-SpawnCreeps(room: Room): void;
+  // Report actual output for ROI
+  abstract getActualOutput(): number;
+}
 ```
 
-### Economic Methods
+## MiningCorp
 
-```typescript
-// Resource contracts
-getRequirements(): ResourceContract[];
-getOutputs(): ResourceContract[];
+**Purpose**: Harvest energy from assigned sources
 
-// Performance
-calculateExpectedValue(): number;
-getExpectedValue(): number;
-recordPerformance(actualValue: number, cost: number): void;
-getAverageROI(): number;
-getPerformanceHistory(): PerformanceRecord[];
+**Allocation**: FlowSource assignment from FlowSolver
+
+### Creep Role: Miner
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, WORK, WORK, WORK, WORK, MOVE]` (at RCL 4+) |
+| Body | `[WORK, WORK, MOVE]` (early game) |
+| Output | 10 energy/tick (5 WORK parts) |
+| Behavior | Stationary harvesting |
+
+### Behavior
+
+```
+1. Get assigned source from FlowEconomy
+2. Move to optimal harvest position
+3. Harvest continuously
+4. Drop energy (haulers pick up)
 ```
 
-### Persistence
+### Auto-Infrastructure
 
-```typescript
-serialize(): any;
-deserialize(data: any): void;
+When energy pile exceeds threshold:
+1. Check for existing container
+2. Create construction site if none
+3. Stand on container once built
+
+## HaulingCorp
+
+**Purpose**: Transport energy along assigned edges
+
+**Allocation**: FlowEdge assignments with capacity requirements
+
+### Creep Role: Hauler
+
+| Property | Value |
+|----------|-------|
+| Body | `[CARRY, CARRY, MOVE, MOVE, ...]` |
+| Capacity | 50 energy per CARRY |
+| Behavior | Pickup → Deliver → Repeat |
+
+### Behavior
+
+```
+1. Get assigned edge from FlowEconomy
+2. Move to source end of edge
+3. Pickup energy (container, dropped, tombstone)
+4. Move to sink end of edge
+5. Deliver to structure or drop for next hauler
+6. Return to source
 ```
 
-## Bootstrap Routine
+### Delivery Priority
 
-**Purpose**: Early-game colony initialization (RCL 1-2)
+Haulers deliver to (in order):
+1. Spawn (if not full)
+2. Extensions (if not full)
+3. Towers (if below threshold)
+4. Storage
+5. Drop at destination
 
-**File**: `src/routines/Bootstrap.ts`
+## UpgradingCorp
+
+**Purpose**: Upgrade room controller
+
+**Allocation**: Controller sink allocation from FlowSolver
+
+### Creep Role: Upgrader
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, CARRY, MOVE, ...]` |
+| Upgrade rate | 1 per WORK per tick |
+| Behavior | Collect energy → Upgrade |
+
+### Behavior
+
+```
+1. Get controller allocation from FlowEconomy
+2. Check if have energy
+   - If no: collect from container/storage near controller
+   - If yes: upgrade controller
+3. Track upgrade progress for ROI
+```
+
+### Allocation-Based Spawning
+
+Number of upgraders scales with allocation:
+- Allocation = 10 energy/tick → ~2 upgraders (5 WORK each)
+- Allocation = 0 (building phase) → 0 upgraders
+
+## ConstructionCorp
+
+**Purpose**: Build construction sites
+
+**Allocation**: Construction sink allocation from FlowSolver
+
+### Creep Role: Builder
+
+| Property | Value |
+|----------|-------|
+| Body | `[WORK, CARRY, MOVE]` |
+| Build rate | 5 per WORK per tick |
+| Behavior | Collect → Build |
+
+### Behavior
+
+```
+1. Get construction allocation from FlowEconomy
+2. If no construction sites: idle/recycle
+3. Find nearest site
+4. Collect energy from nearest source
+5. Build until site complete or energy depleted
+6. Repeat
+```
+
+### Site Priority
+
+Build sites in order:
+1. Spawn (critical)
+2. Extensions (capacity)
+3. Towers (defense)
+4. Storage (economy)
+5. Roads (optimization)
+6. Walls/Ramparts (defense)
+
+## SpawningCorp
+
+**Purpose**: Spawn creeps for other corps
+
+**Allocation**: Spawn capacity (implicit from spawn structures)
+
+### Behavior
+
+```
+1. Collect spawn requests from FlowEconomy
+2. Sort by priority (from requesting corp's allocation)
+3. Check energy availability
+4. Spawn highest priority request that fits
+5. Assign spawned creep to requesting corp
+```
+
+### Spawn Queue Priority
+
+| Priority | Source |
+|----------|--------|
+| 100 | Miners (production) |
+| 90 | Haulers (logistics) |
+| 80 | Builders (construction phase) |
+| 70 | Upgraders (normal) |
+| 50 | Scouts |
+
+## BootstrapCorp
+
+**Purpose**: Emergency recovery from starvation
+
+**Allocation**: Activated only when no other corps can function
 
 ### Creep Role: Jack
 
@@ -79,344 +200,89 @@ deserialize(data: any): void;
 |----------|-------|
 | Body | `[WORK, CARRY, MOVE]` |
 | Cost | 200 energy |
-| Count | 2 (maintained) |
+| Behavior | Harvest → Deliver → Upgrade |
 
-### Behavior Priority
+### Activation Conditions
 
-```
-1. If full AND spawn needs energy
-   → DeliverEnergyToSpawn()
-
-2. If has energy AND spawn stable AND RCL < 2
-   → upgradeController()
-
-3. If dropped energy nearby (>50)
-   → pickupEnergyPile()
-
-4. Otherwise
-   → HarvestNearestEnergySource()
-```
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `HarvestNearestEnergySource()` | Find source with open positions |
-| `DeliverEnergyToSpawn()` | Transfer energy to spawn |
-| `upgradeController()` | Upgrade room controller |
-| `pickupEnergyPile()` | Collect dropped energy |
-| `BuildMinerContainer()` | Build at construction site |
-| `dismantleWalls()` | Emergency wall removal |
-
-### When Active
-
-- Always present in controlled rooms
-- Primary operation at RCL 1-2
-- Backup operation at higher RCL (emergency recovery)
-
-## EnergyMining Routine
-
-**Purpose**: Dedicated harvesting at energy sources
-
-**File**: `src/routines/EnergyMining.ts`
-
-### Creep Role: Harvester
-
-| Property | Value |
-|----------|-------|
-| Body | `[WORK, WORK, MOVE]` |
-| Cost | 200 energy |
-| Output | 10 energy/tick |
-| Count | 1 per harvest position |
-
-### Resource Contract
-
-```typescript
-requirements: [
-  { type: 'work', size: 2 },
-  { type: 'move', size: 1 },
-  { type: 'spawn_time', size: 150 }
-]
-
-outputs: [
-  { type: 'energy', size: 10 }
-]
-```
-
-### Configuration: SourceMine
-
-```typescript
-interface SourceMine {
-  sourceId: Id<Source>;         // Target source
-  HarvestPositions: RoomPosition[]; // Valid harvest spots
-  flow: number;                 // Expected output
-  distanceToSpawn: number;      // For route planning
-}
-```
+Bootstrap activates when:
+- No miners alive AND no energy to spawn
+- All haulers dead AND storage empty
+- Colony is in "starvation" state
 
 ### Behavior
 
 ```
-1. Each harvester assigned to specific position
-2. Move to assigned position
-3. Harvest from source
-4. Energy drops to ground (for carriers)
+1. If energy in spawn/extensions:
+   - Spawn basic harvester
+2. If no energy anywhere:
+   - Spawn jack creep
+   - Harvest nearest source
+   - Deliver to spawn
+   - Repeat until normal economy restarts
+3. Once miners/haulers spawned:
+   - Deactivate bootstrap
+   - Normal flow economy resumes
 ```
 
-### Auto-Infrastructure
+**Important**: Bootstrap is NOT a regular occurrence. It's a rare fallback for recovery after wipes or attacks.
 
-When energy pile exceeds 500:
-1. Check for existing container
-2. Check for existing construction site
-3. Create container construction site
-
-### Instance Per Source
-
-Each energy source gets its own EnergyMining instance:
-
-```typescript
-// main.ts initialization
-room.find(FIND_SOURCES).forEach(source => {
-  const mining = initEnergyMiningFromSource(source);
-  // Each source tracked separately
-});
-```
-
-## EnergyCarrying Routine
-
-**Purpose**: Resource logistics and transport
-
-**File**: `src/routines/EnergyCarrying.ts`
-
-### Creep Role: Carrier
-
-| Property | Value |
-|----------|-------|
-| Body | `[CARRY, CARRY, MOVE, MOVE]` |
-| Cost | 200 energy |
-| Capacity | 100 energy |
-| Count | 1 (minimum) |
-
-### Route System
-
-Routes define waypoint-based paths:
-
-```typescript
-interface EnergyRoute {
-  waypoints: RouteWaypoint[];
-  Carriers: CarrierAssignment[];
-}
-
-interface RouteWaypoint {
-  x: number;
-  y: number;
-  roomName: string;
-  surplus: boolean;  // true = pickup, false = delivery
-}
-```
-
-### Behavior
-
-```
-For each carrier on route:
-  1. Check proximity to current waypoint
-
-  2. If near waypoint:
-     - If surplus point AND has capacity → pickup
-     - If deficit point AND has energy → deliver
-     - If surplus point AND full → support nearby builders
-
-  3. If not near waypoint:
-     → Move to next waypoint
-
-  4. Cycle: waypoint[n] → waypoint[0]
-```
-
-### Route Calculation
-
-```typescript
-calculateRoutes(room: Room) {
-  // For each energy mine:
-  // Create route: source → spawn
-
-  energyRoutes.push({
-    waypoints: [
-      { ...harvestPos, surplus: true },   // Pickup
-      { ...spawn.pos, surplus: false }    // Delivery
-    ],
-    Carriers: []
-  });
-}
-```
-
-### Delivery Targets
-
-Carriers deliver to (in priority order):
-1. Spawn
-2. Extensions
-3. Towers
-4. Storage
-5. Containers
-
-### Pickup Sources
-
-Carriers pick up from:
-1. Containers (priority)
-2. Dropped energy piles
-
-## Construction Routine
-
-**Purpose**: Build structures from construction sites
-
-**File**: `src/routines/Construction.ts`
-
-### Creep Role: Builder
-
-| Property | Value |
-|----------|-------|
-| Body | `[WORK, CARRY, MOVE]` |
-| Cost | 200 energy |
-| Build rate | 5 per tick |
-| Count | 1 per site |
-
-### Lifecycle
-
-```
-1. Created when construction site detected
-2. Spawns builder if none assigned
-3. Builder constructs site
-4. When site complete → routine marks isComplete
-5. Complete routines filtered from next tick
-```
-
-### Behavior
-
-```
-1. If builder has no energy:
-   → pickupEnergyPile()
-
-2. If far from site (>3 tiles):
-   → moveTo(site)
-
-3. If near site:
-   → build(site)
-```
-
-### Completion Detection
-
-```typescript
-get isComplete(): boolean {
-  return this._isComplete ||
-         Game.getObjectById(this._constructionSiteId) == null;
-}
-```
-
-### Instance Per Site
-
-Each construction site gets its own Construction instance:
-
-```typescript
-room.find(FIND_MY_CONSTRUCTION_SITES).forEach(site => {
-  new Construction(site.id);
-});
-```
-
-## Creating New Routines
+## Creating New Corps
 
 ### Template
 
 ```typescript
-import { RoomRoutine } from "../core/RoomRoutine";
-
-export class MyRoutine extends RoomRoutine {
-  name = "myRoutine";
-
-  constructor(pos: RoomPosition) {
-    super(pos, { worker: [] });  // Define roles
-
-    // Define contracts
-    this.requirements = [
-      { type: 'work', size: 1 },
-      { type: 'carry', size: 1 }
-    ];
-    this.outputs = [
-      { type: 'result', size: 5 }
-    ];
+export class MyNewCorp extends Corp {
+  constructor(nodeId: string) {
+    super('my-new-corp', nodeId);
   }
 
-  routine(room: Room): void {
-    // Get assigned creeps
-    const workers = this.creepIds.worker
-      .map(id => Game.getObjectById(id))
-      .filter((c): c is Creep => c != null);
-
-    // Execute behavior
-    workers.forEach(worker => {
-      this.doWork(worker);
-    });
-
-    // Track performance
-    const actualOutput = this.measureOutput();
-    const cost = this.measureCost();
-    this.recordPerformance(actualOutput, cost);
+  getAssignments(): Assignment[] {
+    // Get from FlowEconomy
+    return this.flowEconomy.getMyAssignments(this.id);
   }
 
-  calcSpawnQueue(room: Room): void {
-    this.spawnQueue = [];
+  work(): void {
+    const creeps = this.getCreeps();
+    const assignments = this.getAssignments();
 
-    const desiredCount = this.calculateDesiredWorkers();
-    if (this.creepIds.worker.length < desiredCount) {
-      this.spawnQueue.push({
-        body: [WORK, CARRY, MOVE],
-        pos: this.position,
-        role: "worker"
-      });
+    for (const creep of creeps) {
+      const assignment = assignments.find(a => a.creepId === creep.id);
+      if (assignment) {
+        this.executeWork(creep, assignment);
+      }
     }
   }
 
-  // Custom serialization if needed
-  serialize(): any {
-    return {
-      ...super.serialize(),
-      customField: this.customField
-    };
-  }
-
-  deserialize(data: any): void {
-    super.deserialize(data);
-    this.customField = data.customField;
-  }
-
-  // Custom methods
-  private doWork(worker: Creep): void {
+  private executeWork(creep: Creep, assignment: Assignment): void {
     // Implementation
+  }
+
+  getActualOutput(): number {
+    // Track and return actual work done
+    return this.outputThisTick;
   }
 }
 ```
 
 ### Registration
 
-Add to `main.ts`:
-
 ```typescript
-function getRoomRoutines(room: Room) {
-  // ... existing routines ...
+// In FlowEconomy initialization
+function createCorps(nodes: Node[]): Corp[] {
+  const corps: Corp[] = [];
 
-  // Add new routine
-  if (!room.memory.routines.myRoutine) {
-    room.memory.routines.myRoutine = [
-      new MyRoutine(room.controller!.pos).serialize()
-    ];
+  for (const node of nodes) {
+    // Standard corps
+    corps.push(new MiningCorp(node.id, node.sources));
+    corps.push(new HaulingCorp(node.id));
+
+    // Add new corp
+    if (node.hasMyResource) {
+      corps.push(new MyNewCorp(node.id));
+    }
   }
 
-  return {
-    // ... existing ...
-    myRoutine: _.map(room.memory.routines.myRoutine, (data) => {
-      const r = new MyRoutine(room.controller!.pos);
-      r.deserialize(data);
-      return r;
-    })
-  };
+  return corps;
 }
 ```
 
@@ -424,56 +290,33 @@ function getRoomRoutines(room: Room) {
 
 ### 1. Single Responsibility
 
-Each routine handles one domain:
+Each corp handles one domain:
 - Mining handles harvesting
-- Carrying handles logistics
+- Hauling handles transport
 - Construction handles building
 
-### 2. Contract Accuracy
+### 2. Trust Flow Allocations
 
-Keep requirements/outputs accurate:
+Don't spawn more creeps than your allocation justifies. If you need more, the priority context should reflect that.
+
+### 3. Report Accurate Output
+
+Track actual work done, not expected. This enables ROI validation:
 ```typescript
-// Update when body changes
-this.requirements = [
-  { type: 'work', size: 3 },  // Now 3 WORK parts
-];
-```
-
-### 3. Performance Tracking
-
-Always record actual performance:
-```typescript
-routine(room: Room): void {
-  const output = this.execute();
-  this.recordPerformance(output, this.getCost());
+work(): void {
+  const result = creep.upgrade(controller);
+  if (result === OK) {
+    this.actualOutput += creep.getActiveBodyparts(WORK);
+  }
 }
 ```
 
-### 4. Clean Serialization
+### 4. Handle Edge Cases
 
-Only persist essential state:
-```typescript
-serialize(): any {
-  return {
-    name: this.name,
-    position: this.position,
-    creepIds: this.creepIds,
-    // Only routine-specific data
-    sourceId: this.sourceId
-  };
-}
-```
+- Creeps die: remove from tracking
+- Targets disappear: reassign or idle
+- No allocation: don't spawn more
 
-### 5. Defensive Coding
+### 5. Coordinate via FlowEconomy
 
-Handle missing game objects:
-```typescript
-const creep = Game.getObjectById(id);
-if (!creep) return;  // May have died
-
-const site = Game.getObjectById(this.siteId);
-if (!site) {
-  this._isComplete = true;
-  return;
-}
-```
+Don't have corps communicate directly. All coordination happens through the flow network and allocations.
