@@ -13,7 +13,7 @@
  * @module planning/InvestmentPlanner
  */
 
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import { AnyCorpState, getCorpPosition as getStatePosition } from "../corps/CorpState";
 import { calculateMargin } from "../corps/Corp";
 import { getMintValue, MintValues } from "../colony/MintValues";

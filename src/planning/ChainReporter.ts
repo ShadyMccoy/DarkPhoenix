@@ -11,7 +11,7 @@
 
 import { Chain, ChainSegment, calculateProfit, calculateChainROI } from "./Chain";
 import { Corp, CorpType } from "../corps/Corp";
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import {
   calculateTravelTime,
   calculateEffectiveWorkTime,

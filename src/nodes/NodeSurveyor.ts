@@ -1,4 +1,4 @@
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import { CorpType } from "../corps/Corp";
 import {
   Node,

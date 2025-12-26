@@ -14,7 +14,7 @@
  * - Comments explaining what each scenario tests
  */
 
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 import { Node } from "../nodes/Node";
 import { Chain, calculateProfit, calculateChainROI } from "./Chain";
 import { ChainPlanner } from "./ChainPlanner";

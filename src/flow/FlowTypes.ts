@@ -5,9 +5,9 @@
  * Replaces the market-based offer/contract system with direct flow allocation.
  */
 
-// Re-export Position for convenience (will be moved to shared types later)
-export { Position } from "../market/Offer";
-import { Position } from "../market/Offer";
+// Position type (shared across modules)
+export { Position } from "../types/Position";
+import { Position } from "../types/Position";
 
 // =============================================================================
 // CONSTANTS
@@ -488,33 +488,5 @@ export function calculateHaulerCostPerTick(carryParts: number): number {
   return (carryParts * costPerCarry) / CREEP_LIFETIME;
 }
 
-/**
- * Chebyshev distance (Screeps movement distance).
- */
-export function chebyshevDistance(a: Position, b: Position): number {
-  if (a.roomName !== b.roomName) {
-    // Cross-room: estimate based on room distance
-    // This is approximate - real pathfinding would be needed for accuracy
-    const roomDist = estimateRoomDistance(a.roomName, b.roomName);
-    return roomDist * 50 + Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-  }
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-}
-
-/**
- * Estimate room distance from room names.
- * Parses room names like "W1N2" to extract coordinates.
- */
-export function estimateRoomDistance(room1: string, room2: string): number {
-  const parse = (name: string) => {
-    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
-    if (!match) return { x: 0, y: 0 };
-    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
-    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
-    return { x, y };
-  };
-
-  const p1 = parse(room1);
-  const p2 = parse(room2);
-  return Math.max(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
-}
+// Re-export distance functions from shared Position module
+export { chebyshevDistance, estimateRoomDistance } from "../types/Position";

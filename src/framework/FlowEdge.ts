@@ -19,7 +19,7 @@
  * @module framework/FlowEdge
  */
 
-import { Position } from "../market/Offer";
+import { Position } from "../types/Position";
 
 /**
  * Base interface for all flow edges.
