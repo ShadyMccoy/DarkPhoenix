@@ -222,119 +222,190 @@ console.log(`  ─────────────────`);
 console.log(`  Total:     ${totalWorkParts.toFixed(1)}W + ${totalCarryParts.toFixed(1)}C + ${totalMoveParts.toFixed(1)}M\n`);
 
 // ============================================================================
-// ROADS ANALYSIS: Is it worth paving?
+// SIDE-BY-SIDE COMPARISON: Without Roads vs With Roads
 // ============================================================================
 
 console.log("┌─────────────────────────────────────────────────────────────┐");
-console.log("│ ROADS ANALYSIS: Worth paving?                               │");
+console.log("│ SIDE-BY-SIDE: No Roads vs Roads                             │");
 console.log("└─────────────────────────────────────────────────────────────┘\n");
 
-// Without roads: 1:1 CARRY:MOVE ratio
-// With roads: 2:1 CARRY:MOVE ratio (creeps move at full speed on roads)
-const noRoadCarryPartCost = CARRY_COST + MOVE_COST;  // 100 (1:1)
-const roadCarryPartCost = CARRY_COST + MOVE_COST / 2;  // 75 (2:1)
-const savingsPerCarryPart = noRoadCarryPartCost - roadCarryPartCost;  // 25
+// ─────────────────────────────────────────────────────────────────────────────
+// NO ROADS SCENARIO (already calculated above)
+// ─────────────────────────────────────────────────────────────────────────────
+const noRoads = {
+  // Miner: 5W + 3M (need enough MOVE for plains)
+  minerWork: MINER_WORK,
+  minerMove: MINER_MOVE,
+  minerCost: MINER_COST,
 
-console.log("Hauler efficiency:");
-console.log(`  Without roads: ${noRoadCarryPartCost} energy per CARRY part (1:1 CARRY:MOVE)`);
-console.log(`  With roads:    ${roadCarryPartCost} energy per CARRY part (2:1 CARRY:MOVE)`);
-console.log(`  Savings:       ${savingsPerCarryPart} energy per CARRY part\n`);
+  // Haulers: 1:1 CARRY:MOVE
+  carryParts: carryPartsNeeded,
+  haulerMoveParts: carryPartsNeeded,  // 1:1 ratio
+  haulerCostPerCarry: CARRY_COST + MOVE_COST,  // 100
 
-// Road infrastructure cost
-// Need roads: Spawn→Source (D) + Spawn→Controller (D) = 2D tiles
+  // Upgrader WORK + hauler CARRY for upgrade route
+  upgradeWork: upgradeWorkParts,
+  upgradeCarry: upgradeCarryParts,
+  upgradeMove: upgradeCarryParts,  // 1:1 for upgrade haulers
+
+  // Totals
+  totalSpawnOverhead: totalSpawnOverhead,
+  netUpgrade: netOutput,
+  efficiency: efficiency,
+  roadMaintenance: 0,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WITH ROADS SCENARIO
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Miner with roads: 5W + 1M (only needs to walk once, roads give 2:1 when loaded)
+// Actually miner walks empty, so still 1 tile/tick, but can use fewer MOVE parts
+// With roads: ceil(WORK/2) MOVE parts for fatigue on roads
+const roadMinerMove = Math.ceil(MINER_WORK / 2);  // 3 WORK generates 6 fatigue, need 3 MOVE? No wait...
+// Actually on roads: each MOVE gives 2 fatigue reduction, WORK generates 2 fatigue
+// So on roads: 1 MOVE per 1 WORK (but we can go 2:1 since roads double effectiveness)
+// Miner is stationary, just needs to get there once. 1 MOVE per 2 WORK on roads.
+const roadsMinorMove = Math.ceil(MINER_WORK / 2);  // 5W needs 3M on roads? Let's say 2M
+const roadMinerMoveParts = 2;  // minimal MOVE to get to source on roads
+const roadMinerCost = MINER_WORK * WORK_COST + roadMinerMoveParts * MOVE_COST;
+
+// Haulers with roads: 2:1 CARRY:MOVE
+const roadCarryPartCost = CARRY_COST + MOVE_COST / 2;  // 75 per CARRY part
+const roadHaulerMoveParts = carryPartsNeeded / 2;
+
+// Upgrader stays at controller, haulers bring energy
+// Upgrader body: WORK parts + minimal CARRY/MOVE to pickup from container
+// On roads: 2:1 ratio for the upgrade haulers
+const roadUpgradeCarryParts = upgradeCarryParts;  // same throughput needed
+const roadUpgradeMoveParts = upgradeCarryParts / 2;  // 2:1 on roads
+
+// Calculate road traffic and decay
 const roadTiles = 2 * DISTANCE;
 
-// Traffic-based decay: each creep step reduces decay timer by body_parts
-// This accelerates decay beyond the base 100 hits per 1000 ticks
-//
-// For source→spawn route (D tiles):
-//   - Haulers: ~20 parts (10C+10M), make trips constantly
-//   - Miner: 8 parts, walks once per lifetime
-//
-// Hauler traffic per tile per tick:
-//   - Trips per tick = 1 / round_trip
-//   - Each trip crosses each tile twice (there and back)
-//   - Body parts with roads = 1.5C (2:1 ratio) = ~15 parts per 10 CARRY
-const haulerBodyPartsWithRoads = carryPartsNeeded * 1.5;  // 2:1 CARRY:MOVE
+// Source route: haulers going back and forth
+// Body parts per hauler = CARRY + MOVE = 1.5 × CARRY (2:1 ratio)
+const roadHaulerBodyParts = carryPartsNeeded * 1.5;
 const haulerTripsPerTick = 1 / haulerRoundTrip;
-const haulerCrossingsPerTilePerTick = haulerTripsPerTick * 2;  // both directions
-const sourceRouteTrafficPerTick = haulerCrossingsPerTilePerTick * haulerBodyPartsWithRoads;
+const sourceRouteTrafficPerTick = haulerTripsPerTick * 2 * roadHaulerBodyParts;
 
-// Same for controller route
-const upgraderHaulerParts = upgradeCarryParts * 1.5;
-const upgraderHaulerTripsPerTick = 1 / upgradeHaulRoundTrip;
-const controllerRouteTrafficPerTick = upgraderHaulerTripsPerTick * 2 * upgraderHaulerParts;
+// Controller route: upgrade haulers
+const roadUpgradeHaulerParts = roadUpgradeCarryParts * 1.5;
+const upgradeHaulerTripsPerTick = 1 / upgradeHaulRoundTrip;
+const controllerRouteTrafficPerTick = upgradeHaulerTripsPerTick * 2 * roadUpgradeHaulerParts;
 
-// Effective decay: base + traffic
-// Base: 100 hits per 1000 ticks = 0.1 hits/tick
-// Traffic: each body part step = 1 tick off the 1000 tick timer = 0.1 hits equivalent
+// Decay calculation
 const baseDecayPerTick = ROAD_DECAY_RATE / 1000;  // 0.1 hits/tick
-const sourceRouteDecayPerTick = baseDecayPerTick + (sourceRouteTrafficPerTick * baseDecayPerTick);
-const controllerRouteDecayPerTick = baseDecayPerTick + (controllerRouteTrafficPerTick * baseDecayPerTick);
+const sourceDecay = baseDecayPerTick * (1 + sourceRouteTrafficPerTick);
+const controllerDecay = baseDecayPerTick * (1 + controllerRouteTrafficPerTick);
 
-// Road lifetime with traffic
-const sourceRouteLifetime = ROAD_MAX_HITS / sourceRouteDecayPerTick;
-const controllerRouteLifetime = ROAD_MAX_HITS / controllerRouteDecayPerTick;
+const sourceLifetime = ROAD_MAX_HITS / sourceDecay;
+const controllerLifetime = ROAD_MAX_HITS / controllerDecay;
 
-// Maintenance cost per tile per tick
-const sourceRouteMaintPerTick = ROAD_ENERGY_COST / sourceRouteLifetime;
-const controllerRouteMaintPerTick = ROAD_ENERGY_COST / controllerRouteLifetime;
+const sourceMaintCost = DISTANCE * ROAD_ENERGY_COST / sourceLifetime;
+const controllerMaintCost = DISTANCE * ROAD_ENERGY_COST / controllerLifetime;
+const totalRoadMaint = sourceMaintCost + controllerMaintCost;
 
-// Total road maintenance
-const roadMaintenanceCost = (DISTANCE * sourceRouteMaintPerTick) + (DISTANCE * controllerRouteMaintPerTick);
+// Roads spawn costs
+const roadMinerOverhead = roadMinerCost / LIFETIME;
+const roadHaulerOverhead = (carryPartsNeeded * roadCarryPartCost) / LIFETIME;
+const roadUpgradeHaulOverhead = (roadUpgradeCarryParts * roadCarryPartCost) / LIFETIME;
+const roadUpgradeWorkOverhead = (upgradeWorkParts * WORK_COST) / LIFETIME;
 
-console.log("Road infrastructure:");
-console.log(`  Tiles needed: ${roadTiles} (spawn→source + spawn→controller)`);
-console.log(`  Build cost:   ${roadTiles} × ${ROAD_ENERGY_COST} = ${roadTiles * ROAD_ENERGY_COST} energy (one-time)\n`);
+const roadTotalSpawnOverhead = roadMinerOverhead + roadHaulerOverhead + roadUpgradeHaulOverhead + roadUpgradeWorkOverhead;
+const roadTotalOverhead = roadTotalSpawnOverhead + totalRoadMaint;
 
-console.log("Traffic-based decay (each creep step = 1 tick per body part):");
-console.log(`  Source route traffic:     ${sourceRouteTrafficPerTick.toFixed(2)} body-parts/tick/tile`);
-console.log(`  Controller route traffic: ${controllerRouteTrafficPerTick.toFixed(2)} body-parts/tick/tile`);
-console.log(`  Source route lifetime:     ${sourceRouteLifetime.toFixed(0)} ticks (was ${ROAD_TICKS_LIFETIME.toLocaleString()})`);
-console.log(`  Controller route lifetime: ${controllerRouteLifetime.toFixed(0)} ticks\n`);
+// Recalculate upgrade rate with roads (more energy available due to lower spawn costs)
+const roadEnergyForUpgrading = harvestPerTick - roadMinerOverhead - roadHaulerOverhead;
+const roadUpgradeHaulCostPerTick = (upgradeHaulRoundTrip / 50) * roadCarryPartCost / LIFETIME;
+const roadUpgradeTotalCostPerEnergyTick = roadUpgradeHaulCostPerTick + upgradeWorkCostPerTick + 1;
+const roadActualUpgradeRate = roadEnergyForUpgrading / roadUpgradeTotalCostPerEnergyTick;
 
-console.log("Maintenance with traffic:");
-console.log(`  Source route:     ${DISTANCE} × ${sourceRouteMaintPerTick.toFixed(4)} = ${(DISTANCE * sourceRouteMaintPerTick).toFixed(3)}/tick`);
-console.log(`  Controller route: ${DISTANCE} × ${controllerRouteMaintPerTick.toFixed(4)} = ${(DISTANCE * controllerRouteMaintPerTick).toFixed(3)}/tick`);
-console.log(`  Total:            ${roadMaintenanceCost.toFixed(3)}/tick\n`);
+// Final roads numbers
+const roadNetUpgrade = roadActualUpgradeRate;
+const roadFinalOverhead = harvestPerTick - roadNetUpgrade;
+const roadEfficiency = (roadNetUpgrade / harvestPerTick) * 100;
 
-// Calculate savings from reduced MOVE parts
-const totalCarryPartsForRoads = totalCarryParts;  // same CARRY needed, just fewer MOVE
-const movePartsSaved = totalCarryPartsForRoads / 2;  // save half the MOVE parts
-const spawnSavingsPerTick = (movePartsSaved * MOVE_COST) / LIFETIME;
+const roads = {
+  minerWork: MINER_WORK,
+  minerMove: roadMinerMoveParts,
+  minerCost: roadMinerCost,
 
-console.log("Spawn cost savings:");
-console.log(`  CARRY parts (hauling): ${totalCarryPartsForRoads.toFixed(1)}`);
-console.log(`  MOVE parts saved:      ${movePartsSaved.toFixed(1)} (half of CARRY)`);
-console.log(`  Spawn savings:         ${movePartsSaved.toFixed(1)} × ${MOVE_COST} / ${LIFETIME} = ${spawnSavingsPerTick.toFixed(3)}/tick\n`);
+  carryParts: carryPartsNeeded,
+  haulerMoveParts: roadHaulerMoveParts,
+  haulerCostPerCarry: roadCarryPartCost,
 
-// Net benefit
-const netRoadBenefit = spawnSavingsPerTick - roadMaintenanceCost;
-const roadsWorthIt = netRoadBenefit > 0;
+  upgradeWork: roadActualUpgradeRate,  // more upgrade work possible
+  upgradeCarry: roadActualUpgradeRate * upgradeHaulRoundTrip / 50,
+  upgradeMove: roadActualUpgradeRate * upgradeHaulRoundTrip / 50 / 2,
 
-console.log("Net analysis:");
-console.log(`  Spawn savings:     +${spawnSavingsPerTick.toFixed(3)}/tick`);
-console.log(`  Road maintenance:  -${roadMaintenanceCost.toFixed(3)}/tick`);
-console.log(`  ─────────────────────`);
-console.log(`  Net benefit:       ${netRoadBenefit >= 0 ? '+' : ''}${netRoadBenefit.toFixed(3)}/tick`);
-console.log(`  Roads worth it?    ${roadsWorthIt ? 'YES ✓' : 'NO ✗'}\n`);
+  totalSpawnOverhead: roadTotalSpawnOverhead,
+  roadMaintenance: totalRoadMaint,
+  netUpgrade: roadNetUpgrade,
+  efficiency: roadEfficiency,
+};
 
-// Recalculate efficiency with roads
-if (roadsWorthIt) {
-  const roadAdjustedOverhead = totalSpawnOverhead - spawnSavingsPerTick + roadMaintenanceCost;
-  const roadAdjustedNet = harvestPerTick - roadAdjustedOverhead;
-  const roadEfficiency = (roadAdjustedNet / harvestPerTick) * 100;
+// ─────────────────────────────────────────────────────────────────────────────
+// SIDE-BY-SIDE OUTPUT
+// ─────────────────────────────────────────────────────────────────────────────
 
-  console.log("With roads:");
-  console.log(`  Adjusted overhead: ${roadAdjustedOverhead.toFixed(2)}/tick`);
-  console.log(`  Net to upgrading:  ${roadAdjustedNet.toFixed(2)}/tick`);
-  console.log(`  Efficiency:        ${roadEfficiency.toFixed(1)}% (was ${efficiency.toFixed(1)}%)`);
-  console.log(`  Improvement:       +${(roadEfficiency - efficiency).toFixed(1)} percentage points\n`);
+console.log("                              NO ROADS         WITH ROADS");
+console.log("                              ─────────        ──────────");
+console.log("");
+console.log("MINER:");
+console.log(`  Body                        ${noRoads.minerWork}W ${noRoads.minerMove}M             ${roads.minerWork}W ${roads.minerMove}M`);
+console.log(`  Spawn cost                  ${noRoads.minerCost}              ${roads.minerCost}`);
+console.log(`  Overhead                    ${(noRoads.minerCost/LIFETIME).toFixed(3)}/tick       ${(roads.minerCost/LIFETIME).toFixed(3)}/tick`);
+console.log("");
+console.log("HAULERS (source→spawn):");
+console.log(`  CARRY parts                 ${noRoads.carryParts.toFixed(1)}             ${roads.carryParts.toFixed(1)}`);
+console.log(`  MOVE parts                  ${noRoads.haulerMoveParts.toFixed(1)} (1:1)        ${roads.haulerMoveParts.toFixed(1)} (2:1)`);
+console.log(`  Cost per CARRY              ${noRoads.haulerCostPerCarry}              ${roads.haulerCostPerCarry}`);
+console.log(`  Overhead                    ${(noRoads.carryParts * noRoads.haulerCostPerCarry / LIFETIME).toFixed(3)}/tick       ${(roads.carryParts * roads.haulerCostPerCarry / LIFETIME).toFixed(3)}/tick`);
+console.log("");
+console.log("UPGRADING:");
+console.log(`  WORK parts                  ${noRoads.upgradeWork.toFixed(1)}             ${roads.upgradeWork.toFixed(1)}`);
+console.log(`  Haul CARRY parts            ${noRoads.upgradeCarry.toFixed(1)}             ${roads.upgradeCarry.toFixed(1)}`);
+console.log(`  Haul MOVE parts             ${noRoads.upgradeMove.toFixed(1)} (1:1)        ${roads.upgradeMove.toFixed(1)} (2:1)`);
+console.log("");
+console.log("ROAD INFRASTRUCTURE:");
+console.log(`  Tiles                       0                ${roadTiles}`);
+console.log(`  Build cost                  0                ${roadTiles * ROAD_ENERGY_COST}`);
+console.log(`  Source lifetime             -                ${sourceLifetime.toFixed(0)} ticks`);
+console.log(`  Controller lifetime         -                ${controllerLifetime.toFixed(0)} ticks`);
+console.log(`  Maintenance                 0.000/tick       ${totalRoadMaint.toFixed(3)}/tick`);
+console.log("");
+console.log("TOTALS:");
+console.log(`  Spawn overhead              ${noRoads.totalSpawnOverhead.toFixed(3)}/tick       ${roads.totalSpawnOverhead.toFixed(3)}/tick`);
+console.log(`  Road maintenance            ${noRoads.roadMaintenance.toFixed(3)}/tick       ${roads.roadMaintenance.toFixed(3)}/tick`);
+console.log(`  Total overhead              ${(noRoads.totalSpawnOverhead + noRoads.roadMaintenance).toFixed(3)}/tick       ${(roads.totalSpawnOverhead + roads.roadMaintenance).toFixed(3)}/tick`);
+console.log("");
+console.log("  ┌──────────────────────────────────────────────────────────┐");
+console.log(`  │  Net to upgrading          ${noRoads.netUpgrade.toFixed(2)}/tick        ${roads.netUpgrade.toFixed(2)}/tick    │`);
+console.log(`  │  Efficiency                ${noRoads.efficiency.toFixed(1)}%            ${roads.efficiency.toFixed(1)}%       │`);
+console.log("  └──────────────────────────────────────────────────────────┘");
+console.log("");
+
+const diff = roads.netUpgrade - noRoads.netUpgrade;
+const diffPct = roads.efficiency - noRoads.efficiency;
+if (diff > 0) {
+  console.log(`  Roads WIN by +${diff.toFixed(2)}/tick (+${diffPct.toFixed(1)} percentage points) ✓\n`);
+} else {
+  console.log(`  No roads WIN by ${(-diff).toFixed(2)}/tick (${(-diffPct).toFixed(1)} percentage points) ✓\n`);
 }
 
-// Break-even analysis
-const breakEvenCarryParts = roadMaintenanceCost * LIFETIME / (savingsPerCarryPart);
-console.log("Break-even analysis:");
-console.log(`  Roads pay off when CARRY parts > ${breakEvenCarryParts.toFixed(1)}`);
-console.log(`  Current CARRY parts: ${totalCarryPartsForRoads.toFixed(1)}`);
-console.log(`  Margin: ${(totalCarryPartsForRoads - breakEvenCarryParts).toFixed(1)} CARRY parts above break-even\n`);
+// Body part summary
+const noRoadsTotalWork = noRoads.minerWork + noRoads.upgradeWork;
+const noRoadsTotalCarry = noRoads.carryParts + noRoads.upgradeCarry;
+const noRoadsTotalMove = noRoads.minerMove + noRoads.haulerMoveParts + noRoads.upgradeMove;
+
+const roadsTotalWork = roads.minerWork + roads.upgradeWork;
+const roadsTotalCarry = roads.carryParts + roads.upgradeCarry;
+const roadsTotalMove = roads.minerMove + roads.haulerMoveParts + roads.upgradeMove;
+
+console.log("BODY PARTS TOTAL:");
+console.log(`  WORK                        ${noRoadsTotalWork.toFixed(1)}             ${roadsTotalWork.toFixed(1)}`);
+console.log(`  CARRY                       ${noRoadsTotalCarry.toFixed(1)}            ${roadsTotalCarry.toFixed(1)}`);
+console.log(`  MOVE                        ${noRoadsTotalMove.toFixed(1)}            ${roadsTotalMove.toFixed(1)}`);
+console.log(`  Total parts                 ${(noRoadsTotalWork + noRoadsTotalCarry + noRoadsTotalMove).toFixed(1)}            ${(roadsTotalWork + roadsTotalCarry + roadsTotalMove).toFixed(1)}`);
+console.log("");
