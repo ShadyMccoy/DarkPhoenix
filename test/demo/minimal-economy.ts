@@ -25,6 +25,13 @@ const WORK_COST = 100;
 const CARRY_COST = 50;
 const MOVE_COST = 50;
 
+// Road constants
+const ROAD_ENERGY_COST = 300;  // energy to build one road tile
+const ROAD_MAX_HITS = 5000;    // road durability on plains
+const ROAD_DECAY_RATE = 100;   // hits lost per 1000 ticks on plains
+const ROAD_TICKS_LIFETIME = (ROAD_MAX_HITS / ROAD_DECAY_RATE) * 1000;  // 50,000 ticks
+const ROAD_MAINT_PER_TICK = ROAD_ENERGY_COST / ROAD_TICKS_LIFETIME;  // 0.006/tick per tile
+
 // Creep specs
 const MINER_WORK = 5;
 const MINER_MOVE = 3;
@@ -213,3 +220,74 @@ console.log(`             ${upgradeCarryParts.toFixed(1)}C + ${upgradeCarryParts
 console.log(`  Upgrading: ${upgradeWorkParts.toFixed(1)}W`);
 console.log(`  ─────────────────`);
 console.log(`  Total:     ${totalWorkParts.toFixed(1)}W + ${totalCarryParts.toFixed(1)}C + ${totalMoveParts.toFixed(1)}M\n`);
+
+// ============================================================================
+// ROADS ANALYSIS: Is it worth paving?
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ ROADS ANALYSIS: Worth paving?                               │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+// Without roads: 1:1 CARRY:MOVE ratio
+// With roads: 2:1 CARRY:MOVE ratio (creeps move at full speed on roads)
+const noRoadCarryPartCost = CARRY_COST + MOVE_COST;  // 100 (1:1)
+const roadCarryPartCost = CARRY_COST + MOVE_COST / 2;  // 75 (2:1)
+const savingsPerCarryPart = noRoadCarryPartCost - roadCarryPartCost;  // 25
+
+console.log("Hauler efficiency:");
+console.log(`  Without roads: ${noRoadCarryPartCost} energy per CARRY part (1:1 CARRY:MOVE)`);
+console.log(`  With roads:    ${roadCarryPartCost} energy per CARRY part (2:1 CARRY:MOVE)`);
+console.log(`  Savings:       ${savingsPerCarryPart} energy per CARRY part\n`);
+
+// Road infrastructure cost
+// Need roads: Spawn→Source (D) + Spawn→Controller (D) = 2D tiles
+const roadTiles = 2 * DISTANCE;
+const roadMaintenanceCost = roadTiles * ROAD_MAINT_PER_TICK;
+
+console.log("Road infrastructure:");
+console.log(`  Tiles needed: ${roadTiles} (spawn→source + spawn→controller)`);
+console.log(`  Build cost:   ${roadTiles} × ${ROAD_ENERGY_COST} = ${roadTiles * ROAD_ENERGY_COST} energy (one-time)`);
+console.log(`  Maintenance:  ${roadTiles} × ${ROAD_MAINT_PER_TICK.toFixed(4)} = ${roadMaintenanceCost.toFixed(3)}/tick`);
+console.log(`  Road lifetime: ${ROAD_TICKS_LIFETIME.toLocaleString()} ticks (${(ROAD_TICKS_LIFETIME/1500).toFixed(0)} creep lifetimes)\n`);
+
+// Calculate savings from reduced MOVE parts
+const totalCarryPartsForRoads = totalCarryParts;  // same CARRY needed, just fewer MOVE
+const movePartsSaved = totalCarryPartsForRoads / 2;  // save half the MOVE parts
+const spawnSavingsPerTick = (movePartsSaved * MOVE_COST) / LIFETIME;
+
+console.log("Spawn cost savings:");
+console.log(`  CARRY parts (hauling): ${totalCarryPartsForRoads.toFixed(1)}`);
+console.log(`  MOVE parts saved:      ${movePartsSaved.toFixed(1)} (half of CARRY)`);
+console.log(`  Spawn savings:         ${movePartsSaved.toFixed(1)} × ${MOVE_COST} / ${LIFETIME} = ${spawnSavingsPerTick.toFixed(3)}/tick\n`);
+
+// Net benefit
+const netRoadBenefit = spawnSavingsPerTick - roadMaintenanceCost;
+const roadsWorthIt = netRoadBenefit > 0;
+
+console.log("Net analysis:");
+console.log(`  Spawn savings:     +${spawnSavingsPerTick.toFixed(3)}/tick`);
+console.log(`  Road maintenance:  -${roadMaintenanceCost.toFixed(3)}/tick`);
+console.log(`  ─────────────────────`);
+console.log(`  Net benefit:       ${netRoadBenefit >= 0 ? '+' : ''}${netRoadBenefit.toFixed(3)}/tick`);
+console.log(`  Roads worth it?    ${roadsWorthIt ? 'YES ✓' : 'NO ✗'}\n`);
+
+// Recalculate efficiency with roads
+if (roadsWorthIt) {
+  const roadAdjustedOverhead = totalSpawnOverhead - spawnSavingsPerTick + roadMaintenanceCost;
+  const roadAdjustedNet = harvestPerTick - roadAdjustedOverhead;
+  const roadEfficiency = (roadAdjustedNet / harvestPerTick) * 100;
+
+  console.log("With roads:");
+  console.log(`  Adjusted overhead: ${roadAdjustedOverhead.toFixed(2)}/tick`);
+  console.log(`  Net to upgrading:  ${roadAdjustedNet.toFixed(2)}/tick`);
+  console.log(`  Efficiency:        ${roadEfficiency.toFixed(1)}% (was ${efficiency.toFixed(1)}%)`);
+  console.log(`  Improvement:       +${(roadEfficiency - efficiency).toFixed(1)} percentage points\n`);
+}
+
+// Break-even analysis
+const breakEvenCarryParts = roadMaintenanceCost * LIFETIME / (savingsPerCarryPart);
+console.log("Break-even analysis:");
+console.log(`  Roads pay off when CARRY parts > ${breakEvenCarryParts.toFixed(1)}`);
+console.log(`  Current CARRY parts: ${totalCarryPartsForRoads.toFixed(1)}`);
+console.log(`  Margin: ${(totalCarryPartsForRoads - breakEvenCarryParts).toFixed(1)} CARRY parts above break-even\n`);
