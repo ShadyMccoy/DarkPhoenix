@@ -518,15 +518,107 @@ console.log("    - At D=30: 0.51 energy/tick road cost vs 0.31 spawn savings");
 console.log("    - Roads only win with SHARED routes (multiple sources)");
 console.log("");
 
-// Summary table
-console.log("Decision Matrix:");
+// ============================================================================
+// TWO-SOURCE SCENARIO (Square Topology - Chebyshev Distance)
+// ============================================================================
+
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ TWO-SOURCE ECONOMY (Square, Chebyshev Distance)             │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("Topology: Square with ALL distances = D (including diagonals)");
+console.log("  (Screeps uses Chebyshev distance: diagonal = orthogonal)");
 console.log("");
-console.log("  ┌───────────────────┬─────────────────────────────────────────┐");
-console.log("  │ Scenario          │ Recommended Strategy                    │");
-console.log("  ├───────────────────┼─────────────────────────────────────────┤");
-console.log("  │ Single source     │ 1:1 No Roads (always)                   │");
-console.log("  │ 2+ sources, D<30  │ 1:1 No Roads (road cost > spawn cost)   │");
-console.log("  │ 2+ sources, D>50  │ 2:1 + Roads (shared roads amortize)     │");
-console.log("  │ SK room hauling   │ 2:1 + Roads (very long distances)       │");
-console.log("  └───────────────────┴─────────────────────────────────────────┘");
+console.log("    SOURCE1 ───D─── SOURCE2");
+console.log("       │ ╲       ╱ │");
+console.log("       D   ╲D D╱   D");
+console.log("       │     ╳     │");
+console.log("       D   ╱   ╲   D");
+console.log("       │ ╱       ╲ │");
+console.log("     SPAWN ───D─── CONTROLLER");
 console.log("");
+console.log("All 6 edges are distance D - it's a complete graph K₄!\n");
+
+// Two sources = 20 energy/tick total
+const twoSourceHarvest = 2 * sourceRatePerTick;  // 20 energy/tick
+
+// With all nodes equidistant, the optimal routing is:
+// - Each source sends overhead portion to spawn
+// - Each source sends upgrade portion to controller
+// But since all distances are D, it doesn't matter which source sends where!
+
+const twoMinerCost = 2 * minerSpawnOverhead;  // 0.867/tick
+const rt = 2 * DISTANCE + 2;  // Round trip = 2D + 2 (same for all routes)
+const haulK = (rt / 50) * (carryPartCost / LIFETIME);
+
+// Solve: O = 2×minerCost + haulCost(O) + haulCost(W) + upgraderCost(W)
+// Where O + W = 20
+const twoSourceOverhead = (twoMinerCost + twoSourceHarvest * haulK + twoSourceHarvest * workCostPerTick) / (1 + workCostPerTick);
+const twoSourceUpgradeRate = twoSourceHarvest - twoSourceOverhead;
+
+const twoSpawnHaulCarry = twoSourceOverhead * rt / 50;
+const twoCtrlHaulCarry = twoSourceUpgradeRate * rt / 50;
+const twoSpawnHaulCost = (twoSpawnHaulCarry * carryPartCost) / LIFETIME;
+const twoCtrlHaulCost = (twoCtrlHaulCarry * carryPartCost) / LIFETIME;
+const twoUpgraderWorkCost = (twoSourceUpgradeRate * WORK_COST) / LIFETIME;
+
+const twoSourceEfficiency = (twoSourceUpgradeRate / twoSourceHarvest) * 100;
+
+console.log(`With D=${DISTANCE}:\n`);
+
+console.log("Energy Flow:");
+console.log(`  Source1 + Source2 → Spawn:      ${twoSourceOverhead.toFixed(2)}/tick (for overhead)`);
+console.log(`  Source1 + Source2 → Controller: ${twoSourceUpgradeRate.toFixed(2)}/tick (for upgrading)\n`);
+
+console.log("Hauler Requirements:");
+console.log(`  To Spawn:      ${twoSpawnHaulCarry.toFixed(1)}C (round trip ${rt} ticks)`);
+console.log(`  To Controller: ${twoCtrlHaulCarry.toFixed(1)}C (round trip ${rt} ticks)\n`);
+
+console.log("Overhead breakdown:");
+console.log(`  2× Miners:           ${twoMinerCost.toFixed(3)}/tick (2 × ${MINER_WORK}W)`);
+console.log(`  Spawn haulers:       ${twoSpawnHaulCost.toFixed(3)}/tick (${twoSpawnHaulCarry.toFixed(1)}C)`);
+console.log(`  Controller haulers:  ${twoCtrlHaulCost.toFixed(3)}/tick (${twoCtrlHaulCarry.toFixed(1)}C)`);
+console.log(`  Upgrader WORK:       ${twoUpgraderWorkCost.toFixed(3)}/tick (${twoSourceUpgradeRate.toFixed(1)}W)`);
+console.log(`  ─────────────────────`);
+console.log(`  Total overhead:      ${twoSourceOverhead.toFixed(3)}/tick\n`);
+
+console.log("  ┌──────────────────────────────────────────────────────────┐");
+console.log(`  │  Gross Harvest:      ${twoSourceHarvest.toFixed(2)}/tick (2 sources)           │`);
+console.log(`  │  Net Upgrading:      ${twoSourceUpgradeRate.toFixed(2)}/tick                     │`);
+console.log(`  │  Efficiency:         ${twoSourceEfficiency.toFixed(1)}%                          │`);
+console.log("  └──────────────────────────────────────────────────────────┘\n");
+
+// Body part totals for 2-source
+const twoTotalWork = 2 * MINER_WORK + twoSourceUpgradeRate;
+const twoTotalCarry = twoSpawnHaulCarry + twoCtrlHaulCarry;
+const twoTotalMove = 2 * MINER_MOVE + twoTotalCarry;
+
+console.log("Body Part Requirements:");
+console.log(`  Mining:    ${2 * MINER_WORK}W + ${2 * MINER_MOVE}M (2 miners)`);
+console.log(`  Hauling:   ${twoSpawnHaulCarry.toFixed(1)}C + ${twoSpawnHaulCarry.toFixed(1)}M (→spawn)`);
+console.log(`             ${twoCtrlHaulCarry.toFixed(1)}C + ${twoCtrlHaulCarry.toFixed(1)}M (→controller)`);
+console.log(`  Upgrading: ${twoSourceUpgradeRate.toFixed(1)}W`);
+console.log(`  ─────────────────`);
+console.log(`  Total:     ${twoTotalWork.toFixed(1)}W + ${twoTotalCarry.toFixed(1)}C + ${twoTotalMove.toFixed(1)}M\n`);
+
+// Compare to 1-source
+console.log("┌─────────────────────────────────────────────────────────────┐");
+console.log("│ COMPARISON: 1 Source vs 2 Sources                          │");
+console.log("└─────────────────────────────────────────────────────────────┘\n");
+
+console.log("                           1 Source       2 Sources");
+console.log("                           ─────────      ─────────");
+console.log(`  Gross harvest            ${harvestPerTick.toFixed(1)}/tick       ${twoSourceHarvest.toFixed(1)}/tick`);
+console.log(`  Net upgrading            ${upgradeRate.toFixed(1)}/tick       ${twoSourceUpgradeRate.toFixed(1)}/tick`);
+console.log(`  Efficiency               ${efficiency.toFixed(1)}%          ${twoSourceEfficiency.toFixed(1)}%`);
+console.log(`  Upgrade per source       ${upgradeRate.toFixed(1)}/tick       ${(twoSourceUpgradeRate/2).toFixed(1)}/tick`);
+console.log("");
+console.log(`  WORK parts               ${totalWorkParts.toFixed(1)}           ${twoTotalWork.toFixed(1)}`);
+console.log(`  CARRY parts              ${totalCarryParts.toFixed(1)}           ${twoTotalCarry.toFixed(1)}`);
+console.log(`  MOVE parts               ${totalMoveParts.toFixed(1)}           ${twoTotalMove.toFixed(1)}`);
+console.log("");
+
+// Efficiency is the same because all distances are D
+console.log("Note: Efficiency is the SAME because all distances are D.");
+console.log("      With Chebyshev distance, topology doesn't affect efficiency!");
+console.log("      (Only distance D matters, not the shape)\n");
