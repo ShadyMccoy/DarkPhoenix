@@ -243,13 +243,60 @@ console.log(`  Savings:       ${savingsPerCarryPart} energy per CARRY part\n`);
 // Road infrastructure cost
 // Need roads: Spawn→Source (D) + Spawn→Controller (D) = 2D tiles
 const roadTiles = 2 * DISTANCE;
-const roadMaintenanceCost = roadTiles * ROAD_MAINT_PER_TICK;
+
+// Traffic-based decay: each creep step reduces decay timer by body_parts
+// This accelerates decay beyond the base 100 hits per 1000 ticks
+//
+// For source→spawn route (D tiles):
+//   - Haulers: ~20 parts (10C+10M), make trips constantly
+//   - Miner: 8 parts, walks once per lifetime
+//
+// Hauler traffic per tile per tick:
+//   - Trips per tick = 1 / round_trip
+//   - Each trip crosses each tile twice (there and back)
+//   - Body parts with roads = 1.5C (2:1 ratio) = ~15 parts per 10 CARRY
+const haulerBodyPartsWithRoads = carryPartsNeeded * 1.5;  // 2:1 CARRY:MOVE
+const haulerTripsPerTick = 1 / haulerRoundTrip;
+const haulerCrossingsPerTilePerTick = haulerTripsPerTick * 2;  // both directions
+const sourceRouteTrafficPerTick = haulerCrossingsPerTilePerTick * haulerBodyPartsWithRoads;
+
+// Same for controller route
+const upgraderHaulerParts = upgradeCarryParts * 1.5;
+const upgraderHaulerTripsPerTick = 1 / upgradeHaulRoundTrip;
+const controllerRouteTrafficPerTick = upgraderHaulerTripsPerTick * 2 * upgraderHaulerParts;
+
+// Effective decay: base + traffic
+// Base: 100 hits per 1000 ticks = 0.1 hits/tick
+// Traffic: each body part step = 1 tick off the 1000 tick timer = 0.1 hits equivalent
+const baseDecayPerTick = ROAD_DECAY_RATE / 1000;  // 0.1 hits/tick
+const sourceRouteDecayPerTick = baseDecayPerTick + (sourceRouteTrafficPerTick * baseDecayPerTick);
+const controllerRouteDecayPerTick = baseDecayPerTick + (controllerRouteTrafficPerTick * baseDecayPerTick);
+
+// Road lifetime with traffic
+const sourceRouteLifetime = ROAD_MAX_HITS / sourceRouteDecayPerTick;
+const controllerRouteLifetime = ROAD_MAX_HITS / controllerRouteDecayPerTick;
+
+// Maintenance cost per tile per tick
+const sourceRouteMaintPerTick = ROAD_ENERGY_COST / sourceRouteLifetime;
+const controllerRouteMaintPerTick = ROAD_ENERGY_COST / controllerRouteLifetime;
+
+// Total road maintenance
+const roadMaintenanceCost = (DISTANCE * sourceRouteMaintPerTick) + (DISTANCE * controllerRouteMaintPerTick);
 
 console.log("Road infrastructure:");
 console.log(`  Tiles needed: ${roadTiles} (spawn→source + spawn→controller)`);
-console.log(`  Build cost:   ${roadTiles} × ${ROAD_ENERGY_COST} = ${roadTiles * ROAD_ENERGY_COST} energy (one-time)`);
-console.log(`  Maintenance:  ${roadTiles} × ${ROAD_MAINT_PER_TICK.toFixed(4)} = ${roadMaintenanceCost.toFixed(3)}/tick`);
-console.log(`  Road lifetime: ${ROAD_TICKS_LIFETIME.toLocaleString()} ticks (${(ROAD_TICKS_LIFETIME/1500).toFixed(0)} creep lifetimes)\n`);
+console.log(`  Build cost:   ${roadTiles} × ${ROAD_ENERGY_COST} = ${roadTiles * ROAD_ENERGY_COST} energy (one-time)\n`);
+
+console.log("Traffic-based decay (each creep step = 1 tick per body part):");
+console.log(`  Source route traffic:     ${sourceRouteTrafficPerTick.toFixed(2)} body-parts/tick/tile`);
+console.log(`  Controller route traffic: ${controllerRouteTrafficPerTick.toFixed(2)} body-parts/tick/tile`);
+console.log(`  Source route lifetime:     ${sourceRouteLifetime.toFixed(0)} ticks (was ${ROAD_TICKS_LIFETIME.toLocaleString()})`);
+console.log(`  Controller route lifetime: ${controllerRouteLifetime.toFixed(0)} ticks\n`);
+
+console.log("Maintenance with traffic:");
+console.log(`  Source route:     ${DISTANCE} × ${sourceRouteMaintPerTick.toFixed(4)} = ${(DISTANCE * sourceRouteMaintPerTick).toFixed(3)}/tick`);
+console.log(`  Controller route: ${DISTANCE} × ${controllerRouteMaintPerTick.toFixed(4)} = ${(DISTANCE * controllerRouteMaintPerTick).toFixed(3)}/tick`);
+console.log(`  Total:            ${roadMaintenanceCost.toFixed(3)}/tick\n`);
 
 // Calculate savings from reduced MOVE parts
 const totalCarryPartsForRoads = totalCarryParts;  // same CARRY needed, just fewer MOVE
