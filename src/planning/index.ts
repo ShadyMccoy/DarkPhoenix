@@ -3,8 +3,6 @@
  *
  * This module provides chain-based planning for the economic system:
  * - Chain: Production chains linking corps together
- * - ChainPlanner: Builds profitable chains from offers
- * - OfferCollector: Gathers offers from all corps
  *
  * @module planning
  */
@@ -30,22 +28,8 @@ export {
   deserializeChain
 } from "./Chain";
 
-export {
-  OfferCollector,
-  ResourceStat,
-  OfferStats
-} from "./OfferCollector";
-
 // Re-export Node from canonical source
 export { Node } from "../nodes/Node";
-
-export {
-  ChainPlanner,
-  GoalType,
-  ChainGoal,
-  InputRequirement,
-  canBuildChain
-} from "./ChainPlanner";
 
 export {
   BodyPart,
@@ -57,6 +41,7 @@ export {
   SOURCE_REGEN_TIME,
   SOURCE_ENERGY_CAPACITY,
   SOURCE_ENERGY_PER_TICK,
+  PLANNING_EPOCH,
   parseRoomCoords,
   calculateTravelTime,
   calculateEffectiveWorkTime,
@@ -99,16 +84,3 @@ export {
   parseScenario,
   createScenario
 } from "./ScenarioRunner";
-
-// Pure projection functions (uses CorpState)
-export {
-  CorpProjection,
-  projectMining,
-  projectSpawning,
-  projectUpgrading,
-  projectHauling,
-  project,
-  projectAll,
-  collectBuys,
-  collectSells
-} from "./projections";

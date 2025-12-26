@@ -1,4 +1,4 @@
-import { Position, Offer } from "../market/Offer";
+import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
 
 /**
@@ -167,18 +167,6 @@ export function createNode(
     resources: [],
     createdAt: currentTick
   };
-}
-
-/**
- * Collect all offers from corps in a node
- */
-export function collectNodeOffers(node: Node): Offer[] {
-  const offers: Offer[] = [];
-  for (const corp of node.corps) {
-    offers.push(...corp.sells());
-    offers.push(...corp.buys());
-  }
-  return offers;
 }
 
 /**

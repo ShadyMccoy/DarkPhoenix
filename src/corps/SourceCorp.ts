@@ -2,19 +2,13 @@
  * @fileoverview SourceCorp - Represents an energy source as a market entity.
  *
  * SourceCorp is a passive corp that doesn't have creeps.
- * It simply represents the energy source and "sells" access to it.
- * Mining corps buy from SourceCorp to get assigned a source.
- *
- * This allows the planner to:
- * - Know which sources exist
- * - Assign sources to mining corps
- * - Track source utilization
+ * It simply represents the energy source for planning purposes.
  *
  * @module corps/SourceCorp
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Offer, Position, createOfferId } from "../market/Offer";
+import { Position } from "../types/Position";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 import { SOURCE_REGEN_TIME, PLANNING_EPOCH } from "../planning/EconomicConstants";
 
@@ -29,10 +23,7 @@ export interface SerializedSourceCorp extends SerializedCorp {
 }
 
 /**
- * SourceCorp represents an energy source as a tradeable resource.
- *
- * It sells "energy-source" which represents the right to harvest.
- * Mining corps buy this to get assigned to a source.
+ * SourceCorp represents an energy source.
  */
 export class SourceCorp extends Corp {
   /** The game source ID */
@@ -49,8 +40,6 @@ export class SourceCorp extends Corp {
 
   /**
    * Energy produced per planning epoch.
-   * Calculated as: (energyCapacity / regenTime) * PLANNING_EPOCH
-   * For a 3000 capacity source: (3000/300) * 5000 = 50,000 energy
    */
   get energyPerEpoch(): number {
     return (this.energyCapacity / SOURCE_REGEN_TIME) * PLANNING_EPOCH;
@@ -62,9 +51,8 @@ export class SourceCorp extends Corp {
     energyCapacity: number,
     miningSpots: number
   ) {
-    // nodeId is derived from source position
     const nodeId = `${position.roomName}-source-${sourceId.slice(-4)}`;
-    super("mining", nodeId); // Type "mining" for now, could add "source" type
+    super("source", nodeId);
     this.sourceId = sourceId;
     this.position = position;
     this.energyCapacity = energyCapacity;
@@ -72,34 +60,10 @@ export class SourceCorp extends Corp {
   }
 
   /**
-   * SourceCorp sells access to the energy source.
-   * Quantity is the total energy available per planning epoch.
-   */
-  sells(): Offer[] {
-    return [{
-      id: createOfferId(this.id, "energy-source", Game.time),
-      corpId: this.id,
-      type: "sell",
-      resource: "energy-source",
-      quantity: this.energyPerEpoch,
-      price: 0, // Free resource, cost is in mining
-      duration: PLANNING_EPOCH,
-      location: this.position
-    }];
-  }
-
-  /**
-   * SourceCorp doesn't buy anything - it's a passive resource.
-   */
-  buys(): Offer[] {
-    return [];
-  }
-
-  /**
    * SourceCorp doesn't do work - it's passive.
    */
   work(_tick: number): void {
-    // Sources just exist - nothing to do
+    // Sources just exist
   }
 
   /**
@@ -114,14 +78,6 @@ export class SourceCorp extends Corp {
    */
   getSource(): Source | null {
     return Game.getObjectById(this.sourceId as Id<Source>);
-  }
-
-  /**
-   * Check if this source is being fully utilized.
-   */
-  isFullyUtilized(): boolean {
-    // Could track this via contracts
-    return false;
   }
 
   /**
@@ -142,13 +98,11 @@ export class SourceCorp extends Corp {
    */
   deserialize(data: SerializedSourceCorp): void {
     super.deserialize(data);
-    // sourceId, position, energyCapacity, miningSpots are readonly, set in constructor
   }
 }
 
 /**
  * Create a SourceCorp from a game Source object.
- * Automatically calculates mining spots from terrain.
  */
 export function createSourceCorp(source: Source): SourceCorp {
   const position: Position = {

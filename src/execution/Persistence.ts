@@ -13,7 +13,6 @@ import { Colony } from "../colony";
 import { serializeNode, createEdgeKey } from "../nodes";
 import { MultiRoomAnalysisResult } from "../spatial";
 import { CorpRegistry } from "./CorpRunner";
-import { getMarket } from "../market/Market";
 
 /**
  * Persists all state to memory.
@@ -181,9 +180,6 @@ export function persistState(
   for (const spawnId in registry.spawningCorps) {
     Memory.spawningCorps[spawnId] = registry.spawningCorps[spawnId].serialize();
   }
-
-  // Persist market (central contract store - source of truth for creep assignments)
-  Memory.market = getMarket().serialize();
 }
 
 /**

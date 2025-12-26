@@ -208,7 +208,6 @@ export function createSourceState(
     unitsConsumed: 0,
     acquisitionCost: 0,
     lastPlannedTick: 0,
-    contracts: []
   };
 }
 
@@ -245,7 +244,6 @@ export function createMiningState(
     unitsConsumed: 0,
     acquisitionCost: 0,
     lastPlannedTick: 0,
-    contracts: []
   };
 }
 
@@ -282,7 +280,6 @@ export function createSpawningState(
     unitsConsumed: 0,
     acquisitionCost: 0,
     lastPlannedTick: 0,
-    contracts: []
   };
 }
 
@@ -317,7 +314,6 @@ export function createUpgradingState(
     unitsConsumed: 0,
     acquisitionCost: 0,
     lastPlannedTick: 0,
-    contracts: []
   };
 }
 
@@ -356,7 +352,6 @@ export function createHaulingState(
     unitsConsumed: 0,
     acquisitionCost: 0,
     lastPlannedTick: 0,
-    contracts: []
   };
 }
 

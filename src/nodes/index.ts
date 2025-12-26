@@ -8,7 +8,6 @@ export {
   SerializedNode,
   createNodeId,
   createNode,
-  collectNodeOffers,
   getCorpsByType,
   getResourcesByType,
   hasResourceType,
