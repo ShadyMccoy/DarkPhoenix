@@ -4,7 +4,11 @@
  * This demo walks through the flow-based edge framework,
  * starting with trivial examples and building up to real game data.
  *
- * Run with: npx ts-node test/demo/flow-framework-demo.ts
+ * The framework has two main systems:
+ * 1. SUPPLY SIDE - Calculate harvest yields (what energy is available)
+ * 2. DEMAND SIDE - Route energy to where it's needed (min-cost max-flow)
+ *
+ * Run with: npx ts-node -P tsconfig.test.json test/demo/flow-framework-demo.ts
  */
 
 import {
@@ -12,6 +16,8 @@ import {
   createCarryEdge,
   calculateSupplyEdgeNetEnergy,
   calculateSupplyEdgeNetPerTick,
+  calculateEffectiveMiningTime,
+  calculateTravelTimeLoss,
   calculateCarryEdgeThroughput,
   calculateCarryEdgeCostPerEnergy,
   calculateCarryEdgeEfficiency,
@@ -25,6 +31,12 @@ import {
   solveFlowBalance,
   formatFlowAllocation,
 } from "../../src/framework/FlowBalance";
+
+import {
+  buildFlowGraph,
+  solveMinCostMaxFlow,
+  formatFlowRouting,
+} from "../../src/framework/FlowRouter";
 
 // ANSI colors for pretty output
 const colors = {
@@ -549,6 +561,137 @@ function example8_fullEconomy(): void {
 }
 
 // ============================================================================
+// EXAMPLE 9: Two-System View (Supply vs Demand)
+// ============================================================================
+
+function example9_twoSystems(): void {
+  header("EXAMPLE 9: Two-System View");
+
+  console.log("The framework separates into two systems:\n");
+  console.log("  ┌─────────────────────────────────────────────────────────────┐");
+  console.log("  │  SUPPLY SIDE                  DEMAND SIDE                   │");
+  console.log("  │  ────────────                 ───────────                   │");
+  console.log("  │  • Sources produce energy    • Projects consume energy     │");
+  console.log("  │  • Miners have spawn cost    • Spawns need energy          │");
+  console.log("  │  • Travel time = lost work   • Haulers need spawning       │");
+  console.log("  │                                                             │");
+  console.log("  │  Calculates: NET SUPPLY      Routes: MIN-COST FLOW         │");
+  console.log("  └─────────────────────────────────────────────────────────────┘\n");
+
+  // Set up a multi-node scenario
+  const node1Supply = 8;   // Source in node-1 produces 8/tick after mining costs
+  const node2Supply = 6;   // Source in node-2 produces 6/tick
+
+  const spawnDemand = 10;  // Spawn needs 10/tick for projects
+
+  section("SUPPLY SIDE: What We Produce");
+
+  console.log("  Node-1 (local to spawn):");
+  console.log(`    - Net supply: ${node1Supply}/tick`);
+  console.log("    - No hauling needed (local)\n");
+
+  console.log("  Node-2 (remote):");
+  console.log(`    - Net supply: ${node2Supply}/tick`);
+  console.log("    - Requires hauling to spawn");
+
+  section("DEMAND SIDE: Where It Goes");
+
+  const nodeSupplies = new Map([
+    ["node-1", node1Supply],
+    ["node-2", node2Supply],
+  ]);
+
+  const nodeDemands = new Map([
+    ["node-spawn", spawnDemand],
+  ]);
+
+  const carryEdges: CarryEdge[] = [
+    createCarryEdge({
+      fromNodeId: "node-1",
+      toNodeId: "node-spawn",
+      spawnId: "spawn-1",
+      walkingDistance: 5,   // Local, short distance
+    }),
+    createCarryEdge({
+      fromNodeId: "node-2",
+      toNodeId: "node-spawn",
+      spawnId: "spawn-1",
+      walkingDistance: 40,  // Remote, longer distance
+    }),
+  ];
+
+  const graph = buildFlowGraph(nodeSupplies, nodeDemands, carryEdges);
+  const routingResult = solveMinCostMaxFlow(graph);
+
+  console.log("  Spawn node demands: " + spawnDemand + "/tick for projects\n");
+  console.log(formatFlowRouting(routingResult));
+
+  section("The Feedback Loop Problem");
+
+  console.log("  Notice the challenge:");
+  console.log("  • Hauling from node-2 → spawn costs energy");
+  console.log("  • That cost is paid by... spawning haulers");
+  console.log("  • Which requires energy from... node-1 or node-2");
+  console.log("  • Which might need more hauling!\n");
+
+  console.log("  Solution: The flow balance solver finds equilibrium");
+  console.log("  where supply meets demand including all overheads.");
+}
+
+// ============================================================================
+// EXAMPLE 10: Travel Time Impact
+// ============================================================================
+
+function example10_travelTime(): void {
+  header("EXAMPLE 10: Travel Time Impact");
+
+  console.log("Miners must walk to the source before mining.");
+  console.log("This 'lost time' reduces effective output.\n");
+
+  section("Travel Time Analysis");
+
+  const distances = [0, 25, 50, 75, 100, 150, 200, 300];
+
+  console.log("  Distance │ Eff. Time │ Regen Cycles │ Net Energy │ Lost │ Efficiency");
+  console.log("  ─────────┼───────────┼──────────────┼────────────┼──────┼───────────");
+
+  for (const distance of distances) {
+    const edge = createSupplyEdge({
+      sourceId: "src",
+      sourceNodeId: "node-src",
+      sourcePosition: { x: 25, y: 25, roomName: "E1N1" },
+      sourceCapacity: 3000,
+      spawnId: "spawn",
+      spawnNodeId: "node-spawn",
+      spawnToSourceDistance: distance,
+    });
+
+    const effectiveTime = calculateEffectiveMiningTime(edge);
+    const cycles = Math.floor(effectiveTime / 300);
+    const netEnergy = calculateSupplyEdgeNetEnergy(edge);
+    const lostEnergy = calculateTravelTimeLoss(edge);
+    const maxPossible = 15000 - edge.minerSpawnCost; // 14350 for local
+    const efficiency = maxPossible > 0 ? (netEnergy / maxPossible) * 100 : 0;
+
+    console.log(
+      `  ${distance.toString().padStart(8)} │ ` +
+      `${effectiveTime.toString().padStart(9)} │ ` +
+      `${cycles.toString().padStart(12)} │ ` +
+      `${netEnergy.toString().padStart(10)} │ ` +
+      `${lostEnergy.toString().padStart(4)} │ ` +
+      `${efficiency.toFixed(1).padStart(9)}%`
+    );
+  }
+
+  section("Key Observations");
+
+  console.log("  • At 0 tiles (local): 100% efficiency, 5 regen cycles");
+  console.log("  • At 150 tiles: lose 1 full regen cycle (4 instead of 5)");
+  console.log("  • At 300 tiles: lose 2 regen cycles (3 instead of 5)");
+  console.log("  • Beyond ~750 tiles: not worth mining (creep dies walking)");
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -570,6 +713,8 @@ function main(): void {
   example6_bootstrapProblem();
   example7_realGameData();
   example8_fullEconomy();
+  example9_twoSystems();
+  example10_travelTime();
 
   console.log("\n" + colors.green + "Demo complete!" + colors.reset + "\n");
 }
