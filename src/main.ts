@@ -32,7 +32,8 @@
  */
 
 import { Colony, createColony } from "./colony";
-import { deserializeNode, SerializedNode } from "./nodes";
+import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, parseEdgeKey } from "./nodes";
+import { FlowEconomy, PriorityContext, PriorityManager } from "./flow";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import {
@@ -84,10 +85,14 @@ declare global {
       log: any;
       colony: Colony | undefined;
       corps: CorpRegistry;
+      // Flow economy (new integration)
+      flowEconomy: FlowEconomy | undefined;
+      nodeNavigator: NodeNavigator | undefined;
       // Orchestration commands
       survey: () => void;
       plan: () => void;
       status: () => void;
+      flowStatus: () => void;
       // Legacy commands
       recalculateTerrain: () => void;
       resetAnalysis: () => void;
@@ -102,6 +107,15 @@ declare global {
 
 /** The colony instance (persisted across ticks) */
 let colony: Colony | undefined;
+
+/** Node navigator for pathfinding (created from persisted edges) */
+let nodeNavigator: NodeNavigator | undefined;
+
+/** Flow economy coordinator (replaces market-based allocation) */
+let flowEconomy: FlowEconomy | undefined;
+
+/** Priority manager for dynamic sink priorities */
+const priorityManager = new PriorityManager();
 
 /** All active corps */
 let corps: CorpRegistry = createCorpRegistry();
@@ -139,9 +153,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Initialize or restore colony (needed for planning and persistence)
   colony = getOrCreateColony();
 
+  // Initialize or restore flow economy (node navigator + flow solver)
+  if (!nodeNavigator || !flowEconomy) {
+    const result = getOrCreateFlowEconomy(colony);
+    nodeNavigator = result.navigator;
+    flowEconomy = result.economy;
+  }
+
   // Make state available globally for debugging
   global.colony = colony;
   global.corps = corps;
+  global.flowEconomy = flowEconomy;
+  global.nodeNavigator = nodeNavigator;
 
   // ===========================================================================
   // PHASE 1: EXECUTE - Run all corps (every tick)
@@ -181,6 +204,31 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
     // Run the colony economic coordination (surveying, stats)
     colony.run(Game.time, corps);
+
+    // --- FLOW ECONOMY: Update allocations based on game state ---
+    // Rebuild flow economy if nodes have changed
+    if (flowEconomy && colony.getNodes().length > 0) {
+      // Rebuild if node count changed (new nodes discovered)
+      const currentNodeCount = colony.getNodes().length;
+      if (flowEconomy.getFlowGraph().getSources().length === 0 && currentNodeCount > 0) {
+        console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
+        flowEconomy.rebuild(colony.getNodes());
+      }
+
+      // Build priority context from game state
+      const context = buildPriorityContext(corps);
+      flowEconomy.update(context, true); // Force update during planning
+
+      // Log flow economy status
+      const solution = flowEconomy.getSolution();
+      if (solution) {
+        console.log(`[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
+        console.log(`[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${solution.isSustainable}`);
+        if (solution.warnings.length > 0) {
+          console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
+        }
+      }
+    }
 
     // --- PLAN: Find optimal chains and assign contracts ---
     // ChainPlanner finds viable chains, creates contracts, and assigns them to corps
@@ -253,6 +301,132 @@ function getOrCreateColony(): Colony {
   }
 
   return newColony;
+}
+
+// =============================================================================
+// FLOW ECONOMY MANAGEMENT
+// =============================================================================
+
+/**
+ * Creates or restores the flow economy from persisted edges.
+ *
+ * The flow economy requires:
+ * 1. NodeNavigator - for pathfinding between nodes
+ * 2. FlowEconomy - for solving optimal energy allocation
+ *
+ * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
+ */
+function getOrCreateFlowEconomy(colony: Colony): {
+  navigator: NodeNavigator;
+  economy: FlowEconomy;
+} {
+  const nodes = colony.getNodes();
+
+  // Build edge weights and types from persisted data
+  const edgeWeights = new Map<string, number>();
+  const edgeTypes = new Map<string, EdgeType>();
+  const allEdges: string[] = [];
+
+  // Add spatial edges (weight defaults to 1, or estimate from positions)
+  if (Memory.nodeEdges) {
+    for (const edgeKey of Memory.nodeEdges) {
+      allEdges.push(edgeKey);
+      // Default weight 1 for spatial edges (actual walking distance computed by skeleton builder)
+      edgeWeights.set(edgeKey, 1);
+      edgeTypes.set(edgeKey, "spatial");
+    }
+  }
+
+  // Add economic edges with persisted weights
+  if (Memory.economicEdges) {
+    for (const edgeKey in Memory.economicEdges) {
+      if (!allEdges.includes(edgeKey)) {
+        allEdges.push(edgeKey);
+      }
+      const weight = Memory.economicEdges[edgeKey];
+      edgeWeights.set(edgeKey, weight);
+      edgeTypes.set(edgeKey, "economic");
+    }
+  }
+
+  // Create navigator
+  const navigator = createNodeNavigator(nodes, allEdges, edgeWeights, edgeTypes);
+
+  // Create flow economy
+  const economy = new FlowEconomy(nodes, navigator);
+
+  if (nodes.length > 0) {
+    console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${allEdges.length} edges`);
+    console.log(`[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${economy.getFlowGraph().getSinks().length}`);
+  }
+
+  return { navigator, economy };
+}
+
+/**
+ * Builds a PriorityContext from current game state.
+ *
+ * This context is used by the flow economy to calculate dynamic
+ * sink priorities (e.g., higher priority for towers during attack).
+ */
+function buildPriorityContext(corps: CorpRegistry): PriorityContext {
+  // Find the first owned room to use as context
+  let targetRoom: Room | undefined;
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.controller?.my) {
+      targetRoom = room;
+      break;
+    }
+  }
+
+  if (!targetRoom) {
+    // Return mock context if no owned rooms
+    return PriorityManager.createMockContext({ tick: Game.time });
+  }
+
+  const controller = targetRoom.controller;
+  const storage = targetRoom.storage;
+  const hostiles = targetRoom.find(FIND_HOSTILE_CREEPS);
+  const sites = targetRoom.find(FIND_CONSTRUCTION_SITES);
+
+  // Calculate extension energy
+  const extensions = targetRoom.find(FIND_MY_STRUCTURES, {
+    filter: (s) => s.structureType === STRUCTURE_EXTENSION
+  }) as StructureExtension[];
+
+  let extensionEnergy = 0;
+  let extensionCapacity = 0;
+  for (const ext of extensions) {
+    extensionEnergy += ext.store[RESOURCE_ENERGY];
+    extensionCapacity += ext.store.getCapacity(RESOURCE_ENERGY);
+  }
+
+  // Calculate spawn queue size from spawning corps
+  let spawnQueueSize = 0;
+  for (const spawnId in corps.spawningCorps) {
+    spawnQueueSize += corps.spawningCorps[spawnId].getPendingOrderCount();
+  }
+
+  // Track RCL upgrade time (using memory if available)
+  const lastRclUpTick = Memory.lastRclUpTick ?? 0;
+  const ticksSinceRclUp = Game.time - lastRclUpTick;
+
+  return {
+    tick: Game.time,
+    rcl: controller?.level ?? 0,
+    rclProgress: controller
+      ? controller.progress / controller.progressTotal
+      : 0,
+    constructionSites: sites.length,
+    hostileCreeps: hostiles.length,
+    storageEnergy: storage?.store[RESOURCE_ENERGY] ?? 0,
+    spawnQueueSize,
+    underAttack: hostiles.length > 0,
+    ticksSinceRclUp,
+    extensionEnergy,
+    extensionCapacity,
+  };
 }
 
 // =============================================================================
@@ -392,6 +566,85 @@ global.status = () => {
     console.log("\n=== Colony ===");
     console.log(`Nodes: ${colony.getNodes().length}`);
     console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
+  }
+};
+
+/**
+ * Show flow economy status.
+ * Call from console: `global.flowStatus()`
+ *
+ * Shows:
+ * - Flow graph summary (sources, sinks, edges)
+ * - Current solution allocations
+ * - Efficiency and sustainability metrics
+ * - Miner and hauler assignments
+ */
+global.flowStatus = () => {
+  if (!flowEconomy) {
+    console.log("[FlowEconomy] Not initialized. Colony may have no nodes yet.");
+    return;
+  }
+
+  const graph = flowEconomy.getFlowGraph();
+  const solution = flowEconomy.getSolution();
+
+  console.log("\n=== Flow Economy Status ===");
+  console.log(`Sources: ${graph.getSources().length}`);
+  console.log(`Sinks: ${graph.getSinks().length}`);
+  console.log(`Edges: ${graph.getEdges().length}`);
+
+  if (!solution) {
+    console.log("\nNo solution computed yet. Run global.plan() to trigger solve.");
+    return;
+  }
+
+  console.log("\n=== Solution Metrics ===");
+  console.log(`Total Harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
+  console.log(`Mining Overhead: ${solution.miningOverhead.toFixed(2)} energy/tick`);
+  console.log(`Hauling Overhead: ${solution.haulingOverhead.toFixed(2)} energy/tick`);
+  console.log(`Net Energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
+  console.log(`Efficiency: ${solution.efficiency.toFixed(1)}%`);
+  console.log(`Sustainable: ${solution.isSustainable ? "YES" : "NO"}`);
+
+  console.log("\n=== Miner Assignments ===");
+  for (const miner of solution.miners.slice(0, 5)) {
+    console.log(`  ${miner.sourceId.slice(-8)}: spawn=${miner.spawnId.slice(-8)}, dist=${miner.spawnDistance}`);
+  }
+  if (solution.miners.length > 5) {
+    console.log(`  ... and ${solution.miners.length - 5} more miners`);
+  }
+
+  console.log("\n=== Hauler Assignments ===");
+  for (const hauler of solution.haulers.slice(0, 5)) {
+    console.log(`  ${hauler.fromId.slice(-8)} -> ${hauler.toId.slice(-8)}: ${hauler.carryParts} CARRY, ${hauler.flowRate.toFixed(2)} e/tick`);
+  }
+  if (solution.haulers.length > 5) {
+    console.log(`  ... and ${solution.haulers.length - 5} more haulers`);
+  }
+
+  console.log("\n=== Sink Allocations (by priority) ===");
+  const allocations = solution.sinkAllocations.sort((a, b) => b.priority - a.priority);
+  for (const alloc of allocations.slice(0, 10)) {
+    const pct = alloc.demand > 0 ? ((alloc.allocated / alloc.demand) * 100).toFixed(0) : "N/A";
+    console.log(`  ${alloc.sinkType}[${alloc.sinkId.slice(-8)}]: ${alloc.allocated.toFixed(1)}/${alloc.demand.toFixed(1)} (${pct}%) pri=${alloc.priority}`);
+  }
+  if (allocations.length > 10) {
+    console.log(`  ... and ${allocations.length - 10} more sinks`);
+  }
+
+  if (solution.warnings.length > 0) {
+    console.log("\n=== Warnings ===");
+    for (const warning of solution.warnings) {
+      console.log(`  ⚠ ${warning}`);
+    }
+  }
+
+  // Show unmet demand if any
+  if (solution.unmetDemand.size > 0) {
+    console.log("\n=== Unmet Demand ===");
+    for (const [sinkId, unmet] of solution.unmetDemand) {
+      console.log(`  ${sinkId.slice(-12)}: ${unmet.toFixed(2)} energy/tick unmet`);
+    }
   }
 };
 

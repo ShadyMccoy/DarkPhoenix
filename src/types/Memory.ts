@@ -93,6 +93,12 @@ declare global {
     lastSurveyTick?: number;
 
     /**
+     * Tick when the controller RCL last increased.
+     * Used by FlowEconomy to boost construction priority after RCL-up.
+     */
+    lastRclUpTick?: number;
+
+    /**
      * Room map cache metadata (tick when last computed).
      */
     roomMapCache?: { [roomName: string]: number };
