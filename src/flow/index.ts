@@ -119,3 +119,30 @@ export {
   createFlowEconomy,
   createFlowEconomyWithPreset,
 } from "./FlowEconomy";
+
+// =============================================================================
+// NODE FLOW (Flow Solution → Node Grouping)
+// =============================================================================
+
+export {
+  NodeFlow,
+  NodeFlowMap,
+  groupByNode,
+  getActiveNodeIds,
+  getTotalCarryParts,
+  getPrimarySpawn,
+  getSinkAllocationByType,
+  isNodeSelfSustaining,
+  printNodeFlow,
+  printAllNodeFlows,
+} from "./NodeFlow";
+
+// =============================================================================
+// FLOW MATERIALIZER (Flow Solution → Corps)
+// =============================================================================
+
+export {
+  MaterializationResult,
+  materializeCorps,
+  cleanupStaleCorps,
+} from "./FlowMaterializer";

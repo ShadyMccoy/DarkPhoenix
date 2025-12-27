@@ -15,6 +15,7 @@ import {
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
 import { BODY_PART_COST } from "../planning/EconomicConstants";
+import { SinkAllocation } from "../flow/FlowTypes";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -23,6 +24,8 @@ export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   lastPlacementAttempt: number;
   targetBuilders: number;
+  /** Flow-based construction allocations (from FlowEconomy) */
+  constructionAllocations?: SinkAllocation[];
 }
 
 /**
@@ -56,6 +59,12 @@ export class ConstructionCorp extends Corp {
 
   /** Target number of builders (computed during planning) */
   private targetBuilders: number = 0;
+
+  /**
+   * Flow-based construction allocations from FlowEconomy.
+   * Each allocation specifies energy for a construction site.
+   */
+  private constructionAllocations: SinkAllocation[] = [];
 
   constructor(nodeId: string, spawnId: string) {
     super("building", nodeId);
@@ -337,6 +346,54 @@ export class ConstructionCorp extends Corp {
     return this.getActiveCreeps().length;
   }
 
+  // ===========================================================================
+  // FLOW INTEGRATION
+  // ===========================================================================
+
+  /**
+   * Set construction allocations from FlowEconomy.
+   * Each allocation specifies energy rate for a construction site.
+   */
+  setConstructionAllocations(allocations: SinkAllocation[]): void {
+    this.constructionAllocations = allocations;
+    // Adjust target builders based on total allocated energy
+    const totalAllocated = allocations.reduce((sum, a) => sum + a.allocated, 0);
+    // Each builder with ~2 WORK parts builds at ~10 energy/tick
+    const workPerBuilder = 10;
+    this.targetBuilders = Math.min(MAX_BUILDERS, Math.max(1, Math.ceil(totalAllocated / workPerBuilder)));
+  }
+
+  /**
+   * Get all construction allocations.
+   */
+  getConstructionAllocations(): SinkAllocation[] {
+    return this.constructionAllocations;
+  }
+
+  /**
+   * Check if this corp has flow-based allocations.
+   */
+  hasFlowAllocations(): boolean {
+    return this.constructionAllocations.length > 0;
+  }
+
+  /**
+   * Get total allocated energy rate for construction.
+   */
+  getTotalAllocatedEnergy(): number {
+    return this.constructionAllocations.reduce((sum, a) => sum + a.allocated, 0);
+  }
+
+  /**
+   * Get the highest priority construction site (from flow allocations).
+   */
+  getHighestPriorityAllocation(): SinkAllocation | undefined {
+    if (this.constructionAllocations.length === 0) return undefined;
+    return this.constructionAllocations.reduce((best, curr) =>
+      curr.priority > best.priority ? curr : best
+    );
+  }
+
   /**
    * Serialize for persistence.
    */
@@ -346,6 +403,7 @@ export class ConstructionCorp extends Corp {
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
       targetBuilders: this.targetBuilders,
+      constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
     };
   }
 
@@ -356,6 +414,7 @@ export class ConstructionCorp extends Corp {
     super.deserialize(data);
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
     this.targetBuilders = data.targetBuilders || 0;
+    this.constructionAllocations = data.constructionAllocations ?? [];
   }
 }
 
