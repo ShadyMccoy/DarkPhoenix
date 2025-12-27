@@ -9,6 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { HaulerAssignment } from "../flow/FlowTypes";
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
@@ -18,6 +19,8 @@ const TRANSPORT_FEE_PER_ENERGY = 0.05;
  */
 export interface SerializedCarryCorp extends SerializedCorp {
   spawnId: string;
+  /** Flow-based hauler assignments (from FlowEconomy) */
+  haulerAssignments?: HaulerAssignment[];
 }
 
 /**
@@ -29,6 +32,12 @@ export class CarryCorp extends Corp {
 
   /** Creeps we've already recorded expected production for (session-only) */
   private accountedCreeps: Set<string> = new Set();
+
+  /**
+   * Flow-based hauler assignments from FlowEconomy.
+   * Each assignment specifies a source → sink route with CARRY requirements.
+   */
+  private haulerAssignments: HaulerAssignment[] = [];
 
   constructor(nodeId: string, spawnId: string) {
     super("hauling", nodeId);
@@ -289,6 +298,55 @@ export class CarryCorp extends Corp {
     return this.getAssignedCreeps().length;
   }
 
+  // ===========================================================================
+  // FLOW INTEGRATION
+  // ===========================================================================
+
+  /**
+   * Set hauler assignments from FlowEconomy.
+   * Each assignment describes a route from source to sink with CARRY requirements.
+   */
+  setHaulerAssignments(assignments: HaulerAssignment[]): void {
+    this.haulerAssignments = assignments;
+  }
+
+  /**
+   * Get all hauler assignments for this corp.
+   */
+  getHaulerAssignments(): HaulerAssignment[] {
+    return this.haulerAssignments;
+  }
+
+  /**
+   * Check if this corp has flow-based assignments.
+   */
+  hasFlowAssignments(): boolean {
+    return this.haulerAssignments.length > 0;
+  }
+
+  /**
+   * Get total CARRY parts needed from flow assignments.
+   */
+  getTotalCarryPartsNeeded(): number {
+    return this.haulerAssignments.reduce((sum, h) => sum + h.carryParts, 0);
+  }
+
+  /**
+   * Get total flow rate from all assignments.
+   */
+  getTotalFlowRate(): number {
+    return this.haulerAssignments.reduce((sum, h) => sum + h.flowRate, 0);
+  }
+
+  /**
+   * Get the assignment for a specific source (by game ID).
+   * Returns the route a hauler should take from this source.
+   */
+  getAssignmentForSource(sourceGameId: string): HaulerAssignment | undefined {
+    const sourceFlowId = `source-${sourceGameId}`;
+    return this.haulerAssignments.find(h => h.fromId === sourceFlowId);
+  }
+
   /**
    * Serialize for persistence.
    */
@@ -296,6 +354,7 @@ export class CarryCorp extends Corp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
+      haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
     };
   }
 
@@ -304,6 +363,7 @@ export class CarryCorp extends Corp {
    */
   deserialize(data: SerializedCarryCorp): void {
     super.deserialize(data);
+    this.haulerAssignments = data.haulerAssignments ?? [];
   }
 }
 

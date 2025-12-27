@@ -10,6 +10,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
+import { MinerAssignment } from "../flow/FlowTypes";
 
 /**
  * Serialized state specific to HarvestCorp
@@ -21,6 +22,8 @@ export interface SerializedHarvestCorp extends SerializedCorp {
   lastSpawnAttempt: number;
   desiredWorkParts: number;
   targetMiners: number;
+  /** Flow-based miner assignment (from FlowEconomy) */
+  minerAssignment?: MinerAssignment;
 }
 
 /**
@@ -55,6 +58,13 @@ export class HarvestCorp extends Corp {
 
   /** Creeps we've already recorded expected production for (session-only) */
   private accountedCreeps: Set<string> = new Set();
+
+  /**
+   * Flow-based miner assignment from FlowEconomy.
+   * When set, this corp uses the assignment for spawn decisions instead
+   * of its own hardcoded values.
+   */
+  private minerAssignment: MinerAssignment | null = null;
 
   /**
    * Get active creeps assigned to this corp.
@@ -176,6 +186,48 @@ export class HarvestCorp extends Corp {
     return this.desiredWorkParts;
   }
 
+  // ===========================================================================
+  // FLOW INTEGRATION
+  // ===========================================================================
+
+  /**
+   * Set the miner assignment from FlowEconomy.
+   * This replaces hardcoded spawn/work decisions with flow-optimized values.
+   */
+  setMinerAssignment(assignment: MinerAssignment): void {
+    this.minerAssignment = assignment;
+    // Update spawn ID from flow solution (may be different from original)
+    this.spawnId = assignment.spawnId;
+  }
+
+  /**
+   * Get the current miner assignment (if set by FlowEconomy).
+   */
+  getMinerAssignment(): MinerAssignment | null {
+    return this.minerAssignment;
+  }
+
+  /**
+   * Check if this corp has a flow-based assignment.
+   */
+  hasFlowAssignment(): boolean {
+    return this.minerAssignment !== null;
+  }
+
+  /**
+   * Get the expected harvest rate from flow assignment.
+   */
+  getExpectedHarvestRate(): number {
+    return this.minerAssignment?.harvestRate ?? 10; // Default: 10 e/tick
+  }
+
+  /**
+   * Get spawn distance from flow assignment.
+   */
+  getSpawnDistance(): number {
+    return this.minerAssignment?.spawnDistance ?? 0;
+  }
+
   /**
    * Serialize for persistence.
    */
@@ -188,6 +240,7 @@ export class HarvestCorp extends Corp {
       lastSpawnAttempt: this.lastSpawnAttempt,
       desiredWorkParts: this.desiredWorkParts,
       targetMiners: this.targetMiners,
+      minerAssignment: this.minerAssignment ?? undefined,
     };
   }
 
@@ -199,6 +252,7 @@ export class HarvestCorp extends Corp {
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
     this.desiredWorkParts = data.desiredWorkParts || DEFAULT_DESIRED_WORK;
     this.targetMiners = data.targetMiners || 1;
+    this.minerAssignment = data.minerAssignment ?? null;
   }
 }
 

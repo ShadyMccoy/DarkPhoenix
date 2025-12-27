@@ -33,7 +33,7 @@
 
 import { Colony, createColony } from "./colony";
 import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, parseEdgeKey } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager } from "./flow";
+import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps, groupByNode } from "./flow";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import {
@@ -227,6 +227,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
         if (solution.warnings.length > 0) {
           console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
         }
+
+        // Materialize flow solution into corps
+        // This replaces corps querying FlowEconomy - corps ARE the flow now
+        const graph = flowEconomy.getFlowGraph();
+        const result = materializeCorps(solution, graph, corps, Game.time);
+        console.log(`[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.carryCorpsUpdated} carry, ${result.upgradingCorpsUpdated} upgrading corps`);
       }
     }
 

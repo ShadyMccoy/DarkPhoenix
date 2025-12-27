@@ -9,6 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
+import { SinkAllocation } from "../flow/FlowTypes";
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -16,6 +17,8 @@ import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 export interface SerializedUpgradingCorp extends SerializedCorp {
   spawnId: string;
   targetUpgraders: number;
+  /** Flow-based sink allocation (from FlowEconomy) */
+  sinkAllocation?: SinkAllocation;
 }
 
 /**
@@ -32,6 +35,12 @@ export class UpgradingCorp extends Corp {
 
   /** Target number of upgraders (computed during planning) */
   private targetUpgraders: number = 2;
+
+  /**
+   * Flow-based sink allocation from FlowEconomy.
+   * Specifies the energy rate allocated to this controller.
+   */
+  private sinkAllocation: SinkAllocation | null = null;
 
   constructor(nodeId: string, spawnId: string) {
     super("upgrading", nodeId);
@@ -146,6 +155,57 @@ export class UpgradingCorp extends Corp {
     return this.getActiveCreeps().length;
   }
 
+  // ===========================================================================
+  // FLOW INTEGRATION
+  // ===========================================================================
+
+  /**
+   * Set the sink allocation from FlowEconomy.
+   * This determines how much energy should flow to upgrading.
+   */
+  setSinkAllocation(allocation: SinkAllocation): void {
+    this.sinkAllocation = allocation;
+    // Dynamically adjust target upgraders based on allocated energy
+    // Each upgrader with ~3 WORK parts uses about 3 energy/tick
+    const workPerUpgrader = 3;
+    this.targetUpgraders = Math.max(1, Math.ceil(allocation.allocated / workPerUpgrader));
+  }
+
+  /**
+   * Get the current sink allocation (if set by FlowEconomy).
+   */
+  getSinkAllocation(): SinkAllocation | null {
+    return this.sinkAllocation;
+  }
+
+  /**
+   * Check if this corp has a flow-based allocation.
+   */
+  hasFlowAllocation(): boolean {
+    return this.sinkAllocation !== null;
+  }
+
+  /**
+   * Get the allocated energy rate from flow solution.
+   */
+  getAllocatedEnergyRate(): number {
+    return this.sinkAllocation?.allocated ?? 0;
+  }
+
+  /**
+   * Get the demanded energy rate from flow solution.
+   */
+  getDemandedEnergyRate(): number {
+    return this.sinkAllocation?.demand ?? 0;
+  }
+
+  /**
+   * Get the priority from flow solution.
+   */
+  getFlowPriority(): number {
+    return this.sinkAllocation?.priority ?? 60; // Default controller priority
+  }
+
   /**
    * Serialize for persistence.
    */
@@ -154,6 +214,7 @@ export class UpgradingCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       targetUpgraders: this.targetUpgraders,
+      sinkAllocation: this.sinkAllocation ?? undefined,
     };
   }
 
@@ -163,6 +224,7 @@ export class UpgradingCorp extends Corp {
   deserialize(data: SerializedUpgradingCorp): void {
     super.deserialize(data);
     this.targetUpgraders = data.targetUpgraders || 2;
+    this.sinkAllocation = data.sinkAllocation ?? null;
   }
 }
 
