@@ -42,8 +42,8 @@ export class UpgradingCorp extends Corp {
    */
   private sinkAllocation: SinkAllocation | null = null;
 
-  constructor(nodeId: string, spawnId: string) {
-    super("upgrading", nodeId);
+  constructor(nodeId: string, spawnId: string, customId?: string) {
+    super("upgrading", nodeId, customId);
     this.spawnId = spawnId;
   }
 

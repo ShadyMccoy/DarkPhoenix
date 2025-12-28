@@ -39,8 +39,8 @@ export class CarryCorp extends Corp {
    */
   private haulerAssignments: HaulerAssignment[] = [];
 
-  constructor(nodeId: string, spawnId: string) {
-    super("hauling", nodeId);
+  constructor(nodeId: string, spawnId: string, customId?: string) {
+    super("hauling", nodeId, customId);
     this.spawnId = spawnId;
   }
 

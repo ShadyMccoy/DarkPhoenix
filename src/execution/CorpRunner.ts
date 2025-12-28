@@ -34,6 +34,7 @@ import {
   SpawnableCreepType,
 } from "../corps";
 import { getMinableSources } from "../analysis";
+import { getMaxSpawnCapacity } from "../planning/EconomicConstants";
 
 /**
  * Container for all active corps, organized by type.
@@ -87,10 +88,12 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
         const spawns = room.find(FIND_MY_SPAWNS);
         const sources = room.find(FIND_SOURCES);
         if (spawns.length > 0 && sources.length > 0) {
+          // Pass saved.id as customId to preserve the original ID
           bootstrapCorp = new BootstrapCorp(
             saved.nodeId,
             saved.spawnId,
-            saved.sourceId
+            saved.sourceId,
+            saved.id
           );
           bootstrapCorp.deserialize(saved);
           registry.bootstrapCorps[roomName] = bootstrapCorp;
@@ -144,7 +147,8 @@ export function runRealCorps(registry: CorpRegistry): void {
         // Try to restore from memory
         const saved = Memory.harvestCorps?.[source.id];
         if (saved) {
-          harvestCorp = new HarvestCorp(saved.nodeId, saved.spawnId, saved.sourceId);
+          // Pass saved.id as customId to preserve the original ID
+          harvestCorp = new HarvestCorp(saved.nodeId, saved.spawnId, saved.sourceId, saved.desiredWorkParts, saved.id);
           harvestCorp.deserialize(saved);
           registry.harvestCorps[source.id] = harvestCorp;
         } else {
@@ -169,7 +173,8 @@ export function runRealCorps(registry: CorpRegistry): void {
     if (!haulingCorp) {
       const saved = Memory.haulingCorps?.[roomName];
       if (saved) {
-        haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId);
+        // Pass saved.id as customId to preserve the original ID
+        haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId, saved.id);
         haulingCorp.deserialize(saved);
         registry.haulingCorps[roomName] = haulingCorp;
       } else {
@@ -192,7 +197,8 @@ export function runRealCorps(registry: CorpRegistry): void {
     if (!upgradingCorp) {
       const saved = Memory.upgradingCorps?.[roomName];
       if (saved) {
-        upgradingCorp = new UpgradingCorp(saved.nodeId, saved.spawnId);
+        // Pass saved.id as customId to preserve the original ID
+        upgradingCorp = new UpgradingCorp(saved.nodeId, saved.spawnId, saved.id);
         upgradingCorp.deserialize(saved);
         registry.upgradingCorps[roomName] = upgradingCorp;
       } else {
@@ -233,7 +239,8 @@ export function runScoutCorps(registry: CorpRegistry): void {
       // Try to restore from memory
       const saved = Memory.scoutCorps?.[roomName];
       if (saved) {
-        scoutCorp = new ScoutCorp(saved.nodeId, saved.spawnId);
+        // Pass saved.id as customId to preserve the original ID
+        scoutCorp = new ScoutCorp(saved.nodeId, saved.spawnId, saved.id);
         scoutCorp.deserialize(saved);
         registry.scoutCorps[roomName] = scoutCorp;
       } else {
@@ -279,7 +286,8 @@ export function runConstructionCorps(registry: CorpRegistry): void {
       // Try to restore from memory
       const saved = Memory.constructionCorps?.[roomName];
       if (saved) {
-        constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId);
+        // Pass saved.id as customId to preserve the original ID
+        constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId, saved.id);
         constructionCorp.deserialize(saved);
         registry.constructionCorps[roomName] = constructionCorp;
       } else {
@@ -322,7 +330,8 @@ export function runSpawningCorps(registry: CorpRegistry): void {
         // Try to restore from memory
         const saved = Memory.spawningCorps?.[spawn.id];
         if (saved) {
-          spawningCorp = new SpawningCorp(saved.nodeId, spawn.id, saved.energyCapacity);
+          // Pass saved.id as customId to preserve the original ID
+          spawningCorp = new SpawningCorp(saved.nodeId, spawn.id, saved.energyCapacity, saved.id);
           spawningCorp.deserialize(saved);
           registry.spawningCorps[spawn.id] = spawningCorp;
         } else {
@@ -377,6 +386,75 @@ export function logCorpStats(registry: CorpRegistry): void {
   console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
 }
 
+// =============================================================================
+// SPAWN CALCULATION HELPERS
+// =============================================================================
+
+/**
+ * Result of calculating spawn requirements for a creep type.
+ * Used to distribute body parts across multiple smaller creeps when
+ * the room's energy capacity can't support one large creep.
+ */
+interface SpawnRequirements {
+  /** Total body parts needed (WORK for miners, CARRY for haulers) */
+  totalPartsNeeded: number;
+  /** Maximum parts per creep based on energy capacity */
+  maxPartsPerCreep: number;
+  /** Target number of creeps to spawn */
+  targetCreeps: number;
+  /** Parts per creep (distributed evenly) */
+  partsPerCreep: number;
+  /** How many more creeps needed */
+  creepsNeeded: number;
+}
+
+/**
+ * Calculate spawn requirements for distributing body parts across multiple creeps.
+ *
+ * This handles the early-game scenario where we need more body parts than
+ * a single creep can hold given the room's energy capacity.
+ *
+ * @param totalPartsNeeded - Total body parts required for the operation
+ * @param maxPartsPerCreep - Maximum parts per creep (based on energy capacity or spatial limits)
+ * @param currentCreepCount - Number of creeps already spawned
+ * @returns SpawnRequirements with calculated distribution
+ */
+function calculateSpawnRequirements(
+  totalPartsNeeded: number,
+  maxPartsPerCreep: number,
+  currentCreepCount: number
+): SpawnRequirements {
+  // Target creeps: how many needed to cover all parts (at least 1)
+  const targetCreeps = Math.max(1, Math.ceil(totalPartsNeeded / maxPartsPerCreep));
+
+  // Distribute parts evenly across creeps
+  const partsPerCreep = Math.ceil(totalPartsNeeded / targetCreeps);
+
+  // How many more creeps do we need?
+  const creepsNeeded = Math.max(0, targetCreeps - currentCreepCount);
+
+  return {
+    totalPartsNeeded,
+    maxPartsPerCreep,
+    targetCreeps,
+    partsPerCreep,
+    creepsNeeded,
+  };
+}
+
+/**
+ * Calculate max CARRY parts per hauler based on energy capacity.
+ * Hauler body: CARRY + MOVE pairs (100 energy each)
+ */
+function calculateMaxHaulerCarryParts(energyCapacity: number): number {
+  // CARRY=50, MOVE=50 = 100 per CARRY part, max 25 pairs (50 body parts)
+  return Math.min(25, Math.floor(energyCapacity / 100));
+}
+
+// =============================================================================
+// MAIN SPAWN REQUEST FUNCTION
+// =============================================================================
+
 /**
  * Request creeps from SpawningCorp based on flow assignments.
  *
@@ -403,9 +481,13 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     totalHaulers: number;
     targetMiners: number;
     targetHaulers: number;
+    totalCarryPartsNeeded: number;
+    maxCarryPerHauler: number;
+    carryPartsPerHauler: number;
     carryCorp: CarryCorp | null;
     haulerAssignments: any[];
     spawningCorp: SpawningCorp | null;
+    haulersNeeded: number;
   }>();
 
   // Build a map of sourceId -> hauler assignment for pairing
@@ -419,23 +501,48 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       haulerAssignmentsBySource.set(assignment.fromId, { carryCorp, assignment });
     }
 
+    // Calculate total carry parts needed from all assignments
+    const totalCarryPartsNeeded = assignments.reduce((sum: number, a: any) => sum + (a.carryParts || 0), 0);
+
+    // Calculate max carry parts per hauler based on room's max energy capacity
+    // Use max capacity for RCL so we plan for full-size creeps even while building extensions
+    const room = Game.rooms[roomName];
+    const controllerLevel = room?.controller?.level ?? 1;
+    const energyCapacity = getMaxSpawnCapacity(controllerLevel);
+    const maxCarryPerHauler = calculateMaxHaulerCarryParts(energyCapacity);
+
+    // Use shared helper for spawn distribution calculation
+    const currentHaulers = carryCorp.getCreepCount();
+    const haulerReqs = calculateSpawnRequirements(totalCarryPartsNeeded, maxCarryPerHauler, currentHaulers);
+
     // Initialize room stats
     if (!roomStats.has(roomName)) {
       const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
       roomStats.set(roomName, {
         totalMiners: 0,
-        totalHaulers: carryCorp.getCreepCount(),
+        totalHaulers: currentHaulers,
         targetMiners: 0,
-        targetHaulers: assignments.length,
+        targetHaulers: haulerReqs.targetCreeps,
+        totalCarryPartsNeeded: haulerReqs.totalPartsNeeded,
+        maxCarryPerHauler: haulerReqs.maxPartsPerCreep,
+        carryPartsPerHauler: haulerReqs.partsPerCreep,
         carryCorp,
         haulerAssignments: assignments,
         spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
+        haulersNeeded: haulerReqs.creepsNeeded,
       });
     }
   }
 
   // First pass: count existing miners and targets per room
-  const sourcesNeedingMiners: Array<{ harvestCorp: HarvestCorp; minerAssignment: any; roomName: string }> = [];
+  // Now supports multiple miners per source based on maxMiners
+  const sourcesNeedingMiners: Array<{
+    harvestCorp: HarvestCorp;
+    minerAssignment: any;
+    roomName: string;
+    minersNeeded: number;
+    workPartsPerMiner: number;
+  }> = [];
 
   for (const sourceId in registry.harvestCorps) {
     const harvestCorp = registry.harvestCorps[sourceId];
@@ -449,25 +556,48 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     // Initialize room stats if needed
     if (!roomStats.has(roomName)) {
       const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
+      const room = Game.rooms[roomName];
+      const controllerLevel = room?.controller?.level ?? 1;
+      const energyCapacity = getMaxSpawnCapacity(controllerLevel);
+      const maxCarryPerHauler = Math.min(25, Math.floor(energyCapacity / 100));
       roomStats.set(roomName, {
         totalMiners: 0,
         totalHaulers: 0,
         targetMiners: 0,
         targetHaulers: 0,
+        totalCarryPartsNeeded: 0,
+        maxCarryPerHauler,
+        carryPartsPerHauler: 0,
         carryCorp: null,
         haulerAssignments: [],
         spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
+        haulersNeeded: 0,
       });
     }
 
     const stats = roomStats.get(roomName)!;
-    stats.targetMiners++;
 
-    const minerCount = harvestCorp.getCreepCount();
-    stats.totalMiners += minerCount;
+    // Calculate target work parts (harvestRate / 2 energy per WORK per tick)
+    const totalWorkPartsNeeded = Math.ceil(minerAssignment.harvestRate / 2);
 
-    if (minerCount < 1) {
-      sourcesNeedingMiners.push({ harvestCorp, minerAssignment, roomName });
+    // Max miners limited by mining spots (spatial constraint)
+    const maxMiners = minerAssignment.maxMiners || 1;
+
+    // Use shared helper for spawn distribution, capped by mining spots
+    const currentMinerCount = harvestCorp.getCreepCount();
+    const minerReqs = calculateSpawnRequirements(totalWorkPartsNeeded, maxMiners, currentMinerCount);
+
+    stats.targetMiners += minerReqs.targetCreeps;
+    stats.totalMiners += currentMinerCount;
+
+    if (minerReqs.creepsNeeded > 0) {
+      sourcesNeedingMiners.push({
+        harvestCorp,
+        minerAssignment,
+        roomName,
+        minersNeeded: minerReqs.creepsNeeded,
+        workPartsPerMiner: minerReqs.partsPerCreep,
+      });
     }
   }
 
@@ -489,46 +619,56 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       // Haulers caught up to miners, spawn next miner
       const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
       if (sourceInfo) {
-        const workParts = Math.ceil(sourceInfo.minerAssignment.harvestRate / 2);
+        // Use pre-calculated work parts per miner (accounts for multi-miner sources)
+        const workParts = sourceInfo.workPartsPerMiner;
         stats.spawningCorp.queueSpawnOrder({
           buyerCorpId: sourceInfo.harvestCorp.id,
           creepType: "miner",
           workTicksRequested: workParts,
           queuedAt: Game.time,
         });
-        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK)`);
-        // Remove from list so we don't queue twice
-        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
-        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+        const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
+        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
+        // Decrement miners needed, remove from list when done
+        sourceInfo.minersNeeded--;
+        if (sourceInfo.minersNeeded <= 0) {
+          const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+          if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+        }
       }
-    } else if (needMoreHaulers && stats.carryCorp && stats.totalMiners > 0) {
+    } else if (needMoreHaulers && stats.carryCorp && stats.totalMiners > 0 && stats.haulersNeeded > 0) {
       // Have miners without matching haulers, spawn hauler
-      // Pick the first hauler assignment (they're all for the same CarryCorp)
-      const assignment = stats.haulerAssignments[0];
-      if (assignment) {
-        stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: stats.carryCorp.id,
-          creepType: "hauler",
-          workTicksRequested: assignment.carryParts,
-          haulDemandRequested: assignment.carryParts,
-          queuedAt: Game.time,
-        });
-        console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${assignment.carryParts} CARRY)`);
-      }
+      // Use distributed carry parts (accounts for multi-hauler when capacity is limited)
+      const carryParts = stats.carryPartsPerHauler;
+      stats.spawningCorp.queueSpawnOrder({
+        buyerCorpId: stats.carryCorp.id,
+        creepType: "hauler",
+        workTicksRequested: carryParts,
+        haulDemandRequested: carryParts,
+        queuedAt: Game.time,
+      });
+      console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${carryParts} CARRY, ${stats.haulersNeeded} needed, max ${stats.maxCarryPerHauler}/hauler)`);
+      stats.haulersNeeded--;
     } else if (needMoreMiners) {
       // No haulers needed yet, just spawn miners
       const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
       if (sourceInfo) {
-        const workParts = Math.ceil(sourceInfo.minerAssignment.harvestRate / 2);
+        // Use pre-calculated work parts per miner (accounts for multi-miner sources)
+        const workParts = sourceInfo.workPartsPerMiner;
         stats.spawningCorp.queueSpawnOrder({
           buyerCorpId: sourceInfo.harvestCorp.id,
           creepType: "miner",
           workTicksRequested: workParts,
           queuedAt: Game.time,
         });
-        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK)`);
-        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
-        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+        const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
+        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
+        // Decrement miners needed, remove from list when done
+        sourceInfo.minersNeeded--;
+        if (sourceInfo.minersNeeded <= 0) {
+          const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+          if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+        }
       }
     }
   }

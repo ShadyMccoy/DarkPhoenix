@@ -66,8 +66,8 @@ export class ConstructionCorp extends Corp {
    */
   private constructionAllocations: SinkAllocation[] = [];
 
-  constructor(nodeId: string, spawnId: string) {
-    super("building", nodeId);
+  constructor(nodeId: string, spawnId: string, customId?: string) {
+    super("building", nodeId, customId);
     this.spawnId = spawnId;
   }
 

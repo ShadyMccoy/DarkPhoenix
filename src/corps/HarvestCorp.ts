@@ -71,15 +71,13 @@ export class HarvestCorp extends Corp {
    */
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
-    const seen = new Set<string>();
 
     // Scan for creeps with our corpId
     for (const name in Game.creeps) {
-      if (seen.has(name)) continue;
       const creep = Game.creeps[name];
+
       if (creep.memory.corpId === this.id && !creep.spawning) {
         creeps.push(creep);
-        seen.add(name);
 
         if (!this.accountedCreeps.has(name)) {
           this.accountedCreeps.add(name);
@@ -97,9 +95,10 @@ export class HarvestCorp extends Corp {
     nodeId: string,
     spawnId: string,
     sourceId: string,
-    desiredWorkParts: number = DEFAULT_DESIRED_WORK
+    desiredWorkParts: number = DEFAULT_DESIRED_WORK,
+    customId?: string
   ) {
-    super("mining", nodeId);
+    super("mining", nodeId, customId);
     this.spawnId = spawnId;
     this.sourceId = sourceId;
     this.desiredWorkParts = desiredWorkParts;
@@ -132,7 +131,10 @@ export class HarvestCorp extends Corp {
     this.lastActivityTick = tick;
 
     const source = Game.getObjectById(this.sourceId as Id<Source>);
-    if (!source) return;
+    if (!source) {
+      console.log(`[Harvest] ${this.id}: source ${this.sourceId} not found`);
+      return;
+    }
 
     // Run all assigned creeps
     const creeps = this.getActiveCreeps();
@@ -160,6 +162,11 @@ export class HarvestCorp extends Corp {
       this.recordProduction(energyHarvested);
 
       return energyHarvested;
+    }
+
+    // Only log unexpected errors (not source empty, not on cooldown)
+    if (result !== ERR_NOT_ENOUGH_RESOURCES && result !== ERR_TIRED) {
+      console.log(`[Harvest] ${creep.name} unexpected error: ${result}`);
     }
 
     return 0;

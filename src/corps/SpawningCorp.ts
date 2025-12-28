@@ -12,6 +12,7 @@ import { Position } from "../types/Position";
 import {
   BODY_PART_COST,
   CREEP_LIFETIME,
+  getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
 import { buildMinerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 
@@ -67,9 +68,10 @@ export class SpawningCorp extends Corp {
   constructor(
     nodeId: string,
     spawnId: string,
-    energyCapacity: number = 300
+    energyCapacity: number = 300,
+    customId?: string
   ) {
-    super("spawning", nodeId);
+    super("spawning", nodeId, customId);
     this.spawnId = spawnId;
     this.energyCapacity = energyCapacity;
   }
@@ -191,9 +193,11 @@ export class SpawningCorp extends Corp {
         return result.body;
       }
       case "hauler": {
+        // workParts represents requested CARRY parts for haulers
         const body: BodyPartConstant[] = [];
         const maxParts = Math.floor(this.energyCapacity / (BODY_PART_COST.carry + BODY_PART_COST.move));
-        const actualCarryParts = Math.min(8, maxParts, 25);
+        // Use requested parts, but respect energy capacity and body size limits
+        const actualCarryParts = Math.min(workParts, maxParts, 25);
         for (let i = 0; i < actualCarryParts; i++) {
           body.push(CARRY);
         }
@@ -333,12 +337,16 @@ const SPAWNING_CORP_STARTING_BALANCE = 3000;
 
 /**
  * Create a SpawningCorp for a spawn structure.
+ * Uses max spawn capacity for the room's RCL so creeps are sized for
+ * full capacity even while extensions are still being built.
  */
 export function createSpawningCorp(
   spawn: StructureSpawn
 ): SpawningCorp {
   const nodeId = `${spawn.room.name}-spawn-${spawn.id.slice(-4)}`;
-  const corp = new SpawningCorp(nodeId, spawn.id, spawn.room.energyCapacityAvailable);
+  const controllerLevel = spawn.room.controller?.level ?? 1;
+  const maxCapacity = getMaxSpawnCapacity(controllerLevel);
+  const corp = new SpawningCorp(nodeId, spawn.id, maxCapacity);
   corp.balance = SPAWNING_CORP_STARTING_BALANCE;
   return corp;
 }

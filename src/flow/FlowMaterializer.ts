@@ -222,7 +222,10 @@ function materializeHarvestCorp(
       return;
     }
 
-    harvestCorp = new HarvestCorp(miner.nodeId, miner.spawnId, sourceGameId);
+    // Use consistent nodeId format: roomName-harvest-sourceIdSuffix
+    // This must match createHarvestCorp() format for proper creep association
+    const nodeId = `${room.name}-harvest-${sourceGameId.slice(-4)}`;
+    harvestCorp = new HarvestCorp(nodeId, miner.spawnId, sourceGameId);
     harvestCorp.createdAt = tick;
     corps.harvestCorps[sourceGameId] = harvestCorp;
     result.newCorpsCreated++;

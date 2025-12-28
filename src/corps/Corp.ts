@@ -132,13 +132,17 @@ export abstract class Corp {
   }
 
   /**
-   * Generate a unique ID for this corp
+   * Generate a unique ID for this corp.
+   * IDs are deterministic based on type and nodeId to ensure
+   * creeps can always find their assigned corp after global resets.
    */
   protected generateId(type: CorpType, nodeId: string): string {
     if (Corp.idGenerator) {
       return Corp.idGenerator(type, nodeId);
     }
-    return `${type}-${nodeId}-${Date.now().toString(36)}`;
+    // Deterministic ID: type-nodeId (no timestamp)
+    // This ensures creeps can find their corp after global resets
+    return `${type}-${nodeId}`;
   }
 
   /**

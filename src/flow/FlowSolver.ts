@@ -214,6 +214,7 @@ export class FlowSolver {
         spawnDistance,
         harvestRate: source.capacity,
         spawnCostPerTick: MINER_OVERHEAD_PER_TICK,
+        maxMiners: source.maxMiners,
       });
     }
 

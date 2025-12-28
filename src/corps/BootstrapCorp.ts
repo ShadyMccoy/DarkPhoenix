@@ -79,8 +79,8 @@ export class BootstrapCorp extends Corp {
   /** Tick when starvation was first detected */
   private starvationStartTick: number = 0;
 
-  constructor(nodeId: string, spawnId: string, sourceId: string) {
-    super("bootstrap", nodeId);
+  constructor(nodeId: string, spawnId: string, sourceId: string, customId?: string) {
+    super("bootstrap", nodeId, customId);
     this.spawnId = spawnId;
     this.sourceId = sourceId;
   }

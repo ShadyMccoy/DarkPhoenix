@@ -257,3 +257,43 @@ export function calculateOptimalWorkParts(
 export function calculateSpawnTime(bodyParts: BodyPart[]): number {
   return bodyParts.length * SPAWN_TIME_PER_PART;
 }
+
+/**
+ * Maximum spawn energy capacity by room controller level.
+ * This is the maximum capacity when all spawns and extensions are built.
+ *
+ * Calculations:
+ * - RCL 1: 1 spawn × 300 = 300
+ * - RCL 2: 1 spawn × 300 + 5 extensions × 50 = 550
+ * - RCL 3: 1 spawn × 300 + 10 extensions × 50 = 800
+ * - RCL 4: 1 spawn × 300 + 20 extensions × 50 = 1300
+ * - RCL 5: 1 spawn × 300 + 30 extensions × 50 = 1800
+ * - RCL 6: 1 spawn × 300 + 40 extensions × 50 = 2300
+ * - RCL 7: 2 spawns × 300 + 50 extensions × 100 = 5600
+ * - RCL 8: 3 spawns × 300 + 60 extensions × 200 = 12900
+ */
+export const MAX_SPAWN_CAPACITY_BY_RCL: Record<number, number> = {
+  1: 300,
+  2: 550,
+  3: 800,
+  4: 1300,
+  5: 1800,
+  6: 2300,
+  7: 5600,
+  8: 12900,
+};
+
+/**
+ * Get the maximum spawn energy capacity for a room's controller level.
+ * This returns the maximum possible capacity when all extensions are built,
+ * rather than the current capacity. Use this when planning creep sizes to
+ * ensure creeps are designed for full capacity even while building up.
+ *
+ * @param controllerLevel - The room's controller level (1-8)
+ * @returns Maximum energy capacity for spawning
+ */
+export function getMaxSpawnCapacity(controllerLevel: number): number {
+  if (controllerLevel < 1) return 300;
+  if (controllerLevel > 8) return MAX_SPAWN_CAPACITY_BY_RCL[8];
+  return MAX_SPAWN_CAPACITY_BY_RCL[controllerLevel] ?? 300;
+}
