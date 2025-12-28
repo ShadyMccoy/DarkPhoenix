@@ -1,0 +1,52 @@
+{
+  "name": "Remote Unreserved+Decay",
+  "purpose": "Early remote mining: no reservation (1500 cap) + no container (decay). Worst case remote.",
+  "description": "Remote room without reservation and without containers. 1500 capacity + 2 mining spots decaying = brutal efficiency loss.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 550
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 4
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W2N1",
+      "position": { "x": 15, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 15, "y": 25 },
+          "capacity": 1500
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 15000,
+    "deterministicIds": true,
+    "miningSpots": 2
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}

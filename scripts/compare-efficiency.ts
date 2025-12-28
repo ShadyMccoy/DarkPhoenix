@@ -38,6 +38,7 @@ interface ScenarioAnalysis {
   claimerCost: number;
   netEnergy: number;
   efficiency: number;
+  avgDistance: number;
   sources: SourceAnalysis[];
 }
 
@@ -138,6 +139,9 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   const totalCost = harvestCost + haulCost + decayCost + claimerCost;
   const netEnergy = supply - totalCost;
   const efficiency = supply > 0 ? (netEnergy / supply) * 100 : 0;
+  const avgDistance = sources.length > 0
+    ? sources.reduce((s, src) => s + src.distance, 0) / sources.length
+    : 0;
 
   return {
     name: scenario.name,
@@ -148,6 +152,7 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
     claimerCost,
     netEnergy,
     efficiency,
+    avgDistance,
     sources
   };
 }
@@ -195,16 +200,17 @@ function main(): void {
 
   // Header
   console.log(
-    padRight("Scenario", 24) +
-    padLeft("Supply", 8) +
-    padLeft("Eff%", 7) +
-    "  │  " +
-    padRight("Harvesters", 14) +
-    padRight("Haulers", 14) +
-    padRight("Other", 14) +
-    padLeft("Net", 7)
+    padRight("Scenario", 26) +
+    padLeft("Dist", 5) +
+    padLeft("Supply", 7) +
+    padLeft("Eff%", 6) +
+    "  │ " +
+    padRight("Harvesters", 13) +
+    padRight("Haulers", 13) +
+    padRight("Other", 13) +
+    padLeft("Net", 6)
   );
-  console.log("─".repeat(39) + "─┼──" + "─".repeat(49));
+  console.log("─".repeat(44) + "─┼─" + "─".repeat(45));
 
   for (const a of analyses) {
     const harvestPct = ((a.harvestCost / a.supply) * 100).toFixed(0);
@@ -225,14 +231,15 @@ function main(): void {
     }
 
     console.log(
-      padRight(a.name.substring(0, 23), 24) +
-      padLeft(a.supply.toFixed(1), 8) +
-      padLeft(a.efficiency.toFixed(0) + "%", 7) +
-      "  │  " +
-      padRight(`${a.harvestCost.toFixed(2)} (${harvestPct}%)`, 14) +
-      padRight(`${a.haulCost.toFixed(2)} (${haulPct}%)`, 14) +
-      padRight(otherLabel, 14) +
-      padLeft(a.netEnergy.toFixed(1), 7)
+      padRight(a.name.substring(0, 25), 26) +
+      padLeft(a.avgDistance.toFixed(0), 5) +
+      padLeft(a.supply.toFixed(1), 7) +
+      padLeft(a.efficiency.toFixed(0) + "%", 6) +
+      "  │ " +
+      padRight(`${a.harvestCost.toFixed(2)} (${harvestPct}%)`, 13) +
+      padRight(`${a.haulCost.toFixed(2)} (${haulPct}%)`, 13) +
+      padRight(otherLabel, 13) +
+      padLeft(a.netEnergy.toFixed(1), 6)
     );
   }
 
