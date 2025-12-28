@@ -6,7 +6,7 @@
  * Compares economic efficiency across planning scenarios showing:
  * - Supply (gross energy/tick)
  * - Efficiency score (net/gross %)
- * - Cost breakdown (Harvesters, Haulers, Other)
+ * - Cost breakdown (Harvesters, Haulers, Decay)
  */
 
 import * as fs from "fs";
@@ -18,12 +18,15 @@ const CREEP_LIFESPAN = 1500;
 const MINER_BODY_COST = 5 * 100 + 1 * 50 + 3 * 50; // 5W 1C 3M = 700
 const HAULER_COST_PER_CARRY = 100; // 1C 1M = 100
 const CARRY_CAPACITY = 50;
+const DECAY_PER_PILE_PER_TICK = 1; // Energy decays at 1/tick per pile on ground
 
 interface SourceAnalysis {
   grossPerTick: number;
   harvestCost: number;
   haulCost: number;
+  decayCost: number;
   distance: number;
+  miningSpots: number;
 }
 
 interface ScenarioAnalysis {
@@ -31,7 +34,7 @@ interface ScenarioAnalysis {
   supply: number;
   harvestCost: number;
   haulCost: number;
-  otherCost: number;
+  decayCost: number;
   netEnergy: number;
   efficiency: number;
   sources: SourceAnalysis[];
@@ -53,6 +56,10 @@ function estimateRoomDist(roomA: string, roomB: string): number {
 
 function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   const homeRoom = scenario.nodes[0]?.roomName ?? "W1N1";
+
+  // Get mining spots from config (default 0 = container mining, no decay)
+  // Early game with ground piles: 2-3 spots per source, each pile decays
+  const miningSpots = (scenario.config as any)?.miningSpots ?? 0;
 
   // Find spawn and controller positions
   let spawnPos = { x: 25, y: 25 };
@@ -102,11 +109,17 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
         const carryPartsNeeded = grossPerTick / energyPerTick;
         const haulCost = (carryPartsNeeded * HAULER_COST_PER_CARRY) / CREEP_LIFESPAN;
 
+        // Decay cost: energy on ground decays at 1/tick per pile
+        // With miningSpots piles per source, decay = miningSpots * 1/tick
+        const decayCost = miningSpots * DECAY_PER_PILE_PER_TICK;
+
         sources.push({
           grossPerTick,
           harvestCost,
           haulCost,
-          distance: sourceToController
+          decayCost,
+          distance: sourceToController,
+          miningSpots
         });
       }
     }
@@ -117,8 +130,8 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   const supply = sources.reduce((s, src) => s + src.grossPerTick, 0);
   const harvestCost = sources.reduce((s, src) => s + src.harvestCost, 0);
   const haulCost = sources.reduce((s, src) => s + src.haulCost, 0);
-  const otherCost = 0; // Reserved for future (upgraders, builders, etc.)
-  const totalCost = harvestCost + haulCost + otherCost;
+  const decayCost = sources.reduce((s, src) => s + src.decayCost, 0);
+  const totalCost = harvestCost + haulCost + decayCost;
   const netEnergy = supply - totalCost;
   const efficiency = supply > 0 ? (netEnergy / supply) * 100 : 0;
 
@@ -127,7 +140,7 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
     supply,
     harvestCost,
     haulCost,
-    otherCost,
+    decayCost,
     netEnergy,
     efficiency,
     sources
@@ -183,7 +196,7 @@ function main(): void {
     "  │  " +
     padRight("Harvesters", 14) +
     padRight("Haulers", 14) +
-    padRight("Other", 12) +
+    padRight("Decay", 12) +
     padLeft("Net", 7)
   );
   console.log("─".repeat(39) + "─┼──" + "─".repeat(47));
@@ -191,7 +204,7 @@ function main(): void {
   for (const a of analyses) {
     const harvestPct = ((a.harvestCost / a.supply) * 100).toFixed(0);
     const haulPct = ((a.haulCost / a.supply) * 100).toFixed(0);
-    const otherPct = ((a.otherCost / a.supply) * 100).toFixed(0);
+    const decayPct = ((a.decayCost / a.supply) * 100).toFixed(0);
 
     console.log(
       padRight(a.name.substring(0, 23), 24) +
@@ -200,7 +213,7 @@ function main(): void {
       "  │  " +
       padRight(`${a.harvestCost.toFixed(2)} (${harvestPct}%)`, 14) +
       padRight(`${a.haulCost.toFixed(2)} (${haulPct}%)`, 14) +
-      padRight(`${a.otherCost.toFixed(2)} (${otherPct}%)`, 12) +
+      padRight(`${a.decayCost.toFixed(1)} (${decayPct}%)`, 12) +
       padLeft(a.netEnergy.toFixed(1), 7)
     );
   }
@@ -208,7 +221,8 @@ function main(): void {
   console.log("");
   console.log("Supply = gross energy/tick from sources");
   console.log("Eff% = (Supply - Costs) / Supply");
-  console.log("Harvest/Haul/Other = spawn costs as energy/tick (% of supply)");
+  console.log("Harvesters/Haulers = spawn costs as energy/tick (% of supply)");
+  console.log("Decay = energy lost to ground decay (1/tick per pile, miningSpots piles per source)");
   console.log("");
 }
 
