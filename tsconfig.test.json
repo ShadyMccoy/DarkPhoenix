@@ -1,6 +1,13 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "CommonJs"
-  }
+    "module": "CommonJs",
+    "types": ["node", "mocha", "chai", "screeps"],
+    "lib": ["es2018"]
+  },
+  "include": [
+    "src/**/*",
+    "scripts/**/*",
+    "test/**/*"
+  ]
 }
