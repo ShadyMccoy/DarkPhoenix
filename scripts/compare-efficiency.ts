@@ -15,10 +15,11 @@ import { parseScenario, Scenario } from "../src/planning/ScenarioRunner";
 
 // Economic constants
 const CREEP_LIFESPAN = 1500;
-const MINER_BODY_COST = 5 * 100 + 1 * 50 + 3 * 50; // 5W 1C 3M = 700
+const MINER_BASE_COST = 5 * 100 + 3 * 50; // 5W 3M = 650 (without CARRY)
+const CARRY_PART_COST = 50;
 const HAULER_COST_PER_CARRY = 100; // 1C 1M = 100
 const CARRY_CAPACITY = 50;
-const DECAY_PER_PILE_PER_TICK = 1; // Energy decays at 1/tick per pile on ground
+const MINE_RATE = 10; // 5 WORK * 2 energy/tick = 10 energy/tick
 
 interface SourceAnalysis {
   grossPerTick: number;
@@ -63,6 +64,9 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   // Early game with ground piles: 2-3 spots per source, each pile decays
   const miningSpots = (scenario.config as any)?.miningSpots ?? 0;
 
+  // Miner CARRY parts (default 1, more = less decay time)
+  const minerCarry = (scenario.config as any)?.minerCarry ?? 1;
+
   // Claimer cost for reserved remote rooms (2 CLAIM + 2 MOVE = 1300, 500 TTL = ~2.6/tick)
   const claimerCost = (scenario.config as any)?.claimerCost ?? 0;
 
@@ -105,7 +109,9 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
                    Math.abs(resource.position.y - controllerPos.y));
 
         // Harvest cost: miner body / lifespan + travel overhead
-        const harvestCost = MINER_BODY_COST / CREEP_LIFESPAN +
+        // Miner body: 5W + minerCarry*C + 3M
+        const minerBodyCost = MINER_BASE_COST + (minerCarry * CARRY_PART_COST);
+        const harvestCost = minerBodyCost / CREEP_LIFESPAN +
           (spawnToSource * 2 / CREEP_LIFESPAN) * grossPerTick;
 
         // Haul cost
@@ -114,9 +120,18 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
         const carryPartsNeeded = grossPerTick / energyPerTick;
         const haulCost = (carryPartsNeeded * HAULER_COST_PER_CARRY) / CREEP_LIFESPAN;
 
-        // Decay cost: energy on ground decays at 1/tick per pile
-        // With miningSpots piles per source, decay = miningSpots * 1/tick
-        const decayCost = miningSpots * DECAY_PER_PILE_PER_TICK;
+        // Decay cost calculation:
+        // - Miner fills CARRY in (minerCarry * 50 / 10) ticks before first drop
+        // - Pile exists for (roundTrip - fillTime) ticks per hauler cycle
+        // - But we have miningSpots piles (multiple miners or spots)
+        // - Decay = max(0, roundTrip - fillTime) / roundTrip per pile
+        let decayCost = 0;
+        if (miningSpots > 0) {
+          const fillTime = (minerCarry * CARRY_CAPACITY) / MINE_RATE;
+          const pileExistsTime = Math.max(0, roundTrip - fillTime);
+          const decayPerPile = pileExistsTime / roundTrip; // fraction of time pile exists
+          decayCost = miningSpots * decayPerPile;
+        }
 
         sources.push({
           grossPerTick,
