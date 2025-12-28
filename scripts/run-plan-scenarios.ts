@@ -122,10 +122,142 @@ function runScenarios(
   // Print summary
   console.log(runner.printSummary(results));
 
+  // Print efficiency scorecard
+  printEfficiencyScorecard(results);
+
   const passed = results.filter((r) => r.passed).length;
   const failed = results.filter((r) => !r.passed).length;
 
   return { passed, failed };
+}
+
+/**
+ * Print efficiency scorecard comparing all scenarios
+ */
+function printEfficiencyScorecard(results: ScenarioResult[]): void {
+  // Filter to scenarios with viable chains
+  const viable = results.filter((r) => r.viableChains.length > 0);
+  if (viable.length === 0) return;
+
+  console.log("");
+  console.log(colorize("======================================================================", "bright"));
+  console.log(colorize("EFFICIENCY SCORECARD", "bright"));
+  console.log(colorize("======================================================================", "bright"));
+  console.log("");
+
+  // Calculate metrics for each scenario
+  interface ScenarioMetrics {
+    name: string;
+    sources: number;
+    totalCapacity: number;
+    roomDistance: number;
+    profit: number;
+    energyPerSource: number;
+    chains: number;
+  }
+
+  const metrics: ScenarioMetrics[] = [];
+
+  for (const result of viable) {
+    // Count sources and total capacity
+    let sources = 0;
+    let totalCapacity = 0;
+    let maxRoomDistance = 0;
+    const homeRoom = result.scenario.nodes[0]?.roomName ?? "W1N1";
+
+    for (const node of result.scenario.nodes) {
+      for (const resource of node.resourceNodes) {
+        if (resource.type === "source") {
+          sources++;
+          totalCapacity += resource.capacity ?? 3000;
+          // Estimate room distance
+          if (node.roomName !== homeRoom) {
+            const dist = estimateRoomDist(homeRoom, node.roomName);
+            if (dist > maxRoomDistance) maxRoomDistance = dist;
+          }
+        }
+      }
+    }
+
+    // Sum profit from viable chains
+    let totalProfit = 0;
+    for (const chain of result.viableChains) {
+      totalProfit += chain.mintValue - chain.totalCost;
+    }
+
+    metrics.push({
+      name: result.scenario.name,
+      sources,
+      totalCapacity,
+      roomDistance: maxRoomDistance,
+      profit: totalProfit,
+      energyPerSource: sources > 0 ? totalCapacity / sources : 0,
+      chains: result.viableChains.length
+    });
+  }
+
+  // Sort by total capacity (highest first)
+  metrics.sort((a, b) => b.totalCapacity - a.totalCapacity);
+
+  // Print table header
+  console.log(
+    padRight("Scenario", 25) +
+    padRight("Sources", 9) +
+    padRight("Capacity", 10) +
+    padRight("E/Source", 10) +
+    padRight("Distance", 10) +
+    padRight("Profit", 10)
+  );
+  console.log("-".repeat(74));
+
+  // Print each row
+  for (const m of metrics) {
+    const distStr = m.roomDistance > 0 ? `${m.roomDistance} rooms` : "local";
+    console.log(
+      padRight(m.name.substring(0, 24), 25) +
+      padRight(String(m.sources), 9) +
+      padRight(String(m.totalCapacity), 10) +
+      padRight(String(m.energyPerSource), 10) +
+      padRight(distStr, 10) +
+      padRight(m.profit.toFixed(0), 10)
+    );
+  }
+
+  console.log("");
+
+  // Print comparison insights
+  if (metrics.length >= 2) {
+    const keeper = metrics.find((m) => m.name.toLowerCase().includes("keeper"));
+    const normal = metrics.find((m) => m.sources === 2 && m.roomDistance === 0);
+
+    if (keeper && normal) {
+      const capacityRatio = keeper.totalCapacity / normal.totalCapacity;
+      const sourceRatio = keeper.sources / normal.sources;
+      console.log(colorize("Keeper vs Normal Room:", "cyan"));
+      console.log(`  Capacity: ${capacityRatio.toFixed(1)}x (${keeper.totalCapacity} vs ${normal.totalCapacity})`);
+      console.log(`  Sources:  ${sourceRatio.toFixed(1)}x (${keeper.sources} vs ${normal.sources})`);
+      console.log(`  E/Source: ${keeper.energyPerSource} vs ${normal.energyPerSource} (+${((keeper.energyPerSource / normal.energyPerSource - 1) * 100).toFixed(0)}%)`);
+      console.log("");
+    }
+  }
+}
+
+function padRight(str: string, len: number): string {
+  return str.padEnd(len);
+}
+
+function estimateRoomDist(roomA: string, roomB: string): number {
+  const parseRoom = (name: string): { x: number; y: number } | null => {
+    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
+    if (!match) return null;
+    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
+    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
+    return { x, y };
+  };
+  const a = parseRoom(roomA);
+  const b = parseRoom(roomB);
+  if (!a || !b) return 0;
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
 /**
