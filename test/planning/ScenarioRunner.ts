@@ -17,10 +17,8 @@
 import { Position } from "../../src/types/Position";
 import { Node } from "../../src/nodes/Node";
 import { Chain, calculateProfit, calculateChainROI } from "../../src/planning/Chain";
-// Note: ChainPlanner and OfferCollector were removed in the flow-based economy refactor
-// TODO: Update ScenarioRunner to work with the new NodeFlow planning system
-// import { ChainPlanner } from "./ChainPlanner";
-// import { OfferCollector } from "./OfferCollector";
+import { ChainPlanner } from "../../src/planning/ChainPlanner";
+import { OfferCollector } from "../../src/planning/OfferCollector";
 import { MintValues, createMintValues } from "../../src/colony/MintValues";
 import {
   Fixture,
@@ -30,8 +28,7 @@ import {
   resetIdCounter
 } from "../../src/planning/FixtureHydration";
 import { AnyCorpState } from "../../src/corps/CorpState";
-// Note: projections module was removed in the flow-based economy refactor
-// import { projectAll, collectBuys, collectSells } from "./projections";
+import { projectAll, collectBuys, collectSells } from "../../src/planning/projections";
 
 /**
  * Scenario definition extending Fixture with planning parameters

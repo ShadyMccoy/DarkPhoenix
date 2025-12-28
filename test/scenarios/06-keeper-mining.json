@@ -1,0 +1,78 @@
+{
+  "name": "Keeper Mining",
+  "purpose": "Test SK room economics. 3 sources at 4000 energy each, farther travel, excludes guard costs.",
+  "description": "A spawn in home room (W1N1) mining a Source Keeper room (W3N1) two rooms away. SK rooms have 3 sources with 4000 capacity each (12000 total vs 6000 normal). This scenario measures pure harvest/haul efficiency without combat costs.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 550
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 4
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W3N1",
+      "position": { "x": 12, "y": 12 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 12, "y": 12 },
+          "capacity": 4000
+        }
+      ],
+      "territorySize": 40
+    },
+    {
+      "roomName": "W3N1",
+      "position": { "x": 38, "y": 12 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 38, "y": 12 },
+          "capacity": 4000
+        }
+      ],
+      "territorySize": 40
+    },
+    {
+      "roomName": "W3N1",
+      "position": { "x": 25, "y": 38 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 25, "y": 38 },
+          "capacity": 4000
+        }
+      ],
+      "territorySize": 40
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 30000,
+    "deterministicIds": true,
+    "mintValues": {
+      "rcl_upgrade": 1.0
+    }
+  },
+  "expectations": {
+    "minViableChains": 1
+  }
+}
