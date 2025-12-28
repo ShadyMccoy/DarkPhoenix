@@ -33,8 +33,8 @@ export class ScoutCorp extends Corp {
   private lastPurchaseTick: number = 0;
   private blockedRooms: Set<string> = new Set();
 
-  constructor(nodeId: string, spawnId: string) {
-    super("scout", nodeId);
+  constructor(nodeId: string, spawnId: string, customId?: string) {
+    super("scout", nodeId, customId);
     this.spawnId = spawnId;
   }
 

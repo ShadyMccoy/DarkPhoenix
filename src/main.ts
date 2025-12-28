@@ -2,7 +2,7 @@
  * @fileoverview Main game loop entry point.
  *
  * This is the entry point for the Screeps AI. It orchestrates the colony
- * economic system using a phased architecture.
+ * using a flow-based economic system.
  *
  * ## Phased Architecture
  *
@@ -13,27 +13,27 @@
  *
  * ### EVERY 5000 TICKS (planning)
  * 1. SURVEY: Analyze territory, create corps from node resources
- * 2. MARKET: Register offers, run market clearing
- * 3. PLAN: Find optimal chains, store contracts in Memory
+ * 2. FLOW: Solve optimal energy allocation (sources -> sinks)
+ * 3. MATERIALIZE: Update corps with flow assignments
  *
  * ## Key Components
  * - Colony: Economic coordinator (treasury, surveying)
  * - Nodes: Territory-based regions (from spatial peak detection)
- * - Corps: Business units that buy/sell resources
- * - Chains: Production paths linking corps (from planning)
- * - Contracts: Executable agreements stored in Memory
+ * - Corps: Business units that execute flow assignments
+ * - FlowEconomy: Solver for optimal energy routing
  *
  * ## Console Commands
  * - global.survey() - Force run survey phase
- * - global.plan() - Force run planning phase
+ * - global.plan() - Force run flow economy planning
  * - global.status() - Show orchestration status
+ * - global.flowStatus() - Show flow economy details
  *
  * @module main
  */
 
 import { Colony, createColony } from "./colony";
-import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, parseEdgeKey } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps, groupByNode } from "./flow";
+import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType } from "./nodes";
+import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import {
@@ -54,11 +54,11 @@ import {
   runIncrementalAnalysis,
   renderNodeVisuals,
   renderSpatialVisuals,
+  requestFlowCreeps,
 } from "./execution";
 import {
   initCorps,
   shouldRunPlanning,
-  runPlanningPhase,
   runSurveyPhase,
   PLANNING_INTERVAL,
   loadContracts,
@@ -67,13 +67,6 @@ import {
   setLastSurveyTick,
 } from "./orchestration";
 import "./types/Memory";
-
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-/** Tick interval for expanding to nearby rooms (expensive operation) */
-const NEARBY_ROOM_EXPANSION_INTERVAL = 500;
 
 // =============================================================================
 // GLOBALS
@@ -113,9 +106,6 @@ let nodeNavigator: NodeNavigator | undefined;
 
 /** Flow economy coordinator (replaces market-based allocation) */
 let flowEconomy: FlowEconomy | undefined;
-
-/** Priority manager for dynamic sink priorities */
-const priorityManager = new PriorityManager();
 
 /** All active corps */
 let corps: CorpRegistry = createCorpRegistry();
@@ -189,6 +179,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
     runIncrementalAnalysis(colony);
   }
 
+  // Fresh respawn detection: if no nodes exist and no analysis in progress,
+  // start terrain analysis immediately (don't wait for planning interval)
+  const hasNoNodes = colony.getNodes().length === 0 &&
+    (!Memory.nodes || Object.keys(Memory.nodes).length === 0);
+  if (hasNoNodes && !isAnalysisInProgress()) {
+    console.log(`[Respawn] No nodes in memory - starting terrain analysis immediately`);
+    runIncrementalAnalysis(colony);
+  }
+
   // ===========================================================================
   // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
   // ===========================================================================
@@ -236,14 +235,14 @@ export const loop = ErrorMapper.wrapLoop(() => {
       }
     }
 
-    // --- PLAN: Find optimal chains and assign contracts ---
-    // ChainPlanner finds viable chains, creates contracts, and assigns them to corps
-    // This is the unified economic planning - no separate market clearing needed
-    const planningResult = runPlanningPhase(corps, colony, Game.time);
     setLastPlanningTick(Game.time);
-
-    console.log(`[Planning] Complete: ${planningResult.chains.length} chains, ${planningResult.contracts.length} contracts`);
+    console.log(`[Planning] Complete`);
   }
+
+  // Request creeps from SpawningCorp based on flow assignments
+  // Runs AFTER planning so materialized assignments are available
+  // Priority: miners first, then haulers, then upgraders
+  requestFlowCreeps(corps);
 
   // ===========================================================================
   // PHASE 3: PERSIST - Save state and update telemetry (every tick)
@@ -364,6 +363,20 @@ function getOrCreateFlowEconomy(colony: Colony): {
   if (nodes.length > 0) {
     console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${allEdges.length} edges`);
     console.log(`[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${economy.getFlowGraph().getSinks().length}`);
+
+    // Run initial solve if we have sources (don't wait for planning cycle)
+    if (economy.getFlowGraph().getSources().length > 0) {
+      const context = buildPriorityContext(corps);
+      economy.update(context, true);
+
+      // Materialize solution to corps
+      const solution = economy.getSolution();
+      if (solution) {
+        const graph = economy.getFlowGraph();
+        materializeCorps(solution, graph, corps, Game.time);
+        console.log(`[FlowEconomy] Initial solve: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
+      }
+    }
   }
 
   return { navigator, economy };
@@ -452,7 +465,8 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
     corps.upgradingCorps,
     corps.scoutCorps,
     corps.constructionCorps,
-    corps.spawningCorps
+    corps.spawningCorps,
+    flowEconomy?.getSolution() ?? undefined
   );
 }
 
@@ -504,13 +518,13 @@ global.survey = () => {
 };
 
 /**
- * Force run planning phase to find optimal chains.
+ * Force run flow economy planning phase.
  * Call from console: `global.plan()`
  *
  * Planning:
- * 1. Collects offers from all corps via projections
- * 2. Runs chain planner to find optimal chains
- * 3. Stores contracts in Memory
+ * 1. Rebuilds flow graph from nodes if needed
+ * 2. Solves optimal energy allocation (sources -> sinks)
+ * 3. Materializes solution into corps (miners, haulers, upgraders)
  */
 global.plan = () => {
   if (!colony) {
@@ -518,19 +532,50 @@ global.plan = () => {
     return;
   }
 
-  const result = runPlanningPhase(corps, colony, Game.time);
-  setLastPlanningTick(Game.time);
+  console.log(`[Planning] Running planning phase at tick ${Game.time}...`);
 
-  console.log("\n=== Planning Results ===");
-  console.log(`Chains found: ${result.chains.length}`);
-  console.log(`Contracts created: ${result.contracts.length}`);
-
-  if (result.chains.length > 0) {
-    console.log("\nTop chains:");
-    for (const chain of result.chains.slice(0, 5)) {
-      console.log(`  ${chain.id}: profit=${chain.profit.toFixed(2)}, segments=${chain.segments.length}`);
+  // --- FLOW ECONOMY: Update allocations based on game state ---
+  if (flowEconomy && colony.getNodes().length > 0) {
+    // Rebuild if no sources yet but we have nodes
+    const currentNodeCount = colony.getNodes().length;
+    if (flowEconomy.getFlowGraph().getSources().length === 0 && currentNodeCount > 0) {
+      console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
+      flowEconomy.rebuild(colony.getNodes());
     }
+
+    // Build priority context from game state
+    const context = buildPriorityContext(corps);
+    flowEconomy.update(context, true); // Force update
+
+    // Get solution and show results
+    const solution = flowEconomy.getSolution();
+    if (solution) {
+      console.log(`\n=== Flow Economy Results ===`);
+      console.log(`Miners: ${solution.miners.length}`);
+      console.log(`Haulers: ${solution.haulers.length}`);
+      console.log(`Total Harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
+      console.log(`Net Energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
+      console.log(`Efficiency: ${solution.efficiency.toFixed(1)}%`);
+      console.log(`Sustainable: ${solution.isSustainable ? "YES" : "NO"}`);
+
+      if (solution.warnings.length > 0) {
+        console.log(`Warnings: ${solution.warnings.join(", ")}`);
+      }
+
+      // Materialize flow solution into corps
+      const graph = flowEconomy.getFlowGraph();
+      const matResult = materializeCorps(solution, graph, corps, Game.time);
+      console.log(`\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.carryCorpsUpdated} carry, ${matResult.upgradingCorpsUpdated} upgrading corps`);
+    } else {
+      console.log(`[FlowEconomy] No solution computed`);
+    }
+  } else if (!flowEconomy) {
+    console.log(`[FlowEconomy] Not initialized`);
+  } else {
+    console.log(`[FlowEconomy] No nodes available`);
   }
+
+  setLastPlanningTick(Game.time);
 };
 
 /**
@@ -853,16 +898,14 @@ global.clearSpawnQueue = () => {
 
   for (const id in corps.spawningCorps) {
     const spawningCorp = corps.spawningCorps[id];
-    const pendingCount = spawningCorp.getPendingOrderCount();
-    if (pendingCount > 0) {
-      // The SpawningCorp's pendingOrders are private, so we'd need to add a clear method
-      // For now, just report what would be cleared
-      totalCleared += pendingCount;
+    const cleared = spawningCorp.clearPendingOrders();
+    totalCleared += cleared;
+    if (cleared > 0) {
+      console.log(`[GodMode] Cleared ${cleared} orders from ${spawningCorp.id}`);
     }
   }
 
-  console.log(`[GodMode] Found ${totalCleared} pending spawn orders`);
-  console.log(`[GodMode] To clear, use global.forgiveDebt() to reset all corps`);
+  console.log(`[GodMode] Cleared ${totalCleared} total pending spawn orders`);
 };
 
 /**

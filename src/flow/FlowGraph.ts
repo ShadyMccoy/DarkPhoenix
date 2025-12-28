@@ -9,6 +9,7 @@
 
 import { Node, NodeResource, getResourcesByType } from "../nodes/Node";
 import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
+import { countMiningSpots } from "../analysis/SourceAnalysis";
 import {
   FlowSource,
   FlowSink,
@@ -107,11 +108,26 @@ export class FlowGraph {
       const sourceResources = getResourcesByType(node, "source");
 
       for (const resource of sourceResources) {
+        // resource.capacity is the total energy capacity (e.g., 3000)
+        // Convert to rate: capacity / 300 ticks = energy per tick
+        const energyCapacity = resource.capacity ?? 3000;
+        const ratePerTick = energyCapacity / 300; // Standard: 3000/300 = 10 e/tick
+
+        // Count mining spots from the actual game source
+        let maxMiners = 1;
+        if (typeof Game !== "undefined") {
+          const gameSource = Game.getObjectById(resource.id as Id<Source>);
+          if (gameSource) {
+            maxMiners = countMiningSpots(gameSource);
+          }
+        }
+
         const source = createFlowSource(
           resource.id,
           node.id,
           resource.position,
-          resource.capacity ?? SOURCE_ENERGY_PER_TICK
+          ratePerTick,
+          maxMiners
         );
         this.sources.set(source.id, source);
       }

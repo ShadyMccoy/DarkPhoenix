@@ -9,11 +9,11 @@
 export const TELEMETRY_SEGMENTS = {
   CORE: 0,
   NODES: 1,
-  EDGES: 2,    // Spatial and economic edges (compressed format)
+  EDGES: 2,    // Spatial and economic edges with flow rates
   INTEL: 3,
   CORPS: 4,
   CHAINS: 5,
-  MARKET: 6,   // Market offers and contracts
+  FLOW: 6,     // Flow economy: sources, sinks, allocations
 };
 
 /**
@@ -140,8 +140,8 @@ export interface EdgesTelemetry {
   nodeIndex: string[];
   /** Spatial edges as [idx1, idx2] pairs (indices into nodeIndex) */
   edges: [number, number][];
-  /** Economic edges as [idx1, idx2, distance] triples */
-  economicEdges: [number, number, number][];
+  /** Economic edges as [idx1, idx2, distance, flowRate?] - flowRate in energy/tick */
+  economicEdges: [number, number, number, number?][];
 }
 
 /**
@@ -228,53 +228,41 @@ export interface ChainsTelemetry {
 }
 
 /**
- * Market telemetry data structure (Segment 6).
+ * Flow telemetry data structure (Segment 6).
+ * Shows flow economy state: sources, sinks, and energy flow.
  */
-export interface MarketTelemetry {
+export interface FlowTelemetry {
   version: number;
   tick: number;
-  offers: {
-    buys: {
-      corpId: string;
-      corpType: string;
-      resource: string;
-      quantity: number;
-      price: number;
-      unitPrice: number;
-    }[];
-    sells: {
-      corpId: string;
-      corpType: string;
-      resource: string;
-      quantity: number;
-      price: number;
-      unitPrice: number;
-    }[];
-  };
-  contracts: {
-    sellerId: string;
-    buyerId: string;
-    resource: string;
-    quantity: number;
-    totalPrice: number;
+  /** Source nodes (energy producers) */
+  sources: {
+    id: string;
+    nodeId: string;
+    harvestRate: number;
+    workParts: number;
   }[];
-  /** Historical transactions (completed trades) */
-  transactions?: {
-    tick: number;
-    sellerId: string;
-    buyerId: string;
-    resource: string;
-    quantity: number;
-    pricePerUnit: number;
-    totalPayment: number;
+  /** Sink nodes (energy consumers) - spawns, controllers, construction */
+  sinks: {
+    id: string;
+    nodeId?: string;
+    type: string;  // "spawn" | "controller" | "construction"
+    demand: number;
+    allocated: number;
+    unmet: number;
+    priority: number;
   }[];
+  /** Flow summary */
   summary: {
-    totalBuyOffers: number;
-    totalSellOffers: number;
-    totalContracts: number;
-    totalVolume: number;
-    totalTransactions?: number;
+    totalHarvest: number;
+    totalOverhead: number;
+    netEnergy: number;
+    efficiency: number;
+    isSustainable: boolean;
+    minerCount: number;
+    haulerCount: number;
   };
+  /** Warnings from the flow solver */
+  warnings: string[];
 }
 
 /**
@@ -287,6 +275,6 @@ export interface AllTelemetry {
   intel: IntelTelemetry | null;
   corps: CorpsTelemetry | null;
   chains: ChainsTelemetry | null;
-  market: MarketTelemetry | null;
+  flow: FlowTelemetry | null;
   lastUpdate: number;
 }

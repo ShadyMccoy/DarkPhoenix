@@ -20,7 +20,7 @@ import {
   Scenario,
   parseScenario,
   ScenarioResult
-} from "../../src/planning/ScenarioRunner";
+} from "../planning/ScenarioRunner";
 
 // ANSI colors for terminal output
 const colors = {

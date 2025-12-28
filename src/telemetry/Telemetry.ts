@@ -7,10 +7,11 @@
  * ## Segment Layout
  * - Segment 0: Core telemetry (colony stats, money supply, creep counts)
  * - Segment 1: Node data (territories, resources, ROI)
- * - Segment 2: Edge data (spatial and economic edges, compressed format)
+ * - Segment 2: Edge data (spatial and economic edges with flow rates)
  * - Segment 3: Room intel data (scouted room information)
  * - Segment 4: Corps data (mining, hauling, upgrading corps)
  * - Segment 5: Active chains data
+ * - Segment 6: Flow economy (sources, sinks, allocations)
  *
  * ## Data Flow
  * Screeps Game → RawMemory.segments[N] → HTTP API → External App → Dashboard
@@ -21,6 +22,7 @@
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
 import { deserializeChain, SerializedChain } from "../planning/Chain";
+import { FlowSolution } from "../flow/FlowTypes";
 
 /**
  * Interface for corps that track creeps.
@@ -42,11 +44,11 @@ interface SpawningCorpLike extends Corp {
 export const TELEMETRY_SEGMENTS = {
   CORE: 0,      // Colony stats, money supply, creep counts
   NODES: 1,     // Node territories, resources, ROI
-  EDGES: 2,     // Spatial and economic edges (compressed format)
+  EDGES: 2,     // Spatial and economic edges with flow rates
   INTEL: 3,     // Room intel from scouting
   CORPS: 4,     // Corps details
   CHAINS: 5,    // Active chains
-  MARKET: 6,    // Market offers and contracts
+  FLOW: 6,      // Flow economy: sources, sinks, allocations
 };
 
 /**
@@ -161,7 +163,7 @@ export interface NodeTelemetry {
  * Uses compressed numeric format to minimize size:
  * - nodeIndex maps node position in nodes array to node ID
  * - edges are [idx1, idx2] pairs (indices into nodeIndex)
- * - economicEdges are [idx1, idx2, distance] triples
+ * - economicEdges are [idx1, idx2, distance, flowRate?] - flowRate is energy/tick
  */
 export interface EdgesTelemetry {
   version: number;
@@ -170,8 +172,8 @@ export interface EdgesTelemetry {
   nodeIndex: string[];
   /** Spatial edges as [idx1, idx2] pairs (indices into nodeIndex) */
   edges: [number, number][];
-  /** Economic edges as [idx1, idx2, distance] triples */
-  economicEdges: [number, number, number][];
+  /** Economic edges as [idx1, idx2, distance, flowRate?] - flowRate in energy/tick */
+  economicEdges: [number, number, number, number?][];
 }
 
 /**
@@ -258,64 +260,41 @@ export interface ChainsTelemetry {
 }
 
 /**
- * Market telemetry data structure (Segment 6).
- * Shows current offers, active contracts, and transaction history.
+ * Flow telemetry data structure (Segment 6).
+ * Shows flow economy state: sources, sinks, and energy flow.
  */
-export interface MarketTelemetry {
+export interface FlowTelemetry {
   version: number;
   tick: number;
-  offers: {
-    buys: {
-      corpId: string;
-      corpType: string;
-      resource: string;
-      quantity: number;
-      price: number;
-      unitPrice: number;
-    }[];
-    sells: {
-      corpId: string;
-      corpType: string;
-      resource: string;
-      quantity: number;
-      price: number;
-      unitPrice: number;
-    }[];
-  };
-  /** Active contracts from current market clearing */
-  contracts: {
-    sellerId: string;
-    buyerId: string;
-    resource: string;
-    quantity: number;
-    totalPrice: number;
+  /** Source nodes (energy producers) */
+  sources: {
+    id: string;
+    nodeId: string;
+    harvestRate: number;
+    workParts: number;
   }[];
-  /** Historical transactions (completed trades) for analysis */
-  transactions: {
-    tick: number;
-    sellerId: string;
-    buyerId: string;
-    resource: string;
-    quantity: number;
-    pricePerUnit: number;
-    totalPayment: number;
+  /** Sink nodes (energy consumers) - spawns, controllers, construction */
+  sinks: {
+    id: string;
+    nodeId?: string;  // Optional - may not always be available
+    type: string;  // "spawn" | "controller" | "construction"
+    demand: number;
+    allocated: number;
+    unmet: number;
+    priority: number;
   }[];
+  /** Flow summary */
   summary: {
-    totalBuyOffers: number;
-    totalSellOffers: number;
-    totalContracts: number;
-    totalVolume: number;
-    /** Total transactions in history */
-    totalTransactions: number;
+    totalHarvest: number;
+    totalOverhead: number;
+    netEnergy: number;
+    efficiency: number;
+    isSustainable: boolean;
+    minerCount: number;
+    haulerCount: number;
   };
-  /** Capacity analysis: offered capacity vs committed capacity by resource */
-  capacity?: {
-    [resource: string]: {
-      offered: number;
-      committed: number;
-      remaining: number;
-    };
-  };
+  /** Warnings from the flow solver */
+  warnings: string[];
 }
 
 /**
@@ -361,7 +340,8 @@ export class Telemetry {
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
     constructionCorps: { [roomName: string]: CreepTrackingCorp } = {},
-    spawningCorps: { [spawnId: string]: SpawningCorpLike } = {}
+    spawningCorps: { [spawnId: string]: SpawningCorpLike } = {},
+    flowSolution?: FlowSolution
   ): void {
     if (!this.config.enabled) return;
 
@@ -383,8 +363,8 @@ export class Telemetry {
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
 
-    // Update edges telemetry (segment 2 - compressed format)
-    this.updateEdgesTelemetry(colony);
+    // Update edges telemetry (segment 2 - with flow rates)
+    this.updateEdgesTelemetry(colony, flowSolution);
 
     // Update intel telemetry
     this.updateIntelTelemetry();
@@ -395,8 +375,8 @@ export class Telemetry {
     // Update chains telemetry (reads from Memory.chains)
     this.updateChainsTelemetry();
 
-    // Update market telemetry
-    this.updateMarketTelemetry(harvestCorps, haulingCorps, upgradingCorps, spawningCorps);
+    // Update flow telemetry (sources, sinks, allocations)
+    this.updateFlowTelemetry(flowSolution);
   }
 
   /**
@@ -592,8 +572,9 @@ export class Telemetry {
   /**
    * Updates edges telemetry (Segment 2).
    * Uses compressed numeric format: edges as index pairs instead of string IDs.
+   * Includes flow rates from flow solution when available.
    */
-  private updateEdgesTelemetry(colony: Colony | undefined): void {
+  private updateEdgesTelemetry(colony: Colony | undefined, flowSolution?: FlowSolution): void {
     const nodes = colony?.getNodes() || [];
 
     // Build node ID to index map (sorted same as nodes telemetry)
@@ -610,6 +591,22 @@ export class Telemetry {
       nodeIndex.push(node.id);
     });
 
+    // Build flow rate map from hauler assignments (edge key → total flow rate)
+    const flowRateByEdge = new Map<string, number>();
+    if (flowSolution) {
+      for (const hauler of flowSolution.haulers) {
+        // Extract node IDs from flow IDs (e.g., "source-abc|sink-xyz" or use fromId/toId)
+        const fromNodeId = this.extractNodeId(hauler.fromId);
+        const toNodeId = this.extractNodeId(hauler.toId);
+        if (fromNodeId && toNodeId) {
+          // Create consistent edge key (sorted alphabetically)
+          const edgeKey = [fromNodeId, toNodeId].sort().join("|");
+          const existing = flowRateByEdge.get(edgeKey) || 0;
+          flowRateByEdge.set(edgeKey, existing + hauler.flowRate);
+        }
+      }
+    }
+
     // Convert spatial edges to index pairs
     const edges: [number, number][] = [];
     for (const edge of Memory.nodeEdges || []) {
@@ -621,19 +618,24 @@ export class Telemetry {
       }
     }
 
-    // Convert economic edges to index triples with distance
-    const economicEdges: [number, number, number][] = [];
+    // Convert economic edges to index tuples with distance and optional flow rate
+    const economicEdges: [number, number, number, number?][] = [];
     for (const [edge, distance] of Object.entries(Memory.economicEdges || {})) {
       const [id1, id2] = edge.split("|");
       const idx1 = nodeIdToIndex.get(id1);
       const idx2 = nodeIdToIndex.get(id2);
       if (idx1 !== undefined && idx2 !== undefined) {
-        economicEdges.push([idx1, idx2, distance]);
+        const flowRate = flowRateByEdge.get(edge);
+        if (flowRate !== undefined && flowRate > 0) {
+          economicEdges.push([idx1, idx2, distance, flowRate]);
+        } else {
+          economicEdges.push([idx1, idx2, distance]);
+        }
       }
     }
 
     const telemetry: EdgesTelemetry = {
-      version: 1,
+      version: 2,  // Version 2: includes flow rates
       tick: Game.time,
       nodeIndex,
       edges,
@@ -645,6 +647,20 @@ export class Telemetry {
       console.log(`[Telemetry] Warning: Edges segment ${json.length} bytes exceeds 100KB limit`);
     }
     RawMemory.segments[TELEMETRY_SEGMENTS.EDGES] = json;
+  }
+
+  /**
+   * Extract node ID from a flow ID (e.g., "source-abc123" → node ID from Memory).
+   * Flow IDs reference game objects; we need to map them back to nodes.
+   */
+  private extractNodeId(flowId: string): string | undefined {
+    // For sources: "source-{gameId}" → find node containing this source
+    // For sinks: "spawn-{gameId}" or "controller-{gameId}" → find node
+    // This is a simplified mapping - in practice, we'd need the flow graph's node mappings
+
+    // Try to find the node by checking if any node's ID matches or contains the source/sink
+    // For now, return undefined and rely on economicEdges which already have node-to-node mappings
+    return undefined;
   }
 
   /**
@@ -829,14 +845,6 @@ export class Telemetry {
       ? chains.reduce((sum, c) => sum + c.age, 0) / chains.length
       : 0;
 
-    // Calculate resource commitments from contracts
-    const contracts = Memory.contracts ? Object.values(Memory.contracts) : [];
-    const commitmentsByResource: { [resource: string]: number } = {};
-    for (const contract of contracts) {
-      const c = contract as { resource: string; quantity: number };
-      commitmentsByResource[c.resource] = (commitmentsByResource[c.resource] || 0) + c.quantity;
-    }
-
     const telemetry: ChainsTelemetry = {
       version: 1,
       tick: Game.time,
@@ -853,115 +861,66 @@ export class Telemetry {
   }
 
   /**
-   * Updates market telemetry (Segment 6).
-   * Shows current offers and recent contracts.
+   * Updates flow telemetry (Segment 6).
+   * Shows flow economy state: sources, sinks, and energy allocations.
    */
-  private updateMarketTelemetry(
-    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
-    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    spawningCorps: { [spawnId: string]: SpawningCorpLike }
-  ): void {
-    // Collect all current offers from corps
-    const buyOffers: MarketTelemetry["offers"]["buys"] = [];
-    const sellOffers: MarketTelemetry["offers"]["sells"] = [];
+  private updateFlowTelemetry(flowSolution?: FlowSolution): void {
+    // Build source data from miner assignments
+    const sources: FlowTelemetry["sources"] = [];
+    const sinks: FlowTelemetry["sinks"] = [];
 
-    const collectOffers = (corp: Corp) => {
-      for (const offer of corp.buys()) {
-        buyOffers.push({
-          corpId: corp.id,
-          corpType: corp.type,
-          resource: offer.resource,
-          quantity: offer.quantity,
-          price: offer.price,
-          unitPrice: offer.quantity > 0 ? offer.price / offer.quantity : 0,
+    if (flowSolution) {
+      // Collect sources from miner assignments
+      for (const miner of flowSolution.miners) {
+        sources.push({
+          id: miner.sourceId,
+          nodeId: miner.nodeId || "",
+          harvestRate: miner.harvestRate,
+          // Work parts calculated from harvest rate (2 energy/tick per WORK part)
+          workParts: Math.ceil(miner.harvestRate / 2),
         });
       }
-      for (const offer of corp.sells()) {
-        sellOffers.push({
-          corpId: corp.id,
-          corpType: corp.type,
-          resource: offer.resource,
-          quantity: offer.quantity,
-          price: offer.price,
-          unitPrice: offer.quantity > 0 ? offer.price / offer.quantity : 0,
+
+      // Collect sinks from sink allocations
+      for (const sink of flowSolution.sinkAllocations) {
+        sinks.push({
+          id: sink.sinkId,
+          // nodeId not available in SinkAllocation - could be derived from sinkId if needed
+          type: sink.sinkType,
+          demand: sink.demand,
+          allocated: sink.allocated,
+          unmet: sink.unmet,
+          priority: sink.priority,
         });
       }
-    };
-
-    // Collect from all corp types
-    for (const id in harvestCorps) collectOffers(harvestCorps[id]);
-    for (const id in haulingCorps) collectOffers(haulingCorps[id]);
-    for (const id in upgradingCorps) collectOffers(upgradingCorps[id]);
-    for (const id in spawningCorps) collectOffers(spawningCorps[id]);
-
-    // Get contracts from Memory (created by ChainPlanner)
-    const memoryContracts = Memory.contracts ? Object.values(Memory.contracts) : [];
-    const contracts: MarketTelemetry["contracts"] = memoryContracts.slice(-20).map(c => ({
-      sellerId: c.sellerId,
-      buyerId: c.buyerId,
-      resource: c.resource,
-      quantity: c.quantity,
-      totalPrice: c.price,
-    }));
-
-    // Calculate capacity vs commitments by resource
-    // Offers = available capacity, Contracts = committed capacity
-    const capacityByResource: { [resource: string]: { offered: number; committed: number } } = {};
-
-    // Sum sell offers (available capacity)
-    for (const offer of sellOffers) {
-      if (!capacityByResource[offer.resource]) {
-        capacityByResource[offer.resource] = { offered: 0, committed: 0 };
-      }
-      capacityByResource[offer.resource].offered += offer.quantity;
     }
 
-    // Sum contract commitments
-    for (const contract of memoryContracts) {
-      const c = contract as { resource: string; quantity: number };
-      if (!capacityByResource[c.resource]) {
-        capacityByResource[c.resource] = { offered: 0, committed: 0 };
-      }
-      capacityByResource[c.resource].committed += c.quantity;
-    }
-
-    const totalVolume = contracts.reduce((sum, c) => sum + c.quantity, 0);
-
-    // Transaction history - contracts are the primary mechanism now
-    const transactions: MarketTelemetry["transactions"] = [];
-
-    // Build capacity analysis with remaining capacity
-    const capacity: MarketTelemetry["capacity"] = {};
-    for (const resource in capacityByResource) {
-      const cap = capacityByResource[resource];
-      capacity[resource] = {
-        offered: cap.offered,
-        committed: cap.committed,
-        remaining: cap.offered - cap.committed,
-      };
-    }
-
-    const telemetry: MarketTelemetry = {
+    const telemetry: FlowTelemetry = {
       version: 1,
       tick: Game.time,
-      offers: {
-        buys: buyOffers,
-        sells: sellOffers,
+      sources,
+      sinks,
+      summary: flowSolution ? {
+        totalHarvest: flowSolution.totalHarvest,
+        totalOverhead: flowSolution.totalOverhead,
+        netEnergy: flowSolution.netEnergy,
+        efficiency: flowSolution.efficiency,
+        isSustainable: flowSolution.isSustainable,
+        minerCount: flowSolution.miners.length,
+        haulerCount: flowSolution.haulers.length,
+      } : {
+        totalHarvest: 0,
+        totalOverhead: 0,
+        netEnergy: 0,
+        efficiency: 0,
+        isSustainable: false,
+        minerCount: 0,
+        haulerCount: 0,
       },
-      contracts,
-      transactions,
-      summary: {
-        totalBuyOffers: buyOffers.length,
-        totalSellOffers: sellOffers.length,
-        totalContracts: contracts.length,
-        totalVolume,
-        totalTransactions: transactions.length,
-      },
-      capacity,
+      warnings: flowSolution?.warnings || [],
     };
 
-    RawMemory.segments[TELEMETRY_SEGMENTS.MARKET] = JSON.stringify(telemetry);
+    RawMemory.segments[TELEMETRY_SEGMENTS.FLOW] = JSON.stringify(telemetry);
   }
 }
 

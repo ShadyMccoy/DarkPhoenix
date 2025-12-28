@@ -56,6 +56,12 @@ declare global {
    */
   interface Memory {
     /**
+     * Flag set after one-time memory wipe on respawn.
+     * Remove this (and the wipe code in main.ts) after confirming respawn works.
+     */
+    memoryCleared?: boolean;
+
+    /**
      * Serialized colony state for persistence across ticks.
      */
     colony?: SerializedColony;

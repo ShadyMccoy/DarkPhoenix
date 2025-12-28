@@ -14,7 +14,7 @@ let telemetry = {
   intel: null,
   corps: null,
   chains: null,
-  market: null,  // Market offers and contracts
+  flow: null,    // Flow economy: sources, sinks, allocations
   lastUpdate: 0,
 };
 
@@ -84,16 +84,18 @@ const elements = {
   corpsActive: document.getElementById("corps-active"),
   corpsBalance: document.getElementById("corps-balance"),
 
-  // Market
-  marketBuys: document.getElementById("market-buys"),
-  marketSells: document.getElementById("market-sells"),
-  marketContracts: document.getElementById("market-contracts"),
-  marketVolume: document.getElementById("market-volume"),
-  marketBuysTable: document.querySelector("#market-buys-table tbody"),
-  marketSellsTable: document.querySelector("#market-sells-table tbody"),
-  marketContractsTable: document.querySelector("#market-contracts-table tbody"),
-  marketTransactionsTable: document.querySelector("#market-transactions-table tbody"),
-  marketTransactionsCount: document.getElementById("market-transactions-count"),
+  // Flow
+  flowHarvest: document.getElementById("flow-harvest"),
+  flowOverhead: document.getElementById("flow-overhead"),
+  flowNet: document.getElementById("flow-net"),
+  flowEfficiency: document.getElementById("flow-efficiency"),
+  flowSustainable: document.getElementById("flow-sustainable"),
+  flowSourcesTable: document.querySelector("#flow-sources-table tbody"),
+  flowSinksTable: document.querySelector("#flow-sinks-table tbody"),
+  flowMiners: document.getElementById("flow-miners"),
+  flowHaulers: document.getElementById("flow-haulers"),
+  flowWarningsSection: document.getElementById("flow-warnings-section"),
+  flowWarnings: document.getElementById("flow-warnings"),
 
   // Network
   networkCanvas: document.getElementById("network-canvas"),
@@ -337,9 +339,9 @@ function updateUI() {
     updateIntelUI(telemetry.intel);
   }
 
-  // Update Market
-  if (telemetry.market) {
-    updateMarketUI(telemetry.market);
+  // Update Flow
+  if (telemetry.flow) {
+    updateFlowUI(telemetry.flow);
   }
 
   // Update Network graph
@@ -524,89 +526,73 @@ function updateIntelUI(intel) {
 }
 
 /**
- * Update market UI.
+ * Update flow economy UI.
  */
-function updateMarketUI(market) {
-  // Update summary
-  elements.marketBuys.textContent = market.summary?.totalBuyOffers || 0;
-  elements.marketSells.textContent = market.summary?.totalSellOffers || 0;
-  elements.marketContracts.textContent = market.summary?.totalContracts || 0;
-  elements.marketVolume.textContent = formatNumber(Math.round(market.summary?.totalVolume || 0));
+function updateFlowUI(flow) {
+  // Update summary stats
+  const summary = flow.summary || {};
+  elements.flowHarvest.textContent = formatNumber(Math.round(summary.totalHarvest || 0));
+  elements.flowOverhead.textContent = formatNumber(Math.round(summary.totalOverhead || 0));
+  elements.flowNet.textContent = formatNumber(Math.round(summary.netEnergy || 0));
+  elements.flowEfficiency.textContent = (summary.efficiency || 0).toFixed(1);
 
-  // Update buy offers table
-  const buys = market.offers?.buys || [];
-  elements.marketBuysTable.innerHTML = buys
-    .sort((a, b) => b.price - a.price)
+  // Update sustainable badge
+  if (summary.isSustainable) {
+    elements.flowSustainable.textContent = "Sustainable";
+    elements.flowSustainable.className = "status-badge status-active";
+  } else {
+    elements.flowSustainable.textContent = "Unsustainable";
+    elements.flowSustainable.className = "status-badge status-inactive";
+  }
+
+  // Update creep counts
+  elements.flowMiners.textContent = summary.minerCount || 0;
+  elements.flowHaulers.textContent = summary.haulerCount || 0;
+
+  // Update sources table
+  const sources = flow.sources || [];
+  elements.flowSourcesTable.innerHTML = sources
+    .sort((a, b) => b.harvestRate - a.harvestRate)
     .map(
-      (offer) => `
+      (source) => `
     <tr>
-      <td title="${offer.corpId}">${offer.corpId.slice(-8)}</td>
-      <td>${offer.corpType}</td>
-      <td>${offer.resource}</td>
-      <td>${formatNumber(offer.quantity)}</td>
-      <td>${formatNumber(Math.round(offer.price))}</td>
-      <td>${offer.unitPrice.toFixed(3)}</td>
+      <td title="${source.id}">${source.id.slice(-12)}</td>
+      <td title="${source.nodeId}">${source.nodeId ? source.nodeId.slice(-8) : "--"}</td>
+      <td>${source.harvestRate.toFixed(1)}/tick</td>
+      <td>${source.workParts}</td>
     </tr>
   `
     )
-    .join("") || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No buy offers</td></tr>';
+    .join("") || '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No sources</td></tr>';
 
-  // Update sell offers table
-  const sells = market.offers?.sells || [];
-  elements.marketSellsTable.innerHTML = sells
-    .sort((a, b) => a.price - b.price)
+  // Update sinks table
+  const sinks = flow.sinks || [];
+  elements.flowSinksTable.innerHTML = sinks
+    .sort((a, b) => b.priority - a.priority)
     .map(
-      (offer) => `
+      (sink) => `
     <tr>
-      <td title="${offer.corpId}">${offer.corpId.slice(-8)}</td>
-      <td>${offer.corpType}</td>
-      <td>${offer.resource}</td>
-      <td>${formatNumber(offer.quantity)}</td>
-      <td>${formatNumber(Math.round(offer.price))}</td>
-      <td>${offer.unitPrice.toFixed(3)}</td>
+      <td title="${sink.id}">${sink.id.slice(-12)}</td>
+      <td>${sink.type}</td>
+      <td>${formatNumber(Math.round(sink.demand))}</td>
+      <td>${formatNumber(Math.round(sink.allocated))}</td>
+      <td class="${sink.unmet > 0 ? 'status-warning' : ''}">${formatNumber(Math.round(sink.unmet))}</td>
+      <td>${sink.priority}</td>
     </tr>
   `
     )
-    .join("") || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No sell offers</td></tr>';
+    .join("") || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No sinks</td></tr>';
 
-  // Update contracts table
-  const contracts = market.contracts || [];
-  elements.marketContractsTable.innerHTML = contracts
-    .map(
-      (contract) => `
-    <tr>
-      <td title="${contract.sellerId}">${contract.sellerId.slice(-8)}</td>
-      <td title="${contract.buyerId}">${contract.buyerId.slice(-8)}</td>
-      <td>${contract.resource}</td>
-      <td>${formatNumber(contract.quantity)}</td>
-      <td>${formatNumber(Math.round(contract.totalPrice))}</td>
-    </tr>
-  `
-    )
-    .join("") || '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No contracts this tick</td></tr>';
-
-  // Update transactions history table
-  const transactions = market.transactions || [];
-  const totalTransactions = market.summary?.totalTransactions || transactions.length;
-  elements.marketTransactionsCount.textContent = `(${totalTransactions} total)`;
-
-  // Sort by tick descending (most recent first)
-  elements.marketTransactionsTable.innerHTML = [...transactions]
-    .sort((a, b) => b.tick - a.tick)
-    .map(
-      (tx) => `
-    <tr>
-      <td>${tx.tick}</td>
-      <td title="${tx.sellerId}">${tx.sellerId.slice(-8)}</td>
-      <td title="${tx.buyerId}">${tx.buyerId.slice(-8)}</td>
-      <td>${tx.resource}</td>
-      <td>${formatNumber(tx.quantity)}</td>
-      <td>${tx.pricePerUnit.toFixed(3)}</td>
-      <td>${formatNumber(Math.round(tx.totalPayment))}</td>
-    </tr>
-  `
-    )
-    .join("") || '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No transactions yet</td></tr>';
+  // Update warnings
+  const warnings = flow.warnings || [];
+  if (warnings.length > 0) {
+    elements.flowWarningsSection.style.display = "block";
+    elements.flowWarnings.innerHTML = warnings
+      .map((w) => `<li>${w}</li>`)
+      .join("");
+  } else {
+    elements.flowWarningsSection.style.display = "none";
+  }
 }
 
 /**

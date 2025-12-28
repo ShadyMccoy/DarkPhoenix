@@ -66,8 +66,8 @@ export class ConstructionCorp extends Corp {
    */
   private constructionAllocations: SinkAllocation[] = [];
 
-  constructor(nodeId: string, spawnId: string) {
-    super("building", nodeId);
+  constructor(nodeId: string, spawnId: string, customId?: string) {
+    super("building", nodeId, customId);
     this.spawnId = spawnId;
   }
 
@@ -166,7 +166,7 @@ export class ConstructionCorp extends Corp {
     }
     this.lastPlacementAttempt = tick;
 
-    const pos = this.findWallAdjacentPosition(room, spawn);
+    const pos = this.findGridPosition(room, spawn);
     if (!pos) {
       return;
     }
@@ -179,15 +179,18 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Find a position near spawns that is accessible.
+   * Find a position for extension using a grid pattern near sources.
+   * Uses checkerboard pattern (every other tile) for walkability.
    */
-  private findWallAdjacentPosition(room: Room, spawn: StructureSpawn): { x: number; y: number } | null {
+  private findGridPosition(room: Room, spawn: StructureSpawn): { x: number; y: number } | null {
     const terrain = room.getTerrain();
     const candidates: { x: number; y: number; score: number }[] = [];
 
-    const spawns = room.find(FIND_MY_SPAWNS);
+    // Build set of positions to avoid (occupied or reserved)
     const avoidPositions = new Set<string>();
 
+    // Avoid spawn and adjacent tiles
+    const spawns = room.find(FIND_MY_SPAWNS);
     for (const s of spawns) {
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
@@ -196,23 +199,26 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // Avoid source mining positions (1 tile radius for miners)
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
-      for (let dx = -2; dx <= 2; dx++) {
-        for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
           avoidPositions.add(`${source.pos.x + dx},${source.pos.y + dy}`);
         }
       }
     }
 
+    // Avoid controller upgrade positions (2 tile radius)
     if (room.controller) {
-      for (let dx = -3; dx <= 3; dx++) {
-        for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
           avoidPositions.add(`${room.controller.pos.x + dx},${room.controller.pos.y + dy}`);
         }
       }
     }
 
+    // Avoid existing structures and construction sites
     const structures = room.find(FIND_STRUCTURES);
     const sites = room.find(FIND_CONSTRUCTION_SITES);
     for (const s of structures) {
@@ -222,42 +228,75 @@ export class ConstructionCorp extends Corp {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
     }
 
-    for (let x = 2; x < 48; x++) {
-      for (let y = 2; y < 48; y++) {
-        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-        if (avoidPositions.has(`${x},${y}`)) continue;
+    // Search in a grid pattern near sources (priority) and spawn (fallback)
+    // Checkerboard: only consider tiles where (x + y) % 2 === 0
+    const searchCenters = [
+      ...sources.map(s => ({ x: s.pos.x, y: s.pos.y, priority: 10 })),
+      { x: spawn.pos.x, y: spawn.pos.y, priority: 5 }
+    ];
 
-        let openNeighbors = 0;
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            if (dx === 0 && dy === 0) continue;
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx < 0 || nx > 49 || ny < 0 || ny > 49) continue;
+    for (const center of searchCenters) {
+      // Search in expanding rings from 2 to 6 tiles away
+      for (let radius = 2; radius <= 6; radius++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            // Only check tiles at this exact radius (ring, not filled circle)
+            if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
 
-            if (terrain.get(nx, ny) !== TERRAIN_MASK_WALL) {
-              openNeighbors++;
+            const x = center.x + dx;
+            const y = center.y + dy;
+
+            // Bounds check
+            if (x < 2 || x > 47 || y < 2 || y > 47) continue;
+
+            // Checkerboard pattern for walkability
+            if ((x + y) % 2 !== 0) continue;
+
+            // Skip walls and swamps (prefer plains)
+            const terrainType = terrain.get(x, y);
+            if (terrainType === TERRAIN_MASK_WALL) continue;
+
+            // Skip avoided positions
+            if (avoidPositions.has(`${x},${y}`)) continue;
+
+            // Ensure at least 3 walkable neighbors (path connectivity)
+            let walkableNeighbors = 0;
+            for (let nx = -1; nx <= 1; nx++) {
+              for (let ny = -1; ny <= 1; ny++) {
+                if (nx === 0 && ny === 0) continue;
+                const tx = x + nx;
+                const ty = y + ny;
+                if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
+                if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
+                  walkableNeighbors++;
+                }
+              }
             }
+            if (walkableNeighbors < 3) continue;
+
+            // Score: closer to sources = better, plains = better than swamp
+            const distToSpawn = Math.max(Math.abs(x - spawn.pos.x), Math.abs(y - spawn.pos.y));
+            let minDistToSource = Infinity;
+            for (const source of sources) {
+              const dist = Math.max(Math.abs(x - source.pos.x), Math.abs(y - source.pos.y));
+              minDistToSource = Math.min(minDistToSource, dist);
+            }
+
+            // Prefer positions between sources and spawn (for hauler efficiency)
+            const score = center.priority * 10
+              + (10 - Math.min(minDistToSource, 10))
+              + (terrainType === 0 ? 5 : 0)  // Bonus for plains
+              - distToSpawn * 0.5;  // Slight penalty for being far from spawn
+
+            candidates.push({ x, y, score });
           }
         }
-
-        if (openNeighbors < 3) continue;
-
-        let minDistToSpawn = Infinity;
-        for (const s of spawns) {
-          const dist = Math.max(Math.abs(x - s.pos.x), Math.abs(y - s.pos.y));
-          minDistToSpawn = Math.min(minDistToSpawn, dist);
-        }
-
-        if (minDistToSpawn < 2 || minDistToSpawn > 8) continue;
-
-        const score = 100 - minDistToSpawn * 10;
-        candidates.push({ x, y, score });
       }
     }
 
     if (candidates.length === 0) return null;
 
+    // Sort by score descending
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0];
   }
@@ -418,6 +457,9 @@ export class ConstructionCorp extends Corp {
   }
 }
 
+/** Starting balance for construction corps (enough to place several extensions) */
+const CONSTRUCTION_CORP_STARTING_BALANCE = 1000;
+
 /**
  * Create a ConstructionCorp for a room.
  */
@@ -426,5 +468,7 @@ export function createConstructionCorp(
   spawn: StructureSpawn
 ): ConstructionCorp {
   const nodeId = `${room.name}-construction`;
-  return new ConstructionCorp(nodeId, spawn.id);
+  const corp = new ConstructionCorp(nodeId, spawn.id);
+  corp.balance = CONSTRUCTION_CORP_STARTING_BALANCE;
+  return corp;
 }

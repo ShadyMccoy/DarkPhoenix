@@ -103,6 +103,13 @@ export interface FlowSource {
 
   /** Current energy output (may be less than capacity if not fully mined) */
   currentOutput: number;
+
+  /**
+   * Maximum miners that can work this source simultaneously.
+   * Determined by counting walkable tiles adjacent to the source.
+   * Used for early game when multiple small miners are more efficient.
+   */
+  maxMiners: number;
 }
 
 // =============================================================================
@@ -207,6 +214,13 @@ export interface MinerAssignment {
 
   /** Spawn cost per tick for this miner */
   spawnCostPerTick: number;
+
+  /**
+   * Maximum number of miners that can work this source simultaneously.
+   * Determined by counting walkable tiles adjacent to the source.
+   * Allows spawning multiple smaller miners in early game when energy capacity is limited.
+   */
+  maxMiners: number;
 }
 
 /**
@@ -414,7 +428,8 @@ export function createFlowSource(
   gameId: string,
   nodeId: string,
   position: Position,
-  capacity: number = SOURCE_ENERGY_PER_TICK
+  capacity: number = SOURCE_ENERGY_PER_TICK,
+  maxMiners: number = 1
 ): FlowSource {
   return {
     id: `source-${gameId}`,
@@ -424,6 +439,7 @@ export function createFlowSource(
     gameId,
     assigned: false,
     currentOutput: 0,
+    maxMiners,
   };
 }
 
