@@ -35,6 +35,7 @@ interface ScenarioAnalysis {
   harvestCost: number;
   haulCost: number;
   decayCost: number;
+  claimerCost: number;
   netEnergy: number;
   efficiency: number;
   sources: SourceAnalysis[];
@@ -60,6 +61,9 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   // Get mining spots from config (default 0 = container mining, no decay)
   // Early game with ground piles: 2-3 spots per source, each pile decays
   const miningSpots = (scenario.config as any)?.miningSpots ?? 0;
+
+  // Claimer cost for reserved remote rooms (2 CLAIM + 2 MOVE = 1300, 500 TTL = ~2.6/tick)
+  const claimerCost = (scenario.config as any)?.claimerCost ?? 0;
 
   // Find spawn and controller positions
   let spawnPos = { x: 25, y: 25 };
@@ -131,7 +135,7 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
   const harvestCost = sources.reduce((s, src) => s + src.harvestCost, 0);
   const haulCost = sources.reduce((s, src) => s + src.haulCost, 0);
   const decayCost = sources.reduce((s, src) => s + src.decayCost, 0);
-  const totalCost = harvestCost + haulCost + decayCost;
+  const totalCost = harvestCost + haulCost + decayCost + claimerCost;
   const netEnergy = supply - totalCost;
   const efficiency = supply > 0 ? (netEnergy / supply) * 100 : 0;
 
@@ -141,6 +145,7 @@ function analyzeScenario(scenario: Scenario): ScenarioAnalysis | null {
     harvestCost,
     haulCost,
     decayCost,
+    claimerCost,
     netEnergy,
     efficiency,
     sources
@@ -196,15 +201,28 @@ function main(): void {
     "  │  " +
     padRight("Harvesters", 14) +
     padRight("Haulers", 14) +
-    padRight("Decay", 12) +
+    padRight("Other", 14) +
     padLeft("Net", 7)
   );
-  console.log("─".repeat(39) + "─┼──" + "─".repeat(47));
+  console.log("─".repeat(39) + "─┼──" + "─".repeat(49));
 
   for (const a of analyses) {
     const harvestPct = ((a.harvestCost / a.supply) * 100).toFixed(0);
     const haulPct = ((a.haulCost / a.supply) * 100).toFixed(0);
-    const decayPct = ((a.decayCost / a.supply) * 100).toFixed(0);
+    const otherCost = a.decayCost + a.claimerCost;
+    const otherPct = ((otherCost / a.supply) * 100).toFixed(0);
+
+    // Build other label (decay/claimer)
+    let otherLabel = "";
+    if (a.decayCost > 0 && a.claimerCost > 0) {
+      otherLabel = `${otherCost.toFixed(1)} (${otherPct}%)`;
+    } else if (a.decayCost > 0) {
+      otherLabel = `${a.decayCost.toFixed(1)} (${otherPct}%)`;
+    } else if (a.claimerCost > 0) {
+      otherLabel = `${a.claimerCost.toFixed(1)} (${otherPct}%)`;
+    } else {
+      otherLabel = `0.0 (0%)`;
+    }
 
     console.log(
       padRight(a.name.substring(0, 23), 24) +
@@ -213,16 +231,16 @@ function main(): void {
       "  │  " +
       padRight(`${a.harvestCost.toFixed(2)} (${harvestPct}%)`, 14) +
       padRight(`${a.haulCost.toFixed(2)} (${haulPct}%)`, 14) +
-      padRight(`${a.decayCost.toFixed(1)} (${decayPct}%)`, 12) +
+      padRight(otherLabel, 14) +
       padLeft(a.netEnergy.toFixed(1), 7)
     );
   }
 
   console.log("");
-  console.log("Supply = gross energy/tick from sources");
+  console.log("Supply = gross energy/tick from sources (1500 unreserved, 3000 reserved/owned)");
   console.log("Eff% = (Supply - Costs) / Supply");
   console.log("Harvesters/Haulers = spawn costs as energy/tick (% of supply)");
-  console.log("Decay = energy lost to ground decay (1/tick per pile, miningSpots piles per source)");
+  console.log("Other = decay (1/tick per ground pile) + claimer (2.6/tick for reservation)");
   console.log("");
 }
 
