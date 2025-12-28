@@ -11,7 +11,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { parseScenario, Scenario } from "../src/planning/ScenarioRunner";
+import { parseScenario, Scenario } from "../test/planning/ScenarioRunner";
 
 // Economic constants
 const CREEP_LIFESPAN = 1500;
