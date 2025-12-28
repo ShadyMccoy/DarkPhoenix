@@ -143,103 +143,183 @@ function printEfficiencyScorecard(results: ScenarioResult[]): void {
   console.log(colorize("======================================================================", "bright"));
   console.log(colorize("EFFICIENCY SCORECARD", "bright"));
   console.log(colorize("======================================================================", "bright"));
-  console.log("");
 
-  // Calculate metrics for each scenario
-  interface ScenarioMetrics {
-    name: string;
-    sources: number;
-    totalCapacity: number;
-    roomDistance: number;
-    profit: number;
-    energyPerSource: number;
-    chains: number;
+  // Economic constants
+  const CREEP_LIFESPAN = 1500;
+  const MINER_COST = 5 * 100 + 1 * 50 + 3 * 50; // 5W 1C 3M = 700
+  const HAULER_COST_PER_CARRY = 100; // 1C 1M = 100
+  const CARRY_CAPACITY = 50;
+
+  interface SourceEcon {
+    distance: number;
+    grossPerTick: number;
+    miningCost: number;
+    haulCost: number;
+    netPerTick: number;
+    efficiency: number;
   }
 
-  const metrics: ScenarioMetrics[] = [];
+  interface ScenarioEcon {
+    name: string;
+    sources: SourceEcon[];
+    totalGross: number;
+    totalMining: number;
+    totalHaul: number;
+    totalNet: number;
+    efficiency: number;
+    roomDistance: number;
+  }
+
+  const scenarioEcons: ScenarioEcon[] = [];
 
   for (const result of viable) {
-    // Count sources and total capacity
-    let sources = 0;
-    let totalCapacity = 0;
-    let maxRoomDistance = 0;
-    const homeRoom = result.scenario.nodes[0]?.roomName ?? "W1N1";
+    const scenario = result.scenario;
+    const homeRoom = scenario.nodes[0]?.roomName ?? "W1N1";
 
-    for (const node of result.scenario.nodes) {
+    // Find spawn position
+    let spawnPos = { x: 25, y: 25 };
+    let controllerPos = { x: 25, y: 40 };
+
+    for (const node of scenario.nodes) {
       for (const resource of node.resourceNodes) {
-        if (resource.type === "source") {
-          sources++;
-          totalCapacity += resource.capacity ?? 3000;
-          // Estimate room distance
-          if (node.roomName !== homeRoom) {
-            const dist = estimateRoomDist(homeRoom, node.roomName);
-            if (dist > maxRoomDistance) maxRoomDistance = dist;
-          }
+        if (resource.type === "spawn") {
+          spawnPos = resource.position;
+        }
+        if (resource.type === "controller") {
+          controllerPos = resource.position;
         }
       }
     }
 
-    // Sum profit from viable chains
-    let totalProfit = 0;
-    for (const chain of result.viableChains) {
-      totalProfit += chain.mintValue - chain.totalCost;
+    const sources: SourceEcon[] = [];
+    let maxRoomDist = 0;
+
+    for (const node of scenario.nodes) {
+      for (const resource of node.resourceNodes) {
+        if (resource.type === "source") {
+          const capacity = resource.capacity ?? 3000;
+          const grossPerTick = capacity / 300; // energy per tick
+
+          // Calculate distances
+          const roomDist = estimateRoomDist(homeRoom, node.roomName);
+          if (roomDist > maxRoomDist) maxRoomDist = roomDist;
+
+          // Distance from spawn to source (for mining)
+          const spawnToSource = roomDist * 50 +
+            Math.max(Math.abs(resource.position.x - spawnPos.x),
+                     Math.abs(resource.position.y - spawnPos.y));
+
+          // Distance from source to controller (for hauling)
+          const sourceToController = roomDist * 50 +
+            Math.max(Math.abs(resource.position.x - controllerPos.x),
+                     Math.abs(resource.position.y - controllerPos.y));
+
+          // Mining cost: miner body / lifespan + travel overhead
+          const miningCost = MINER_COST / CREEP_LIFESPAN +
+            (spawnToSource * 2 / CREEP_LIFESPAN) * grossPerTick;
+
+          // Hauling cost: need enough CARRY parts to move grossPerTick
+          // Round trip ticks = distance * 2
+          // Energy per trip = CARRY_CAPACITY * carryParts
+          // Trips per life = CREEP_LIFESPAN / roundTrip
+          // Need: grossPerTick * CREEP_LIFESPAN = trips * energyPerTrip
+          const roundTrip = sourceToController * 2 + 2;
+          const energyPerTick = CARRY_CAPACITY / roundTrip; // per CARRY part
+          const carryPartsNeeded = grossPerTick / energyPerTick;
+          const haulCost = (carryPartsNeeded * HAULER_COST_PER_CARRY) / CREEP_LIFESPAN;
+
+          const netPerTick = grossPerTick - miningCost - haulCost;
+          const efficiency = netPerTick / grossPerTick;
+
+          sources.push({
+            distance: sourceToController,
+            grossPerTick,
+            miningCost,
+            haulCost,
+            netPerTick,
+            efficiency
+          });
+        }
+      }
     }
 
-    metrics.push({
-      name: result.scenario.name,
+    // Sum totals
+    const totalGross = sources.reduce((s, src) => s + src.grossPerTick, 0);
+    const totalMining = sources.reduce((s, src) => s + src.miningCost, 0);
+    const totalHaul = sources.reduce((s, src) => s + src.haulCost, 0);
+    const totalNet = sources.reduce((s, src) => s + src.netPerTick, 0);
+
+    scenarioEcons.push({
+      name: scenario.name,
       sources,
-      totalCapacity,
-      roomDistance: maxRoomDistance,
-      profit: totalProfit,
-      energyPerSource: sources > 0 ? totalCapacity / sources : 0,
-      chains: result.viableChains.length
+      totalGross,
+      totalMining,
+      totalHaul,
+      totalNet,
+      efficiency: totalGross > 0 ? totalNet / totalGross : 0,
+      roomDistance: maxRoomDist
     });
   }
 
-  // Sort by total capacity (highest first)
-  metrics.sort((a, b) => b.totalCapacity - a.totalCapacity);
+  // Sort by net energy (highest first)
+  scenarioEcons.sort((a, b) => b.totalNet - a.totalNet);
 
-  // Print table header
+  // Print summary table
+  console.log("");
   console.log(
-    padRight("Scenario", 25) +
-    padRight("Sources", 9) +
-    padRight("Capacity", 10) +
-    padRight("E/Source", 10) +
-    padRight("Distance", 10) +
-    padRight("Profit", 10)
+    padRight("Scenario", 22) +
+    padRight("Src", 4) +
+    padRight("Gross", 8) +
+    padRight("Mining", 8) +
+    padRight("Haul", 8) +
+    padRight("Net", 8) +
+    padRight("Eff", 7)
   );
-  console.log("-".repeat(74));
+  console.log("-".repeat(65));
 
-  // Print each row
-  for (const m of metrics) {
-    const distStr = m.roomDistance > 0 ? `${m.roomDistance} rooms` : "local";
+  for (const e of scenarioEcons) {
+    const distStr = e.roomDistance > 0 ? ` (${e.roomDistance}rm)` : "";
     console.log(
-      padRight(m.name.substring(0, 24), 25) +
-      padRight(String(m.sources), 9) +
-      padRight(String(m.totalCapacity), 10) +
-      padRight(String(m.energyPerSource), 10) +
-      padRight(distStr, 10) +
-      padRight(m.profit.toFixed(0), 10)
+      padRight(e.name.substring(0, 21) + distStr, 22) +
+      padRight(String(e.sources.length), 4) +
+      padRight(e.totalGross.toFixed(1), 8) +
+      padRight(e.totalMining.toFixed(2), 8) +
+      padRight(e.totalHaul.toFixed(2), 8) +
+      padRight(e.totalNet.toFixed(1), 8) +
+      padRight((e.efficiency * 100).toFixed(0) + "%", 7)
     );
   }
 
-  console.log("");
+  // Show detailed breakdown for interesting scenarios
+  const keeper = scenarioEcons.find(s => s.name.toLowerCase().includes("keeper"));
+  const twoSource = scenarioEcons.find(s => s.name.toLowerCase().includes("two source"));
 
-  // Print comparison insights
-  if (metrics.length >= 2) {
-    const keeper = metrics.find((m) => m.name.toLowerCase().includes("keeper"));
-    const normal = metrics.find((m) => m.sources === 2 && m.roomDistance === 0);
-
-    if (keeper && normal) {
-      const capacityRatio = keeper.totalCapacity / normal.totalCapacity;
-      const sourceRatio = keeper.sources / normal.sources;
-      console.log(colorize("Keeper vs Normal Room:", "cyan"));
-      console.log(`  Capacity: ${capacityRatio.toFixed(1)}x (${keeper.totalCapacity} vs ${normal.totalCapacity})`);
-      console.log(`  Sources:  ${sourceRatio.toFixed(1)}x (${keeper.sources} vs ${normal.sources})`);
-      console.log(`  E/Source: ${keeper.energyPerSource} vs ${normal.energyPerSource} (+${((keeper.energyPerSource / normal.energyPerSource - 1) * 100).toFixed(0)}%)`);
-      console.log("");
+  if (keeper) {
+    console.log("");
+    console.log(colorize(`--- ${keeper.name} Source Breakdown ---`, "cyan"));
+    for (let i = 0; i < keeper.sources.length; i++) {
+      const src = keeper.sources[i];
+      console.log(
+        `  Source ${i + 1}: ` +
+        `dist=${src.distance.toFixed(0).padStart(3)}, ` +
+        `gross=${src.grossPerTick.toFixed(1)}, ` +
+        `mine=${src.miningCost.toFixed(2)}, ` +
+        `haul=${src.haulCost.toFixed(2)}, ` +
+        `net=${src.netPerTick.toFixed(2)}, ` +
+        `eff=${(src.efficiency * 100).toFixed(0)}%`
+      );
     }
   }
+
+  // Comparison
+  if (keeper && twoSource) {
+    console.log("");
+    console.log(colorize("--- Keeper vs Two Source Room ---", "cyan"));
+    console.log(`  Gross energy: ${keeper.totalGross.toFixed(1)} vs ${twoSource.totalGross.toFixed(1)} (+${((keeper.totalGross / twoSource.totalGross - 1) * 100).toFixed(0)}%)`);
+    console.log(`  Net energy:   ${keeper.totalNet.toFixed(1)} vs ${twoSource.totalNet.toFixed(1)} (+${((keeper.totalNet / twoSource.totalNet - 1) * 100).toFixed(0)}%)`);
+    console.log(`  Efficiency:   ${(keeper.efficiency * 100).toFixed(0)}% vs ${(twoSource.efficiency * 100).toFixed(0)}%`);
+  }
+  console.log("");
 }
 
 function padRight(str: string, len: number): string {
