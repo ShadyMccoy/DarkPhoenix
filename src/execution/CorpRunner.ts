@@ -376,3 +376,195 @@ export function logCorpStats(registry: CorpRegistry): void {
 
   console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
 }
+
+/**
+ * Request creeps from SpawningCorp based on flow assignments.
+ *
+ * This bridges the gap between FlowMaterializer (which stores assignments on corps)
+ * and SpawningCorp (which spawns creeps from queued orders).
+ *
+ * Spawn priority (proportional):
+ * 1. Spawn miners and haulers proportionally (1 hauler per miner)
+ * 2. After all mining pairs complete, spawn upgraders
+ *
+ * Example with 2 sources:
+ *   Miner 1 → Hauler 1 → Miner 2 → Hauler 2 → Upgrader
+ *
+ * Called every tick to ensure spawn orders are queued when corps need creeps.
+ */
+export function requestFlowCreeps(registry: CorpRegistry): void {
+  // Find the spawning corp to queue orders with
+  const spawningCorpIds = Object.keys(registry.spawningCorps);
+  if (spawningCorpIds.length === 0) return;
+
+  // Track mining infrastructure status per room
+  const roomStats = new Map<string, {
+    totalMiners: number;
+    totalHaulers: number;
+    targetMiners: number;
+    targetHaulers: number;
+    carryCorp: CarryCorp | null;
+    haulerAssignments: any[];
+    spawningCorp: SpawningCorp | null;
+  }>();
+
+  // Build a map of sourceId -> hauler assignment for pairing
+  const haulerAssignmentsBySource = new Map<string, { carryCorp: CarryCorp; assignment: any }>();
+  for (const roomName in registry.haulingCorps) {
+    const carryCorp = registry.haulingCorps[roomName];
+    const assignments = carryCorp.getHaulerAssignments();
+    if (!assignments) continue;
+
+    for (const assignment of assignments) {
+      haulerAssignmentsBySource.set(assignment.fromId, { carryCorp, assignment });
+    }
+
+    // Initialize room stats
+    if (!roomStats.has(roomName)) {
+      const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
+      roomStats.set(roomName, {
+        totalMiners: 0,
+        totalHaulers: carryCorp.getCreepCount(),
+        targetMiners: 0,
+        targetHaulers: assignments.length,
+        carryCorp,
+        haulerAssignments: assignments,
+        spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
+      });
+    }
+  }
+
+  // First pass: count existing miners and targets per room
+  const sourcesNeedingMiners: Array<{ harvestCorp: HarvestCorp; minerAssignment: any; roomName: string }> = [];
+
+  for (const sourceId in registry.harvestCorps) {
+    const harvestCorp = registry.harvestCorps[sourceId];
+    const minerAssignment = harvestCorp.getMinerAssignment();
+
+    if (!minerAssignment) continue;
+
+    // Determine room from the source position or node
+    const roomName = minerAssignment.nodeId.split("-")[0];
+
+    // Initialize room stats if needed
+    if (!roomStats.has(roomName)) {
+      const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
+      roomStats.set(roomName, {
+        totalMiners: 0,
+        totalHaulers: 0,
+        targetMiners: 0,
+        targetHaulers: 0,
+        carryCorp: null,
+        haulerAssignments: [],
+        spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
+      });
+    }
+
+    const stats = roomStats.get(roomName)!;
+    stats.targetMiners++;
+
+    const minerCount = harvestCorp.getCreepCount();
+    stats.totalMiners += minerCount;
+
+    if (minerCount < 1) {
+      sourcesNeedingMiners.push({ harvestCorp, minerAssignment, roomName });
+    }
+  }
+
+  // === Proportional spawning: miners and haulers in lockstep ===
+  for (const [roomName, stats] of roomStats) {
+    if (!stats.spawningCorp) continue;
+
+    const pendingCount = stats.spawningCorp.getPendingOrderCount();
+    if (pendingCount >= 2) continue; // Keep queue small for responsiveness
+
+    // Target haulers = number of miners that exist (proportional)
+    const targetHaulersForCurrentMiners = Math.min(stats.totalMiners, stats.targetHaulers);
+
+    // Decision: do we need a miner or a hauler next?
+    const needMoreMiners = stats.totalMiners < stats.targetMiners;
+    const needMoreHaulers = stats.totalHaulers < targetHaulersForCurrentMiners;
+
+    if (needMoreMiners && stats.totalHaulers >= stats.totalMiners) {
+      // Haulers caught up to miners, spawn next miner
+      const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
+      if (sourceInfo) {
+        const workParts = Math.ceil(sourceInfo.minerAssignment.harvestRate / 2);
+        stats.spawningCorp.queueSpawnOrder({
+          buyerCorpId: sourceInfo.harvestCorp.id,
+          creepType: "miner",
+          workTicksRequested: workParts,
+          queuedAt: Game.time,
+        });
+        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK)`);
+        // Remove from list so we don't queue twice
+        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+      }
+    } else if (needMoreHaulers && stats.carryCorp && stats.totalMiners > 0) {
+      // Have miners without matching haulers, spawn hauler
+      // Pick the first hauler assignment (they're all for the same CarryCorp)
+      const assignment = stats.haulerAssignments[0];
+      if (assignment) {
+        stats.spawningCorp.queueSpawnOrder({
+          buyerCorpId: stats.carryCorp.id,
+          creepType: "hauler",
+          workTicksRequested: assignment.carryParts,
+          haulDemandRequested: assignment.carryParts,
+          queuedAt: Game.time,
+        });
+        console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${assignment.carryParts} CARRY)`);
+      }
+    } else if (needMoreMiners) {
+      // No haulers needed yet, just spawn miners
+      const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
+      if (sourceInfo) {
+        const workParts = Math.ceil(sourceInfo.minerAssignment.harvestRate / 2);
+        stats.spawningCorp.queueSpawnOrder({
+          buyerCorpId: sourceInfo.harvestCorp.id,
+          creepType: "miner",
+          workTicksRequested: workParts,
+          queuedAt: Game.time,
+        });
+        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK)`);
+        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
+      }
+    }
+  }
+
+  // === After all mining pairs complete, spawn upgraders ===
+  for (const [roomName, stats] of roomStats) {
+    // Mining is only complete if we have targets AND met them
+    // Prevents upgraders from spawning when no miners are planned/exist
+    const hasMiningPlan = stats.targetMiners > 0;
+    const miningComplete = hasMiningPlan &&
+                           stats.totalMiners >= stats.targetMiners &&
+                           stats.totalHaulers >= stats.targetHaulers;
+
+    if (!miningComplete) continue;
+
+    const upgradingCorp = registry.upgradingCorps[roomName];
+    if (!upgradingCorp) continue;
+
+    const allocation = upgradingCorp.getSinkAllocation();
+    if (!allocation || allocation.allocated <= 0) continue;
+
+    const currentCreeps = upgradingCorp.getCreepCount();
+    if (currentCreeps >= 1) continue; // Already have an upgrader
+
+    if (!stats.spawningCorp) continue;
+
+    const pendingCount = stats.spawningCorp.getPendingOrderCount();
+    if (pendingCount >= 2) continue;
+
+    const workParts = Math.ceil(allocation.allocated);
+    stats.spawningCorp.queueSpawnOrder({
+      buyerCorpId: upgradingCorp.id,
+      creepType: "upgrader",
+      workTicksRequested: Math.min(workParts, 5),
+      queuedAt: Game.time,
+    });
+    console.log(`[FlowSpawn] Queued upgrader for ${upgradingCorp.id} (${Math.min(workParts, 5)} WORK)`);
+  }
+}

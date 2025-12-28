@@ -286,6 +286,17 @@ export class SpawningCorp extends Corp {
   }
 
   /**
+   * Clear all pending spawn orders.
+   * Used to recover from stale/invalid orders in the queue.
+   */
+  clearPendingOrders(): number {
+    const count = this.pendingOrders.length;
+    this.pendingOrders = [];
+    this.stuckSince = 0;
+    return count;
+  }
+
+  /**
    * Get the spawn ID.
    */
   getSpawnId(): string {

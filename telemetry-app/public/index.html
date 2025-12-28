@@ -22,7 +22,7 @@
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="nodes">Nodes</button>
       <button class="tab" data-tab="corps">Corps</button>
-      <button class="tab" data-tab="market">Market</button>
+      <button class="tab" data-tab="flow">Flow</button>
       <button class="tab" data-tab="network">Network</button>
       <button class="tab" data-tab="intel">Intel</button>
     </nav>
@@ -210,29 +210,28 @@
         </table>
       </section>
 
-      <!-- Market Tab -->
-      <section id="market" class="tab-content">
+      <!-- Flow Tab -->
+      <section id="flow" class="tab-content">
         <div class="market-header">
-          <h3>Market Activity</h3>
+          <h3>Flow Economy</h3>
           <div class="summary-stats">
-            <span>Buy Offers: <strong id="market-buys">--</strong></span>
-            <span>Sell Offers: <strong id="market-sells">--</strong></span>
-            <span>Contracts: <strong id="market-contracts">--</strong></span>
-            <span>Volume: <strong id="market-volume">--</strong></span>
+            <span>Harvest: <strong id="flow-harvest">--</strong>/tick</span>
+            <span>Overhead: <strong id="flow-overhead">--</strong>/tick</span>
+            <span>Net: <strong id="flow-net">--</strong>/tick</span>
+            <span>Efficiency: <strong id="flow-efficiency">--</strong>%</span>
+            <span id="flow-sustainable" class="status-badge">--</span>
           </div>
         </div>
         <div class="market-grid">
           <div class="market-section">
-            <h4>Buy Offers</h4>
-            <table id="market-buys-table" class="data-table">
+            <h4>Sources (Energy Production)</h4>
+            <table id="flow-sources-table" class="data-table">
               <thead>
                 <tr>
-                  <th>Corp</th>
-                  <th>Type</th>
-                  <th>Resource</th>
-                  <th>Qty</th>
-                  <th>Price</th>
-                  <th>Unit</th>
+                  <th>Source</th>
+                  <th>Node</th>
+                  <th>Harvest Rate</th>
+                  <th>Work Parts</th>
                 </tr>
               </thead>
               <tbody>
@@ -240,16 +239,16 @@
             </table>
           </div>
           <div class="market-section">
-            <h4>Sell Offers</h4>
-            <table id="market-sells-table" class="data-table">
+            <h4>Sinks (Energy Consumption)</h4>
+            <table id="flow-sinks-table" class="data-table">
               <thead>
                 <tr>
-                  <th>Corp</th>
+                  <th>Sink</th>
                   <th>Type</th>
-                  <th>Resource</th>
-                  <th>Qty</th>
-                  <th>Price</th>
-                  <th>Unit</th>
+                  <th>Demand</th>
+                  <th>Allocated</th>
+                  <th>Unmet</th>
+                  <th>Priority</th>
                 </tr>
               </thead>
               <tbody>
@@ -258,38 +257,16 @@
           </div>
         </div>
         <div class="market-section">
-          <h4>Contracts (Matched Trades)</h4>
-          <table id="market-contracts-table" class="data-table">
-            <thead>
-              <tr>
-                <th>Seller</th>
-                <th>Buyer</th>
-                <th>Resource</th>
-                <th>Qty</th>
-                <th>Total Price</th>
-              </tr>
-            </thead>
-            <tbody>
-            </tbody>
-          </table>
+          <h4>Creep Summary</h4>
+          <div class="summary-stats" style="margin-top: 1rem;">
+            <span>Miners: <strong id="flow-miners">--</strong></span>
+            <span>Haulers: <strong id="flow-haulers">--</strong></span>
+          </div>
         </div>
-        <div class="market-section">
-          <h4>Transaction History <span id="market-transactions-count" style="color: var(--text-secondary); font-weight: normal;">(0 total)</span></h4>
-          <table id="market-transactions-table" class="data-table">
-            <thead>
-              <tr>
-                <th>Tick</th>
-                <th>Seller</th>
-                <th>Buyer</th>
-                <th>Resource</th>
-                <th>Qty</th>
-                <th>Unit Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-            </tbody>
-          </table>
+        <div class="market-section" id="flow-warnings-section" style="display: none;">
+          <h4>Warnings</h4>
+          <ul id="flow-warnings" class="warning-list">
+          </ul>
         </div>
       </section>
 

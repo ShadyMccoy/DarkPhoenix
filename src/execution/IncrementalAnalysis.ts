@@ -404,6 +404,18 @@ function populateNodeResources(
           });
         }
       }
+
+      // Add spawns within territory
+      for (const spawn of room.find(FIND_MY_SPAWNS)) {
+        if (shouldClaimResource(spawn.pos.x, spawn.pos.y, roomName)) {
+          node.resources.push({
+            type: "spawn",
+            id: spawn.id,
+            position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
+            capacity: 300  // Spawn energy capacity
+          });
+        }
+      }
     } else {
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];

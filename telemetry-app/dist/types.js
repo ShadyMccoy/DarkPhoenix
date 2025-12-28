@@ -8,9 +8,9 @@
 export const TELEMETRY_SEGMENTS = {
     CORE: 0,
     NODES: 1,
-    EDGES: 2, // Spatial and economic edges (compressed format)
+    EDGES: 2, // Spatial and economic edges with flow rates
     INTEL: 3,
     CORPS: 4,
     CHAINS: 5,
-    MARKET: 6, // Market offers and contracts
+    FLOW: 6, // Flow economy: sources, sinks, allocations
 };

@@ -107,11 +107,16 @@ export class FlowGraph {
       const sourceResources = getResourcesByType(node, "source");
 
       for (const resource of sourceResources) {
+        // resource.capacity is the total energy capacity (e.g., 3000)
+        // Convert to rate: capacity / 300 ticks = energy per tick
+        const energyCapacity = resource.capacity ?? 3000;
+        const ratePerTick = energyCapacity / 300; // Standard: 3000/300 = 10 e/tick
+
         const source = createFlowSource(
           resource.id,
           node.id,
           resource.position,
-          resource.capacity ?? SOURCE_ENERGY_PER_TICK
+          ratePerTick
         );
         this.sources.set(source.id, source);
       }

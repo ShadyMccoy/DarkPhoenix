@@ -20,7 +20,7 @@ import {
   NodeTelemetryNodeCompact,
   EdgesTelemetry,
   CorpsTelemetry,
-  MarketTelemetry,
+  FlowTelemetry,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -91,7 +91,7 @@ let telemetry: AllTelemetry = {
   intel: null,
   corps: null,
   chains: null,
-  market: null,
+  flow: null,
   lastUpdate: 0,
 };
 
@@ -205,13 +205,13 @@ async function pollTelemetry(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Polling telemetry...`);
 
   try {
-    // Fetch core, nodes, edges, corps, and market segments (with delay between to avoid rate limiting)
+    // Fetch core, nodes, edges, corps, and flow segments (with delay between to avoid rate limiting)
     const segments = await api.readSegments([
       TELEMETRY_SEGMENTS.CORE,
       TELEMETRY_SEGMENTS.NODES,
       TELEMETRY_SEGMENTS.EDGES,
       TELEMETRY_SEGMENTS.CORPS,
-      TELEMETRY_SEGMENTS.MARKET,
+      TELEMETRY_SEGMENTS.FLOW,
     ]);
 
     // Parse segments (nodes uses special parser for v2 compact format)
@@ -222,7 +222,7 @@ async function pollTelemetry(): Promise<void> {
       intel: null,
       corps: parseTelemetry<CorpsTelemetry>(segments[TELEMETRY_SEGMENTS.CORPS]),
       chains: null,
-      market: parseTelemetry<MarketTelemetry>(segments[TELEMETRY_SEGMENTS.MARKET]),
+      flow: parseTelemetry<FlowTelemetry>(segments[TELEMETRY_SEGMENTS.FLOW]),
       lastUpdate: Date.now(),
     };
 
@@ -338,6 +338,65 @@ async function main(): Promise<void> {
     } else {
       res.status(404).json({ error: "Segment not found" });
     }
+  });
+
+  // === Economic data endpoints for iteration ===
+
+  // Economic nodes (nodes with econ flag or resources)
+  app.get("/api/econ/nodes", (_req, res) => {
+    const nodes = telemetry.nodes?.nodes || [];
+    const econNodes = nodes.filter(n => n.econ || (n.resources && n.resources.length > 0));
+    res.json({
+      tick: telemetry.nodes?.tick,
+      count: econNodes.length,
+      nodes: econNodes.map(n => ({
+        id: n.id,
+        roomName: n.roomName,
+        resources: n.resources,
+        roi: n.roi,
+        econ: n.econ
+      }))
+    });
+  });
+
+  // Economic edges with flow rates
+  app.get("/api/econ/edges", (_req, res) => {
+    const edges = telemetry.edges;
+    if (!edges) {
+      res.json({ tick: null, edges: [] });
+      return;
+    }
+    // Convert indexed edges to readable format
+    const nodeIndex = edges.nodeIndex || [];
+    const economicEdges = (edges.economicEdges || []).map(e => ({
+      from: nodeIndex[e[0]] || `idx-${e[0]}`,
+      to: nodeIndex[e[1]] || `idx-${e[1]}`,
+      distance: e[2],
+      flowRate: e[3] ?? null
+    }));
+    res.json({
+      tick: edges.tick,
+      version: edges.version,
+      count: economicEdges.length,
+      edges: economicEdges
+    });
+  });
+
+  // Flow economy data
+  app.get("/api/econ/flow", (_req, res) => {
+    res.json({
+      tick: telemetry.flow?.tick,
+      ...telemetry.flow
+    });
+  });
+
+  // Corps data
+  app.get("/api/econ/corps", (_req, res) => {
+    res.json({
+      tick: telemetry.corps?.tick,
+      summary: telemetry.corps?.summary,
+      corps: telemetry.corps?.corps || []
+    });
   });
 
   // Manual refresh endpoint

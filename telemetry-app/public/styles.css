@@ -265,6 +265,43 @@ tbody tr:hover {
   gap: 20px;
 }
 
+/* Status badges */
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-active {
+  background: var(--accent-green);
+  color: var(--bg-primary);
+}
+
+.status-inactive {
+  background: var(--accent-red);
+  color: var(--bg-primary);
+}
+
+.status-warning {
+  color: var(--accent-red);
+}
+
+/* Warning list */
+.warning-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+}
+
+.warning-list li {
+  padding: 8px 12px;
+  background: rgba(255, 107, 107, 0.1);
+  border-left: 3px solid var(--accent-red);
+  margin-bottom: 5px;
+  border-radius: 0 4px 4px 0;
+}
+
 .summary-stats strong {
   color: var(--accent-blue);
 }

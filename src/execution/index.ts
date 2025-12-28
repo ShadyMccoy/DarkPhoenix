@@ -19,6 +19,7 @@ export {
   runConstructionCorps,
   runSpawningCorps,
   logCorpStats,
+  requestFlowCreeps,
 } from "./CorpRunner";
 
 export {

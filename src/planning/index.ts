@@ -75,12 +75,6 @@ export {
   ResourceMarketData
 } from "./ChainReporter";
 
-export {
-  ScenarioRunner,
-  Scenario,
-  ScenarioExpectations,
-  ScenarioConfig,
-  ScenarioResult,
-  parseScenario,
-  createScenario
-} from "./ScenarioRunner";
+// Note: ScenarioRunner is not exported here as it depends on test-only modules
+// (ChainPlanner, OfferCollector, projections). Use directly from ./ScenarioRunner
+// in test environments where those modules are available.
