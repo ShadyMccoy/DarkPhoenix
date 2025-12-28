@@ -1,0 +1,64 @@
+{
+  "name": "Reserved 2src @100",
+  "purpose": "Reserved remote with 2 sources at ~100 tile distance. Claimer cost amortized over 2 sources.",
+  "description": "Two source remote room with reservation at 2 rooms away.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 550
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 4
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W3N1",
+      "position": { "x": 15, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 15, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W3N1",
+      "position": { "x": 35, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 35, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 20000,
+    "deterministicIds": true,
+    "claimerCost": 2.6
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}
