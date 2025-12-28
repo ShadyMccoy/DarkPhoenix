@@ -11,7 +11,10 @@ import {
   MAX_SCOUT_DISTANCE,
   MAX_INTEL_VALUE,
   VALUE_PER_STALE_TICK,
+  MAX_SCOUTS,
+  SCOUT_SPAWN_COOLDOWN,
 } from "./CorpConstants";
+import { SpawningCorp } from "./SpawningCorp";
 
 /**
  * Serialized state specific to ScoutCorp
@@ -227,6 +230,45 @@ export class ScoutCorp extends Corp {
 
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Check if scouts are needed and queue spawn orders.
+   * Returns true if a spawn was requested.
+   */
+  requestSpawnsIfNeeded(spawningCorp: SpawningCorp, tick: number): boolean {
+    // Check cooldown since last spawn request
+    if (tick - this.lastPurchaseTick < SCOUT_SPAWN_COOLDOWN) {
+      return false;
+    }
+
+    // Check if we have enough scouts
+    const currentScouts = this.getCreepCount();
+    if (currentScouts >= MAX_SCOUTS) {
+      return false;
+    }
+
+    // Check if there are stale rooms to scout
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return false;
+
+    const homeRoom = spawn.room.name;
+    const staleRoom = this.findStaleRoomExcluding(homeRoom, this.getAssignedTargets());
+    if (!staleRoom) {
+      return false; // No rooms need scouting
+    }
+
+    // Queue spawn order
+    spawningCorp.queueSpawnOrder({
+      buyerCorpId: this.id,
+      creepType: "scout",
+      workTicksRequested: 0, // Scouts don't have WORK parts
+      queuedAt: tick,
+    });
+
+    this.lastPurchaseTick = tick;
+    console.log(`[Scout] Requested scout spawn for ${homeRoom}`);
+    return true;
   }
 
   serialize(): SerializedScoutCorp {

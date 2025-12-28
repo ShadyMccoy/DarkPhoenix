@@ -141,12 +141,12 @@ export function projectAll(states: AnyCorpState[], tick: number): CorpProjection
  * Collect all buy offers from projections.
  */
 export function collectBuys(projections: CorpProjection[]): Offer[] {
-  return projections.flatMap((p) => p.buys);
+  return projections.reduce<Offer[]>((acc, p) => acc.concat(p.buys), []);
 }
 
 /**
  * Collect all sell offers from projections.
  */
 export function collectSells(projections: CorpProjection[]): Offer[] {
-  return projections.flatMap((p) => p.sells);
+  return projections.reduce<Offer[]>((acc, p) => acc.concat(p.sells), []);
 }
