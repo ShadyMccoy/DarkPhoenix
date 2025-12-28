@@ -47,7 +47,8 @@
       "Bash(npx ts-node:*)",
       "Bash(git mv:*)",
       "Bash(dir:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(wmic:*)"
     ]
   }
 }

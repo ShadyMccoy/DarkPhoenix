@@ -363,6 +363,20 @@ function getOrCreateFlowEconomy(colony: Colony): {
   if (nodes.length > 0) {
     console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${allEdges.length} edges`);
     console.log(`[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${economy.getFlowGraph().getSinks().length}`);
+
+    // Run initial solve if we have sources (don't wait for planning cycle)
+    if (economy.getFlowGraph().getSources().length > 0) {
+      const context = buildPriorityContext(corps);
+      economy.update(context, true);
+
+      // Materialize solution to corps
+      const solution = economy.getSolution();
+      if (solution) {
+        const graph = economy.getFlowGraph();
+        materializeCorps(solution, graph, corps, Game.time);
+        console.log(`[FlowEconomy] Initial solve: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
+      }
+    }
   }
 
   return { navigator, economy };

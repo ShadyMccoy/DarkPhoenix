@@ -583,20 +583,23 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     // Max miners limited by mining spots (spatial constraint)
     const maxMiners = minerAssignment.maxMiners || 1;
 
-    // Use shared helper for spawn distribution, capped by mining spots
+    // For miners: target is maxMiners (spatial limit), not work parts / capacity
+    // Each miner should have enough WORK parts to fully utilize the source
     const currentMinerCount = harvestCorp.getCreepCount();
-    const minerReqs = calculateSpawnRequirements(totalWorkPartsNeeded, maxMiners, currentMinerCount);
+    const targetMiners = maxMiners;  // We want exactly maxMiners creeps at this source
+    const minersNeeded = Math.max(0, targetMiners - currentMinerCount);
+    const workPartsPerMiner = Math.ceil(totalWorkPartsNeeded / targetMiners);
 
-    stats.targetMiners += minerReqs.targetCreeps;
+    stats.targetMiners += targetMiners;
     stats.totalMiners += currentMinerCount;
 
-    if (minerReqs.creepsNeeded > 0) {
+    if (minersNeeded > 0) {
       sourcesNeedingMiners.push({
         harvestCorp,
         minerAssignment,
         roomName,
-        minersNeeded: minerReqs.creepsNeeded,
-        workPartsPerMiner: minerReqs.partsPerCreep,
+        minersNeeded,
+        workPartsPerMiner,
       });
     }
   }
@@ -611,30 +614,32 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     // Target haulers = number of miners that exist (proportional)
     const targetHaulersForCurrentMiners = Math.min(stats.totalMiners, stats.targetHaulers);
 
-    // Decision: do we need a miner or a hauler next?
-    const needMoreMiners = stats.totalMiners < stats.targetMiners;
+    // Check if ANY source in this room needs miners (per-source check, not room total)
+    // This handles imbalanced distribution where one source has excess and another has deficit
+    const sourceNeedingMiner = sourcesNeedingMiners.find(s => s.roomName === roomName);
+    const anySourceNeedsMiners = sourceNeedingMiner !== undefined;
+
+    // Room-level checks for haulers
     const needMoreHaulers = stats.totalHaulers < targetHaulersForCurrentMiners;
 
-    if (needMoreMiners && stats.totalHaulers >= stats.totalMiners) {
-      // Haulers caught up to miners, spawn next miner
-      const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
-      if (sourceInfo) {
-        // Use pre-calculated work parts per miner (accounts for multi-miner sources)
-        const workParts = sourceInfo.workPartsPerMiner;
-        stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: sourceInfo.harvestCorp.id,
-          creepType: "miner",
-          workTicksRequested: workParts,
-          queuedAt: Game.time,
-        });
-        const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
-        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
-        // Decrement miners needed, remove from list when done
-        sourceInfo.minersNeeded--;
-        if (sourceInfo.minersNeeded <= 0) {
-          const idx = sourcesNeedingMiners.indexOf(sourceInfo);
-          if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
-        }
+    if (anySourceNeedsMiners && stats.totalHaulers >= stats.totalMiners) {
+      // Haulers caught up to miners, spawn next miner for source that needs it
+      const sourceInfo = sourceNeedingMiner!;
+      // Use pre-calculated work parts per miner (accounts for multi-miner sources)
+      const workParts = sourceInfo.workPartsPerMiner;
+      stats.spawningCorp.queueSpawnOrder({
+        buyerCorpId: sourceInfo.harvestCorp.id,
+        creepType: "miner",
+        workTicksRequested: workParts,
+        queuedAt: Game.time,
+      });
+      const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
+      console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
+      // Decrement miners needed, remove from list when done
+      sourceInfo.minersNeeded--;
+      if (sourceInfo.minersNeeded <= 0) {
+        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
       }
     } else if (needMoreHaulers && stats.carryCorp && stats.totalMiners > 0 && stats.haulersNeeded > 0) {
       // Have miners without matching haulers, spawn hauler
@@ -649,56 +654,87 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       });
       console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${carryParts} CARRY, ${stats.haulersNeeded} needed, max ${stats.maxCarryPerHauler}/hauler)`);
       stats.haulersNeeded--;
-    } else if (needMoreMiners) {
-      // No haulers needed yet, just spawn miners
-      const sourceInfo = sourcesNeedingMiners.find(s => s.roomName === roomName);
-      if (sourceInfo) {
-        // Use pre-calculated work parts per miner (accounts for multi-miner sources)
-        const workParts = sourceInfo.workPartsPerMiner;
-        stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: sourceInfo.harvestCorp.id,
-          creepType: "miner",
-          workTicksRequested: workParts,
-          queuedAt: Game.time,
-        });
-        const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
-        console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
-        // Decrement miners needed, remove from list when done
-        sourceInfo.minersNeeded--;
-        if (sourceInfo.minersNeeded <= 0) {
-          const idx = sourcesNeedingMiners.indexOf(sourceInfo);
-          if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
-        }
+    } else if (anySourceNeedsMiners) {
+      // No haulers needed yet, just spawn miners for source that needs it
+      const sourceInfo = sourceNeedingMiner!;
+      // Use pre-calculated work parts per miner (accounts for multi-miner sources)
+      const workParts = sourceInfo.workPartsPerMiner;
+      stats.spawningCorp.queueSpawnOrder({
+        buyerCorpId: sourceInfo.harvestCorp.id,
+        creepType: "miner",
+        workTicksRequested: workParts,
+        queuedAt: Game.time,
+      });
+      const maxMiners = sourceInfo.minerAssignment.maxMiners || 1;
+      console.log(`[FlowSpawn] Queued miner for ${sourceInfo.harvestCorp.id} (${workParts} WORK, max ${maxMiners} miners)`);
+      // Decrement miners needed, remove from list when done
+      sourceInfo.minersNeeded--;
+      if (sourceInfo.minersNeeded <= 0) {
+        const idx = sourcesNeedingMiners.indexOf(sourceInfo);
+        if (idx >= 0) sourcesNeedingMiners.splice(idx, 1);
       }
     }
   }
 
-  // === After all mining pairs complete, spawn upgraders ===
+  // === Spawn builders/upgraders when at least one miner-hauler pair is working ===
+  // At RCL 2+: prioritize builders to get extensions built (increases spawn capacity)
+  // At RCL 1: prioritize upgraders to reach RCL 2
   for (const [roomName, stats] of roomStats) {
-    // Mining is only complete if we have targets AND met them
-    // Prevents upgraders from spawning when no miners are planned/exist
-    const hasMiningPlan = stats.targetMiners > 0;
-    const miningComplete = hasMiningPlan &&
-                           stats.totalMiners >= stats.targetMiners &&
-                           stats.totalHaulers >= stats.targetHaulers;
+    const room = Game.rooms[roomName];
+    const rcl = room?.controller?.level ?? 1;
 
-    if (!miningComplete) continue;
+    // Early game: just need 1 working pair to start building/upgrading
+    // Later game: wait for full mining infrastructure to be efficient
+    const hasWorkingPair = stats.totalMiners >= 1 && stats.totalHaulers >= 1;
+    const miningFullyComplete = stats.targetMiners > 0 &&
+                                stats.totalMiners >= stats.targetMiners &&
+                                stats.totalHaulers >= stats.targetHaulers;
 
-    const upgradingCorp = registry.upgradingCorps[roomName];
-    if (!upgradingCorp) continue;
-
-    const allocation = upgradingCorp.getSinkAllocation();
-    if (!allocation || allocation.allocated <= 0) continue;
-
-    const currentCreeps = upgradingCorp.getCreepCount();
-    if (currentCreeps >= 1) continue; // Already have an upgrader
+    const canSpawnWorker = rcl <= 2 ? hasWorkingPair : miningFullyComplete;
+    if (!canSpawnWorker) continue;
 
     if (!stats.spawningCorp) continue;
 
     const pendingCount = stats.spawningCorp.getPendingOrderCount();
     if (pendingCount >= 2) continue;
 
-    const workParts = Math.ceil(allocation.allocated);
+    // At RCL 2+, check if we need builders (extensions not maxed out)
+    const constructionCorp = registry.constructionCorps[roomName];
+    const upgradingCorp = registry.upgradingCorps[roomName];
+
+    // At RCL 3+, spawn dedicated builders for construction
+    // At RCL 2, upgraders handle both building and upgrading
+    if (rcl >= 3 && constructionCorp) {
+      const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+      const currentBuilders = constructionCorp.getCreepCount();
+
+      // Spawn builders if there are construction sites and we don't have enough builders
+      if (constructionSites.length > 0 && currentBuilders < 1) {
+        stats.spawningCorp.queueSpawnOrder({
+          buyerCorpId: constructionCorp.id,
+          creepType: "builder",
+          workTicksRequested: 2, // 2 WORK parts for builders
+          queuedAt: Game.time,
+        });
+        console.log(`[FlowSpawn] Queued builder for ${constructionCorp.id} (${constructionSites.length} sites)`);
+        continue;
+      }
+    }
+
+    // Spawn upgrader if no builder needed
+    if (!upgradingCorp) continue;
+
+    const allocation = upgradingCorp.getSinkAllocation();
+    // At RCL 1-2, spawn upgraders even without flow allocation (bootstrap)
+    // At higher RCL, require proper flow allocation
+    const hasAllocation = allocation && allocation.allocated > 0;
+    if (rcl > 2 && !hasAllocation) continue;
+
+    const currentCreeps = upgradingCorp.getCreepCount();
+    if (currentCreeps >= 1) continue; // Already have an upgrader
+
+    // Use allocation if available, otherwise default to 2 WORK for early game
+    const workParts = hasAllocation ? Math.ceil(allocation.allocated) : 2;
     stats.spawningCorp.queueSpawnOrder({
       buyerCorpId: upgradingCorp.id,
       creepType: "upgrader",

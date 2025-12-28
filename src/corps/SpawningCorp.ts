@@ -174,10 +174,14 @@ export class SpawningCorp extends Corp {
         this.pendingOrders.splice(i, 1);
 
         const workParts = body.filter(p => p === WORK).length;
+        const carryParts = body.filter(p => p === CARRY).length;
         const workTicksProduced = workParts * CREEP_LIFETIME;
         this.recordProduction(workTicksProduced);
 
-        console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${workParts} WORK, ${bodyCost} energy)`);
+        const partsInfo = order.creepType === "hauler"
+          ? `${carryParts} CARRY`
+          : `${workParts} WORK`;
+        console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${partsInfo}, ${bodyCost} energy)`);
         return;
       }
     }
