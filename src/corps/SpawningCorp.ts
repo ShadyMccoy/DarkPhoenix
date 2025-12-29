@@ -15,6 +15,7 @@ import {
   getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
 import { buildMinerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 
 /**
  * Types of creeps that can be spawned
@@ -30,6 +31,17 @@ export interface SpawnOrder {
   workTicksRequested: number;
   haulDemandRequested?: number;
   queuedAt: number;
+
+  // === EdgeVariant optimization (optional) ===
+
+  /** Hauler CARRY:MOVE ratio for terrain optimization */
+  haulerRatio?: HaulerRatio;
+
+  /** Mining mode (affects harvester CARRY parts) */
+  miningMode?: MiningMode;
+
+  /** Extra CARRY parts for harvester (for drop mining decay reduction) */
+  harvesterCarryParts?: number;
 }
 
 /**
@@ -111,7 +123,7 @@ export class SpawningCorp extends Corp {
     // Check if we're stuck (have pending orders but can't afford any)
     if (this.pendingOrders.length > 0) {
       const canAffordAny = this.pendingOrders.some(order => {
-        const body = this.designBody(order.creepType, order.workTicksRequested);
+        const body = this.designBody(order.creepType, order.workTicksRequested, order);
         const cost = this.calculateBodyCost(body);
         return currentEnergy >= cost;
       });
@@ -145,7 +157,7 @@ export class SpawningCorp extends Corp {
     // Process orders
     for (let i = 0; i < this.pendingOrders.length; i++) {
       const order = this.pendingOrders[i];
-      const body = this.designBody(order.creepType, order.workTicksRequested);
+      const body = this.designBody(order.creepType, order.workTicksRequested, order);
       const bodyCost = this.calculateBodyCost(body);
 
       if (currentEnergy < bodyCost) continue;
@@ -175,12 +187,17 @@ export class SpawningCorp extends Corp {
 
         const workParts = body.filter(p => p === WORK).length;
         const carryParts = body.filter(p => p === CARRY).length;
+        const moveParts = body.filter(p => p === MOVE).length;
         const workTicksProduced = workParts * CREEP_LIFETIME;
         this.recordProduction(workTicksProduced);
 
-        const partsInfo = order.creepType === "hauler"
-          ? `${carryParts} CARRY`
-          : `${workParts} WORK`;
+        let partsInfo: string;
+        if (order.creepType === "hauler") {
+          const ratioStr = order.haulerRatio ? ` ${order.haulerRatio}` : "";
+          partsInfo = `${carryParts}C${moveParts}M${ratioStr}`;
+        } else {
+          partsInfo = `${workParts} WORK`;
+        }
         console.log(`[Spawning] Spawned ${name} for ${order.buyerCorpId} (${partsInfo}, ${bodyCost} energy)`);
         return;
       }
@@ -189,23 +206,54 @@ export class SpawningCorp extends Corp {
 
   /**
    * Design body for a creep type.
+   * @param order - The spawn order (for variant-specific configuration)
    */
-  private designBody(creepType: SpawnableCreepType, workParts: number = 5): BodyPartConstant[] {
+  private designBody(creepType: SpawnableCreepType, workParts: number = 5, order?: SpawnOrder): BodyPartConstant[] {
     switch (creepType) {
       case "miner": {
         const result = buildMinerBody(workParts, this.energyCapacity);
-        return result.body;
+        const body = [...result.body];
+
+        // Add CARRY parts for drop mining (reduces decay)
+        const extraCarry = order?.harvesterCarryParts ?? 0;
+        if (extraCarry > 0 && order?.miningMode === "drop") {
+          const bodyCost = this.calculateBodyCost(body);
+          const carryToAdd = Math.min(
+            extraCarry,
+            Math.floor((this.energyCapacity - bodyCost) / BODY_PART_COST.carry),
+            50 - body.length // Body size limit
+          );
+          for (let i = 0; i < carryToAdd; i++) {
+            body.push(CARRY);
+          }
+        }
+        return body;
       }
       case "hauler": {
         // workParts represents requested CARRY parts for haulers
         const body: BodyPartConstant[] = [];
-        const maxParts = Math.floor(this.energyCapacity / (BODY_PART_COST.carry + BODY_PART_COST.move));
-        // Use requested parts, but respect energy capacity and body size limits
-        const actualCarryParts = Math.min(workParts, maxParts, 25);
+
+        // Get the CARRY:MOVE ratio from the order, default to 1:1
+        const ratio = order?.haulerRatio ?? "1:1";
+        const { carryRatio, moveRatio } = this.getPartRatios(ratio);
+
+        // Calculate parts based on ratio
+        const costPerUnit = (BODY_PART_COST.carry * carryRatio) + (BODY_PART_COST.move * moveRatio);
+        const maxUnits = Math.floor(this.energyCapacity / costPerUnit);
+        const partsPerUnit = carryRatio + moveRatio;
+        const maxUnitsByBodySize = Math.floor(50 / partsPerUnit);
+
+        // Calculate how many units we need for requested carry parts
+        const unitsNeeded = Math.ceil(workParts / carryRatio);
+        const actualUnits = Math.min(unitsNeeded, maxUnits, maxUnitsByBodySize);
+
+        const actualCarryParts = actualUnits * carryRatio;
+        const actualMoveParts = actualUnits * moveRatio;
+
         for (let i = 0; i < actualCarryParts; i++) {
           body.push(CARRY);
         }
-        for (let i = 0; i < actualCarryParts; i++) {
+        for (let i = 0; i < actualMoveParts; i++) {
           body.push(MOVE);
         }
         return body;
@@ -223,6 +271,18 @@ export class SpawningCorp extends Corp {
       }
       default:
         return [WORK, CARRY, MOVE];
+    }
+  }
+
+  /**
+   * Get CARRY:MOVE part counts for a ratio string.
+   */
+  private getPartRatios(ratio: HaulerRatio): { carryRatio: number; moveRatio: number } {
+    switch (ratio) {
+      case "2:1": return { carryRatio: 2, moveRatio: 1 }; // Road-optimized
+      case "1:1": return { carryRatio: 1, moveRatio: 1 }; // Balanced (plains)
+      case "1:2": return { carryRatio: 1, moveRatio: 2 }; // Swamp-capable
+      default:    return { carryRatio: 1, moveRatio: 1 };
     }
   }
 

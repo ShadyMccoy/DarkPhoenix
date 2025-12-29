@@ -9,6 +9,14 @@
 export { Position } from "../types/Position";
 import { Position } from "../types/Position";
 
+// Import EdgeVariant types for route optimization
+import {
+  EdgeVariant,
+  TerrainProfile,
+  HaulerRatio,
+  MiningMode,
+} from "../framework/EdgeVariant";
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -187,6 +195,11 @@ export interface FlowEdge {
 
   /** Whether this edge uses roads (affects move ratio) */
   hasRoads: boolean;
+
+  // === Terrain-aware routing (optional, for EdgeVariant optimization) ===
+
+  /** Terrain profile of the route (road/plain/swamp tile counts) */
+  terrain?: TerrainProfile;
 }
 
 // =============================================================================
@@ -221,6 +234,17 @@ export interface MinerAssignment {
    * Allows spawning multiple smaller miners in early game when energy capacity is limited.
    */
   maxMiners: number;
+
+  // === EdgeVariant optimization (optional) ===
+
+  /** Mining infrastructure mode selected by variant optimizer */
+  miningMode?: MiningMode;
+
+  /** CARRY parts for harvester (affects decay for drop mining) */
+  harvesterCarryParts?: number;
+
+  /** Selected EdgeVariant for this mining assignment */
+  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -250,6 +274,17 @@ export interface HaulerAssignment {
 
   /** Nearest spawn for these haulers */
   spawnId: string;
+
+  // === EdgeVariant optimization (optional) ===
+
+  /** Terrain profile for this route */
+  terrain?: TerrainProfile;
+
+  /** Hauler CARRY:MOVE ratio selected by variant optimizer */
+  haulerRatio?: HaulerRatio;
+
+  /** Selected EdgeVariant for this hauler assignment */
+  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -506,3 +541,11 @@ export function calculateHaulerCostPerTick(carryParts: number): number {
 
 // Re-export distance functions from shared Position module
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
+
+// Re-export EdgeVariant types for convenience
+export {
+  EdgeVariant,
+  TerrainProfile,
+  HaulerRatio,
+  MiningMode,
+} from "../framework/EdgeVariant";
