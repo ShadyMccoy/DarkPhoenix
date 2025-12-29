@@ -35,6 +35,7 @@ import {
 } from "../corps";
 import { getMinableSources } from "../analysis";
 import { getMaxSpawnCapacity } from "../planning/EconomicConstants";
+import { MAX_SCOUTS } from "../corps/CorpConstants";
 
 /**
  * Container for all active corps, organized by type.
@@ -585,7 +586,8 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
 
     // For miners: target is maxMiners (spatial limit), not work parts / capacity
     // Each miner should have enough WORK parts to fully utilize the source
-    const currentMinerCount = harvestCorp.getCreepCount();
+    // Use getTotalCreepCount to include spawning creeps (prevents duplicate spawns)
+    const currentMinerCount = harvestCorp.getTotalCreepCount();
     const targetMiners = maxMiners;  // We want exactly maxMiners creeps at this source
     const minersNeeded = Math.max(0, targetMiners - currentMinerCount);
     const workPartsPerMiner = Math.ceil(totalWorkPartsNeeded / targetMiners);
@@ -742,5 +744,31 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       queuedAt: Game.time,
     });
     console.log(`[FlowSpawn] Queued upgrader for ${upgradingCorp.id} (${Math.min(workParts, 5)} WORK)`);
+  }
+
+  // === Spawn scouts when economy is stable ===
+  for (const [roomName, stats] of roomStats) {
+    if (!stats.spawningCorp) continue;
+
+    // Only spawn scouts once we have basic mining infrastructure
+    const hasWorkingPair = stats.totalMiners >= 1 && stats.totalHaulers >= 1;
+    if (!hasWorkingPair) continue;
+
+    const pendingCount = stats.spawningCorp.getPendingOrderCount();
+    if (pendingCount >= 2) continue;
+
+    const scoutCorp = registry.scoutCorps[roomName];
+    if (!scoutCorp) continue;
+
+    const currentScouts = scoutCorp.getCreepCount();
+    if (currentScouts >= MAX_SCOUTS) continue;
+
+    stats.spawningCorp.queueSpawnOrder({
+      buyerCorpId: scoutCorp.id,
+      creepType: "scout",
+      workTicksRequested: 1,
+      queuedAt: Game.time,
+    });
+    console.log(`[FlowSpawn] Queued scout for ${scoutCorp.id}`);
   }
 }

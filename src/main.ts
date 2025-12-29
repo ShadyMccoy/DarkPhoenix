@@ -205,14 +205,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     colony.run(Game.time, corps);
 
     // --- FLOW ECONOMY: Update allocations based on game state ---
-    // Rebuild flow economy if nodes have changed
+    // Always rebuild during planning to pick up new nodes/sources
     if (flowEconomy && colony.getNodes().length > 0) {
-      // Rebuild if node count changed (new nodes discovered)
       const currentNodeCount = colony.getNodes().length;
-      if (flowEconomy.getFlowGraph().getSources().length === 0 && currentNodeCount > 0) {
-        console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
-        flowEconomy.rebuild(colony.getNodes());
-      }
+      console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
+      flowEconomy.rebuild(colony.getNodes());
 
       // Build priority context from game state
       const context = buildPriorityContext(corps);
@@ -536,12 +533,10 @@ global.plan = () => {
 
   // --- FLOW ECONOMY: Update allocations based on game state ---
   if (flowEconomy && colony.getNodes().length > 0) {
-    // Rebuild if no sources yet but we have nodes
+    // Always rebuild to pick up new nodes/sources from scouting
     const currentNodeCount = colony.getNodes().length;
-    if (flowEconomy.getFlowGraph().getSources().length === 0 && currentNodeCount > 0) {
-      console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
-      flowEconomy.rebuild(colony.getNodes());
-    }
+    console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
+    flowEconomy.rebuild(colony.getNodes());
 
     // Build priority context from game state
     const context = buildPriorityContext(corps);

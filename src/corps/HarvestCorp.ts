@@ -173,10 +173,25 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Get number of active harvester creeps.
+   * Get number of active harvester creeps (excludes spawning).
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Get total creep count including spawning creeps.
+   * Used for spawn planning to avoid queueing duplicate miners.
+   */
+  getTotalCreepCount(): number {
+    let count = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**

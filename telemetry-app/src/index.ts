@@ -134,6 +134,7 @@ function normalizeNode(node: NodeTelemetryNodeCompact): NodeTelemetryNode {
     } : undefined,
     spansRooms: node.spans,
     econ: node.econ,
+    spawnCount: node.sp,
   };
 }
 

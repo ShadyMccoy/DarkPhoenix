@@ -106,6 +106,7 @@ export interface NodeTelemetryNodeCompact {
   };
   spans: string[];  // spansRooms
   econ?: boolean;   // is part of economic network
+  sp?: number;      // number of spawn structures in this node's room
 }
 
 /**
@@ -127,6 +128,7 @@ export interface NodeTelemetryNode {
   };
   spansRooms: string[];
   econ?: boolean;  // is part of economic network
+  spawnCount?: number;  // number of spawn structures in this node's room
 }
 
 /**
