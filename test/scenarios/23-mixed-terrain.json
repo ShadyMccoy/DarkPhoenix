@@ -1,0 +1,93 @@
+{
+  "name": "Mixed Terrain Routes",
+  "purpose": "Compare optimal hauler ratios for mixed road/plain/swamp routes",
+  "description": "Three sources with different terrain mixes. Tests that variant selection adapts.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 5, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 5, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 45, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 45, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 5 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 25, "y": 5 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 10000,
+    "deterministicIds": true,
+    "spawnEnergyCapacity": 5000,
+    "routes": [
+      {
+        "from": "source-5-25",
+        "to": "spawn",
+        "terrain": { "road": 18, "plain": 2, "swamp": 0 },
+        "comment": "Mostly roads - should use 2:1 ratio"
+      },
+      {
+        "from": "source-45-25",
+        "to": "spawn",
+        "terrain": { "road": 5, "plain": 10, "swamp": 5 },
+        "comment": "Mixed terrain - may use 1:1 ratio"
+      },
+      {
+        "from": "source-25-5",
+        "to": "spawn",
+        "terrain": { "road": 0, "plain": 5, "swamp": 15 },
+        "comment": "Mostly swamp - should use 1:2 ratio"
+      }
+    ]
+  }
+}

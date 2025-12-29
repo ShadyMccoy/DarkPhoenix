@@ -68,6 +68,34 @@ export interface ScenarioExpectations {
 }
 
 /**
+ * Terrain profile for a route between nodes.
+ */
+export interface RouteTerrainProfile {
+  /** Number of road tiles */
+  road: number;
+  /** Number of plain tiles */
+  plain: number;
+  /** Number of swamp tiles */
+  swamp: number;
+}
+
+/**
+ * Route definition between two positions.
+ */
+export interface RouteDefinition {
+  /** Source node identifier (e.g., "source-1" or position) */
+  from: string;
+  /** Destination node identifier (e.g., "spawn" or "controller") */
+  to: string;
+  /** Terrain composition of the route */
+  terrain: RouteTerrainProfile;
+  /** Whether route has container at source */
+  hasContainer?: boolean;
+  /** Whether route has link at source */
+  hasLink?: boolean;
+}
+
+/**
  * Planning configuration for a scenario
  */
 export interface ScenarioConfig {
@@ -85,6 +113,35 @@ export interface ScenarioConfig {
 
   /** Whether to use deterministic IDs */
   deterministicIds?: boolean;
+
+  // === Efficiency Analysis Config ===
+
+  /** Mining spots for drop mining (0 = container, no decay) */
+  miningSpots?: number;
+
+  /** Harvester CARRY parts (affects decay window) */
+  minerCarry?: number;
+
+  /** Claimer cost per tick (for reserved remotes) */
+  claimerCost?: number;
+
+  /** Route definitions with terrain profiles */
+  routes?: RouteDefinition[];
+
+  /** Whether room is owned (affects container decay) */
+  isOwnedRoom?: boolean;
+
+  /** Available spawn energy capacity */
+  spawnEnergyCapacity?: number;
+
+  /** Whether containers can be built */
+  canBuildContainer?: boolean;
+
+  /** Whether links are available (RCL 5+) */
+  canBuildLink?: boolean;
+
+  /** Infrastructure budget */
+  infrastructureBudget?: number;
 }
 
 /**
