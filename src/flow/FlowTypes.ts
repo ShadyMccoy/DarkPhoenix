@@ -353,6 +353,20 @@ export interface FlowConstraints {
 
   /** Whether to allow deficit operation */
   allowDeficit: boolean;
+
+  // === EdgeVariant optimization (optional) ===
+
+  /** Available energy capacity for spawning (for variant selection) */
+  spawnEnergyCapacity?: number;
+
+  /** Whether containers can be built */
+  canBuildContainer?: boolean;
+
+  /** Whether links are available */
+  canBuildLink?: boolean;
+
+  /** Infrastructure budget available */
+  infrastructureBudget?: number;
 }
 
 /**

@@ -495,6 +495,8 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     haulerAssignments: any[];
     spawningCorp: SpawningCorp | null;
     haulersNeeded: number;
+    // EdgeVariant optimization
+    preferredHaulerRatio?: "2:1" | "1:1" | "1:2";
   }>();
 
   // Build a map of sourceId -> hauler assignment for pairing
@@ -525,6 +527,16 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     // Initialize room stats
     if (!roomStats.has(roomName)) {
       const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
+
+      // Extract preferred hauler ratio from assignments (use first one with a ratio)
+      let preferredHaulerRatio: "2:1" | "1:1" | "1:2" | undefined;
+      for (const assignment of assignments) {
+        if (assignment.haulerRatio) {
+          preferredHaulerRatio = assignment.haulerRatio;
+          break;
+        }
+      }
+
       roomStats.set(roomName, {
         totalMiners: 0,
         totalHaulers: currentHaulers,
@@ -537,6 +549,7 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
         haulerAssignments: assignments,
         spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
         haulersNeeded: haulerReqs.creepsNeeded,
+        preferredHaulerRatio,
       });
     }
   }
@@ -658,8 +671,11 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
         workTicksRequested: carryParts,
         haulDemandRequested: carryParts,
         queuedAt: Game.time,
+        // Pass terrain-optimized hauler ratio if available
+        haulerRatio: stats.preferredHaulerRatio,
       });
-      console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${carryParts} CARRY, ${stats.haulersNeeded} needed, max ${stats.maxCarryPerHauler}/hauler)`);
+      const ratioInfo = stats.preferredHaulerRatio ? ` ${stats.preferredHaulerRatio}` : "";
+      console.log(`[FlowSpawn] Queued hauler for ${stats.carryCorp.id} (${carryParts} CARRY${ratioInfo}, ${stats.haulersNeeded} needed, max ${stats.maxCarryPerHauler}/hauler)`);
       stats.haulersNeeded--;
     } else if (anySourceNeedsMiners) {
       // No haulers needed yet, just spawn miners for source that needs it
