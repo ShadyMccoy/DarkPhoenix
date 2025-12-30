@@ -119,7 +119,7 @@ export class UpgradingCorp extends Corp {
 
   /**
    * Run behavior for an upgrader creep.
-   * At RCL 2, upgraders also help build (extensions are priority to increase spawn capacity).
+   * Upgraders are stationary - they stay near the controller and only pick up nearby energy.
    */
   private runUpgrader(
     creep: Creep,
@@ -134,32 +134,13 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
+    // Always stay near the controller (stationary behavior)
+    if (creep.pos.getRangeTo(controller) > 3) {
+      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+      return;
+    }
+
     if (creep.memory.working) {
-      // At RCL 2+, upgraders help build if there are construction sites
-      if (controller.level > 1) {
-        const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-        if (sites.length > 0) {
-          const site = creep.pos.findClosestByPath(sites);
-          if (site) {
-            const result = creep.build(site);
-            if (result === ERR_NOT_IN_RANGE) {
-              creep.moveTo(site, { visualizePathStyle: { stroke: "#ffaa00" } });
-            } else if (result === OK) {
-              const workParts = creep.getActiveBodyparts(WORK);
-              this.recordConsumption(workParts * 5); // BUILD costs 5 energy per WORK
-              this.recordProduction(workParts * 5);
-            }
-            return;
-          }
-        }
-      }
-
-      // No construction sites (or RCL > 2), upgrade controller
-      if (creep.pos.getRangeTo(controller) > 3) {
-        creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
-        return;
-      }
-
       const result = creep.upgradeController(controller);
       if (result === OK) {
         const workParts = creep.getActiveBodyparts(WORK);
@@ -167,62 +148,85 @@ export class UpgradingCorp extends Corp {
         this.recordProduction(workParts);
       }
     } else {
-      // Pick up energy - check dropped resources first, then spawn/extensions
-      this.doPickupEnergy(creep, room);
+      // Pick up energy only from nearby sources (stationary - don't travel)
+      this.doPickupEnergy(creep, controller);
     }
   }
 
   /**
-   * Pick up energy from various sources.
+   * Pick up energy from nearby sources only (stationary - don't travel for energy).
+   * Haulers are responsible for delivering energy to upgraders.
    */
-  private doPickupEnergy(creep: Creep, room: Room): void {
-    // First check for dropped energy nearby
-    const dropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 50,
-    });
+  private doPickupEnergy(creep: Creep, controller: StructureController): void {
+    const PICKUP_RANGE = 4; // Only grab energy within this range
 
+    // Check for dropped energy within range
+    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+    });
     if (dropped.length > 0) {
-      const target = creep.pos.findClosestByPath(dropped);
-      if (target) {
-        if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+      const target = dropped[0];
+      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
       }
+      return;
     }
 
-    // Check containers near controller
-    const containers = room.find(FIND_STRUCTURES, {
+    // Check for tombstones with energy within range
+    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
+      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+    });
+    if (tombstones.length > 0) {
+      const target = tombstones[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // Check for ruins with energy within range
+    const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
+      filter: (r) => r.store[RESOURCE_ENERGY] > 0,
+    });
+    if (ruins.length > 0) {
+      const target = ruins[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // Check containers within range
+    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
       filter: (s) =>
         s.structureType === STRUCTURE_CONTAINER &&
-        s.store[RESOURCE_ENERGY] > 50,
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
     }) as StructureContainer[];
-
     if (containers.length > 0) {
-      const target = creep.pos.findClosestByPath(containers);
-      if (target) {
-        if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+      const target = containers[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
       }
+      return;
     }
 
-    // Last resort: withdraw from spawn (only if it has plenty of energy)
-    const spawns = room.find(FIND_MY_SPAWNS);
-    for (const spawn of spawns) {
-      if (spawn.store[RESOURCE_ENERGY] >= 200) {
-        if (creep.withdraw(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
+    // Check links within range (for higher RCL)
+    const links = creep.pos.findInRange(FIND_MY_STRUCTURES, PICKUP_RANGE, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_LINK &&
+        (s as StructureLink).store[RESOURCE_ENERGY] > 0,
+    }) as StructureLink[];
+    if (links.length > 0) {
+      const target = links[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
       }
+      return;
     }
 
-    // Move towards controller and wait for energy delivery
-    const controller = room.controller;
-    if (controller && creep.pos.getRangeTo(controller) > 3) {
-      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+    // No energy nearby - stay near controller and wait for delivery
+    if (creep.pos.getRangeTo(controller) > 3) {
+      creep.moveTo(controller);
     }
   }
 

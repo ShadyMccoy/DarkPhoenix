@@ -104,6 +104,7 @@ export interface NodeTelemetryNodeCompact {
     }[];
     roi?: {
         s: number;
+        e?: number;
         o: number;
         d: number;
         own: boolean;
@@ -112,6 +113,7 @@ export interface NodeTelemetryNodeCompact {
     };
     spans: string[];
     econ?: boolean;
+    sp?: number;
 }
 /**
  * Normalized node format (for dashboard display).
@@ -132,6 +134,7 @@ export interface NodeTelemetryNode {
     }[];
     roi?: {
         score: number;
+        expansionScore?: number;
         openness: number;
         distanceFromOwned: number;
         isOwned: boolean;
@@ -140,6 +143,7 @@ export interface NodeTelemetryNode {
     };
     spansRooms: string[];
     econ?: boolean;
+    spawnCount?: number;
 }
 /**
  * Edges telemetry data structure (Segment 2).

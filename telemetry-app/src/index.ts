@@ -126,6 +126,7 @@ function normalizeNode(node: NodeTelemetryNodeCompact): NodeTelemetryNode {
     resources: node.res.map(r => ({ type: r.t, x: r.x, y: r.y })),
     roi: node.roi ? {
       score: node.roi.s,
+      expansionScore: node.roi.e,
       openness: node.roi.o,
       distanceFromOwned: node.roi.d,
       isOwned: node.roi.own,

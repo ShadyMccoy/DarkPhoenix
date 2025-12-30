@@ -105,9 +105,16 @@ export function materializeCorps(
     materializeNodeFlow(nodeFlow, corps, tick, result);
   }
 
+  // Clean up stale corps that are no longer in the flow solution
+  // This removes HarvestCorps for sources that were filtered out (e.g., SK rooms)
+  const cleanupResult = cleanupStaleCorps(nodeFlows, corps);
+
   console.log(`[FlowMaterializer] Materialized ${nodeFlows.size} node flows into corps`);
   console.log(`  Harvest: ${result.harvestCorpsUpdated}, Carry: ${result.carryCorpsUpdated}`);
   console.log(`  Upgrading: ${result.upgradingCorpsUpdated}, Construction: ${result.constructionCorpsUpdated}`);
+  if (cleanupResult.removed > 0) {
+    console.log(`  Cleaned up: ${cleanupResult.removed} stale corps`);
+  }
 
   if (result.warnings.length > 0) {
     console.log(`  Warnings: ${result.warnings.join(", ")}`);
@@ -147,7 +154,7 @@ function buildSinkNodeMap(graph: FlowGraph): Map<string, string> {
  *
  * Each NodeFlow becomes:
  * - One HarvestCorp per source (miner assignment)
- * - One CarryCorp for the room (all hauler assignments)
+ * - One CarryCorp per source-to-sink edge (hauler assignment)
  * - One UpgradingCorp if there's a controller sink
  * - One ConstructionCorp if there are construction sinks
  */
@@ -167,14 +174,10 @@ function materializeNodeFlow(
     materializeHarvestCorp(miner, corps, tick, result);
   }
 
-  // Materialize CarryCorp from hauler assignments
-  // Haulers operate from a spawn, use first hauler's spawn
-  if (nodeFlow.haulers.length > 0) {
-    const spawnId = nodeFlow.haulers[0].spawnId;
-    const spawn = Game.getObjectById(spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      materializeCarryCorp(nodeFlow, spawn.room, spawn, corps, tick, result);
-    }
+  // Materialize one CarryCorp per hauler assignment (per source-to-sink edge)
+  // This allows independent scaling of haulers per source
+  for (const hauler of nodeFlow.haulers) {
+    materializeCarryCorpForSource(hauler, corps, tick, result);
   }
 
   // Upgrading and construction only in rooms we own
@@ -266,32 +269,43 @@ function materializeHarvestCorp(
 }
 
 /**
- * Materialize a CarryCorp from HaulerAssignments.
+ * Materialize a CarryCorp for a specific source-to-sink edge (HaulerAssignment).
+ * Each source gets its own CarryCorp so haulers can be independently scaled.
  */
-function materializeCarryCorp(
-  nodeFlow: NodeFlow,
-  room: Room,
-  spawn: StructureSpawn,
+function materializeCarryCorpForSource(
+  hauler: HaulerAssignment,
   corps: CorpRegistry,
   tick: number,
   result: MaterializationResult
 ): void {
-  const roomName = room.name;
+  // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
+  const sourceGameId = hauler.fromId.replace("source-", "");
 
-  let carryCorp = corps.haulingCorps[roomName];
+  // Extract spawn game ID from flow sink ID (e.g., "spawn-abc123" → "abc123")
+  const spawnGameId = hauler.spawnId.replace("spawn-", "");
+  const spawn = Game.getObjectById(spawnGameId as Id<StructureSpawn>);
 
-  if (!carryCorp) {
-    // Create new CarryCorp
-    const nodeId = `${roomName}-hauling`;
-    carryCorp = new CarryCorp(nodeId, spawn.id);
-    carryCorp.createdAt = tick;
-    corps.haulingCorps[roomName] = carryCorp;
-    result.newCorpsCreated++;
-    console.log(`[FlowMaterializer] Created CarryCorp for ${roomName}`);
+  if (!spawn) {
+    result.warnings.push(`Spawn ${spawnGameId.slice(-4)} not found for haulers serving ${sourceGameId.slice(-4)}`);
+    return;
   }
 
-  // Update with all hauler assignments for this node
-  carryCorp.setHaulerAssignments(nodeFlow.haulers);
+  // Key by source ID so each source has its own CarryCorp
+  let carryCorp = corps.haulingCorps[sourceGameId];
+
+  if (!carryCorp) {
+    // Create new CarryCorp for this source
+    // Use source-based nodeId for proper creep association
+    const nodeId = `${spawn.room.name}-hauling-${sourceGameId.slice(-4)}`;
+    carryCorp = new CarryCorp(nodeId, spawn.id);
+    carryCorp.createdAt = tick;
+    corps.haulingCorps[sourceGameId] = carryCorp;
+    result.newCorpsCreated++;
+    console.log(`[FlowMaterializer] Created CarryCorp for source ${sourceGameId.slice(-4)}`);
+  }
+
+  // Update with this source's hauler assignment (single assignment per corp)
+  carryCorp.setHaulerAssignments([hauler]);
   result.carryCorpsUpdated++;
 }
 
@@ -369,21 +383,43 @@ export function cleanupStaleCorps(
 ): { removed: number } {
   let removed = 0;
 
-  // Build set of active source IDs
+  // Build set of active source IDs (used by both HarvestCorps and CarryCorps)
   const activeSourceIds = new Set<string>();
   for (const nodeFlow of nodeFlows.values()) {
     for (const miner of nodeFlow.miners) {
       const sourceGameId = miner.sourceId.replace("source-", "");
       activeSourceIds.add(sourceGameId);
     }
+    // Also track sources from hauler assignments
+    for (const hauler of nodeFlow.haulers) {
+      const sourceGameId = hauler.fromId.replace("source-", "");
+      activeSourceIds.add(sourceGameId);
+    }
   }
 
-  // Remove HarvestCorps not in flow
+  // Remove HarvestCorps not in flow (from both registry AND Memory to prevent re-hydration)
   for (const sourceId in corps.harvestCorps) {
     if (!activeSourceIds.has(sourceId)) {
       delete corps.harvestCorps[sourceId];
+      // Also remove from Memory to prevent re-hydration on next tick
+      if (typeof Memory !== "undefined" && Memory.harvestCorps) {
+        delete Memory.harvestCorps[sourceId];
+      }
       removed++;
       console.log(`[FlowMaterializer] Removed stale HarvestCorp for ${sourceId.slice(-4)}`);
+    }
+  }
+
+  // Remove CarryCorps not in flow (keyed by source ID)
+  for (const sourceId in corps.haulingCorps) {
+    if (!activeSourceIds.has(sourceId)) {
+      delete corps.haulingCorps[sourceId];
+      // Also remove from Memory to prevent re-hydration on next tick
+      if (typeof Memory !== "undefined" && Memory.haulingCorps) {
+        delete Memory.haulingCorps[sourceId];
+      }
+      removed++;
+      console.log(`[FlowMaterializer] Removed stale CarryCorp for ${sourceId.slice(-4)}`);
     }
   }
 

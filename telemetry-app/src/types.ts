@@ -98,6 +98,7 @@ export interface NodeTelemetryNodeCompact {
   res: { t: string; x: number; y: number }[];  // resources
   roi?: {
     s: number;    // score
+    e?: number;   // expansionScore
     o: number;    // openness
     d: number;    // distanceFromOwned
     own: boolean; // isOwned
@@ -120,6 +121,7 @@ export interface NodeTelemetryNode {
   resources: { type: string; x: number; y: number }[];
   roi?: {
     score: number;
+    expansionScore?: number;
     openness: number;
     distanceFromOwned: number;
     isOwned: boolean;

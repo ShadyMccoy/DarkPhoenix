@@ -135,27 +135,47 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * Get or assign a source for this hauler.
-   * Uses creep memory to persist assignment across ticks.
-   * Distributes haulers across sources based on their index.
+   * Get the source this CarryCorp's haulers should serve.
+   * With per-source CarryCorps, each corp has exactly one source from its hauler assignment.
+   * Falls back to round-robin distribution for legacy room-based corps.
    */
   private getAssignedSource(creep: Creep, sources: Source[]): Source | null {
+    // Per-source CarryCorp: use the source from hauler assignment
+    if (this.haulerAssignments.length > 0) {
+      const assignment = this.haulerAssignments[0];
+      // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
+      const sourceGameId = assignment.fromId.replace("source-", "");
+
+      // Check if this is an intel-based source (remote room without vision)
+      if (sourceGameId.startsWith("intel-")) {
+        // Intel source: parse position from ID format "intel-ROOMNAME-X-Y"
+        const match = sourceGameId.match(/^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/);
+        if (match) {
+          const [, roomName, x, y] = match;
+          // Store position for navigation even without source object
+          creep.memory.assignedSourcePos = { x: parseInt(x), y: parseInt(y), roomName };
+        }
+        return null; // No live source object for intel sources
+      }
+
+      const source = Game.getObjectById(sourceGameId as Id<Source>);
+      if (source) {
+        creep.memory.assignedSourceId = source.id;
+        return source;
+      }
+    }
+
+    // Fallback: legacy round-robin distribution (for transition period)
     if (sources.length === 0) return null;
 
-    // Check if creep already has an assigned source
     if (creep.memory.assignedSourceId) {
       const assigned = Game.getObjectById(creep.memory.assignedSourceId as Id<Source>);
       if (assigned) return assigned;
-      // Source no longer exists, clear assignment
       delete creep.memory.assignedSourceId;
     }
 
-    // Assign this creep to a source
-    // Get all haulers assigned to this corp
     const allHaulers = this.getAssignedCreeps();
     const myIndex = allHaulers.findIndex(c => c.name === creep.name);
-
-    // Distribute haulers round-robin across sources
     const sourceIndex = myIndex >= 0 ? myIndex % sources.length : 0;
     const assignedSource = sources[sourceIndex];
 
@@ -171,13 +191,28 @@ export class CarryCorp extends Corp {
     const sources = room.find(FIND_SOURCES);
     const assignedSource = this.getAssignedSource(creep, sources);
 
+    // Get target position (from source object or intel position)
+    let targetPos: RoomPosition | null = null;
+    if (assignedSource) {
+      targetPos = assignedSource.pos;
+    } else if (creep.memory.assignedSourcePos) {
+      const pos = creep.memory.assignedSourcePos;
+      targetPos = new RoomPosition(pos.x, pos.y, pos.roomName);
+    }
+
+    // If target is in a different room, navigate there first
+    if (targetPos && targetPos.roomName !== creep.room.name) {
+      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+      return;
+    }
+
     // First try dropped energy near assigned source (within range 5)
     const dropped = room.find(FIND_DROPPED_RESOURCES, {
       filter: (r) => {
         if (r.resourceType !== RESOURCE_ENERGY) return false;
-        // If we have an assigned source, prefer energy near it
-        if (assignedSource) {
-          return r.pos.getRangeTo(assignedSource) <= 5;
+        // If we have a target position, prefer energy near it
+        if (targetPos) {
+          return r.pos.getRangeTo(targetPos) <= 5;
         }
         return true;
       },
@@ -200,8 +235,8 @@ export class CarryCorp extends Corp {
       filter: (s) => {
         if (s.structureType !== STRUCTURE_CONTAINER) return false;
         if ((s as StructureContainer).store[RESOURCE_ENERGY] === 0) return false;
-        if (assignedSource) {
-          return s.pos.getRangeTo(assignedSource) <= 3;
+        if (targetPos) {
+          return s.pos.getRangeTo(targetPos) <= 3;
         }
         return true;
       },
@@ -217,8 +252,8 @@ export class CarryCorp extends Corp {
     }
 
     // If nothing to pick up, move towards assigned source (where miners drop)
-    if (assignedSource && creep.pos.getRangeTo(assignedSource) > 3) {
-      creep.moveTo(assignedSource, { visualizePathStyle: { stroke: "#ffaa00" } });
+    if (targetPos && creep.pos.getRangeTo(targetPos) > 3) {
+      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
     }
   }
 

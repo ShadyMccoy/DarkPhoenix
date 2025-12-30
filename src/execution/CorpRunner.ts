@@ -39,7 +39,8 @@ import { MAX_SCOUTS } from "../corps/CorpConstants";
 export interface CorpRegistry {
   bootstrapCorps: { [roomName: string]: BootstrapCorp };
   harvestCorps: { [sourceId: string]: HarvestCorp };
-  haulingCorps: { [roomName: string]: CarryCorp };
+  /** Hauling corps keyed by source ID (each source has its own CarryCorp) */
+  haulingCorps: { [sourceId: string]: CarryCorp };
   upgradingCorps: { [roomName: string]: UpgradingCorp };
   scoutCorps: { [roomName: string]: ScoutCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
@@ -438,65 +439,21 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     preferredHaulerRatio?: "2:1" | "1:1" | "1:2";
   }>();
 
-  // Build a map of sourceId -> hauler assignment for pairing
-  const haulerAssignmentsBySource = new Map<string, { carryCorp: CarryCorp; assignment: any }>();
-  for (const roomName in registry.haulingCorps) {
-    const carryCorp = registry.haulingCorps[roomName];
-    const assignments = carryCorp.getHaulerAssignments();
-    if (!assignments) continue;
-
-    for (const assignment of assignments) {
-      haulerAssignmentsBySource.set(assignment.fromId, { carryCorp, assignment });
-    }
-
-    // Calculate total carry parts needed from all assignments
-    const totalCarryPartsNeeded = assignments.reduce((sum: number, a: any) => sum + (a.carryParts || 0), 0);
-
-    // Calculate max carry parts per hauler based on room's max energy capacity
-    // Use max capacity for RCL so we plan for full-size creeps even while building extensions
-    const room = Game.rooms[roomName];
-    const controllerLevel = room?.controller?.level ?? 1;
-    const energyCapacity = getMaxSpawnCapacity(controllerLevel);
-    const maxCarryPerHauler = calculateMaxHaulerCarryParts(energyCapacity);
-
-    // Use shared helper for spawn distribution calculation
-    const currentHaulers = carryCorp.getCreepCount();
-    const haulerReqs = calculateSpawnRequirements(totalCarryPartsNeeded, maxCarryPerHauler, currentHaulers);
-
-    // Initialize room stats
-    if (!roomStats.has(roomName)) {
-      const spawns = Game.rooms[roomName]?.find(FIND_MY_SPAWNS) ?? [];
-
-      // Extract preferred hauler ratio from assignments (use first one with a ratio)
-      let preferredHaulerRatio: "2:1" | "1:1" | "1:2" | undefined;
-      for (const assignment of assignments) {
-        if (assignment.haulerRatio) {
-          preferredHaulerRatio = assignment.haulerRatio;
-          break;
-        }
-      }
-
-      roomStats.set(roomName, {
-        totalMiners: 0,
-        totalHaulers: currentHaulers,
-        targetMiners: 0,
-        targetHaulers: haulerReqs.targetCreeps,
-        totalCarryPartsNeeded: haulerReqs.totalPartsNeeded,
-        maxCarryPerHauler: haulerReqs.maxPartsPerCreep,
-        carryPartsPerHauler: haulerReqs.partsPerCreep,
-        carryCorp,
-        haulerAssignments: assignments,
-        spawningCorp: spawns.length > 0 ? registry.spawningCorps[spawns[0].id] : null,
-        haulersNeeded: haulerReqs.creepsNeeded,
-        preferredHaulerRatio,
-      });
-    }
+  // Build a map of sourceId -> CarryCorp for pairing with HarvestCorps
+  // CarryCorps are now keyed by source ID (game ID), not room name
+  const carryCorpsBySource = new Map<string, CarryCorp>();
+  for (const sourceId in registry.haulingCorps) {
+    const carryCorp = registry.haulingCorps[sourceId];
+    // The fromId in assignments has "source-" prefix, the registry key is raw game ID
+    carryCorpsBySource.set(`source-${sourceId}`, carryCorp);
   }
 
   // Build a complete list of ALL sources with their efficiency data
   // Includes both sources that need miners and fully staffed sources
+  // Each source has its own CarryCorp for independent hauler scaling
   interface SourceInfo {
     harvestCorp: HarvestCorp;
+    carryCorp: CarryCorp | null;  // Per-source CarryCorp
     minerAssignment: any;
     roomName: string;
     sourceId: string;
@@ -506,6 +463,11 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     minersNeeded: number;
     workPartsPerMiner: number;
     carryPartsNeeded: number;  // Hauler carry parts for this source's edge
+    currentHaulers: number;    // Current haulers for THIS source
+    targetHaulers: number;     // Target haulers for THIS source
+    haulersNeeded: number;     // Haulers still needed for THIS source
+    carryPartsPerHauler: number;
+    preferredHaulerRatio?: "2:1" | "1:1" | "1:2";
   }
 
   const allSources: SourceInfo[] = [];
@@ -566,12 +528,29 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     stats.targetMiners += targetMiners;
     stats.totalMiners += currentMinerCount;
 
-    // Get hauler carry parts needed for this source from the hauler assignment
-    const haulerInfo = haulerAssignmentsBySource.get(minerAssignment.sourceId);
-    const carryPartsNeeded = haulerInfo?.assignment?.carryParts ?? 0;
+    // Get the per-source CarryCorp and its hauler assignment
+    const carryCorp = carryCorpsBySource.get(minerAssignment.sourceId) ?? null;
+    const assignments = carryCorp?.getHaulerAssignments() ?? [];
+    const assignment = assignments[0]; // Each per-source CarryCorp has one assignment
+    const carryPartsNeeded = assignment?.carryParts ?? 0;
+
+    // Calculate per-source hauler requirements
+    const room = assignedSpawn.room;
+    const controllerLevel = room.controller?.level ?? 1;
+    const energyCapacity = getMaxSpawnCapacity(controllerLevel);
+    const maxCarryPerHauler = calculateMaxHaulerCarryParts(energyCapacity);
+    const currentHaulers = carryCorp?.getCreepCount() ?? 0;
+    const haulerReqs = calculateSpawnRequirements(carryPartsNeeded, maxCarryPerHauler, currentHaulers);
+
+    // Update room-level hauler totals
+    stats.totalHaulers += currentHaulers;
+    stats.targetHaulers += haulerReqs.targetCreeps;
+    stats.haulersNeeded += haulerReqs.creepsNeeded;
+    stats.totalCarryPartsNeeded += carryPartsNeeded;
 
     allSources.push({
       harvestCorp,
+      carryCorp,
       minerAssignment,
       roomName: spawnRoomName,
       sourceId: minerAssignment.sourceId,
@@ -581,6 +560,11 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       minersNeeded,
       workPartsPerMiner,
       carryPartsNeeded,
+      currentHaulers,
+      targetHaulers: haulerReqs.targetCreeps,
+      haulersNeeded: haulerReqs.creepsNeeded,
+      carryPartsPerHauler: haulerReqs.partsPerCreep,
+      preferredHaulerRatio: assignment?.haulerRatio,
     });
   }
 
@@ -590,13 +574,12 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
 
   // === Sequential spawning by efficiency ===
   // Process sources in efficiency order (highest first). For each source:
-  //   1. Spawn miner(s) if needed
-  //   2. Spawn haulers until cumulative carry capacity covers all sources up to this one
+  //   1. If source needs miners AND has hauler support, spawn a miner
+  //   2. If source has working miners but insufficient haulers, spawn a hauler
   //
-  // Note: Hauler capacity is shared across sources. A close source might need only
-  // 3 CARRY parts while a far source needs 10. One hauler with 15 CARRY could cover
-  // both, or a far source might need multiple haulers. We track cumulative needs
-  // and spawn haulers until capacity >= cumulative needs.
+  // IMPORTANT: Each source has its OWN CarryCorp with dedicated haulers.
+  // Don't spawn miners for a source until it has sufficient hauler capacity.
+  // This prevents spawning miners that will have no haulers to collect energy.
   for (const [roomName, stats] of roomStats) {
     if (!stats.spawningCorp) continue;
 
@@ -607,51 +590,65 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     const roomSources = allSources.filter(s => s.roomName === roomName);
     if (roomSources.length === 0) continue;
 
-    // Calculate current hauler carry capacity
-    const currentHaulerCarryCapacity = stats.totalHaulers * stats.carryPartsPerHauler;
-
-    // Track cumulative carry parts needed as we process sources in efficiency order
-    let cumulativeCarryNeeded = 0;
-
     // Process sources in priority order (sorted by efficiency, highest first)
     for (const source of roomSources) {
-      // Step 1: Does this source need more miners?
-      if (source.minersNeeded > 0) {
-        stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: source.harvestCorp.id,
-          creepType: "miner",
-          workTicksRequested: source.workPartsPerMiner,
-          queuedAt: Game.time,
-        });
-        console.log(`[FlowSpawn] Queued miner for ${source.harvestCorp.id} (${source.workPartsPerMiner} WORK, eff=${source.efficiency.toFixed(1)}%)`);
-        break; // Stop after queueing one spawn
-      }
+      // Get count of WORKING miners (not spawning) for this source
+      const workingMiners = source.harvestCorp.getCreepCount();
+      const hasWorkingMiner = workingMiners > 0;
 
-      // This source has all its miners, add its carry needs to cumulative total
-      // carryPartsNeeded is calculated by FlowSolver based on distance and flow rate
-      cumulativeCarryNeeded += source.carryPartsNeeded;
+      // Calculate per-source hauler capacity (only count WORKING haulers)
+      const currentHaulerCarryCapacity = source.currentHaulers * source.carryPartsPerHauler;
+      const hasEnoughHaulers = currentHaulerCarryCapacity >= source.carryPartsNeeded || source.carryPartsNeeded === 0;
 
-      // Step 2: Do we need more hauler capacity to cover sources up to this one?
-      // Haulers are shared - we spawn until total capacity covers cumulative needs
-      if (currentHaulerCarryCapacity < cumulativeCarryNeeded && stats.carryCorp && stats.haulersNeeded > 0) {
-        const carryParts = stats.carryPartsPerHauler;
+      // Step 1: Does this source need haulers for its working miners?
+      // Prioritize hauler spawning if we have working miners but insufficient haulers
+      if (hasWorkingMiner && !hasEnoughHaulers && source.carryCorp && source.haulersNeeded > 0) {
+        const carryParts = source.carryPartsPerHauler;
         stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: stats.carryCorp.id,
+          buyerCorpId: source.carryCorp.id,
           creepType: "hauler",
           workTicksRequested: carryParts,
           haulDemandRequested: carryParts,
           queuedAt: Game.time,
-          // Pass terrain-optimized hauler ratio if available
-          haulerRatio: stats.preferredHaulerRatio,
+          haulerRatio: source.preferredHaulerRatio,
         });
-        const shortfall = cumulativeCarryNeeded - currentHaulerCarryCapacity;
-        const ratioInfo = stats.preferredHaulerRatio ? ` ${stats.preferredHaulerRatio}` : "";
-        console.log(`[FlowSpawn] Queued hauler (${carryParts} CARRY${ratioInfo}, need ${cumulativeCarryNeeded} have ${currentHaulerCarryCapacity}, shortfall ${shortfall.toFixed(0)})`);
-        stats.haulersNeeded--;
+        const shortfall = source.carryPartsNeeded - currentHaulerCarryCapacity;
+        const ratioInfo = source.preferredHaulerRatio ? ` ${source.preferredHaulerRatio}` : "";
+        console.log(`[FlowSpawn] Queued hauler for ${source.sourceId.slice(-4)} (${carryParts} CARRY${ratioInfo}, need ${source.carryPartsNeeded} have ${currentHaulerCarryCapacity}, shortfall ${shortfall.toFixed(0)})`);
         break; // Stop after queueing one spawn
       }
 
-      // This source is covered (has miners and sufficient hauler capacity), continue to next
+      // Step 2: Does this source need more miners?
+      // Only spawn miners if this source has hauler support (or doesn't need haulers yet)
+      if (source.minersNeeded > 0) {
+        // For the first miner, allow spawning even without haulers
+        // (haulers will be spawned once miner is working)
+        const isFirstMiner = source.currentMiners === 0 && source.currentHaulers === 0;
+        const canSpawnMiner = isFirstMiner || hasEnoughHaulers;
+
+        if (canSpawnMiner) {
+          stats.spawningCorp.queueSpawnOrder({
+            buyerCorpId: source.harvestCorp.id,
+            creepType: "miner",
+            workTicksRequested: source.workPartsPerMiner,
+            queuedAt: Game.time,
+          });
+          console.log(`[FlowSpawn] Queued miner for ${source.harvestCorp.id} (${source.workPartsPerMiner} WORK, eff=${source.efficiency.toFixed(1)}%)`);
+          break; // Stop after queueing one spawn
+        } else {
+          // This source needs miners but doesn't have hauler support yet
+          // Don't move to lower priority sources - wait for haulers
+          break;
+        }
+      }
+
+      // Step 3: Check if this source is "operational" before considering next source
+      // A source is operational if it has working miners AND sufficient haulers
+      if (!hasWorkingMiner || !hasEnoughHaulers) {
+        break; // Stop here - don't spawn for lower priority sources yet
+      }
+
+      // This source is fully operational, continue to next
     }
   }
 

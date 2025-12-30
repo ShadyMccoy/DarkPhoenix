@@ -227,18 +227,21 @@ export class FlowSolver {
       const totalOverhead = minerOverhead + haulerOverhead;
       const netEnergy = harvestRate - totalOverhead;
 
-      // Only mine if profitable (net positive)
-      // Use a small buffer (0.5 e/tick) to avoid marginal sources
-      const MIN_NET_ENERGY = 0.5;
-      if (netEnergy < MIN_NET_ENERGY) {
-        console.log(`[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
-          `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
-          `net=${netEnergy.toFixed(2)}, distance=${spawnDistance}`);
-        continue;
-      }
-
       // Calculate efficiency percentage: (harvestRate - totalOverhead) / harvestRate * 100
       const efficiency = (netEnergy / harvestRate) * 100;
+
+      // Only mine if profitable:
+      // 1. Net energy must be positive (at least 1 e/tick buffer)
+      // 2. Efficiency must be at least 50% (otherwise overhead is too high)
+      // This prevents very long-range mines that waste creep time and CPU
+      const MIN_NET_ENERGY = 1.0;
+      const MIN_EFFICIENCY = 50;
+      if (netEnergy < MIN_NET_ENERGY || efficiency < MIN_EFFICIENCY) {
+        console.log(`[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
+          `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
+          `net=${netEnergy.toFixed(2)}, eff=${efficiency.toFixed(0)}%, distance=${spawnDistance}`);
+        continue;
+      }
 
       assignments.push({
         sourceId: source.id,

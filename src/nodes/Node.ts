@@ -76,6 +76,17 @@ export interface PotentialCorp {
 }
 
 /**
+ * Information about a reachable source from an adjacent node.
+ * Used to calculate expansion scores.
+ */
+export interface ReachableSource {
+  /** Source capacity (energy per regen cycle) */
+  capacity: number;
+  /** Distance from the target node's peak to this source */
+  distance: number;
+}
+
+/**
  * Potential corp ROI summary for a node.
  */
 export interface PotentialCorpROI {
@@ -94,6 +105,13 @@ export interface PotentialCorpROI {
 export interface NodeROI {
   /** Overall ROI score (sum of potential corps' ROI, adjusted for distance) */
   score: number;
+
+  /**
+   * Expansion score - ROI if we claimed this room and built a spawn here.
+   * This is the score without distance penalty, plus owned bonus.
+   * Use this to evaluate whether a room is worth expanding to.
+   */
+  expansionScore: number;
 
   /** Total estimated ROI from all potential corps (before distance adjustment) */
   rawCorpROI: number;
@@ -317,13 +335,15 @@ export function deserializeNode(data: SerializedNode): Node {
  * @param peakHeight - The peak height from spatial analysis
  * @param ownedRooms - Set of owned room names for distance calculation
  * @param potentialCorps - Potential corps from NodeSurveyor (optional, for pre-computed survey)
+ * @param reachableSources - Sources from adjacent nodes that could be mined if we expand here
  * @returns ROI metrics
  */
 export function calculateNodeROI(
   node: Node,
   peakHeight: number,
   ownedRooms: Set<string>,
-  potentialCorps: PotentialCorp[] = []
+  potentialCorps: PotentialCorp[] = [],
+  reachableSources: ReachableSource[] = []
 ): NodeROI {
   const isOwned = ownedRooms.has(node.roomName);
 
@@ -358,12 +378,39 @@ export function calculateNodeROI(
   // Each corp's ROI is typically 0.1-2.0 range, so we scale it up for readability
   const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
 
-  // Calculate final score
-  // Base: raw corp ROI scaled to ~0-100 range
-  let score = rawCorpROI * 50;
+  // Calculate base score (before distance and ownership adjustments)
+  // Base: raw corp ROI scaled to ~0-100 range + openness bonus
+  const baseScore = rawCorpROI * 50 + peakHeight * 2;
 
-  // Openness bonus (peak height typically 3-12)
-  score += peakHeight * 2;
+  // Calculate expansion score: what would the ROI be if we claimed this room?
+  // This includes:
+  // 1. Local sources (baseScore without distance penalty)
+  // 2. Nearby sources from adjacent nodes that could be mined with haulers
+  // 3. Owned bonus (we'd have infrastructure)
+  let expansionScore = baseScore + 25; // Base + owned bonus
+
+  // Add value from reachable sources in adjacent nodes
+  // Each reachable source contributes mining value minus hauling cost
+  for (const source of reachableSources) {
+    // Mining value: ~10 energy/tick from a source (3000 capacity / 300 regen)
+    const energyPerTick = source.capacity / 300;
+
+    // Hauling efficiency decreases with distance
+    // At 50 tiles (adjacent room), efficiency ~60%
+    // At 100 tiles (2 rooms away), efficiency ~30%
+    const haulingEfficiency = Math.max(0.1, 1 - source.distance / 150);
+
+    // Net value per tick, scaled similar to mining corps
+    const netValue = energyPerTick * haulingEfficiency * 0.01; // energyValue = 0.01
+
+    // Scale to match our ROI scoring (50x multiplier)
+    expansionScore += netValue * 50;
+  }
+
+  expansionScore = Math.max(0, expansionScore);
+
+  // Calculate final score (current value based on distance)
+  let score = baseScore;
 
   // Distance penalty - logistics cost increases with distance
   // Each room away reduces value significantly
@@ -383,6 +430,7 @@ export function calculateNodeROI(
 
   return {
     score,
+    expansionScore,
     rawCorpROI,
     potentialCorps: potentialCorpROIs,
     openness: peakHeight,

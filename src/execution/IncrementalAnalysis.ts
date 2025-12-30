@@ -10,7 +10,7 @@
 
 import "../types/Memory";
 import { Colony } from "../colony";
-import { createNode, Node, calculateNodeROI, NodeSurveyor } from "../nodes";
+import { createNode, Node, calculateNodeROI, NodeSurveyor, ReachableSource } from "../nodes";
 import {
   analyzeMultiRoomTerrain,
   MultiRoomAnalysisResult,
@@ -285,7 +285,13 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
 
-  // Create/update nodes
+  // Build peak height map for quick lookup
+  const peakHeightMap = new Map<string, number>();
+  for (const peak of result.peaks) {
+    peakHeightMap.set(peak.peakId, peak.height);
+  }
+
+  // First pass: create/update nodes and populate resources
   for (const peak of result.peaks) {
     const nodeId = peak.peakId;
     const positions = result.territories.get(nodeId);
@@ -305,12 +311,102 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
       node.territorySize = territorySize;
       node.spansRooms = spansRooms;
       populateNodeResources(node, positions, positionToNode);
-      const surveyResult = surveyor.survey(node, Game.time);
-      node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps);
     }
   }
 
+  // Build adjacency map from result.adjacencies
+  // Adjacencies are stored as "nodeA|nodeB" strings
+  const adjacencyMap = new Map<string, Set<string>>();
+  for (const edgeKey of result.adjacencies || []) {
+    const [nodeA, nodeB] = edgeKey.split("|");
+    if (!adjacencyMap.has(nodeA)) adjacencyMap.set(nodeA, new Set());
+    if (!adjacencyMap.has(nodeB)) adjacencyMap.set(nodeB, new Set());
+    adjacencyMap.get(nodeA)!.add(nodeB);
+    adjacencyMap.get(nodeB)!.add(nodeA);
+  }
+
+  // Second pass: calculate ROI with reachable sources from adjacent nodes
+  for (const peak of result.peaks) {
+    const nodeId = peak.peakId;
+    const node = colony.getNode(nodeId);
+    if (!node) continue;
+
+    // Gather reachable sources from adjacent nodes
+    const reachableSources: ReachableSource[] = [];
+    const adjacentNodeIds = adjacencyMap.get(nodeId) || new Set();
+
+    for (const adjNodeId of adjacentNodeIds) {
+      const adjNode = colony.getNode(adjNodeId);
+      if (!adjNode) continue;
+
+      // Get sources from adjacent node (skip Source Keeper rooms for now)
+      const sources = adjNode.resources.filter(r =>
+        r.type === "source" && !isSourceKeeperRoom(r.position.roomName)
+      );
+      for (const source of sources) {
+        // Calculate distance from this node's peak to the source
+        const distance = estimateSourceDistance(node, source.position);
+        reachableSources.push({
+          capacity: source.capacity ?? 3000,
+          distance
+        });
+      }
+    }
+
+    const surveyResult = surveyor.survey(node, Game.time);
+    node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps, reachableSources);
+  }
+
   console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);
+}
+
+/**
+ * Estimate distance from a node's peak to a source position.
+ * Uses Manhattan distance for same room, adds 50 tiles per room for cross-room.
+ */
+function estimateSourceDistance(node: Node, sourcePos: { x: number; y: number; roomName: string }): number {
+  if (node.peakPosition.roomName === sourcePos.roomName) {
+    // Same room - Manhattan distance
+    return Math.abs(node.peakPosition.x - sourcePos.x) + Math.abs(node.peakPosition.y - sourcePos.y);
+  }
+
+  // Cross-room: estimate room distance and add in-room distance
+  const parseRoom = (name: string): { x: number; y: number } | null => {
+    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
+    if (!match) return null;
+    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
+    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
+    return { x, y };
+  };
+
+  const nodeRoomCoord = parseRoom(node.peakPosition.roomName);
+  const sourceRoomCoord = parseRoom(sourcePos.roomName);
+
+  if (!nodeRoomCoord || !sourceRoomCoord) return 100; // Fallback
+
+  const roomDistance = Math.abs(nodeRoomCoord.x - sourceRoomCoord.x) + Math.abs(nodeRoomCoord.y - sourceRoomCoord.y);
+
+  // Base: 50 tiles per room + average in-room distance (~25 tiles)
+  return roomDistance * 50 + 25;
+}
+
+/**
+ * Check if a room is a Source Keeper room.
+ * SK rooms have coordinates where both X and Y end in 4, 5, or 6,
+ * but are not center rooms (where both end in 5).
+ */
+function isSourceKeeperRoom(roomName: string): boolean {
+  const match = roomName.match(/^[WE](\d+)[NS](\d+)$/);
+  if (!match) return false;
+
+  const x = parseInt(match[1]) % 10;
+  const y = parseInt(match[2]) % 10;
+
+  // Center rooms (portals) have both coords ending in 5
+  if (x === 5 && y === 5) return false;
+
+  // SK rooms have both coords in [4, 5, 6] range
+  return x >= 4 && x <= 6 && y >= 4 && y <= 6;
 }
 
 /**

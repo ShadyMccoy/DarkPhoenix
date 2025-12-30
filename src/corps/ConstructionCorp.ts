@@ -368,10 +368,7 @@ export class ConstructionCorp extends Corp {
   private doBuild(creep: Creep, room: Room): void {
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
-      const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-      if (spawn && creep.pos.getRangeTo(spawn) > 3) {
-        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
-      }
+      // No construction sites - stay put
       return;
     }
 
@@ -389,34 +386,64 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Pick up energy from spawn area or dropped resources.
+   * Pick up energy from nearby sources only (stationary - don't travel for energy).
+   * Haulers are responsible for delivering energy to builders.
    */
-  private doPickup(creep: Creep, room: Room): void {
-    const dropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 50,
+  private doPickup(creep: Creep, _room: Room): void {
+    const PICKUP_RANGE = 4; // Only grab energy within this range
+
+    // Check for dropped energy within range
+    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
     });
-
     if (dropped.length > 0) {
-      const target = creep.pos.findClosestByPath(dropped);
-      if (target) {
-        if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-        }
-        return;
-      }
-    }
-
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn && spawn.store[RESOURCE_ENERGY] >= 200) {
-      if (creep.withdraw(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
+      const target = dropped[0];
+      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
       }
       return;
     }
 
-    if (spawn && creep.pos.getRangeTo(spawn) > 3) {
-      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
+    // Check for tombstones with energy within range
+    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
+      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+    });
+    if (tombstones.length > 0) {
+      const target = tombstones[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
     }
+
+    // Check for ruins with energy within range
+    const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
+      filter: (r) => r.store[RESOURCE_ENERGY] > 0,
+    });
+    if (ruins.length > 0) {
+      const target = ruins[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // Check containers within range
+    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+    }) as StructureContainer[];
+    if (containers.length > 0) {
+      const target = containers[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // No energy nearby - stay put and wait for delivery
+    // (creep will move to construction site when it has energy)
   }
 
   /**

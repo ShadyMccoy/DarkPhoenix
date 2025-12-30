@@ -125,9 +125,10 @@ declare global {
     harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
 
     /**
-     * Serialized hauling corps by room name.
+     * Serialized hauling corps by source ID.
+     * Each source has its own CarryCorp for independent hauler scaling.
      */
-    haulingCorps?: { [roomName: string]: SerializedCarryCorp };
+    haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
 
     /**
      * Serialized upgrading corps by room name.
@@ -227,6 +228,12 @@ declare global {
      * Used to prevent thrashing by giving each hauler a stable route.
      */
     assignedSourceId?: string;
+
+    /**
+     * Assigned source position for intel-based remote sources.
+     * Used when the source object isn't visible (remote room without vision).
+     */
+    assignedSourcePos?: { x: number; y: number; roomName: string };
   }
 }
 

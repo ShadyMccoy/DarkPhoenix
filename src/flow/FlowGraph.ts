@@ -108,6 +108,12 @@ export class FlowGraph {
       const sourceResources = getResourcesByType(node, "source");
 
       for (const resource of sourceResources) {
+        // Skip sources in Source Keeper rooms (too dangerous to mine without combat)
+        const roomName = resource.position.roomName;
+        if (isSourceKeeperRoom(roomName)) {
+          continue;
+        }
+
         // resource.capacity is the total energy capacity (e.g., 3000)
         // Convert to rate: capacity / 300 ticks = energy per tick
         const energyCapacity = resource.capacity ?? 3000;
@@ -633,6 +639,29 @@ export class FlowGraph {
       console.log(`  ${sink.id}: priority=${sink.priority}, demand=${sink.demand}`);
     }
   }
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Check if a room is a Source Keeper room.
+ * SK rooms have coordinates where both X and Y end in 4, 5, or 6,
+ * but are not center rooms (where both end in 5).
+ */
+function isSourceKeeperRoom(roomName: string): boolean {
+  const match = roomName.match(/^[WE](\d+)[NS](\d+)$/);
+  if (!match) return false;
+
+  const x = parseInt(match[1]) % 10;
+  const y = parseInt(match[2]) % 10;
+
+  // Center rooms (portals) have both coords ending in 5
+  if (x === 5 && y === 5) return false;
+
+  // SK rooms have both coords in [4, 5, 6] range
+  return x >= 4 && x <= 6 && y >= 4 && y <= 6;
 }
 
 // =============================================================================

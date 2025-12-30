@@ -121,14 +121,14 @@ export function initCorps(corps: CorpRegistry): InitResult {
     }
   }
 
-  // Hydrate hauling corps
+  // Hydrate hauling corps (keyed by source ID)
   if (Memory.haulingCorps) {
-    for (const roomName in Memory.haulingCorps) {
-      const saved = Memory.haulingCorps[roomName];
-      if (saved && !corps.haulingCorps[roomName]) {
+    for (const sourceId in Memory.haulingCorps) {
+      const saved = Memory.haulingCorps[sourceId];
+      if (saved && !corps.haulingCorps[sourceId]) {
         const haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId);
         haulingCorp.deserialize(saved);
-        corps.haulingCorps[roomName] = haulingCorp;
+        corps.haulingCorps[sourceId] = haulingCorp;
         result.corpsHydrated.hauling++;
       }
     }
@@ -263,8 +263,8 @@ export function runPlanningPhase(
   for (const sourceId in corps.harvestCorps) {
     corps.harvestCorps[sourceId].plan(tick);
   }
-  for (const roomName in corps.haulingCorps) {
-    corps.haulingCorps[roomName].plan(tick);
+  for (const sourceId in corps.haulingCorps) {
+    corps.haulingCorps[sourceId].plan(tick);
   }
   for (const roomName in corps.upgradingCorps) {
     corps.upgradingCorps[roomName].plan(tick);
@@ -440,13 +440,8 @@ export function runSurveyPhase(
     if (!processedRooms.has(node.roomName)) {
       processedRooms.add(node.roomName);
 
-      if (!corps.haulingCorps[node.roomName]) {
-        const haulingCorp = createCarryCorp(room, spawn);
-        haulingCorp.createdAt = tick;
-        corps.haulingCorps[node.roomName] = haulingCorp;
-        result.corpsCreated.hauling++;
-        console.log(`[Survey] Created HaulingCorp for room ${node.roomName}`);
-      }
+      // Note: CarryCorps are now created per-source by FlowMaterializer,
+      // not per-room during survey. This ensures each source has dedicated haulers.
 
       if (!corps.upgradingCorps[node.roomName]) {
         const upgradingCorp = createUpgradingCorp(room, spawn);

@@ -552,6 +552,7 @@ export class Telemetry {
       })),
       roi: node.roi ? {
         s: node.roi.score,
+        e: node.roi.expansionScore,
         o: node.roi.openness,
         d: node.roi.distanceFromOwned,
         own: node.roi.isOwned,

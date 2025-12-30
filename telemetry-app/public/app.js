@@ -437,6 +437,7 @@ function updateNodesUI(nodes) {
       </td>
       <td>${node.roi?.hasController ? '<span class="controller-icon">◆</span>' : ''}</td>
       <td class="score-cell">${node.roi?.score?.toFixed(1) || "--"}</td>
+      <td class="score-cell">${node.roi?.expansionScore?.toFixed(1) || "--"}</td>
       <td>${node.roi?.openness?.toFixed(1) || "--"}</td>
       <td>
         ${isEcon ? '<span class="badge badge-econ">Econ</span>' : ''}
@@ -1334,6 +1335,7 @@ function drawNodeTooltip(ctx, node, canvasWidth) {
     `Controller: ${node.roi?.hasController ? "Yes" : "No"}`,
     `Openness: ${node.roi?.openness?.toFixed(1) || "--"}`,
     `ROI Score: ${node.roi?.score?.toFixed(1) || "--"}`,
+    `Expansion Score: ${node.roi?.expansionScore?.toFixed(1) || "--"}`,
     `Status: ${node.roi?.isOwned ? "Owned" : "Expansion"}`,
   ];
 
@@ -1501,6 +1503,10 @@ function showNodeDetails(node) {
       <div class="details-row">
         <span class="label">ROI Score</span>
         <span class="value highlight">${node.roi?.score?.toFixed(1) || "--"}</span>
+      </div>
+      <div class="details-row">
+        <span class="label">Expansion Score</span>
+        <span class="value">${node.roi?.expansionScore?.toFixed(1) || "--"}</span>
       </div>
       <div class="details-row">
         <span class="label">Status</span>
