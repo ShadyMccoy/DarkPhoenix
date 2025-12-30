@@ -1,0 +1,53 @@
+{
+  "name": "Early Game (Decay)",
+  "purpose": "Test early game with limited hauling. Energy decays at 1/tick per pile when haulers can't keep up.",
+  "description": "Single source with 2 mining spots. Limited spawn capacity (300) means small haulers. Energy piles decay while waiting for pickup.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 10, "y": 10 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 10, "y": 10 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 5000,
+    "deterministicIds": true,
+    "miningSpots": 2,
+    "spawnCapacity": 300
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}

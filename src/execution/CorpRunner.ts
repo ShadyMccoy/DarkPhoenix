@@ -197,6 +197,13 @@ export function runScoutCorps(registry: CorpRegistry): void {
     // Run the scout corp
     if (scoutCorp) {
       scoutCorp.work(Game.time);
+
+      // Request scout spawns if needed
+      const spawn = spawns[0];
+      const spawningCorp = registry.spawningCorps[spawn.id];
+      if (spawningCorp) {
+        scoutCorp.requestSpawnsIfNeeded(spawningCorp, Game.time);
+      }
     }
   }
 }

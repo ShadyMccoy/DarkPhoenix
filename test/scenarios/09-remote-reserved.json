@@ -1,0 +1,52 @@
+{
+  "name": "Remote Reserved",
+  "purpose": "Test reserved remote mining. Claimer boosts sources to 3000 but costs ~2.6 energy/tick.",
+  "description": "Remote room with reservation. Sources regenerate full 3000 energy. Claimer (2 CLAIM + 2 MOVE = 1300 energy, 500 TTL) costs ~2.6/tick.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 550
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 4
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W2N1",
+      "position": { "x": 15, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 15, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 15000,
+    "deterministicIds": true,
+    "claimerCost": 2.6
+  },
+  "expectations": {
+    "minViableChains": 0
+  }
+}

@@ -1,6 +1,33 @@
 import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
 
+// Declare Game for environments where @types/screeps is not available
+declare const Game: {
+  map: {
+    getRoomLinearDistance(roomA: string, roomB: string): number;
+  };
+} | undefined;
+
+/**
+ * Estimate room distance for test environments where Game object is unavailable.
+ * Parses room names like "W1N1" and calculates Manhattan distance.
+ */
+function estimateRoomDistance(roomA: string, roomB: string): number {
+  const parseRoom = (name: string): { x: number; y: number } | null => {
+    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
+    if (!match) return null;
+    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
+    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
+    return { x, y };
+  };
+
+  const a = parseRoom(roomA);
+  const b = parseRoom(roomB);
+  if (!a || !b) return Infinity;
+
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
 /**
  * Types of resources that can exist in a node
  */
@@ -305,7 +332,9 @@ export function calculateNodeROI(
   if (!isOwned) {
     distanceFromOwned = Infinity;
     for (const ownedRoom of ownedRooms) {
-      const dist = Game.map.getRoomLinearDistance(node.roomName, ownedRoom);
+      const dist = typeof Game !== "undefined"
+        ? Game.map.getRoomLinearDistance(node.roomName, ownedRoom)
+        : estimateRoomDistance(node.roomName, ownedRoom);
       if (dist < distanceFromOwned) {
         distanceFromOwned = dist;
       }
@@ -379,10 +408,9 @@ export function distanceToPeak(node: Node, position: Position): number {
 
   // Cross-room distance estimation using linear distance
   // This is approximate but good enough for territory decisions
-  const roomDistance = Game.map.getRoomLinearDistance(
-    position.roomName,
-    node.peakPosition.roomName
-  );
+  const roomDistance = typeof Game !== "undefined"
+    ? Game.map.getRoomLinearDistance(position.roomName, node.peakPosition.roomName)
+    : estimateRoomDistance(position.roomName, node.peakPosition.roomName);
 
   if (roomDistance === undefined || roomDistance === null) {
     return Infinity;
