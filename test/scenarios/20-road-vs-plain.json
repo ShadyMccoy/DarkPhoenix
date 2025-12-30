@@ -1,0 +1,73 @@
+{
+  "name": "Road vs Plain Route",
+  "purpose": "Compare efficiency of road-optimized 2:1 haulers vs plain 1:1 haulers",
+  "description": "Two sources at same distance but different terrain. Tests that hauler ratio adapts to terrain.",
+  "nodes": [
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "spawn",
+          "position": { "x": 25, "y": 25 },
+          "capacity": 300
+        }
+      ],
+      "territorySize": 50
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 10, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 10, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 40, "y": 25 },
+      "resourceNodes": [
+        {
+          "type": "source",
+          "position": { "x": 40, "y": 25 },
+          "capacity": 3000
+        }
+      ],
+      "territorySize": 30
+    },
+    {
+      "roomName": "W1N1",
+      "position": { "x": 25, "y": 40 },
+      "resourceNodes": [
+        {
+          "type": "controller",
+          "position": { "x": 25, "y": 40 },
+          "capacity": 1
+        }
+      ],
+      "territorySize": 50
+    }
+  ],
+  "config": {
+    "tick": 0,
+    "budget": 10000,
+    "deterministicIds": true,
+    "spawnEnergyCapacity": 800,
+    "routes": [
+      {
+        "from": "source-10-25",
+        "to": "spawn",
+        "terrain": { "road": 15, "plain": 0, "swamp": 0 }
+      },
+      {
+        "from": "source-40-25",
+        "to": "spawn",
+        "terrain": { "road": 0, "plain": 15, "swamp": 0 }
+      }
+    ]
+  }
+}
