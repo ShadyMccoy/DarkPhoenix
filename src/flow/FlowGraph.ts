@@ -156,9 +156,12 @@ export class FlowGraph {
         this.sinks.set(sink.id, sink);
       }
 
-      // Controllers - upgrading
+      // Controllers - upgrading (only owned controllers)
       const controllers = getResourcesByType(node, "controller");
       for (const resource of controllers) {
+        // Only add controller as sink if we own it
+        if (!resource.isOwned) continue;
+
         const sink = createFlowSink(
           "controller",
           resource.id,

@@ -367,6 +367,9 @@ function populateNodeResources(
     return smallestAdjacentKey !== null && territorySet.has(smallestAdjacentKey);
   };
 
+  // Get my username for ownership checks
+  const myUsername = Object.values(Game.spawns)[0]?.owner?.username;
+
   for (const roomName of node.spansRooms) {
     // Try live data first (if we have vision)
     const room = Game.rooms[roomName];
@@ -383,13 +386,14 @@ function populateNodeResources(
         }
       }
 
-      // Add controller if within territory
-      if (room.controller && shouldClaimResource(room.controller.pos.x, room.controller.pos.y, roomName)) {
+      // Add controller if within territory (only if owned by us)
+      if (room.controller && room.controller.my && shouldClaimResource(room.controller.pos.x, room.controller.pos.y, roomName)) {
         node.resources.push({
           type: "controller",
           id: room.controller.id,
           position: { x: room.controller.pos.x, y: room.controller.pos.y, roomName },
-          level: room.controller.level
+          level: room.controller.level,
+          isOwned: true
         });
       }
 
@@ -420,6 +424,12 @@ function populateNodeResources(
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];
       if (intel) {
+        // Check if this room is owned by us (from intel)
+        const isOwnedRoom = myUsername && intel.controllerOwner === myUsername;
+
+        // Source capacity: 3000 for owned rooms, 1500 for unclaimed/unowned
+        const sourceCapacity = isOwnedRoom ? 3000 : 1500;
+
         // Add sources from intel within territory
         for (const sourcePos of intel.sourcePositions || []) {
           if (shouldClaimResource(sourcePos.x, sourcePos.y, roomName)) {
@@ -427,18 +437,19 @@ function populateNodeResources(
               type: "source",
               id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
               position: { x: sourcePos.x, y: sourcePos.y, roomName },
-              capacity: 3000 // Default capacity
+              capacity: sourceCapacity
             });
           }
         }
 
-        // Add controller from intel if within territory
-        if (intel.controllerPos && shouldClaimResource(intel.controllerPos.x, intel.controllerPos.y, roomName)) {
+        // Add controller from intel only if owned by us
+        if (intel.controllerPos && isOwnedRoom && shouldClaimResource(intel.controllerPos.x, intel.controllerPos.y, roomName)) {
           node.resources.push({
             type: "controller",
             id: `intel-controller-${roomName}`,
             position: { x: intel.controllerPos.x, y: intel.controllerPos.y, roomName },
-            level: intel.controllerLevel
+            level: intel.controllerLevel,
+            isOwned: true
           });
         }
 

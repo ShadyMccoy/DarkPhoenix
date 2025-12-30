@@ -27,7 +27,7 @@ import {
  * Ticks the spawn must be stuck (no creeps, low energy) before bootstrap activates.
  * This ensures bootstrap is truly a rare fallback, not a regular occurrence.
  */
-const BOOTSTRAP_STARVATION_THRESHOLD = 20;
+const BOOTSTRAP_STARVATION_THRESHOLD = 5;
 
 /**
  * Energy threshold below which we consider the spawn potentially starving.
@@ -120,9 +120,18 @@ export class BootstrapCorp extends Corp {
     const ourCreepNames = new Set(this.creepNames);
     const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
 
+    // Count ACTUAL haulers (workType === "haul") and jacks (our creeps)
+    // Don't count upgraders/builders that happen to have CARRY parts
+    const actualHaulers = allCreeps.filter((c) => c.memory.workType === "haul");
+    const jackCount = this.creepNames.filter((n) => Game.creeps[n]).length;
+    const totalHaulers = actualHaulers.length + jackCount;
+
+    // CRITICAL: If no haulers AND no jacks, bootstrap IMMEDIATELY
+    const noHaulers = totalHaulers === 0;
+
     // Only yield to other corps if they have enough creeps to sustain (3+)
     // If there are just 1-2 struggling creeps, bootstrap should help
-    if (otherCreeps.length >= 3) {
+    if (otherCreeps.length >= 3 && !noHaulers) {
       this.starvationStartTick = 0;
       // Still run our existing creeps until they die
       for (const name of this.creepNames) {
@@ -138,7 +147,14 @@ export class BootstrapCorp extends Corp {
     const isStarving = spawn.room.energyAvailable < BOOTSTRAP_ENERGY_THRESHOLD &&
                        otherCreeps.length < 3;
 
-    if (isStarving) {
+    // No haulers = immediate activation, bypass all checks
+    if (noHaulers) {
+      // Force starvation state to trigger spawn
+      if (this.starvationStartTick === 0 || this.starvationStartTick > tick - BOOTSTRAP_STARVATION_THRESHOLD) {
+        console.log(`[Bootstrap] No haulers detected! Activating immediately.`);
+        this.starvationStartTick = tick - BOOTSTRAP_STARVATION_THRESHOLD - 1;
+      }
+    } else if (isStarving) {
       // Start or continue starvation timer
       if (this.starvationStartTick === 0) {
         this.starvationStartTick = tick;
@@ -155,6 +171,7 @@ export class BootstrapCorp extends Corp {
     // Only spawn if we've been starving long enough
     const ticksStarving = this.starvationStartTick > 0 ? tick - this.starvationStartTick : 0;
     const shouldSpawn = ticksStarving >= BOOTSTRAP_STARVATION_THRESHOLD ||
+                        noHaulers ||
                         (this.creepNames.length > 0 && this.creepNames.length < BOOTSTRAP_MAX_JACKS);
 
     if (shouldSpawn && this.creepNames.length < BOOTSTRAP_MAX_JACKS) {
@@ -233,47 +250,60 @@ export class BootstrapCorp extends Corp {
     }
 
     if (creep.memory.working) {
-      // Deliver energy to spawn
-      if (spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(spawn, { visualizePathStyle: { stroke: "#ffaa00" } });
+      // Find closest spawn or extension that needs energy
+      const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
+        filter: (s) =>
+          (s.structureType === STRUCTURE_SPAWN ||
+           s.structureType === STRUCTURE_EXTENSION) &&
+          (s as StructureSpawn | StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY) > 0
+      }) as StructureSpawn | StructureExtension | null;
+
+      if (target) {
+        if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         } else {
           // Record revenue when we successfully transfer
           const transferred = Math.min(
             creep.store[RESOURCE_ENERGY],
-            spawn.store.getFreeCapacity(RESOURCE_ENERGY)
+            target.store.getFreeCapacity(RESOURCE_ENERGY)
           );
           // Very low "revenue" - bootstrap is not about profit
           this.recordRevenue(transferred * 0.001);
         }
       } else {
-        // Spawn is full - just wait nearby
+        // Everything full - wait near spawn
         if (creep.pos.getRangeTo(spawn) > 3) {
           creep.moveTo(spawn);
         }
       }
     } else {
-      // Look for dropped energy on the ground first
+      // Priority 1: Pick up dropped energy
       const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
         filter: (r) => r.resourceType === RESOURCE_ENERGY,
       });
 
-      // Prioritize picking up dropped energy if it's closer than the source
       if (droppedEnergy) {
-        const distToDropped = creep.pos.getRangeTo(droppedEnergy);
-        const distToSource = creep.pos.getRangeTo(source);
-
-        // Pick up dropped energy if it's closer or very near
-        if (distToDropped <= 1) {
-          creep.pickup(droppedEnergy);
-          return;
-        } else if (distToDropped < distToSource) {
-          creep.moveTo(droppedEnergy, { visualizePathStyle: { stroke: "#00ff00" } });
-          return;
+        if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(droppedEnergy, { range: 1, visualizePathStyle: { stroke: "#00ff00" } });
         }
+        return;
       }
 
-      // Harvest from source
+      // Priority 2: Withdraw from containers with energy
+      const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+        filter: (s) =>
+          s.structureType === STRUCTURE_CONTAINER &&
+          s.store[RESOURCE_ENERGY] > 0
+      }) as StructureContainer | null;
+
+      if (container) {
+        if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(container, { range: 1, visualizePathStyle: { stroke: "#00ff00" } });
+        }
+        return;
+      }
+
+      // Priority 3: Harvest from source (only if no energy to collect)
       if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
         creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
       }

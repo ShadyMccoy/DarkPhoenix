@@ -160,37 +160,39 @@ function materializeNodeFlow(
   const roomName = nodeFlow.roomName;
   const room = Game.rooms[roomName];
 
-  // Need room visibility and ownership to materialize
-  if (!room || !room.controller?.my) {
-    return;
-  }
-
-  const spawn = room.find(FIND_MY_SPAWNS)[0];
-  if (!spawn) {
-    result.warnings.push(`No spawn in ${roomName}`);
-    return;
-  }
-
-  // Materialize HarvestCorps from miner assignments
+  // Materialize HarvestCorps from miner assignments (works for remote rooms too)
+  // Each miner assignment has its own spawnId
+  // Note: Profitability filtering is done in the flow solver, not here
   for (const miner of nodeFlow.miners) {
-    materializeHarvestCorp(miner, room, spawn, corps, tick, result);
+    materializeHarvestCorp(miner, corps, tick, result);
   }
 
   // Materialize CarryCorp from hauler assignments
+  // Haulers operate from a spawn, use first hauler's spawn
   if (nodeFlow.haulers.length > 0) {
-    materializeCarryCorp(nodeFlow, room, spawn, corps, tick, result);
+    const spawnId = nodeFlow.haulers[0].spawnId;
+    const spawn = Game.getObjectById(spawnId as Id<StructureSpawn>);
+    if (spawn) {
+      materializeCarryCorp(nodeFlow, spawn.room, spawn, corps, tick, result);
+    }
   }
 
-  // Materialize UpgradingCorp from controller sink
-  const controllerSink = nodeFlow.sinks.find(s => s.sinkType === "controller");
-  if (controllerSink) {
-    materializeUpgradingCorp(controllerSink, room, spawn, corps, tick, result);
-  }
+  // Upgrading and construction only in rooms we own
+  if (room && room.controller?.my) {
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (spawn) {
+      // Materialize UpgradingCorp from controller sink
+      const controllerSink = nodeFlow.sinks.find(s => s.sinkType === "controller");
+      if (controllerSink) {
+        materializeUpgradingCorp(controllerSink, room, spawn, corps, tick, result);
+      }
 
-  // Materialize ConstructionCorp from construction sinks
-  const constructionSinks = nodeFlow.sinks.filter(s => s.sinkType === "construction");
-  if (constructionSinks.length > 0) {
-    materializeConstructionCorp(constructionSinks, room, spawn, corps, tick, result);
+      // Materialize ConstructionCorp from construction sinks
+      const constructionSinks = nodeFlow.sinks.filter(s => s.sinkType === "construction");
+      if (constructionSinks.length > 0) {
+        materializeConstructionCorp(constructionSinks, room, spawn, corps, tick, result);
+      }
+    }
   }
 }
 
@@ -203,8 +205,6 @@ function materializeNodeFlow(
  */
 function materializeHarvestCorp(
   miner: MinerAssignment,
-  room: Room,
-  spawn: StructureSpawn,
   corps: CorpRegistry,
   tick: number,
   result: MaterializationResult
@@ -212,24 +212,52 @@ function materializeHarvestCorp(
   // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
   const sourceGameId = miner.sourceId.replace("source-", "");
 
+  // Extract spawn game ID from flow sink ID (e.g., "spawn-abc123" → "abc123")
+  const spawnGameId = miner.spawnId.replace("spawn-", "");
+
+  // Get spawn for this miner
+  const spawn = Game.getObjectById(spawnGameId as Id<StructureSpawn>);
+  if (!spawn) {
+    result.warnings.push(`Spawn ${miner.spawnId} not found for source ${sourceGameId.slice(-4)}`);
+    return;
+  }
+
   let harvestCorp = corps.harvestCorps[sourceGameId];
 
   if (!harvestCorp) {
-    // Create new HarvestCorp
-    const source = Game.getObjectById(sourceGameId as Id<Source>);
-    if (!source) {
-      result.warnings.push(`Source ${sourceGameId} not found`);
-      return;
+    // Check if this is an intel-based source (remote room without vision)
+    const isIntelSource = sourceGameId.startsWith("intel-");
+
+    // Extract room name: from nodeId (e.g., "E27S12-36-39" → "E27S12")
+    // or from live source if available
+    let roomName: string;
+
+    if (isIntelSource) {
+      // Intel source: extract room name from nodeId (format: "ROOMNAME-X-Y")
+      roomName = miner.nodeId.split("-").slice(0, 1).join("");
+      // Handle room names like "E27S12" which don't have hyphens
+      const match = miner.nodeId.match(/^([EW]\d+[NS]\d+)/);
+      if (match) {
+        roomName = match[1];
+      }
+    } else {
+      // Live source: get from game object
+      const source = Game.getObjectById(sourceGameId as Id<Source>);
+      if (!source) {
+        result.warnings.push(`Source ${sourceGameId} not found`);
+        return;
+      }
+      roomName = source.room.name;
     }
 
     // Use consistent nodeId format: roomName-harvest-sourceIdSuffix
     // This must match createHarvestCorp() format for proper creep association
-    const nodeId = `${room.name}-harvest-${sourceGameId.slice(-4)}`;
-    harvestCorp = new HarvestCorp(nodeId, miner.spawnId, sourceGameId);
+    const nodeId = `${roomName}-harvest-${sourceGameId.slice(-4)}`;
+    harvestCorp = new HarvestCorp(nodeId, spawnGameId, sourceGameId);
     harvestCorp.createdAt = tick;
     corps.harvestCorps[sourceGameId] = harvestCorp;
     result.newCorpsCreated++;
-    console.log(`[FlowMaterializer] Created HarvestCorp for ${sourceGameId.slice(-4)}`);
+    console.log(`[FlowMaterializer] Created HarvestCorp for ${sourceGameId.slice(-4)} in ${roomName}`);
   }
 
   // Update the corp with its miner assignment

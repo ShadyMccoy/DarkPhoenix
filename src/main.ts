@@ -32,7 +32,7 @@
  */
 
 import { Colony, createColony } from "./colony";
-import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType } from "./nodes";
+import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, Node } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
@@ -94,6 +94,7 @@ declare global {
       forgiveDebt: (amount?: number) => void;
       clearSpawnQueue: () => void;
       marketStatus: () => void;
+      forceBootstrap: () => void;
     }
   }
 }
@@ -204,12 +205,20 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // Run the colony economic coordination (surveying, stats)
     colony.run(Game.time, corps);
 
-    // --- FLOW ECONOMY: Update allocations based on game state ---
-    // Always rebuild during planning to pick up new nodes/sources
-    if (flowEconomy && colony.getNodes().length > 0) {
-      const currentNodeCount = colony.getNodes().length;
-      console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
-      flowEconomy.rebuild(colony.getNodes());
+    // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
+    const planningNodes = colony.getNodes();
+    if (planningNodes.length > 0) {
+      // Rebuild navigator and economy from current Memory state
+      const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+      console.log(`[FlowEconomy] Rebuilding with ${planningNodes.length} nodes, ${edgeCount} edges`);
+
+      const rebuilt = buildFlowEconomyFromMemory(planningNodes);
+      nodeNavigator = rebuilt.navigator;
+      flowEconomy = rebuilt.economy;
+
+      // Update globals for debugging
+      global.nodeNavigator = nodeNavigator;
+      global.flowEconomy = flowEconomy;
 
       // Build priority context from game state
       const context = buildPriorityContext(corps);
@@ -310,20 +319,18 @@ function getOrCreateColony(): Colony {
 // =============================================================================
 
 /**
- * Creates or restores the flow economy from persisted edges.
+ * Builds navigator and flow economy from current Memory state.
  *
- * The flow economy requires:
- * 1. NodeNavigator - for pathfinding between nodes
- * 2. FlowEconomy - for solving optimal energy allocation
+ * This reads edges from Memory.nodeEdges (spatial) and Memory.economicEdges,
+ * then creates fresh navigator and economy instances.
  *
- * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
+ * @param nodes - Current colony nodes
+ * @returns New navigator and economy instances
  */
-function getOrCreateFlowEconomy(colony: Colony): {
+function buildFlowEconomyFromMemory(nodes: Node[]): {
   navigator: NodeNavigator;
   economy: FlowEconomy;
 } {
-  const nodes = colony.getNodes();
-
   // Build edge weights and types from persisted data
   const edgeWeights = new Map<string, number>();
   const edgeTypes = new Map<string, EdgeType>();
@@ -351,14 +358,32 @@ function getOrCreateFlowEconomy(colony: Colony): {
     }
   }
 
-  // Create navigator
+  // Create navigator and economy
   const navigator = createNodeNavigator(nodes, allEdges, edgeWeights, edgeTypes);
-
-  // Create flow economy
   const economy = new FlowEconomy(nodes, navigator);
 
+  return { navigator, economy };
+}
+
+/**
+ * Creates or restores the flow economy from persisted edges.
+ *
+ * The flow economy requires:
+ * 1. NodeNavigator - for pathfinding between nodes
+ * 2. FlowEconomy - for solving optimal energy allocation
+ *
+ * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
+ */
+function getOrCreateFlowEconomy(colony: Colony): {
+  navigator: NodeNavigator;
+  economy: FlowEconomy;
+} {
+  const nodes = colony.getNodes();
+  const { navigator, economy } = buildFlowEconomyFromMemory(nodes);
+
   if (nodes.length > 0) {
-    console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${allEdges.length} edges`);
+    const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+    console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${edgeCount} edges`);
     console.log(`[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${economy.getFlowGraph().getSinks().length}`);
 
     // Run initial solve if we have sources (don't wait for planning cycle)
@@ -531,12 +556,21 @@ global.plan = () => {
 
   console.log(`[Planning] Running planning phase at tick ${Game.time}...`);
 
-  // --- FLOW ECONOMY: Update allocations based on game state ---
-  if (flowEconomy && colony.getNodes().length > 0) {
-    // Always rebuild to pick up new nodes/sources from scouting
-    const currentNodeCount = colony.getNodes().length;
-    console.log(`[FlowEconomy] Rebuilding graph with ${currentNodeCount} nodes`);
-    flowEconomy.rebuild(colony.getNodes());
+  // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
+  const nodes = colony.getNodes();
+  if (nodes.length > 0) {
+    // Rebuild navigator and economy from current Memory state
+    // This picks up any new nodes, sources, or edges from scouting
+    const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+    console.log(`[FlowEconomy] Rebuilding with ${nodes.length} nodes, ${edgeCount} edges`);
+
+    const rebuilt = buildFlowEconomyFromMemory(nodes);
+    nodeNavigator = rebuilt.navigator;
+    flowEconomy = rebuilt.economy;
+
+    // Update globals for debugging
+    global.nodeNavigator = nodeNavigator;
+    global.flowEconomy = flowEconomy;
 
     // Build priority context from game state
     const context = buildPriorityContext(corps);
@@ -907,6 +941,33 @@ global.clearSpawnQueue = () => {
  * Show current economy status for debugging.
  * Call from console: `global.marketStatus()`
  */
+/**
+ * Force bootstrap corps to activate immediately.
+ * Call from console: `global.forceBootstrap()`
+ *
+ * This bypasses the normal starvation detection by setting the starvation
+ * start tick to a time in the past, making the bootstrap think it's been
+ * starving long enough to activate.
+ */
+global.forceBootstrap = () => {
+  let activated = 0;
+
+  for (const roomName in corps.bootstrapCorps) {
+    const bootstrap = corps.bootstrapCorps[roomName];
+    // Set starvation start tick to force activation
+    // Access private property via any cast
+    (bootstrap as any).starvationStartTick = Game.time - 100;
+    activated++;
+    console.log(`[GodMode] Forced bootstrap activation for ${roomName}`);
+  }
+
+  if (activated === 0) {
+    console.log(`[GodMode] No bootstrap corps found. They will be created automatically.`);
+  } else {
+    console.log(`[GodMode] Activated ${activated} bootstrap corps. They will spawn jacks on next tick.`);
+  }
+};
+
 global.marketStatus = () => {
   console.log("\n=== Economy Status ===\n");
 

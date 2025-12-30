@@ -221,6 +221,14 @@ export interface MinerAssignment {
    * Allows spawning multiple smaller miners in early game when energy capacity is limited.
    */
   maxMiners: number;
+
+  /**
+   * Mining efficiency percentage (0-100).
+   * Calculated as: (harvestRate - totalOverhead) / harvestRate * 100
+   * where totalOverhead = minerOverhead + haulerOverhead.
+   * Higher efficiency = more net energy per unit harvested = higher spawn priority.
+   */
+  efficiency: number;
 }
 
 /**
