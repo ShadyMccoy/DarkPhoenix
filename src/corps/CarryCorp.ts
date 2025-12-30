@@ -223,9 +223,11 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * Deliver energy to spawn or directly to upgraders.
+   * Deliver energy to spawn, extensions, or workers.
+   * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
   private deliverEnergy(creep: Creep, room: Room, spawn: StructureSpawn): void {
+    // Priority 1: Fill spawn and extensions
     const spawnStructures = room.find(FIND_MY_STRUCTURES, {
       filter: (s) =>
         (s.structureType === STRUCTURE_SPAWN ||
@@ -252,6 +254,29 @@ export class CarryCorp extends Corp {
       }
     }
 
+    // Check if there are construction sites (building phase)
+    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    const rcl = room.controller?.level ?? 1;
+
+    // At RCL 2 with construction sites: drop near sources, not controller
+    // Workers (upgraders doing build duty) are near sources picking up dropped energy
+    if (rcl <= 2 && constructionSites.length > 0) {
+      // Drop near assigned source where workers are building
+      const sources = room.find(FIND_SOURCES);
+      const assignedSource = this.getAssignedSource(creep, sources);
+      if (assignedSource) {
+        if (creep.pos.getRangeTo(assignedSource) <= 3) {
+          const dropped = creep.store[RESOURCE_ENERGY];
+          creep.drop(RESOURCE_ENERGY);
+          this.recordProduction(dropped);
+        } else {
+          creep.moveTo(assignedSource, { visualizePathStyle: { stroke: "#ffaa00" } });
+        }
+        return;
+      }
+    }
+
+    // Priority 2: Transfer directly to upgraders
     const upgraders = room.find(FIND_MY_CREEPS, {
       filter: (c) =>
         c.memory.workType === "upgrade" &&
@@ -278,6 +303,7 @@ export class CarryCorp extends Corp {
       return;
     }
 
+    // Priority 3: Drop at controller (for upgrading)
     if (room.controller) {
       if (creep.pos.getRangeTo(room.controller) <= 3) {
         const dropped = creep.store[RESOURCE_ENERGY];

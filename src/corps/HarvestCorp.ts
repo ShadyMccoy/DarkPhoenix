@@ -121,7 +121,20 @@ export class HarvestCorp extends Corp {
     if (source) {
       return { x: source.pos.x, y: source.pos.y, roomName: source.pos.roomName };
     }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+
+    // For intel-based sources, parse position from ID format: "intel-ROOMNAME-X-Y"
+    if (this.sourceId.startsWith("intel-")) {
+      const match = this.sourceId.match(/^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/);
+      if (match) {
+        const [, roomName, x, y] = match;
+        return { x: parseInt(x), y: parseInt(y), roomName };
+      }
+    }
+
+    // Fallback: extract room name from nodeId
+    const roomMatch = this.nodeId.match(/^([EW]\d+[NS]\d+)/);
+    const roomName = roomMatch ? roomMatch[1] : this.nodeId.split("-")[0];
+    return { x: 25, y: 25, roomName };
   }
 
   /**
@@ -130,8 +143,30 @@ export class HarvestCorp extends Corp {
   work(tick: number): void {
     this.lastActivityTick = tick;
 
-    const source = Game.getObjectById(this.sourceId as Id<Source>);
-    if (!source) {
+    // Try to get the source object directly
+    let source = Game.getObjectById(this.sourceId as Id<Source>);
+
+    // For intel-based sources (remote rooms), source might be null until we have vision
+    // Parse position from intel source ID format: "intel-ROOMNAME-X-Y"
+    const isIntelSource = this.sourceId.startsWith("intel-");
+    let targetPos: RoomPosition | null = null;
+
+    if (!source && isIntelSource) {
+      const match = this.sourceId.match(/^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/);
+      if (match) {
+        const [, roomName, x, y] = match;
+        targetPos = new RoomPosition(parseInt(x), parseInt(y), roomName);
+
+        // If we now have vision of the room, try to find the actual source
+        const room = Game.rooms[roomName];
+        if (room) {
+          const sources = room.find(FIND_SOURCES);
+          source = sources.find(s => s.pos.x === parseInt(x) && s.pos.y === parseInt(y)) ?? null;
+        }
+      }
+    }
+
+    if (!source && !targetPos) {
       console.log(`[Harvest] ${this.id}: source ${this.sourceId} not found`);
       return;
     }
@@ -139,7 +174,26 @@ export class HarvestCorp extends Corp {
     // Run all assigned creeps
     const creeps = this.getActiveCreeps();
     for (const creep of creeps) {
-      this.runHarvester(creep, source);
+      if (source) {
+        this.runHarvester(creep, source);
+      } else if (targetPos) {
+        // No vision yet - just move toward the target position
+        this.moveToRemoteSource(creep, targetPos);
+      }
+    }
+  }
+
+  /**
+   * Move creep toward a remote source position (when we don't have vision).
+   */
+  private moveToRemoteSource(creep: Creep, targetPos: RoomPosition): void {
+    if (creep.pos.roomName !== targetPos.roomName) {
+      // Not in the target room yet - move there
+      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+    } else {
+      // In the room - we should have found the source by now
+      // This shouldn't happen, but move closer just in case
+      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
     }
   }
 
@@ -173,10 +227,25 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Get number of active harvester creeps.
+   * Get number of active harvester creeps (excludes spawning).
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Get total creep count including spawning creeps.
+   * Used for spawn planning to avoid queueing duplicate miners.
+   */
+  getTotalCreepCount(): number {
+    let count = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**

@@ -144,6 +144,7 @@ export interface NodeTelemetry {
     };
     spans: string[];  // spansRooms
     econ?: boolean;   // is part of economic network (has corps)
+    sp?: number;      // number of spawn structures in this node's room
   }[];
   /** @deprecated Edges moved to segment 2 (EdgesTelemetry) in version 5 */
   edges?: string[];
@@ -526,6 +527,18 @@ export class Telemetry {
       econNodeIds.add(id2);
     }
 
+    // Count spawn structures per room
+    const spawnCountsByRoom: { [roomName: string]: number } = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (room.controller?.my) {
+        const spawns = room.find(FIND_MY_SPAWNS);
+        if (spawns.length > 0) {
+          spawnCountsByRoom[roomName] = spawns.length;
+        }
+      }
+    }
+
     // Build compact node data
     const nodeData: NodeTelemetry["nodes"] = sortedNodes.map(node => ({
       id: node.id,
@@ -547,6 +560,7 @@ export class Telemetry {
       } : undefined,
       spans: node.spansRooms,
       econ: econNodeIds.has(node.id) || undefined,
+      sp: spawnCountsByRoom[node.roomName] || undefined,
     }));
 
     const telemetry: NodeTelemetry = {

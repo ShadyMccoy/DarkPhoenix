@@ -55,6 +55,8 @@ export interface NodeResource {
   level?: number;
   /** Mineral type if applicable */
   mineralType?: string;
+  /** Whether this resource is owned by us (for controllers) */
+  isOwned?: boolean;
 }
 
 /**

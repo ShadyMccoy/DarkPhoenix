@@ -196,6 +196,7 @@ export class FlowSolver {
   /**
    * Assign miners to sources.
    * Each source gets one miner, assigned to nearest spawn.
+   * Only assigns to sources that are profitable (net positive energy after overhead).
    */
   private assignMiners(
     sources: FlowSource[],
@@ -212,6 +213,33 @@ export class FlowSolver {
 
       const spawnDistance = nearestSpawn.distance;
 
+      // Calculate profitability: is this source worth mining?
+      // Net = harvestRate - minerOverhead - haulerOverhead
+      const harvestRate = source.capacity;
+      const minerOverhead = MINER_OVERHEAD_PER_TICK;
+
+      // Estimate hauler overhead to nearest sink (spawn)
+      // This is a conservative estimate - actual hauling may be shorter
+      const roundTrip = calculateRoundTrip(spawnDistance);
+      const carryParts = calculateCarryParts(harvestRate, spawnDistance);
+      const haulerOverhead = calculateHaulerCostPerTick(carryParts);
+
+      const totalOverhead = minerOverhead + haulerOverhead;
+      const netEnergy = harvestRate - totalOverhead;
+
+      // Only mine if profitable (net positive)
+      // Use a small buffer (0.5 e/tick) to avoid marginal sources
+      const MIN_NET_ENERGY = 0.5;
+      if (netEnergy < MIN_NET_ENERGY) {
+        console.log(`[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
+          `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
+          `net=${netEnergy.toFixed(2)}, distance=${spawnDistance}`);
+        continue;
+      }
+
+      // Calculate efficiency percentage: (harvestRate - totalOverhead) / harvestRate * 100
+      const efficiency = (netEnergy / harvestRate) * 100;
+
       assignments.push({
         sourceId: source.id,
         nodeId: source.nodeId,
@@ -220,6 +248,7 @@ export class FlowSolver {
         harvestRate: source.capacity,
         spawnCostPerTick: MINER_OVERHEAD_PER_TICK,
         maxMiners: source.maxMiners,
+        efficiency,
       });
     }
 

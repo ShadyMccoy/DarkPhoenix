@@ -118,6 +118,9 @@ export class SpawningCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return;
 
+    // Update energy capacity based on actual spawn + extensions
+    this.energyCapacity = spawn.room.energyCapacityAvailable;
+
     const currentEnergy = spawn.room.energyAvailable;
 
     // Check if we're stuck (have pending orders but can't afford any)

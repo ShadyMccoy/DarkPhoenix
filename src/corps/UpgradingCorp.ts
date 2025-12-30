@@ -135,8 +135,8 @@ export class UpgradingCorp extends Corp {
     }
 
     if (creep.memory.working) {
-      // At RCL 2, prioritize building extensions to increase spawn capacity
-      if (controller.level <= 2) {
+      // At RCL 2+, upgraders help build if there are construction sites
+      if (controller.level > 1) {
         const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
         if (sites.length > 0) {
           const site = creep.pos.findClosestByPath(sites);

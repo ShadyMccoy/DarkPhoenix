@@ -235,6 +235,14 @@ export interface MinerAssignment {
    */
   maxMiners: number;
 
+  /**
+   * Mining efficiency percentage (0-100).
+   * Calculated as: (harvestRate - totalOverhead) / harvestRate * 100
+   * where totalOverhead = minerOverhead + haulerOverhead.
+   * Higher efficiency = more net energy per unit harvested = higher spawn priority.
+   */
+  efficiency: number;
+
   // === EdgeVariant optimization (optional) ===
 
   /** Mining infrastructure mode selected by variant optimizer */

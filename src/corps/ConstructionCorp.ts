@@ -45,7 +45,7 @@ const EXTENSION_LIMITS: { [rcl: number]: number } = {
 /**
  * How often to attempt placing new construction sites (ticks)
  */
-const PLACEMENT_COOLDOWN = 100;
+const PLACEMENT_COOLDOWN = 10;
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
@@ -147,8 +147,15 @@ export class ConstructionCorp extends Corp {
 
     const canBuildMore = currentExtensions + constructionSites.length < maxExtensions;
 
-    if (canBuildMore && this.balance >= MIN_CONSTRUCTION_PROFIT) {
-      this.tryPlaceExtension(room, spawn, tick);
+    if (canBuildMore) {
+      // Debug: log why we might not be placing
+      if (this.balance < MIN_CONSTRUCTION_PROFIT) {
+        if (tick % 100 === 0) {
+          console.log(`[Construction] Balance too low: ${this.balance.toFixed(0)} < ${MIN_CONSTRUCTION_PROFIT}`);
+        }
+      } else {
+        this.tryPlaceExtension(room, tick);
+      }
     }
 
     const creeps = this.getActiveCreeps();
@@ -160,14 +167,15 @@ export class ConstructionCorp extends Corp {
   /**
    * Try to place a new extension construction site.
    */
-  private tryPlaceExtension(room: Room, spawn: StructureSpawn, tick: number): void {
+  private tryPlaceExtension(room: Room, tick: number): void {
     if (tick - this.lastPlacementAttempt < PLACEMENT_COOLDOWN) {
       return;
     }
     this.lastPlacementAttempt = tick;
 
-    const pos = this.findGridPosition(room, spawn);
+    const pos = this.findGridPosition(room);
     if (!pos) {
+      console.log(`[Construction] No valid position found for extension`);
       return;
     }
 
@@ -175,6 +183,8 @@ export class ConstructionCorp extends Corp {
     if (result === OK) {
       this.recordCost(100);
       console.log(`[Construction] Placed extension site at (${pos.x}, ${pos.y})`);
+    } else {
+      console.log(`[Construction] Failed to place extension at (${pos.x}, ${pos.y}): ${result}`);
     }
   }
 
@@ -182,7 +192,7 @@ export class ConstructionCorp extends Corp {
    * Find a position for extension using a grid pattern near sources.
    * Uses checkerboard pattern (every other tile) for walkability.
    */
-  private findGridPosition(room: Room, spawn: StructureSpawn): { x: number; y: number } | null {
+  private findGridPosition(room: Room): { x: number; y: number } | null {
     const terrain = room.getTerrain();
     const candidates: { x: number; y: number; score: number }[] = [];
 
@@ -228,68 +238,63 @@ export class ConstructionCorp extends Corp {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
     }
 
-    // Search in a grid pattern near sources (priority) and spawn (fallback)
+    // Search in a grid pattern near sources
+    // Extensions near sources = short haul distance for haulers
     // Checkerboard: only consider tiles where (x + y) % 2 === 0
-    const searchCenters = [
-      ...sources.map(s => ({ x: s.pos.x, y: s.pos.y, priority: 10 })),
-      { x: spawn.pos.x, y: spawn.pos.y, priority: 5 }
-    ];
+    for (const source of sources) {
+      const center = { x: source.pos.x, y: source.pos.y };
+      // Search in area from 2 to 6 tiles away from center
+      for (let dx = -6; dx <= 6; dx++) {
+        for (let dy = -6; dy <= 6; dy++) {
+          // Skip positions too close (< 2 tiles)
+          const dist = Math.max(Math.abs(dx), Math.abs(dy));
+          if (dist < 2) continue;
 
-    for (const center of searchCenters) {
-      // Search in expanding rings from 2 to 6 tiles away
-      for (let radius = 2; radius <= 6; radius++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          for (let dy = -radius; dy <= radius; dy++) {
-            // Only check tiles at this exact radius (ring, not filled circle)
-            if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+          const x = center.x + dx;
+          const y = center.y + dy;
 
-            const x = center.x + dx;
-            const y = center.y + dy;
+          // Bounds check
+          if (x < 2 || x > 47 || y < 2 || y > 47) continue;
 
-            // Bounds check
-            if (x < 2 || x > 47 || y < 2 || y > 47) continue;
+          // Checkerboard pattern for walkability
+          if ((x + y) % 2 !== 0) continue;
 
-            // Checkerboard pattern for walkability
-            if ((x + y) % 2 !== 0) continue;
+          // Skip walls and swamps (prefer plains)
+          const terrainType = terrain.get(x, y);
+          if (terrainType === TERRAIN_MASK_WALL) continue;
 
-            // Skip walls and swamps (prefer plains)
-            const terrainType = terrain.get(x, y);
-            if (terrainType === TERRAIN_MASK_WALL) continue;
+          // Skip avoided positions
+          if (avoidPositions.has(`${x},${y}`)) continue;
 
-            // Skip avoided positions
-            if (avoidPositions.has(`${x},${y}`)) continue;
-
-            // Ensure at least 3 walkable neighbors (path connectivity)
-            let walkableNeighbors = 0;
-            for (let nx = -1; nx <= 1; nx++) {
-              for (let ny = -1; ny <= 1; ny++) {
-                if (nx === 0 && ny === 0) continue;
-                const tx = x + nx;
-                const ty = y + ny;
-                if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
-                if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
-                  walkableNeighbors++;
-                }
+          // Ensure at least 3 walkable neighbors (path connectivity)
+          let walkableNeighbors = 0;
+          for (let nx = -1; nx <= 1; nx++) {
+            for (let ny = -1; ny <= 1; ny++) {
+              if (nx === 0 && ny === 0) continue;
+              const tx = x + nx;
+              const ty = y + ny;
+              if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
+              if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
+                walkableNeighbors++;
               }
             }
-            if (walkableNeighbors < 3) continue;
-
-            // Score: closer to sources = better, plains = better than swamp
-            const distToSpawn = Math.max(Math.abs(x - spawn.pos.x), Math.abs(y - spawn.pos.y));
-            let minDistToSource = Infinity;
-            for (const source of sources) {
-              const dist = Math.max(Math.abs(x - source.pos.x), Math.abs(y - source.pos.y));
-              minDistToSource = Math.min(minDistToSource, dist);
-            }
-
-            // Prefer positions between sources and spawn (for hauler efficiency)
-            const score = center.priority * 10
-              + (10 - Math.min(minDistToSource, 10))
-              + (terrainType === 0 ? 5 : 0)  // Bonus for plains
-              - distToSpawn * 0.5;  // Slight penalty for being far from spawn
-
-            candidates.push({ x, y, score });
           }
+          if (walkableNeighbors < 3) continue;
+
+          // Estimate weighted path cost from this position to nearest source
+          // Haulers walk from sources to extensions - shorter = better
+          // Extensions near sources are great: short haul distance + energy available for spawning
+          let minWeightedDist = Infinity;
+          for (const source of sources) {
+            const weightedDist = this.estimatePathCost(x, y, source.pos.x, source.pos.y, terrain);
+            minWeightedDist = Math.min(minWeightedDist, weightedDist);
+          }
+
+          // Score based purely on path cost to sources
+          // Lower path cost = higher score (easier for haulers to fill)
+          const score = 100 - Math.min(minWeightedDist, 50);
+
+          candidates.push({ x, y, score });
         }
       }
     }
@@ -299,6 +304,42 @@ export class ConstructionCorp extends Corp {
     // Sort by score descending
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0];
+  }
+
+  /**
+   * Estimate path cost between two points, accounting for swamps.
+   * Uses a simple line-walk approximation (not full pathfinding).
+   * Swamps cost 5x, plains cost 1x.
+   */
+  private estimatePathCost(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    terrain: RoomTerrain
+  ): number {
+    let cost = 0;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+
+    if (steps === 0) return 0;
+
+    // Walk along the line and sum terrain costs
+    for (let i = 0; i <= steps; i++) {
+      const x = Math.round(x1 + (dx * i) / steps);
+      const y = Math.round(y1 + (dy * i) / steps);
+
+      const t = terrain.get(x, y);
+      if (t === TERRAIN_MASK_WALL) {
+        // Wall in path - add heavy penalty (path would go around)
+        cost += 10;
+      } else if (t === TERRAIN_MASK_SWAMP) {
+        cost += 5;  // Swamp costs 5x
+      } else {
+        cost += 1;  // Plains cost 1x
+      }
+    }
+
+    return cost;
   }
 
   /**
