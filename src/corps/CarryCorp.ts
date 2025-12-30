@@ -135,6 +135,78 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Get a target structure using slot-based distribution.
+   * Each hauler is assigned a "slot" (index) and picks structures starting from that offset.
+   * This prevents all haulers from targeting the same structure (herd behavior).
+   *
+   * Algorithm:
+   * 1. Sort structures by ID for consistent ordering across ticks
+   * 2. Assign each hauler an offset based on their index
+   * 3. Hauler picks first available structure starting from their offset
+   *
+   * Result: Haulers distribute evenly across structures like a rotating belt.
+   */
+  private getSlotBasedTarget(
+    creep: Creep,
+    structures: (StructureSpawn | StructureExtension)[]
+  ): StructureSpawn | StructureExtension | null {
+    if (structures.length === 0) return null;
+
+    // Sort by ID for consistent ordering (structures don't change mid-tick)
+    const sorted = [...structures].sort((a, b) => a.id.localeCompare(b.id));
+
+    // Get hauler's slot index
+    const allHaulers = this.getAssignedCreeps();
+    const myIndex = allHaulers.findIndex(c => c.name === creep.name);
+    const slot = myIndex >= 0 ? myIndex : 0;
+
+    // Start from slot offset and wrap around
+    const count = sorted.length;
+    for (let i = 0; i < count; i++) {
+      const target = sorted[(slot + i) % count];
+      // Check if this structure needs energy and no other hauler is already targeting it
+      if (target.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        // Additional check: prefer structures not already being approached by closer haulers
+        // This is a soft preference - we still take it if it's our slot
+        if (i === 0 || !this.isTargetCrowded(creep, target, allHaulers)) {
+          return target;
+        }
+      }
+    }
+
+    // Fallback: take any structure that needs energy
+    return sorted.find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0) ?? null;
+  }
+
+  /**
+   * Check if a target structure already has enough haulers approaching it.
+   * Returns true if there's another hauler closer to this target than us.
+   */
+  private isTargetCrowded(
+    creep: Creep,
+    target: Structure,
+    allHaulers: Creep[]
+  ): boolean {
+    const myDistance = creep.pos.getRangeTo(target);
+
+    // Count haulers closer than us that are also delivering
+    let closerHaulers = 0;
+    for (const other of allHaulers) {
+      if (other.name === creep.name) continue;
+      if (!other.memory.working) continue; // Not delivering
+
+      const otherDistance = other.pos.getRangeTo(target);
+      if (otherDistance < myDistance) {
+        closerHaulers++;
+      }
+    }
+
+    // Consider crowded if there's already a closer hauler
+    // The structure can only accept so much energy anyway
+    return closerHaulers >= 1;
+  }
+
+  /**
    * Get the source this CarryCorp's haulers should serve.
    * With per-source CarryCorps, each corp has exactly one source from its hauler assignment.
    * Falls back to round-robin distribution for legacy room-based corps.
@@ -259,10 +331,12 @@ export class CarryCorp extends Corp {
 
   /**
    * Deliver energy to spawn, extensions, or workers.
+   * Uses slot-based distribution to prevent herd behavior.
    * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
   private deliverEnergy(creep: Creep, room: Room, spawn: StructureSpawn): void {
-    // Priority 1: Fill spawn and extensions
+    // Priority 1: Fill spawn and extensions using slot-based distribution
+    // This prevents all haulers from switching to the same target
     const spawnStructures = room.find(FIND_MY_STRUCTURES, {
       filter: (s) =>
         (s.structureType === STRUCTURE_SPAWN ||
@@ -270,10 +344,12 @@ export class CarryCorp extends Corp {
         (s as StructureSpawn | StructureExtension).store.getFreeCapacity(
           RESOURCE_ENERGY
         ) > 0,
-    });
+    }) as (StructureSpawn | StructureExtension)[];
 
     if (spawnStructures.length > 0) {
-      const target = creep.pos.findClosestByPath(spawnStructures);
+      // Use slot-based distribution: each hauler gets assigned structures
+      // based on their index, preventing all from targeting the same one
+      const target = this.getSlotBasedTarget(creep, spawnStructures);
       if (target) {
         const result = creep.transfer(target, RESOURCE_ENERGY);
         if (result === ERR_NOT_IN_RANGE) {
@@ -281,7 +357,7 @@ export class CarryCorp extends Corp {
         } else if (result === OK) {
           const transferred = Math.min(
             creep.store[RESOURCE_ENERGY],
-            (target as StructureSpawn | StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY)
+            target.store.getFreeCapacity(RESOURCE_ENERGY)
           );
           this.recordProduction(transferred);
         }
