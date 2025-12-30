@@ -134,22 +134,49 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
-    // Always stay near the controller (stationary behavior)
-    if (creep.pos.getRangeTo(controller) > 3) {
-      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
-      return;
-    }
+    // Check for construction sites - prioritize building over upgrading
+    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
 
-    if (creep.memory.working) {
-      const result = creep.upgradeController(controller);
-      if (result === OK) {
-        const workParts = creep.getActiveBodyparts(WORK);
-        this.recordConsumption(workParts);
-        this.recordProduction(workParts);
+    if (constructionSites.length > 0) {
+      // Building mode - go to construction site and stay there
+      const target = creep.pos.findClosestByRange(constructionSites);
+      if (target) {
+        // Move to construction site if not in range
+        if (creep.pos.getRangeTo(target) > 3) {
+          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+          return;
+        }
+
+        if (creep.memory.working) {
+          const buildResult = creep.build(target);
+          if (buildResult === OK) {
+            const workParts = creep.getActiveBodyparts(WORK);
+            this.recordConsumption(workParts);
+            this.recordProduction(workParts);
+          }
+        } else {
+          // Stationary pickup near construction site
+          this.doPickupEnergyNearPosition(creep, target.pos);
+        }
       }
     } else {
-      // Pick up energy only from nearby sources (stationary - don't travel)
-      this.doPickupEnergy(creep, controller);
+      // Upgrading mode - stay near controller
+      if (creep.pos.getRangeTo(controller) > 3) {
+        creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+        return;
+      }
+
+      if (creep.memory.working) {
+        const result = creep.upgradeController(controller);
+        if (result === OK) {
+          const workParts = creep.getActiveBodyparts(WORK);
+          this.recordConsumption(workParts);
+          this.recordProduction(workParts);
+        }
+      } else {
+        // Stationary pickup near controller
+        this.doPickupEnergy(creep, controller);
+      }
     }
   }
 
@@ -227,6 +254,57 @@ export class UpgradingCorp extends Corp {
     // No energy nearby - stay near controller and wait for delivery
     if (creep.pos.getRangeTo(controller) > 3) {
       creep.moveTo(controller);
+    }
+  }
+
+  /**
+   * Pick up energy near a position (stationary - don't travel for energy).
+   * Used when building at construction sites.
+   */
+  private doPickupEnergyNearPosition(creep: Creep, pos: RoomPosition): void {
+    const PICKUP_RANGE = 4;
+
+    // Check for dropped energy within range
+    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+    });
+    if (dropped.length > 0) {
+      const target = dropped[0];
+      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // Check for tombstones with energy within range
+    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
+      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+    });
+    if (tombstones.length > 0) {
+      const target = tombstones[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // Check containers within range
+    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+    }) as StructureContainer[];
+    if (containers.length > 0) {
+      const target = containers[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
+    // No energy nearby - stay near target position and wait for delivery
+    if (creep.pos.getRangeTo(pos) > 3) {
+      creep.moveTo(pos);
     }
   }
 

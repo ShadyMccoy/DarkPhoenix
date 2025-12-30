@@ -134,76 +134,116 @@ export class CarryCorp extends Corp {
     }
   }
 
+  // ===========================================================================
+  // FLEET COORDINATION - Belt/Bus Circulation System
+  // ===========================================================================
+
   /**
-   * Get a target structure using slot-based distribution.
-   * Each hauler is assigned a "slot" (index) and picks structures starting from that offset.
-   * This prevents all haulers from targeting the same structure (herd behavior).
-   *
-   * Algorithm:
-   * 1. Sort structures by ID for consistent ordering across ticks
-   * 2. Assign each hauler an offset based on their index
-   * 3. Hauler picks first available structure starting from their offset
-   *
-   * Result: Haulers distribute evenly across structures like a rotating belt.
+   * Get the canonical list of all spawn/extension structures in this room.
+   * Sorted by ID for consistent ordering across all ticks and haulers.
+   * This is the "route" that haulers circulate through.
    */
-  private getSlotBasedTarget(
+  private getSpawnZoneStructures(room: Room): (StructureSpawn | StructureExtension)[] {
+    const structures = room.find(FIND_MY_STRUCTURES, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_SPAWN ||
+        s.structureType === STRUCTURE_EXTENSION,
+    }) as (StructureSpawn | StructureExtension)[];
+
+    // Sort by ID for consistent ordering
+    return structures.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Assign a persistent slot to a hauler.
+   * The slot determines their starting position in the structure rotation.
+   * Persisted in creep memory to survive across ticks.
+   */
+  private getHaulerSlot(creep: Creep): number {
+    // Check if already assigned
+    if (creep.memory.haulerSlot !== undefined) {
+      return creep.memory.haulerSlot;
+    }
+
+    // Assign based on spawn order (uses ticksToLive as proxy for age)
+    // Older creeps get lower slots, creating stable ordering
+    const allHaulers = this.getAssignedCreeps();
+    const sortedByAge = [...allHaulers].sort((a, b) => {
+      // Higher TTL = younger = higher slot number
+      const aTTL = a.ticksToLive ?? CREEP_LIFETIME;
+      const bTTL = b.ticksToLive ?? CREEP_LIFETIME;
+      return bTTL - aTTL; // Descending TTL = ascending age
+    });
+
+    const slot = sortedByAge.findIndex(c => c.name === creep.name);
+    creep.memory.haulerSlot = slot >= 0 ? slot : 0;
+    return creep.memory.haulerSlot;
+  }
+
+  /**
+   * Get the current delivery target for a hauler using persistent assignment.
+   *
+   * Belt System Logic:
+   * 1. Each hauler has a persistent slot (0, 1, 2, ...)
+   * 2. They target structure at index (slot + deliveryRotation) % structureCount
+   * 3. After successful delivery, increment deliveryRotation
+   * 4. This creates continuous circulation without reactive switching
+   */
+  private getCirculationTarget(
     creep: Creep,
     structures: (StructureSpawn | StructureExtension)[]
   ): StructureSpawn | StructureExtension | null {
     if (structures.length === 0) return null;
 
-    // Sort by ID for consistent ordering (structures don't change mid-tick)
-    const sorted = [...structures].sort((a, b) => a.id.localeCompare(b.id));
+    const slot = this.getHaulerSlot(creep);
+    const rotation = creep.memory.deliveryRotation ?? 0;
+    const count = structures.length;
 
-    // Get hauler's slot index
-    const allHaulers = this.getAssignedCreeps();
-    const myIndex = allHaulers.findIndex(c => c.name === creep.name);
-    const slot = myIndex >= 0 ? myIndex : 0;
+    // Calculate primary target based on slot and rotation
+    const primaryIndex = (slot + rotation) % count;
+    const primary = structures[primaryIndex];
 
-    // Start from slot offset and wrap around
-    const count = sorted.length;
-    for (let i = 0; i < count; i++) {
-      const target = sorted[(slot + i) % count];
-      // Check if this structure needs energy and no other hauler is already targeting it
+    // If primary needs energy, use it
+    if (primary.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+      creep.memory.deliveryTargetId = primary.id;
+      return primary;
+    }
+
+    // If primary is full, find next structure in our sequence that needs energy
+    // But DON'T change rotation yet - we still want to try primary next time
+    for (let i = 1; i < count; i++) {
+      const index = (primaryIndex + i) % count;
+      const target = structures[index];
       if (target.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        // Additional check: prefer structures not already being approached by closer haulers
-        // This is a soft preference - we still take it if it's our slot
-        if (i === 0 || !this.isTargetCrowded(creep, target, allHaulers)) {
-          return target;
-        }
+        creep.memory.deliveryTargetId = target.id;
+        return target;
       }
     }
 
-    // Fallback: take any structure that needs energy
-    return sorted.find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0) ?? null;
+    // All structures full - still return primary so we keep moving toward it
+    // When spawning starts, it will drain and we'll be ready
+    creep.memory.deliveryTargetId = primary.id;
+    return primary;
   }
 
   /**
-   * Check if a target structure already has enough haulers approaching it.
-   * Returns true if there's another hauler closer to this target than us.
+   * Record a successful delivery and rotate to next structure in sequence.
+   * Called after a successful transfer to advance the circulation.
    */
-  private isTargetCrowded(
-    creep: Creep,
-    target: Structure,
-    allHaulers: Creep[]
-  ): boolean {
-    const myDistance = creep.pos.getRangeTo(target);
+  private advanceCirculation(creep: Creep, structureCount: number): void {
+    const current = creep.memory.deliveryRotation ?? 0;
+    creep.memory.deliveryRotation = (current + 1) % structureCount;
+    delete creep.memory.deliveryTargetId; // Clear so next tick recalculates
+  }
 
-    // Count haulers closer than us that are also delivering
-    let closerHaulers = 0;
-    for (const other of allHaulers) {
-      if (other.name === creep.name) continue;
-      if (!other.memory.working) continue; // Not delivering
-
-      const otherDistance = other.pos.getRangeTo(target);
-      if (otherDistance < myDistance) {
-        closerHaulers++;
-      }
-    }
-
-    // Consider crowded if there's already a closer hauler
-    // The structure can only accept so much energy anyway
-    return closerHaulers >= 1;
+  /**
+   * Check if a hauler is already close to their target (within transfer range).
+   * Used to anticipate arrival and prepare for delivery.
+   */
+  private isAtDeliveryTarget(creep: Creep): boolean {
+    if (!creep.memory.deliveryTargetId) return false;
+    const target = Game.getObjectById(creep.memory.deliveryTargetId as Id<Structure>);
+    return target ? creep.pos.getRangeTo(target) <= 1 : false;
   }
 
   /**
@@ -278,8 +318,11 @@ export class CarryCorp extends Corp {
       return;
     }
 
+    // Use creep's current room for searching (important for remote rooms)
+    const searchRoom = creep.room;
+
     // First try dropped energy near assigned source (within range 5)
-    const dropped = room.find(FIND_DROPPED_RESOURCES, {
+    const dropped = searchRoom.find(FIND_DROPPED_RESOURCES, {
       filter: (r) => {
         if (r.resourceType !== RESOURCE_ENERGY) return false;
         // If we have a target position, prefer energy near it
@@ -303,7 +346,7 @@ export class CarryCorp extends Corp {
     }
 
     // If no dropped energy near assigned source, check containers near it
-    const containers = room.find(FIND_STRUCTURES, {
+    const containers = searchRoom.find(FIND_STRUCTURES, {
       filter: (s) => {
         if (s.structureType !== STRUCTURE_CONTAINER) return false;
         if ((s as StructureContainer).store[RESOURCE_ENERGY] === 0) return false;
@@ -331,25 +374,17 @@ export class CarryCorp extends Corp {
 
   /**
    * Deliver energy to spawn, extensions, or workers.
-   * Uses slot-based distribution to prevent herd behavior.
+   * Uses circulation-based distribution for belt/bus behavior.
    * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
   private deliverEnergy(creep: Creep, room: Room, spawn: StructureSpawn): void {
-    // Priority 1: Fill spawn and extensions using slot-based distribution
-    // This prevents all haulers from switching to the same target
-    const spawnStructures = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) =>
-        (s.structureType === STRUCTURE_SPAWN ||
-          s.structureType === STRUCTURE_EXTENSION) &&
-        (s as StructureSpawn | StructureExtension).store.getFreeCapacity(
-          RESOURCE_ENERGY
-        ) > 0,
-    }) as (StructureSpawn | StructureExtension)[];
+    // Priority 1: Fill spawn and extensions using circulation system
+    // Each hauler maintains their position in the circulation, preventing herd behavior
+    const allSpawnStructures = this.getSpawnZoneStructures(room);
 
-    if (spawnStructures.length > 0) {
-      // Use slot-based distribution: each hauler gets assigned structures
-      // based on their index, preventing all from targeting the same one
-      const target = this.getSlotBasedTarget(creep, spawnStructures);
+    if (allSpawnStructures.length > 0) {
+      // Get target using circulation (persistent assignment)
+      const target = this.getCirculationTarget(creep, allSpawnStructures);
       if (target) {
         const result = creep.transfer(target, RESOURCE_ENERGY);
         if (result === ERR_NOT_IN_RANGE) {
@@ -360,6 +395,11 @@ export class CarryCorp extends Corp {
             target.store.getFreeCapacity(RESOURCE_ENERGY)
           );
           this.recordProduction(transferred);
+          // Advance circulation after successful delivery
+          this.advanceCirculation(creep, allSpawnStructures.length);
+        } else if (result === ERR_FULL) {
+          // Structure filled by someone else - advance to next
+          this.advanceCirculation(creep, allSpawnStructures.length);
         }
         return;
       }
