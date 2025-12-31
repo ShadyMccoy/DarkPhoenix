@@ -61,7 +61,7 @@ export interface ColonyStats {
  * 4. Statistics - tracking economic health
  *
  * NOTE: Actual corp execution is handled by CorpRunner in the execution module.
- * Corps (HarvestCorp, CarryCorp, etc.) are managed via CorpRegistry,
+ * Corps (HarvestCorp, HaulerCorp, TankerCorp, etc.) are managed via CorpRegistry,
  * not via node.corps. This class provides economic infrastructure (treasury,
  * surveying) but doesn't directly run corps.
  *
@@ -230,7 +230,8 @@ export class Colony {
     const totalCorps =
       Object.keys(corpRegistry.bootstrapCorps).length +
       Object.keys(corpRegistry.harvestCorps).length +
-      Object.keys(corpRegistry.haulingCorps).length +
+      Object.keys(corpRegistry.haulerCorps).length +
+      Object.keys(corpRegistry.tankerCorps).length +
       Object.keys(corpRegistry.upgradingCorps).length +
       Object.keys(corpRegistry.scoutCorps).length +
       Object.keys(corpRegistry.constructionCorps).length +
@@ -244,7 +245,10 @@ export class Colony {
     for (const corp of Object.values(corpRegistry.harvestCorps)) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.haulingCorps)) {
+    for (const corp of Object.values(corpRegistry.haulerCorps)) {
+      if (corp.getCreepCount() > 0) activeCorps++;
+    }
+    for (const corp of Object.values(corpRegistry.tankerCorps)) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
     for (const corp of Object.values(corpRegistry.upgradingCorps)) {

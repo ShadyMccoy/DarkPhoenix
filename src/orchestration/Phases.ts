@@ -24,9 +24,8 @@ import {
   HarvestCorp,
   createHarvestCorp,
   SerializedHarvestCorp,
-  CarryCorp,
-  createCarryCorp,
-  SerializedCarryCorp,
+  HaulerCorp,
+  SerializedHaulerCorp,
   UpgradingCorp,
   createUpgradingCorp,
   SerializedUpgradingCorp,
@@ -76,7 +75,8 @@ export interface InitResult {
 export function needsInit(corps: CorpRegistry): boolean {
   const hasCorps =
     Object.keys(corps.harvestCorps).length > 0 ||
-    Object.keys(corps.haulingCorps).length > 0 ||
+    Object.keys(corps.haulerCorps).length > 0 ||
+    Object.keys(corps.tankerCorps).length > 0 ||
     Object.keys(corps.upgradingCorps).length > 0 ||
     Object.keys(corps.spawningCorps).length > 0 ||
     Object.keys(corps.bootstrapCorps).length > 0;
@@ -121,14 +121,23 @@ export function initCorps(corps: CorpRegistry): InitResult {
     }
   }
 
-  // Hydrate hauling corps (keyed by source ID)
-  if (Memory.haulingCorps) {
-    for (const sourceId in Memory.haulingCorps) {
-      const saved = Memory.haulingCorps[sourceId];
-      if (saved && !corps.haulingCorps[sourceId]) {
-        const haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId);
-        haulingCorp.deserialize(saved);
-        corps.haulingCorps[sourceId] = haulingCorp;
+  // Hydrate hauler corps (keyed by source ID)
+  if (Memory.haulerCorps) {
+    for (const sourceId in Memory.haulerCorps) {
+      const saved = Memory.haulerCorps[sourceId];
+      if (saved && !corps.haulerCorps[sourceId]) {
+        const haulerCorp = new HaulerCorp(
+          saved.nodeId,
+          saved.spawnId,
+          saved.edgeId,
+          saved.sourcePos,
+          saved.sinkPos,
+          saved.flowRate,
+          saved.distance,
+          saved.requiredCarryParts
+        );
+        haulerCorp.deserialize(saved);
+        corps.haulerCorps[sourceId] = haulerCorp;
         result.corpsHydrated.hauling++;
       }
     }
@@ -263,9 +272,7 @@ export function runPlanningPhase(
   for (const sourceId in corps.harvestCorps) {
     corps.harvestCorps[sourceId].plan(tick);
   }
-  for (const sourceId in corps.haulingCorps) {
-    corps.haulingCorps[sourceId].plan(tick);
-  }
+  // HaulerCorps don't need planning - they use flow assignments directly
   for (const roomName in corps.upgradingCorps) {
     corps.upgradingCorps[roomName].plan(tick);
   }
@@ -335,7 +342,8 @@ export function runExecutionPhase(
 function countCorps(corps: CorpRegistry): number {
   let count = 0;
   count += Object.keys(corps.harvestCorps).length;
-  count += Object.keys(corps.haulingCorps).length;
+  count += Object.keys(corps.haulerCorps).length;
+  count += Object.keys(corps.tankerCorps).length;
   count += Object.keys(corps.upgradingCorps).length;
   count += Object.keys(corps.spawningCorps).length;
   count += Object.keys(corps.bootstrapCorps).length;
@@ -440,7 +448,7 @@ export function runSurveyPhase(
     if (!processedRooms.has(node.roomName)) {
       processedRooms.add(node.roomName);
 
-      // Note: CarryCorps are now created per-source by FlowMaterializer,
+      // Note: HaulerCorps are created per-source by FlowMaterializer,
       // not per-room during survey. This ensures each source has dedicated haulers.
 
       if (!corps.upgradingCorps[node.roomName]) {

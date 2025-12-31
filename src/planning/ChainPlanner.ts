@@ -136,13 +136,13 @@ export class ChainPlanner {
     const miningCorps = this.corpStates.filter((s) => s.type === "mining");
     if (miningCorps.length === 0) return null;
 
-    // Find the hauling corp
-    const haulingCorps = this.corpStates.filter((s) => s.type === "hauling");
-    if (haulingCorps.length === 0) return null;
+    // Find the hauler corp
+    const haulerCorps = this.corpStates.filter((s) => s.type === "hauling");
+    if (haulerCorps.length === 0) return null;
 
-    // Use the first mining corp and hauling corp for simplicity
+    // Use the first mining corp and hauler corp for simplicity
     const miningCorp = miningCorps[0];
-    const haulingCorp = haulingCorps[0];
+    const haulerCorp = haulerCorps[0];
 
     // Build segments from production to goal
     let currentCost = 0;
@@ -165,10 +165,10 @@ export class ChainPlanner {
     const haulingMargin = DEFAULT_MARGINS.hauling;
     segments.push(
       buildSegment(
-        haulingCorp.id,
+        haulerCorp.id,
         "hauling",
         "delivered-energy",
-        haulingCorp.type === "hauling" ? haulingCorp.carryCapacity * 10 : 500,
+        haulerCorp.type === "hauling" ? haulerCorp.carryCapacity * 10 : 500,
         currentCost,
         haulingMargin
       )

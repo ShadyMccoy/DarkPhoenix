@@ -32,12 +32,6 @@ export {
 } from "./HarvestCorp";
 
 export {
-  CarryCorp,
-  SerializedCarryCorp,
-  createCarryCorp
-} from "./CarryCorp";
-
-export {
   HaulerCorp,
   SerializedHaulerCorp,
   createHaulerCorp

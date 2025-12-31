@@ -342,7 +342,7 @@ export class Telemetry {
     colony: Colony | undefined,
     bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
     harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
+    haulerCorps: { [sourceId: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
     constructionCorps: { [roomName: string]: CreepTrackingCorp } = {},
@@ -364,7 +364,7 @@ export class Telemetry {
     if (!shouldUpdate) return;
 
     // Update core telemetry (always)
-    this.updateCoreTelemetry(colony, bootstrapCorps, harvestCorps, haulingCorps, upgradingCorps, scoutCorps, constructionCorps);
+    this.updateCoreTelemetry(colony, bootstrapCorps, harvestCorps, haulerCorps, upgradingCorps, scoutCorps, constructionCorps);
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
@@ -376,7 +376,7 @@ export class Telemetry {
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(harvestCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
+    this.updateCorpsTelemetry(harvestCorps, haulerCorps, upgradingCorps, constructionCorps, spawningCorps);
 
     // Update chains telemetry (reads from Memory.chains)
     this.updateChainsTelemetry();
@@ -392,7 +392,7 @@ export class Telemetry {
     colony: Colony | undefined,
     bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
     harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
+    haulerCorps: { [sourceId: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     scoutCorps: { [roomName: string]: { getCreepCount(): number } },
     constructionCorps: { [roomName: string]: CreepTrackingCorp }
@@ -411,8 +411,8 @@ export class Telemetry {
     for (const sourceId in harvestCorps) {
       minerCount += harvestCorps[sourceId].getCreepCount();
     }
-    for (const roomName in haulingCorps) {
-      haulerCount += haulingCorps[roomName].getCreepCount();
+    for (const sourceId in haulerCorps) {
+      haulerCount += haulerCorps[sourceId].getCreepCount();
     }
     for (const roomName in upgradingCorps) {
       upgraderCount += upgradingCorps[roomName].getCreepCount();
@@ -724,7 +724,7 @@ export class Telemetry {
    */
   private updateCorpsTelemetry(
     harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
+    haulerCorps: { [sourceId: string]: CreepTrackingCorp },
     upgradingCorps: { [roomName: string]: CreepTrackingCorp },
     constructionCorps: { [roomName: string]: CreepTrackingCorp },
     spawningCorps: { [spawnId: string]: SpawningCorpLike }
@@ -765,9 +765,13 @@ export class Telemetry {
       addCorp(corp, roomName);
     }
 
-    // Add hauling corps
-    for (const roomName in haulingCorps) {
-      addCorp(haulingCorps[roomName], roomName);
+    // Add hauler corps
+    for (const sourceId in haulerCorps) {
+      const corp = haulerCorps[sourceId];
+      const roomName = Object.keys(Game.rooms).find(r =>
+        Game.rooms[r].find(FIND_SOURCES).some(s => s.id === sourceId)
+      ) || "unknown";
+      addCorp(corp, roomName);
     }
 
     // Add upgrading corps

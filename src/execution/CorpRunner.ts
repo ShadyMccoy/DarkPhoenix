@@ -15,8 +15,6 @@ import {
   SerializedBootstrapCorp,
   HarvestCorp,
   SerializedHarvestCorp,
-  CarryCorp,
-  SerializedCarryCorp,
   HaulerCorp,
   SerializedHaulerCorp,
   TankerCorp,
@@ -44,10 +42,8 @@ import { MAX_SCOUTS } from "../corps/CorpConstants";
 export interface CorpRegistry {
   bootstrapCorps: { [roomName: string]: BootstrapCorp };
   harvestCorps: { [sourceId: string]: HarvestCorp };
-  /** Hauling corps keyed by source ID (each source has its own CarryCorp) - LEGACY */
-  haulingCorps: { [sourceId: string]: CarryCorp };
-  /** Edge-based hauler corps keyed by edge ID */
-  haulerCorps: { [edgeId: string]: HaulerCorp };
+  /** Edge-based hauler corps keyed by source ID */
+  haulerCorps: { [sourceId: string]: HaulerCorp };
   /** Node-based tanker corps keyed by node ID */
   tankerCorps: { [nodeId: string]: TankerCorp };
   upgradingCorps: { [roomName: string]: UpgradingCorp };
@@ -63,7 +59,6 @@ export function createCorpRegistry(): CorpRegistry {
   return {
     bootstrapCorps: {},
     harvestCorps: {},
-    haulingCorps: {},
     haulerCorps: {},
     tankerCorps: {},
     upgradingCorps: {},
@@ -136,7 +131,6 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
  *
  * These corps work together:
  * - Mining: Harvests energy and drops it
- * - Hauling (legacy CarryCorp): Picks up energy and delivers to spawn/controller
  * - Haulers (HaulerCorp): Edge-based transport from source to sink
  * - Tankers (TankerCorp): Node-based local distribution
  * - Upgrading: Picks up energy near controller and upgrades
@@ -151,18 +145,9 @@ export function runRealCorps(registry: CorpRegistry): void {
     harvestCorp.work(Game.time);
   }
 
-  // Run all HaulingCorps (legacy CarryCorp)
-  for (const sourceId in registry.haulingCorps) {
-    const haulingCorp = registry.haulingCorps[sourceId];
-    if (haulingCorp.shouldPlan(Game.time)) {
-      haulingCorp.plan(Game.time);
-    }
-    haulingCorp.work(Game.time);
-  }
-
   // Run all HaulerCorps (edge-based transport)
-  for (const edgeId in registry.haulerCorps) {
-    const haulerCorp = registry.haulerCorps[edgeId];
+  for (const sourceId in registry.haulerCorps) {
+    const haulerCorp = registry.haulerCorps[sourceId];
     haulerCorp.work(Game.time);
   }
 
@@ -332,7 +317,6 @@ export function logCorpStats(registry: CorpRegistry): void {
   console.log(`  Bootstrap Jacks: ${totalJacks}`);
 
   let totalHarvesters = 0;
-  let totalLegacyHaulers = 0;
   let totalHaulers = 0;
   let totalTankers = 0;
   let totalUpgraders = 0;
@@ -340,11 +324,8 @@ export function logCorpStats(registry: CorpRegistry): void {
   for (const sourceId in registry.harvestCorps) {
     totalHarvesters += registry.harvestCorps[sourceId].getCreepCount();
   }
-  for (const sourceId in registry.haulingCorps) {
-    totalLegacyHaulers += registry.haulingCorps[sourceId].getCreepCount();
-  }
-  for (const edgeId in registry.haulerCorps) {
-    totalHaulers += registry.haulerCorps[edgeId].getCreepCount();
+  for (const sourceId in registry.haulerCorps) {
+    totalHaulers += registry.haulerCorps[sourceId].getCreepCount();
   }
   for (const nodeId in registry.tankerCorps) {
     totalTankers += registry.tankerCorps[nodeId].getCreepCount();
@@ -363,8 +344,7 @@ export function logCorpStats(registry: CorpRegistry): void {
     totalBuilders += registry.constructionCorps[roomName].getCreepCount();
   }
 
-  const allHaulers = totalLegacyHaulers + totalHaulers;
-  console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${allHaulers} (${totalHaulers} edge, ${totalTankers} tank), Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
+  console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Tankers: ${totalTankers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
 }
 
 /**
@@ -514,29 +494,28 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     totalCarryPartsNeeded: number;
     maxCarryPerHauler: number;
     carryPartsPerHauler: number;
-    carryCorp: CarryCorp | null;
-    haulerAssignments: any[];
+    haulerCorp: HaulerCorp | null;
     spawningCorp: SpawningCorp | null;
     haulersNeeded: number;
     // EdgeVariant optimization
     preferredHaulerRatio?: "2:1" | "1:1" | "1:2";
   }>();
 
-  // Build a map of sourceId -> CarryCorp for pairing with HarvestCorps
-  // CarryCorps are now keyed by source ID (game ID), not room name
-  const carryCorpsBySource = new Map<string, CarryCorp>();
-  for (const sourceId in registry.haulingCorps) {
-    const carryCorp = registry.haulingCorps[sourceId];
+  // Build a map of sourceId -> HaulerCorp for pairing with HarvestCorps
+  // HaulerCorps are keyed by source ID (game ID)
+  const haulerCorpsBySource = new Map<string, HaulerCorp>();
+  for (const sourceId in registry.haulerCorps) {
+    const haulerCorp = registry.haulerCorps[sourceId];
     // The fromId in assignments has "source-" prefix, the registry key is raw game ID
-    carryCorpsBySource.set(`source-${sourceId}`, carryCorp);
+    haulerCorpsBySource.set(`source-${sourceId}`, haulerCorp);
   }
 
   // Build a complete list of ALL sources with their efficiency data
   // Includes both sources that need miners and fully staffed sources
-  // Each source has its own CarryCorp for independent hauler scaling
+  // Each source has its own HaulerCorp for independent hauler scaling
   interface SourceInfo {
     harvestCorp: HarvestCorp;
-    carryCorp: CarryCorp | null;  // Per-source CarryCorp
+    haulerCorp: HaulerCorp | null;  // Per-source HaulerCorp
     minerAssignment: any;
     roomName: string;
     sourceId: string;
@@ -585,8 +564,7 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
         totalCarryPartsNeeded: 0,
         maxCarryPerHauler,
         carryPartsPerHauler: 0,
-        carryCorp: null,
-        haulerAssignments: [],
+        haulerCorp: null,
         spawningCorp: registry.spawningCorps[assignedSpawn.id] ?? null,
         haulersNeeded: 0,
       });
@@ -611,18 +589,16 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
     stats.targetMiners += targetMiners;
     stats.totalMiners += currentMinerCount;
 
-    // Get the per-source CarryCorp and its hauler assignment
-    const carryCorp = carryCorpsBySource.get(minerAssignment.sourceId) ?? null;
-    const assignments = carryCorp?.getHaulerAssignments() ?? [];
-    const assignment = assignments[0]; // Each per-source CarryCorp has one assignment
-    const carryPartsNeeded = assignment?.carryParts ?? 0;
+    // Get the per-source HaulerCorp and its required carry parts
+    const haulerCorp = haulerCorpsBySource.get(minerAssignment.sourceId) ?? null;
+    const carryPartsNeeded = haulerCorp?.getRequiredCarryParts() ?? 0;
 
     // Calculate per-source hauler requirements
     const room = assignedSpawn.room;
     const controllerLevel = room.controller?.level ?? 1;
     const energyCapacity = getMaxSpawnCapacity(controllerLevel);
     const maxCarryPerHauler = calculateMaxHaulerCarryParts(energyCapacity);
-    const currentHaulers = carryCorp?.getCreepCount() ?? 0;
+    const currentHaulers = haulerCorp?.getCreepCount() ?? 0;
     const haulerReqs = calculateSpawnRequirements(carryPartsNeeded, maxCarryPerHauler, currentHaulers);
 
     // Update room-level hauler totals
@@ -633,7 +609,7 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
 
     allSources.push({
       harvestCorp,
-      carryCorp,
+      haulerCorp,
       minerAssignment,
       roomName: spawnRoomName,
       sourceId: minerAssignment.sourceId,
@@ -647,7 +623,6 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       targetHaulers: haulerReqs.targetCreeps,
       haulersNeeded: haulerReqs.creepsNeeded,
       carryPartsPerHauler: haulerReqs.partsPerCreep,
-      preferredHaulerRatio: assignment?.haulerRatio,
     });
   }
 
@@ -660,7 +635,7 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
   //   1. If source needs miners AND has hauler support, spawn a miner
   //   2. If source has working miners but insufficient haulers, spawn a hauler
   //
-  // IMPORTANT: Each source has its OWN CarryCorp with dedicated haulers.
+  // IMPORTANT: Each source has its OWN HaulerCorp with dedicated haulers.
   // Don't spawn miners for a source until it has sufficient hauler capacity.
   // This prevents spawning miners that will have no haulers to collect energy.
   for (const [roomName, stats] of roomStats) {
@@ -685,19 +660,17 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
 
       // Step 1: Does this source need haulers for its working miners?
       // Prioritize hauler spawning if we have working miners but insufficient haulers
-      if (hasWorkingMiner && !hasEnoughHaulers && source.carryCorp && source.haulersNeeded > 0) {
+      if (hasWorkingMiner && !hasEnoughHaulers && source.haulerCorp && source.haulersNeeded > 0) {
         const carryParts = source.carryPartsPerHauler;
         stats.spawningCorp.queueSpawnOrder({
-          buyerCorpId: source.carryCorp.id,
+          buyerCorpId: source.haulerCorp.id,
           creepType: "hauler",
           workTicksRequested: carryParts,
           haulDemandRequested: carryParts,
           queuedAt: Game.time,
-          haulerRatio: source.preferredHaulerRatio,
         });
         const shortfall = source.carryPartsNeeded - currentHaulerCarryCapacity;
-        const ratioInfo = source.preferredHaulerRatio ? ` ${source.preferredHaulerRatio}` : "";
-        console.log(`[FlowSpawn] Queued hauler for ${source.sourceId.slice(-4)} (${carryParts} CARRY${ratioInfo}, need ${source.carryPartsNeeded} have ${currentHaulerCarryCapacity}, shortfall ${shortfall.toFixed(0)})`);
+        console.log(`[FlowSpawn] Queued hauler for ${source.sourceId.slice(-4)} (${carryParts} CARRY, need ${source.carryPartsNeeded} have ${currentHaulerCarryCapacity}, shortfall ${shortfall.toFixed(0)})`);
         break; // Stop after queueing one spawn
       }
 

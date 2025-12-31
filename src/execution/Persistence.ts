@@ -167,16 +167,10 @@ export function persistState(
     Memory.harvestCorps[sourceId] = registry.harvestCorps[sourceId].serialize();
   }
 
-  // Persist hauling corps (legacy CarryCorp)
-  Memory.haulingCorps = {};
-  for (const sourceId in registry.haulingCorps) {
-    Memory.haulingCorps[sourceId] = registry.haulingCorps[sourceId].serialize();
-  }
-
   // Persist hauler corps (edge-based HaulerCorp)
   Memory.haulerCorps = {};
-  for (const edgeId in registry.haulerCorps) {
-    Memory.haulerCorps[edgeId] = registry.haulerCorps[edgeId].serialize();
+  for (const sourceId in registry.haulerCorps) {
+    Memory.haulerCorps[sourceId] = registry.haulerCorps[sourceId].serialize();
   }
 
   // Persist tanker corps (node-based TankerCorp)

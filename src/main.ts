@@ -485,7 +485,7 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
     colony,
     corps.bootstrapCorps,
     corps.harvestCorps,
-    corps.haulingCorps,
+    corps.haulerCorps,
     corps.upgradingCorps,
     corps.scoutCorps,
     corps.constructionCorps,
@@ -637,7 +637,8 @@ global.status = () => {
 
   console.log("\n=== Corps ===");
   console.log(`Mining: ${Object.keys(corps.harvestCorps).length}`);
-  console.log(`Hauling: ${Object.keys(corps.haulingCorps).length}`);
+  console.log(`Hauler: ${Object.keys(corps.haulerCorps).length}`);
+  console.log(`Tanker: ${Object.keys(corps.tankerCorps).length}`);
   console.log(`Upgrading: ${Object.keys(corps.upgradingCorps).length}`);
   console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
   console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
@@ -899,8 +900,11 @@ global.forgiveDebt = (amount: number = 1000) => {
   for (const id in corps.harvestCorps) {
     resetCorp(corps.harvestCorps[id]);
   }
-  for (const id in corps.haulingCorps) {
-    resetCorp(corps.haulingCorps[id]);
+  for (const id in corps.haulerCorps) {
+    resetCorp(corps.haulerCorps[id]);
+  }
+  for (const id in corps.tankerCorps) {
+    resetCorp(corps.tankerCorps[id]);
   }
   for (const id in corps.upgradingCorps) {
     resetCorp(corps.upgradingCorps[id]);
@@ -1049,7 +1053,8 @@ global.marketStatus = () => {
   };
 
   showCorpStats("Mining", corps.harvestCorps);
-  showCorpStats("Hauling", corps.haulingCorps);
+  showCorpStats("Hauler", corps.haulerCorps);
+  showCorpStats("Tanker", corps.tankerCorps);
   showCorpStats("Upgrading", corps.upgradingCorps);
   showCorpStats("Spawning", corps.spawningCorps);
   showCorpStats("Construction", corps.constructionCorps);

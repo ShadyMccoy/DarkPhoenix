@@ -39,7 +39,7 @@ export const JACK_COST = 200;
 // room.energyCapacityAvailable. See spawn/BodyBuilder.ts
 
 // Note: Hauler bodies are now dynamically built by BodyBuilder based on
-// energy flow rate and distance. See spawn/BodyBuilder.ts and CarryCorp.ts
+// energy flow rate and distance. See spawn/BodyBuilder.ts and HaulerCorp.ts
 
 /**
  * Upgrader creep body: work-focused with some carry capacity.
@@ -68,7 +68,7 @@ export const MAX_JACKS = 3;
 // spots and desired WORK parts. See HarvestCorp.ts
 
 // Note: Max haulers is now dynamically calculated based on energy flow rate
-// and distance. See CarryCorp.ts
+// and distance. See HaulerCorp.ts
 
 /**
  * Maximum upgraders per room.
