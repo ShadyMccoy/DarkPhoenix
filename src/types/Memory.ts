@@ -18,6 +18,8 @@ import {
   SerializedScoutCorp,
   SerializedConstructionCorp,
   SerializedSpawningCorp,
+  SerializedHaulerCorp,
+  SerializedTankerCorp,
 } from "../corps";
 
 declare global {
@@ -125,10 +127,22 @@ declare global {
     harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
 
     /**
-     * Serialized hauling corps by source ID.
+     * Serialized hauling corps by source ID (legacy CarryCorp).
      * Each source has its own CarryCorp for independent hauler scaling.
      */
     haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
+
+    /**
+     * Serialized hauler corps by edge ID.
+     * Haulers work on edges, transporting energy from source to sink.
+     */
+    haulerCorps?: { [edgeId: string]: SerializedHaulerCorp };
+
+    /**
+     * Serialized tanker corps by node ID.
+     * Tankers work within nodes, distributing energy locally.
+     */
+    tankerCorps?: { [nodeId: string]: SerializedTankerCorp };
 
     /**
      * Serialized upgrading corps by room name.
@@ -177,8 +191,15 @@ declare global {
 
     /**
      * The type of work this creep performs.
+     * - harvest: Mining energy from sources
+     * - haul: Edge-based transport (source to sink via paths)
+     * - tank: Node-based local distribution (fill extensions/spawns)
+     * - upgrade: Controller upgrading
+     * - build: Construction
+     * - repair: Structure repair
+     * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "upgrade" | "build" | "repair" | "scout";
+    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout";
 
     /**
      * Target ID for current task.

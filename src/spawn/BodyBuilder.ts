@@ -243,6 +243,135 @@ export function calculateHaulingNeeds(
 }
 
 /**
+ * Result of a tanker body calculation.
+ */
+export interface TankerBodyResult {
+  /** The body parts array to pass to spawnCreep */
+  body: BodyPartConstant[];
+  /** Total energy cost of this body */
+  cost: number;
+  /** Total carry capacity of this body */
+  carryCapacity: number;
+}
+
+/**
+ * Builds a tanker body for local node distribution.
+ *
+ * Tankers work within a node, filling extensions and spawns.
+ * They have shorter travel distances than haulers, so we optimize
+ * for quick turnaround rather than maximum capacity.
+ *
+ * Pattern: 2 CARRY + 1 MOVE is efficient for road-based local movement.
+ * This gives higher capacity per spawn cost at the expense of speed
+ * on plains, but tankers mostly travel on roads within the base.
+ *
+ * @param requiredCarry - Number of CARRY parts needed (from demand model)
+ * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
+ * @param useRoads - Whether tanker will primarily use roads (default true)
+ * @returns Body configuration with body array, cost, and carry capacity
+ */
+export function buildTankerBody(
+  requiredCarry: number,
+  energyCapacity: number,
+  useRoads: boolean = true
+): TankerBodyResult {
+  // Minimum viable tanker: 1 CARRY + 1 MOVE = 100 energy
+  const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];
+  if (energyCapacity < minEnergy) {
+    return { body: [], cost: 0, carryCapacity: 0 };
+  }
+
+  const CARRY_CAPACITY = 50;
+
+  // For road-based movement: 2 CARRY + 1 MOVE (150 energy, 100 capacity)
+  // For plains movement: 1 CARRY + 1 MOVE (100 energy, 50 capacity)
+  const carryPerMove = useRoads ? 2 : 1;
+
+  let carryParts = 0;
+  let moveParts = 0;
+  let cost = 0;
+
+  // Build incrementally up to required carry or energy limit
+  while (carryParts < requiredCarry) {
+    // Add CARRY parts up to the ratio before adding MOVE
+    let addedCarry = 0;
+    while (addedCarry < carryPerMove && carryParts < requiredCarry) {
+      const carryCost = PART_COSTS[CARRY];
+      if (cost + carryCost > energyCapacity) break;
+      if (carryParts + moveParts + 1 > MAX_BODY_PARTS) break;
+
+      carryParts++;
+      cost += carryCost;
+      addedCarry++;
+    }
+
+    if (addedCarry === 0) break;
+
+    // Add MOVE part
+    const moveCost = PART_COSTS[MOVE];
+    if (cost + moveCost <= energyCapacity && carryParts + moveParts + 1 <= MAX_BODY_PARTS) {
+      moveParts++;
+      cost += moveCost;
+    }
+  }
+
+  // Ensure at least minimum viable
+  if (carryParts === 0 && energyCapacity >= minEnergy) {
+    carryParts = 1;
+    moveParts = 1;
+    cost = minEnergy;
+  }
+
+  // Build body array (CARRY first, then MOVE for damage resistance)
+  const body: BodyPartConstant[] = [];
+  for (let i = 0; i < carryParts; i++) {
+    body.push(CARRY);
+  }
+  for (let i = 0; i < moveParts; i++) {
+    body.push(MOVE);
+  }
+
+  return { body, cost, carryCapacity: carryParts * CARRY_CAPACITY };
+}
+
+/**
+ * Calculate tanker requirements for a node based on structures.
+ *
+ * @param extensionCount - Number of extensions in the node
+ * @param spawnCount - Number of spawns in the node
+ * @param towerCount - Number of towers in the node
+ * @param averageDistance - Average distance within the node
+ * @param spawnRate - Estimated creeps spawned per tick (0.01-0.05)
+ * @returns Required CARRY parts for adequate tanker capacity
+ */
+export function calculateTankerCarryNeeded(
+  extensionCount: number,
+  spawnCount: number,
+  towerCount: number,
+  averageDistance: number,
+  spawnRate: number = 0.02
+): number {
+  // Energy consumption per tick:
+  // - Spawning: ~10 energy/tick when active (varies by creep size)
+  // - Towers: ~10 energy/tick each when actively attacking/healing/repairing
+  const baseEnergyPerTick = 10 * spawnRate * 50; // Scaled by activity
+  const towerEnergyPerTick = towerCount * 2; // Conservative estimate
+  const totalEnergyPerTick = baseEnergyPerTick + towerEnergyPerTick;
+
+  // Round trip time for local operations
+  const roundTrip = averageDistance * 2 + 4; // +4 for pickup/transfer time
+
+  // Energy that needs to be "in transit" at any time
+  const energyInTransit = totalEnergyPerTick * roundTrip;
+
+  // Convert to CARRY parts (each holds 50 energy)
+  const carryNeeded = Math.ceil(energyInTransit / 50);
+
+  // Add 20% buffer and ensure minimum of 2
+  return Math.max(2, Math.ceil(carryNeeded * 1.2));
+}
+
+/**
  * Result of an upgrader body calculation.
  */
 export interface UpgraderBodyResult {
