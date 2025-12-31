@@ -244,6 +244,10 @@ export interface FlowTelemetry {
     nodeId: string;
     harvestRate: number;
     workParts: number;
+    /** Mining efficiency percentage (0-100) */
+    efficiency: number;
+    /** Distance from spawn */
+    spawnDistance: number;
   }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {

@@ -80,6 +80,13 @@ declare global {
     nodeEdges?: string[];
 
     /**
+     * Walking distances for spatial edges between adjacent nodes.
+     * Format: Map of "nodeId1|nodeId2" -> distance in tiles.
+     * Calculated from node peak positions.
+     */
+    spatialEdgeWeights?: { [edge: string]: number };
+
+    /**
      * Economic edges between corp-hosting nodes.
      * Format: Map of "nodeId1|nodeId2" -> distance (sorted alphabetically).
      */
@@ -255,6 +262,29 @@ declare global {
      * Used when the source object isn't visible (remote room without vision).
      */
     assignedSourcePos?: { x: number; y: number; roomName: string };
+
+    // === Fleet Coordination (Belt/Bus System) ===
+
+    /**
+     * Hauler's slot in the fleet circulation.
+     * Determines their starting position in the structure rotation.
+     * Assigned once when hauler joins corp, persists for their lifetime.
+     */
+    haulerSlot?: number;
+
+    /**
+     * Current rotation offset in the delivery circulation.
+     * Increments after each successful delivery, wraps around.
+     * Combined with haulerSlot to determine target structure.
+     */
+    deliveryRotation?: number;
+
+    /**
+     * Current delivery target ID.
+     * Persists across ticks to prevent reactive switching.
+     * Cleared after successful delivery to trigger rotation.
+     */
+    deliveryTargetId?: string;
   }
 }
 

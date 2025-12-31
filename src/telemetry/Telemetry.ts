@@ -136,6 +136,7 @@ export interface NodeTelemetry {
     }[];
     roi?: {
       s: number;   // score
+      e: number;   // expansionScore
       o: number;   // openness
       d: number;   // distanceFromOwned
       own: boolean;  // isOwned
@@ -273,6 +274,10 @@ export interface FlowTelemetry {
     nodeId: string;
     harvestRate: number;
     workParts: number;
+    /** Mining efficiency percentage (0-100) */
+    efficiency: number;
+    /** Distance from spawn */
+    spawnDistance: number;
   }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
@@ -893,6 +898,8 @@ export class Telemetry {
           harvestRate: miner.harvestRate,
           // Work parts calculated from harvest rate (2 energy/tick per WORK part)
           workParts: Math.ceil(miner.harvestRate / 2),
+          efficiency: miner.efficiency,
+          spawnDistance: miner.spawnDistance,
         });
       }
 

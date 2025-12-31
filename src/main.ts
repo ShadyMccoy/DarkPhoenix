@@ -95,6 +95,7 @@ declare global {
       clearSpawnQueue: () => void;
       marketStatus: () => void;
       forceBootstrap: () => void;
+      sourceEfficiency: () => void;
     }
   }
 }
@@ -336,12 +337,13 @@ function buildFlowEconomyFromMemory(nodes: Node[]): {
   const edgeTypes = new Map<string, EdgeType>();
   const allEdges: string[] = [];
 
-  // Add spatial edges (weight defaults to 1, or estimate from positions)
+  // Add spatial edges with their walking distances
   if (Memory.nodeEdges) {
     for (const edgeKey of Memory.nodeEdges) {
       allEdges.push(edgeKey);
-      // Default weight 1 for spatial edges (actual walking distance computed by skeleton builder)
-      edgeWeights.set(edgeKey, 1);
+      // Use persisted walking distance, or default to 50 (one room) if not available
+      const weight = Memory.spatialEdgeWeights?.[edgeKey] ?? 50;
+      edgeWeights.set(edgeKey, weight);
       edgeTypes.set(edgeKey, "spatial");
     }
   }
@@ -966,6 +968,64 @@ global.forceBootstrap = () => {
   } else {
     console.log(`[GodMode] Activated ${activated} bootstrap corps. They will spawn jacks on next tick.`);
   }
+};
+
+/**
+ * Show all sources with their efficiency scores.
+ * Call from console: `global.sourceEfficiency()`
+ *
+ * Displays:
+ * - Source ID and node
+ * - Harvest rate
+ * - Distance from spawn
+ * - Efficiency percentage (net energy / harvest rate)
+ */
+global.sourceEfficiency = () => {
+  if (!flowEconomy) {
+    console.log("[Sources] Flow economy not initialized.");
+    return;
+  }
+
+  const solution = flowEconomy.getSolution();
+  if (!solution) {
+    console.log("[Sources] No solution computed. Run global.plan() first.");
+    return;
+  }
+
+  if (solution.miners.length === 0) {
+    console.log("[Sources] No miners assigned.");
+    return;
+  }
+
+  // Sort by efficiency descending
+  const sortedMiners = [...solution.miners].sort((a, b) => b.efficiency - a.efficiency);
+
+  console.log("\n=== Source Efficiency Scores ===\n");
+  console.log("Source ID         | Node               | Harvest | Dist | Efficiency");
+  console.log("------------------|--------------------|---------+------+-----------");
+
+  for (const miner of sortedMiners) {
+    const sourceShort = miner.sourceId.replace("source-", "").slice(-12);
+    const nodeShort = miner.nodeId?.slice(0, 18) || "unknown";
+    const effStr = miner.efficiency.toFixed(1).padStart(5) + "%";
+    const distStr = miner.spawnDistance.toString().padStart(4);
+    const harvestStr = miner.harvestRate.toFixed(1).padStart(5);
+
+    console.log(`${sourceShort.padEnd(17)} | ${nodeShort.padEnd(18)} | ${harvestStr} | ${distStr} | ${effStr}`);
+  }
+
+  // Summary stats
+  const avgEfficiency = sortedMiners.reduce((sum, m) => sum + m.efficiency, 0) / sortedMiners.length;
+  const minEff = sortedMiners[sortedMiners.length - 1].efficiency;
+  const maxEff = sortedMiners[0].efficiency;
+
+  console.log("\n=== Summary ===");
+  console.log(`Total sources: ${sortedMiners.length}`);
+  console.log(`Avg efficiency: ${avgEfficiency.toFixed(1)}%`);
+  console.log(`Min efficiency: ${minEff.toFixed(1)}%`);
+  console.log(`Max efficiency: ${maxEff.toFixed(1)}%`);
+  console.log(`Total harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
+  console.log(`Net energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
 };
 
 global.marketStatus = () => {

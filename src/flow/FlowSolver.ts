@@ -231,11 +231,12 @@ export class FlowSolver {
       const efficiency = (netEnergy / harvestRate) * 100;
 
       // Only mine if profitable:
-      // 1. Net energy must be positive (at least 1 e/tick buffer)
-      // 2. Efficiency must be at least 50% (otherwise overhead is too high)
-      // This prevents very long-range mines that waste creep time and CPU
-      const MIN_NET_ENERGY = 1.0;
-      const MIN_EFFICIENCY = 50;
+      // 1. Net energy must be positive (at least 2 e/tick buffer)
+      // 2. Efficiency must be at least 65% (otherwise overhead is too high)
+      // Higher thresholds = fewer but more profitable remote mines
+      // This prevents long-range mines that waste creep time and spawn capacity
+      const MIN_NET_ENERGY = 2.0;
+      const MIN_EFFICIENCY = 65;
       if (netEnergy < MIN_NET_ENERGY || efficiency < MIN_EFFICIENCY) {
         console.log(`[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
           `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
