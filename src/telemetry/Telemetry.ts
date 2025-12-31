@@ -136,6 +136,7 @@ export interface NodeTelemetry {
     }[];
     roi?: {
       s: number;   // score
+      e: number;   // expansionScore
       o: number;   // openness
       d: number;   // distanceFromOwned
       own: boolean;  // isOwned
