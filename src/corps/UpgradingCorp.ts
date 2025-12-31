@@ -251,6 +251,20 @@ export class UpgradingCorp extends Corp {
       return;
     }
 
+    // Check for containers near the controller (even if not near creep)
+    const controllerContainers = controller.pos.findInRange(FIND_STRUCTURES, 4, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+    }) as StructureContainer[];
+    if (controllerContainers.length > 0) {
+      const target = controllerContainers[0];
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target);
+      }
+      return;
+    }
+
     // No energy nearby - stay near controller and wait for delivery
     if (creep.pos.getRangeTo(controller) > 3) {
       creep.moveTo(controller);

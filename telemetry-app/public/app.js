@@ -550,21 +550,26 @@ function updateFlowUI(flow) {
   elements.flowMiners.textContent = summary.minerCount || 0;
   elements.flowHaulers.textContent = summary.haulerCount || 0;
 
-  // Update sources table
+  // Update sources table - sort by efficiency descending
   const sources = flow.sources || [];
   elements.flowSourcesTable.innerHTML = sources
-    .sort((a, b) => b.harvestRate - a.harvestRate)
+    .sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0))
     .map(
-      (source) => `
+      (source) => {
+        const eff = source.efficiency ?? 0;
+        const effClass = eff >= 80 ? 'positive' : eff >= 70 ? '' : 'status-warning';
+        return `
     <tr>
       <td title="${source.id}">${source.id.slice(-12)}</td>
       <td title="${source.nodeId}">${source.nodeId ? source.nodeId.slice(-8) : "--"}</td>
       <td>${source.harvestRate.toFixed(1)}/tick</td>
-      <td>${source.workParts}</td>
+      <td>${source.spawnDistance ?? "--"}</td>
+      <td class="${effClass}">${eff.toFixed(1)}%</td>
     </tr>
-  `
+  `;
+      }
     )
-    .join("") || '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No sources</td></tr>';
+    .join("") || '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No sources</td></tr>';
 
   // Update sinks table
   const sinks = flow.sinks || [];

@@ -158,6 +158,9 @@ export class CarryCorp extends Corp {
    * Assign a persistent slot to a hauler.
    * The slot determines their starting position in the structure rotation.
    * Persisted in creep memory to survive across ticks.
+   *
+   * Key: New haulers get the first UNUSED slot, not based on age sorting.
+   * This prevents slot conflicts when creeps die and new ones spawn.
    */
   private getHaulerSlot(creep: Creep): number {
     // Check if already assigned
@@ -165,19 +168,23 @@ export class CarryCorp extends Corp {
       return creep.memory.haulerSlot;
     }
 
-    // Assign based on spawn order (uses ticksToLive as proxy for age)
-    // Older creeps get lower slots, creating stable ordering
+    // Find all slots already taken by other haulers
     const allHaulers = this.getAssignedCreeps();
-    const sortedByAge = [...allHaulers].sort((a, b) => {
-      // Higher TTL = younger = higher slot number
-      const aTTL = a.ticksToLive ?? CREEP_LIFETIME;
-      const bTTL = b.ticksToLive ?? CREEP_LIFETIME;
-      return bTTL - aTTL; // Descending TTL = ascending age
-    });
+    const takenSlots = new Set<number>();
+    for (const hauler of allHaulers) {
+      if (hauler.name !== creep.name && hauler.memory.haulerSlot !== undefined) {
+        takenSlots.add(hauler.memory.haulerSlot);
+      }
+    }
 
-    const slot = sortedByAge.findIndex(c => c.name === creep.name);
-    creep.memory.haulerSlot = slot >= 0 ? slot : 0;
-    return creep.memory.haulerSlot;
+    // Assign first available slot (0, 1, 2, ...)
+    let slot = 0;
+    while (takenSlots.has(slot)) {
+      slot++;
+    }
+
+    creep.memory.haulerSlot = slot;
+    return slot;
   }
 
   /**
@@ -186,8 +193,12 @@ export class CarryCorp extends Corp {
    * Belt System Logic:
    * 1. Each hauler has a persistent slot (0, 1, 2, ...)
    * 2. They target structure at index (slot + deliveryRotation) % structureCount
-   * 3. After successful delivery, increment deliveryRotation
-   * 4. This creates continuous circulation without reactive switching
+   * 3. After successful delivery OR when target is full, increment deliveryRotation
+   * 4. Each hauler advances through THEIR OWN sequence, preventing convergence
+   *
+   * Key insight: When a target is full, each hauler advances their OWN rotation
+   * rather than all searching for the same "next available" structure.
+   * This keeps haulers spread out like a conveyor belt.
    */
   private getCirculationTarget(
     creep: Creep,
@@ -196,34 +207,31 @@ export class CarryCorp extends Corp {
     if (structures.length === 0) return null;
 
     const slot = this.getHaulerSlot(creep);
-    const rotation = creep.memory.deliveryRotation ?? 0;
     const count = structures.length;
 
-    // Calculate primary target based on slot and rotation
-    const primaryIndex = (slot + rotation) % count;
-    const primary = structures[primaryIndex];
+    // Try up to 'count' rotations to find a structure that needs energy
+    // Each hauler advances through their OWN sequence, maintaining spacing
+    for (let attempts = 0; attempts < count; attempts++) {
+      const rotation = creep.memory.deliveryRotation ?? 0;
+      const targetIndex = (slot + rotation) % count;
+      const target = structures[targetIndex];
 
-    // If primary needs energy, use it
-    if (primary.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-      creep.memory.deliveryTargetId = primary.id;
-      return primary;
-    }
-
-    // If primary is full, find next structure in our sequence that needs energy
-    // But DON'T change rotation yet - we still want to try primary next time
-    for (let i = 1; i < count; i++) {
-      const index = (primaryIndex + i) % count;
-      const target = structures[index];
       if (target.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        // Found a target that needs energy - use it
         creep.memory.deliveryTargetId = target.id;
         return target;
       }
+
+      // Target is full - advance THIS hauler's rotation to their next structure
+      // This is key: each hauler moves through their own sequence
+      creep.memory.deliveryRotation = (rotation + 1) % count;
     }
 
-    // All structures full - still return primary so we keep moving toward it
-    // When spawning starts, it will drain and we'll be ready
-    creep.memory.deliveryTargetId = primary.id;
-    return primary;
+    // All structures full - return null to allow fallback to workers/controller
+    // Reset rotation so we start fresh when things drain
+    creep.memory.deliveryRotation = 0;
+    delete creep.memory.deliveryTargetId;
+    return null;
   }
 
   /**
@@ -405,45 +413,57 @@ export class CarryCorp extends Corp {
       }
     }
 
-    // Check if there are construction sites (building phase)
-    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    const rcl = room.controller?.level ?? 1;
+    // Priority 2: Fill containers near the controller (for upgraders)
+    if (room.controller) {
+      const upgraderContainers = room.find(FIND_STRUCTURES, {
+        filter: (s) =>
+          s.structureType === STRUCTURE_CONTAINER &&
+          s.pos.getRangeTo(room.controller!) <= 4 &&
+          (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+      }) as StructureContainer[];
 
-    // At RCL 2 with construction sites: drop near sources, not controller
-    // Workers (upgraders doing build duty) are near sources picking up dropped energy
-    if (rcl <= 2 && constructionSites.length > 0) {
-      // Drop near assigned source where workers are building
-      const sources = room.find(FIND_SOURCES);
-      const assignedSource = this.getAssignedSource(creep, sources);
-      if (assignedSource) {
-        if (creep.pos.getRangeTo(assignedSource) <= 3) {
-          const dropped = creep.store[RESOURCE_ENERGY];
-          creep.drop(RESOURCE_ENERGY);
-          this.recordProduction(dropped);
-        } else {
-          creep.moveTo(assignedSource, { visualizePathStyle: { stroke: "#ffaa00" } });
+      if (upgraderContainers.length > 0) {
+        const target = upgraderContainers[0];
+        const result = creep.transfer(target, RESOURCE_ENERGY);
+        if (result === ERR_NOT_IN_RANGE) {
+          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+        } else if (result === OK) {
+          const transferred = Math.min(
+            creep.store[RESOURCE_ENERGY],
+            target.store.getFreeCapacity(RESOURCE_ENERGY)
+          );
+          this.recordProduction(transferred);
         }
         return;
       }
     }
 
-    // Priority 2: Transfer directly to upgraders
-    const upgraders = room.find(FIND_MY_CREEPS, {
+    // Priority 3: Deliver to builders/upgraders who need energy
+    // This includes upgraders doing build duty when there are construction sites
+    const workers = room.find(FIND_MY_CREEPS, {
       filter: (c) =>
-        c.memory.workType === "upgrade" &&
+        (c.memory.workType === "upgrade" || c.memory.workType === "build") &&
         c.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
     });
 
-    if (upgraders.length > 0) {
-      upgraders.sort(
+    if (workers.length > 0) {
+      // Sort by most empty first
+      workers.sort(
         (a, b) =>
           b.store.getFreeCapacity(RESOURCE_ENERGY) -
           a.store.getFreeCapacity(RESOURCE_ENERGY)
       );
-      const target = upgraders[0];
+      const target = workers[0];
       const result = creep.transfer(target, RESOURCE_ENERGY);
       if (result === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+        // If not in range, try to drop on them if we're close (range 1)
+        if (creep.pos.getRangeTo(target) === 1) {
+          const dropped = creep.store[RESOURCE_ENERGY];
+          creep.drop(RESOURCE_ENERGY);
+          this.recordProduction(dropped);
+        } else {
+          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+        }
       } else if (result === OK) {
         const transferred = Math.min(
           creep.store[RESOURCE_ENERGY],
@@ -454,7 +474,7 @@ export class CarryCorp extends Corp {
       return;
     }
 
-    // Priority 3: Drop at controller (for upgrading)
+    // Priority 4: Drop at controller (for upgrading)
     if (room.controller) {
       if (creep.pos.getRangeTo(room.controller) <= 3) {
         const dropped = creep.store[RESOURCE_ENERGY];

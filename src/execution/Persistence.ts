@@ -36,9 +36,7 @@ export function persistState(
     Memory.nodeEdges = Array.from(analysisCache.result.adjacencies);
   }
 
-  // Compute and persist economic edges (nodes with resources)
-  // Economic nodes have sources, controllers, or minerals - filter out empty terrain
-  const economicNodeIds = new Set<string>();
+  // Build node position map for distance calculations
   const nodePositions = new Map<string, { x: number; y: number; room: string }>();
   for (const node of colony.getNodes()) {
     nodePositions.set(node.id, {
@@ -46,6 +44,37 @@ export function persistState(
       y: node.peakPosition.y,
       room: node.peakPosition.roomName
     });
+  }
+
+  // Helper to estimate walking distance between two nodes using their peak positions
+  const estimateDistance = (id1: string, id2: string): number => {
+    const p1 = nodePositions.get(id1);
+    const p2 = nodePositions.get(id2);
+    if (!p1 || !p2) return Infinity;
+    // Same room: Chebyshev distance
+    if (p1.room === p2.room) {
+      return Math.max(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
+    }
+    // Different rooms: estimate ~50 tiles per room crossing
+    const roomDist = Game.map.getRoomLinearDistance(p1.room, p2.room) * 50;
+    return roomDist + Math.max(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
+  };
+
+  // Calculate and persist spatial edge weights
+  const spatialWeights: { [edge: string]: number } = {};
+  for (const edgeKey of Memory.nodeEdges || []) {
+    const [id1, id2] = edgeKey.split("|");
+    const distance = estimateDistance(id1, id2);
+    if (distance < Infinity) {
+      spatialWeights[edgeKey] = distance;
+    }
+  }
+  Memory.spatialEdgeWeights = spatialWeights;
+
+  // Compute and persist economic edges (nodes with resources)
+  // Economic nodes have sources, controllers, or minerals - filter out empty terrain
+  const economicNodeIds = new Set<string>();
+  for (const node of colony.getNodes()) {
     const hasEconomicResources = node.resources.some(
       r => r.type === "source" || r.type === "controller" || r.type === "mineral"
     );
@@ -64,20 +93,7 @@ export function persistState(
     adjacency.get(id2)!.add(id1);
   }
 
-  // Helper to estimate distance between two nodes
   const MAX_ECON_DISTANCE = 2000;
-  const estimateDistance = (id1: string, id2: string): number => {
-    const p1 = nodePositions.get(id1);
-    const p2 = nodePositions.get(id2);
-    if (!p1 || !p2) return Infinity;
-    // Same room: Chebyshev distance
-    if (p1.room === p2.room) {
-      return Math.max(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
-    }
-    // Different rooms: estimate ~50 tiles per room
-    const roomDist = Game.map.getRoomLinearDistance(p1.room, p2.room) * 50;
-    return roomDist + Math.max(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
-  };
 
   // Find economic neighbors: BFS from each economic node through non-economic nodes
   // Track cumulative distance and stop if > MAX_ECON_DISTANCE

@@ -221,35 +221,16 @@ export class FlowGraph {
 
     // For each source, create edges to reachable sinks
     for (const source of this.sources.values()) {
-      const sourceNode = this.nodes.get(source.nodeId);
-      if (!sourceNode) continue;
+      // Verify source has a valid node
+      if (!this.nodes.has(source.nodeId)) continue;
 
       for (const sink of this.sinks.values()) {
-        const sinkNode = this.nodes.get(sink.nodeId);
-        if (!sinkNode) continue;
+        // Verify sink has a valid node
+        if (!this.nodes.has(sink.nodeId)) continue;
 
-        // Calculate distance
-        let distance: number;
-
-        if (source.nodeId === sink.nodeId) {
-          // Same node - use direct position distance
-          distance = chebyshevDistance(source.position, sink.position);
-        } else {
-          // Different nodes - use navigator for path distance
-          const pathResult = this.navigator.findPath(source.nodeId, sink.nodeId);
-          if (!pathResult.found) continue;
-
-          // Add intra-node distances at endpoints
-          const sourceToNodeCenter = chebyshevDistance(
-            source.position,
-            sourceNode.peakPosition
-          );
-          const nodeToSink = chebyshevDistance(
-            sinkNode.peakPosition,
-            sink.position
-          );
-          distance = pathResult.distance + sourceToNodeCenter + nodeToSink;
-        }
+        // Calculate distance using direct position-to-position estimation
+        // This is more accurate than navigator paths which may have incorrect weights
+        const distance = estimateWalkingDistance(source.position, sink.position);
 
         // Create edge
         const edgeId = createEdgeId(source.id, sink.id);

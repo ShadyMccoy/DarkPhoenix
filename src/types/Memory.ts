@@ -80,6 +80,13 @@ declare global {
     nodeEdges?: string[];
 
     /**
+     * Walking distances for spatial edges between adjacent nodes.
+     * Format: Map of "nodeId1|nodeId2" -> distance in tiles.
+     * Calculated from node peak positions.
+     */
+    spatialEdgeWeights?: { [edge: string]: number };
+
+    /**
      * Economic edges between corp-hosting nodes.
      * Format: Map of "nodeId1|nodeId2" -> distance (sorted alphabetically).
      */
