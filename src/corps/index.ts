@@ -38,6 +38,19 @@ export {
 } from "./CarryCorp";
 
 export {
+  HaulerCorp,
+  SerializedHaulerCorp,
+  createHaulerCorp
+} from "./HaulerCorp";
+
+export {
+  TankerCorp,
+  TankerDemand,
+  SerializedTankerCorp,
+  createTankerCorp
+} from "./TankerCorp";
+
+export {
   UpgradingCorp,
   SerializedUpgradingCorp,
   createUpgradingCorp
