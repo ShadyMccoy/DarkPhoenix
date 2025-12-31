@@ -14,13 +14,13 @@ import {
   CREEP_LIFETIME,
   getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
-import { buildMinerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildMinerBody, buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 
 /**
  * Types of creeps that can be spawned
  */
-export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder" | "scout";
+export type SpawnableCreepType = "miner" | "hauler" | "tanker" | "upgrader" | "builder" | "scout";
 
 /**
  * A queued spawn order
@@ -151,8 +151,8 @@ export class SpawningCorp extends Corp {
       this.stuckSince = 0;
     }
 
-    // Sort orders by priority (miners first)
-    const priorityOrder: SpawnableCreepType[] = ["miner", "hauler", "upgrader", "builder", "scout"];
+    // Sort orders by priority (miners first, then haulers, then tankers for local distribution)
+    const priorityOrder: SpawnableCreepType[] = ["miner", "hauler", "tanker", "upgrader", "builder", "scout"];
     this.pendingOrders.sort((a, b) =>
       priorityOrder.indexOf(a.creepType) - priorityOrder.indexOf(b.creepType)
     );
@@ -167,9 +167,10 @@ export class SpawningCorp extends Corp {
 
       const name = `${order.creepType}-${order.buyerCorpId.slice(-6)}-${tick}`;
 
-      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
+      const workTypeMap: Record<SpawnableCreepType, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout"> = {
         miner: "harvest",
         hauler: "haul",
+        tanker: "tank",
         upgrader: "upgrade",
         builder: "build",
         scout: "scout"
@@ -195,7 +196,7 @@ export class SpawningCorp extends Corp {
         this.recordProduction(workTicksProduced);
 
         let partsInfo: string;
-        if (order.creepType === "hauler") {
+        if (order.creepType === "hauler" || order.creepType === "tanker") {
           const ratioStr = order.haulerRatio ? ` ${order.haulerRatio}` : "";
           partsInfo = `${carryParts}C${moveParts}M${ratioStr}`;
         } else {
@@ -260,6 +261,12 @@ export class SpawningCorp extends Corp {
           body.push(MOVE);
         }
         return body;
+      }
+      case "tanker": {
+        // Tankers use road-optimized 2:1 CARRY:MOVE ratio by default
+        // workParts represents requested CARRY parts for tankers
+        const result = buildTankerBody(workParts, this.energyCapacity, true);
+        return result.body;
       }
       case "upgrader": {
         const result = buildUpgraderBody(this.energyCapacity, workParts);

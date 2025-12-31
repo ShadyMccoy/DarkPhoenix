@@ -169,6 +169,14 @@ export interface Node {
 
   /** ROI metrics for expansion planning */
   roi?: NodeROI;
+
+  /**
+   * Optimal position for hauler pickup/delivery within this node.
+   * Calculated as the position with minimum average walking distance
+   * to all sources and sinks (containers, storage, spawns) in the node.
+   * Used by haulers when pathing between nodes.
+   */
+  haulerDeliveryPos?: Position;
 }
 
 /**
@@ -184,6 +192,7 @@ export interface SerializedNode {
   corpIds: string[];
   createdAt: number;
   roi?: NodeROI;
+  haulerDeliveryPos?: Position;
 }
 
 /**
@@ -302,7 +311,8 @@ export function serializeNode(node: Node): SerializedNode {
     resources: node.resources,
     corpIds: node.corps.map((c) => c.id),
     createdAt: node.createdAt,
-    roi: node.roi
+    roi: node.roi,
+    haulerDeliveryPos: node.haulerDeliveryPos,
   };
 }
 
@@ -320,7 +330,8 @@ export function deserializeNode(data: SerializedNode): Node {
     corps: [], // Corps are restored separately
     resources: data.resources,
     createdAt: data.createdAt,
-    roi: data.roi
+    roi: data.roi,
+    haulerDeliveryPos: data.haulerDeliveryPos,
   };
 }
 
@@ -474,4 +485,148 @@ export function distanceToPeak(node: Node, position: Position): number {
  */
 export function getNodeRooms(node: Node): string[] {
   return node.spansRooms;
+}
+
+/**
+ * Calculate the optimal hauler delivery position for a node.
+ *
+ * This finds the position with minimum average walking distance to all
+ * sources and sinks within the node. Tests candidate positions and
+ * selects the one with best average accessibility.
+ *
+ * Sources/sinks considered:
+ * - Sources (energy sources)
+ * - Containers
+ * - Storage
+ * - Spawns
+ *
+ * @param node - The node to calculate delivery position for
+ * @param room - The room object (required for pathfinding)
+ * @returns The optimal position, or peakPosition if calculation fails
+ */
+export function calculateHaulerDeliveryPos(node: Node, room: Room): Position {
+  // Get all relevant resource positions
+  const targetPositions: Position[] = [];
+
+  for (const resource of node.resources) {
+    if (
+      resource.type === "source" ||
+      resource.type === "container" ||
+      resource.type === "storage" ||
+      resource.type === "spawn"
+    ) {
+      targetPositions.push(resource.position);
+    }
+  }
+
+  // If no targets, use peak position
+  if (targetPositions.length === 0) {
+    return node.peakPosition;
+  }
+
+  // If only one target, return that position
+  if (targetPositions.length === 1) {
+    return targetPositions[0];
+  }
+
+  // Calculate centroid as starting point
+  let sumX = 0;
+  let sumY = 0;
+  for (const pos of targetPositions) {
+    sumX += pos.x;
+    sumY += pos.y;
+  }
+  const centroidX = Math.round(sumX / targetPositions.length);
+  const centroidY = Math.round(sumY / targetPositions.length);
+
+  // Test positions in a grid around the centroid
+  // Search radius based on territory size
+  const searchRadius = Math.min(5, Math.ceil(Math.sqrt(node.territorySize) / 3));
+
+  let bestPos: Position = { x: centroidX, y: centroidY, roomName: node.roomName };
+  let bestScore = Infinity;
+
+  // Get terrain for walkability check
+  const terrain = room.getTerrain();
+
+  for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+    for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+      const testX = centroidX + dx;
+      const testY = centroidY + dy;
+
+      // Skip out of bounds
+      if (testX < 1 || testX > 48 || testY < 1 || testY > 48) continue;
+
+      // Skip walls
+      if (terrain.get(testX, testY) === TERRAIN_MASK_WALL) continue;
+
+      // Calculate total walking distance to all targets
+      // Use Chebyshev distance (8-directional movement)
+      let totalDistance = 0;
+      for (const target of targetPositions) {
+        if (target.roomName === node.roomName) {
+          // Same room - Chebyshev distance
+          totalDistance += Math.max(
+            Math.abs(testX - target.x),
+            Math.abs(testY - target.y)
+          );
+        } else {
+          // Different room - add room crossing penalty
+          totalDistance += 50 + Math.max(
+            Math.abs(testX - target.x),
+            Math.abs(testY - target.y)
+          );
+        }
+      }
+
+      // Average distance
+      const avgDistance = totalDistance / targetPositions.length;
+
+      if (avgDistance < bestScore) {
+        bestScore = avgDistance;
+        bestPos = { x: testX, y: testY, roomName: node.roomName };
+      }
+    }
+  }
+
+  return bestPos;
+}
+
+/**
+ * Update the hauler delivery position for a node.
+ * Should be called when node resources change (during planning phase).
+ *
+ * @param node - The node to update
+ * @param room - The room object (optional, will lookup if not provided)
+ */
+export function updateHaulerDeliveryPos(node: Node, room?: Room): void {
+  // Get room if not provided
+  const targetRoom = room ?? (typeof Game !== "undefined" ? Game.rooms[node.roomName] : undefined);
+
+  if (!targetRoom) {
+    // No vision of room, use centroid of resources as fallback
+    const positions = node.resources
+      .filter(r => r.type === "source" || r.type === "container" || r.type === "storage" || r.type === "spawn")
+      .map(r => r.position);
+
+    if (positions.length === 0) {
+      node.haulerDeliveryPos = node.peakPosition;
+      return;
+    }
+
+    let sumX = 0;
+    let sumY = 0;
+    for (const pos of positions) {
+      sumX += pos.x;
+      sumY += pos.y;
+    }
+    node.haulerDeliveryPos = {
+      x: Math.round(sumX / positions.length),
+      y: Math.round(sumY / positions.length),
+      roomName: node.roomName,
+    };
+    return;
+  }
+
+  node.haulerDeliveryPos = calculateHaulerDeliveryPos(node, targetRoom);
 }

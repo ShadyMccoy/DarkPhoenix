@@ -17,6 +17,11 @@ import {
   SerializedHarvestCorp,
   CarryCorp,
   SerializedCarryCorp,
+  HaulerCorp,
+  SerializedHaulerCorp,
+  TankerCorp,
+  SerializedTankerCorp,
+  createTankerCorp,
   UpgradingCorp,
   SerializedUpgradingCorp,
   ScoutCorp,
@@ -39,8 +44,12 @@ import { MAX_SCOUTS } from "../corps/CorpConstants";
 export interface CorpRegistry {
   bootstrapCorps: { [roomName: string]: BootstrapCorp };
   harvestCorps: { [sourceId: string]: HarvestCorp };
-  /** Hauling corps keyed by source ID (each source has its own CarryCorp) */
+  /** Hauling corps keyed by source ID (each source has its own CarryCorp) - LEGACY */
   haulingCorps: { [sourceId: string]: CarryCorp };
+  /** Edge-based hauler corps keyed by edge ID */
+  haulerCorps: { [edgeId: string]: HaulerCorp };
+  /** Node-based tanker corps keyed by node ID */
+  tankerCorps: { [nodeId: string]: TankerCorp };
   upgradingCorps: { [roomName: string]: UpgradingCorp };
   scoutCorps: { [roomName: string]: ScoutCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
@@ -55,6 +64,8 @@ export function createCorpRegistry(): CorpRegistry {
     bootstrapCorps: {},
     harvestCorps: {},
     haulingCorps: {},
+    haulerCorps: {},
+    tankerCorps: {},
     upgradingCorps: {},
     scoutCorps: {},
     constructionCorps: {},
@@ -125,7 +136,9 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
  *
  * These corps work together:
  * - Mining: Harvests energy and drops it
- * - Hauling: Picks up energy and delivers to spawn/controller
+ * - Hauling (legacy CarryCorp): Picks up energy and delivers to spawn/controller
+ * - Haulers (HaulerCorp): Edge-based transport from source to sink
+ * - Tankers (TankerCorp): Node-based local distribution
  * - Upgrading: Picks up energy near controller and upgrades
  */
 export function runRealCorps(registry: CorpRegistry): void {
@@ -138,13 +151,25 @@ export function runRealCorps(registry: CorpRegistry): void {
     harvestCorp.work(Game.time);
   }
 
-  // Run all HaulingCorps
-  for (const roomName in registry.haulingCorps) {
-    const haulingCorp = registry.haulingCorps[roomName];
+  // Run all HaulingCorps (legacy CarryCorp)
+  for (const sourceId in registry.haulingCorps) {
+    const haulingCorp = registry.haulingCorps[sourceId];
     if (haulingCorp.shouldPlan(Game.time)) {
       haulingCorp.plan(Game.time);
     }
     haulingCorp.work(Game.time);
+  }
+
+  // Run all HaulerCorps (edge-based transport)
+  for (const edgeId in registry.haulerCorps) {
+    const haulerCorp = registry.haulerCorps[edgeId];
+    haulerCorp.work(Game.time);
+  }
+
+  // Run all TankerCorps (node-based distribution)
+  for (const nodeId in registry.tankerCorps) {
+    const tankerCorp = registry.tankerCorps[nodeId];
+    tankerCorp.work(Game.time);
   }
 
   // Run all UpgradingCorps
@@ -307,14 +332,22 @@ export function logCorpStats(registry: CorpRegistry): void {
   console.log(`  Bootstrap Jacks: ${totalJacks}`);
 
   let totalHarvesters = 0;
+  let totalLegacyHaulers = 0;
   let totalHaulers = 0;
+  let totalTankers = 0;
   let totalUpgraders = 0;
 
   for (const sourceId in registry.harvestCorps) {
     totalHarvesters += registry.harvestCorps[sourceId].getCreepCount();
   }
-  for (const roomName in registry.haulingCorps) {
-    totalHaulers += registry.haulingCorps[roomName].getCreepCount();
+  for (const sourceId in registry.haulingCorps) {
+    totalLegacyHaulers += registry.haulingCorps[sourceId].getCreepCount();
+  }
+  for (const edgeId in registry.haulerCorps) {
+    totalHaulers += registry.haulerCorps[edgeId].getCreepCount();
+  }
+  for (const nodeId in registry.tankerCorps) {
+    totalTankers += registry.tankerCorps[nodeId].getCreepCount();
   }
   for (const roomName in registry.upgradingCorps) {
     totalUpgraders += registry.upgradingCorps[roomName].getCreepCount();
@@ -330,7 +363,57 @@ export function logCorpStats(registry: CorpRegistry): void {
     totalBuilders += registry.constructionCorps[roomName].getCreepCount();
   }
 
-  console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
+  const allHaulers = totalLegacyHaulers + totalHaulers;
+  console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${allHaulers} (${totalHaulers} edge, ${totalTankers} tank), Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
+}
+
+/**
+ * Run tanker corps for all owned rooms with spawns.
+ *
+ * Tanker corps handle local distribution within a node:
+ * - Pick up energy from containers, storage, dropped energy
+ * - Deliver to spawns, extensions, towers
+ */
+export function runTankerCorps(registry: CorpRegistry): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+
+    // Only process owned rooms with spawns
+    if (!room.controller?.my) continue;
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) continue;
+
+    const spawn = spawns[0];
+    const nodeId = `${roomName}-tanker`;
+
+    // Get or create tanker corp for this room
+    let tankerCorp = registry.tankerCorps[nodeId];
+
+    if (!tankerCorp) {
+      // Try to restore from memory
+      const saved = Memory.tankerCorps?.[nodeId];
+      if (saved) {
+        tankerCorp = new TankerCorp(
+          saved.nodeId,
+          saved.spawnId,
+          saved.nodeCenter,
+          saved.demand,
+          saved.id
+        );
+        tankerCorp.deserialize(saved);
+        registry.tankerCorps[nodeId] = tankerCorp;
+      } else {
+        // Create new tanker corp
+        const nodeCenter = { x: spawn.pos.x, y: spawn.pos.y, roomName };
+        tankerCorp = createTankerCorp(nodeId, spawn.id, nodeCenter);
+        tankerCorp.createdAt = Game.time;
+        registry.tankerCorps[nodeId] = tankerCorp;
+        console.log(`[Tanker] Created corp for ${roomName}`);
+      }
+    }
+
+    // Tanker corps are run in runRealCorps()
+  }
 }
 
 // =============================================================================
@@ -744,5 +827,49 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
       queuedAt: Game.time,
     });
     console.log(`[FlowSpawn] Queued scout for ${scoutCorp.id}`);
+  }
+
+  // === Spawn tankers for local distribution when needed ===
+  for (const [roomName, stats] of roomStats) {
+    if (!stats.spawningCorp) continue;
+
+    const room = Game.rooms[roomName];
+    const rcl = room?.controller?.level ?? 1;
+
+    // Only spawn tankers at RCL 2+ when we have extensions to fill
+    if (rcl < 2) continue;
+
+    // Need working mining infrastructure first
+    const hasWorkingPair = stats.totalMiners >= 1 && stats.totalHaulers >= 1;
+    if (!hasWorkingPair) continue;
+
+    const pendingCount = stats.spawningCorp.getPendingOrderCount();
+    if (pendingCount >= 2) continue;
+
+    const nodeId = `${roomName}-tanker`;
+    const tankerCorp = registry.tankerCorps[nodeId];
+    if (!tankerCorp) continue;
+
+    // Check if tanker corp needs more capacity
+    if (tankerCorp.hasAdequateCapacity()) continue;
+
+    const currentTankers = tankerCorp.getCreepCount();
+    const requiredCarry = tankerCorp.getRequiredCarryParts();
+    const currentCarry = tankerCorp.getCurrentCarryParts();
+
+    // Don't spawn if we already have sufficient tankers
+    if (currentCarry >= requiredCarry) continue;
+
+    // Calculate carry parts for this tanker
+    const carryNeeded = requiredCarry - currentCarry;
+    const carryPerTanker = Math.min(carryNeeded, 10); // Cap individual tanker size
+
+    stats.spawningCorp.queueSpawnOrder({
+      buyerCorpId: tankerCorp.id,
+      creepType: "tanker",
+      workTicksRequested: carryPerTanker,
+      queuedAt: Game.time,
+    });
+    console.log(`[FlowSpawn] Queued tanker for ${tankerCorp.id} (${carryPerTanker} CARRY, need ${requiredCarry} have ${currentCarry})`);
   }
 }
