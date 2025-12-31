@@ -3,6 +3,11 @@
  *
  * CarryCorp is a transport service that moves energy from sources to destinations.
  *
+ * @deprecated CarryCorp is deprecated. Use HaulerCorp for edge-based transport
+ * and TankerCorp for node-based distribution instead. CarryCorp is kept for
+ * backward compatibility during the transition period but should not be used
+ * for new code. FlowMaterializer now creates HaulerCorps instead of CarryCorps.
+ *
  * @module corps/CarryCorp
  */
 
@@ -25,6 +30,9 @@ export interface SerializedCarryCorp extends SerializedCorp {
 
 /**
  * CarryCorp manages hauler creeps that move energy around.
+ *
+ * @deprecated Use HaulerCorp for edge-based transport and TankerCorp for
+ * node-based distribution instead.
  */
 export class CarryCorp extends Corp {
   /** ID of the spawn to use */
@@ -566,6 +574,9 @@ export class CarryCorp extends Corp {
 
 /**
  * Create a CarryCorp for a room.
+ *
+ * @deprecated Use HaulerCorp for edge-based transport and TankerCorp for
+ * node-based distribution instead.
  */
 export function createCarryCorp(
   room: Room,

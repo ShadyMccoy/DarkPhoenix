@@ -6,6 +6,7 @@ declare const Game: {
   map: {
     getRoomLinearDistance(roomA: string, roomB: string): number;
   };
+  rooms: { [roomName: string]: Room | undefined };
 } | undefined;
 
 /**

@@ -238,7 +238,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
         // This replaces corps querying FlowEconomy - corps ARE the flow now
         const graph = flowEconomy.getFlowGraph();
         const result = materializeCorps(solution, graph, corps, Game.time);
-        console.log(`[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.carryCorpsUpdated} carry, ${result.upgradingCorpsUpdated} upgrading corps`);
+        console.log(`[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.haulerCorpsUpdated} hauler, ${result.upgradingCorpsUpdated} upgrading corps`);
       }
     }
 
@@ -596,7 +596,7 @@ global.plan = () => {
       // Materialize flow solution into corps
       const graph = flowEconomy.getFlowGraph();
       const matResult = materializeCorps(solution, graph, corps, Game.time);
-      console.log(`\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.carryCorpsUpdated} carry, ${matResult.upgradingCorpsUpdated} upgrading corps`);
+      console.log(`\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.haulerCorpsUpdated} hauler, ${matResult.upgradingCorpsUpdated} upgrading corps`);
     } else {
       console.log(`[FlowEconomy] No solution computed`);
     }

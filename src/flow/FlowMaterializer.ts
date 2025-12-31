@@ -15,7 +15,7 @@
 
 import { CorpRegistry } from "../execution/CorpRunner";
 import { HarvestCorp } from "../corps/HarvestCorp";
-import { CarryCorp } from "../corps/CarryCorp";
+import { HaulerCorp } from "../corps/HaulerCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
 import { SpawningCorp } from "../corps/SpawningCorp";
 import { ConstructionCorp } from "../corps/ConstructionCorp";
@@ -42,8 +42,8 @@ export interface MaterializationResult {
   /** Number of HarvestCorps updated */
   harvestCorpsUpdated: number;
 
-  /** Number of CarryCorps updated */
-  carryCorpsUpdated: number;
+  /** Number of HaulerCorps updated */
+  haulerCorpsUpdated: number;
 
   /** Number of UpgradingCorps updated */
   upgradingCorpsUpdated: number;
@@ -86,7 +86,7 @@ export function materializeCorps(
   const result: MaterializationResult = {
     tick,
     harvestCorpsUpdated: 0,
-    carryCorpsUpdated: 0,
+    haulerCorpsUpdated: 0,
     upgradingCorpsUpdated: 0,
     constructionCorpsUpdated: 0,
     newCorpsCreated: 0,
@@ -102,7 +102,7 @@ export function materializeCorps(
 
   // Materialize each node flow into corps
   for (const nodeFlow of nodeFlows.values()) {
-    materializeNodeFlow(nodeFlow, corps, tick, result);
+    materializeNodeFlow(nodeFlow, graph, corps, tick, result);
   }
 
   // Clean up stale corps that are no longer in the flow solution
@@ -110,7 +110,7 @@ export function materializeCorps(
   const cleanupResult = cleanupStaleCorps(nodeFlows, corps);
 
   console.log(`[FlowMaterializer] Materialized ${nodeFlows.size} node flows into corps`);
-  console.log(`  Harvest: ${result.harvestCorpsUpdated}, Carry: ${result.carryCorpsUpdated}`);
+  console.log(`  Harvest: ${result.harvestCorpsUpdated}, Hauler: ${result.haulerCorpsUpdated}`);
   console.log(`  Upgrading: ${result.upgradingCorpsUpdated}, Construction: ${result.constructionCorpsUpdated}`);
   if (cleanupResult.removed > 0) {
     console.log(`  Cleaned up: ${cleanupResult.removed} stale corps`);
@@ -154,12 +154,13 @@ function buildSinkNodeMap(graph: FlowGraph): Map<string, string> {
  *
  * Each NodeFlow becomes:
  * - One HarvestCorp per source (miner assignment)
- * - One CarryCorp per source-to-sink edge (hauler assignment)
+ * - One HaulerCorp per source-to-sink edge (hauler assignment)
  * - One UpgradingCorp if there's a controller sink
  * - One ConstructionCorp if there are construction sinks
  */
 function materializeNodeFlow(
   nodeFlow: NodeFlow,
+  graph: FlowGraph,
   corps: CorpRegistry,
   tick: number,
   result: MaterializationResult
@@ -174,10 +175,10 @@ function materializeNodeFlow(
     materializeHarvestCorp(miner, corps, tick, result);
   }
 
-  // Materialize one CarryCorp per hauler assignment (per source-to-sink edge)
+  // Materialize one HaulerCorp per hauler assignment (per source-to-sink edge)
   // This allows independent scaling of haulers per source
   for (const hauler of nodeFlow.haulers) {
-    materializeCarryCorpForSource(hauler, corps, tick, result);
+    materializeHaulerCorpForSource(hauler, graph, corps, tick, result);
   }
 
   // Upgrading and construction only in rooms we own
@@ -269,11 +270,15 @@ function materializeHarvestCorp(
 }
 
 /**
- * Materialize a CarryCorp for a specific source-to-sink edge (HaulerAssignment).
- * Each source gets its own CarryCorp so haulers can be independently scaled.
+ * Materialize a HaulerCorp for a specific source-to-sink edge (HaulerAssignment).
+ * Each source gets its own HaulerCorp so haulers can be independently scaled.
+ *
+ * HaulerCorps are edge-based: they transport energy from source to sink
+ * along a fixed route like a conveyor belt.
  */
-function materializeCarryCorpForSource(
+function materializeHaulerCorpForSource(
   hauler: HaulerAssignment,
+  graph: FlowGraph,
   corps: CorpRegistry,
   tick: number,
   result: MaterializationResult
@@ -281,7 +286,7 @@ function materializeCarryCorpForSource(
   // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
   const sourceGameId = hauler.fromId.replace("source-", "");
 
-  // Extract spawn game ID from flow sink ID (e.g., "spawn-abc123" → "abc123")
+  // Extract spawn game ID from flow spawn ID (e.g., "spawn-abc123" → "abc123")
   const spawnGameId = hauler.spawnId.replace("spawn-", "");
   const spawn = Game.getObjectById(spawnGameId as Id<StructureSpawn>);
 
@@ -290,23 +295,44 @@ function materializeCarryCorpForSource(
     return;
   }
 
-  // Key by source ID so each source has its own CarryCorp
-  let carryCorp = corps.haulingCorps[sourceGameId];
-
-  if (!carryCorp) {
-    // Create new CarryCorp for this source
-    // Use source-based nodeId for proper creep association
-    const nodeId = `${spawn.room.name}-hauling-${sourceGameId.slice(-4)}`;
-    carryCorp = new CarryCorp(nodeId, spawn.id);
-    carryCorp.createdAt = tick;
-    corps.haulingCorps[sourceGameId] = carryCorp;
-    result.newCorpsCreated++;
-    console.log(`[FlowMaterializer] Created CarryCorp for source ${sourceGameId.slice(-4)}`);
+  // Get source and sink positions from the flow graph
+  const flowSource = graph.getSource(hauler.fromId);
+  if (!flowSource) {
+    result.warnings.push(`FlowSource ${hauler.fromId} not found in graph`);
+    return;
   }
 
-  // Update with this source's hauler assignment (single assignment per corp)
-  carryCorp.setHaulerAssignments([hauler]);
-  result.carryCorpsUpdated++;
+  // Get sink position - the toId might be a spawn, controller, or other sink
+  const flowSink = graph.getSink(hauler.toId);
+  const sinkPos = flowSink?.position ?? spawn.pos;
+
+  // Key by source ID so each source has its own HaulerCorp
+  let haulerCorp = corps.haulerCorps[sourceGameId];
+
+  if (!haulerCorp) {
+    // Create new HaulerCorp for this source
+    // Use source-based nodeId for proper creep association
+    const nodeId = `${spawn.room.name}-hauling-${sourceGameId.slice(-4)}`;
+    haulerCorp = new HaulerCorp(
+      nodeId,
+      spawn.id,
+      hauler.edgeId,
+      flowSource.position,
+      { x: sinkPos.x, y: sinkPos.y, roomName: sinkPos.roomName },
+      hauler.flowRate,
+      hauler.distance,
+      hauler.carryParts
+    );
+    haulerCorp.createdAt = tick;
+    corps.haulerCorps[sourceGameId] = haulerCorp;
+    result.newCorpsCreated++;
+    console.log(`[FlowMaterializer] Created HaulerCorp for source ${sourceGameId.slice(-4)}`);
+  } else {
+    // Update existing HaulerCorp with new assignment data
+    haulerCorp.updateFromAssignment(hauler);
+  }
+
+  result.haulerCorpsUpdated++;
 }
 
 /**
@@ -383,7 +409,7 @@ export function cleanupStaleCorps(
 ): { removed: number } {
   let removed = 0;
 
-  // Build set of active source IDs (used by both HarvestCorps and CarryCorps)
+  // Build set of active source IDs (used by both HarvestCorps and HaulerCorps)
   const activeSourceIds = new Set<string>();
   for (const nodeFlow of nodeFlows.values()) {
     for (const miner of nodeFlow.miners) {
@@ -410,16 +436,16 @@ export function cleanupStaleCorps(
     }
   }
 
-  // Remove CarryCorps not in flow (keyed by source ID)
-  for (const sourceId in corps.haulingCorps) {
+  // Remove HaulerCorps not in flow (keyed by source ID)
+  for (const sourceId in corps.haulerCorps) {
     if (!activeSourceIds.has(sourceId)) {
-      delete corps.haulingCorps[sourceId];
+      delete corps.haulerCorps[sourceId];
       // Also remove from Memory to prevent re-hydration on next tick
-      if (typeof Memory !== "undefined" && Memory.haulingCorps) {
-        delete Memory.haulingCorps[sourceId];
+      if (typeof Memory !== "undefined" && Memory.haulerCorps) {
+        delete Memory.haulerCorps[sourceId];
       }
       removed++;
-      console.log(`[FlowMaterializer] Removed stale CarryCorp for ${sourceId.slice(-4)}`);
+      console.log(`[FlowMaterializer] Removed stale HaulerCorp for ${sourceId.slice(-4)}`);
     }
   }
 
