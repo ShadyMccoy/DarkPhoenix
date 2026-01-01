@@ -81,12 +81,26 @@ export function resetAnalysis(): void {
 /**
  * Restore visualization cache from persisted Memory data.
  * This allows edge visualization without running the expensive analysis.
+ *
+ * NOTE: If any nodes are missing ROI or expansionScore, we don't create
+ * the cache. This forces the full analysis to run, which will calculate
+ * proper ROI for all nodes.
  */
 export function restoreVisualizationCache(colony: Colony): void {
   if (multiRoomAnalysisCache) return; // Already have cache
 
   const nodes = colony.getNodes();
   if (nodes.length === 0) return; // No nodes to visualize
+
+  // Check if any nodes are missing ROI or expansionScore
+  // If so, don't create the cache - let the full analysis run to calculate ROI
+  const hasMissingROI = nodes.some(node =>
+    !node.roi || node.roi.expansionScore === undefined
+  );
+  if (hasMissingROI) {
+    console.log(`[Colony] Nodes missing ROI/expansionScore - skipping visualization cache to trigger analysis`);
+    return;
+  }
 
   // Reconstruct peaks from nodes
   const peaks = nodes.map(node => ({
