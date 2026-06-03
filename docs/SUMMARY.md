@@ -7,7 +7,6 @@
 - [Installation](getting-started/installation.md)
 - [Authenticating with Screeps](getting-started/authenticating.md)
 - [Deploying](getting-started/deploying.md)
-- [Local Private Server](getting-started/local-server.md)
 
 ## Architecture
 
@@ -24,7 +23,6 @@
 - [TypeScript](in-depth/typescript.md)
 - [Prettier](in-depth/prettier.md)
 - [Testing](in-depth/testing.md)
-- [Simulation Testing](in-depth/simulation-testing.md)
 - [Cookbook](in-depth/cookbook/README.md)
   - [Environment variables](in-depth/cookbook/environment-variables.md)
   - [One-line PowerShell setup](in-depth/cookbook/one-line-powershell.md)

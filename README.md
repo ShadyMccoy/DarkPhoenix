@@ -138,18 +138,18 @@ npm run push-sim       # Deploy to simulation
 
 ### Testing
 
-```bash
-npm test               # Run unit tests
-npm run test:sim       # Run simulation tests
-```
-
-### Docker (Headless Server)
+Local verification runs entirely in Node — no Docker, no Steam key.
 
 ```bash
-docker-compose up -d   # Start headless server
-docker-compose logs    # View server logs
-docker-compose down    # Stop server
+npm test                  # Run unit + integration tests
+npm run test-unit         # Fast unit tests (mocked Game API)
+npm run test-integration  # Build, then run the bot against a full in-process Screeps engine
 ```
+
+Integration tests use [`screeps-server-mockup`](https://github.com/screepers/screeps-server-mockup),
+which boots a real Screeps server in-process, loads the compiled `dist/main.js`,
+and lets tests tick the world and inspect memory. See
+[docs/in-depth/testing.md](docs/in-depth/testing.md) for details.
 
 ## Project Structure
 
