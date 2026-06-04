@@ -133,10 +133,21 @@ export class BootstrapCorp extends Corp {
     // If there are just 1-2 struggling creeps, bootstrap should help
     if (otherCreeps.length >= 3 && !noHaulers) {
       this.starvationStartTick = 0;
-      // Still run our existing creeps until they die
+
+      // The bootstrap is scaffolding. Once the real flow economy is running -
+      // signalled by actual flow haulers (workType "haul") existing, not just our
+      // own jacks - retire the jacks by recycling them. This frees spawn energy
+      // and spawn time for the flow economy (e.g. so builders/upgraders can be
+      // afforded) and recovers part of each jack's body cost. If the flow
+      // economy later collapses (no haulers), the checks above re-activate
+      // bootstrap automatically.
+      const flowEstablished = actualHaulers.length >= 1;
       for (const name of this.creepNames) {
         const creep = Game.creeps[name];
-        if (creep && !creep.spawning) {
+        if (!creep || creep.spawning) continue;
+        if (flowEstablished) {
+          this.recycleJack(creep, spawn);
+        } else {
           this.runCreep(creep, spawn, source);
         }
       }
@@ -184,6 +195,25 @@ export class BootstrapCorp extends Corp {
       if (creep && !creep.spawning) {
         this.runCreep(creep, spawn, source);
       }
+    }
+  }
+
+  /**
+   * Retire a jack: deliver any carried energy, then recycle it at the spawn to
+   * recover part of its body cost.
+   */
+  private recycleJack(creep: Creep, spawn: StructureSpawn): void {
+    if (creep.store[RESOURCE_ENERGY] > 0) {
+      // Dump remaining energy into the spawn network on the way out.
+      if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+      }
+      return;
+    }
+    if (creep.pos.isNearTo(spawn)) {
+      spawn.recycleCreep(creep);
+    } else {
+      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
     }
   }
 
