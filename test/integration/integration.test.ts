@@ -1,5 +1,9 @@
 import {assert} from "chai";
-import {helper} from "./helper";
+import {helper, hookConsole} from "./helper";
+
+before(() => hookConsole());
+beforeEach(async () => helper.beforeEach());
+afterEach(async () => helper.afterEach());
 
 describe("main", () => {
   it("runs a server and matches the game tick", async function () {
