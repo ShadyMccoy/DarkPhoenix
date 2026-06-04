@@ -18,10 +18,19 @@ describe("pickSinkByAllocation", () => {
       { toId: "spawn-abc", flowRate: 3 },
       { toId: "controller-abc", flowRate: 1 },
     ];
-    // Nothing delivered yet: controller (0/1=0) ties/beats spawn (0/3=0).
-    expect(pickSinkByAllocation(assignments, {})).to.equal("controller");
-    // Controller already got its share; spawn is now behind.
+    // Controller has had more than its 1:3 share -> spawn is furthest behind.
     expect(pickSinkByAllocation(assignments, { spawn: 0, controller: 1 })).to.equal("spawn");
+    // Spawn has had its full share but controller none -> controller is behind.
+    expect(pickSinkByAllocation(assignments, { spawn: 3, controller: 0 })).to.equal("controller");
+  });
+
+  it("routes to construction when it has allocated flow", () => {
+    const assignments = [
+      { toId: "spawn-abc", flowRate: 1 },
+      { toId: "construction-xyz", flowRate: 2 },
+    ];
+    // Construction (0/2) is further behind than spawn (0/1) once spawn is served.
+    expect(pickSinkByAllocation(assignments, { spawn: 1, construction: 0 })).to.equal("construction");
   });
 
   it("converges to the allocation ratio over many loads (3:1 spawn:controller)", () => {

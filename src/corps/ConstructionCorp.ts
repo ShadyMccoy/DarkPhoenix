@@ -482,8 +482,11 @@ export class ConstructionCorp extends Corp {
 
     return [{
       buyerCorpId: this.id,
+      // After an RCL-up, building new structures takes precedence over upgrading
+      // (capacity compounds into faster RCL later). Rank a builder just below the
+      // core mining economy but above upgrading so it reliably gets spawned.
       role: "builder",
-      value: 50,
+      value: 95,
       blocking: false,
       producesIncome: false,
       desiredCost: desired.cost,

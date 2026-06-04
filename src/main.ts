@@ -106,6 +106,10 @@ let colony: Colony | undefined;
 /** Node navigator for pathfinding (created from persisted edges) */
 let nodeNavigator: NodeNavigator | undefined;
 
+/** How often (ticks) to re-solve the flow economy so it adapts to RCL-ups,
+ * new construction sites, etc. (the heavy spatial analysis is gated separately). */
+const FLOW_RESOLVE_INTERVAL = 50;
+
 /** Flow economy coordinator (replaces market-based allocation) */
 let flowEconomy: FlowEconomy | undefined;
 
@@ -206,7 +210,17 @@ export const loop = ErrorMapper.wrapLoop(() => {
     !isAnalysisInProgress() &&
     Game.time % 10 === 0;
 
-  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap) {
+  // Re-solve the flow economy on a light cadence so it adapts to changes the
+  // initial solve couldn't see: RCL-ups, new construction sites, etc. Without
+  // this the economy stays frozen on its first solution (the expensive spatial
+  // analysis inside is separately gated, so this only re-runs the cheap
+  // rebuild+solve+materialize).
+  const economyNeedsResolve =
+    colony.getNodes().length > 0 &&
+    !isAnalysisInProgress() &&
+    Game.time % FLOW_RESOLVE_INTERVAL === 0;
+
+  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
     // --- SURVEY: Analyze territory and create corps ---
@@ -228,6 +242,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
       const rebuilt = buildFlowEconomyFromMemory(planningNodes);
       nodeNavigator = rebuilt.navigator;
       flowEconomy = rebuilt.economy;
+
+      // Feed live construction sites into the flow as sinks so the solver can
+      // allocate energy (and hauler routes) to them. After an RCL-up the
+      // priority logic ranks construction above the controller, so the colony
+      // builds new structures first and only minimally upgrades.
+      addConstructionSitesToFlow(flowEconomy, planningNodes);
 
       // Update globals for debugging
       global.nodeNavigator = nodeNavigator;
@@ -341,6 +361,49 @@ function getOrCreateColony(): Colony {
  * @param nodes - Current colony nodes
  * @returns New navigator and economy instances
  */
+/**
+ * Feed the room's live construction sites into the flow economy as construction
+ * sinks, each mapped to the nearest node in its room. This makes construction a
+ * first-class consumer in the flow solve (with hauler routes), so the local
+ * mover delivers energy to builders per the solver's allocation.
+ */
+function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (sites.length === 0) continue;
+
+    const roomNodes = nodes.filter((n) => n.roomName === roomName);
+    if (roomNodes.length === 0) continue;
+
+    for (const site of sites) {
+      // Map the site to the nearest node in the same room.
+      let best: Node | undefined;
+      let bestDist = Infinity;
+      for (const node of roomNodes) {
+        const dx = node.peakPosition.x - site.pos.x;
+        const dy = node.peakPosition.y - site.pos.y;
+        const d = Math.abs(dx) + Math.abs(dy);
+        if (d < bestDist) {
+          bestDist = d;
+          best = node;
+        }
+      }
+      if (!best) continue;
+
+      const remaining = site.progressTotal - site.progress;
+      economy.addConstructionSite(
+        site.id,
+        best.id,
+        { x: site.pos.x, y: site.pos.y, roomName },
+        remaining
+      );
+    }
+  }
+}
+
 function buildFlowEconomyFromMemory(nodes: Node[]): {
   navigator: NodeNavigator;
   economy: FlowEconomy;

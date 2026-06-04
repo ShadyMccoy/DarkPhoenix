@@ -24,24 +24,36 @@ const TRANSPORT_FEE_PER_ENERGY = 0.05;
  * Sinks are classified by their flow `toId`: a "controller-*" destination is the
  * controller; anything else (spawn/extension network) is treated as the spawn.
  */
+export type LocalSink = "spawn" | "controller" | "construction";
+
 export function pickSinkByAllocation(
   assignments: { toId: string; flowRate: number }[],
   delivered: { [sink: string]: number }
-): "spawn" | "controller" {
-  let spawnFlow = 0;
-  let controllerFlow = 0;
+): LocalSink {
+  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, construction: 0 };
   for (const a of assignments) {
-    if (a.toId.startsWith("controller-")) controllerFlow += a.flowRate;
-    else spawnFlow += a.flowRate;
+    if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
+    else if (a.toId.startsWith("construction-")) flows.construction += a.flowRate;
+    else flows.spawn += a.flowRate;
   }
 
-  if (controllerFlow <= 0) return "spawn";
-  if (spawnFlow <= 0) return "controller";
-
-  // Pick whichever sink is furthest behind its allocated share so far.
-  const spawnScore = (delivered.spawn ?? 0) / spawnFlow;
-  const controllerScore = (delivered.controller ?? 0) / controllerFlow;
-  return controllerScore <= spawnScore ? "controller" : "spawn";
+  // Pick whichever sink with positive allocated flow is furthest behind its
+  // share so far. This distributes loads in proportion to the flow solver's
+  // per-sink allocations (which already encode spawn > construction > minimal
+  // controller via priorities).
+  let best: LocalSink = "spawn";
+  let bestScore = Infinity;
+  let anyPositive = false;
+  for (const sink of ["spawn", "controller", "construction"] as const) {
+    if (flows[sink] <= 0) continue;
+    anyPositive = true;
+    const score = (delivered[sink] ?? 0) / flows[sink];
+    if (score < bestScore) {
+      bestScore = score;
+      best = sink;
+    }
+  }
+  return anyPositive ? best : "spawn";
 }
 
 /**
@@ -431,6 +443,14 @@ export class CarryCorp extends Corp {
     // it right now (e.g. spawn full, or no controller), fall back to the other.
     const sink = creep.memory.deliverSinkId ?? "spawn";
 
+    if (sink === "construction") {
+      if (this.deliverToConstruction(creep, room)) return;
+      // No builders/sites right now - fall back to spawn, then controller.
+      if (this.deliverToSpawn(creep, room)) return;
+      this.deliverToController(creep, room);
+      return;
+    }
+
     if (sink === "controller") {
       if (this.deliverToController(creep, room)) return;
       this.deliverToSpawn(creep, room);
@@ -442,11 +462,48 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Deliver to construction: hand energy to a builder creep that needs it (the
+   * builder then carries it to the site and builds). Returns false when there
+   * are no construction sites in the room.
+   */
+  private deliverToConstruction(creep: Creep, room: Room): boolean {
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (sites.length === 0) return false;
+
+    const builders = room.find(FIND_MY_CREEPS, {
+      filter: (c) => c.memory.workType === "build" && c.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    });
+    if (builders.length > 0) {
+      builders.sort((a, b) => b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY));
+      const target = builders[0];
+      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      } else {
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+      }
+      return true;
+    }
+
+    // No builder to receive yet: drop energy adjacent to the nearest site so a
+    // builder can grab it when it arrives.
+    const site = creep.pos.findClosestByPath(sites);
+    if (!site) return false;
+    if (creep.pos.getRangeTo(site) <= 2) {
+      const dropped = creep.store[RESOURCE_ENERGY];
+      creep.drop(RESOURCE_ENERGY);
+      this.recordProduction(dropped);
+    } else {
+      creep.moveTo(site, { visualizePathStyle: { stroke: "#ffaa00" } });
+    }
+    return true;
+  }
+
+  /**
    * Choose which local sink to deliver the current load to, in proportion to the
    * flow solver's per-sink allocations (flowRate). This is the heart of the
    * node's local energy balancing.
    */
-  private chooseDeliverySink(): "spawn" | "controller" {
+  private chooseDeliverySink(): LocalSink {
     const pick = pickSinkByAllocation(this.haulerAssignments, this.sinkDelivered);
     this.sinkDelivered[pick] = (this.sinkDelivered[pick] ?? 0) + 1;
     return pick;

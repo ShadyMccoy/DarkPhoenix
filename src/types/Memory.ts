@@ -291,7 +291,7 @@ declare global {
      * to honour the flow solver's per-sink allocations ("spawn" or "controller").
      * Cleared when the load is emptied.
      */
-    deliverSinkId?: "spawn" | "controller";
+    deliverSinkId?: "spawn" | "controller" | "construction";
   }
 }
 
