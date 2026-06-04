@@ -134,14 +134,15 @@ export class BootstrapCorp extends Corp {
     if (otherCreeps.length >= 3 && !noHaulers) {
       this.starvationStartTick = 0;
 
-      // The bootstrap is scaffolding. Once the real flow economy is running -
-      // signalled by actual flow haulers (workType "haul") existing, not just our
-      // own jacks - retire the jacks by recycling them. This frees spawn energy
-      // and spawn time for the flow economy (e.g. so builders/upgraders can be
-      // afforded) and recovers part of each jack's body cost. If the flow
-      // economy later collapses (no haulers), the checks above re-activate
-      // bootstrap automatically.
-      const flowEstablished = actualHaulers.length >= 1;
+      // The bootstrap is scaffolding. Only retire the jacks once the flow
+      // economy is TRULY self-sufficient - it has both its own miners (flow
+      // harvesters) AND haulers, so it can harvest and carry energy on its own.
+      // Recycling on haulers alone collapsed the colony when no flow miners had
+      // spawned (haulers with nothing to carry). If the flow loses either, the
+      // checks above re-activate bootstrap automatically.
+      const flowHaulers = actualHaulers.length;
+      const flowMiners = otherCreeps.filter((c) => c.memory.workType === "harvest").length;
+      const flowEstablished = flowMiners >= 1 && flowHaulers >= 1;
       for (const name of this.creepNames) {
         const creep = Game.creeps[name];
         if (!creep || creep.spawning) continue;

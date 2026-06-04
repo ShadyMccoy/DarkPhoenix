@@ -619,16 +619,24 @@ export class CarryCorp extends Corp {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
 
-    const carryNeeded = assignments.reduce((sum, a) => sum + a.carryParts, 0);
+    // Total CARRY parts the flow needs for ALL of this source's routes combined
+    // (spawn + controller + construction). One hauler usually can't sustain them
+    // all - especially long routes - so we ferry the energy with as many haulers
+    // as the carry demand requires.
+    const carryNeeded = Math.ceil(assignments.reduce((sum, a) => sum + a.carryParts, 0));
     if (carryNeeded <= 0) return [];
 
-    const current = this.getCreepCount();
-    // One hauler per source edge is the baseline target here; the flow solver
-    // sizes the body (carry parts), not the count.
-    if (current >= 1) return [];
-
     const PART_PAIR_COST = 100; // 1 CARRY + 1 MOVE
-    const desiredCarry = Math.max(1, Math.min(Math.ceil(carryNeeded), Math.floor(ctx.energyCapacity / PART_PAIR_COST), 25));
+    const maxCarryPerHauler = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR_COST), 25));
+    const targetHaulers = Math.max(1, Math.ceil(carryNeeded / maxCarryPerHauler));
+
+    const current = this.getCreepCount();
+    if (current >= targetHaulers) return [];
+
+    // Size this hauler to its share of the remaining carry need (capped by what
+    // the room can afford in one body).
+    const remainingCarry = carryNeeded - current * maxCarryPerHauler;
+    const desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, remainingCarry));
     const desiredCost = desiredCarry * PART_PAIR_COST;
     const minCost = PART_PAIR_COST; // 1 CARRY + 1 MOVE
 
@@ -636,6 +644,8 @@ export class CarryCorp extends Corp {
       buyerCorpId: this.id,
       role: "hauler",
       value: 90 + Math.min(carryNeeded, 20),
+      // The first hauler is blocking (the source's energy is stranded without
+      // any carrier); additional haulers are scaling capacity (non-blocking).
       blocking: current === 0,
       producesIncome: true,
       desiredCost,
