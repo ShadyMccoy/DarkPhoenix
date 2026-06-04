@@ -16,6 +16,35 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
 
 /**
+ * Decide which local sink a CarryCorp should deliver its next load to, balancing
+ * deliveries across the node's sinks in proportion to the flow solver's
+ * allocations (each assignment's flowRate). `delivered` is the running count of
+ * loads sent to each sink so far. Pure so it can be unit tested directly.
+ *
+ * Sinks are classified by their flow `toId`: a "controller-*" destination is the
+ * controller; anything else (spawn/extension network) is treated as the spawn.
+ */
+export function pickSinkByAllocation(
+  assignments: { toId: string; flowRate: number }[],
+  delivered: { [sink: string]: number }
+): "spawn" | "controller" {
+  let spawnFlow = 0;
+  let controllerFlow = 0;
+  for (const a of assignments) {
+    if (a.toId.startsWith("controller-")) controllerFlow += a.flowRate;
+    else spawnFlow += a.flowRate;
+  }
+
+  if (controllerFlow <= 0) return "spawn";
+  if (spawnFlow <= 0) return "controller";
+
+  // Pick whichever sink is furthest behind its allocated share so far.
+  const spawnScore = (delivered.spawn ?? 0) / spawnFlow;
+  const controllerScore = (delivered.controller ?? 0) / controllerFlow;
+  return controllerScore <= spawnScore ? "controller" : "spawn";
+}
+
+/**
  * Serialized state specific to CarryCorp
  */
 export interface SerializedCarryCorp extends SerializedCorp {
@@ -39,6 +68,13 @@ export class CarryCorp extends Corp {
    * Each assignment specifies a source → sink route with CARRY requirements.
    */
   private haulerAssignments: HaulerAssignment[] = [];
+
+  /**
+   * Count of loads committed to each local sink ("spawn"/"controller"), used to
+   * balance deliveries in proportion to the flow solver's per-sink allocations.
+   * In-memory only - approximate balancing that resets on a global reset is fine.
+   */
+  private sinkDelivered: { [sink: string]: number } = {};
 
   constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
@@ -111,11 +147,15 @@ export class CarryCorp extends Corp {
     // State transition
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
+      creep.memory.deliverSinkId = undefined;
       creep.say("pickup");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
-      creep.say("deliver");
+      // Commit this load to a sink, balancing the node's local sinks in
+      // proportion to the flow solver's per-sink allocations.
+      creep.memory.deliverSinkId = this.chooseDeliverySink();
+      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
     // Opportunistic: pick up nearby dropped energy while delivering
@@ -386,107 +426,114 @@ export class CarryCorp extends Corp {
    * Uses circulation-based distribution for belt/bus behavior.
    * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
-  private deliverEnergy(creep: Creep, room: Room, spawn: StructureSpawn): void {
-    // Priority 1: Fill spawn and extensions using circulation system
-    // Each hauler maintains their position in the circulation, preventing herd behavior
-    const allSpawnStructures = this.getSpawnZoneStructures(room);
+  private deliverEnergy(creep: Creep, room: Room, _spawn: StructureSpawn): void {
+    // Route this load to the sink it was committed to. If that sink can't take
+    // it right now (e.g. spawn full, or no controller), fall back to the other.
+    const sink = creep.memory.deliverSinkId ?? "spawn";
 
-    if (allSpawnStructures.length > 0) {
-      // Get target using circulation (persistent assignment)
-      const target = this.getCirculationTarget(creep, allSpawnStructures);
-      if (target) {
-        const result = creep.transfer(target, RESOURCE_ENERGY);
-        if (result === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-        } else if (result === OK) {
-          const transferred = Math.min(
-            creep.store[RESOURCE_ENERGY],
-            target.store.getFreeCapacity(RESOURCE_ENERGY)
-          );
-          this.recordProduction(transferred);
-          // Advance circulation after successful delivery
-          this.advanceCirculation(creep, allSpawnStructures.length);
-        } else if (result === ERR_FULL) {
-          // Structure filled by someone else - advance to next
-          this.advanceCirculation(creep, allSpawnStructures.length);
-        }
-        return;
-      }
-    }
-
-    // Priority 2: Fill containers near the controller (for upgraders)
-    if (room.controller) {
-      const upgraderContainers = room.find(FIND_STRUCTURES, {
-        filter: (s) =>
-          s.structureType === STRUCTURE_CONTAINER &&
-          s.pos.getRangeTo(room.controller!) <= 4 &&
-          (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-      }) as StructureContainer[];
-
-      if (upgraderContainers.length > 0) {
-        const target = upgraderContainers[0];
-        const result = creep.transfer(target, RESOURCE_ENERGY);
-        if (result === ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-        } else if (result === OK) {
-          const transferred = Math.min(
-            creep.store[RESOURCE_ENERGY],
-            target.store.getFreeCapacity(RESOURCE_ENERGY)
-          );
-          this.recordProduction(transferred);
-        }
-        return;
-      }
-    }
-
-    // Priority 3: Deliver to builders/upgraders who need energy
-    // This includes upgraders doing build duty when there are construction sites
-    const workers = room.find(FIND_MY_CREEPS, {
-      filter: (c) =>
-        (c.memory.workType === "upgrade" || c.memory.workType === "build") &&
-        c.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-    });
-
-    if (workers.length > 0) {
-      // Sort by most empty first
-      workers.sort(
-        (a, b) =>
-          b.store.getFreeCapacity(RESOURCE_ENERGY) -
-          a.store.getFreeCapacity(RESOURCE_ENERGY)
-      );
-      const target = workers[0];
-      const result = creep.transfer(target, RESOURCE_ENERGY);
-      if (result === ERR_NOT_IN_RANGE) {
-        // If not in range, try to drop on them if we're close (range 1)
-        if (creep.pos.getRangeTo(target) === 1) {
-          const dropped = creep.store[RESOURCE_ENERGY];
-          creep.drop(RESOURCE_ENERGY);
-          this.recordProduction(dropped);
-        } else {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-        }
-      } else if (result === OK) {
-        const transferred = Math.min(
-          creep.store[RESOURCE_ENERGY],
-          target.store.getFreeCapacity(RESOURCE_ENERGY)
-        );
-        this.recordProduction(transferred);
-      }
+    if (sink === "controller") {
+      if (this.deliverToController(creep, room)) return;
+      this.deliverToSpawn(creep, room);
       return;
     }
 
-    // Priority 4: Drop at controller (for upgrading)
-    if (room.controller) {
-      if (creep.pos.getRangeTo(room.controller) <= 3) {
-        const dropped = creep.store[RESOURCE_ENERGY];
-        creep.drop(RESOURCE_ENERGY);
-        this.recordProduction(dropped);
-      } else {
-        creep.moveTo(room.controller, {
-          visualizePathStyle: { stroke: "#ffffff" },
-        });
-      }
+    if (this.deliverToSpawn(creep, room)) return;
+    this.deliverToController(creep, room);
+  }
+
+  /**
+   * Choose which local sink to deliver the current load to, in proportion to the
+   * flow solver's per-sink allocations (flowRate). This is the heart of the
+   * node's local energy balancing.
+   */
+  private chooseDeliverySink(): "spawn" | "controller" {
+    const pick = pickSinkByAllocation(this.haulerAssignments, this.sinkDelivered);
+    this.sinkDelivered[pick] = (this.sinkDelivered[pick] ?? 0) + 1;
+    return pick;
+  }
+
+  /**
+   * Deliver to the spawn/extension network via the circulation system.
+   * Returns false when there is no spawn structure that needs energy.
+   */
+  private deliverToSpawn(creep: Creep, room: Room): boolean {
+    const allSpawnStructures = this.getSpawnZoneStructures(room);
+    if (allSpawnStructures.length === 0) return false;
+
+    const target = this.getCirculationTarget(creep, allSpawnStructures);
+    if (!target) return false; // all full
+
+    const result = creep.transfer(target, RESOURCE_ENERGY);
+    if (result === ERR_NOT_IN_RANGE) {
+      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+    } else if (result === OK) {
+      const transferred = Math.min(
+        creep.store[RESOURCE_ENERGY],
+        target.store.getFreeCapacity(RESOURCE_ENERGY)
+      );
+      this.recordProduction(transferred);
+      this.advanceCirculation(creep, allSpawnStructures.length);
+    } else if (result === ERR_FULL) {
+      this.advanceCirculation(creep, allSpawnStructures.length);
     }
+    return true;
+  }
+
+  /**
+   * Deliver to the controller's consumers: an upgrader container, then the
+   * upgrader/builder creeps directly, then dropping adjacent to the controller.
+   * Returns false when the room has no controller.
+   */
+  private deliverToController(creep: Creep, room: Room): boolean {
+    const controller = room.controller;
+    if (!controller) return false;
+
+    // Upgrader container near the controller.
+    const containers = room.find(FIND_STRUCTURES, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        s.pos.getRangeTo(controller) <= 4 &&
+        (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    }) as StructureContainer[];
+    if (containers.length > 0) {
+      const target = containers[0];
+      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+      } else {
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+      }
+      return true;
+    }
+
+    // Upgraders/builders near the controller that need energy.
+    const workers = room.find(FIND_MY_CREEPS, {
+      filter: (c) =>
+        (c.memory.workType === "upgrade" || c.memory.workType === "build") &&
+        c.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
+        c.pos.getRangeTo(controller) <= 5,
+    });
+    if (workers.length > 0) {
+      workers.sort((a, b) => b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY));
+      const target = workers[0];
+      const result = creep.transfer(target, RESOURCE_ENERGY);
+      if (result === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+      } else if (result === OK) {
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+      }
+      return true;
+    }
+
+    // No container/worker yet: drop the load next to the controller so the
+    // stationary upgrader can pick it up.
+    if (creep.pos.getRangeTo(controller) <= 3) {
+      const dropped = creep.store[RESOURCE_ENERGY];
+      creep.drop(RESOURCE_ENERGY);
+      this.recordProduction(dropped);
+    } else {
+      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+    }
+    return true;
   }
 
   /**

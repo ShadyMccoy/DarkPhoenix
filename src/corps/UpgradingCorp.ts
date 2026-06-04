@@ -136,49 +136,25 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
-    // Check for construction sites - prioritize building over upgrading
-    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    // Upgraders only upgrade - they camp at the controller and convert the
+    // energy the CarryCorp (local mover) delivers there. Construction is the
+    // ConstructionCorp's job; diverting the upgrader to build sites just pulls
+    // it away from the controller and stalls RCL progress.
+    if (creep.pos.getRangeTo(controller) > 3) {
+      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+      return;
+    }
 
-    if (constructionSites.length > 0) {
-      // Building mode - go to construction site and stay there
-      const target = creep.pos.findClosestByRange(constructionSites);
-      if (target) {
-        // Move to construction site if not in range
-        if (creep.pos.getRangeTo(target) > 3) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-          return;
-        }
-
-        if (creep.memory.working) {
-          const buildResult = creep.build(target);
-          if (buildResult === OK) {
-            const workParts = creep.getActiveBodyparts(WORK);
-            this.recordConsumption(workParts);
-            this.recordProduction(workParts);
-          }
-        } else {
-          // Stationary pickup near construction site
-          this.doPickupEnergyNearPosition(creep, target.pos);
-        }
+    if (creep.memory.working) {
+      const result = creep.upgradeController(controller);
+      if (result === OK) {
+        const workParts = creep.getActiveBodyparts(WORK);
+        this.recordConsumption(workParts);
+        this.recordProduction(workParts);
       }
     } else {
-      // Upgrading mode - stay near controller
-      if (creep.pos.getRangeTo(controller) > 3) {
-        creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
-        return;
-      }
-
-      if (creep.memory.working) {
-        const result = creep.upgradeController(controller);
-        if (result === OK) {
-          const workParts = creep.getActiveBodyparts(WORK);
-          this.recordConsumption(workParts);
-          this.recordProduction(workParts);
-        }
-      } else {
-        // Stationary pickup near controller
-        this.doPickupEnergy(creep, controller);
-      }
+      // Stationary pickup near controller
+      this.doPickupEnergy(creep, controller);
     }
   }
 

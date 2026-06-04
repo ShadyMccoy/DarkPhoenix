@@ -174,10 +174,20 @@ function materializeNodeFlow(
     materializeHarvestCorp(miner, corps, tick, result);
   }
 
-  // Materialize one CarryCorp per hauler assignment (per source-to-sink edge)
-  // This allows independent scaling of haulers per source
+  // Materialize one CarryCorp per source, carrying ALL of that source's routes
+  // (e.g. source->spawn AND source->controller). The CarryCorp is the node's
+  // local "mover": it distributes the source's energy across the local sinks in
+  // proportion to the flow solver's allocations, rather than dumping everything
+  // into the spawn.
+  const haulersBySource = new Map<string, HaulerAssignment[]>();
   for (const hauler of nodeFlow.haulers) {
-    materializeCarryCorpForSource(hauler, corps, tick, result);
+    const src = hauler.fromId.replace("source-", "");
+    const list = haulersBySource.get(src);
+    if (list) list.push(hauler);
+    else haulersBySource.set(src, [hauler]);
+  }
+  for (const haulers of haulersBySource.values()) {
+    materializeCarryCorpForSource(haulers, corps, tick, result);
   }
 
   // Upgrading and construction only in rooms we own
@@ -269,20 +279,24 @@ function materializeHarvestCorp(
 }
 
 /**
- * Materialize a CarryCorp for a specific source-to-sink edge (HaulerAssignment).
- * Each source gets its own CarryCorp so haulers can be independently scaled.
+ * Materialize a CarryCorp for one source, carrying all of that source's routes.
+ * Each source gets its own CarryCorp so haulers can be independently scaled, and
+ * the corp distributes the source's energy across every sink the flow routed it
+ * to (spawn, controller, ...).
  */
 function materializeCarryCorpForSource(
-  hauler: HaulerAssignment,
+  haulers: HaulerAssignment[],
   corps: CorpRegistry,
   tick: number,
   result: MaterializationResult
 ): void {
+  if (haulers.length === 0) return;
+
   // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
-  const sourceGameId = hauler.fromId.replace("source-", "");
+  const sourceGameId = haulers[0].fromId.replace("source-", "");
 
   // Extract spawn game ID from flow sink ID (e.g., "spawn-abc123" → "abc123")
-  const spawnGameId = hauler.spawnId.replace("spawn-", "");
+  const spawnGameId = haulers[0].spawnId.replace("spawn-", "");
   const spawn = Game.getObjectById(spawnGameId as Id<StructureSpawn>);
 
   if (!spawn) {
@@ -304,8 +318,9 @@ function materializeCarryCorpForSource(
     console.log(`[FlowMaterializer] Created CarryCorp for source ${sourceGameId.slice(-4)}`);
   }
 
-  // Update with this source's hauler assignment (single assignment per corp)
-  carryCorp.setHaulerAssignments([hauler]);
+  // Give the corp every route for this source so it can distribute energy across
+  // all the sinks the flow allocated to (e.g. spawn + controller).
+  carryCorp.setHaulerAssignments(haulers);
   result.carryCorpsUpdated++;
 }
 

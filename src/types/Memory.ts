@@ -285,6 +285,13 @@ declare global {
      * Cleared after successful delivery to trigger rotation.
      */
     deliveryTargetId?: string;
+
+    /**
+     * Which sink this hauler is delivering its current load to, chosen per load
+     * to honour the flow solver's per-sink allocations ("spawn" or "controller").
+     * Cleared when the load is emptied.
+     */
+    deliverSinkId?: "spawn" | "controller";
   }
 }
 
