@@ -67,6 +67,18 @@ export interface SpawnDemand {
   haulerRatio?: "2:1" | "1:1" | "1:2";
 }
 
+/**
+ * Context passed to a corp's getSpawnDemand(). Kept minimal so the methods stay
+ * self-contained and unit-testable. The scheduler/director fills in the `since`
+ * timestamps for aging, so corps return demands with `since` left at 0.
+ */
+export interface SpawnDemandContext {
+  /** Maximum energy the room can hold for spawning (spawn + extensions). */
+  energyCapacity: number;
+  /** Current game tick. */
+  tick: number;
+}
+
 /** Live spawn/economy state the scheduler needs to make a decision. */
 export interface ScheduleContext {
   /** Energy currently available in the spawn + extensions. */

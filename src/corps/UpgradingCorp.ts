@@ -10,6 +10,8 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -327,6 +329,41 @@ export class UpgradingCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * The upgrader is what drives RCL progress, so its demand is blocking when no
+   * upgrader exists. Its value comes from the flow solution's controller-sink
+   * priority, and it is sized to the allocated energy rate (but can be spawned
+   * small and scaled up). It does not produce income - the scheduler's
+   * wait-for-blocking logic is what lets it accumulate energy against a steady
+   * trickle of mining demand.
+   */
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    if (this.getCreepCount() >= 1) return [];
+
+    const allocation = this.sinkAllocation;
+    const desiredWork = allocation && allocation.allocated > 0
+      ? Math.max(1, Math.min(Math.ceil(allocation.allocated), 10))
+      : 2;
+
+    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork);
+    const min = buildUpgraderBody(ctx.energyCapacity, 1);
+    if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
+
+    return [{
+      buyerCorpId: this.id,
+      role: "upgrader",
+      value: allocation?.priority ?? 60,
+      blocking: true,
+      producesIncome: false,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      since: 0,
+      bodyParam: desiredWork,
+    }];
   }
 
   // ===========================================================================

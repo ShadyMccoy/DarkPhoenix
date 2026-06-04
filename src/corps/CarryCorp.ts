@@ -10,6 +10,7 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
@@ -493,6 +494,45 @@ export class CarryCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getAssignedCreeps().length;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * A source's hauler carries its harvested energy to the spawn/controller. The
+   * first hauler is "blocking" - without it the paired miner's energy is
+   * stranded - and produces income. The hauler is sized (CARRY:MOVE pairs) to
+   * the flow-solved carry-part requirement; it can be spawned small and scaled.
+   */
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    const assignments = this.getHaulerAssignments();
+    if (assignments.length === 0) return [];
+
+    const carryNeeded = assignments.reduce((sum, a) => sum + a.carryParts, 0);
+    if (carryNeeded <= 0) return [];
+
+    const current = this.getCreepCount();
+    // One hauler per source edge is the baseline target here; the flow solver
+    // sizes the body (carry parts), not the count.
+    if (current >= 1) return [];
+
+    const PART_PAIR_COST = 100; // 1 CARRY + 1 MOVE
+    const desiredCarry = Math.max(1, Math.min(Math.ceil(carryNeeded), Math.floor(ctx.energyCapacity / PART_PAIR_COST), 25));
+    const desiredCost = desiredCarry * PART_PAIR_COST;
+    const minCost = PART_PAIR_COST; // 1 CARRY + 1 MOVE
+
+    return [{
+      buyerCorpId: this.id,
+      role: "hauler",
+      value: 90 + Math.min(carryNeeded, 20),
+      blocking: current === 0,
+      producesIncome: true,
+      desiredCost,
+      minCost,
+      since: 0,
+      bodyParam: desiredCarry,
+      haulerRatio: assignments[0].haulerRatio,
+    }];
   }
 
   // ===========================================================================

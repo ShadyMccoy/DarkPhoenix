@@ -11,6 +11,8 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { MinerAssignment } from "../flow/FlowTypes";
+import { buildMinerBody } from "../spawn/BodyBuilder";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
  * Serialized state specific to HarvestCorp
@@ -231,6 +233,43 @@ export class HarvestCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * A source needs up to maxMiners creeps sized to harvest its full rate. The
+   * first miner is "blocking" (the source produces nothing without it) and
+   * produces income; additional miners are scaling demand (non-blocking). Value
+   * tracks mining efficiency so better sources are staffed first.
+   */
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    const assignment = this.minerAssignment;
+    if (!assignment) return [];
+
+    const target = Math.max(1, assignment.maxMiners || 1);
+    const current = this.getTotalCreepCount();
+    if (current >= target) return [];
+
+    // Desired WORK per miner to cover the source's harvest rate across miners.
+    const totalWork = Math.ceil(assignment.harvestRate / 2);
+    const desiredWork = Math.max(1, Math.ceil(totalWork / target));
+
+    const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
+    const min = buildMinerBody(1, ctx.energyCapacity);
+    if (min.cost === 0) return []; // room cannot afford even a minimal miner
+
+    return [{
+      buyerCorpId: this.id,
+      role: "miner",
+      value: 100 + (assignment.efficiency ?? 0) * 0.5,
+      blocking: current === 0,
+      producesIncome: true,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      since: 0,
+      bodyParam: desiredWork,
+    }];
   }
 
   /**
