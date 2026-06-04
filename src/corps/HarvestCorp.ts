@@ -318,8 +318,11 @@ export class HarvestCorp extends Corp {
    */
   setMinerAssignment(assignment: MinerAssignment): void {
     this.minerAssignment = assignment;
-    // Update spawn ID from flow solution (may be different from original)
-    this.spawnId = assignment.spawnId;
+    // Update spawn ID from flow solution (may be different from original).
+    // The flow sink id is prefixed ("spawn-<gameId>"); strip it so spawnId is
+    // the real spawn game id - the spawn scheduler matches corps to spawns by
+    // this id, and a prefixed value silently excludes the corp (no miners spawn).
+    this.spawnId = assignment.spawnId.replace("spawn-", "");
   }
 
   /**
