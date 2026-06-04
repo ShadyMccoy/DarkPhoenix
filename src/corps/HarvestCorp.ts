@@ -295,6 +295,13 @@ export class HarvestCorp extends Corp {
   }
 
   /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
    * Get desired work parts for this source.
    */
   getDesiredWorkParts(): number {

@@ -271,16 +271,15 @@ export class ScoutCorp extends Corp {
       return false; // No rooms need scouting
     }
 
-    // Queue spawn order
-    spawningCorp.queueSpawnOrder({
-      buyerCorpId: this.id,
-      creepType: "scout",
-      workTicksRequested: 0, // Scouts don't have WORK parts
-      queuedAt: tick,
-    });
+    // Spawn directly via the executor. Scouts are tightly gated (RCL >= 2,
+    // MAX_SCOUTS, cooldown, stale-room check) so they do not meaningfully
+    // compete with the economy; routing them through the value scheduler would
+    // add complexity for no benefit.
+    const spawned = spawningCorp.executeSpawn("scout", this.id, 50, tick);
+    if (!spawned) return false;
 
     this.lastPurchaseTick = tick;
-    console.log(`[Scout] Requested scout spawn for ${homeRoom}`);
+    console.log(`[Scout] Spawned scout for ${homeRoom}`);
     return true;
   }
 

@@ -107,6 +107,94 @@ export class SpawningCorp extends Corp {
   }
 
   /**
+   * Mark the corp as active this tick (keeps liveness bookkeeping current now
+   * that spawning is driven externally by the scheduler rather than by work()).
+   */
+  markActive(tick: number): void {
+    this.lastActivityTick = tick;
+  }
+
+  /**
+   * Execute a scheduler decision: build the body for the chosen role within the
+   * granted energy budget and spawn it. Returns true if a creep was spawned.
+   *
+   * This is the executor half of the demand-driven spawn pipeline: the
+   * SpawnScheduler decides WHAT to spawn and HOW MUCH energy to spend; this maps
+   * that to an actual body and a spawnCreep call.
+   */
+  executeSpawn(
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout",
+    buyerCorpId: string,
+    energyBudget: number,
+    tick: number,
+    bodyParam?: number,
+    haulerRatio?: HaulerRatio
+  ): boolean {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn || spawn.spawning) return false;
+
+    const body = this.buildBodyForRole(role, energyBudget, bodyParam, haulerRatio);
+    if (body.length === 0) return false;
+
+    const bodyCost = this.calculateBodyCost(body);
+    if (spawn.room.energyAvailable < bodyCost) return false;
+
+    const workTypeMap: Record<string, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
+      miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout",
+    };
+    const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
+    const result = spawn.spawnCreep(body, name, {
+      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id },
+    });
+
+    if (result === OK) {
+      this.recordCost(bodyCost);
+      const workParts = body.filter((p) => p === WORK).length;
+      this.recordProduction(workParts * CREEP_LIFETIME);
+      const carryParts = body.filter((p) => p === CARRY).length;
+      const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
+      console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Build a body for the given role that costs at most `energyBudget`.
+   */
+  private buildBodyForRole(
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout",
+    energyBudget: number,
+    bodyParam?: number,
+    haulerRatio?: HaulerRatio
+  ): BodyPartConstant[] {
+    switch (role) {
+      case "miner":
+        return buildMinerBody(bodyParam ?? 5, energyBudget).body;
+      case "upgrader":
+        return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
+      case "builder":
+        return buildUpgraderBody(energyBudget, 2).body;
+      case "scout":
+        return [MOVE];
+      case "hauler": {
+        const { carryRatio, moveRatio } = this.getPartRatios(haulerRatio ?? "1:1");
+        const costPerUnit = BODY_PART_COST.carry * carryRatio + BODY_PART_COST.move * moveRatio;
+        const partsPerUnit = carryRatio + moveRatio;
+        const maxByBudget = Math.floor(energyBudget / costPerUnit);
+        const maxBySize = Math.floor(50 / partsPerUnit);
+        const desiredUnits = bodyParam ? Math.ceil(bodyParam / carryRatio) : maxByBudget;
+        const units = Math.max(1, Math.min(desiredUnits, maxByBudget, maxBySize));
+        if (units < 1) return [];
+        const body: BodyPartConstant[] = [];
+        for (let i = 0; i < units * carryRatio; i++) body.push(CARRY);
+        for (let i = 0; i < units * moveRatio; i++) body.push(MOVE);
+        return body;
+      }
+    }
+  }
+
+  /**
    * Main work loop - process spawn orders.
    */
   work(tick: number): void {

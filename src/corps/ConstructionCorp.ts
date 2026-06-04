@@ -15,6 +15,8 @@ import {
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
 import { BODY_PART_COST } from "../planning/EconomicConstants";
+import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";
 
 /**
@@ -451,6 +453,44 @@ export class ConstructionCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * Builders are low-priority, non-blocking, non-income work: only requested
+   * when there are construction sites and no builder yet. They build the
+   * extensions that grow spawn capacity.
+   */
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    if (this.getCreepCount() >= 1) return [];
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return [];
+    const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (sites.length === 0) return [];
+
+    const desired = buildUpgraderBody(ctx.energyCapacity, 2);
+    const min = buildUpgraderBody(ctx.energyCapacity, 1);
+    if (min.cost === 0) return [];
+
+    return [{
+      buyerCorpId: this.id,
+      role: "builder",
+      value: 50,
+      blocking: false,
+      producesIncome: false,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      since: 0,
+      bodyParam: 2,
+    }];
   }
 
   // ===========================================================================

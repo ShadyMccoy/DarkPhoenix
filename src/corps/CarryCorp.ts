@@ -497,6 +497,13 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
    * Declare this corp's spawn demand for the scheduler.
    *
    * A source's hauler carries its harvested energy to the spawn/controller. The

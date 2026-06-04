@@ -54,7 +54,7 @@ import {
   runIncrementalAnalysis,
   renderNodeVisuals,
   renderSpatialVisuals,
-  requestFlowCreeps,
+  runSpawnScheduling,
 } from "./execution";
 import {
   initCorps,
@@ -258,10 +258,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     console.log(`[Planning] Complete`);
   }
 
-  // Request creeps from SpawningCorp based on flow assignments
-  // Runs AFTER planning so materialized assignments are available
-  // Priority: miners first, then haulers, then upgraders
-  requestFlowCreeps(corps);
+  // Demand-driven spawn scheduling. Each corp declares what it wants via
+  // getSpawnDemand(); the scheduler picks the single best creep to spawn per
+  // spawn, balancing flow-derived value, affordability and anti-starvation.
+  // Runs AFTER planning so materialized assignments/allocations are available.
+  runSpawnScheduling(corps);
 
   // ===========================================================================
   // PHASE 3: PERSIST - Save state and update telemetry (every tick)

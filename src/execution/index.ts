@@ -22,6 +22,8 @@ export {
   requestFlowCreeps,
 } from "./CorpRunner";
 
+export { runSpawnScheduling } from "./SpawnDirector";
+
 export {
   persistState,
   cleanupDeadCreeps,

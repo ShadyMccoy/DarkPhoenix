@@ -332,6 +332,13 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
    * Declare this corp's spawn demand for the scheduler.
    *
    * The upgrader is what drives RCL progress, so its demand is blocking when no

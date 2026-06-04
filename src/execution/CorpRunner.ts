@@ -290,8 +290,11 @@ export function runSpawningCorps(registry: CorpRegistry): void {
         }
       }
 
-      // Run the spawning corp (processes pending orders)
-      spawningCorp.work(Game.time);
+      // Spawning is now driven by the demand-based scheduler (runSpawnScheduling
+      // in SpawnDirector), not by draining a fixed-priority queue here. We only
+      // ensure the SpawningCorp instance exists; actual spawn decisions happen
+      // after planning.
+      spawningCorp.markActive(Game.time);
     }
   }
 }
