@@ -46,6 +46,13 @@ import {
  * The graph is rebuilt when nodes change, but priorities can be
  * updated dynamically based on game state.
  */
+/** Normal controller upgrade demand (energy/tick) when nothing else competes. */
+export const DEFAULT_CONTROLLER_UPGRADE_DEMAND = 50;
+
+/** Minimal anti-downgrade controller demand used while construction is pending,
+ * so building new structures takes the lion's share of the node's energy. */
+export const MIN_CONTROLLER_UPGRADE_DEMAND = 1;
+
 export class FlowGraph {
   /** All energy sources indexed by ID */
   private sources: Map<string, FlowSource>;
@@ -173,7 +180,7 @@ export class FlowGraph {
           resource.id,
           node.id,
           resource.position,
-          50, // Default upgrade demand
+          DEFAULT_CONTROLLER_UPGRADE_DEMAND, // upgrade demand (reduced while building)
           100 // Max upgrade per tick (limited by WORK parts in practice)
         );
         this.sinks.set(sink.id, sink);
@@ -266,6 +273,18 @@ export class FlowGraph {
   updatePriorities(context: PriorityContext): void {
     for (const sink of this.sinks.values()) {
       sink.priority = this.calculateSinkPriority(sink, context);
+
+      // The solver splits available energy across sinks in proportion to their
+      // DEMAND (priority only sets ordering). So to make "build supersedes
+      // upgrade" actually happen, drop the controller's demand to a minimal
+      // anti-downgrade trickle while there is construction to do - otherwise the
+      // controller's large upgrade demand keeps hogging most of the energy.
+      // When construction finishes, it reverts to the normal upgrade demand.
+      if (sink.type === "controller") {
+        sink.demand = context.constructionSites > 0
+          ? MIN_CONTROLLER_UPGRADE_DEMAND
+          : DEFAULT_CONTROLLER_UPGRADE_DEMAND;
+      }
     }
   }
 
