@@ -328,6 +328,14 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
 
+  // Reconciliation: guarantee every owned spawn is attached to a node as a
+  // "spawn" resource. A spawn sits on a structure-blocked tile, which the
+  // territory division treats as an obstacle, so it can fall through
+  // populateNodeResources and leave the flow economy with no spawn sink
+  // ("No spawn sinks - cannot assign miners"). Attach any unclaimed spawn to
+  // the nearest node (by peak distance) that spans its room.
+  attachOwnedSpawnsToNodes(colony, ownedRooms);
+
   // Build adjacency map from result.adjacencies
   // Adjacencies are stored as "nodeA|nodeB" strings
   const adjacencyMap = new Map<string, Set<string>>();
@@ -421,6 +429,56 @@ function isSourceKeeperRoom(roomName: string): boolean {
 
   // SK rooms have both coords in [4, 5, 6] range
   return x >= 4 && x <= 6 && y >= 4 && y <= 6;
+}
+
+/**
+ * Ensures every owned, visible spawn is attached to exactly one node as a
+ * "spawn" resource. Spawns occupy structure-blocked tiles that the territory
+ * division skips, so they routinely fail the territory-claim check in
+ * populateNodeResources. Without a spawn resource the FlowGraph finds no spawn
+ * sink and the solver assigns zero miners, so the colony never mines via the
+ * flow economy. Any unclaimed spawn is attached to the nearest node (by peak
+ * Manhattan distance, preferring same-room peaks) that spans the spawn's room.
+ */
+function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void {
+  const allNodes = colony.getNodes();
+  if (allNodes.length === 0) return;
+
+  const spawnClaimed = (spawnId: string): boolean =>
+    allNodes.some((n) => n.resources.some((r) => r.type === "spawn" && r.id === spawnId));
+
+  for (const roomName of ownedRooms) {
+    const room = Game.rooms[roomName];
+    if (!room) continue;
+
+    for (const spawn of room.find(FIND_MY_SPAWNS)) {
+      if (spawnClaimed(spawn.id)) continue;
+
+      let best: Node | undefined;
+      let bestDist = Infinity;
+      for (const n of allNodes) {
+        if (!n.spansRooms.includes(roomName)) continue;
+        const samePenalty = n.peakPosition.roomName === roomName ? 0 : 50;
+        const dist =
+          Math.abs(n.peakPosition.x - spawn.pos.x) +
+          Math.abs(n.peakPosition.y - spawn.pos.y) +
+          samePenalty;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = n;
+        }
+      }
+
+      if (best) {
+        best.resources.push({
+          type: "spawn",
+          id: spawn.id,
+          position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
+          capacity: 300,
+        });
+      }
+    }
+  }
 }
 
 /**
