@@ -14,6 +14,7 @@
     "test": "npm run test-unit && npm run test-integration",
     "test-unit": "mocha test/unit/**/*.ts",
     "test-integration": "npm run build && mocha test/integration/**/*.ts",
+    "sim:metrics": "ts-node -P tsconfig.test.json scripts/sim-metrics.ts",
     "watch-main": "rollup -cw --environment DEST:main",
     "watch-pserver": "rollup -cw --environment DEST:pserver",
     "watch-season": "rollup -cw --environment DEST:season",
