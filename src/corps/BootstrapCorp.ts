@@ -271,8 +271,15 @@ export class BootstrapCorp extends Corp {
           this.recordRevenue(transferred * 0.001);
         }
       } else {
-        // Everything full - wait near spawn
-        if (creep.pos.getRangeTo(spawn) > 3) {
+        // Spawn and extensions are full - put surplus energy into the
+        // controller so the colony still makes RCL progress during bootstrap,
+        // rather than idling. This makes bootstrap a complete minimal economy.
+        const controller = creep.room.controller;
+        if (controller && controller.my) {
+          if (creep.upgradeController(controller) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(controller, { range: 3, visualizePathStyle: { stroke: "#88ff88" } });
+          }
+        } else if (creep.pos.getRangeTo(spawn) > 3) {
           creep.moveTo(spawn);
         }
       }
@@ -411,8 +418,12 @@ export function createBootstrapCorp(room: Room): BootstrapCorp | null {
   const sources = room.find(FIND_SOURCES);
   if (sources.length === 0) return null;
 
-  // Find nearest source to spawn
-  const source = spawn.pos.findClosestByPath(sources);
+  // Prefer the nearest source by path, but fall back to range if no path is
+  // found (e.g. before roads/containers exist, or in restricted terrain).
+  // findClosestByPath returning null must not leave the room without a
+  // bootstrap economy.
+  const source =
+    spawn.pos.findClosestByPath(sources) ?? spawn.pos.findClosestByRange(sources);
   if (!source) return null;
 
   const nodeId = `${room.name}-bootstrap`;

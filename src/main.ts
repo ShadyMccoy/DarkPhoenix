@@ -191,10 +191,22 @@ export const loop = ErrorMapper.wrapLoop(() => {
   }
 
   // ===========================================================================
-  // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
+  // PHASE 2: PLANNING - Survey, Market, Plan
   // ===========================================================================
+  //
+  // Planning runs on a fixed cadence (every PLANNING_INTERVAL ticks) AND
+  // eagerly during bootstrap: as soon as spatial analysis has produced nodes
+  // but no harvest corps exist yet, materialize the economy immediately rather
+  // than waiting for the first cadence tick. Without this, a fresh colony has
+  // no miners/upgraders until tick PLANNING_INTERVAL and never bootstraps.
 
-  if (shouldRunPlanning(Game.time)) {
+  const economyNeedsBootstrap =
+    colony.getNodes().length > 0 &&
+    Object.keys(corps.harvestCorps).length === 0 &&
+    !isAnalysisInProgress() &&
+    Game.time % 10 === 0;
+
+  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap) {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
     // --- SURVEY: Analyze territory and create corps ---
