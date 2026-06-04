@@ -242,8 +242,11 @@ export class ScoutCorp extends Corp {
       return false;
     }
 
-    // Check if we have enough scouts
-    const currentScouts = this.getCreepCount();
+    // Check if we have enough scouts. Count both live scouts AND orders already
+    // queued by this corp that have not spawned yet - otherwise, while a scout
+    // order waits in the spawn queue, every cooldown would queue another one and
+    // flood the spawn with duplicate scouts.
+    const currentScouts = this.getCreepCount() + spawningCorp.countPendingOrdersFrom(this.id);
     if (currentScouts >= MAX_SCOUTS) {
       return false;
     }

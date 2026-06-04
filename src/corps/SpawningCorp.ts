@@ -357,6 +357,17 @@ export class SpawningCorp extends Corp {
   }
 
   /**
+   * Get number of pending orders queued by a specific buyer corp.
+   *
+   * Buyer corps use this to avoid re-queueing a creep they have already
+   * requested but that has not spawned yet (e.g. while the spawn is busy or
+   * out of energy), which otherwise floods the queue with duplicates.
+   */
+  countPendingOrdersFrom(buyerCorpId: string): number {
+    return this.pendingOrders.filter((order) => order.buyerCorpId === buyerCorpId).length;
+  }
+
+  /**
    * Clear all pending spawn orders.
    * Used to recover from stale/invalid orders in the queue.
    */
