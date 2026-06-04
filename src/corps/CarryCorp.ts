@@ -439,26 +439,26 @@ export class CarryCorp extends Corp {
    * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
   private deliverEnergy(creep: Creep, room: Room, _spawn: StructureSpawn): void {
-    // Route this load to the sink it was committed to. If that sink can't take
-    // it right now (e.g. spawn full, or no controller), fall back to the other.
-    const sink = creep.memory.deliverSinkId ?? "spawn";
+    // Deliver to the sink this load was committed to. If that sink can't take it
+    // right now (e.g. the spawn network is already full), fall back in priority
+    // order. Construction comes first in the fallback: after an RCL-up the spawn
+    // fills quickly and its surplus should accelerate building, not trickle into
+    // the (deliberately minimal) controller.
+    const committed = creep.memory.deliverSinkId ?? "spawn";
+    if (this.tryDeliverTo(creep, room, committed)) return;
 
-    if (sink === "construction") {
-      if (this.deliverToConstruction(creep, room)) return;
-      // No builders/sites right now - fall back to spawn, then controller.
-      if (this.deliverToSpawn(creep, room)) return;
-      this.deliverToController(creep, room);
-      return;
+    const fallback: LocalSink[] = ["construction", "spawn", "controller"];
+    for (const sink of fallback) {
+      if (sink === committed) continue;
+      if (this.tryDeliverTo(creep, room, sink)) return;
     }
+  }
 
-    if (sink === "controller") {
-      if (this.deliverToController(creep, room)) return;
-      this.deliverToSpawn(creep, room);
-      return;
-    }
-
-    if (this.deliverToSpawn(creep, room)) return;
-    this.deliverToController(creep, room);
+  /** Attempt delivery to a specific local sink; returns true if it took action. */
+  private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
+    if (sink === "construction") return this.deliverToConstruction(creep, room);
+    if (sink === "controller") return this.deliverToController(creep, room);
+    return this.deliverToSpawn(creep, room);
   }
 
   /**
