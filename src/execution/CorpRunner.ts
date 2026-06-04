@@ -583,6 +583,16 @@ export function requestFlowCreeps(registry: CorpRegistry): void {
   for (const [roomName, stats] of roomStats) {
     if (!stats.spawningCorp) continue;
 
+    // At RCL 1 the room has only 300 energy capacity and energy trickles in via
+    // the bootstrap jack. Spending that energy on flow miners/haulers (which
+    // also need each other before they produce anything) starves the spawn so
+    // it never fills, and the bootstrap jack never reaches its "spawn full ->
+    // upgrade controller" branch - so the colony never reaches RCL 2. Let the
+    // bootstrap economy drive RCL 1 -> 2 on its own, then let the flow economy
+    // take over once there is real spawn capacity to build it.
+    const flowRcl = Game.rooms[roomName]?.controller?.level ?? 1;
+    if (flowRcl < 2) continue;
+
     const pendingCount = stats.spawningCorp.getPendingOrderCount();
     if (pendingCount >= 2) continue; // Keep queue small for responsiveness
 

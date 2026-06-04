@@ -12,6 +12,7 @@ import {
   MAX_INTEL_VALUE,
   VALUE_PER_STALE_TICK,
   MAX_SCOUTS,
+  MIN_SCOUT_RCL,
   SCOUT_SPAWN_COOLDOWN,
 } from "./CorpConstants";
 import { SpawningCorp } from "./SpawningCorp";
@@ -254,6 +255,15 @@ export class ScoutCorp extends Corp {
     // Check if there are stale rooms to scout
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return false;
+
+    // Don't scout while the home economy is still bootstrapping. At RCL 1 the
+    // room has only 300 energy capacity and a single weak energy carrier, so a
+    // 50-energy scout (plus the spawn time it occupies) directly starves the
+    // miners/haulers/upgraders needed to reach RCL 2. Scouting is a luxury that
+    // must wait until the core economy can sustain it.
+    if ((spawn.room.controller?.level ?? 1) < MIN_SCOUT_RCL) {
+      return false;
+    }
 
     const homeRoom = spawn.room.name;
     const staleRoom = this.findStaleRoomExcluding(homeRoom, this.getAssignedTargets());

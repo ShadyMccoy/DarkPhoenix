@@ -81,6 +81,13 @@ export const MAX_UPGRADERS = 2;
 export const MAX_SCOUTS = 1;
 
 /**
+ * Minimum room control level before a scout may be spawned. Below this the
+ * home economy is still bootstrapping and cannot spare the energy or spawn
+ * time for exploration.
+ */
+export const MIN_SCOUT_RCL = 2;
+
+/**
  * Maximum builders per construction corp.
  */
 export const MAX_BUILDERS = 2;
