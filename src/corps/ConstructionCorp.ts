@@ -137,17 +137,18 @@ export class ConstructionCorp extends Corp {
     const controller = room.controller;
     if (!controller) return;
 
-    // Check if we can build more extensions
+    // Build one structure at a time (a queue, not a spread): only place the next
+    // construction site when there are NO active sites in the room. Concentrating
+    // all builder/hauler effort on a single site finishes it sooner (capacity
+    // grows incrementally) instead of inching dozens of sites forward at once.
     const rcl = controller.level;
     const maxExtensions = EXTENSION_LIMITS[rcl] || 0;
     const currentExtensions = room.find(FIND_MY_STRUCTURES, {
       filter: (s) => s.structureType === STRUCTURE_EXTENSION,
     }).length;
-    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
-      filter: (s) => s.structureType === STRUCTURE_EXTENSION,
-    });
+    const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
 
-    const canBuildMore = currentExtensions + constructionSites.length < maxExtensions;
+    const canBuildMore = activeSites === 0 && currentExtensions < maxExtensions;
 
     if (canBuildMore) {
       // Debug: log why we might not be placing
