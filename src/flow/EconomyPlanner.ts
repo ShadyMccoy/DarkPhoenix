@@ -56,6 +56,12 @@ export interface PlannerSink {
    * corps it commissions (see the fixed-point loop in planEconomy).
    */
   capacity: number;
+  /**
+   * Guaranteed minimum energy/tick, allocated before any value-based routing.
+   * Used for the controller's anti-downgrade floor: a sliver of energy that buys
+   * a whole RCL of insurance, claimed ahead of even high-value construction.
+   */
+  reserve?: number;
   pos: Position;
 }
 
@@ -172,18 +178,14 @@ function allocate(input: PlannerInput, overhead: number): Omit<EconomyPlan, "ove
   // Remaining unallocated supply per source.
   const remaining = new Map(sources.map((s) => [s.id, s.supply]));
   const flows: PlannedFlow[] = [];
+  const allocatedTo = new Map<string, number>();
 
-  // Route to the highest-value sinks first; each draws from its nearest sources
-  // until it hits its capacity or the sources run dry. A high-value, low-
-  // capacity sink (construction) thus takes its fill and no more; a low-value,
-  // high-capacity sink (controller) mops up whatever is left.
-  const byValue = [...effectiveSinks].sort((a, b) => b.value - a.value);
-  for (const sink of byValue) {
-    let need = sink.capacity;
+  /** Route up to `need` energy to `sink` from its nearest sources. */
+  const route = (sink: PlannerSink, need: number): void => {
+    if (need <= 0) return;
     const nearestFirst = sources
       .map((s) => ({ s, d: dist(s.pos, sink.pos) }))
       .sort((a, b) => a.d - b.d);
-
     for (const { s, d } of nearestFirst) {
       if (need <= 0) break;
       const avail = remaining.get(s.id) ?? 0;
@@ -192,7 +194,24 @@ function allocate(input: PlannerInput, overhead: number): Omit<EconomyPlan, "ove
       remaining.set(s.id, avail - take);
       need -= take;
       flows.push({ sourceId: s.id, sinkId: sink.id, amount: take, distance: d });
+      allocatedTo.set(sink.id, (allocatedTo.get(sink.id) ?? 0) + take);
     }
+  };
+
+  // Reserve pass: guarantee each sink's floor first, ahead of all value-based
+  // allocation. This is how the controller keeps a trickle (anti-downgrade,
+  // "a whole RCL for almost nothing") even while higher-value construction would
+  // otherwise claim the entire supply.
+  for (const sink of effectiveSinks) {
+    if (sink.reserve) route(sink, sink.reserve);
+  }
+
+  // Value pass: fill the highest-value sinks first, up to their remaining
+  // capacity. A high-value, low-capacity sink (construction) takes its fill and
+  // no more; a low-value, high-capacity sink (controller) mops up the rest.
+  const byValue = [...effectiveSinks].sort((a, b) => b.value - a.value);
+  for (const sink of byValue) {
+    route(sink, sink.capacity - (allocatedTo.get(sink.id) ?? 0));
   }
 
   const corps: CorpSpec[] = [];

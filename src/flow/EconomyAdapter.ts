@@ -27,6 +27,9 @@ import { estimateWalkingDistance } from "../nodes/NodeNavigator";
 import { SinkType, HaulerAssignment } from "./FlowTypes";
 import { CorpRegistry } from "../execution/CorpRunner";
 
+/** Guaranteed controller trickle (energy/tick) so it never downgrades / fully stalls. */
+export const ANTI_DOWNGRADE_RESERVE = 2;
+
 /** Strategic value per sink kind (anti-downgrade reserve handled separately). */
 export const SINK_VALUE: Record<SinkKind, number> = {
   spawn: 100, // critical: the economy can't run without staffing creeps
@@ -69,6 +72,9 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
       // spawn: planner computes overhead (capacity ignored). construction &
       // controller: keep pace with supply, so cap at what the room can produce.
       capacity: kind === "spawn" ? 0 : Math.max(totalSupply, 1),
+      // The controller keeps a guaranteed anti-downgrade trickle even while
+      // construction (higher value) would otherwise claim the whole supply.
+      reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined,
       pos: sink.position,
     });
   }

@@ -115,6 +115,20 @@ describe("EconomyPlanner", () => {
     assert.lengthOf(corp(p.corps, "upgrade"), 0, "regular upgrading is superseded during the build");
   });
 
+  it("honours a sink's reserve ahead of higher-value sinks (anti-downgrade floor)", () => {
+    // Construction (value 70) would otherwise take the whole supply, freezing the
+    // controller. The controller's reserve is allocated first, so it always keeps
+    // a trickle no matter how hungry construction is.
+    const sinks: PlannerSink[] = [
+      sink("spawn", "spawn", 100, 0, 25),
+      sink("site", "construction", 70, 1000, 25),
+      { ...sink("ctrl", "controller", 50, 100, 25), reserve: 2 },
+    ];
+    const { corps } = plan([source("src", 25)], sinks);
+    assert.equal(work(corps, "upgrade"), 2, "the controller keeps its reserved 2 e/tick");
+    assert.isAtLeast(work(corps, "build"), 1, "construction still gets the rest");
+  });
+
   it("closes the energy loop: a far source self-consistently leaves less for its project", () => {
     // Same supply and same value/capacity, only the haul distance differs. The
     // far economy must staff bigger haulers, so its overhead is higher and its
