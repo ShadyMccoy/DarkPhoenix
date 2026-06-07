@@ -49,6 +49,16 @@ const EXTENSION_LIMITS: { [rcl: number]: number } = {
  */
 const PLACEMENT_COOLDOWN = 10;
 
+/** Max containers per room (game limit is 5 at every RCL). */
+const CONTAINER_LIMIT = 5;
+
+/**
+ * Don't invest in containers (5000 build cost each) until RCL 3+. At RCL 2 the
+ * economy is too small to afford one without stalling the climb; extensions
+ * (3000, compounding capacity) come first.
+ */
+const CONTAINER_MIN_RCL = 3;
+
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
  */
@@ -148,7 +158,8 @@ export class ConstructionCorp extends Corp {
     }).length;
     const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
 
-    const canBuildMore = activeSites === 0 && currentExtensions < maxExtensions;
+    const wantsContainer = rcl >= CONTAINER_MIN_RCL && this.findMissingContainer(room) !== null;
+    const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
 
     if (canBuildMore) {
       // Debug: log why we might not be placing
@@ -157,7 +168,7 @@ export class ConstructionCorp extends Corp {
           console.log(`[Construction] Balance too low: ${this.balance.toFixed(0)} < ${MIN_CONSTRUCTION_PROFIT}`);
         }
       } else {
-        this.tryPlaceExtension(room, tick);
+        this.tryPlaceNextSite(room, tick, rcl);
       }
     }
 
@@ -168,27 +179,110 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Try to place a new extension construction site.
+   * Place the next-most-valuable structure (one at a time). Infrastructure that
+   * raises the whole economy's efficiency comes first: a container at each
+   * source turns roaming drop-mining into static mining (the miner sits on the
+   * container and never moves), and a container by the controller buffers the
+   * upgrader. Extensions - which grow spawn capacity - come after.
    */
-  private tryPlaceExtension(room: Room, tick: number): void {
+  private tryPlaceNextSite(room: Room, tick: number, rcl: number): void {
     if (tick - this.lastPlacementAttempt < PLACEMENT_COOLDOWN) {
       return;
     }
     this.lastPlacementAttempt = tick;
 
-    const pos = this.findGridPosition(room);
-    if (!pos) {
-      console.log(`[Construction] No valid position found for extension`);
+    // Extensions first: cheap (3000) and they compound spawn capacity, which
+    // speeds up everything afterwards - including the pricier containers.
+    const ext = this.findGridPosition(room);
+    if (ext) {
+      this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
       return;
     }
 
-    const result = room.createConstructionSite(pos.x, pos.y, STRUCTURE_EXTENSION);
-    if (result === OK) {
-      this.recordCost(100);
-      console.log(`[Construction] Placed extension site at (${pos.x}, ${pos.y})`);
-    } else {
-      console.log(`[Construction] Failed to place extension at (${pos.x}, ${pos.y}): ${result}`);
+    // Containers (5000 each) only once the room can afford the investment
+    // without crippling RCL progress. They pay back via static mining + buffered
+    // upgrading over the source's long life.
+    if (rcl >= CONTAINER_MIN_RCL) {
+      const container = this.findMissingContainer(room);
+      if (container) {
+        this.placeSite(room, container.x, container.y, STRUCTURE_CONTAINER, 0);
+        return;
+      }
     }
+  }
+
+  /** Create a construction site and record its cost. */
+  private placeSite(
+    room: Room,
+    x: number,
+    y: number,
+    type: BuildableStructureConstant,
+    cost: number
+  ): void {
+    const result = room.createConstructionSite(x, y, type);
+    if (result === OK) {
+      this.recordCost(cost);
+      console.log(`[Construction] Placed ${type} site at (${x}, ${y})`);
+    } else {
+      console.log(`[Construction] Failed to place ${type} at (${x}, ${y}): ${result}`);
+    }
+  }
+
+  /**
+   * Find the best tile for a still-missing container: one adjacent to a source
+   * that lacks one (for static mining), or one beside the controller (to buffer
+   * the upgrader). Returns null when every source and the controller already
+   * have a container (built or under construction). Caps at the room's limit.
+   */
+  private findMissingContainer(room: Room): { x: number; y: number } | null {
+    const built = room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER });
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER });
+    if (built.length + sites.length >= CONTAINER_LIMIT) return null;
+    const taken = [...built, ...sites].map((s) => s.pos);
+    const hasContainerNear = (x: number, y: number, range: number): boolean =>
+      taken.some((p) => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= range);
+
+    // Source containers: a walkable tile adjacent to the source.
+    for (const source of room.find(FIND_SOURCES)) {
+      if (hasContainerNear(source.pos.x, source.pos.y, 1)) continue;
+      const tile = this.bestAdjacentTile(room, source.pos, 1);
+      if (tile) return tile;
+    }
+
+    // Controller container: a walkable tile within range 2 of the controller.
+    if (room.controller && room.controller.my && !hasContainerNear(room.controller.pos.x, room.controller.pos.y, 2)) {
+      const tile = this.bestAdjacentTile(room, room.controller.pos, 2);
+      if (tile) return tile;
+    }
+
+    return null;
+  }
+
+  /**
+   * Pick a walkable, unoccupied tile within `range` of `target`, preferring the
+   * one nearest the spawn (shorter hauls).
+   */
+  private bestAdjacentTile(room: Room, target: RoomPosition, range: number): { x: number; y: number } | null {
+    const terrain = room.getTerrain();
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const occupied = new Set<string>();
+    for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+    for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dy = -range; dy <= range; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const x = target.x + dx;
+        const y = target.y + dy;
+        if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+        if (occupied.has(`${x},${y}`)) continue;
+        const d = spawn ? Math.max(Math.abs(spawn.pos.x - x), Math.abs(spawn.pos.y - y)) : 0;
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   /**

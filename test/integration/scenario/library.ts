@@ -55,6 +55,27 @@ export function threeChamber(opts: { room?: string } = {}): Scenario {
 }
 
 /**
+ * A single open room pre-advanced to RCL 3 with a full set of RCL-2 extensions.
+ * The clean place to exercise containers (static mining + buffered upgrading)
+ * without the three-chamber logistics confounding the measurement.
+ */
+export function singleSourceRcl3(opts: { room?: string; sourceY?: number } = {}): Scenario {
+  const base = singleSource(opts);
+  const exts = [
+    { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+  ];
+  return {
+    ...base,
+    name: "single-source-rcl3",
+    description: base.description + " Pre-advanced to RCL 3 with 5 extensions.",
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room: base.bot.room, type: "extension", x: e.x, y: e.y, energy: 50 })),
+    },
+  };
+}
+
+/**
  * The three-chamber room pre-advanced to RCL 2 with two extensions already
  * built in the source chamber, so the controller-starvation-during-construction
  * regime reproduces in ~100 ticks instead of ~600. Use for fast economy
@@ -73,6 +94,27 @@ export function threeChamberRcl2(opts: { room?: string } = {}): Scenario {
         { room: base.bot.room, type: "extension", x: 6, y: 23, energy: 50 },
         { room: base.bot.room, type: "extension", x: 6, y: 27, energy: 50 },
       ],
+    },
+  };
+}
+
+/**
+ * The three-chamber room at RCL 3 with a full set of RCL-2 extensions, so the
+ * container era (static mining + buffered upgrading, which only kicks in at
+ * RCL 3) can be exercised quickly.
+ */
+export function threeChamberRcl3(opts: { room?: string } = {}): Scenario {
+  const base = threeChamber(opts);
+  const exts = [
+    { x: 6, y: 23 }, { x: 6, y: 27 }, { x: 7, y: 22 }, { x: 7, y: 28 }, { x: 9, y: 22 },
+  ];
+  return {
+    ...base,
+    name: "three-chamber-rcl3",
+    description: base.description + " Pre-advanced to RCL 3 with 5 extensions.",
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room: base.bot.room, type: "extension", x: e.x, y: e.y, energy: 50 })),
     },
   };
 }

@@ -203,29 +203,39 @@ export class HarvestCorp extends Corp {
    * Run a single harvester creep.
    */
   private runHarvester(creep: Creep, source: Source): number {
-    const result = creep.harvest(source);
-
-    if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
-      return 0;
+    // Static mining: when the source has a container, stand ON it so harvested
+    // energy drops straight into the container - the miner never roams, the
+    // energy never decays, and haulers withdraw it in bulk. Without a container,
+    // fall back to dropping it adjacent to the source.
+    const container = this.sourceContainer(source);
+    const onStation = container ? creep.pos.isEqualTo(container.pos) : creep.pos.isNearTo(source);
+    if (!onStation) {
+      const target = container ? container.pos : source.pos;
+      creep.moveTo(target, { range: container ? 0 : 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
+    const result = creep.harvest(source);
+
     if (result === OK) {
-      const workParts = creep.getActiveBodyparts(WORK);
-      const energyHarvested = workParts * 2;
-
-      // Track production for marginal cost
+      const energyHarvested = creep.getActiveBodyparts(WORK) * 2;
       this.recordProduction(energyHarvested);
-
       return energyHarvested;
     }
 
-    // Only log unexpected errors (not source empty, not on cooldown)
-    if (result !== ERR_NOT_ENOUGH_RESOURCES && result !== ERR_TIRED) {
+    // Only log unexpected errors (not source empty, not on cooldown, not range).
+    if (result !== ERR_NOT_ENOUGH_RESOURCES && result !== ERR_TIRED && result !== ERR_NOT_IN_RANGE) {
       console.log(`[Harvest] ${creep.name} unexpected error: ${result}`);
     }
 
     return 0;
+  }
+
+  /** The container sitting on/next to this source, if one has been built. */
+  private sourceContainer(source: Source): StructureContainer | null {
+    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: (s) => s.structureType === STRUCTURE_CONTAINER,
+    }) as StructureContainer[];
+    return containers[0] ?? null;
   }
 
   /**
