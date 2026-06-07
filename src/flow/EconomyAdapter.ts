@@ -19,11 +19,13 @@ import {
   PlannerInput,
   PlannerSource,
   PlannerSink,
+  PlannedFlow,
   EconomyPlan,
   SinkKind,
 } from "./EconomyPlanner";
 import { estimateWalkingDistance } from "../nodes/NodeNavigator";
-import { SinkType } from "./FlowTypes";
+import { SinkType, HaulerAssignment } from "./FlowTypes";
+import { CorpRegistry } from "../execution/CorpRunner";
 
 /** Strategic value per sink kind (anti-downgrade reserve handled separately). */
 export const SINK_VALUE: Record<SinkKind, number> = {
@@ -77,4 +79,46 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
 /** Plan the economy directly from the live flow graph. */
 export function planFromGraph(graph: FlowGraph, spawnId: string): EconomyPlan {
   return planEconomy(buildPlannerInput(graph, spawnId));
+}
+
+/**
+ * Drive the corps from the strategic plan. For now this overrides hauling: the
+ * planner sizes CARRY to move the full routed flow over each route, which the
+ * old allocation chronically under-provisions (a single small hauler trying to
+ * feed the whole room). Each source's CarryCorp gets the plan's routes for it.
+ */
+export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
+  const flowsBySource = new Map<string, PlannedFlow[]>();
+  for (const f of plan.flows) {
+    const list = flowsBySource.get(f.sourceId);
+    if (list) list.push(f);
+    else flowsBySource.set(f.sourceId, [f]);
+  }
+
+  for (const [sourceId, flows] of flowsBySource) {
+    const sourceGameId = sourceId.replace("source-", "");
+    const carryCorp = corps.haulingCorps[sourceGameId];
+    if (!carryCorp) continue;
+
+    const spawnId = haulSpawnId(plan, sourceId);
+    const assignments: HaulerAssignment[] = flows
+      .filter((f) => f.amount > 0)
+      .map((f) => ({
+        edgeId: `${f.sourceId}|${f.sinkId}`,
+        fromId: f.sourceId,
+        toId: f.sinkId,
+        distance: f.distance,
+        carryParts: Math.max(1, Math.ceil((f.amount * (2 * f.distance + 2)) / 50)),
+        flowRate: f.amount,
+        spawnCostPerTick: 0,
+        spawnId,
+      }));
+    if (assignments.length > 0) carryCorp.setHaulerAssignments(assignments);
+  }
+}
+
+/** The spawn that staffs this source's haulers, per the plan. */
+function haulSpawnId(plan: EconomyPlan, sourceId: string): string {
+  const haul = plan.corps.find((c) => c.kind === "haul" && c.fromId === sourceId);
+  return haul && haul.kind === "haul" ? haul.spawnId : "";
 }

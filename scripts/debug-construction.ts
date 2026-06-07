@@ -2,13 +2,15 @@
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
 import { loadScenario } from "../test/integration/scenario/Scenario";
-import { threeChamberRcl2 } from "../test/integration/scenario/library";
+import * as library from "../test/integration/scenario/library";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
 
 async function main(): Promise<void> {
-  const ticks = Number(process.argv[2] ?? 150);
+  const scenarioName = process.argv[2] ?? "threeChamberRcl2";
+  const ticks = Number(process.argv[3] ?? 150);
+  const threeChamberRcl2 = (library as any)[scenarioName];
   const port = 25700;
   const serverPath = path.resolve("server", String(port));
   mkdirSync(path.join(serverPath, "logs"), { recursive: true });

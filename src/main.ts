@@ -34,6 +34,7 @@
 import { Colony, createColony } from "./colony";
 import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, Node } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
+import { applyPlanToCorps } from "./flow/EconomyAdapter";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import {
@@ -277,6 +278,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     setLastPlanningTick(Game.time);
     console.log(`[Planning] Complete`);
   }
+
+  // NOTE: applyPlanToCorps (plan-driven hauling) is intentionally NOT wired in
+  // yet. Driving the plan freezes the controller during a build because the
+  // value model still lacks an anti-downgrade reserve - the planner routes
+  // 100% to construction. Wire it once the reserve exists.
 
   // Demand-driven spawn scheduling. Each corp declares what it wants via
   // getSpawnDemand(); the scheduler picks the single best creep to spawn per
