@@ -160,3 +160,17 @@ export const VALUE_PER_STALE_TICK = 0.001;
  * At RCL 2+, controllers downgrade after 10,000 ticks without upgrading.
  */
 export const CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD = 10000;
+
+/**
+ * Anti-downgrade emergency thresholds (see BootstrapCorp.runAntiDowngrade).
+ *
+ * During construction the flow economy starves the controller of energy on
+ * purpose (building supersedes upgrading), so its downgrade timer ticks down.
+ * When it falls below TRIGGER, a self-sufficient jack is dispatched to top the
+ * controller back up; once the timer climbs back above SAFE the jack's job is
+ * done and it recycles itself. Level-1 controllers cannot downgrade, so this
+ * only applies at MIN_RCL and above.
+ */
+export const ANTI_DOWNGRADE_TRIGGER_TICKS = 3000;
+export const ANTI_DOWNGRADE_SAFE_TICKS = 7000;
+export const ANTI_DOWNGRADE_MIN_RCL = 2;
