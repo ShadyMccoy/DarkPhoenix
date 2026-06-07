@@ -18,7 +18,7 @@
 
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { loadLayout, RoomLayout } from "../test/integration/loadLayout";
+import { loadLayout, padNeighborTerrain, RoomLayout } from "../test/integration/loadLayout";
 
 // screeps-server-mockup ships no type definitions.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -78,6 +78,7 @@ async function main(): Promise<void> {
   for (const s of SCENARIOS) {
     await loadLayout(server.world, s.layout);
   }
+  await padNeighborTerrain(server.world, SCENARIOS.map((s) => s.room));
   for (const s of SCENARIOS) {
     await server.world.addBot({ username: s.name, room: s.room, x: 25, y: 25, modules: { main } });
   }

@@ -18,7 +18,7 @@
  *   });
  */
 
-import { loadLayout } from "./loadLayout";
+import { loadLayout, padNeighborTerrain } from "./loadLayout";
 
 export interface StartAtRclOptions {
   room: string;
@@ -41,6 +41,9 @@ export async function startAtRcl(server: any, opts: StartAtRclOptions): Promise<
       ...opts.sources.map((s) => ({ type: "source", x: s.x, y: s.y })),
     ],
   });
+  // Pad neighbouring rooms so the native PathFinder never hits unloaded terrain
+  // when a creep paths near the room edge.
+  await padNeighborTerrain(server.world, [opts.room]);
 
   const player = await server.world.addBot({
     username: "player",

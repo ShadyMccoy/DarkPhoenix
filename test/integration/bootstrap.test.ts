@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
-import { loadLayout } from "./loadLayout";
+import { loadLayout, padNeighborTerrain } from "./loadLayout";
 
 before(() => hookConsole());
 afterEach(async () => helper.afterEach());
@@ -28,6 +28,10 @@ describe("colony bootstrap", () => {
           { type: "source", x: 40, y: 40 },
         ],
       });
+      // Sources sit near the room edges; pad neighbours so the native
+      // PathFinder doesn't throw "Could not load terrain data" when a creep
+      // paths from an edge source to the controller.
+      await padNeighborTerrain(world, ["W0N0"]);
       await helper.addBot({ room: "W0N0", x: 25, y: 25 });
     });
 

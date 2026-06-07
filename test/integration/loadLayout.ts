@@ -112,6 +112,61 @@ export async function loadLayout(world: any, layout: RoomLayout | RoomLayout[]):
 }
 
 // ---------------------------------------------------------------------------
+// Neighbour-room padding
+// ---------------------------------------------------------------------------
+
+/** Parse a room name like "W0N0" / "E3S12" into signed grid coordinates. */
+function parseRoomName(name: string): { x: number; y: number } | null {
+  const m = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
+  if (!m) return null;
+  const horiz = Number(m[2]);
+  const vert = Number(m[4]);
+  const x = m[1] === "W" ? -horiz - 1 : horiz;
+  const y = m[3] === "N" ? -vert - 1 : vert;
+  return { x, y };
+}
+
+/** Inverse of {@link parseRoomName}. */
+function formatRoomName(x: number, y: number): string {
+  const h = x < 0 ? `W${-x - 1}` : `E${x}`;
+  const v = y < 0 ? `N${-y - 1}` : `S${y}`;
+  return `${h}${v}`;
+}
+
+/**
+ * Register all-plain terrain for every room adjacent to a real (loaded) room
+ * that has not itself been loaded.
+ *
+ * The native PathFinder throws "Could not load terrain data" the moment a
+ * creep's path-search frontier touches a room whose terrain table is empty.
+ * In single-room test worlds this fires whenever a creep paths near the room
+ * edge (e.g. a bootstrap jack at a source by the border walking to the
+ * controller), which silently aborts that creep's logic and any creep after it
+ * in the same loop. Padding the eight neighbours with empty terrain gives the
+ * PathFinder something to read; creeps still have no targets out there, so they
+ * never actually leave their room.
+ */
+export async function padNeighborTerrain(world: any, rooms: string[]): Promise<void> {
+  const real = new Set(rooms);
+  const needed = new Set<string>();
+  for (const name of rooms) {
+    const c = parseRoomName(name);
+    if (!c) continue;
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        if (dx === 0 && dy === 0) continue;
+        const neighbor = formatRoomName(c.x + dx, c.y + dy);
+        if (!real.has(neighbor)) needed.add(neighbor);
+      }
+    }
+  }
+  const empty = Array.from({ length: 50 }, () => ".".repeat(50));
+  for (const name of needed) {
+    await applyRoomLayout(world, { room: name, terrain: empty });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Node-network fixture conversion (test/fixtures/*.json)
 // ---------------------------------------------------------------------------
 
