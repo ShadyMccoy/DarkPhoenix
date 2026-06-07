@@ -16,6 +16,15 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
 
 /**
+ * Construction can only absorb energy as fast as its builders build it. Rather
+ * than letting haulers pile their whole load onto a site (where the surplus
+ * decays while the controller starves), we keep a modest dropped buffer beside
+ * the active site for builders to draw from, and spill anything beyond that on
+ * to the next sink. CONSTRUCTION_SITE_BUFFER is that buffer size in energy.
+ */
+const CONSTRUCTION_SITE_BUFFER = 150;
+
+/**
  * Decide which local sink a CarryCorp should deliver its next load to, balancing
  * deliveries across the node's sinks in proportion to the flow solver's
  * allocations (each assignment's flowRate). `delivered` is the running count of
@@ -470,8 +479,12 @@ export class CarryCorp extends Corp {
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) return false;
 
+    // Feed a builder that still has real room for energy (not a near-full
+    // dribble - that just parks the hauler while the surplus could go elsewhere).
     const builders = room.find(FIND_MY_CREEPS, {
-      filter: (c) => c.memory.workType === "build" && c.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+      filter: (c) =>
+        c.memory.workType === "build" &&
+        c.store.getFreeCapacity(RESOURCE_ENERGY) >= creep.store.getCapacity(RESOURCE_ENERGY) / 2,
     });
     if (builders.length > 0) {
       builders.sort((a, b) => b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY));
@@ -484,10 +497,17 @@ export class CarryCorp extends Corp {
       return true;
     }
 
-    // No builder to receive yet: drop energy adjacent to the nearest site so a
-    // builder can grab it when it arrives.
+    // Builders are topped up. Keep a bounded dropped buffer beside the nearest
+    // site for them to draw from; once it is stocked, report "can't take more"
+    // (false) so the surplus spills to the next sink (the controller) instead of
+    // decaying here while the controller starves.
     const site = creep.pos.findClosestByPath(sites);
     if (!site) return false;
+    const buffered = site.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 3, { filter: (r) => r.resourceType === RESOURCE_ENERGY })
+      .reduce((sum, r) => sum + r.amount, 0);
+    if (buffered >= CONSTRUCTION_SITE_BUFFER) return false;
+
     if (creep.pos.getRangeTo(site) <= 2) {
       const dropped = creep.store[RESOURCE_ENERGY];
       creep.drop(RESOURCE_ENERGY);
