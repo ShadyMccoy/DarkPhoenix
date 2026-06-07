@@ -50,6 +50,11 @@ async function main(): Promise<void> {
   const scenario = factory();
   const { bot } = await loadScenario(server, scenario, main);
   const room = scenario.bot.room;
+  if (process.env.DEBUG) {
+    bot.on("console", (log: string[]) => {
+      for (const line of log) console.log(`  bot> ${line}`);
+    });
+  }
   await server.start();
 
   const pad = (s: string) => s.padStart(9);
