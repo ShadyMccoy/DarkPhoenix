@@ -97,6 +97,24 @@ describe("EconomyPlanner", () => {
     assert.isAbove(haul.carry, 0);
   });
 
+  it("with builders that keep pace, construction supersedes upgrading during a build", () => {
+    // Realistic model: construction capacity is not one builder's appetite -
+    // builders scale to absorb almost any supply. So a high-value, high-capacity
+    // construction sink takes essentially all the energy while a build is active,
+    // and the regular upgrade gets only the leftover (~none). The downgrade floor
+    // is held separately (the anti-downgrade reserve, a tiny top-value sink).
+    const p = plan(
+      [source("src", 25)],
+      [
+        sink("spawn", "spawn", 100, 0, 25),
+        sink("site", "construction", 70, 1000, 25), // builders keep pace
+        sink("ctrl", "controller", 50, 100, 25),
+      ]
+    );
+    assert.isAtLeast(work(p.corps, "build"), 2, "build WORK scales to consume the supply");
+    assert.lengthOf(corp(p.corps, "upgrade"), 0, "regular upgrading is superseded during the build");
+  });
+
   it("closes the energy loop: a far source self-consistently leaves less for its project", () => {
     // Same supply and same value/capacity, only the haul distance differs. The
     // far economy must staff bigger haulers, so its overhead is higher and its
