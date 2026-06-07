@@ -26,8 +26,20 @@ export interface ScenarioState {
     y: number;
     energy?: number;
   }>;
+  /** Live creeps to restore (body + energy + position), so a snapshot replays
+   * with its real workforce instead of re-bootstrapping from nothing. */
+  creeps?: ScenarioCreep[];
   /** Raw bot Memory to inject (so corps/flow state replays). */
   memory?: unknown;
+}
+
+/** A captured creep: name ties it to its memory entry; body is part-type strings. */
+export interface ScenarioCreep {
+  name: string;
+  x: number;
+  y: number;
+  body: string[]; // e.g. ["work","work","move"]
+  energy: number;
 }
 
 export interface Scenario {
@@ -105,6 +117,31 @@ async function applyState(
       doc.storeCapacityResource = { energy: structureCapacity(s.type) };
     }
     await db["rooms.objects"].insert(doc);
+  }
+
+  // Restore live creeps so the snapshot replays with its real workforce. Memory
+  // (set below) ties each creep back to its corp by name.
+  const gameTime = await server.world.gameTime;
+  for (const cr of state.creeps ?? []) {
+    const body = cr.body.map((t) => ({ type: t, hits: 100 }));
+    const carry = cr.body.filter((t) => t === "carry").length;
+    await db["rooms.objects"].insert({
+      type: "creep",
+      name: cr.name,
+      x: cr.x,
+      y: cr.y,
+      room,
+      user: bot.id,
+      body,
+      store: { energy: cr.energy },
+      storeCapacity: carry * 50,
+      hits: body.length * 100,
+      hitsMax: body.length * 100,
+      fatigue: 0,
+      ageTime: gameTime + 1500, // a fresh full lifetime
+      spawning: false,
+      notifyWhenAttacked: true,
+    });
   }
 
   if (state.memory !== undefined) {

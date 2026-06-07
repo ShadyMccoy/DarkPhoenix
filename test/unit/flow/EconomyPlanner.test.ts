@@ -42,9 +42,11 @@ describe("EconomyPlanner", () => {
       [sink("spawn", "spawn", 100, 0, 25), sink("ctrl", "controller", 50, 100, 25)]
     );
     assert.equal(work(p.corps, "mine"), 5, "5 WORK harvests the full 10/tick");
-    assert.isAtLeast(work(p.corps, "upgrade"), 9, "controller absorbs nearly all of the 10");
+    assert.isAtLeast(work(p.corps, "upgrade"), 8, "controller absorbs nearly all of the 10");
     assert.isAbove(p.overhead, 0, "the economy pays a real, computed overhead");
-    assert.isBelow(p.overhead, 1, "co-located, that overhead is small");
+    // Overhead now includes the upgrader the spawn must keep alive, so it is a
+    // bit higher than the bare mining+hauling cost - but still modest.
+    assert.isBelow(p.overhead, 2, "co-located, that overhead stays small");
   });
 
   it("fills high-value construction to capacity, then spills the rest to upgrading", () => {

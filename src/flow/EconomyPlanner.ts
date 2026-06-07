@@ -155,12 +155,25 @@ export function planEconomy(input: PlannerInput): EconomyPlan {
   return { ...plan, overhead };
 }
 
-/** Total per-tick spawn cost of the miners + haulers in a corp roster. */
+/** Per-tick spawn overhead of a WORK consumer (builder/upgrader): W WORK + 1 CARRY + MOVE. */
+function workerOverhead(work: number): number {
+  const move = Math.ceil(work / 2);
+  return (work * 100 + 50 + move * 50) / CREEP_LIFETIME;
+}
+
+/**
+ * Total per-tick spawn cost of the WHOLE roster - miners, haulers AND the
+ * consumers (builders/upgraders). The spawn must be fed enough energy to keep
+ * every creep replaced; omitting the consumers (as this used to) under-feeds the
+ * spawn, so it never affords the upgraders the plan budgeted and a second source
+ * is mined and wasted.
+ */
 function overheadOf(corps: CorpSpec[]): number {
   let total = 0;
   for (const c of corps) {
     if (c.kind === "mine") total += minerOverhead(c.work);
     else if (c.kind === "haul") total += haulerOverhead(c.carry);
+    else if (c.kind === "upgrade" || c.kind === "build") total += workerOverhead(c.work);
   }
   return total;
 }

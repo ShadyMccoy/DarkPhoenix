@@ -17,6 +17,8 @@
     "sim:metrics": "ts-node -P tsconfig.test.json scripts/sim-metrics.ts",
     "sim:parallel": "ts-node -P tsconfig.test.json scripts/sim-parallel.ts",
     "sim:scenario": "ts-node -P tsconfig.test.json scripts/sim-scenario.ts",
+    "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
+    "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
     "watch-main": "rollup -cw --environment DEST:main",
     "watch-pserver": "rollup -cw --environment DEST:pserver",
     "watch-season": "rollup -cw --environment DEST:season",

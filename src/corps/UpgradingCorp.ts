@@ -356,7 +356,13 @@ export class UpgradingCorp extends Corp {
     return [{
       buyerCorpId: this.id,
       role: "upgrader",
-      value: this.sinkAllocation?.priority ?? 60,
+      // Spawn priority is decoupled from the controller's ROUTING value (~50,
+      // which keeps construction ranked above it). Consuming the energy the
+      // plan budgets for upgrading is as essential as the producers/haulers that
+      // supply it - otherwise producers win the queue forever and the budgeted
+      // upgraders only trickle in via anti-starvation aging, so a second source
+      // is mined and wasted. Rank them alongside haulers.
+      value: 90,
       // The first upgrader is blocking (controller would otherwise stall);
       // additional upgraders are scaling capacity (non-blocking).
       blocking: current === 0,

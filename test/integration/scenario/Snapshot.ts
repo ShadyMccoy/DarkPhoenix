@@ -42,6 +42,7 @@ export async function exportSnapshot(
 
   const rooms: ScenarioRoom[] = [];
   const structures: ScenarioState["structures"] = [];
+  const creeps: ScenarioState["creeps"] = [];
   let spawnPos: { room: string; x: number; y: number } | undefined;
   let controller: ScenarioState["controller"] | undefined;
 
@@ -67,6 +68,15 @@ export async function exportSnapshot(
       if (BUILT.has(o.type)) {
         structures.push({ room, type: o.type, x: o.x, y: o.y, energy: o.store?.energy ?? 0 });
       }
+      if (o.type === "creep" && !o.spawning && o.name) {
+        creeps.push({
+          name: o.name,
+          x: o.x,
+          y: o.y,
+          body: (o.body || []).map((p: any) => p.type),
+          energy: o.store?.energy ?? 0,
+        });
+      }
     }
 
     rooms.push({ room, terrain, objects: scenery });
@@ -86,6 +96,7 @@ export async function exportSnapshot(
     state: {
       controller,
       structures: structures.length > 0 ? structures : undefined,
+      creeps: creeps.length > 0 ? creeps : undefined,
       memory,
     },
   };

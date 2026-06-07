@@ -57,7 +57,7 @@ describe("corp getSpawnDemand()", () => {
   });
 
   describe("UpgradingCorp", () => {
-    it("emits a blocking upgrader demand valued by the controller-sink priority", () => {
+    it("emits a blocking upgrader demand ranked alongside producers", () => {
       const corp = new UpgradingCorp("W1N1-upgrading", "spawn1");
       corp.setSinkAllocation({
         sinkId: "controller-x", sinkType: "controller", allocated: 5, demand: 5,
@@ -70,7 +70,9 @@ describe("corp getSpawnDemand()", () => {
       expect(d.role).to.equal("upgrader");
       expect(d.blocking).to.equal(true);
       expect(d.producesIncome).to.equal(false);
-      expect(d.value).to.equal(65);
+      // Spawn priority is decoupled from the controller's (low) routing priority:
+      // consuming the budgeted energy ranks alongside the producers that supply it.
+      expect(d.value).to.equal(90);
       expect(d.minCost).to.be.greaterThan(0);
     });
 
@@ -78,7 +80,7 @@ describe("corp getSpawnDemand()", () => {
       const corp = new UpgradingCorp("W1N1-upgrading", "spawn1");
       const demands = corp.getSpawnDemand(ctx);
       expect(demands).to.have.length(1);
-      expect(demands[0].value).to.equal(60);
+      expect(demands[0].value).to.equal(90);
     });
   });
 });
