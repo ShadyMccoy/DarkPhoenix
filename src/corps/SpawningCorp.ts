@@ -137,10 +137,14 @@ export class SpawningCorp extends Corp {
     const bodyCost = this.calculateBodyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return false;
 
-    const workTypeMap: Record<string, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
+    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout"> = {
       miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout",
-      // A tanker is a dedicated feeder creep - a hauler bound to one worker.
-      tanker: "haul",
+      // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
+      // local sinks and sources within one node (e.g. a hauler's drop-off -> the
+      // builder). That is a different job from a hauler, which does long-range
+      // INTER-node transport - even though both are CARRY+MOVE creeps. Keep them
+      // distinct so the economy can reason about (and instrument) each.
+      tanker: "tank",
     };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     const result = spawn.spawnCreep(body, name, {

@@ -257,13 +257,17 @@ export interface TankerBodyResult {
 /**
  * Builds a tanker body for local node distribution.
  *
- * Tankers work within a node, filling extensions and spawns.
- * They have shorter travel distances than haulers, so we optimize
- * for quick turnaround rather than maximum capacity.
+ * Tankers work within a node, shuttling energy between local sinks and sources
+ * (e.g. a hauler's drop-off -> the static builder). Crucially, a tanker spends
+ * most of its life PARKED at its worker, slowly being drained, and only
+ * occasionally trundles back to refuel. Movement speed therefore barely matters:
+ * the slow leg (loaded, on plains) is a small fraction of the duty cycle, and a
+ * hot-swap relay keeps the worker fed while one tanker is away.
  *
- * Pattern: 2 CARRY + 1 MOVE is efficient for road-based local movement.
- * This gives higher capacity per spawn cost at the expense of speed
- * on plains, but tankers mostly travel on roads within the base.
+ * So tankers are built CARRY-heavy (few MOVE parts). For the same energy this
+ * roughly doubles the buffer a tanker holds versus a balanced hauler body - at
+ * 300 energy, 5 CARRY + 1 MOVE (250 capacity) instead of 3 CARRY + 3 MOVE (150).
+ * On roads we can go even more CARRY-heavy (fatigue is halved).
  *
  * @param requiredCarry - Number of CARRY parts needed (from demand model)
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
@@ -283,9 +287,10 @@ export function buildTankerBody(
 
   const CARRY_CAPACITY = 50;
 
-  // For road-based movement: 2 CARRY + 1 MOVE (150 energy, 100 capacity)
-  // For plains movement: 1 CARRY + 1 MOVE (100 energy, 50 capacity)
-  const carryPerMove = useRoads ? 2 : 1;
+  // CARRY-heavy because a tanker is mostly stationary (see doc above). 1 MOVE
+  // per 3 CARRY on plains (slow when loaded, but it rarely moves); on roads,
+  // where fatigue is halved, go to 1 MOVE per 5 CARRY.
+  const carryPerMove = useRoads ? 5 : 3;
 
   let carryParts = 0;
   let moveParts = 0;

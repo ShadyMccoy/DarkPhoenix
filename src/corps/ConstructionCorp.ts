@@ -94,12 +94,13 @@ export class ConstructionCorp extends Corp {
     return creeps;
   }
 
-  /** Dedicated feeder creeps (haulers bound to this corp) that supply the builder. */
+  /** Dedicated INTRA-node feeder creeps (tankers/carriers bound to this corp)
+   * that shuttle energy to the static builder. Distinct from inter-node haulers. */
   private getTankers(): Creep[] {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "haul" && !creep.spawning) {
+      if (creep.memory.corpId === this.id && creep.memory.workType === "tank" && !creep.spawning) {
         creeps.push(creep);
       }
     }
@@ -252,7 +253,11 @@ export class ConstructionCorp extends Corp {
    * upgrader. Extensions - which grow spawn capacity - come after.
    */
   private tryPlaceNextSite(room: Room, tick: number, rcl: number): void {
-    if (tick - this.lastPlacementAttempt < PLACEMENT_COOLDOWN) {
+    // A non-negative `since` guards against the cooldown; a negative one means
+    // the clock went backwards (e.g. a snapshot reloaded with a stale
+    // lastPlacementAttempt from a later tick) - don't let that block placement.
+    const since = tick - this.lastPlacementAttempt;
+    if (since >= 0 && since < PLACEMENT_COOLDOWN) {
       return;
     }
     this.lastPlacementAttempt = tick;
