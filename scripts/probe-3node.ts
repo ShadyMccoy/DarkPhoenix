@@ -100,6 +100,17 @@ async function main(): Promise<void> {
     const creeps = objs.filter((o: any) => o.type === "creep");
     const counts: Record<string, number> = { W: 0, C: 0, E: 0 };
     for (const c of creeps) counts[chamber(c.x)]++;
+
+    // Role breakdown via memory.creeps[name].workType.
+    const mem = await readPlayerMemory(bot);
+    const memCreeps = mem?.creeps || {};
+    const roles: Record<string, number> = {};
+    for (const c of creeps) {
+      const role = memCreeps[c.name]?.workType ?? "?";
+      roles[role] = (roles[role] ?? 0) + 1;
+    }
+    const roleStr = Object.entries(roles).map(([r, n]) => `${r}:${n}`).join(",");
+
     console.log(
       [
         String(t),
@@ -108,7 +119,7 @@ async function main(): Promise<void> {
         String(spawn?.store?.energy ?? 0),
         String(creeps.length),
         `W${counts.W}C${counts.C}E${counts.E}`,
-      ].map(pad).join(" ")
+      ].map(pad).join(" ") + `  ${roleStr}`
     );
   }
 
