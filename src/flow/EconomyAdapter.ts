@@ -121,6 +121,27 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
       }));
     if (assignments.length > 0) carryCorp.setHaulerAssignments(assignments);
   }
+
+  // Drive the controller's upgraders: their allocation is the energy the plan
+  // routes there, which sizes how many/how-big upgraders get spawned. This is
+  // what lets consumption scale with supply (so a second source is not wasted).
+  for (const spec of plan.corps) {
+    if (spec.kind !== "upgrade") continue;
+    const gameId = spec.sinkId.replace("controller-", "");
+    const controller = Game.getObjectById(gameId as Id<StructureController>);
+    if (!controller?.my) continue;
+    const corp = corps.upgradingCorps[controller.room.name];
+    if (!corp) continue;
+    corp.setSinkAllocation({
+      sinkId: spec.sinkId,
+      sinkType: "controller",
+      allocated: spec.work, // energy/tick == WORK to consume
+      demand: spec.work,
+      unmet: 0,
+      priority: SINK_VALUE.controller,
+      sourceFlows: [],
+    });
+  }
 }
 
 /** The spawn that staffs this source's haulers, per the plan. */

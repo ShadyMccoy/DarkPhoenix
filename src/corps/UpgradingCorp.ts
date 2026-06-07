@@ -9,6 +9,9 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
+
+/** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
+const UPGRADER_COUNT_CAP = 6;
 import { SinkAllocation } from "../flow/FlowTypes";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -325,13 +328,27 @@ export class UpgradingCorp extends Corp {
    * trickle of mining demand.
    */
   getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
-    if (this.getCreepCount() >= 1) return [];
-
-    const allocation = this.sinkAllocation;
-    const desiredWork = allocation && allocation.allocated > 0
-      ? Math.max(1, Math.min(Math.ceil(allocation.allocated), 10))
+    // Energy/tick the controller is allocated; that is the WORK the upgraders
+    // must total to consume it (1 energy/tick per WORK part). Without an
+    // allocation, ask for a minimal upgrader to keep the controller alive.
+    const allocated = this.sinkAllocation && this.sinkAllocation.allocated > 0
+      ? this.sinkAllocation.allocated
       : 2;
 
+    // One upgrader can only afford so many WORK parts at the current capacity;
+    // a single small upgrader cannot consume a whole source. Size the COUNT to
+    // the allocation, so consumption scales with supply (this is what lets a
+    // second source actually help instead of being wasted).
+    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99).workParts);
+    // Cap the count as a safety bound: should a stale/over-large allocation slip
+    // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
+    // bounded by real supply in normal operation.
+    const targetCount = Math.max(1, Math.min(UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork)));
+    const current = this.getCreepCount();
+    if (current >= targetCount) return [];
+
+    const remainingWork = allocated - current * affordableWork;
+    const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork);
     const min = buildUpgraderBody(ctx.energyCapacity, 1);
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
@@ -339,8 +356,10 @@ export class UpgradingCorp extends Corp {
     return [{
       buyerCorpId: this.id,
       role: "upgrader",
-      value: allocation?.priority ?? 60,
-      blocking: true,
+      value: this.sinkAllocation?.priority ?? 60,
+      // The first upgrader is blocking (controller would otherwise stall);
+      // additional upgraders are scaling capacity (non-blocking).
+      blocking: current === 0,
       producesIncome: false,
       desiredCost: desired.cost,
       minCost: min.cost,
