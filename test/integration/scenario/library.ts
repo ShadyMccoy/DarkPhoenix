@@ -12,6 +12,25 @@ import { Scenario } from "./Scenario";
 const SPAWN = { x: 25, y: 25 };
 
 /**
+ * A single open room with two sources flanking the spawn - twice the supply, to
+ * test whether the economy scales with more sources (consumption must scale too).
+ */
+export function twoSource(opts: { room?: string } = {}): Scenario {
+  const room = opts.room ?? "W0N0";
+  const builder = new RoomBuilder(room)
+    .border()
+    .controller(25, 10)
+    .source(15, 30)
+    .source(35, 30);
+  return {
+    name: "two-source",
+    description: "Open room, two sources, spawn at centre.",
+    rooms: [builder.toRoom()],
+    bot: { room, ...SPAWN },
+  };
+}
+
+/**
  * A single open room with one source at the given depth, a central spawn and a
  * controller near the top. `sourceY` controls how far the source is from the
  * spawn - the classic near/far mining comparison.
