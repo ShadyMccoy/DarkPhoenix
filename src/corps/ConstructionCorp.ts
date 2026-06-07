@@ -217,9 +217,17 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // Refuel: source container first, then the miner's dropped pile, else go wait
-    // by the source.
-    const container = creep.pos.findClosestByPath(room.find(FIND_STRUCTURES, {
+    // Refuel from THIS node's local source - the one by the worker we feed, not
+    // whichever pile is momentarily closest to us. Anchoring the choice on the
+    // builder keeps every tanker committed to the same source: with two
+    // symmetric sources, picking "nearest to me" flip-flops left/right each tick
+    // and the tanker oscillates in place, never refuelling. A tanker is an
+    // intra-node carrier, so it draws from its node. Range (not path) keeps the
+    // pick stable and cheap; moveTo still paths there.
+    const anchor =
+      builder?.pos ?? room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? creep.pos;
+
+    const container = anchor.findClosestByRange(room.find(FIND_STRUCTURES, {
       filter: (s) =>
         s.structureType === STRUCTURE_CONTAINER &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
@@ -230,7 +238,7 @@ export class ConstructionCorp extends Corp {
       }
       return;
     }
-    const pile = creep.pos.findClosestByPath(room.find(FIND_DROPPED_RESOURCES, {
+    const pile = anchor.findClosestByRange(room.find(FIND_DROPPED_RESOURCES, {
       filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
     }));
     if (pile) {
@@ -239,7 +247,7 @@ export class ConstructionCorp extends Corp {
       }
       return;
     }
-    const source = creep.pos.findClosestByPath(FIND_SOURCES);
+    const source = anchor.findClosestByRange(room.find(FIND_SOURCES));
     if (source && creep.pos.getRangeTo(source) > 2) {
       creep.moveTo(source, { range: 2, visualizePathStyle: { stroke: "#00ff00" } });
     }

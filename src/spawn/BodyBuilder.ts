@@ -327,6 +327,21 @@ export function buildTankerBody(
     cost = minEnergy;
   }
 
+  // A creep with zero MOVE parts cannot move at all - it is dead weight. With a
+  // CARRY-heavy ratio it is easy for the budget to be fully spent on CARRY
+  // before any MOVE is added, so guarantee at least one MOVE: add one if there
+  // is spare energy/part-slot, otherwise trade the last CARRY for it (same cost).
+  if (moveParts === 0 && carryParts > 0) {
+    if (cost + PART_COSTS[MOVE] <= energyCapacity && carryParts + 1 <= MAX_BODY_PARTS) {
+      moveParts = 1;
+      cost += PART_COSTS[MOVE];
+    } else {
+      carryParts -= 1;
+      moveParts = 1;
+      cost = cost - PART_COSTS[CARRY] + PART_COSTS[MOVE];
+    }
+  }
+
   // Build body array (CARRY first, then MOVE for damage resistance)
   const body: BodyPartConstant[] = [];
   for (let i = 0; i < carryParts; i++) {
