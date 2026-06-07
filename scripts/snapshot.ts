@@ -17,7 +17,6 @@ import * as path from "path";
 import { loadScenario } from "../test/integration/scenario/Scenario";
 import { exportSnapshot } from "../test/integration/scenario/Snapshot";
 import * as library from "../test/integration/scenario/library";
-import { applyFastConstants } from "./fastConstants";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
@@ -29,7 +28,6 @@ async function freshServer(port: number): Promise<any> {
   const serverPath = path.resolve("server", String(port));
   mkdirSync(path.join(serverPath, "logs"), { recursive: true });
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
-  applyFastConstants(server);
   await server.world.reset();
   return server;
 }

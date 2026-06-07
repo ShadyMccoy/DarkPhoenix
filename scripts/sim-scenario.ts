@@ -13,7 +13,6 @@ import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
 import { loadScenario } from "../test/integration/scenario/Scenario";
 import * as library from "../test/integration/scenario/library";
-import { applyFastConstants } from "./fastConstants";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
@@ -45,7 +44,6 @@ async function main(): Promise<void> {
   const serverPath = path.resolve("server", String(port));
   mkdirSync(path.join(serverPath, "logs"), { recursive: true });
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
-  applyFastConstants(server);
   await server.world.reset();
   const main = readFileSync("dist/main.js").toString();
 
