@@ -247,12 +247,22 @@ export class HarvestCorp extends Corp {
     const assignment = this.minerAssignment;
     if (!assignment) return [];
 
-    const target = Math.max(1, assignment.maxMiners || 1);
+    // WORK parts needed to saturate this source (2 energy/tick per WORK part).
+    const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));
+
+    // Size the miner COUNT to the source's actual need, not to the number of
+    // physical mining spots. A big room fields one large miner; a small room
+    // splits the work across a few small ones. Capping by maxMiners alone made
+    // an open source with 8 free tiles spawn 8 one-WORK miners that crowd the
+    // source and gridlock the surrounding chamber.
+    const affordableWork = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
+    const needed = Math.ceil(totalWork / affordableWork);
+    const target = Math.max(1, Math.min(assignment.maxMiners || 1, needed));
+
     const current = this.getTotalCreepCount();
     if (current >= target) return [];
 
     // Desired WORK per miner to cover the source's harvest rate across miners.
-    const totalWork = Math.ceil(assignment.harvestRate / 2);
     const desiredWork = Math.max(1, Math.ceil(totalWork / target));
 
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
