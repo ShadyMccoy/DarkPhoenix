@@ -279,10 +279,13 @@ export const loop = ErrorMapper.wrapLoop(() => {
     console.log(`[Planning] Complete`);
   }
 
-  // NOTE: applyPlanToCorps (plan-driven hauling) is intentionally NOT wired in
-  // yet. Driving the plan freezes the controller during a build because the
-  // value model still lacks an anti-downgrade reserve - the planner routes
-  // 100% to construction. Wire it once the reserve exists.
+  // Let the strategic plan drive the corps (currently: hauling capacity) before
+  // they declare demand. With the anti-downgrade reserve in the value model the
+  // controller keeps a trickle even during a build, so this no longer freezes it.
+  if (flowEconomy) {
+    const plan = flowEconomy.getPlan();
+    if (plan) applyPlanToCorps(plan, corps);
+  }
 
   // Demand-driven spawn scheduling. Each corp declares what it wants via
   // getSpawnDemand(); the scheduler picks the single best creep to spawn per
