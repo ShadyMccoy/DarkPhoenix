@@ -533,8 +533,40 @@ export class ConstructionCorp extends Corp {
 
     if (creep.memory.working) {
       this.doBuild(creep, room);
+      // While building, top up from energy at our feet in the SAME tick - build
+      // (work-group) and withdraw/pickup (transfer-group) are different action
+      // groups, so they don't conflict. This stops the builder draining to empty
+      // and losing a whole tick to pure refuelling: parked next to its energy (a
+      // source pile, a container, or a tanker), it stays full and builds every
+      // tick - roughly doubling its effective rate versus the build/fetch toggle.
+      if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        this.refuelInPlace(creep);
+      }
     } else {
       this.doPickup(creep, room);
+    }
+  }
+
+  /**
+   * Top up from energy immediately adjacent (range 1) without moving: a tanker's
+   * delivery, a drop at our feet, or an adjacent container. Lets the builder
+   * refuel while staying put and building.
+   */
+  private refuelInPlace(creep: Creep): void {
+    const drop = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+    })[0];
+    if (drop) {
+      creep.pickup(drop);
+      return;
+    }
+    const store = creep.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: (s) =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+    })[0] as StructureContainer | undefined;
+    if (store) {
+      creep.withdraw(store, RESOURCE_ENERGY);
     }
   }
 
