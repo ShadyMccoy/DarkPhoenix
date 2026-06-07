@@ -10,10 +10,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
-import {
-  MAX_BUILDERS,
-  MIN_CONSTRUCTION_PROFIT,
-} from "./CorpConstants";
+import { MAX_BUILDERS } from "./CorpConstants";
 import { BODY_PART_COST } from "../planning/EconomicConstants";
 import { buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -174,14 +171,12 @@ export class ConstructionCorp extends Corp {
     const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
 
     if (canBuildMore) {
-      // Debug: log why we might not be placing
-      if (this.balance < MIN_CONSTRUCTION_PROFIT) {
-        if (tick % 100 === 0) {
-          console.log(`[Construction] Balance too low: ${this.balance.toFixed(0)} < ${MIN_CONSTRUCTION_PROFIT}`);
-        }
-      } else {
-        this.tryPlaceNextSite(room, tick, rcl);
-      }
+      // Whether to build at all - and how fast - is the planner's call (it
+      // budgets build-work and ranks construction above upgrading). Placing a
+      // site is free in-game; the scarce energy to finish it is governed by the
+      // build-work budget. So place whenever RCL still wants the structure,
+      // without an independent internal-ledger veto.
+      this.tryPlaceNextSite(room, tick, rcl);
     }
 
     const builders = this.getActiveCreeps();
