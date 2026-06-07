@@ -112,12 +112,22 @@ async function applyState(
   }
 
   for (const s of state.structures ?? []) {
-    // Insert directly so the structure is owned by the bot (addRoomObject makes
-    // neutral objects); owned structures must carry the user id to be "mine".
-    const doc: any = { room: s.room, type: s.type, x: s.x, y: s.y, user: bot.id };
+    // Insert with a schema the engine accepts, or it purges the object on the
+    // first tick. Two gotchas: structures need hits/hitsMax (a missing/0 hits
+    // reads as destroyed), and containers/storage are NEUTRAL (no user) and use
+    // a single numeric `storeCapacity`, whereas owned structures (spawn,
+    // extension, tower) carry the user id and a per-resource `storeCapacityResource`.
+    const neutral = s.type === "container" || s.type === "road" || s.type === "wall";
+    const hits = structureHits(s.type);
+    const doc: any = { room: s.room, type: s.type, x: s.x, y: s.y, hits, hitsMax: hits, notifyWhenAttacked: true };
+    if (!neutral) doc.user = bot.id;
     if (s.energy != null) {
       doc.store = { energy: s.energy };
-      doc.storeCapacityResource = { energy: structureCapacity(s.type) };
+      if (s.type === "container" || s.type === "storage") {
+        doc.storeCapacity = structureCapacity(s.type);
+      } else {
+        doc.storeCapacityResource = { energy: structureCapacity(s.type) };
+      }
     }
     await db["rooms.objects"].insert(doc);
   }
@@ -161,6 +171,28 @@ async function applyState(
     }
     const { env } = server.common.storage;
     await env.set(env.keys.MEMORY + bot.id, JSON.stringify(JSON.parse(json)));
+  }
+}
+
+/** Full hits for common structures (so the engine doesn't read them as destroyed). */
+function structureHits(type: string): number {
+  switch (type) {
+    case "spawn":
+      return 5000;
+    case "extension":
+      return 1000;
+    case "container":
+      return 250000;
+    case "storage":
+      return 10000;
+    case "tower":
+      return 3000;
+    case "road":
+      return 5000;
+    case "wall":
+      return 1;
+    default:
+      return 1000;
   }
 }
 
