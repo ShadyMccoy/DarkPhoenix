@@ -30,6 +30,15 @@ import { CorpRegistry } from "../execution/CorpRunner";
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / fully stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
 
+/**
+ * Energy/tick one active construction site can realistically absorb. In theory
+ * builders "keep pace" with any supply, but a real builder's fetch/build duty
+ * cycle caps it. Bounding construction here means the surplus the builder cannot
+ * consume flows to the controller (where consumption-scaling soaks it up) rather
+ * than backing up and decaying. ~5/tick matches one observed builder.
+ */
+export const CONSTRUCTION_ABSORB_RATE = 5;
+
 /** Strategic value per sink kind (anti-downgrade reserve handled separately). */
 export const SINK_VALUE: Record<SinkKind, number> = {
   spawn: 100, // critical: the economy can't run without staffing creeps
@@ -69,9 +78,15 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
       id: sink.id,
       kind,
       value: SINK_VALUE[kind],
-      // spawn: planner computes overhead (capacity ignored). construction &
-      // controller: keep pace with supply, so cap at what the room can produce.
-      capacity: kind === "spawn" ? 0 : Math.max(totalSupply, 1),
+      // spawn: planner computes overhead (capacity ignored). construction: what
+      // a builder can really absorb (surplus spills to the controller, not to
+      // decay). controller: high - it mops up whatever's left.
+      capacity:
+        kind === "spawn"
+          ? 0
+          : kind === "construction"
+            ? CONSTRUCTION_ABSORB_RATE
+            : Math.max(totalSupply, 1),
       // The controller keeps a guaranteed anti-downgrade trickle even while
       // construction (higher value) would otherwise claim the whole supply.
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined,
