@@ -14,30 +14,11 @@
  */
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { loadLayout, padNeighborTerrain } from "../test/integration/loadLayout";
+import { loadScenario } from "../test/integration/scenario/Scenario";
+import { threeChamber } from "../test/integration/scenario/library";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
-
-const SOURCE = { x: 8, y: 25 };
-const SPAWN = { x: 25, y: 25 };
-const CONTROLLER = { x: 41, y: 25 };
-
-/** 50x50 terrain: three chambers split by wall columns, joined by corridors. */
-function threeChamberTerrain(): string[] {
-  const rows: string[] = [];
-  for (let y = 0; y < 50; y++) {
-    let row = "";
-    for (let x = 0; x < 50; x++) {
-      const border = x === 0 || x === 49 || y === 0 || y === 49;
-      const divider = x === 16 || x === 17 || x === 32 || x === 33;
-      const corridor = y === 24 || y === 25; // gap through the dividers
-      row += border || (divider && !corridor) ? "#" : ".";
-    }
-    rows.push(row);
-  }
-  return rows;
-}
 
 /** Read the bot's persisted Memory object via the user handle from addBot. */
 async function readPlayerMemory(bot: any): Promise<any> {
@@ -58,16 +39,7 @@ async function main(): Promise<void> {
   await server.world.reset();
   const main = readFileSync("dist/main.js").toString();
 
-  await loadLayout(server.world, {
-    room: "W0N0",
-    terrain: threeChamberTerrain(),
-    objects: [
-      { type: "source", x: SOURCE.x, y: SOURCE.y },
-      { type: "controller", x: CONTROLLER.x, y: CONTROLLER.y },
-    ],
-  });
-  await padNeighborTerrain(server.world, ["W0N0"]);
-  const bot = await server.world.addBot({ username: "probe", room: "W0N0", x: SPAWN.x, y: SPAWN.y, modules: { main } });
+  const { bot } = await loadScenario(server, threeChamber(), main);
 
   await server.start();
 

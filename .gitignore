@@ -99,3 +99,6 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# Generated scenario snapshots (regenerate via scripts/scenario-roundtrip.ts)
+test/fixtures/snapshots/
