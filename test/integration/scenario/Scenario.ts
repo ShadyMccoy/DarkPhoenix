@@ -29,6 +29,9 @@ export interface ScenarioState {
   /** Live creeps to restore (body + energy + position), so a snapshot replays
    * with its real workforce instead of re-bootstrapping from nothing. */
   creeps?: ScenarioCreep[];
+  /** Old game-object ids (by position) so Memory's references can be remapped to
+   * the freshly-assigned ids of the reloaded world. */
+  idMap?: Array<{ oldId: string; type: string; room: string; x: number; y: number }>;
   /** Raw bot Memory to inject (so corps/flow state replays). */
   memory?: unknown;
 }
@@ -145,8 +148,19 @@ async function applyState(
   }
 
   if (state.memory !== undefined) {
+    // Remap captured (old-world) game-object ids to the reloaded world's fresh
+    // ids before injecting Memory, or every corp's source/spawn/controller
+    // reference dangles and nothing runs.
+    let json = JSON.stringify(state.memory);
+    for (const e of state.idMap ?? []) {
+      const fresh = await db["rooms.objects"].findOne({ room: e.room, type: e.type, x: e.x, y: e.y });
+      const newId = fresh?._id;
+      if (newId && newId !== e.oldId) {
+        json = json.split(e.oldId).join(String(newId));
+      }
+    }
     const { env } = server.common.storage;
-    await env.set(env.keys.MEMORY + bot.id, JSON.stringify(state.memory));
+    await env.set(env.keys.MEMORY + bot.id, JSON.stringify(JSON.parse(json)));
   }
 }
 

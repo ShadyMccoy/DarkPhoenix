@@ -43,6 +43,7 @@ export async function exportSnapshot(
   const rooms: ScenarioRoom[] = [];
   const structures: ScenarioState["structures"] = [];
   const creeps: ScenarioState["creeps"] = [];
+  const idMap: ScenarioState["idMap"] = [];
   let spawnPos: { room: string; x: number; y: number } | undefined;
   let controller: ScenarioState["controller"] | undefined;
 
@@ -52,6 +53,11 @@ export async function exportSnapshot(
 
     const scenery: ScenarioObject[] = [];
     for (const o of objs) {
+      // Game-object ids change between worlds; record old id <-> position for the
+      // fixed objects so Memory references can be remapped on reload.
+      if ((SCENERY.has(o.type) || o.type === "spawn") && o._id) {
+        idMap.push({ oldId: String(o._id), type: o.type, room, x: o.x, y: o.y });
+      }
       if (SCENERY.has(o.type)) {
         scenery.push({ type: o.type, x: o.x, y: o.y });
       }
@@ -97,6 +103,7 @@ export async function exportSnapshot(
       controller,
       structures: structures.length > 0 ? structures : undefined,
       creeps: creeps.length > 0 ? creeps : undefined,
+      idMap: idMap.length > 0 ? idMap : undefined,
       memory,
     },
   };

@@ -63,6 +63,11 @@ async function run(file: string, ticks: number): Promise<void> {
   const server = await freshServer(25801);
   const main = readFileSync("dist/main.js").toString();
   const { bot } = await loadScenario(server, snap, main);
+  if (process.env.DEBUG) {
+    bot.on("console", (log: string[]) => {
+      for (const line of log) console.log(`  bot> ${line}`);
+    });
+  }
   await server.start();
 
   const pad = (s: string) => s.padStart(8);
