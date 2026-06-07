@@ -111,6 +111,12 @@ async function main(): Promise<void> {
     }
     const roleStr = Object.entries(roles).map(([r, n]) => `${r}:${n}`).join(",");
 
+    // Construction sites: count + total remaining work.
+    const sites = objs.filter((o: any) => o.type === "constructionSite");
+    const siteInfo = sites
+      .map((s: any) => `${s.structureType}@(${s.x},${s.y})${s.progress}/${s.progressTotal}`)
+      .join(" ");
+
     console.log(
       [
         String(t),
@@ -119,8 +125,19 @@ async function main(): Promise<void> {
         String(spawn?.store?.energy ?? 0),
         String(creeps.length),
         `W${counts.W}C${counts.C}E${counts.E}`,
-      ].map(pad).join(" ") + `  ${roleStr}`
+      ].map(pad).join(" ") + `  ${roleStr}` + (siteInfo ? `  sites:[${siteInfo}]` : "")
     );
+
+    // Detailed per-creep dump once the stall sets in.
+    if (t >= 1000 && t % 80 === 0) {
+      const detail = creeps
+        .map((c: any) => {
+          const m = memCreeps[c.name] || {};
+          return `${m.workType ?? "?"}@(${c.x},${c.y})e${(c.store?.energy) ?? 0}${m.working ? "w" : ""}`;
+        })
+        .join(" ");
+      console.log(`    creeps: ${detail}`);
+    }
   }
 
   await server.stop();
