@@ -50,9 +50,27 @@ export interface PlannerSink {
   kind: SinkKind;
   /** Strategic value (higher = filled first). */
   value: number;
-  /** Max energy/tick this sink can absorb (its constraint). */
+  /**
+   * Max energy/tick this sink can absorb (its constraint). For a `spawn` sink
+   * this is ignored - the planner computes the overhead it must reserve from the
+   * corps it commissions (see the fixed-point loop in planEconomy).
+   */
   capacity: number;
   pos: Position;
+}
+
+/** Creep lifetime (ticks) used to amortise spawn cost into a per-tick rate. */
+const CREEP_LIFETIME = 1500;
+
+/** Per-tick spawn overhead of a miner with `work` WORK parts (2 WORK : 1 MOVE). */
+function minerOverhead(work: number): number {
+  const move = Math.ceil(work / 2);
+  return (work * 100 + move * 50) / CREEP_LIFETIME;
+}
+
+/** Per-tick spawn overhead of a hauler with `carry` CARRY parts (1 CARRY : 1 MOVE). */
+function haulerOverhead(carry: number): number {
+  return (carry * 100) / CREEP_LIFETIME;
 }
 
 export interface PlannerInput {
@@ -88,6 +106,8 @@ export interface EconomyPlan {
   flows: PlannedFlow[];
   /** Energy that no sink could absorb (all sinks at capacity). */
   unrouted: number;
+  /** Energy/tick the economy spends staffing its own miners + haulers. */
+  overhead: number;
 }
 
 /** Round trip time for a hauler over `distance` (1:1 CARRY:MOVE). */
@@ -103,9 +123,51 @@ function carryFor(flowRate: number, distance: number): number {
 /**
  * Plan the economy: route energy by value subject to capacity, then read off
  * the corps that realise that routing.
+ *
+ * The economy pays for itself: the energy delivered to the spawn is exactly the
+ * overhead of staffing the miners and haulers this plan commissions. That makes
+ * "how much energy is actually available for projects" an OUTPUT, not an input -
+ * so we solve the fixed point. Reserve an overhead estimate for the spawn,
+ * route the rest, read off the corps, recompute the overhead they cost, and
+ * repeat until it stops moving (a handful of passes; longer hauls cost more, so
+ * a far source self-consistently leaves less for its projects).
  */
 export function planEconomy(input: PlannerInput): EconomyPlan {
+  let overhead = 0;
+  let plan = allocate(input, overhead);
+
+  for (let pass = 0; pass < 8; pass++) {
+    const cost = overheadOf(plan.corps);
+    if (Math.abs(cost - overhead) < 0.01) {
+      overhead = cost;
+      break;
+    }
+    overhead = cost;
+    plan = allocate(input, overhead);
+  }
+
+  return { ...plan, overhead };
+}
+
+/** Total per-tick spawn cost of the miners + haulers in a corp roster. */
+function overheadOf(corps: CorpSpec[]): number {
+  let total = 0;
+  for (const c of corps) {
+    if (c.kind === "mine") total += minerOverhead(c.work);
+    else if (c.kind === "haul") total += haulerOverhead(c.carry);
+  }
+  return total;
+}
+
+/**
+ * One allocation pass: route supply by value subject to capacity (the spawn
+ * sink reserves `overhead`), then emit the corps that realise the routing.
+ */
+function allocate(input: PlannerInput, overhead: number): Omit<EconomyPlan, "overhead"> {
   const { sources, sinks, spawnId, dist } = input;
+
+  // The spawn's "capacity" is the overhead it must absorb to keep creeps alive.
+  const effectiveSinks = sinks.map((s) => (s.kind === "spawn" ? { ...s, capacity: overhead } : s));
 
   // Remaining unallocated supply per source.
   const remaining = new Map(sources.map((s) => [s.id, s.supply]));
@@ -115,7 +177,7 @@ export function planEconomy(input: PlannerInput): EconomyPlan {
   // until it hits its capacity or the sources run dry. A high-value, low-
   // capacity sink (construction) thus takes its fill and no more; a low-value,
   // high-capacity sink (controller) mops up whatever is left.
-  const byValue = [...sinks].sort((a, b) => b.value - a.value);
+  const byValue = [...effectiveSinks].sort((a, b) => b.value - a.value);
   for (const sink of byValue) {
     let need = sink.capacity;
     const nearestFirst = sources
@@ -151,7 +213,7 @@ export function planEconomy(input: PlannerInput): EconomyPlan {
   // Consuming: one initiative per fed project sink, sized to absorb its energy.
   const energyBySink = new Map<string, number>();
   for (const f of flows) energyBySink.set(f.sinkId, (energyBySink.get(f.sinkId) ?? 0) + f.amount);
-  for (const sink of sinks) {
+  for (const sink of effectiveSinks) {
     const energy = energyBySink.get(sink.id) ?? 0;
     if (energy <= 0) continue;
     if (sink.kind === "construction") {
