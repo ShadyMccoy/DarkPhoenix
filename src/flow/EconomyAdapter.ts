@@ -78,9 +78,10 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
       id: sink.id,
       kind,
       value: SINK_VALUE[kind],
-      // spawn: planner computes overhead (capacity ignored). construction: what
-      // a builder can really absorb (surplus spills to the controller, not to
-      // decay). controller: high - it mops up whatever's left.
+      // spawn: planner computes overhead (capacity ignored). construction: a
+      // realistic absorb rate, so on a throughput-limited source the surplus
+      // goes to the controller (consumption-scaled) instead of decaying.
+      // controller: high - it mops up whatever's left.
       capacity:
         kind === "spawn"
           ? 0

@@ -14,7 +14,7 @@ import {
   CREEP_LIFETIME,
   getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
-import { buildMinerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildMinerBody, buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 
 /**
@@ -121,7 +121,7 @@ export class SpawningCorp extends Corp {
    * that to an actual body and a spawnCreep call.
    */
   executeSpawn(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker",
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -139,6 +139,8 @@ export class SpawningCorp extends Corp {
 
     const workTypeMap: Record<string, "harvest" | "haul" | "upgrade" | "build" | "scout"> = {
       miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout",
+      // A tanker is a dedicated feeder creep - a hauler bound to one worker.
+      tanker: "haul",
     };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     const result = spawn.spawnCreep(body, name, {
@@ -161,7 +163,7 @@ export class SpawningCorp extends Corp {
    * Build a body for the given role that costs at most `energyBudget`.
    */
   private buildBodyForRole(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker",
     energyBudget: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio
@@ -173,6 +175,9 @@ export class SpawningCorp extends Corp {
         return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
       case "builder":
         return buildUpgraderBody(energyBudget, 2).body;
+      case "tanker":
+        // Pure CARRY+MOVE feeder; bodyParam is the desired CARRY parts.
+        return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
       case "scout":
         return [MOVE];
       case "hauler": {

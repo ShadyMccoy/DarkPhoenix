@@ -15,7 +15,7 @@ import {
   MIN_CONSTRUCTION_PROFIT,
 } from "./CorpConstants";
 import { BODY_PART_COST } from "../planning/EconomicConstants";
-import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";
 
@@ -97,6 +97,18 @@ export class ConstructionCorp extends Corp {
     return creeps;
   }
 
+  /** Dedicated feeder creeps (haulers bound to this corp) that supply the builder. */
+  private getTankers(): Creep[] {
+    const creeps: Creep[] = [];
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id && creep.memory.workType === "haul" && !creep.spawning) {
+        creeps.push(creep);
+      }
+    }
+    return creeps;
+  }
+
   /**
    * Plan construction operations.
    */
@@ -172,9 +184,68 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    const creeps = this.getActiveCreeps();
-    for (const creep of creeps) {
+    const builders = this.getActiveCreeps();
+    for (const creep of builders) {
       this.runBuilder(creep, room);
+    }
+    // Run the dedicated tanker relay that keeps the builder fed (static worker +
+    // hot-swapping feeders).
+    const builder = builders[0];
+    for (const tanker of this.getTankers()) {
+      this.runTanker(tanker, room, builder);
+    }
+  }
+
+  /**
+   * A tanker shuttles energy from the nearest source to the static builder and
+   * hands it over, then circles back to refuel. With a relay of these, one is
+   * always at the builder (hot swap) so it never stops building.
+   */
+  private runTanker(creep: Creep, room: Room, builder: Creep | undefined): void {
+    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
+    if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
+
+    if (creep.memory.working) {
+      // Deliver to the builder; if it is topped off, stage by the site ready to
+      // swap in the moment it needs energy.
+      if (builder && builder.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        if (creep.transfer(builder, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(builder, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+        }
+        return;
+      }
+      const site = creep.pos.findClosestByPath(room.find(FIND_MY_CONSTRUCTION_SITES));
+      if (site && creep.pos.getRangeTo(site) > 2) {
+        creep.moveTo(site, { range: 2, visualizePathStyle: { stroke: "#ffaa00" } });
+      }
+      return;
+    }
+
+    // Refuel: source container first, then the miner's dropped pile, else go wait
+    // by the source.
+    const container = creep.pos.findClosestByPath(room.find(FIND_STRUCTURES, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+    })) as StructureContainer | null;
+    if (container) {
+      if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(container, { visualizePathStyle: { stroke: "#00ff00" } });
+      }
+      return;
+    }
+    const pile = creep.pos.findClosestByPath(room.find(FIND_DROPPED_RESOURCES, {
+      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+    }));
+    if (pile) {
+      if (creep.pickup(pile) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(pile, { visualizePathStyle: { stroke: "#00ff00" } });
+      }
+      return;
+    }
+    const source = creep.pos.findClosestByPath(FIND_SOURCES);
+    if (source && creep.pos.getRangeTo(source) > 2) {
+      creep.moveTo(source, { range: 2, visualizePathStyle: { stroke: "#00ff00" } });
     }
   }
 
@@ -565,30 +636,74 @@ export class ConstructionCorp extends Corp {
    * extensions that grow spawn capacity.
    */
   getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
-    if (this.getCreepCount() >= 1) return [];
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) return [];
 
-    const desired = buildUpgraderBody(ctx.energyCapacity, 2);
-    const min = buildUpgraderBody(ctx.energyCapacity, 1);
-    if (min.cost === 0) return [];
+    const builders = this.getActiveCreeps();
 
-    return [{
-      buyerCorpId: this.id,
-      // After an RCL-up, building new structures takes precedence over upgrading
-      // (capacity compounds into faster RCL later). Rank a builder just below the
-      // core mining economy but above upgrading so it reliably gets spawned.
-      role: "builder",
-      value: 95,
-      blocking: false,
-      producesIncome: false,
-      desiredCost: desired.cost,
-      minCost: min.cost,
-      since: 0,
-      bodyParam: 2,
-    }];
+    // 1. The static builder - one, parked at the site, maxing out its WORK.
+    if (builders.length < 1) {
+      const desired = buildUpgraderBody(ctx.energyCapacity, 2);
+      const min = buildUpgraderBody(ctx.energyCapacity, 1);
+      if (min.cost === 0) return [];
+      return [{
+        buyerCorpId: this.id,
+        role: "builder",
+        value: 95, // just below the core mining economy, above upgrading
+        blocking: false,
+        producesIncome: false,
+        desiredCost: desired.cost,
+        minCost: min.cost,
+        since: 0,
+        bodyParam: 2,
+      }];
+    }
+
+    // 2. The hot-swapping tanker relay that keeps the builder fed. Sized by the
+    // builder's consumption and how far it is from energy: enough small tankers
+    // that one is always at the builder while the others refuel.
+    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 4));
+    const target = this.targetTankerCount(spawn.room, sites[0], builders, perTanker);
+    if (this.getTankers().length < target) {
+      const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
+      const min = buildTankerBody(1, ctx.energyCapacity, false);
+      if (min.cost === 0) return [];
+      return [{
+        buyerCorpId: this.id,
+        role: "tanker",
+        value: 94, // feeding the builder is nearly as important as the builder
+        blocking: this.getTankers().length === 0, // the first feeder is essential
+        producesIncome: false,
+        desiredCost: desired.cost,
+        minCost: min.cost,
+        since: 0,
+        bodyParam: perTanker,
+      }];
+    }
+
+    return [];
+  }
+
+  /**
+   * How many tankers the relay needs: enough CARRY in flight to sustain the
+   * builder's consumption over the refuel round-trip, never fewer than two so
+   * there is always one staged for a seamless hot swap.
+   */
+  private targetTankerCount(
+    room: Room,
+    site: ConstructionSite,
+    builders: Creep[],
+    perTanker: number
+  ): number {
+    const work = builders.reduce((sum, b) => sum + b.getActiveBodyparts(WORK), 0);
+    const consumption = Math.max(5, work * 5); // energy/tick the builder eats
+    const source = site.pos.findClosestByRange(FIND_SOURCES);
+    const dist = source ? site.pos.getRangeTo(source) : 8;
+    const roundTrip = 2 * dist + 2;
+    const carryNeeded = Math.ceil((consumption * roundTrip) / 50);
+    return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
 
   // ===========================================================================
