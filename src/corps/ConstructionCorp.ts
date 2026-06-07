@@ -270,23 +270,25 @@ export class ConstructionCorp extends Corp {
     }
     this.lastPlacementAttempt = tick;
 
-    // Extensions first: cheap (3000) and they compound spawn capacity, which
-    // speeds up everything afterwards - including the pricier containers.
-    const ext = this.findGridPosition(room);
-    if (ext) {
-      this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
-      return;
-    }
-
-    // Containers (5000 each) only once the room can afford the investment
-    // without crippling RCL progress. They pay back via static mining + buffered
-    // upgrading over the source's long life.
+    // Infrastructure first at RCL 3+. A source container turns roaming
+    // drop-mining into static mining; a controller container buffers the
+    // upgraders so they withdraw locally and upgrade continuously instead of
+    // starving while they wait for/chase a hauler. That efficiency lifts the
+    // WHOLE economy, so it earns its 5000 build cost back faster than the next
+    // extension would - hence it comes before finishing the extension set.
     if (rcl >= CONTAINER_MIN_RCL) {
       const container = this.findMissingContainer(room);
       if (container) {
         this.placeSite(room, container.x, container.y, STRUCTURE_CONTAINER, 0);
         return;
       }
+    }
+
+    // Extensions: cheap (3000) and they compound spawn capacity (bigger creeps).
+    const ext = this.findGridPosition(room);
+    if (ext) {
+      this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+      return;
     }
   }
 

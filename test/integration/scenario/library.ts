@@ -95,6 +95,55 @@ export function singleSourceRcl3(opts: { room?: string; sourceY?: number } = {})
 }
 
 /**
+ * Two sources, pre-advanced to RCL 3 with a full set of RCL-2 extensions, so the
+ * container era (static mining + buffered upgrading) and twice-the-supply scaling
+ * can be exercised together without the slow climb from RCL 1.
+ */
+export function twoSourceRcl3(opts: { room?: string } = {}): Scenario {
+  const base = twoSource(opts);
+  const exts = [
+    { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+  ];
+  return {
+    ...base,
+    name: "two-source-rcl3",
+    description: base.description + " Pre-advanced to RCL 3 with 5 extensions.",
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room: base.bot.room, type: "extension", x: e.x, y: e.y, energy: 50 })),
+    },
+  };
+}
+
+/**
+ * twoSourceRcl3 with the full container set already built (one on each source
+ * for static mining, one by the controller to buffer the upgraders). Isolates
+ * the question "do containers fix the upgrader starvation?" from the slow
+ * business of actually building them.
+ */
+export function twoSourceRcl3Containers(opts: { room?: string } = {}): Scenario {
+  const base = twoSourceRcl3(opts);
+  const room = base.bot.room;
+  const containers = [
+    { x: 15, y: 29 }, // on source 1 (15,30)
+    { x: 35, y: 29 }, // on source 2 (35,30)
+    { x: 25, y: 12 }, // by the controller (25,10)
+  ];
+  return {
+    ...base,
+    name: "two-source-rcl3-containers",
+    description: base.description + " Plus source + controller containers.",
+    state: {
+      ...base.state,
+      structures: [
+        ...(base.state?.structures ?? []),
+        ...containers.map((c) => ({ room, type: "container", x: c.x, y: c.y, energy: 0 })),
+      ],
+    },
+  };
+}
+
+/**
  * The three-chamber room pre-advanced to RCL 2 with two extensions already
  * built in the source chamber, so the controller-starvation-during-construction
  * regime reproduces in ~100 ticks instead of ~600. Use for fast economy
