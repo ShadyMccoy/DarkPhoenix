@@ -97,12 +97,14 @@ async function applyState(
   }
 
   for (const s of state.structures ?? []) {
-    const attrs: any = {};
+    // Insert directly so the structure is owned by the bot (addRoomObject makes
+    // neutral objects); owned structures must carry the user id to be "mine".
+    const doc: any = { room: s.room, type: s.type, x: s.x, y: s.y, user: bot.id };
     if (s.energy != null) {
-      attrs.store = { energy: s.energy };
-      attrs.storeCapacityResource = { energy: structureCapacity(s.type) };
+      doc.store = { energy: s.energy };
+      doc.storeCapacityResource = { energy: structureCapacity(s.type) };
     }
-    await server.world.addRoomObject(s.room, s.type, s.x, s.y, attrs);
+    await db["rooms.objects"].insert(doc);
   }
 
   if (state.memory !== undefined) {

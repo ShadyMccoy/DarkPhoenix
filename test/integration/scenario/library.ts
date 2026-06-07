@@ -53,3 +53,26 @@ export function threeChamber(opts: { room?: string } = {}): Scenario {
     bot: { room, ...SPAWN }, // spawn lands in the centre chamber
   };
 }
+
+/**
+ * The three-chamber room pre-advanced to RCL 2 with two extensions already
+ * built in the source chamber, so the controller-starvation-during-construction
+ * regime reproduces in ~100 ticks instead of ~600. Use for fast economy
+ * iteration; the bot still has to build the remaining extensions and haul
+ * across the chambers.
+ */
+export function threeChamberRcl2(opts: { room?: string } = {}): Scenario {
+  const base = threeChamber(opts);
+  return {
+    ...base,
+    name: "three-chamber-rcl2",
+    description: base.description + " Pre-advanced to RCL 2 with 2 extensions.",
+    state: {
+      controller: { level: 2, progress: 0 },
+      structures: [
+        { room: base.bot.room, type: "extension", x: 6, y: 23, energy: 50 },
+        { room: base.bot.room, type: "extension", x: 6, y: 27, energy: 50 },
+      ],
+    },
+  };
+}
