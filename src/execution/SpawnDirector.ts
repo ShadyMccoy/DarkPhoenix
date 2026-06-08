@@ -133,6 +133,10 @@ function collectDemands(
     const c = registry.constructionCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
+  for (const id in registry.reservationCorps) {
+    const c = registry.reservationCorps[id];
+    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+  }
 
   return demands;
 }

@@ -14,7 +14,7 @@ import {
   CREEP_LIFETIME,
   getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
-import { buildMinerBody, buildUpgraderBody, buildTankerBody, UpgraderStrategy } from "../spawn/BodyBuilder";
+import { buildMinerBody, buildUpgraderBody, buildTankerBody, buildReserverBody, UpgraderStrategy } from "../spawn/BodyBuilder";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 
 /**
@@ -121,7 +121,7 @@ export class SpawningCorp extends Corp {
    * that to an actual body and a spawnCreep call.
    */
   executeSpawn(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver",
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -138,8 +138,8 @@ export class SpawningCorp extends Corp {
     const bodyCost = this.calculateBodyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return false;
 
-    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout"> = {
-      miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout",
+    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout" | "reserve"> = {
+      miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout", reserver: "reserve",
       // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
       // local sinks and sources within one node (e.g. a hauler's drop-off -> the
       // builder). That is a different job from a hauler, which does long-range
@@ -168,7 +168,7 @@ export class SpawningCorp extends Corp {
    * Build a body for the given role that costs at most `energyBudget`.
    */
   private buildBodyForRole(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver",
     energyBudget: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
@@ -186,6 +186,9 @@ export class SpawningCorp extends Corp {
         return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
       case "scout":
         return [MOVE];
+      case "reserver":
+        // bodyParam is the desired CLAIM count; defaults to 2.
+        return buildReserverBody(energyBudget, bodyParam ?? 2).body;
       case "hauler": {
         const { carryRatio, moveRatio } = this.getPartRatios(haulerRatio ?? "1:1");
         const costPerUnit = BODY_PART_COST.carry * carryRatio + BODY_PART_COST.move * moveRatio;

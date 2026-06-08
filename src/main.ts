@@ -44,6 +44,7 @@ import {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runReservationCorps,
   runSpawningCorps,
   logCorpStats,
   persistState,
@@ -176,6 +177,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runRealCorps(corps);
   runScoutCorps(corps);
   runConstructionCorps(corps);
+  runReservationCorps(corps);
 
   // ===========================================================================
   // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)

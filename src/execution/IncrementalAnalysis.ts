@@ -654,11 +654,14 @@ function populateNodeResources(
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];
       if (intel) {
-        // Check if this room is owned by us (from intel)
+        // Check if this room is owned OR reserved by us (from intel). A controller
+        // we reserve boosts its sources to the full 3000 cap just like ownership
+        // does - that is the whole economic point of reserving a remote room.
         const isOwnedRoom = myUsername && intel.controllerOwner === myUsername;
+        const isReservedByUs = myUsername && intel.controllerReservation === myUsername;
 
-        // Source capacity: 3000 for owned rooms, 1500 for unclaimed/unowned
-        const sourceCapacity = isOwnedRoom ? 3000 : 1500;
+        // Source capacity: 3000 for owned/reserved rooms, 1500 for unclaimed.
+        const sourceCapacity = isOwnedRoom || isReservedByUs ? 3000 : 1500;
 
         // Add sources from intel within territory
         for (const sourcePos of intel.sourcePositions || []) {

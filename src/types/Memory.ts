@@ -17,6 +17,7 @@ import {
   SerializedUpgradingCorp,
   SerializedScoutCorp,
   SerializedConstructionCorp,
+  SerializedReservationCorp,
   SerializedSpawningCorp,
   SerializedHaulerCorp,
   SerializedTankerCorp,
@@ -167,6 +168,11 @@ declare global {
     constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
 
     /**
+     * Serialized reservation corps by room name.
+     */
+    reservationCorps?: { [roomName: string]: SerializedReservationCorp };
+
+    /**
      * Serialized spawning corps by spawn ID.
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
@@ -206,7 +212,7 @@ declare global {
      * - repair: Structure repair
      * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout";
+    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout" | "reserve";
 
     /**
      * Target ID for current task.

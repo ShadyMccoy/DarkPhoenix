@@ -17,6 +17,7 @@ export {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runReservationCorps,
   runSpawningCorps,
   logCorpStats,
 } from "./CorpRunner";

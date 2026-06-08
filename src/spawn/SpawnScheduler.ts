@@ -27,7 +27,7 @@
  */
 
 /** Roles the scheduler knows how to rank and size. */
-export type SpawnRole = "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker";
+export type SpawnRole = "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver";
 
 /**
  * A request for one creep, declared by a producing corp.

@@ -213,13 +213,17 @@ export function remoteSource(opts: { home?: string; remote?: string } = {}): Sce
   const remoteRoom = new RoomBuilder(remote)
     .border()
     .tile(49, 24, "plain").tile(49, 25, "plain")
-    .source(25, 25);
+    .source(25, 25)
+    .controller(25, 40); // unowned: reserving it lifts the source to the full 3000 cap
+  // Full RCL-3 extension set (10) -> 800 capacity, enough to afford a reserver
+  // (CLAIM+MOVE = 650) so the remote room can be held at the full 3000 source cap.
   const exts = [
     { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+    { x: 26, y: 22 }, { x: 22, y: 28 }, { x: 28, y: 28 }, { x: 20, y: 24 }, { x: 30, y: 24 },
   ];
   return {
     name: "remote-source",
-    description: "Home (1 source) + adjacent unowned room (1 source). Should scout, claim, and mine it.",
+    description: "Home (1 source) + adjacent unowned room (1 source + controller). Should scout, claim, mine, and reserve it.",
     rooms: [homeRoom.toRoom(), remoteRoom.toRoom()],
     bot: { room: home, ...SPAWN },
     state: {

@@ -509,3 +509,40 @@ export function buildUpgraderBody(
 
   return { body, cost, workParts, energyPerTick: workParts };
 }
+
+/**
+ * Result of building a reserver body.
+ */
+export interface ReserverBodyResult {
+  body: BodyPartConstant[];
+  cost: number;
+  /** Number of CLAIM parts (reservation gained per tick while reserving). */
+  claimParts: number;
+}
+
+/**
+ * Build a reserver body: CLAIM parts (to reserve a remote controller) paired 1:1
+ * with MOVE so it can reach the controller. A single CLAIM held continuously
+ * keeps a controller reserved (and its sources at the full 3000 cap); more CLAIM
+ * builds the reservation buffer up faster so a brief gap between reservers does
+ * not let it lapse. CLAIM is expensive (600), so the count is capped both by the
+ * room's energy and by `maxClaim` (2 is plenty for a single remote room).
+ *
+ * @param energyCapacity - Available spawn energy capacity.
+ * @param maxClaim - Upper bound on CLAIM parts (default 2).
+ */
+export function buildReserverBody(
+  energyCapacity: number,
+  maxClaim: number = 2
+): ReserverBodyResult {
+  const unitCost = PART_COSTS[CLAIM] + PART_COSTS[MOVE]; // 650 per CLAIM+MOVE pair
+  const affordable = Math.floor(energyCapacity / unitCost);
+  const claimParts = Math.max(0, Math.min(maxClaim, affordable, Math.floor(MAX_BODY_PARTS / 2)));
+  if (claimParts === 0) {
+    return { body: [], cost: 0, claimParts: 0 };
+  }
+  const body: BodyPartConstant[] = [];
+  for (let i = 0; i < claimParts; i++) body.push(CLAIM);
+  for (let i = 0; i < claimParts; i++) body.push(MOVE);
+  return { body, cost: claimParts * unitCost, claimParts };
+}
