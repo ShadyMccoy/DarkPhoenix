@@ -120,13 +120,6 @@ export class CarryCorp extends Corp {
    */
   private haulerAssignments: HaulerAssignment[] = [];
 
-  /**
-   * Count of loads committed to each local sink ("spawn"/"controller"), used to
-   * balance deliveries in proportion to the flow solver's per-sink allocations.
-   * In-memory only - approximate balancing that resets on a global reset is fine.
-   */
-  private sinkDelivered: { [sink: string]: number } = {};
-
   constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
     this.spawnId = spawnId;
@@ -233,16 +226,27 @@ export class CarryCorp extends Corp {
     // State transition
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
-      creep.memory.deliverSinkId = undefined;
       creep.say("pickup");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
-      // Commit this load to a sink: the spawn network first when it needs energy,
-      // otherwise balanced across the node's sinks in proportion to the flow
-      // solver's per-sink allocations.
-      creep.memory.deliverSinkId = this.chooseDeliverySink(room);
-      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
+      // Each hauler has ONE permanent home circuit (assigned in proportion to the
+      // flow solver's per-sink allocations - see assignCircuit), so it is a dumb
+      // automaton on a defined route, not re-rolling its destination every trip.
+      // Re-assign only when it has no circuit or its route's flow has vanished
+      // (e.g. construction finished).
+      const home = creep.memory.homeSink as LocalSink | undefined;
+      if (!home || !this.committedSinkHasFlow(home)) {
+        this.assignCircuit(creep);
+      }
+      // This trip's destination is decided ONCE, here: top up a hungry spawn
+      // (the critical bottleneck, under-weighted by its tiny flow share), else run
+      // the home circuit. Fixed for the whole trip, so no mid-route thrash.
+      const homeSink = creep.memory.homeSink as LocalSink;
+      creep.memory.deliverSinkId =
+        homeSink !== "spawn" && this.spawnNetworkHungry(room) ? "spawn" : homeSink;
+      const dst = creep.memory.deliverSinkId;
+      creep.say(dst === "controller" ? "→ctrl" : dst === "construction" ? "→build" : "→spawn");
     }
 
     // Opportunistic: pick up nearby dropped energy while delivering
@@ -514,19 +518,69 @@ export class CarryCorp extends Corp {
    * At RCL 2 with construction sites, prioritizes dropping near sources.
    */
   private deliverEnergy(creep: Creep, room: Room, _spawn: StructureSpawn): void {
-    // Deliver to the sink this load was committed to. If that sink can't take it
-    // right now (e.g. the spawn network is already full), fall back in priority
-    // order. Construction comes first in the fallback: after an RCL-up the spawn
-    // fills quickly and its surplus should accelerate building, not trickle into
-    // the (deliberately minimal) controller.
-    const committed = creep.memory.deliverSinkId ?? "spawn";
-    if (this.tryDeliverTo(creep, room, committed)) return;
+    // Deliver to this trip's destination (fixed at fill-up; see runHauler). No
+    // re-decision here - that mid-route flip-flopping is exactly the thrash we are
+    // removing.
+    const target = (creep.memory.deliverSinkId as LocalSink | undefined) ?? "spawn";
+    if (this.tryDeliverTo(creep, room, target)) return;
 
-    const fallback: LocalSink[] = ["construction", "spawn", "controller"];
+    // The destination momentarily can't take it (full): help elsewhere rather than
+    // idle, without disturbing the permanent home circuit. Spawn first - surplus
+    // is most valuable kept in the spawn network.
+    const fallback: LocalSink[] = ["spawn", "construction", "controller"];
     for (const sink of fallback) {
-      if (sink === committed) continue;
+      if (sink === target) continue;
       if (this.tryDeliverTo(creep, room, sink)) return;
     }
+  }
+
+  /** Free energy capacity across the spawn network is worth a hauler's divert. */
+  private spawnNetworkHungry(room: Room): boolean {
+    const free = this.getSpawnZoneStructures(room).reduce(
+      (sum, s) => sum + s.store.getFreeCapacity(RESOURCE_ENERGY),
+      0
+    );
+    return free >= SPAWN_PRIORITY_FREE_CAPACITY;
+  }
+
+  /** Per-sink-type flow this corp's source feeds, summed from its assignments. */
+  private flowsBySink(): Record<LocalSink, number> {
+    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, construction: 0 };
+    for (const a of this.haulerAssignments) {
+      if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
+      else if (a.toId.startsWith("construction-")) flows.construction += a.flowRate;
+      else flows.spawn += a.flowRate;
+    }
+    return flows;
+  }
+
+  /**
+   * Is a hauler's committed circuit still real? Spawn is always a valid home (it
+   * perpetually needs topping). Controller/construction are valid only while the
+   * flow solver still routes energy there - when a route's flow drops to zero
+   * (construction finished, controller demand gone) its haulers re-assign.
+   */
+  private committedSinkHasFlow(sink: LocalSink): boolean {
+    if (sink === "spawn") return true;
+    return this.flowsBySink()[sink] > 0;
+  }
+
+  /**
+   * Permanently assign this hauler to one delivery circuit, picking the sink type
+   * that is most under-staffed relative to its share of the flow. Counting the
+   * haulers already committed to each sink and handing the newcomer the one
+   * furthest behind its flow share spreads the fleet across circuits in proportion
+   * to the solver's allocations - the same proportional rule the old per-load
+   * chooser used, applied once per hauler instead of every trip.
+   */
+  private assignCircuit(creep: Creep): void {
+    const committed: { [sink: string]: number } = {};
+    for (const h of this.getAssignedCreeps()) {
+      if (h.name === creep.name) continue;
+      const s = h.memory.homeSink;
+      if (s) committed[s] = (committed[s] ?? 0) + 1;
+    }
+    creep.memory.homeSink = pickSinkByAllocation(this.haulerAssignments, committed);
   }
 
   /** Attempt delivery to a specific local sink; returns true if it took action. */
@@ -582,21 +636,6 @@ export class CarryCorp extends Corp {
       creep.moveTo(site, { visualizePathStyle: { stroke: "#ffaa00" } });
     }
     return true;
-  }
-
-  /**
-   * Choose which local sink to deliver the current load to, in proportion to the
-   * flow solver's per-sink allocations (flowRate). This is the heart of the
-   * node's local energy balancing.
-   */
-  private chooseDeliverySink(room: Room): LocalSink {
-    const spawnFree = this.getSpawnZoneStructures(room).reduce(
-      (sum, s) => sum + s.store.getFreeCapacity(RESOURCE_ENERGY),
-      0
-    );
-    const pick = pickDeliverySink(spawnFree, this.haulerAssignments, this.sinkDelivered);
-    this.sinkDelivered[pick] = (this.sinkDelivered[pick] ?? 0) + 1;
-    return pick;
   }
 
   /**

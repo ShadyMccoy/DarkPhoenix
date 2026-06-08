@@ -300,11 +300,19 @@ declare global {
     deliveryTargetId?: string;
 
     /**
-     * Which sink this hauler is delivering its current load to, chosen per load
-     * to honour the flow solver's per-sink allocations ("spawn" or "controller").
-     * Cleared when the load is emptied.
+     * Which sink this hauler is delivering its CURRENT load to. Decided once per
+     * trip at fill-up (its home circuit, or the spawn if the spawn network is
+     * hungry that tick), then held for the whole trip so it never thrashes
+     * mid-route. Cleared when the load is emptied.
      */
     deliverSinkId?: "spawn" | "controller" | "construction";
+
+    /**
+     * The hauler's PERMANENT delivery circuit, assigned once for life in
+     * proportion to the flow solver's per-sink allocations. This is its default
+     * destination every trip (overridden only to top up a hungry spawn).
+     */
+    homeSink?: "spawn" | "controller" | "construction";
   }
 }
 
