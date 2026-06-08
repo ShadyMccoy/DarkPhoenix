@@ -28,6 +28,14 @@ import { get7x7BoxAroundOwnedRooms } from "../utils";
 /** TTL for multi-room analysis cache (5000 ticks ≈ ~4 hours) */
 export const MULTI_ROOM_ANALYSIS_CACHE_TTL = 5000;
 
+/**
+ * How often (ticks) to re-populate node RESOURCES from current vision/intel while
+ * the terrain cache is fresh. Far shorter than the terrain TTL: terrain is static
+ * but resources are dynamic (a newly scouted source must be claimed and mined
+ * promptly), and the refresh is cheap (reuses the cached territory map).
+ */
+const NODE_RESOURCE_REFRESH_INTERVAL = 50;
+
 /** Max rooms to analyze per batch to avoid CPU timeout */
 const ROOMS_PER_BATCH = 9;
 
@@ -51,6 +59,9 @@ let incrementalState: IncrementalAnalysisState | null = null;
 
 /** Cache for multi-room analysis results */
 let multiRoomAnalysisCache: { result: MultiRoomAnalysisResult; tick: number } | null = null;
+
+/** Last tick node resources were refreshed from vision/intel (see NODE_RESOURCE_REFRESH_INTERVAL). */
+let lastResourceRefreshTick = 0;
 
 // =============================================================================
 // PUBLIC API
@@ -76,6 +87,7 @@ export function isAnalysisInProgress(): boolean {
 export function resetAnalysis(): void {
   multiRoomAnalysisCache = null;
   incrementalState = null;
+  lastResourceRefreshTick = 0;
 }
 
 /**
@@ -241,6 +253,9 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
   // Phase 3: Update nodes
   if (state.phase === 'updating' && state.mergedResult) {
     updateNodesFromAnalysis(colony, state.mergedResult);
+    // A full pass just populated resources; start the refresh clock here so the
+    // cheap interval refresh doesn't redundantly re-run on the very next tick.
+    lastResourceRefreshTick = Game.time;
 
     // Cache result
     multiRoomAnalysisCache = { result: state.mergedResult, tick: Game.time };
@@ -258,6 +273,53 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
+
+/**
+ * Re-populate every existing node's resources from current vision/intel, reusing
+ * the cached terrain territories (no peak/territory recompute). This is what lets
+ * a source discovered after the initial terrain pass - e.g. a neighbouring room
+ * that was only just scouted - get claimed by its node and handed to the flow
+ * economy to mine, exactly like a source that was visible from the start. Mining
+ * is uniform; it never cared which room a source sits in, only that the source is
+ * known and in territory.
+ */
+export function refreshNodeResources(colony: Colony, result: MultiRoomAnalysisResult): void {
+  const positionToNode = new Map<string, string>();
+  for (const [nodeId, positions] of result.territories) {
+    for (const pos of positions) {
+      positionToNode.set(`${pos.roomName}-${pos.x}-${pos.y}`, nodeId);
+    }
+  }
+
+  for (const node of colony.getNodes()) {
+    const positions = result.territories.get(node.id);
+    if (positions && positions.length > 0) {
+      populateNodeResources(node, positions, positionToNode);
+    }
+  }
+
+  const ownedRooms = new Set<string>();
+  for (const roomName in Game.rooms) {
+    if (Game.rooms[roomName].controller?.my) ownedRooms.add(roomName);
+  }
+  attachOwnedSpawnsToNodes(colony, ownedRooms);
+}
+
+/**
+ * Refresh node resources from current vision/intel between full terrain passes,
+ * on a short interval (NODE_RESOURCE_REFRESH_INTERVAL). Call every tick from the
+ * main loop while nodes exist and no terrain analysis is running; cheap and
+ * interval-gated. This is what lets a source discovered after the one-time terrain
+ * pass - e.g. a neighbouring room only just scouted - get claimed and mined,
+ * rather than staying invisible until the next 5000-tick terrain rebuild. No-op
+ * until a terrain analysis has been cached.
+ */
+export function refreshNodeResourcesFromCache(colony: Colony): void {
+  if (!multiRoomAnalysisCache) return;
+  if (Game.time - lastResourceRefreshTick < NODE_RESOURCE_REFRESH_INTERVAL) return;
+  lastResourceRefreshTick = Game.time;
+  refreshNodeResources(colony, multiRoomAnalysisCache.result);
+}
 
 /**
  * Updates colony nodes from analysis result.

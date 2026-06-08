@@ -32,6 +32,7 @@ export {
   MULTI_ROOM_ANALYSIS_CACHE_TTL,
   getAnalysisCache,
   isAnalysisInProgress,
+  refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
   runIncrementalAnalysis,

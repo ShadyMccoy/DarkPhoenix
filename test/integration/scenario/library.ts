@@ -186,3 +186,45 @@ export function threeChamberRcl3(opts: { room?: string } = {}): Scenario {
     },
   };
 }
+
+/**
+ * Home room (one source) plus an ADJACENT room holding a second source and no
+ * owned controller - the "remote mining" shape. Nothing here is remote-specific
+ * to the bot: it should scout the neighbour, claim its source as ordinary node
+ * territory, and mine it like any other source, hauling the energy home across
+ * the room border. Pre-advanced to RCL 3 with a full extension set so the home
+ * economy has spare spawn/hauler capacity to reach across the border quickly.
+ *
+ * Rooms are bordered (so terrain analysis finds a peak / node in each) with an
+ * aligned 2-tile gap on the shared edge, the only real exit between them; the
+ * only neighbour with a source is the remote room, so it is the sole remote
+ * mining opportunity.
+ */
+export function remoteSource(opts: { home?: string; remote?: string } = {}): Scenario {
+  const home = opts.home ?? "W0N0";
+  const remote = opts.remote ?? "W1N0"; // the room immediately west of home
+  // Home's west edge (x=0) borders the remote room's east edge (x=49). Leave an
+  // aligned 2-tile gap there so a creep can walk home <-> remote.
+  const homeRoom = new RoomBuilder(home)
+    .border()
+    .tile(0, 24, "plain").tile(0, 25, "plain")
+    .controller(25, 10)
+    .source(25, 40);
+  const remoteRoom = new RoomBuilder(remote)
+    .border()
+    .tile(49, 24, "plain").tile(49, 25, "plain")
+    .source(25, 25);
+  const exts = [
+    { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+  ];
+  return {
+    name: "remote-source",
+    description: "Home (1 source) + adjacent unowned room (1 source). Should scout, claim, and mine it.",
+    rooms: [homeRoom.toRoom(), remoteRoom.toRoom()],
+    bot: { room: home, ...SPAWN },
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room: home, type: "extension", x: e.x, y: e.y, energy: 50 })),
+    },
+  };
+}

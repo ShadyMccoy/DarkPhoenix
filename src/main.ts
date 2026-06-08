@@ -50,6 +50,7 @@ import {
   cleanupDeadCreeps,
   getAnalysisCache,
   isAnalysisInProgress,
+  refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
   runIncrementalAnalysis,
@@ -193,6 +194,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (hasNoNodes && !isAnalysisInProgress()) {
     console.log(`[Respawn] No nodes in memory - starting terrain analysis immediately`);
     runIncrementalAnalysis(colony);
+  }
+
+  // Keep node resources current with vision/intel between the (rare) full terrain
+  // passes, so a source in a room only just scouted gets claimed by its node and
+  // mined like any other - the terrain analysis itself runs at most every 5000
+  // ticks, far too coarse for picking up newly discovered sources. Interval-gated
+  // and cheap; a no-op until the first terrain pass has been cached.
+  if (!isAnalysisInProgress()) {
+    refreshNodeResourcesFromCache(colony);
   }
 
   // ===========================================================================
