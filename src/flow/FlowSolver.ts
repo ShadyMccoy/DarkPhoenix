@@ -479,18 +479,33 @@ export function solveIteratively(
   }
 
   // Iteratively reduce allocations to account for overhead
+  const originalDemands = problem.sinks.map((s) => s.demand);
   for (let i = 0; i < maxIterations; i++) {
     const prevOverhead = solution.totalOverhead;
 
-    // Adjust sink demands based on available energy
+    // Fit sink demands to the energy left after mining overhead. Do it by
+    // PRIORITY, not proportionally: fill the highest-priority sinks to their full
+    // demand and starve the lowest-priority ones, so scarcity cuts the least
+    // valuable work first (e.g. upgrading yields to building during construction).
+    // Scaling every demand by the same factor - the old behavior - quietly
+    // inverted the priorities, letting a big low-priority demand (the controller)
+    // out-draw a smaller high-priority one (construction).
     const availableForSinks = solution.totalHarvest - solution.miningOverhead;
-    const totalDemand = problem.sinks.reduce((sum, s) => sum + s.demand, 0);
+    const totalDemand = originalDemands.reduce((sum, d) => sum + d, 0);
+
+    // Restore original demands each pass so a transient overhead spike can't
+    // ratchet them permanently downward.
+    problem.sinks.forEach((s, idx) => (s.demand = originalDemands[idx]));
 
     if (availableForSinks < totalDemand) {
-      // Scale down demands proportionally
-      const scale = availableForSinks / totalDemand;
-      for (const sink of problem.sinks) {
-        sink.demand = sink.demand * scale;
+      let budget = Math.max(0, availableForSinks);
+      for (const sink of [...problem.sinks].sort((a, b) => b.priority - a.priority)) {
+        if (sink.demand <= budget) {
+          budget -= sink.demand;
+        } else {
+          sink.demand = budget;
+          budget = 0;
+        }
       }
     }
 

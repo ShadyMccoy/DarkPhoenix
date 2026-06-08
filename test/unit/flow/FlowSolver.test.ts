@@ -709,8 +709,11 @@ describe("Economy Scenarios (from minimal-economy)", () => {
       const ctrlAllocations = solution.sinkAllocations.filter(a => a.sinkType === "controller");
       const totalCtrl = ctrlAllocations.reduce((sum, a) => sum + a.allocated, 0);
 
-      // Should have significant energy going to controllers
-      expect(totalCtrl).to.be.greaterThan(100);
+      // Controllers still get the bulk of the surplus, but only AFTER the
+      // priority-100 spawns are filled to their full demand (5 x 20 = 100). Under
+      // scarcity the solver serves by priority rather than scaling every demand
+      // proportionally (which used to under-serve the spawns to inflate this).
+      expect(totalCtrl).to.be.greaterThan(80);
     });
   });
 });
