@@ -51,8 +51,20 @@ describe("corp getSpawnDemand()", () => {
       expect(d.role).to.equal("hauler");
       expect(d.blocking).to.equal(true);
       expect(d.producesIncome).to.equal(true);
-      expect(d.minCost).to.equal(100);
+      // Floored at min(desiredCarry, 3) CARRY+MOVE pairs - never a 1-CARRY runt.
+      expect(d.minCost).to.equal(300);
       expect(d.desiredCost).to.equal(400); // 4 CARRY+MOVE pairs
+    });
+
+    it("floors a small far-route hauler at its desired size, not the 3-CARRY floor", () => {
+      // A route needing only 2 CARRY should not be inflated to the 3-CARRY floor.
+      const corp = new CarryCorp("W1N1-hauling-bbbb", "spawn1");
+      corp.setHaulerAssignments([{
+        fromId: "source-bbbb", carryParts: 2, spawnId: "spawn-spawn1", haulerRatio: "1:1",
+      } as HaulerAssignment]);
+      const d = corp.getSpawnDemand(ctx)[0];
+      expect(d.minCost).to.equal(200); // min(desiredCarry=2, 3) = 2 pairs
+      expect(d.desiredCost).to.equal(200);
     });
   });
 

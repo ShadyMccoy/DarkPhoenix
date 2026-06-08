@@ -156,6 +156,20 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(corp.getSpawnDemand(ctx)[0].blocking).to.equal(false, "extra capacity is non-blocking");
     });
 
+    it("never spawns a 1-CARRY runt for a real multi-CARRY route", () => {
+      // Under energy pressure the scheduler spawns at minCost; if that were a
+      // single CARRY+MOVE the hauler would move only 50 energy/round-trip and
+      // squat a fleet slot for its whole life. minCost must floor the body.
+      const nodeId = "W1N1-hauling-floor";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([route("controller-cccc", 20, 6)]);
+      setFleet(nodeId, 0);
+      const d = corp.getSpawnDemand(ctx)[0];
+      expect(d.minCost).to.be.at.least(300, "the smallest hauler is still 3 CARRY, not a runt");
+      // A 3-CARRY hauler sustains far more than a 1-CARRY one over the same route.
+      expect(sustains(3, 20)).to.be.greaterThan(sustains(1, 20) * 2);
+    });
+
     it("returns no demand without any assignment", () => {
       const nodeId = "W1N1-hauling-none";
       const corp = carryCorp(nodeId);

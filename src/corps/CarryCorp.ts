@@ -658,7 +658,20 @@ export class CarryCorp extends Corp {
     const remainingCarry = carryNeeded - current * maxCarryPerHauler;
     const desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, remainingCarry));
     const desiredCost = desiredCarry * PART_PAIR_COST;
-    const minCost = PART_PAIR_COST; // 1 CARRY + 1 MOVE
+
+    // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
+    // moves only 50 energy per round trip - useless on a real route - yet it
+    // occupies one of the fleet's few slots for its whole 1500-tick life, so
+    // realized throughput falls far below the planned fleet. Floor every hauler
+    // at a useful minimum body. We deliberately do NOT hold out for the full
+    // desired body: the first hauler is what refills the spawn, so requiring a
+    // full-size body before the spawn is full would deadlock the bootstrap. The
+    // floor is cheap enough that a partly-drained spawn can still afford it, the
+    // scheduler scales up toward desiredCost whenever more energy is on hand, and
+    // any undersized survivors are recycled and replaced once we are maxed out
+    // and the spawn would otherwise idle.
+    const HAULER_MIN_CARRY = 3;
+    const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * PART_PAIR_COST;
 
     return [{
       buyerCorpId: this.id,
