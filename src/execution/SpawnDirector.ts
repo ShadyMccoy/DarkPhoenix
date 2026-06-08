@@ -89,7 +89,8 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         result.energyBudget,
         Game.time,
         d.bodyParam,
-        d.haulerRatio
+        d.haulerRatio,
+        d.bodyStrategy
       );
       if (ok) {
         // Reset aging for the demand we just fulfilled.

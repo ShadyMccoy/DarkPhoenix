@@ -14,7 +14,7 @@ import {
   CREEP_LIFETIME,
   getMaxSpawnCapacity,
 } from "../planning/EconomicConstants";
-import { buildMinerBody, buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
+import { buildMinerBody, buildUpgraderBody, buildTankerBody, UpgraderStrategy } from "../spawn/BodyBuilder";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 
 /**
@@ -126,12 +126,13 @@ export class SpawningCorp extends Corp {
     energyBudget: number,
     tick: number,
     bodyParam?: number,
-    haulerRatio?: HaulerRatio
+    haulerRatio?: HaulerRatio,
+    bodyStrategy?: string
   ): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return false;
 
-    const body = this.buildBodyForRole(role, energyBudget, bodyParam, haulerRatio);
+    const body = this.buildBodyForRole(role, energyBudget, bodyParam, haulerRatio, bodyStrategy);
     if (body.length === 0) return false;
 
     const bodyCost = this.calculateBodyCost(body);
@@ -170,13 +171,14 @@ export class SpawningCorp extends Corp {
     role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker",
     energyBudget: number,
     bodyParam?: number,
-    haulerRatio?: HaulerRatio
+    haulerRatio?: HaulerRatio,
+    bodyStrategy?: string
   ): BodyPartConstant[] {
     switch (role) {
       case "miner":
         return buildMinerBody(bodyParam ?? 5, energyBudget).body;
       case "upgrader":
-        return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
+        return buildUpgraderBody(energyBudget, bodyParam ?? 5, bodyStrategy as UpgraderStrategy | undefined).body;
       case "builder":
         return buildUpgraderBody(energyBudget, 2).body;
       case "tanker":

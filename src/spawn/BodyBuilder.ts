@@ -406,22 +406,39 @@ export interface UpgraderBodyResult {
 }
 
 /**
+ * Upgrader energy-supply strategy. This is an EXPLICIT choice the corp makes and
+ * threads through to body construction, so a creep's shape always matches how it
+ * will be fed:
+ *
+ * - "mobile": there is no buffer at the controller. The upgrader has to hold a
+ *   meaningful reserve and/or fetch energy between intermittent hauler drops, so
+ *   it is built CARRY-heavier (the 2W/1C/1M unit) to self-buffer.
+ * - "containerFed": a container/link sits at the controller and refills the
+ *   creep every tick, so CARRY beyond a single part is wasted. Build it
+ *   WORK-heavy to convert as much of the buffered energy as possible.
+ */
+export type UpgraderStrategy = "mobile" | "containerFed";
+
+/**
  * Builds an optimal upgrader body given energy capacity and throughput.
  *
  * Upgraders need WORK parts for upgrading, CARRY for holding energy,
  * and MOVE for getting to the controller.
  *
- * Pattern: 2 WORK + 1 CARRY + 1 MOVE is the efficient unit (300 cost)
- * This gives 2 upgrade work per tick, consuming 2 energy per tick.
- * The CARRY holds 50 energy, enough for 25 ticks of work.
+ * The body SHAPE depends on the supply strategy (see {@link UpgraderStrategy}):
+ * "mobile" packs the CARRY-heavier 2W/1C/1M unit; "containerFed" goes WORK-heavy
+ * (one CARRY + one MOVE reserved, the rest WORK, a MOVE per 4 WORK) because a
+ * buffer at its feet refills it each tick.
  *
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
  * @param maxWorkParts - Maximum WORK parts to include (limits energy consumption)
+ * @param strategy - How the upgrader will be fed (defaults to "mobile")
  * @returns Body configuration with body array, cost, and work parts
  */
 export function buildUpgraderBody(
   energyCapacity: number,
-  maxWorkParts: number = 10
+  maxWorkParts: number = 10,
+  strategy: UpgraderStrategy = "mobile"
 ): UpgraderBodyResult {
   // Minimum viable upgrader: 1 WORK + 1 CARRY + 1 MOVE = 200 energy
   const minEnergy = PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE];
@@ -429,30 +446,45 @@ export function buildUpgraderBody(
     return { body: [], cost: 0, workParts: 0, energyPerTick: 0 };
   }
 
-  // Build with pattern: 2 WORK + 1 CARRY + 1 MOVE (300 cost per unit)
-  // Each unit gives 2 upgrade work per tick
-  const unitCost = 2 * PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE]; // 300
-  const workPerUnit = 2;
-
   let workParts = 0;
   let carryParts = 0;
   let moveParts = 0;
   let cost = 0;
 
-  // Add units up to energy limit and work cap
-  while (workParts + workPerUnit <= maxWorkParts) {
-    if (cost + unitCost > energyCapacity) {
-      break;
+  if (strategy === "containerFed") {
+    // WORK-heavy: reserve one CARRY (to hold the tick's withdrawal) and one MOVE
+    // (the one-time walk to the controller), then spend everything else on WORK,
+    // adding a MOVE per 4 WORK so relocating isn't unbearably slow. This packs the
+    // budget far better than the 2W/1C/1M unit, which at 550 capacity could only
+    // afford ONE unit (2 WORK, 250 wasted); here 550 yields 4 WORK.
+    carryParts = 1;
+    moveParts = 1;
+    cost = PART_COSTS[CARRY] + PART_COSTS[MOVE];
+    while (workParts < maxWorkParts) {
+      if (cost + PART_COSTS[WORK] > energyCapacity) break;
+      if (workParts + carryParts + moveParts + 1 > MAX_BODY_PARTS) break;
+      workParts += 1;
+      cost += PART_COSTS[WORK];
+      if (workParts % 4 === 0 &&
+          cost + PART_COSTS[MOVE] <= energyCapacity &&
+          workParts + carryParts + moveParts + 1 <= MAX_BODY_PARTS) {
+        moveParts += 1;
+        cost += PART_COSTS[MOVE];
+      }
     }
-
-    if (workParts + carryParts + moveParts + 4 > MAX_BODY_PARTS) {
-      break;
+  } else {
+    // Mobile: CARRY-heavier 2 WORK + 1 CARRY + 1 MOVE unit (300 cost). The CARRY
+    // holds 50 energy so the creep keeps upgrading between intermittent deliveries.
+    const unitCost = 2 * PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE]; // 300
+    const workPerUnit = 2;
+    while (workParts + workPerUnit <= maxWorkParts) {
+      if (cost + unitCost > energyCapacity) break;
+      if (workParts + carryParts + moveParts + 4 > MAX_BODY_PARTS) break;
+      workParts += workPerUnit;
+      carryParts += 1;
+      moveParts += 1;
+      cost += unitCost;
     }
-
-    workParts += workPerUnit;
-    carryParts += 1;
-    moveParts += 1;
-    cost += unitCost;
   }
 
   // If we couldn't afford a full unit, try the minimum viable body

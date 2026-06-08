@@ -65,6 +65,11 @@ export interface SpawnDemand {
   bodyParam?: number;
   /** Hauler CARRY:MOVE ratio hint, passed through to the executor. */
   haulerRatio?: "2:1" | "1:1" | "1:2";
+  /**
+   * Body-shape strategy hint passed through to the executor (e.g. an upgrader's
+   * "mobile" vs "containerFed" supply strategy). The scheduler does not interpret it.
+   */
+  bodyStrategy?: string;
 }
 
 /**

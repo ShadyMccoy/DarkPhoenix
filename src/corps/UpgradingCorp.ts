@@ -13,7 +13,7 @@ import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 6;
 import { SinkAllocation } from "../flow/FlowTypes";
-import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildUpgraderBody, UpgraderStrategy } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
@@ -46,6 +46,9 @@ export class UpgradingCorp extends Corp {
    * Specifies the energy rate allocated to this controller.
    */
   private sinkAllocation: SinkAllocation | null = null;
+
+  /** Last chosen supply strategy, so a switch is logged once rather than every tick. */
+  private lastStrategy: UpgraderStrategy | null = null;
 
   constructor(nodeId: string, spawnId: string, customId?: string) {
     super("upgrading", nodeId, customId);
@@ -327,7 +330,34 @@ export class UpgradingCorp extends Corp {
    * wait-for-blocking logic is what lets it accumulate energy against a steady
    * trickle of mining demand.
    */
+  /**
+   * Decide how upgraders are fed, EXPLICITLY: "containerFed" when a container or
+   * link sits at the controller (a per-tick buffer), otherwise "mobile". This one
+   * choice drives both the body shape (WORK-heavy vs CARRY-heavy) and the runt
+   * policy, so the corp commits to a single coherent strategy instead of mixing
+   * conflicting signals. Logged on change so the active strategy is visible.
+   */
+  private getUpgraderStrategy(controller: StructureController): UpgraderStrategy {
+    const buffers = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK,
+    });
+    const strategy: UpgraderStrategy = buffers.length > 0 ? "containerFed" : "mobile";
+    if (strategy !== this.lastStrategy) {
+      console.log(`[Upgrading] ${this.id} strategy=${strategy} (controller buffers: ${buffers.length})`);
+      this.lastStrategy = strategy;
+    }
+    return strategy;
+  }
+
   getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // Commit to a supply strategy up front; body shape and runt policy follow it.
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const controller = spawn?.room.controller;
+    const strategy: UpgraderStrategy = controller
+      ? this.getUpgraderStrategy(controller)
+      : "mobile";
+
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an
     // allocation, ask for a minimal upgrader to keep the controller alive.
@@ -339,7 +369,7 @@ export class UpgradingCorp extends Corp {
     // a single small upgrader cannot consume a whole source. Size the COUNT to
     // the allocation, so consumption scales with supply (this is what lets a
     // second source actually help instead of being wasted).
-    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99).workParts);
+    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, strategy).workParts);
     // Cap the count as a safety bound: should a stale/over-large allocation slip
     // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
     // bounded by real supply in normal operation.
@@ -349,8 +379,16 @@ export class UpgradingCorp extends Corp {
 
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
-    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork);
-    const min = buildUpgraderBody(ctx.energyCapacity, 1);
+    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, strategy);
+    // Runt policy follows the strategy. In containerFed mode the buffer keeps the
+    // controller alive while we wait, so ADDITIONAL upgraders hold out for a
+    // (near) full-size body instead of wasting a spawn slot on a 1-WORK creep -
+    // the first upgrader still spawns cheap so the controller never downgrades. In
+    // mobile mode there is no buffer, so a small upgrader now beats none.
+    const minWork = strategy === "containerFed" && current > 0
+      ? Math.max(1, affordableWork - 1)
+      : 1;
+    const min = buildUpgraderBody(ctx.energyCapacity, minWork, strategy);
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
 
     return [{
@@ -371,6 +409,7 @@ export class UpgradingCorp extends Corp {
       minCost: min.cost,
       since: 0,
       bodyParam: desiredWork,
+      bodyStrategy: strategy,
     }];
   }
 
