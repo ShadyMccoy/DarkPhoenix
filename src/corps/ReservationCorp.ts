@@ -154,7 +154,11 @@ export class ReservationCorp extends Corp {
       {
         buyerCorpId: this.id,
         role: "reserver",
-        value: 85, // below mining (100) and building (95); an optimisation, not core
+        // Reservation doubles a remote source (+~5 e/tick for a 650 claimer that
+        // lasts 600 ticks - an enormous ROI), so it ranks as income work: above
+        // discretionary upgrading (90), below the core miners (100+) and the
+        // haulers (90-110) that actually move the energy it unlocks.
+        value: 92,
         blocking: false,
         producesIncome: true, // a reserved source delivers twice the energy
         desiredCost: body.cost,
