@@ -380,14 +380,15 @@ export class UpgradingCorp extends Corp {
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, strategy);
-    // Runt policy follows the strategy. In containerFed mode the buffer keeps the
-    // controller alive while we wait, so ADDITIONAL upgraders hold out for a
-    // (near) full-size body instead of wasting a spawn slot on a 1-WORK creep -
-    // the first upgrader still spawns cheap so the controller never downgrades. In
-    // mobile mode there is no buffer, so a small upgrader now beats none.
-    const minWork = strategy === "containerFed" && current > 0
-      ? Math.max(1, affordableWork - 1)
-      : 1;
+    // Runt policy follows the strategy. targetCount is sized assuming each
+    // upgrader is the full affordableWork; a runt permanently occupies one of the
+    // few slots and the controller under-consumes its allocation for that creep's
+    // whole 1500-tick life. In containerFed mode the buffer feeds the controller
+    // while the spawn fills, so EVERY upgrader (including the first) holds out for
+    // a full-size body - waiting tens of ticks for a 4-WORK creep beats fielding a
+    // 1-WORK one forever. In mobile mode there is no buffer, so the first upgrader
+    // still spawns small to keep the controller alive immediately.
+    const minWork = strategy === "containerFed" ? affordableWork : 1;
     const min = buildUpgraderBody(ctx.energyCapacity, minWork, strategy);
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
 
