@@ -58,6 +58,15 @@ const CONTAINER_LIMIT = 5;
 const CONTAINER_MIN_RCL = 3;
 
 /**
+ * Dropped energy (within range 1 of a source) that signals a source container is
+ * worth its 5000 build cost: a pile this big means a miner is producing there
+ * faster than haulers clear it, so a static container will buffer the energy (and
+ * stop it decaying on the ground) instead. Tunable - lower builds containers more
+ * eagerly, higher waits for clearer evidence of sustained over-production.
+ */
+const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
+
+/**
  * ConstructionCorp manages builder creeps that construct extensions.
  */
 export class ConstructionCorp extends Corp {
@@ -364,9 +373,18 @@ export class ConstructionCorp extends Corp {
     const hasContainerNear = (x: number, y: number, range: number): boolean =>
       taken.some((p) => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= range);
 
-    // Source containers: a walkable tile adjacent to the source.
+    // Source containers: at most one per source (sources that already have a
+    // container or pending site are skipped), and only once dropped energy has
+    // piled up at the source. The pile is the demand signal - it means a miner is
+    // mining there and out-producing the haulers, so a static container will pay
+    // for itself by buffering the energy and ending the drop decay. No pile means
+    // either no miner yet or haulers keeping up, so the 5000 build cost can wait.
     for (const source of room.find(FIND_SOURCES)) {
       if (hasContainerNear(source.pos.x, source.pos.y, 1)) continue;
+      const pile = source.pos
+        .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY })
+        .reduce((sum, r) => sum + r.amount, 0);
+      if (pile < SOURCE_CONTAINER_PILE_THRESHOLD) continue;
       const tile = this.bestAdjacentTile(room, source.pos, 1);
       if (tile) return tile;
     }
