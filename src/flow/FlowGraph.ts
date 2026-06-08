@@ -273,18 +273,6 @@ export class FlowGraph {
   updatePriorities(context: PriorityContext): void {
     for (const sink of this.sinks.values()) {
       sink.priority = this.calculateSinkPriority(sink, context);
-
-      // The solver splits available energy across sinks in proportion to their
-      // DEMAND (priority only sets ordering). So to make "build supersedes
-      // upgrade" actually happen, drop the controller's demand to a minimal
-      // anti-downgrade trickle while there is construction to do - otherwise the
-      // controller's large upgrade demand keeps hogging most of the energy.
-      // When construction finishes, it reverts to the normal upgrade demand.
-      if (sink.type === "controller") {
-        sink.demand = context.constructionSites > 0
-          ? MIN_CONTROLLER_UPGRADE_DEMAND
-          : DEFAULT_CONTROLLER_UPGRADE_DEMAND;
-      }
     }
   }
 
