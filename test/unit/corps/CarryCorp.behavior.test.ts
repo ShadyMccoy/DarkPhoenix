@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
-import { CarryCorp, pickSinkByAllocation } from "../../../src/corps/CarryCorp";
+import { CarryCorp, pickSinkByAllocation, pickRuntToRecycle } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
 import { Game as MockGame } from "../mock";
 
@@ -208,6 +208,34 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
         delivered[pickSinkByAllocation(assignments, delivered)] += 1;
       }
       expect(delivered.construction).to.be.greaterThan(delivered.controller);
+    });
+  });
+
+  describe("runt recycling - upgrading the fleet when there is spare capacity", () => {
+    // carryNeeded 10, a hauler maxes at 5 CARRY (550 cap). The "maxed + idle"
+    // gate is the caller's; this is the choice of WHICH runt to retire.
+    it("retires the smallest sub-max hauler when the fleet is below the plan", () => {
+      // Fleet [3,3] = 6 CARRY < 10 needed. Recycle one (index of a 3-CARRY).
+      expect(pickRuntToRecycle([3, 3], 10, 5)).to.equal(0);
+    });
+
+    it("retires the SMALLEST runt first", () => {
+      // Fleet [5,2,4] = 11 < 12 needed: the 2-CARRY hauler (index 1) is worst.
+      expect(pickRuntToRecycle([5, 2, 4], 12, 5)).to.equal(1);
+    });
+
+    it("does not recycle once the fleet meets the planned CARRY", () => {
+      // [5,5] = 10 >= 10: the fleet is whole, leave it alone even if we could.
+      expect(pickRuntToRecycle([5, 5], 10, 5)).to.equal(null);
+    });
+
+    it("does not recycle a fleet that is already all full-size but still short", () => {
+      // Every hauler is max (5); the fix is to add another hauler, not recycle.
+      expect(pickRuntToRecycle([5, 5], 12, 5)).to.equal(null);
+    });
+
+    it("does nothing when there is no carry demand", () => {
+      expect(pickRuntToRecycle([3], 0, 5)).to.equal(null);
     });
   });
 });

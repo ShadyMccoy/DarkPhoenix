@@ -229,6 +229,13 @@ declare global {
     working?: boolean;
 
     /**
+     * Flagged for retirement: the creep is an undersized runt that its corp
+     * wants to replace with a full-size body. It heads to the spawn to recycle
+     * itself once the room is maxed out and the spawn would otherwise idle.
+     */
+    recycling?: boolean;
+
+    /**
      * ID of the SpawningCorp that spawned this creep.
      */
     spawnedBy?: string;

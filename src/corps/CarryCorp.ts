@@ -66,6 +66,34 @@ export function pickSinkByAllocation(
 }
 
 /**
+ * Choose which hauler (if any) to retire so its corp respawns it at full size.
+ * Returns the index into `haulerCarry` of the smallest sub-max hauler when the
+ * fleet's total CARRY is below the plan, or null when nothing should be recycled
+ * (the fleet already meets the plan, or every hauler is already full-size). Pure
+ * so it can be unit tested directly; the caller owns the "maxed out + spawn
+ * idle" gate that decides whether recycling is affordable at all.
+ */
+export function pickRuntToRecycle(
+  haulerCarry: number[],
+  carryNeeded: number,
+  maxCarryPerHauler: number
+): number | null {
+  if (carryNeeded <= 0) return null;
+  const total = haulerCarry.reduce((sum, c) => sum + c, 0);
+  if (total >= carryNeeded) return null; // fleet already meets the plan
+
+  let idx: number | null = null;
+  let smallest = Infinity;
+  haulerCarry.forEach((carry, i) => {
+    if (carry < maxCarryPerHauler && carry < smallest) {
+      smallest = carry;
+      idx = i;
+    }
+  });
+  return idx;
+}
+
+/**
  * Serialized state specific to CarryCorp
  */
 export interface SerializedCarryCorp extends SerializedCorp {
@@ -156,8 +184,59 @@ export class CarryCorp extends Corp {
     const room = spawn.room;
     const creeps = this.getAssignedCreeps();
 
+    this.flagRuntForRecycling(creeps, room, spawn);
+
     for (const creep of creeps) {
-      this.runHauler(creep, room, spawn);
+      if (creep.memory.recycling) {
+        this.recycleRunt(creep, spawn);
+      } else {
+        this.runHauler(creep, room, spawn);
+      }
+    }
+  }
+
+  /** CARRY parts a single hauler can be built with at the room's full capacity. */
+  private maxCarryPerHauler(room: Room): number {
+    return Math.max(1, Math.min(Math.floor(room.energyCapacityAvailable / 100), 25));
+  }
+
+  /**
+   * Replace an undersized hauler with a full-size one, but only at zero cost:
+   * when the room is maxed out (every store full) and the spawn would otherwise
+   * idle. Spawning during bootstrap floors haulers at a modest size to keep the
+   * spawn affordable; that leaves the fleet short of the planned CARRY once it
+   * hits its target COUNT. Here - and only here, where the energy and the spawn
+   * tick would otherwise go to waste - we retire the smallest runt so its corp
+   * respawns it at full size, lifting realized throughput toward the plan. In a
+   * constrained room (the common case) the gate never opens, which is correct:
+   * we never disrupt deliveries to chase a bigger body we cannot afford.
+   */
+  private flagRuntForRecycling(creeps: Creep[], room: Room, spawn: StructureSpawn): void {
+    if (spawn.spawning) return;
+    if (room.energyAvailable < room.energyCapacityAvailable) return; // not maxed + idle
+    if (creeps.some((c) => c.memory.recycling)) return; // one at a time
+
+    const carryNeeded = Math.ceil(this.haulerAssignments.reduce((sum, a) => sum + a.carryParts, 0));
+    const idx = pickRuntToRecycle(
+      creeps.map((c) => c.getActiveBodyparts(CARRY)),
+      carryNeeded,
+      this.maxCarryPerHauler(room)
+    );
+    if (idx !== null) creeps[idx].memory.recycling = true;
+  }
+
+  /** Send a retired hauler to the spawn, dumping its load first, then recycle it. */
+  private recycleRunt(creep: Creep, spawn: StructureSpawn): void {
+    if (creep.store[RESOURCE_ENERGY] > 0) {
+      if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+      }
+      return;
+    }
+    if (creep.pos.isNearTo(spawn)) {
+      spawn.recycleCreep(creep);
+    } else {
+      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
     }
   }
 
