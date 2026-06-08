@@ -24,13 +24,13 @@ describe("pickSinkByAllocation", () => {
     expect(pickSinkByAllocation(assignments, { spawn: 3, controller: 0 })).to.equal("controller");
   });
 
-  it("routes to construction when it has allocated flow", () => {
+  it("ignores construction routes (tankers feed builders, not haulers)", () => {
     const assignments = [
       { toId: "spawn-abc", flowRate: 1 },
       { toId: "construction-xyz", flowRate: 2 },
     ];
-    // Construction (0/2) is further behind than spawn (0/1) once spawn is served.
-    expect(pickSinkByAllocation(assignments, { spawn: 1, construction: 0 })).to.equal("construction");
+    // Construction is excluded from hauler routing, so the only sink is the spawn.
+    expect(pickSinkByAllocation(assignments, { spawn: 1, construction: 0 })).to.equal("spawn");
   });
 
   it("converges to the allocation ratio over many loads (3:1 spawn:controller)", () => {

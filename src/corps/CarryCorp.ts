@@ -20,15 +20,6 @@ export { pickRuntToRecycle };
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
 
 /**
- * Construction can only absorb energy as fast as its builders build it. Rather
- * than letting haulers pile their whole load onto a site (where the surplus
- * decays while the controller starves), we keep a modest dropped buffer beside
- * the active site for builders to draw from, and spill anything beyond that on
- * to the next sink. CONSTRUCTION_SITE_BUFFER is that buffer size in energy.
- */
-const CONSTRUCTION_SITE_BUFFER = 150;
-
-/**
  * Decide which local sink a CarryCorp should deliver its next load to, balancing
  * deliveries across the node's sinks in proportion to the flow solver's
  * allocations (each assignment's flowRate). `delivered` is the running count of
@@ -37,7 +28,7 @@ const CONSTRUCTION_SITE_BUFFER = 150;
  * Sinks are classified by their flow `toId`: a "controller-*" destination is the
  * controller; anything else (spawn/extension network) is treated as the spawn.
  */
-export type LocalSink = "spawn" | "controller" | "construction";
+export type LocalSink = "spawn" | "controller";
 
 /**
  * Free capacity (energy) in the spawn network at or above which a hauler diverts
@@ -69,21 +60,23 @@ export function pickSinkByAllocation(
   assignments: { toId: string; flowRate: number }[],
   delivered: { [sink: string]: number }
 ): LocalSink {
-  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, construction: 0 };
+  // Haulers serve only the spawn network and the controller. Construction is
+  // deliberately excluded - feeding builders is the construction tankers' job, not
+  // the haulers' - so a construction route never pulls a hauler off its circuit.
+  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0 };
   for (const a of assignments) {
     if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
-    else if (a.toId.startsWith("construction-")) flows.construction += a.flowRate;
+    else if (a.toId.startsWith("construction-")) continue;
     else flows.spawn += a.flowRate;
   }
 
   // Pick whichever sink with positive allocated flow is furthest behind its
-  // share so far. This distributes loads in proportion to the flow solver's
-  // per-sink allocations (which already encode spawn > construction > minimal
-  // controller via priorities).
+  // share so far, distributing loads in proportion to the flow solver's per-sink
+  // allocations.
   let best: LocalSink = "spawn";
   let bestScore = Infinity;
   let anyPositive = false;
-  for (const sink of ["spawn", "controller", "construction"] as const) {
+  for (const sink of ["spawn", "controller"] as const) {
     if (flows[sink] <= 0) continue;
     anyPositive = true;
     const score = (delivered[sink] ?? 0) / flows[sink];
@@ -245,8 +238,7 @@ export class CarryCorp extends Corp {
       const homeSink = creep.memory.homeSink as LocalSink;
       creep.memory.deliverSinkId =
         homeSink !== "spawn" && this.spawnNetworkHungry(room) ? "spawn" : homeSink;
-      const dst = creep.memory.deliverSinkId;
-      creep.say(dst === "controller" ? "→ctrl" : dst === "construction" ? "→build" : "→spawn");
+      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
     // Opportunistic: pick up nearby dropped energy while delivering
@@ -513,9 +505,8 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * Deliver energy to spawn, extensions, or workers.
-   * Uses circulation-based distribution for belt/bus behavior.
-   * At RCL 2 with construction sites, prioritizes dropping near sources.
+   * Deliver energy to the spawn network or the controller (a hauler's only two
+   * sinks; construction is fed by tankers, not haulers).
    */
   private deliverEnergy(creep: Creep, room: Room, _spawn: StructureSpawn): void {
     // Deliver to this trip's destination (fixed at fill-up; see runHauler). No
@@ -524,10 +515,10 @@ export class CarryCorp extends Corp {
     const target = (creep.memory.deliverSinkId as LocalSink | undefined) ?? "spawn";
     if (this.tryDeliverTo(creep, room, target)) return;
 
-    // The destination momentarily can't take it (full): help elsewhere rather than
-    // idle, without disturbing the permanent home circuit. Spawn first - surplus
-    // is most valuable kept in the spawn network.
-    const fallback: LocalSink[] = ["spawn", "construction", "controller"];
+    // The destination momentarily can't take it (full): help the other sink rather
+    // than idle, without disturbing the permanent home circuit. Spawn first -
+    // surplus is most valuable kept in the spawn network.
+    const fallback: LocalSink[] = ["spawn", "controller"];
     for (const sink of fallback) {
       if (sink === target) continue;
       if (this.tryDeliverTo(creep, room, sink)) return;
@@ -543,12 +534,13 @@ export class CarryCorp extends Corp {
     return free >= SPAWN_PRIORITY_FREE_CAPACITY;
   }
 
-  /** Per-sink-type flow this corp's source feeds, summed from its assignments. */
+  /** Per-sink-type flow this corp's source feeds (spawn + controller; construction
+   * is excluded - tankers serve it, not haulers). */
   private flowsBySink(): Record<LocalSink, number> {
-    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, construction: 0 };
+    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0 };
     for (const a of this.haulerAssignments) {
       if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
-      else if (a.toId.startsWith("construction-")) flows.construction += a.flowRate;
+      else if (a.toId.startsWith("construction-")) continue;
       else flows.spawn += a.flowRate;
     }
     return flows;
@@ -556,9 +548,8 @@ export class CarryCorp extends Corp {
 
   /**
    * Is a hauler's committed circuit still real? Spawn is always a valid home (it
-   * perpetually needs topping). Controller/construction are valid only while the
-   * flow solver still routes energy there - when a route's flow drops to zero
-   * (construction finished, controller demand gone) its haulers re-assign.
+   * perpetually needs topping). The controller is valid only while the flow solver
+   * still routes energy there - when its flow drops to zero its haulers re-assign.
    */
   private committedSinkHasFlow(sink: LocalSink): boolean {
     if (sink === "spawn") return true;
@@ -585,57 +576,8 @@ export class CarryCorp extends Corp {
 
   /** Attempt delivery to a specific local sink; returns true if it took action. */
   private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
-    if (sink === "construction") return this.deliverToConstruction(creep, room);
     if (sink === "controller") return this.deliverToController(creep, room);
     return this.deliverToSpawn(creep, room);
-  }
-
-  /**
-   * Deliver to construction: hand energy to a builder creep that needs it (the
-   * builder then carries it to the site and builds). Returns false when there
-   * are no construction sites in the room.
-   */
-  private deliverToConstruction(creep: Creep, room: Room): boolean {
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) return false;
-
-    // Feed a builder that still has real room for energy (not a near-full
-    // dribble - that just parks the hauler while the surplus could go elsewhere).
-    const builders = room.find(FIND_MY_CREEPS, {
-      filter: (c) =>
-        c.memory.workType === "build" &&
-        c.store.getFreeCapacity(RESOURCE_ENERGY) >= creep.store.getCapacity(RESOURCE_ENERGY) / 2,
-    });
-    if (builders.length > 0) {
-      builders.sort((a, b) => b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY));
-      const target = builders[0];
-      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-      } else {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
-      }
-      return true;
-    }
-
-    // Builders are topped up. Keep a bounded dropped buffer beside the nearest
-    // site for them to draw from; once it is stocked, report "can't take more"
-    // (false) so the surplus spills to the next sink (the controller) instead of
-    // decaying here while the controller starves.
-    const site = creep.pos.findClosestByPath(sites);
-    if (!site) return false;
-    const buffered = site.pos
-      .findInRange(FIND_DROPPED_RESOURCES, 3, { filter: (r) => r.resourceType === RESOURCE_ENERGY })
-      .reduce((sum, r) => sum + r.amount, 0);
-    if (buffered >= CONSTRUCTION_SITE_BUFFER) return false;
-
-    if (creep.pos.getRangeTo(site) <= 2) {
-      const dropped = creep.store[RESOURCE_ENERGY];
-      creep.drop(RESOURCE_ENERGY);
-      this.recordProduction(dropped);
-    } else {
-      creep.moveTo(site, { visualizePathStyle: { stroke: "#ffaa00" } });
-    }
-    return true;
   }
 
   /**

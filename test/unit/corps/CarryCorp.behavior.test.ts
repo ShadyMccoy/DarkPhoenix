@@ -198,7 +198,7 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(ratio).to.be.closeTo(3, 0.4, "controller should get ~3x the spawn's loads");
     });
 
-    it("prioritises construction and controller by their allocated flow", () => {
+    it("never routes haulers to construction (tankers feed builders)", () => {
       const assignments = [
         { toId: "construction-ssss", flowRate: 5 },
         { toId: "controller-cccc", flowRate: 1 },
@@ -207,7 +207,9 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       for (let i = 0; i < 60; i += 1) {
         delivered[pickSinkByAllocation(assignments, delivered)] += 1;
       }
-      expect(delivered.construction).to.be.greaterThan(delivered.controller);
+      // Construction flow is excluded; every load goes to the controller.
+      expect(delivered.construction).to.equal(0);
+      expect(delivered.controller).to.equal(60);
     });
   });
 
