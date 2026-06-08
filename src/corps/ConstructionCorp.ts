@@ -236,71 +236,95 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * A tanker shuttles energy from the nearest source to the static builder and
-   * hands it over, then circles back to refuel. With a relay of these, one is
-   * always at the builder (hot swap) so it never stops building.
+   * A tanker is a dumb automaton running one fixed shuttle: pull energy from its
+   * ONE committed source, carry it to the builder, repeat. It never re-decides
+   * which source to use - that decision is made once, for life (see tankerSource).
+   * The old code re-picked "nearest pile" every tick, so with two mined sources it
+   * chased whichever pile was momentarily closest and thrashed between them. A
+   * fixed route is less locally optimal but predictable and ~free on CPU.
    */
   private runTanker(creep: Creep, room: Room): void {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
-    // With a squad of builders, feed the nearest one that still has room; anchor
-    // everything else on the construction site so the choice stays stable.
-    const builders = this.builders.members();
-    const hungry = creep.pos.findClosestByRange(
-      builders.filter((b) => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0)
-    );
-
     if (creep.memory.working) {
-      // Deliver to the nearest hungry builder; if all are topped off, stage by the
-      // site ready to swap in the moment one needs energy.
-      if (hungry) {
-        if (creep.transfer(hungry, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(hungry, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      // Deliver to the nearest builder with room. Builders are static, so "nearest"
+      // is a fixed pick, not a moving target - no thrash.
+      const builders = this.builders.members();
+      const target = creep.pos.findClosestByRange(
+        builders.filter((b) => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0)
+      );
+      if (target) {
+        if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         }
         return;
       }
-      const site = creep.pos.findClosestByPath(room.find(FIND_MY_CONSTRUCTION_SITES));
-      if (site && creep.pos.getRangeTo(site) > 2) {
-        creep.moveTo(site, { range: 2, visualizePathStyle: { stroke: "#ffaa00" } });
+      // Everyone topped off: stage next to a builder so the hand-off is instant.
+      const stage = builders[0];
+      if (stage && creep.pos.getRangeTo(stage) > 1) {
+        creep.moveTo(stage, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       }
       return;
     }
 
-    // Refuel from THIS node's local source - the one by the worker we feed, not
-    // whichever pile is momentarily closest to us. Anchoring the choice on the
-    // builder keeps every tanker committed to the same source: with two
-    // symmetric sources, picking "nearest to me" flip-flops left/right each tick
-    // and the tanker oscillates in place, never refuelling. A tanker is an
-    // intra-node carrier, so it draws from its node. Range (not path) keeps the
-    // pick stable and cheap; moveTo still paths there.
-    const anchor =
-      builders[0]?.pos ?? room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? creep.pos;
+    // Refuel from the ONE source this tanker is committed to - the same one every
+    // trip. Everything below is scoped to that source's tile (range 1), so there
+    // is no room-wide "closest pile" search to flip-flop on.
+    const source = this.tankerSource(creep, room);
+    if (!source) return;
 
-    const container = anchor.findClosestByRange(room.find(FIND_STRUCTURES, {
+    const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
       filter: (s) =>
         s.structureType === STRUCTURE_CONTAINER &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
-    })) as StructureContainer | null;
+    })[0] as StructureContainer | undefined;
     if (container) {
       if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.moveTo(container, { visualizePathStyle: { stroke: "#00ff00" } });
       }
       return;
     }
-    const pile = anchor.findClosestByRange(room.find(FIND_DROPPED_RESOURCES, {
+    const pile = source.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
       filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
-    }));
+    })[0];
     if (pile) {
       if (creep.pickup(pile) === ERR_NOT_IN_RANGE) {
         creep.moveTo(pile, { visualizePathStyle: { stroke: "#00ff00" } });
       }
       return;
     }
-    const source = anchor.findClosestByRange(room.find(FIND_SOURCES));
-    if (source && creep.pos.getRangeTo(source) > 2) {
-      creep.moveTo(source, { range: 2, visualizePathStyle: { stroke: "#00ff00" } });
+    // Nothing to grab yet: wait at the source so we are ready when it drops.
+    if (creep.pos.getRangeTo(source) > 1) {
+      creep.moveTo(source, { range: 1, visualizePathStyle: { stroke: "#00ff00" } });
     }
+  }
+
+  /**
+   * The single source this tanker draws from, decided once and remembered for
+   * life. New tankers commit to the source that currently has the fewest tankers
+   * (so a relay spreads itself across a room's sources), with a stable id
+   * tie-break. After that it never changes - the route is fixed.
+   */
+  private tankerSource(creep: Creep, room: Room): Source | null {
+    if (creep.memory.assignedSourceId) {
+      const s = Game.getObjectById(creep.memory.assignedSourceId as Id<Source>);
+      if (s) return s;
+    }
+    const sources = room.find(FIND_SOURCES).sort((a, b) => a.id.localeCompare(b.id));
+    if (sources.length === 0) return null;
+
+    const load = new Map<string, number>();
+    for (const t of this.tankers.members()) {
+      const id = t.memory.assignedSourceId;
+      if (id) load.set(id, (load.get(id) ?? 0) + 1);
+    }
+    let pick = sources[0];
+    for (const s of sources) {
+      if ((load.get(s.id) ?? 0) < (load.get(pick.id) ?? 0)) pick = s;
+    }
+    creep.memory.assignedSourceId = pick.id;
+    return pick;
   }
 
   /**
