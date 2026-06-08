@@ -15,6 +15,7 @@ import { BODY_PART_COST } from "../planning/EconomicConstants";
 import { buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { Squad, SquadPlan, membersForEnergy } from "./Squad";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -75,36 +76,42 @@ export class ConstructionCorp extends Corp {
    */
   private constructionAllocations: SinkAllocation[] = [];
 
+  /**
+   * The builders, as a squad. Count scales with the energy budgeted to
+   * construction (see getSpawnDemand): one big builder when energy is scarce,
+   * several when there is enough delivery to keep them all building.
+   */
+  private readonly builders: Squad;
+
+  /**
+   * The hot-swapping feeder relay that keeps the builders fed. An INTRA-node
+   * carrier squad (distinct from inter-node haulers), sized so one is always at a
+   * builder while the rest refuel.
+   */
+  private readonly tankers: Squad;
+
   constructor(nodeId: string, spawnId: string, customId?: string) {
     super("building", nodeId, customId);
     this.spawnId = spawnId;
-  }
 
-  /**
-   * Get active creeps assigned to this corp.
-   */
-  private getActiveCreeps(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "build" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
-  }
-
-  /** Dedicated INTRA-node feeder creeps (tankers/carriers bound to this corp)
-   * that shuttle energy to the static builder. Distinct from inter-node haulers. */
-  private getTankers(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "tank" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
+    this.builders = new Squad({
+      corpId: this.id,
+      workType: "build",
+      role: "builder",
+      value: 95, // just below the core mining economy, above upgrading
+      producesIncome: false,
+      blockingWhenEmpty: false,
+      usefulPart: WORK,
+    });
+    this.tankers = new Squad({
+      corpId: this.id,
+      workType: "tank",
+      role: "tanker",
+      value: 94, // feeding the builders is nearly as important as the builders
+      producesIncome: false,
+      blockingWhenEmpty: true, // the first feeder is essential
+      usefulPart: CARRY,
+    });
   }
 
   /**
@@ -180,16 +187,38 @@ export class ConstructionCorp extends Corp {
       this.tryPlaceNextSite(room, tick, rcl);
     }
 
-    const builders = this.getActiveCreeps();
-    for (const creep of builders) {
-      this.runBuilder(creep, room);
-    }
-    // Run the dedicated tanker relay that keeps the builder fed (static worker +
-    // hot-swapping feeders).
-    const builder = builders[0];
-    for (const tanker of this.getTankers()) {
-      this.runTanker(tanker, room, builder);
-    }
+    // Once the room is maxed and the spawn would idle, retire an undersized
+    // builder so it respawns at the size the room can now build (a no-op in a
+    // constrained room - see Squad.flagRuntForRecycling).
+    this.builders.flagRuntForRecycling(room, spawn, this.builderPlan(room.energyCapacityAvailable));
+
+    // Run both squads. The squad hides the creep count: whether there is one
+    // builder or several, the relay of feeders, and any creep mid-recycle.
+    this.builders.run((creep) => this.runBuilder(creep, room), spawn);
+    this.tankers.run((creep) => this.runTanker(creep, room), spawn);
+  }
+
+  /**
+   * What the builder squad should look like, sized to the energy budgeted to
+   * construction. A builder consumes 5 energy per WORK part per tick, so we field
+   * as many as the allocated throughput can keep building (capped at MAX_BUILDERS),
+   * one big builder when energy is scarce. partsNeeded/maxPartsPerMember let a
+   * maxed room recycle a bootstrap runt up to full size.
+   */
+  private builderPlan(energyCapacity: number): SquadPlan {
+    const desired = buildUpgraderBody(energyCapacity, 2);
+    const min = buildUpgraderBody(energyCapacity, 1);
+    const desiredWork = Math.max(1, desired.workParts);
+    const perBuilderConsumption = desiredWork * 5;
+    const target = membersForEnergy(this.getTotalAllocatedEnergy(), perBuilderConsumption, MAX_BUILDERS);
+    return {
+      target,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      bodyParam: 2,
+      partsNeeded: target * desiredWork,
+      maxPartsPerMember: desiredWork,
+    };
   }
 
   /**
@@ -197,16 +226,23 @@ export class ConstructionCorp extends Corp {
    * hands it over, then circles back to refuel. With a relay of these, one is
    * always at the builder (hot swap) so it never stops building.
    */
-  private runTanker(creep: Creep, room: Room, builder: Creep | undefined): void {
+  private runTanker(creep: Creep, room: Room): void {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
+    // With a squad of builders, feed the nearest one that still has room; anchor
+    // everything else on the construction site so the choice stays stable.
+    const builders = this.builders.members();
+    const hungry = creep.pos.findClosestByRange(
+      builders.filter((b) => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0)
+    );
+
     if (creep.memory.working) {
-      // Deliver to the builder; if it is topped off, stage by the site ready to
-      // swap in the moment it needs energy.
-      if (builder && builder.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        if (creep.transfer(builder, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(builder, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      // Deliver to the nearest hungry builder; if all are topped off, stage by the
+      // site ready to swap in the moment one needs energy.
+      if (hungry) {
+        if (creep.transfer(hungry, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          creep.moveTo(hungry, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         }
         return;
       }
@@ -225,7 +261,7 @@ export class ConstructionCorp extends Corp {
     // intra-node carrier, so it draws from its node. Range (not path) keeps the
     // pick stable and cheap; moveTo still paths there.
     const anchor =
-      builder?.pos ?? room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? creep.pos;
+      builders[0]?.pos ?? room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? creep.pos;
 
     const container = anchor.findClosestByRange(room.find(FIND_STRUCTURES, {
       filter: (s) =>
@@ -660,7 +696,7 @@ export class ConstructionCorp extends Corp {
    * Get number of active builder creeps.
    */
   getCreepCount(): number {
-    return this.getActiveCreeps().length;
+    return this.builders.members().length;
   }
 
   /**
@@ -671,11 +707,14 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Declare this corp's spawn demand for the scheduler.
+   * Declare this corp's spawn demand for the scheduler, as two squads: the
+   * builders, then the feeder relay that keeps them fed.
    *
-   * Builders are low-priority, non-blocking, non-income work: only requested
-   * when there are construction sites and no builder yet. They build the
-   * extensions that grow spawn capacity.
+   * The builder count scales with the energy budgeted to construction (see
+   * builderPlan), so the squad grows itself - the corp no longer reasons about
+   * "one builder" vs "several". The first builder is fetched before any feeder
+   * (an empty site has nothing to feed); after that both squads emit demand and
+   * the scheduler arbitrates by value (builders 95 > feeders 94).
    */
   getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -683,49 +722,31 @@ export class ConstructionCorp extends Corp {
     const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) return [];
 
-    const builders = this.getActiveCreeps();
+    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity));
 
-    // 1. The static builder - one, parked at the site, maxing out its WORK.
-    if (builders.length < 1) {
-      const desired = buildUpgraderBody(ctx.energyCapacity, 2);
-      const min = buildUpgraderBody(ctx.energyCapacity, 1);
-      if (min.cost === 0) return [];
-      return [{
-        buyerCorpId: this.id,
-        role: "builder",
-        value: 95, // just below the core mining economy, above upgrading
-        blocking: false,
-        producesIncome: false,
-        desiredCost: desired.cost,
-        minCost: min.cost,
-        since: 0,
-        bodyParam: 2,
-      }];
-    }
+    // Get the first builder on the field before requesting feeders for it.
+    if (this.builders.count() < 1) return builderDemand;
 
-    // 2. The hot-swapping tanker relay that keeps the builder fed. Sized by the
-    // builder's consumption and how far it is from energy: enough small tankers
-    // that one is always at the builder while the others refuel.
+    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, spawn.room, sites[0]));
+    return [...builderDemand, ...tankerDemand];
+  }
+
+  /**
+   * What the feeder squad should look like: enough small tankers that one is
+   * always at a builder while the others refuel, sized to the builders' total
+   * consumption and the refuel round-trip (see targetTankerCount).
+   */
+  private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite): SquadPlan {
     const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 4));
-    const target = this.targetTankerCount(spawn.room, sites[0], builders, perTanker);
-    if (this.getTankers().length < target) {
-      const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
-      const min = buildTankerBody(1, ctx.energyCapacity, false);
-      if (min.cost === 0) return [];
-      return [{
-        buyerCorpId: this.id,
-        role: "tanker",
-        value: 94, // feeding the builder is nearly as important as the builder
-        blocking: this.getTankers().length === 0, // the first feeder is essential
-        producesIncome: false,
-        desiredCost: desired.cost,
-        minCost: min.cost,
-        since: 0,
-        bodyParam: perTanker,
-      }];
-    }
-
-    return [];
+    const target = this.targetTankerCount(room, site, this.builders.members(), perTanker);
+    const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
+    const min = buildTankerBody(1, ctx.energyCapacity, false);
+    return {
+      target,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      bodyParam: perTanker,
+    };
   }
 
   /**
