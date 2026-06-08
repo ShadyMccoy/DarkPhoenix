@@ -367,7 +367,13 @@ export class FlowGraph {
       id,
       nodeId,
       position,
-      5,  // Demand: 5 energy/tick (builder rate)
+      // Demand a real build crew's worth, not one builder's. Construction outranks
+      // the controller (priority 70 vs 60), so this makes building claim the node's
+      // surplus while there is something to build - "build supersedes upgrade" - and
+      // the builder squad sizes itself to the energy actually allocated (which the
+      // available surplus and MAX_BUILDERS still cap, so it does not over-claim).
+      // The controller resumes absorbing the surplus once building is done.
+      20, // Demand: roughly a full build crew (MAX_BUILDERS) at low/mid RCL
       50, // Capacity: max build rate
       priority
     );
