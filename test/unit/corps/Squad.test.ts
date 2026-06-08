@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
-import { Squad, SquadConfig, SquadPlan, splitIntoMembers } from "../../../src/corps/Squad";
+import { Squad, SquadConfig, SquadPlan, splitIntoMembers, wormOrder } from "../../../src/corps/Squad";
 import { Game as MockGame } from "../mock";
 
 /**
@@ -161,5 +161,28 @@ describe("Squad", () => {
       builderSquad().flagRuntForRecycling(maxedRoom, idleSpawn, recyclePlan);
       expect(r2.memory.recycling).to.be.undefined; // one already recycling, leave the rest
     });
+  });
+});
+
+describe("wormOrder (stable squad chain)", () => {
+  it("orders members deterministically regardless of input order", () => {
+    const a = { name: "c-a" };
+    const b = { name: "c-b" };
+    const c = { name: "c-c" };
+    // Same members in any order must yield the same chain, so the worm never
+    // reshuffles tick to tick.
+    expect(wormOrder([c, a, b]).map((m) => m.name)).to.deep.equal(["c-a", "c-b", "c-c"]);
+    expect(wormOrder([b, c, a]).map((m) => m.name)).to.deep.equal(["c-a", "c-b", "c-c"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [{ name: "z" }, { name: "a" }];
+    wormOrder(input);
+    expect(input.map((m) => m.name)).to.deep.equal(["z", "a"]);
+  });
+
+  it("handles the trivial cases", () => {
+    expect(wormOrder([])).to.deep.equal([]);
+    expect(wormOrder([{ name: "solo" }]).map((m) => m.name)).to.deep.equal(["solo"]);
   });
 });
