@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
-import { Squad, SquadConfig, SquadPlan, membersForEnergy } from "../../../src/corps/Squad";
+import { Squad, SquadConfig, SquadPlan, splitIntoMembers } from "../../../src/corps/Squad";
 import { Game as MockGame } from "../mock";
 
 /**
@@ -52,23 +52,31 @@ describe("Squad", () => {
     (global as any).Game = { ...MockGame, creeps: {}, time: 100 };
   });
 
-  describe("membersForEnergy (sizing by available energy)", () => {
-    it("fields as many members as the energy throughput can keep fed", () => {
-      // 30 e/tick allocated, a member eats 10/tick -> 3, but capped at max 2.
-      expect(membersForEnergy(30, 10, 2)).to.equal(2);
-      // 25 e/tick, member eats 10 -> floor(2.5) = 2.
-      expect(membersForEnergy(25, 10, 5)).to.equal(2);
+  describe("splitIntoMembers (fewest creeps for a fixed total)", () => {
+    it("fields a single big creep when the room can build the whole total", () => {
+      // 4 WORK wanted, capacity affords 10 per creep -> one creep holding all 4.
+      expect(splitIntoMembers(4, 10, 5)).to.deep.equal({ count: 1, partsPerMember: 4 });
     });
 
-    it("always keeps at least one member when any work is wanted", () => {
-      // Below one member's consumption but max>0: best-effort single member.
-      expect(membersForEnergy(4, 10, 2)).to.equal(1);
-      // No energy budgeted yet: still field one to scavenge.
-      expect(membersForEnergy(0, 10, 2)).to.equal(1);
+    it("splits into smaller creeps only when capacity forces it, same total", () => {
+      // 4 WORK wanted but a creep can be at most 2 -> two creeps of 2 (total 4).
+      expect(splitIntoMembers(4, 2, 5)).to.deep.equal({ count: 2, partsPerMember: 2 });
+      // 5 WORK, max 2 per creep -> 3 creeps, near-equal (ceil(5/3) = 2 each).
+      expect(splitIntoMembers(5, 2, 5)).to.deep.equal({ count: 3, partsPerMember: 2 });
     });
 
-    it("fields nothing when the cap is zero", () => {
-      expect(membersForEnergy(100, 10, 0)).to.equal(0);
+    it("is capacity-limited past the member cap (fields less than the ideal total)", () => {
+      // 8 WORK, max 2 per creep would want 4 creeps, but cap is 2 -> 2 creeps of 2.
+      expect(splitIntoMembers(8, 2, 2)).to.deep.equal({ count: 2, partsPerMember: 2 });
+    });
+
+    it("asks for a single creep when the room cannot build even one part", () => {
+      expect(splitIntoMembers(3, 0, 5)).to.deep.equal({ count: 1, partsPerMember: 3 });
+    });
+
+    it("fields nothing when there is no work or no member budget", () => {
+      expect(splitIntoMembers(0, 10, 5)).to.deep.equal({ count: 0, partsPerMember: 0 });
+      expect(splitIntoMembers(4, 10, 0)).to.deep.equal({ count: 0, partsPerMember: 0 });
     });
   });
 

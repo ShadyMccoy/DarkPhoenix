@@ -178,19 +178,28 @@ export class Squad {
 }
 
 /**
- * How many members a squad can keep fed by the energy available to it (pure, so
- * it is unit-testable in isolation). "Use the available energy": add a member
- * only while the energy throughput allocated to this work can keep another one
- * busy. Falls back to one member when no energy is budgeted yet (best-effort
- * scavenging) and never exceeds `maxMembers`.
+ * Split a fixed total of useful body parts into the FEWEST creeps that can field
+ * it (pure, so it is unit-testable in isolation). The ideal is one creep holding
+ * the whole total; we are forced to split into smaller ones only when a single
+ * creep cannot be built that big - `maxPartsPerMember` is the largest body the
+ * room's current extension capacity affords. Either way the squad fields the same
+ * total parts. Capped at `maxMembers`; beyond that the squad is simply
+ * capacity-limited and fields less than the ideal total.
+ *
+ * @returns the member count and the parts each member should carry (near-equal).
  */
-export function membersForEnergy(
-  allocatedEnergyPerTick: number,
-  perMemberConsumption: number,
+export function splitIntoMembers(
+  totalParts: number,
+  maxPartsPerMember: number,
   maxMembers: number
-): number {
-  if (maxMembers <= 0) return 0;
-  if (perMemberConsumption <= 0 || allocatedEnergyPerTick <= 0) return 1;
-  const affordable = Math.floor(allocatedEnergyPerTick / perMemberConsumption);
-  return Math.max(1, Math.min(maxMembers, affordable));
+): { count: number; partsPerMember: number } {
+  if (totalParts <= 0 || maxMembers <= 0) return { count: 0, partsPerMember: 0 };
+  // Unknown cap (room cannot build even one part): ask for a single creep and let
+  // the body builder shrink it to whatever fits.
+  if (maxPartsPerMember <= 0) return { count: 1, partsPerMember: totalParts };
+
+  const count = Math.max(1, Math.min(maxMembers, Math.ceil(totalParts / maxPartsPerMember)));
+  // Spread the total evenly, but never ask for a body bigger than the room can build.
+  const partsPerMember = Math.min(maxPartsPerMember, Math.ceil(totalParts / count));
+  return { count, partsPerMember };
 }

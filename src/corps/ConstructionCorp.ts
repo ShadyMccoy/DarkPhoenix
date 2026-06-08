@@ -15,7 +15,7 @@ import { BODY_PART_COST } from "../planning/EconomicConstants";
 import { buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { Squad, SquadPlan, membersForEnergy } from "./Squad";
+import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -199,25 +199,30 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * What the builder squad should look like, sized to the energy budgeted to
-   * construction. A builder consumes 5 energy per WORK part per tick, so we field
-   * as many as the allocated throughput can keep building (capped at MAX_BUILDERS),
-   * one big builder when energy is scarce. partsNeeded/maxPartsPerMember let a
-   * maxed room recycle a bootstrap runt up to full size.
+   * What the builder squad should look like. First the TOTAL work the squad
+   * should field: enough WORK to consume the energy the flow solver budgets to
+   * construction (a builder eats 5 energy per WORK per tick). Then pack that total
+   * into the fewest creeps the room can build - ideally one big builder, splitting
+   * into smaller ones only when the current extension capacity cannot afford a
+   * single body that large. Either way the squad fields the same total WORK.
+   * partsNeeded/maxPartsPerMember let a maxed room recycle a bootstrap runt up to
+   * full size.
    */
   private builderPlan(energyCapacity: number): SquadPlan {
-    const desired = buildUpgraderBody(energyCapacity, 2);
+    const totalWork = Math.max(1, Math.ceil(this.getTotalAllocatedEnergy() / 5));
+    // The biggest single builder this room's extension capacity can build.
+    const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
+    const { count, partsPerMember } = splitIntoMembers(totalWork, maxPerBuilder, MAX_BUILDERS);
+
+    const desired = buildUpgraderBody(energyCapacity, partsPerMember);
     const min = buildUpgraderBody(energyCapacity, 1);
-    const desiredWork = Math.max(1, desired.workParts);
-    const perBuilderConsumption = desiredWork * 5;
-    const target = membersForEnergy(this.getTotalAllocatedEnergy(), perBuilderConsumption, MAX_BUILDERS);
     return {
-      target,
+      target: count,
       desiredCost: desired.cost,
       minCost: min.cost,
-      bodyParam: 2,
-      partsNeeded: target * desiredWork,
-      maxPartsPerMember: desiredWork,
+      bodyParam: partsPerMember,
+      partsNeeded: totalWork,
+      maxPartsPerMember: maxPerBuilder,
     };
   }
 
