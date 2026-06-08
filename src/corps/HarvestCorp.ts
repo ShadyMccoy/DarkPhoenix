@@ -275,8 +275,18 @@ export class HarvestCorp extends Corp {
     // Desired WORK per miner to cover the source's harvest rate across miners.
     const desiredWork = Math.max(1, Math.ceil(totalWork / target));
 
+    // Floor the miner so the scheduler can't spawn a 1-WORK runt under energy
+    // pressure. A 1-WORK miner harvests just 2/tick against a ~10/tick source, so
+    // the source stays under-mined, the spawn it feeds stays starved, and every
+    // OTHER corp then runts out too - the whole economy collapses to one-useful-
+    // part creeps. Even a bare spawn (300) affords a 2-WORK miner (250). The first
+    // miner is the bootstrap income, so it may spawn as small as that floor when
+    // energy is tight; later miners hold out for the full desired body, since the
+    // income already flows and a source has only so many spots - each one should
+    // be as large as the room can build.
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
-    const min = buildMinerBody(1, ctx.energyCapacity);
+    const minWork = current === 0 ? Math.min(desiredWork, 2) : desiredWork;
+    const min = buildMinerBody(minWork, ctx.energyCapacity);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
 
     return [{
