@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
-import { CarryCorp, pickSinkByAllocation, pickRuntToRecycle } from "../../../src/corps/CarryCorp";
+import { CarryCorp, pickSinkByAllocation, pickRuntToRecycle, pickDeliverySink } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
 import { Game as MockGame } from "../mock";
 
@@ -208,6 +208,41 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
         delivered[pickSinkByAllocation(assignments, delivered)] += 1;
       }
       expect(delivered.construction).to.be.greaterThan(delivered.controller);
+    });
+  });
+
+  describe("delivery priority - the spawn network is fed before the controller", () => {
+    // The spawn's own allocation is tiny (staffing overhead), but it is the most
+    // important sink: nothing spawns without it. So when it has real free space,
+    // it wins regardless of the controller's much larger flow.
+    const ctrlHeavy = [
+      { toId: "controller-cccc", flowRate: 12 },
+      { toId: "spawn-aaaa", flowRate: 3 },
+    ];
+
+    it("diverts to the spawn whenever it has real free capacity", () => {
+      expect(pickDeliverySink(300, ctrlHeavy, {})).to.equal("spawn");
+      expect(pickDeliverySink(50, ctrlHeavy, {})).to.equal("spawn");
+    });
+
+    it("falls back to the proportional split once the spawn is (near) full", () => {
+      // No meaningful free capacity: the controller's 12:3 share dominates again.
+      const delivered: Record<string, number> = { spawn: 0, controller: 0, construction: 0 };
+      for (let i = 0; i < 30; i += 1) {
+        delivered[pickDeliverySink(0, ctrlHeavy, delivered)] += 1;
+      }
+      expect(delivered.controller).to.be.greaterThan(delivered.spawn);
+    });
+
+    it("keeps the spawn ahead of the controller across a refill cycle", () => {
+      // While the spawn has space every load goes to it; only the overflow reaches
+      // the controller. Over a burst of loads with the spawn needing energy, the
+      // spawn is never starved.
+      let spawnLoads = 0;
+      for (let i = 0; i < 10; i += 1) {
+        if (pickDeliverySink(200, ctrlHeavy, {}) === "spawn") spawnLoads += 1;
+      }
+      expect(spawnLoads).to.equal(10);
     });
   });
 

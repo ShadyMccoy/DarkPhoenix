@@ -35,6 +35,32 @@ const CONSTRUCTION_SITE_BUFFER = 150;
  */
 export type LocalSink = "spawn" | "controller" | "construction";
 
+/**
+ * Free capacity (energy) in the spawn network at or above which a hauler diverts
+ * to refill it before anything else. The spawn + extensions are the colony's
+ * most important sink - nothing can be spawned without them - but their flow
+ * allocation is only the small staffing overhead, so a purely proportional split
+ * lets the high-volume controller starve them. One extension's worth of free
+ * space is enough to act on; smaller dribbles are left to the proportional split.
+ */
+const SPAWN_PRIORITY_FREE_CAPACITY = 50;
+
+/**
+ * Choose which local sink to commit a load to. The spawn network has strict
+ * priority: whenever it has real free capacity, fill it first regardless of the
+ * proportional allocation (the spawn is critical but small, so it tops up fast
+ * and the surplus then flows on to construction/controller). Otherwise fall back
+ * to the flow-proportional split. Pure so it can be unit tested directly.
+ */
+export function pickDeliverySink(
+  spawnFreeCapacity: number,
+  assignments: { toId: string; flowRate: number }[],
+  delivered: { [sink: string]: number }
+): LocalSink {
+  if (spawnFreeCapacity >= SPAWN_PRIORITY_FREE_CAPACITY) return "spawn";
+  return pickSinkByAllocation(assignments, delivered);
+}
+
 export function pickSinkByAllocation(
   assignments: { toId: string; flowRate: number }[],
   delivered: { [sink: string]: number }
@@ -252,9 +278,10 @@ export class CarryCorp extends Corp {
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
-      // Commit this load to a sink, balancing the node's local sinks in
-      // proportion to the flow solver's per-sink allocations.
-      creep.memory.deliverSinkId = this.chooseDeliverySink();
+      // Commit this load to a sink: the spawn network first when it needs energy,
+      // otherwise balanced across the node's sinks in proportion to the flow
+      // solver's per-sink allocations.
+      creep.memory.deliverSinkId = this.chooseDeliverySink(room);
       creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
@@ -602,8 +629,12 @@ export class CarryCorp extends Corp {
    * flow solver's per-sink allocations (flowRate). This is the heart of the
    * node's local energy balancing.
    */
-  private chooseDeliverySink(): LocalSink {
-    const pick = pickSinkByAllocation(this.haulerAssignments, this.sinkDelivered);
+  private chooseDeliverySink(room: Room): LocalSink {
+    const spawnFree = this.getSpawnZoneStructures(room).reduce(
+      (sum, s) => sum + s.store.getFreeCapacity(RESOURCE_ENERGY),
+      0
+    );
+    const pick = pickDeliverySink(spawnFree, this.haulerAssignments, this.sinkDelivered);
     this.sinkDelivered[pick] = (this.sinkDelivered[pick] ?? 0) + 1;
     return pick;
   }
