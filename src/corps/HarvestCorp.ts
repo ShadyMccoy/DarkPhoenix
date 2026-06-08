@@ -13,6 +13,7 @@ import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } fro
 import { MinerAssignment } from "../flow/FlowTypes";
 import { buildMinerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
 
 /**
  * Serialized state specific to HarvestCorp
@@ -175,14 +176,43 @@ export class HarvestCorp extends Corp {
 
     // Run all assigned creeps
     const creeps = this.getActiveCreeps();
+
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (spawn) this.flagMinerRuntForRecycling(creeps, spawn);
+
     for (const creep of creeps) {
-      if (source) {
+      if (creep.memory.recycling && spawn) {
+        driveRecycle(creep, spawn);
+      } else if (source) {
         this.runHarvester(creep, source);
       } else if (targetPos) {
         // No vision yet - just move toward the target position
         this.moveToRemoteSource(creep, targetPos);
       }
     }
+  }
+
+  /**
+   * Retire an undersized bootstrap miner once the room is flush. The first miner
+   * is floored small so the cold economy can afford it; if it is still mining at
+   * less than the source's full WORK when the room is maxed out and the spawn
+   * would idle, recycle it so its corp respawns it at the full size the room can
+   * now build (e.g. a 2-WORK cold-start miner becomes a 5-WORK miner). Pure gate
+   * + pure pick, so it never fires in a constrained room.
+   */
+  private flagMinerRuntForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
+    if (!this.minerAssignment) return;
+    if (!spawnIdleAndMaxed(spawn.room, spawn)) return;
+    if (creeps.some((c) => c.memory.recycling)) return; // one at a time
+
+    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, spawn.room.energyCapacityAvailable).workParts);
+    const idx = pickRuntToRecycle(
+      creeps.map((c) => c.getActiveBodyparts(WORK)),
+      totalWork,
+      maxWorkPerMiner
+    );
+    if (idx !== null) creeps[idx].memory.recycling = true;
   }
 
   /**

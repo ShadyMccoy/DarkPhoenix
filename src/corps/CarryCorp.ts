@@ -11,6 +11,10 @@ import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
+
+// Re-exported so existing call sites/tests can import it from CarryCorp.
+export { pickRuntToRecycle };
 
 /** Transport fee per energy unit (base cost before margin) */
 const TRANSPORT_FEE_PER_ENERGY = 0.05;
@@ -89,34 +93,6 @@ export function pickSinkByAllocation(
     }
   }
   return anyPositive ? best : "spawn";
-}
-
-/**
- * Choose which hauler (if any) to retire so its corp respawns it at full size.
- * Returns the index into `haulerCarry` of the smallest sub-max hauler when the
- * fleet's total CARRY is below the plan, or null when nothing should be recycled
- * (the fleet already meets the plan, or every hauler is already full-size). Pure
- * so it can be unit tested directly; the caller owns the "maxed out + spawn
- * idle" gate that decides whether recycling is affordable at all.
- */
-export function pickRuntToRecycle(
-  haulerCarry: number[],
-  carryNeeded: number,
-  maxCarryPerHauler: number
-): number | null {
-  if (carryNeeded <= 0) return null;
-  const total = haulerCarry.reduce((sum, c) => sum + c, 0);
-  if (total >= carryNeeded) return null; // fleet already meets the plan
-
-  let idx: number | null = null;
-  let smallest = Infinity;
-  haulerCarry.forEach((carry, i) => {
-    if (carry < maxCarryPerHauler && carry < smallest) {
-      smallest = carry;
-      idx = i;
-    }
-  });
-  return idx;
 }
 
 /**
@@ -214,7 +190,7 @@ export class CarryCorp extends Corp {
 
     for (const creep of creeps) {
       if (creep.memory.recycling) {
-        this.recycleRunt(creep, spawn);
+        driveRecycle(creep, spawn);
       } else {
         this.runHauler(creep, room, spawn);
       }
@@ -238,8 +214,7 @@ export class CarryCorp extends Corp {
    * we never disrupt deliveries to chase a bigger body we cannot afford.
    */
   private flagRuntForRecycling(creeps: Creep[], room: Room, spawn: StructureSpawn): void {
-    if (spawn.spawning) return;
-    if (room.energyAvailable < room.energyCapacityAvailable) return; // not maxed + idle
+    if (!spawnIdleAndMaxed(room, spawn)) return;
     if (creeps.some((c) => c.memory.recycling)) return; // one at a time
 
     const carryNeeded = Math.ceil(this.haulerAssignments.reduce((sum, a) => sum + a.carryParts, 0));
@@ -249,21 +224,6 @@ export class CarryCorp extends Corp {
       this.maxCarryPerHauler(room)
     );
     if (idx !== null) creeps[idx].memory.recycling = true;
-  }
-
-  /** Send a retired hauler to the spawn, dumping its load first, then recycle it. */
-  private recycleRunt(creep: Creep, spawn: StructureSpawn): void {
-    if (creep.store[RESOURCE_ENERGY] > 0) {
-      if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
-      }
-      return;
-    }
-    if (creep.pos.isNearTo(spawn)) {
-      spawn.recycleCreep(creep);
-    } else {
-      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
-    }
   }
 
   /**

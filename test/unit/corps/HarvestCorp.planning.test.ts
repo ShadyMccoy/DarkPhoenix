@@ -3,6 +3,7 @@ import "../../../src/types/Memory";
 import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { MinerAssignment } from "../../../src/flow/FlowTypes";
 import { buildMinerBody } from "../../../src/spawn/BodyBuilder";
+import { pickRuntToRecycle } from "../../../src/corps/recycle";
 import { Game as MockGame } from "../mock";
 
 /**
@@ -114,5 +115,19 @@ describe("HarvestCorp mining planning (spots x capacity)", () => {
     // 4/tick; three spots reach the full 10/tick by splitting the work.
     expect(harvestOf(fieldFleet(1, 300).work)).to.equal(4);
     expect(harvestOf(fieldFleet(3, 300).work)).to.equal(10);
+  });
+
+  describe("miner recycling (once the room is flush)", () => {
+    // The corp's maxed+idle gate is exercised in the live loop; here we pin the
+    // WORK-based decision shared with hauler recycling.
+    it("retires a cold-start 2-WORK miner once the room can build a 5-WORK one", () => {
+      // source needs 5 WORK, room now builds up to 5, lone miner is 2 -> recycle it
+      expect(pickRuntToRecycle([2], 5, 5)).to.equal(0);
+    });
+
+    it("leaves a fully-harvesting fleet of small miners alone", () => {
+      // three 2-WORK miners (cap 300, 3 spots) total 6 >= 5 needed: nothing to do
+      expect(pickRuntToRecycle([2, 2, 2], 5, 2)).to.equal(null);
+    });
   });
 });
