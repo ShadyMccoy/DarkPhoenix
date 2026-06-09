@@ -31,51 +31,52 @@
  * @module main
  */
 
+import "./types/Memory";
 import { Colony, createColony } from "./colony";
-import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, Node } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
-import { applyPlanToCorps } from "./flow/EconomyAdapter";
-import { ErrorMapper } from "./utils";
-import { getTelemetry } from "./telemetry";
 import {
   CorpRegistry,
-  createCorpRegistry,
-  runBootstrapCorps,
-  runRealCorps,
-  runScoutCorps,
-  runConstructionCorps,
-  runReservationCorps,
-  runSpawningCorps,
-  logCorpStats,
-  persistState,
   cleanupDeadCreeps,
+  createCorpRegistry,
   getAnalysisCache,
   isAnalysisInProgress,
+  logCorpStats,
+  persistState,
   refreshNodeResourcesFromCache,
-  resetAnalysis,
-  restoreVisualizationCache,
-  runIncrementalAnalysis,
   renderNodeVisuals,
   renderSpatialVisuals,
+  resetAnalysis,
+  restoreVisualizationCache,
+  runBootstrapCorps,
+  runConstructionCorps,
+  runIncrementalAnalysis,
+  runRealCorps,
+  runReservationCorps,
+  runScoutCorps,
   runSpawnScheduling,
+  runSpawningCorps
 } from "./execution";
+import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
+import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
 import {
-  initCorps,
-  shouldRunPlanning,
-  runSurveyPhase,
   PLANNING_INTERVAL,
-  loadContracts,
+  initCorps,
   loadChains,
+  loadContracts,
+  runSurveyPhase,
   setLastPlanningTick,
   setLastSurveyTick,
+  shouldRunPlanning
 } from "./orchestration";
-import "./types/Memory";
+import { ErrorMapper } from "./utils";
+import { applyPlanToCorps } from "./flow/EconomyAdapter";
+import { getTelemetry } from "./telemetry";
 
 // =============================================================================
 // GLOBALS
 // =============================================================================
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- augmenting NodeJS.Global has no ES-module equivalent
   namespace NodeJS {
     interface Global {
       log: any;
@@ -117,7 +118,7 @@ const FLOW_RESOLVE_INTERVAL = 50;
 let flowEconomy: FlowEconomy | undefined;
 
 /** All active corps */
-let corps: CorpRegistry = createCorpRegistry();
+const corps: CorpRegistry = createCorpRegistry();
 
 // =============================================================================
 // MAIN GAME LOOP
@@ -191,8 +192,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Fresh respawn detection: if no nodes exist and no analysis in progress,
   // start terrain analysis immediately (don't wait for planning interval)
-  const hasNoNodes = colony.getNodes().length === 0 &&
-    (!Memory.nodes || Object.keys(Memory.nodes).length === 0);
+  const hasNoNodes = colony.getNodes().length === 0 && (!Memory.nodes || Object.keys(Memory.nodes).length === 0);
   if (hasNoNodes && !isAnalysisInProgress()) {
     console.log(`[Respawn] No nodes in memory - starting terrain analysis immediately`);
     runIncrementalAnalysis(colony);
@@ -243,9 +243,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // analysis inside is separately gated, so this only re-runs the cheap
   // rebuild+solve+materialize).
   const economyNeedsResolve =
-    colony.getNodes().length > 0 &&
-    !isAnalysisInProgress() &&
-    Game.time % FLOW_RESOLVE_INTERVAL === 0;
+    colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % FLOW_RESOLVE_INTERVAL === 0;
 
   if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
@@ -288,7 +286,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
       const solution = flowEconomy.getSolution();
       if (solution) {
         console.log(`[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
-        console.log(`[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${solution.isSustainable}`);
+        console.log(
+          `[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${String(solution.isSustainable)}`
+        );
         if (solution.warnings.length > 0) {
           console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
         }
@@ -297,7 +297,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
         // This replaces corps querying FlowEconomy - corps ARE the flow now
         const graph = flowEconomy.getFlowGraph();
         const result = materializeCorps(solution, graph, corps, Game.time);
-        console.log(`[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.carryCorpsUpdated} carry, ${result.upgradingCorpsUpdated} upgrading corps`);
+        console.log(
+          `[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.carryCorpsUpdated} carry, ${result.upgradingCorpsUpdated} upgrading corps`
+        );
       }
     }
 
@@ -410,7 +412,7 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) continue;
 
-    const roomNodes = nodes.filter((n) => n.roomName === roomName);
+    const roomNodes = nodes.filter(n => n.roomName === roomName);
     if (roomNodes.length === 0) continue;
 
     for (const site of sites) {
@@ -429,12 +431,7 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
       if (!best) continue;
 
       const remaining = site.progressTotal - site.progress;
-      economy.addConstructionSite(
-        site.id,
-        best.id,
-        { x: site.pos.x, y: site.pos.y, roomName },
-        remaining
-      );
+      economy.addConstructionSite(site.id, best.id, { x: site.pos.x, y: site.pos.y, roomName }, remaining);
     }
   }
 }
@@ -487,17 +484,21 @@ function buildFlowEconomyFromMemory(nodes: Node[]): {
  *
  * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
  */
-function getOrCreateFlowEconomy(colony: Colony): {
+function getOrCreateFlowEconomy(activeColony: Colony): {
   navigator: NodeNavigator;
   economy: FlowEconomy;
 } {
-  const nodes = colony.getNodes();
+  const nodes = activeColony.getNodes();
   const { navigator, economy } = buildFlowEconomyFromMemory(nodes);
 
   if (nodes.length > 0) {
     const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
     console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${edgeCount} edges`);
-    console.log(`[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${economy.getFlowGraph().getSinks().length}`);
+    console.log(
+      `[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${
+        economy.getFlowGraph().getSinks().length
+      }`
+    );
 
     // Run initial solve if we have sources (don't wait for planning cycle)
     if (economy.getFlowGraph().getSources().length > 0) {
@@ -509,7 +510,9 @@ function getOrCreateFlowEconomy(colony: Colony): {
       if (solution) {
         const graph = economy.getFlowGraph();
         materializeCorps(solution, graph, corps, Game.time);
-        console.log(`[FlowEconomy] Initial solve: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
+        console.log(
+          `[FlowEconomy] Initial solve: ${solution.miners.length} miners, ${solution.haulers.length} haulers`
+        );
       }
     }
   }
@@ -523,7 +526,7 @@ function getOrCreateFlowEconomy(colony: Colony): {
  * This context is used by the flow economy to calculate dynamic
  * sink priorities (e.g., higher priority for towers during attack).
  */
-function buildPriorityContext(corps: CorpRegistry): PriorityContext {
+function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
   // Find the first owned room to use as context
   let targetRoom: Room | undefined;
   for (const roomName in Game.rooms) {
@@ -546,7 +549,7 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
 
   // Calculate extension energy
   const extensions = targetRoom.find(FIND_MY_STRUCTURES, {
-    filter: (s) => s.structureType === STRUCTURE_EXTENSION
+    filter: s => s.structureType === STRUCTURE_EXTENSION
   }) as StructureExtension[];
 
   let extensionEnergy = 0;
@@ -558,8 +561,8 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
 
   // Calculate spawn queue size from spawning corps
   let spawnQueueSize = 0;
-  for (const spawnId in corps.spawningCorps) {
-    spawnQueueSize += corps.spawningCorps[spawnId].getPendingOrderCount();
+  for (const spawnId in activeCorps.spawningCorps) {
+    spawnQueueSize += activeCorps.spawningCorps[spawnId].getPendingOrderCount();
   }
 
   // Track RCL upgrade time (using memory if available)
@@ -569,9 +572,7 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
   return {
     tick: Game.time,
     rcl: controller?.level ?? 0,
-    rclProgress: controller
-      ? controller.progress / controller.progressTotal
-      : 0,
+    rclProgress: controller ? controller.progress / controller.progressTotal : 0,
     constructionSites: sites.length,
     hostileCreeps: hostiles.length,
     storageEnergy: storage?.store[RESOURCE_ENERGY] ?? 0,
@@ -579,7 +580,7 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
     underAttack: hostiles.length > 0,
     ticksSinceRclUp,
     extensionEnergy,
-    extensionCapacity,
+    extensionCapacity
   };
 }
 
@@ -590,17 +591,17 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
 /**
  * Updates telemetry data in RawMemory segments for external monitoring.
  */
-function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
+function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void {
   const telemetry = getTelemetry();
   telemetry.update(
-    colony,
-    corps.bootstrapCorps,
-    corps.harvestCorps,
-    corps.haulingCorps,
-    corps.upgradingCorps,
-    corps.scoutCorps,
-    corps.constructionCorps,
-    corps.spawningCorps,
+    activeColony,
+    activeCorps.bootstrapCorps,
+    activeCorps.harvestCorps,
+    activeCorps.haulingCorps,
+    activeCorps.upgradingCorps,
+    activeCorps.scoutCorps,
+    activeCorps.constructionCorps,
+    activeCorps.spawningCorps,
     flowEconomy?.getSolution() ?? undefined
   );
 }
@@ -608,16 +609,18 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
 /**
  * Logs statistics for monitoring.
  */
-function logStats(colony: Colony, corps: CorpRegistry): void {
-  const stats = colony.getStats();
-  const supply = colony.getMoneySupply();
+function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
+  const stats = activeColony.getStats();
+  const supply = activeColony.getMoneySupply();
 
   console.log(`[Colony] Tick ${Game.time}`);
   console.log(`  Nodes: ${stats.nodeCount}, Corps: ${stats.totalCorps} (${stats.activeCorps} active)`);
   console.log(`  Chains: ${stats.activeChains}, Treasury: ${supply.treasury.toFixed(0)}`);
-  console.log(`  Money Supply: ${supply.net.toFixed(0)} (minted: ${supply.minted.toFixed(0)}, taxed: ${supply.taxed.toFixed(0)})`);
+  console.log(
+    `  Money Supply: ${supply.net.toFixed(0)} (minted: ${supply.minted.toFixed(0)}, taxed: ${supply.taxed.toFixed(0)})`
+  );
 
-  logCorpStats(corps);
+  logCorpStats(activeCorps);
 }
 
 // =============================================================================
@@ -648,8 +651,12 @@ global.survey = () => {
 
   console.log("\n=== Survey Results ===");
   console.log(`Nodes surveyed: ${result.nodesSurveyed}`);
-  console.log(`Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`);
-  console.log(`Corps created: ${result.corpsCreated.harvest} harvest, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`);
+  console.log(
+    `Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`
+  );
+  console.log(
+    `Corps created: ${result.corpsCreated.harvest} harvest, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`
+  );
 };
 
 /**
@@ -707,7 +714,9 @@ global.plan = () => {
       // Materialize flow solution into corps
       const graph = flowEconomy.getFlowGraph();
       const matResult = materializeCorps(solution, graph, corps, Game.time);
-      console.log(`\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.carryCorpsUpdated} carry, ${matResult.upgradingCorpsUpdated} upgrading corps`);
+      console.log(
+        `\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.carryCorpsUpdated} carry, ${matResult.upgradingCorpsUpdated} upgrading corps`
+      );
     } else {
       console.log(`[FlowEconomy] No solution computed`);
     }
@@ -732,9 +741,7 @@ global.plan = () => {
 global.status = () => {
   const chains = loadChains();
   const contracts = loadContracts();
-  const activeContracts = contracts.filter(c =>
-    Game.time < c.startTick + c.duration && c.delivered < c.quantity
-  );
+  const activeContracts = contracts.filter(c => Game.time < c.startTick + c.duration && c.delivered < c.quantity);
 
   console.log("\n=== Orchestration Status ===");
   console.log(`Current tick: ${Game.time}`);
@@ -809,7 +816,11 @@ global.flowStatus = () => {
 
   console.log("\n=== Hauler Assignments ===");
   for (const hauler of solution.haulers.slice(0, 5)) {
-    console.log(`  ${hauler.fromId.slice(-8)} -> ${hauler.toId.slice(-8)}: ${hauler.carryParts} CARRY, ${hauler.flowRate.toFixed(2)} e/tick`);
+    console.log(
+      `  ${hauler.fromId.slice(-8)} -> ${hauler.toId.slice(-8)}: ${hauler.carryParts} CARRY, ${hauler.flowRate.toFixed(
+        2
+      )} e/tick`
+    );
   }
   if (solution.haulers.length > 5) {
     console.log(`  ... and ${solution.haulers.length - 5} more haulers`);
@@ -819,7 +830,11 @@ global.flowStatus = () => {
   const allocations = solution.sinkAllocations.sort((a, b) => b.priority - a.priority);
   for (const alloc of allocations.slice(0, 10)) {
     const pct = alloc.demand > 0 ? ((alloc.allocated / alloc.demand) * 100).toFixed(0) : "N/A";
-    console.log(`  ${alloc.sinkType}[${alloc.sinkId.slice(-8)}]: ${alloc.allocated.toFixed(1)}/${alloc.demand.toFixed(1)} (${pct}%) pri=${alloc.priority}`);
+    console.log(
+      `  ${alloc.sinkType}[${alloc.sinkId.slice(-8)}]: ${alloc.allocated.toFixed(1)}/${alloc.demand.toFixed(
+        1
+      )} (${pct}%) pri=${alloc.priority}`
+    );
   }
   if (allocations.length > 10) {
     console.log(`  ... and ${allocations.length - 10} more sinks`);
@@ -897,13 +912,16 @@ global.showNodes = () => {
   for (const node of sortedNodes) {
     const roi = node.roi;
     if (roi) {
-      const corpSummary = roi.potentialCorps.length > 0
-        ? roi.potentialCorps.map(c => `${c.type}(${c.estimatedROI.toFixed(2)})`).join(", ")
-        : "none";
+      const corpSummary =
+        roi.potentialCorps.length > 0
+          ? roi.potentialCorps.map(c => `${c.type}(${c.estimatedROI.toFixed(2)})`).join(", ")
+          : "none";
       const distStr = roi.distanceFromOwned === Infinity ? "∞" : roi.distanceFromOwned.toString();
 
       console.log(`${node.id} [${roi.isOwned ? "OWNED" : `dist=${distStr}`}]`);
-      console.log(`  Score: ${roi.score.toFixed(1)} | Raw Corp ROI: ${roi.rawCorpROI.toFixed(2)} | Openness: ${roi.openness}`);
+      console.log(
+        `  Score: ${roi.score.toFixed(1)} | Raw Corp ROI: ${roi.rawCorpROI.toFixed(2)} | Openness: ${roi.openness}`
+      );
       console.log(`  Resources: ${roi.sourceCount} sources, ${roi.hasController ? "has controller" : "no controller"}`);
       console.log(`  Potential Corps: ${corpSummary}`);
     } else {
@@ -961,9 +979,7 @@ global.exportNodes = (): string => {
       totalSources: nodes.reduce((sum, n) => sum + (n.roi?.sourceCount ?? 0), 0),
       ownedNodes: nodes.filter(n => n.roi?.isOwned).length,
       expansionCandidates: nodes.filter(n => !n.roi?.isOwned && (n.roi?.score ?? 0) > 0).length,
-      avgROI: nodes.length > 0
-        ? nodes.reduce((sum, n) => sum + (n.roi?.score ?? 0), 0) / nodes.length
-        : 0
+      avgROI: nodes.length > 0 ? nodes.reduce((sum, n) => sum + (n.roi?.score ?? 0), 0) / nodes.length : 0
     }
   };
 
@@ -983,7 +999,7 @@ global.exportNodes = (): string => {
  *
  * @param amount Optional starting balance for all corps (default: 1000)
  */
-global.forgiveDebt = (amount: number = 1000) => {
+global.forgiveDebt = (amount = 1000) => {
   let corpsReset = 0;
 
   const resetCorp = (corp: {
@@ -1067,9 +1083,8 @@ global.forceBootstrap = () => {
 
   for (const roomName in corps.bootstrapCorps) {
     const bootstrap = corps.bootstrapCorps[roomName];
-    // Set starvation start tick to force activation
-    // Access private property via any cast
-    (bootstrap as any).starvationStartTick = Game.time - 100;
+    // Set starvation start tick to force activation (access private field)
+    (bootstrap as unknown as { starvationStartTick: number }).starvationStartTick = Game.time - 100;
     activated++;
     console.log(`[GodMode] Forced bootstrap activation for ${roomName}`);
   }
@@ -1144,7 +1159,10 @@ global.marketStatus = () => {
 
   // Show corp stats
   console.log("=== Corps ===");
-  const showCorpStats = (name: string, corpMap: { [id: string]: { id: string; balance: number; getCreepCount?: () => number } }) => {
+  const showCorpStats = (
+    name: string,
+    corpMap: { [id: string]: { id: string; balance: number; getCreepCount?: () => number } }
+  ) => {
     const count = Object.keys(corpMap).length;
     if (count === 0) return;
 
@@ -1152,7 +1170,7 @@ global.marketStatus = () => {
     let totalCreeps = 0;
     for (const id in corpMap) {
       totalBalance += corpMap[id].balance;
-      if (typeof corpMap[id].getCreepCount === 'function') {
+      if (typeof corpMap[id].getCreepCount === "function") {
         totalCreeps += corpMap[id].getCreepCount!();
       }
     }

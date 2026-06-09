@@ -8,8 +8,8 @@
  * @module execution/Visualization
  */
 
+import { MultiRoomAnalysisResult, visualizeMultiRoomAnalysis } from "../spatial";
 import { Colony } from "../colony";
-import { visualizeMultiRoomAnalysis, MultiRoomAnalysisResult } from "../spatial";
 
 /**
  * Renders node visualization in rooms with vision.
@@ -32,7 +32,7 @@ export function renderNodeVisuals(colony: Colony): void {
       fill: isOwned ? "#60a5fa" : "#facc15",
       opacity: 0.6,
       stroke: isOwned ? "#3b82f6" : "#eab308",
-      strokeWidth: 0.1,
+      strokeWidth: 0.1
     });
 
     // Draw source count in node
@@ -40,20 +40,23 @@ export function renderNodeVisuals(colony: Colony): void {
     visual.text(String(sourceCount), peak.x, peak.y + 0.15, {
       font: "bold 0.6 sans-serif",
       color: "#ffffff",
-      align: "center",
+      align: "center"
     });
 
     // Draw controller indicator (small diamond above node)
     if (node.roi?.hasController) {
-      visual.poly([
-        [peak.x, peak.y - radius - 0.4],
-        [peak.x + 0.3, peak.y - radius - 0.7],
-        [peak.x, peak.y - radius - 1.0],
-        [peak.x - 0.3, peak.y - radius - 0.7],
-      ], {
-        fill: "#e94560",
-        opacity: 0.8,
-      });
+      visual.poly(
+        [
+          [peak.x, peak.y - radius - 0.4],
+          [peak.x + 0.3, peak.y - radius - 0.7],
+          [peak.x, peak.y - radius - 1.0],
+          [peak.x - 0.3, peak.y - radius - 0.7]
+        ],
+        {
+          fill: "#e94560",
+          opacity: 0.8
+        }
+      );
     }
 
     // Draw dashed lines to other rooms this node spans
@@ -76,7 +79,7 @@ export function renderNodeVisuals(colony: Colony): void {
               color: "#4a4a6e",
               width: 0.1,
               opacity: 0.5,
-              lineStyle: "dashed",
+              lineStyle: "dashed"
             });
           }
         }

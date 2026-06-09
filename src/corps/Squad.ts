@@ -18,9 +18,8 @@
  * @module corps/Squad
  */
 
-import { SpawnDemand } from "../spawn/SpawnScheduler";
-import { SpawnRole } from "../spawn/SpawnScheduler";
-import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
+import { SpawnDemand, SpawnRole } from "../spawn/SpawnScheduler";
+import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 
 /**
  * Static identity and spawn shape of a squad. Fixed for the squad's lifetime.
@@ -72,13 +71,13 @@ export interface SquadPlan {
  * A Squad abstracts "how many creeps" away from an operation. See file header.
  */
 export class Squad {
-  constructor(private readonly config: SquadConfig) {}
+  public constructor(private readonly config: SquadConfig) {}
 
   /**
    * Live, ready-to-work members (born and not mid-spawn). This is what `run`
    * iterates; spawning creeps cannot act yet so they are excluded here.
    */
-  members(): Creep[] {
+  public members(): Creep[] {
     const out: Creep[] = [];
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
@@ -97,14 +96,11 @@ export class Squad {
    * Member count INCLUDING creeps still spawning. Spawn-demand gating uses this
    * so a creep already in the spawn queue is not double-ordered.
    */
-  count(): number {
+  public count(): number {
     let n = 0;
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if (
-        creep.memory.corpId === this.config.corpId &&
-        creep.memory.workType === this.config.workType
-      ) {
+      if (creep.memory.corpId === this.config.corpId && creep.memory.workType === this.config.workType) {
         n++;
       }
     }
@@ -116,7 +112,7 @@ export class Squad {
    * spawn instead; everyone else runs `active`. The caller supplies the spawn so
    * recycling members have somewhere to go.
    */
-  run(active: (creep: Creep) => void, spawn: StructureSpawn): void {
+  public run(active: (creep: Creep) => void, spawn: StructureSpawn): void {
     for (const creep of this.members()) {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
@@ -139,7 +135,7 @@ export class Squad {
    * Returns the worm head (or undefined if empty) so a caller can reason about
    * "where the squad is" from one position.
    */
-  moveAsWorm(target: RoomPosition | _HasPos, range = 0): Creep | undefined {
+  public moveAsWorm(target: RoomPosition | _HasPos, range = 0): Creep | undefined {
     const chain = wormOrder(this.members());
     if (chain.length === 0) return undefined;
 
@@ -160,7 +156,7 @@ export class Squad {
    * the demand reappears next tick until the target is met. Returns nothing when
    * the squad is already at target or the room cannot afford even the floor body.
    */
-  spawnDemand(plan: SquadPlan): SpawnDemand[] {
+  public spawnDemand(plan: SquadPlan): SpawnDemand[] {
     if (plan.target <= 0) return [];
     const current = this.count();
     if (current >= plan.target) return [];
@@ -176,8 +172,8 @@ export class Squad {
         desiredCost: plan.desiredCost,
         minCost: plan.minCost,
         since: 0,
-        bodyParam: plan.bodyParam,
-      },
+        bodyParam: plan.bodyParam
+      }
     ];
   }
 
@@ -189,15 +185,15 @@ export class Squad {
    * gate never opens, so a working creep is never disrupted to chase a body we
    * cannot afford. A no-op unless the plan supplies recycling bounds.
    */
-  flagRuntForRecycling(room: Room, spawn: StructureSpawn, plan: SquadPlan): void {
+  public flagRuntForRecycling(room: Room, spawn: StructureSpawn, plan: SquadPlan): void {
     if (plan.partsNeeded === undefined || plan.maxPartsPerMember === undefined) return;
     if (!spawnIdleAndMaxed(room, spawn)) return;
 
     const members = this.members();
-    if (members.some((c) => c.memory.recycling)) return; // one at a time
+    if (members.some(c => c.memory.recycling)) return; // one at a time
 
     const idx = pickRuntToRecycle(
-      members.map((c) => c.getActiveBodyparts(this.config.usefulPart)),
+      members.map(c => c.getActiveBodyparts(this.config.usefulPart)),
       plan.partsNeeded,
       plan.maxPartsPerMember
     );

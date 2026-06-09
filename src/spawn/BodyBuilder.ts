@@ -29,7 +29,7 @@ const PART_COSTS: Record<BodyPartConstant, number> = {
   [RANGED_ATTACK]: 150,
   [HEAL]: 250,
   [CLAIM]: 600,
-  [TOUGH]: 10,
+  [TOUGH]: 10
 };
 
 /**
@@ -51,10 +51,7 @@ const MAX_BODY_PARTS = 50;
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
  * @returns Body configuration with body array, cost, and actual work parts
  */
-export function buildMinerBody(
-  desiredWork: number,
-  energyCapacity: number
-): BodyResult {
+export function buildMinerBody(desiredWork: number, energyCapacity: number): BodyResult {
   // Minimum viable miner: 1 WORK + 1 MOVE = 150 energy
   const minEnergy = PART_COSTS[WORK] + PART_COSTS[MOVE];
   if (energyCapacity < minEnergy) {
@@ -75,7 +72,7 @@ export function buildMinerBody(
   while (workParts < desiredWork) {
     const newWorkCost = PART_COSTS[WORK];
     // Do we need another MOVE part?
-    const needsMove = (workParts + 1) > moveParts * 2;
+    const needsMove = workParts + 1 > moveParts * 2;
     const newMoveCost = needsMove ? PART_COSTS[MOVE] : 0;
     const totalNewCost = newWorkCost + newMoveCost;
 
@@ -114,11 +111,7 @@ export function buildMinerBody(
  * @param maxCreeps - Maximum creeps allowed (e.g., mining spots available)
  * @returns Number of creeps to spawn
  */
-export function calculateCreepsNeeded(
-  desiredWork: number,
-  workPerCreep: number,
-  maxCreeps: number
-): number {
+export function calculateCreepsNeeded(desiredWork: number, workPerCreep: number, maxCreeps: number): number {
   if (workPerCreep <= 0) return 0;
   const needed = Math.ceil(desiredWork / workPerCreep);
   return Math.min(needed, maxCreeps);
@@ -151,11 +144,7 @@ export interface HaulerBodyResult {
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
  * @returns Body configuration with body array, cost, and carry capacity
  */
-export function buildHaulerBody(
-  energyRate: number,
-  distance: number,
-  energyCapacity: number
-): HaulerBodyResult {
+export function buildHaulerBody(energyRate: number, distance: number, energyCapacity: number): HaulerBodyResult {
   // Minimum viable hauler: 1 CARRY + 1 MOVE = 100 energy
   const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];
   if (energyCapacity < minEnergy) {
@@ -220,9 +209,10 @@ export function buildHaulerBody(
  * @param sources - Array of { flow, distanceToSpawn } for each source
  * @returns Total carry capacity needed per trip cycle
  */
-export function calculateHaulingNeeds(
-  sources: { flow: number; distanceToSpawn: number }[]
-): { totalCarryNeeded: number; avgDistance: number } {
+export function calculateHaulingNeeds(sources: { flow: number; distanceToSpawn: number }[]): {
+  totalCarryNeeded: number;
+  avgDistance: number;
+} {
   if (sources.length === 0) {
     return { totalCarryNeeded: 0, avgDistance: 0 };
   }
@@ -238,7 +228,7 @@ export function calculateHaulingNeeds(
 
   return {
     totalCarryNeeded: Math.ceil(totalCarryNeeded * 1.2), // 20% buffer
-    avgDistance: Math.ceil(totalDistance / sources.length),
+    avgDistance: Math.ceil(totalDistance / sources.length)
   };
 }
 
@@ -274,11 +264,7 @@ export interface TankerBodyResult {
  * @param useRoads - Whether tanker will primarily use roads (default true)
  * @returns Body configuration with body array, cost, and carry capacity
  */
-export function buildTankerBody(
-  requiredCarry: number,
-  energyCapacity: number,
-  useRoads: boolean = true
-): TankerBodyResult {
+export function buildTankerBody(requiredCarry: number, energyCapacity: number, useRoads = true): TankerBodyResult {
   // Minimum viable tanker: 1 CARRY + 1 MOVE = 100 energy
   const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];
   if (energyCapacity < minEnergy) {
@@ -369,7 +355,7 @@ export function calculateTankerCarryNeeded(
   spawnCount: number,
   towerCount: number,
   averageDistance: number,
-  spawnRate: number = 0.02
+  spawnRate = 0.02
 ): number {
   // Energy consumption per tick:
   // - Spawning: ~10 energy/tick when active (varies by creep size)
@@ -437,7 +423,7 @@ export type UpgraderStrategy = "mobile" | "containerFed";
  */
 export function buildUpgraderBody(
   energyCapacity: number,
-  maxWorkParts: number = 10,
+  maxWorkParts = 10,
   strategy: UpgraderStrategy = "mobile"
 ): UpgraderBodyResult {
   // Minimum viable upgrader: 1 WORK + 1 CARRY + 1 MOVE = 200 energy
@@ -465,9 +451,11 @@ export function buildUpgraderBody(
       if (workParts + carryParts + moveParts + 1 > MAX_BODY_PARTS) break;
       workParts += 1;
       cost += PART_COSTS[WORK];
-      if (workParts % 4 === 0 &&
-          cost + PART_COSTS[MOVE] <= energyCapacity &&
-          workParts + carryParts + moveParts + 1 <= MAX_BODY_PARTS) {
+      if (
+        workParts % 4 === 0 &&
+        cost + PART_COSTS[MOVE] <= energyCapacity &&
+        workParts + carryParts + moveParts + 1 <= MAX_BODY_PARTS
+      ) {
         moveParts += 1;
         cost += PART_COSTS[MOVE];
       }
@@ -531,10 +519,7 @@ export interface ReserverBodyResult {
  * @param energyCapacity - Available spawn energy capacity.
  * @param maxClaim - Upper bound on CLAIM parts (default 2).
  */
-export function buildReserverBody(
-  energyCapacity: number,
-  maxClaim: number = 2
-): ReserverBodyResult {
+export function buildReserverBody(energyCapacity: number, maxClaim = 2): ReserverBodyResult {
   const unitCost = PART_COSTS[CLAIM] + PART_COSTS[MOVE]; // 650 per CLAIM+MOVE pair
   const affordable = Math.floor(energyCapacity / unitCost);
   const claimParts = Math.max(0, Math.min(maxClaim, affordable, Math.floor(MAX_BODY_PARTS / 2)));

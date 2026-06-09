@@ -33,14 +33,12 @@ export interface EnergySpot {
  */
 export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
   const container = sourcePos.findInRange(FIND_STRUCTURES, 1, {
-    filter: (s) =>
-      s.structureType === STRUCTURE_CONTAINER &&
-      (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+    filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
   })[0] as StructureContainer | undefined;
   if (container) return { pos: container.pos, structure: container };
 
   const pile = sourcePos
-    .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
+    .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
     .sort((a, b) => b.amount - a.amount)[0];
   if (pile) return { pos: pile.pos };
 
@@ -54,9 +52,8 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
  */
 export function controllerDeliverySpot(controller: StructureController): EnergySpot {
   const container = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-    filter: (s) =>
-      s.structureType === STRUCTURE_CONTAINER &&
-      (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    filter: s =>
+      s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0
   })[0] as StructureContainer | undefined;
   if (container) return { pos: container.pos, structure: container };
 
@@ -84,7 +81,7 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
       creep.withdraw(spot.structure, RESOURCE_ENERGY);
     } else {
       const pile = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-        filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+        filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
       })[0];
       if (pile) creep.pickup(pile);
     }

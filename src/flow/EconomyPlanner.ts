@@ -30,7 +30,7 @@ export const ENERGY_PER_WORK = {
   /** upgradeController: 1 energy/tick per WORK part. */
   upgrade: 1,
   /** build: 5 energy/tick per WORK part. */
-  build: 5,
+  build: 5
 } as const;
 
 /** A source of energy (a mined Source). */
@@ -186,19 +186,17 @@ function allocate(input: PlannerInput, overhead: number): Omit<EconomyPlan, "ove
   const { sources, sinks, spawnId, dist } = input;
 
   // The spawn's "capacity" is the overhead it must absorb to keep creeps alive.
-  const effectiveSinks = sinks.map((s) => (s.kind === "spawn" ? { ...s, capacity: overhead } : s));
+  const effectiveSinks = sinks.map(s => (s.kind === "spawn" ? { ...s, capacity: overhead } : s));
 
   // Remaining unallocated supply per source.
-  const remaining = new Map(sources.map((s) => [s.id, s.supply]));
+  const remaining = new Map(sources.map(s => [s.id, s.supply]));
   const flows: PlannedFlow[] = [];
   const allocatedTo = new Map<string, number>();
 
   /** Route up to `need` energy to `sink` from its nearest sources. */
   const route = (sink: PlannerSink, need: number): void => {
     if (need <= 0) return;
-    const nearestFirst = sources
-      .map((s) => ({ s, d: dist(s.pos, sink.pos) }))
-      .sort((a, b) => a.d - b.d);
+    const nearestFirst = sources.map(s => ({ s, d: dist(s.pos, sink.pos) })).sort((a, b) => a.d - b.d);
     for (const { s, d } of nearestFirst) {
       if (need <= 0) break;
       const avail = remaining.get(s.id) ?? 0;
@@ -249,9 +247,19 @@ function allocate(input: PlannerInput, overhead: number): Omit<EconomyPlan, "ove
     const energy = energyBySink.get(sink.id) ?? 0;
     if (energy <= 0) continue;
     if (sink.kind === "construction") {
-      corps.push({ kind: "build", work: Math.max(1, Math.ceil(energy / ENERGY_PER_WORK.build)), sinkId: sink.id, spawnId });
+      corps.push({
+        kind: "build",
+        work: Math.max(1, Math.ceil(energy / ENERGY_PER_WORK.build)),
+        sinkId: sink.id,
+        spawnId
+      });
     } else if (sink.kind === "controller") {
-      corps.push({ kind: "upgrade", work: Math.max(1, Math.ceil(energy / ENERGY_PER_WORK.upgrade)), sinkId: sink.id, spawnId });
+      corps.push({
+        kind: "upgrade",
+        work: Math.max(1, Math.ceil(energy / ENERGY_PER_WORK.upgrade)),
+        sinkId: sink.id,
+        spawnId
+      });
     }
     // spawn: delivered energy is the economy's own overhead - no consuming corp.
   }

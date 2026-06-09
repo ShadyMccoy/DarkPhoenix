@@ -153,12 +153,7 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
   const BLOCKING_BOOST = 1000;
   const age = Math.max(0, tick - demand.since);
   const completing = demand.producesIncome && demand.groupStarted ? COMPLETION_BOOST : 0;
-  return (
-    demand.value +
-    (demand.blocking ? BLOCKING_BOOST : 0) +
-    completing +
-    AGING_VALUE_PER_TICK * age
-  );
+  return demand.value + (demand.blocking ? BLOCKING_BOOST : 0) + completing + AGING_VALUE_PER_TICK * age;
 }
 
 /**
@@ -182,15 +177,10 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
  *       energy is coming in yet (income == 0) we never wait - we fall through to
  *       spawn whatever affordable income producer gets the economy moving.
  */
-export function scheduleSpawn(
-  demands: SpawnDemand[],
-  ctx: ScheduleContext
-): ScheduleResult | null {
+export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
 
-  const ranked = [...demands].sort(
-    (a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick)
-  );
+  const ranked = [...demands].sort((a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick));
 
   for (const demand of ranked) {
     if (ctx.energyAvailable >= demand.minCost) {
@@ -198,10 +188,7 @@ export function scheduleSpawn(
       return {
         demand,
         energyBudget,
-        reason:
-          energyBudget >= demand.desiredCost
-            ? "afford-desired"
-            : "afford-min-scaled",
+        reason: energyBudget >= demand.desiredCost ? "afford-desired" : "afford-min-scaled"
       };
     }
 

@@ -7,15 +7,17 @@
  * @module corps/SpawningCorp
  */
 
+import { BODY_PART_COST, CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
-import {
-  BODY_PART_COST,
-  CREEP_LIFETIME,
-  getMaxSpawnCapacity,
-} from "../planning/EconomicConstants";
-import { buildMinerBody, buildUpgraderBody, buildTankerBody, buildReserverBody, UpgraderStrategy } from "../spawn/BodyBuilder";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+import {
+  UpgraderStrategy,
+  buildMinerBody,
+  buildReserverBody,
+  buildTankerBody,
+  buildUpgraderBody
+} from "../spawn/BodyBuilder";
+import { Position } from "../types/Position";
 
 /**
  * Types of creeps that can be spawned
@@ -69,17 +71,12 @@ export class SpawningCorp extends Corp {
   private pendingOrders: SpawnOrder[] = [];
 
   /** Tick when spawn first became stuck */
-  private stuckSince: number = 0;
+  private stuckSince = 0;
 
   /** Names of maintenance haulers spawned by this corp */
   private maintenanceHaulerNames: string[] = [];
 
-  constructor(
-    nodeId: string,
-    spawnId: string,
-    energyCapacity: number = 300,
-    customId?: string
-  ) {
+  public constructor(nodeId: string, spawnId: string, energyCapacity = 300, customId?: string) {
     super("spawning", nodeId, customId);
     this.spawnId = spawnId;
     this.energyCapacity = energyCapacity;
@@ -88,7 +85,7 @@ export class SpawningCorp extends Corp {
   /**
    * Get the spawn position as the corp's location.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -99,7 +96,7 @@ export class SpawningCorp extends Corp {
   /**
    * Queue a spawn order.
    */
-  queueSpawnOrder(order: SpawnOrder): void {
+  public queueSpawnOrder(order: SpawnOrder): void {
     this.pendingOrders.push(order);
   }
 
@@ -108,7 +105,7 @@ export class SpawningCorp extends Corp {
    * scheduler (SpawnDirector -> executeSpawn); this only keeps liveness
    * bookkeeping current.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
   }
 
@@ -120,7 +117,7 @@ export class SpawningCorp extends Corp {
    * SpawnScheduler decides WHAT to spawn and HOW MUCH energy to spend; this maps
    * that to an actual body and a spawnCreep call.
    */
-  executeSpawn(
+  public executeSpawn(
     role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver",
     buyerCorpId: string,
     energyBudget: number,
@@ -139,24 +136,29 @@ export class SpawningCorp extends Corp {
     if (spawn.room.energyAvailable < bodyCost) return false;
 
     const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout" | "reserve"> = {
-      miner: "harvest", hauler: "haul", upgrader: "upgrade", builder: "build", scout: "scout", reserver: "reserve",
+      miner: "harvest",
+      hauler: "haul",
+      upgrader: "upgrade",
+      builder: "build",
+      scout: "scout",
+      reserver: "reserve",
       // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
       // local sinks and sources within one node (e.g. a hauler's drop-off -> the
       // builder). That is a different job from a hauler, which does long-range
       // INTER-node transport - even though both are CARRY+MOVE creeps. Keep them
       // distinct so the economy can reason about (and instrument) each.
-      tanker: "tank",
+      tanker: "tank"
     };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     const result = spawn.spawnCreep(body, name, {
-      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id },
+      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id }
     });
 
     if (result === OK) {
       this.recordCost(bodyCost);
-      const workParts = body.filter((p) => p === WORK).length;
+      const workParts = body.filter(p => p === WORK).length;
       this.recordProduction(workParts * CREEP_LIFETIME);
-      const carryParts = body.filter((p) => p === CARRY).length;
+      const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);
       return true;
@@ -206,16 +208,19 @@ export class SpawningCorp extends Corp {
     }
   }
 
-
   /**
    * Get CARRY:MOVE part counts for a ratio string.
    */
   private getPartRatios(ratio: HaulerRatio): { carryRatio: number; moveRatio: number } {
     switch (ratio) {
-      case "2:1": return { carryRatio: 2, moveRatio: 1 }; // Road-optimized
-      case "1:1": return { carryRatio: 1, moveRatio: 1 }; // Balanced (plains)
-      case "1:2": return { carryRatio: 1, moveRatio: 2 }; // Swamp-capable
-      default:    return { carryRatio: 1, moveRatio: 1 };
+      case "2:1":
+        return { carryRatio: 2, moveRatio: 1 }; // Road-optimized
+      case "1:1":
+        return { carryRatio: 1, moveRatio: 1 }; // Balanced (plains)
+      case "1:2":
+        return { carryRatio: 1, moveRatio: 2 }; // Swamp-capable
+      default:
+        return { carryRatio: 1, moveRatio: 1 };
     }
   }
 
@@ -239,7 +244,7 @@ export class SpawningCorp extends Corp {
   /**
    * Get number of pending orders.
    */
-  getPendingOrderCount(): number {
+  public getPendingOrderCount(): number {
     return this.pendingOrders.length;
   }
 
@@ -250,15 +255,15 @@ export class SpawningCorp extends Corp {
    * requested but that has not spawned yet (e.g. while the spawn is busy or
    * out of energy), which otherwise floods the queue with duplicates.
    */
-  countPendingOrdersFrom(buyerCorpId: string): number {
-    return this.pendingOrders.filter((order) => order.buyerCorpId === buyerCorpId).length;
+  public countPendingOrdersFrom(buyerCorpId: string): number {
+    return this.pendingOrders.filter(order => order.buyerCorpId === buyerCorpId).length;
   }
 
   /**
    * Clear all pending spawn orders.
    * Used to recover from stale/invalid orders in the queue.
    */
-  clearPendingOrders(): number {
+  public clearPendingOrders(): number {
     const count = this.pendingOrders.length;
     this.pendingOrders = [];
     this.stuckSince = 0;
@@ -268,14 +273,14 @@ export class SpawningCorp extends Corp {
   /**
    * Get the spawn ID.
    */
-  getSpawnId(): string {
+  public getSpawnId(): string {
     return this.spawnId;
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedSpawningCorp {
+  public serialize(): SerializedSpawningCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
@@ -289,7 +294,7 @@ export class SpawningCorp extends Corp {
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedSpawningCorp): void {
+  public deserialize(data: SerializedSpawningCorp): void {
     super.deserialize(data);
     this.pendingOrders = data.pendingOrders || [];
     this.energyCapacity = data.energyCapacity || 300;
@@ -305,9 +310,7 @@ const SPAWNING_CORP_STARTING_BALANCE = 3000;
  * Uses max spawn capacity for the room's RCL so creeps are sized for
  * full capacity even while extensions are still being built.
  */
-export function createSpawningCorp(
-  spawn: StructureSpawn
-): SpawningCorp {
+export function createSpawningCorp(spawn: StructureSpawn): SpawningCorp {
   const nodeId = `${spawn.room.name}-spawn-${spawn.id.slice(-4)}`;
   const controllerLevel = spawn.room.controller?.level ?? 1;
   const maxCapacity = getMaxSpawnCapacity(controllerLevel);

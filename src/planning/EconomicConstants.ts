@@ -15,15 +15,7 @@ import { Position } from "../types/Position";
 /**
  * Body part types used in creep design
  */
-export type BodyPart =
-  | "work"
-  | "carry"
-  | "move"
-  | "attack"
-  | "ranged_attack"
-  | "heal"
-  | "claim"
-  | "tough";
+export type BodyPart = "work" | "carry" | "move" | "attack" | "ranged_attack" | "heal" | "claim" | "tough";
 
 /**
  * Energy cost per body part (Screeps constants)
@@ -90,7 +82,7 @@ export const PLANNING_EPOCH = 5000;
  * Returns {x, y} where W/S are negative, E/N are positive.
  */
 export function parseRoomCoords(roomName: string): { rx: number; ry: number } | null {
-  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
   if (!match) return null;
 
   const [, ew, ewNum, ns, nsNum] = match;
@@ -169,7 +161,7 @@ export function calculateBodyCost(bodyParts: BodyPart[]): number {
  * @returns Number of that part type
  */
 export function countBodyParts(bodyParts: BodyPart[], partType: BodyPart): number {
-  return bodyParts.filter((p) => p === partType).length;
+  return bodyParts.filter(p => p === partType).length;
 }
 
 /**
@@ -280,7 +272,7 @@ export const MAX_SPAWN_CAPACITY_BY_RCL: Record<number, number> = {
   5: 1800,
   6: 2300,
   7: 5600,
-  8: 12900,
+  8: 12900
 };
 
 /**

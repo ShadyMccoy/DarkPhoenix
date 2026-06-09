@@ -24,14 +24,14 @@
  */
 
 import {
-  createMultiRoomDistanceTransform,
-  findMultiRoomPeaks,
-  filterMultiRoomPeaks,
-  bfsDivideMultiRoom,
-  MultiRoomTerrainCallback,
-  WorldPeakData,
-  WorldCoordinate,
   FilterPeaksOptions,
+  MultiRoomTerrainCallback,
+  WorldCoordinate,
+  WorldPeakData,
+  bfsDivideMultiRoom,
+  createMultiRoomDistanceTransform,
+  filterMultiRoomPeaks,
+  findMultiRoomPeaks
 } from "./algorithms";
 
 // ============================================================================
@@ -165,22 +165,16 @@ export function analyzeMultiRoomTerrain(
   const filteredPeaks = filterMultiRoomPeaks(rawPeaks, peakOptions);
 
   // Convert to CrossRoomPeak format
-  const peaks: CrossRoomPeak[] = filteredPeaks.map((p) => ({
+  const peaks: CrossRoomPeak[] = filteredPeaks.map(p => ({
     peakId: `${p.center.roomName}-${p.center.x}-${p.center.y}`,
     roomName: p.center.roomName,
     center: { x: p.center.x, y: p.center.y },
-    height: p.height,
+    height: p.height
   }));
 
   // Step 4: Divide territories using BFS from peaks
   const worldPeaks: WorldPeakData[] = filteredPeaks;
-  const rawTerritories = bfsDivideMultiRoom(
-    worldPeaks,
-    terrainCallback,
-    TERRAIN_MASK_WALL,
-    maxRooms,
-    allowedRooms
-  );
+  const rawTerritories = bfsDivideMultiRoom(worldPeaks, terrainCallback, TERRAIN_MASK_WALL, maxRooms, allowedRooms);
 
   // Convert to WorldPosition format
   const territories = new Map<string, WorldPosition[]>();
@@ -190,7 +184,7 @@ export function analyzeMultiRoomTerrain(
       coords.map((c: WorldCoordinate) => ({
         x: c.x,
         y: c.y,
-        roomName: c.roomName,
+        roomName: c.roomName
       }))
     );
   }
@@ -220,31 +214,23 @@ export function analyzeMultiRoomTerrain(
  * const territories = calculateCrossRoomTerritories(peaks);
  * // territories.get("W1N1-25-30") may include positions from both W1N1 and W1N2
  */
-export function calculateCrossRoomTerritories(
-  peaks: CrossRoomPeak[],
-  maxRooms: number = 9
-): Map<string, WorldPosition[]> {
+export function calculateCrossRoomTerritories(peaks: CrossRoomPeak[], maxRooms = 9): Map<string, WorldPosition[]> {
   if (peaks.length === 0) {
     return new Map();
   }
 
   // Convert to WorldPeakData format
-  const worldPeaks: WorldPeakData[] = peaks.map((p) => ({
+  const worldPeaks: WorldPeakData[] = peaks.map(p => ({
     tiles: [{ x: p.center.x, y: p.center.y, roomName: p.roomName }],
     center: { x: p.center.x, y: p.center.y, roomName: p.roomName },
-    height: p.height,
+    height: p.height
   }));
 
   // Create multi-room terrain callback
   const terrainCallback = createMultiRoomTerrainCallback();
 
   // Run BFS territory division
-  const rawTerritories = bfsDivideMultiRoom(
-    worldPeaks,
-    terrainCallback,
-    TERRAIN_MASK_WALL,
-    maxRooms
-  );
+  const rawTerritories = bfsDivideMultiRoom(worldPeaks, terrainCallback, TERRAIN_MASK_WALL, maxRooms);
 
   // Convert WorldCoordinate to WorldPosition
   const territories = new Map<string, WorldPosition[]>();
@@ -254,7 +240,7 @@ export function calculateCrossRoomTerritories(
       coords.map((c: WorldCoordinate) => ({
         x: c.x,
         y: c.y,
-        roomName: c.roomName,
+        roomName: c.roomName
       }))
     );
   }
@@ -348,10 +334,7 @@ interface VisualizationInterRoomEdge {
  * Calculates Chebyshev distance (max of dx, dy) between two positions.
  * This is the geometric distance ignoring walls.
  */
-function chebyshevDistance(
-  from: { x: number; y: number },
-  to: { x: number; y: number }
-): number {
+function chebyshevDistance(from: { x: number; y: number }, to: { x: number; y: number }): number {
   return Math.max(Math.abs(from.x - to.x), Math.abs(from.y - to.y));
 }
 
@@ -403,7 +386,7 @@ function buildVisualizationEdgesFromCache(
       targetPeakId: p2.peakId,
       sourceCenter: p1.center,
       targetCenter: p2.center,
-      distance,
+      distance
     });
   }
 
@@ -428,7 +411,7 @@ function buildVisualizationInterRoomEdges(
     { dir: TOP, midPos: { x: 25, y: 0 } },
     { dir: BOTTOM, midPos: { x: 25, y: 49 } },
     { dir: LEFT, midPos: { x: 0, y: 25 } },
-    { dir: RIGHT, midPos: { x: 49, y: 25 } },
+    { dir: RIGHT, midPos: { x: 49, y: 25 } }
   ];
 
   for (const { dir, midPos } of exitDirections) {
@@ -451,7 +434,7 @@ function buildVisualizationInterRoomEdges(
       peakId: closestPeak.peakId,
       peakCenter: closestPeak.center,
       exitPos: midPos,
-      targetRoom,
+      targetRoom
     });
   }
 
@@ -469,14 +452,14 @@ function buildVisualizationInterRoomEdges(
 export function visualizeMultiRoomAnalysis(
   roomName: string,
   result: MultiRoomAnalysisResult,
-  showDistances: boolean = false,
-  skipPeaks: boolean = false
+  showDistances = false,
+  skipPeaks = false
 ): void {
   const visual = new RoomVisual(roomName);
 
   // Get peaks in this room
-  const peaksInRoom = result.peaks.filter((p) => p.roomName === roomName);
-  const maxHeight = Math.max(...result.peaks.map((p) => p.height), 1);
+  const peaksInRoom = result.peaks.filter(p => p.roomName === roomName);
+  const maxHeight = Math.max(...result.peaks.map(p => p.height), 1);
 
   // Draw edges only if adjacencies have been computed (incrementally)
   if (result.adjacencies) {
@@ -488,15 +471,11 @@ export function visualizeMultiRoomAnalysis(
     );
     for (const edge of edges) {
       // Draw edge line
-      visual.line(
-        edge.sourceCenter.x, edge.sourceCenter.y,
-        edge.targetCenter.x, edge.targetCenter.y,
-        {
-          color: "#ffffff",
-          opacity: 0.8,
-          width: 0.15,
-        }
-      );
+      visual.line(edge.sourceCenter.x, edge.sourceCenter.y, edge.targetCenter.x, edge.targetCenter.y, {
+        color: "#ffffff",
+        opacity: 0.8,
+        width: 0.15
+      });
 
       // Draw distance label at midpoint
       const midX = (edge.sourceCenter.x + edge.targetCenter.x) / 2;
@@ -506,7 +485,7 @@ export function visualizeMultiRoomAnalysis(
           font: 0.4,
           color: "#ffffff",
           stroke: "#000000",
-          strokeWidth: 0.1,
+          strokeWidth: 0.1
         });
       }
     }
@@ -516,22 +495,18 @@ export function visualizeMultiRoomAnalysis(
   const interRoomEdges = buildVisualizationInterRoomEdges(peaksInRoom, roomName);
   for (const interEdge of interRoomEdges) {
     // Draw dashed line from peak to exit
-    visual.line(
-      interEdge.peakCenter.x, interEdge.peakCenter.y,
-      interEdge.exitPos.x, interEdge.exitPos.y,
-      {
-        color: "#88ccff",
-        opacity: 0.6,
-        width: 0.1,
-        lineStyle: "dashed",
-      }
-    );
+    visual.line(interEdge.peakCenter.x, interEdge.peakCenter.y, interEdge.exitPos.x, interEdge.exitPos.y, {
+      color: "#88ccff",
+      opacity: 0.6,
+      width: 0.1,
+      lineStyle: "dashed"
+    });
 
     // Draw exit marker (circle)
     visual.circle(interEdge.exitPos.x, interEdge.exitPos.y, {
       fill: "#88ccff",
       opacity: 0.5,
-      radius: 0.3,
+      radius: 0.3
     });
 
     // Label with target room name
@@ -539,7 +514,7 @@ export function visualizeMultiRoomAnalysis(
       font: 0.3,
       color: "#88ccff",
       stroke: "#000000",
-      strokeWidth: 0.05,
+      strokeWidth: 0.05
     });
   }
 
@@ -552,13 +527,13 @@ export function visualizeMultiRoomAnalysis(
         stroke: "#886600",
         strokeWidth: 0.1,
         opacity,
-        radius: 0.4 + (peak.height / maxHeight) * 0.3,
+        radius: 0.4 + (peak.height / maxHeight) * 0.3
       });
       // Label top 3 peaks with their height
       if (index < 3) {
         visual.text(`${peak.height}`, peak.center.x, peak.center.y + 0.15, {
           font: 0.35,
-          color: "#000000",
+          color: "#000000"
         });
       }
     });
@@ -574,7 +549,7 @@ export function visualizeMultiRoomAnalysis(
           visual.text(`${dist}`, x, y, {
             font: 0.25,
             color: "#888888",
-            opacity: 0.5,
+            opacity: 0.5
           });
         }
       }

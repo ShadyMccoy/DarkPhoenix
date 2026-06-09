@@ -11,20 +11,17 @@
  * a live Screeps game environment.
  */
 
-import { Position } from "../types/Position";
-import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
-import {
-  calculateTravelTime,
-  SOURCE_ENERGY_CAPACITY
-} from "./EconomicConstants";
 import {
   AnyCorpState,
-  createSourceState,
+  createHaulingState,
   createMiningState,
+  createSourceState,
   createSpawningState,
-  createUpgradingState,
-  createHaulingState
+  createUpgradingState
 } from "../corps/CorpState";
+import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
+import { SOURCE_ENERGY_CAPACITY, calculateTravelTime } from "./EconomicConstants";
+import { Position } from "../types/Position";
 
 /**
  * Resource definition in a fixture
@@ -108,10 +105,7 @@ function defaultIdGenerator(type: string, nodeId: string, _index: number): strin
  * @param config - Optional configuration
  * @returns Hydrated nodes, corps, and spawn positions
  */
-export function hydrateFixture(
-  fixture: Fixture,
-  config: HydrationConfig = {}
-): HydrationResult {
+export function hydrateFixture(fixture: Fixture, config: HydrationConfig = {}): HydrationResult {
   const idGen = config.idGenerator ?? defaultIdGenerator;
   const currentTick = config.currentTick ?? 0;
 
@@ -170,12 +164,7 @@ export function hydrateFixture(
 
   // Third pass: create corp states with proper dependency chain
   // Order: SpawningCorps -> SourceCorps -> MiningOperations -> UpgradingCorps
-  const allCorpStates = createCorpStatesWithDependencies(
-    fixture.nodes,
-    nodes,
-    spawns,
-    idGen
-  );
+  const allCorpStates = createCorpStatesWithDependencies(fixture.nodes, nodes, spawns, idGen);
 
   return { nodes, spawns, corpStates: allCorpStates };
 }
@@ -205,7 +194,7 @@ function createCorpStatesWithDependencies(
   let spawningCorpId: string | null = null;
   const sourceCorpIds: Map<string, string> = new Map(); // sourceResourceId -> sourceCorpId
   // Track mining corps for hauling dependency
-  const harvestCorps: Array<{ id: string; position: Position; nodeId: string }> = [];
+  const harvestCorps: { id: string; position: Position; nodeId: string }[] = [];
 
   // Pass 1: Create SpawningCorps first
   for (let i = 0; i < fixtureNodes.length; i++) {
@@ -221,12 +210,7 @@ function createCorpStatesWithDependencies(
         };
 
         spawningCorpId = idGen("spawning", node.id, corpIndex++);
-        const spawningState = createSpawningState(
-          spawningCorpId,
-          node.id,
-          spawnPosition,
-          resource.capacity ?? 300
-        );
+        const spawningState = createSpawningState(spawningCorpId, node.id, spawnPosition, resource.capacity ?? 300);
         corpStates.push(spawningState);
       }
     }
@@ -347,20 +331,20 @@ function createCorpStatesWithDependencies(
 
     for (const resource of fixtureNode.resourceNodes) {
       if (resource.type === "controller") {
-        const controllerPosition: Position = {
+        const upgradeControllerPos: Position = {
           x: resource.position.x,
           y: resource.position.y,
           roomName: fixtureNode.roomName
         };
 
-        const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
+        const nearestSpawn = findNearestSpawn(upgradeControllerPos, spawns);
         const upgradingCorpId = idGen("upgrading", node.id, corpIndex++);
 
         const upgradingState = createUpgradingState(
           upgradingCorpId,
           node.id,
           spawningCorpId!, // spawningCorpId dependency
-          controllerPosition,
+          upgradeControllerPos,
           resource.capacity ?? 1,
           nearestSpawn
         );
@@ -375,10 +359,7 @@ function createCorpStatesWithDependencies(
 /**
  * Find the nearest spawn position to a given location
  */
-function findNearestSpawn(
-  position: Position,
-  spawns: Position[]
-): Position | null {
+function findNearestSpawn(position: Position, spawns: Position[]): Position | null {
   if (spawns.length === 0) return null;
 
   let nearest = spawns[0];
@@ -399,10 +380,7 @@ function findNearestSpawn(
  * Convenience function to hydrate nodes from a simple node array
  * (for backwards compatibility and simpler test cases)
  */
-export function hydrateNodes(
-  nodes: FixtureNode[],
-  config: HydrationConfig = {}
-): Node[] {
+export function hydrateNodes(nodes: FixtureNode[], config: HydrationConfig = {}): Node[] {
   const fixture: Fixture = {
     description: "Inline fixture",
     nodes
@@ -414,7 +392,7 @@ export function hydrateNodes(
  * Create a simple mining fixture for testing
  */
 export function createSimpleMiningFixture(
-  roomName: string = "W1N1",
+  roomName = "W1N1",
   spawnPos: { x: number; y: number } = { x: 25, y: 25 },
   sourcePos: { x: number; y: number } = { x: 10, y: 10 },
   sourceCapacity: number = SOURCE_ENERGY_CAPACITY
@@ -452,8 +430,8 @@ export function createSimpleMiningFixture(
  * Create a remote mining fixture (spawn and source in different rooms)
  */
 export function createRemoteMiningFixture(
-  homeRoom: string = "W1N1",
-  remoteRoom: string = "W2N1",
+  homeRoom = "W1N1",
+  remoteRoom = "W2N1",
   spawnPos: { x: number; y: number } = { x: 25, y: 25 },
   sourcePos: { x: number; y: number } = { x: 40, y: 40 }
 ): Fixture {
@@ -489,9 +467,7 @@ export function createRemoteMiningFixture(
 /**
  * Create a complete room fixture with spawn, sources, and controller
  */
-export function createCompleteRoomFixture(
-  roomName: string = "W1N1"
-): Fixture {
+export function createCompleteRoomFixture(roomName = "W1N1"): Fixture {
   return {
     description: "Complete room with spawn, sources, and controller",
     nodes: [

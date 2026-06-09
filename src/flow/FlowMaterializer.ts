@@ -13,20 +13,14 @@
  *   FlowSolution → groupByNode() → NodeFlow[] → materializeCorps() → CorpRegistry
  */
 
-import { CorpRegistry } from "../execution/CorpRunner";
-import { HarvestCorp } from "../corps/HarvestCorp";
-import { CarryCorp } from "../corps/CarryCorp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
-import { SpawningCorp } from "../corps/SpawningCorp";
-import { ConstructionCorp } from "../corps/ConstructionCorp";
-import {
-  FlowSolution,
-  MinerAssignment,
-  HaulerAssignment,
-  SinkAllocation,
-} from "./FlowTypes";
+import { FlowSolution, HaulerAssignment, MinerAssignment, SinkAllocation } from "./FlowTypes";
 import { NodeFlow, NodeFlowMap, groupByNode } from "./NodeFlow";
+import { CarryCorp } from "../corps/CarryCorp";
+import { ConstructionCorp } from "../corps/ConstructionCorp";
+import { CorpRegistry } from "../execution/CorpRunner";
 import { FlowGraph } from "./FlowGraph";
+import { HarvestCorp } from "../corps/HarvestCorp";
+import { UpgradingCorp } from "../corps/UpgradingCorp";
 
 // =============================================================================
 // MATERIALIZATION RESULT
@@ -90,7 +84,7 @@ export function materializeCorps(
     upgradingCorpsUpdated: 0,
     constructionCorpsUpdated: 0,
     newCorpsCreated: 0,
-    warnings: [],
+    warnings: []
   };
 
   // Build source/sink → node maps from graph
@@ -249,7 +243,7 @@ function materializeHarvestCorp(
       // Intel source: extract room name from nodeId (format: "ROOMNAME-X-Y")
       roomName = miner.nodeId.split("-").slice(0, 1).join("");
       // Handle room names like "E27S12" which don't have hyphens
-      const match = miner.nodeId.match(/^([EW]\d+[NS]\d+)/);
+      const match = /^([EW]\d+[NS]\d+)/.exec(miner.nodeId);
       if (match) {
         roomName = match[1];
       }
@@ -392,10 +386,7 @@ function materializeConstructionCorp(
  * Remove corps that are no longer in the flow solution.
  * Call this after materialization to clean up stale corps.
  */
-export function cleanupStaleCorps(
-  nodeFlows: NodeFlowMap,
-  corps: CorpRegistry
-): { removed: number } {
+export function cleanupStaleCorps(nodeFlows: NodeFlowMap, corps: CorpRegistry): { removed: number } {
   let removed = 0;
 
   // Build set of active source IDs (used by both HarvestCorps and CarryCorps)

@@ -38,7 +38,7 @@ export interface CorpProjection {
 /**
  * Project what a single corp state will buy and sell.
  */
-export function projectCorp(state: AnyCorpState, tick: number): CorpProjection {
+export function projectCorp(state: AnyCorpState, _tick: number): CorpProjection {
   const sells: Offer[] = [];
   const buys: Offer[] = [];
 
@@ -134,7 +134,7 @@ export function projectCorp(state: AnyCorpState, tick: number): CorpProjection {
  * Project all corp states at a given tick.
  */
 export function projectAll(states: AnyCorpState[], tick: number): CorpProjection[] {
-  return states.map((state) => projectCorp(state, tick));
+  return states.map(state => projectCorp(state, tick));
 }
 
 /**

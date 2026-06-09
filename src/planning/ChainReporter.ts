@@ -8,15 +8,10 @@
  * Critical Requirement: Output must be readable by developers to
  * collaborate on vision.
  */
-
-import { Chain, ChainSegment, calculateProfit, calculateChainROI } from "./Chain";
+import { CREEP_LIFETIME, calculateTravelTime } from "./EconomicConstants";
+import { Chain, calculateChainROI, calculateProfit } from "./Chain";
 import { Corp, CorpType } from "../corps/Corp";
 import { Position } from "../types/Position";
-import {
-  calculateTravelTime,
-  calculateEffectiveWorkTime,
-  CREEP_LIFETIME
-} from "./EconomicConstants";
 
 /**
  * Detailed step information for reporting
@@ -103,10 +98,7 @@ export class ChainReporter {
    * @param corpRegistry - Map of corp IDs to Corp instances
    * @returns Complete chain report with formatted text
    */
-  static generateReport(
-    chain: Chain,
-    corpRegistry: Map<string, Corp>
-  ): ChainReport {
+  public static generateReport(chain: Chain, corpRegistry: Map<string, Corp>): ChainReport {
     const steps = this.generateStepReports(chain, corpRegistry);
     const marketSummary = this.generateMarketSummary(chain, corpRegistry);
     const formattedText = this.formatReport(chain, steps, marketSummary, corpRegistry);
@@ -125,10 +117,7 @@ export class ChainReporter {
   /**
    * Generate step-by-step reports for each segment in the chain.
    */
-  private static generateStepReports(
-    chain: Chain,
-    corpRegistry: Map<string, Corp>
-  ): ChainStepReport[] {
+  private static generateStepReports(chain: Chain, corpRegistry: Map<string, Corp>): ChainStepReport[] {
     const reports: ChainStepReport[] = [];
 
     for (let i = 0; i < chain.segments.length; i++) {
@@ -149,8 +138,8 @@ export class ChainReporter {
       };
 
       // Add travel/work time for applicable corps
-      if (corp && (corp as any).spawnLocation) {
-        const spawnLocation = (corp as any).spawnLocation as Position;
+      if (corp && (corp as { spawnLocation?: Position }).spawnLocation) {
+        const spawnLocation = (corp as { spawnLocation?: Position }).spawnLocation as Position;
         const travelTime = calculateTravelTime(spawnLocation, corp.getPosition());
         report.travelTime = travelTime;
         report.effectiveWorkTime = CREEP_LIFETIME - travelTime;
@@ -165,14 +154,8 @@ export class ChainReporter {
   /**
    * Generate market equilibrium summary from chain data.
    */
-  private static generateMarketSummary(
-    chain: Chain,
-    corpRegistry: Map<string, Corp>
-  ): ResourceMarketData[] {
-    const resourceMap = new Map<
-      string,
-      { supply: number; demand: number; price: number }
-    >();
+  private static generateMarketSummary(chain: Chain, _corpRegistry: Map<string, Corp>): ResourceMarketData[] {
+    const resourceMap = new Map<string, { supply: number; demand: number; price: number }>();
 
     // Aggregate from segments
     for (const segment of chain.segments) {
@@ -198,7 +181,7 @@ export class ChainReporter {
     const summary: ResourceMarketData[] = [];
     for (const [resource, data] of resourceMap) {
       let status: "BALANCED" | "SHORTAGE" | "SURPLUS";
-      let imbalance = data.supply - data.demand;
+      const imbalance = data.supply - data.demand;
 
       if (imbalance === 0) {
         status = "BALANCED";
@@ -268,10 +251,7 @@ export class ChainReporter {
   /**
    * Generate ASCII flow diagram of the chain.
    */
-  private static generateFlowDiagram(
-    chain: Chain,
-    corpRegistry: Map<string, Corp>
-  ): string {
+  private static generateFlowDiagram(chain: Chain, corpRegistry: Map<string, Corp>): string {
     const flowLines: string[] = [];
 
     for (let i = 0; i < chain.segments.length; i++) {
@@ -308,9 +288,7 @@ export class ChainReporter {
     lines.push(`Location: ${step.position.roomName} (${step.position.x}, ${step.position.y})`);
 
     if (step.travelTime !== undefined) {
-      lines.push(
-        `Travel Time: ${step.travelTime} ticks (${step.effectiveWorkTime} effective work time)`
-      );
+      lines.push(`Travel Time: ${step.travelTime} ticks (${String(step.effectiveWorkTime)} effective work time)`);
     }
 
     lines.push("");
@@ -324,7 +302,9 @@ export class ChainReporter {
     lines.push("Outputs:");
     const unitPrice = step.quantity > 0 ? step.outputPrice / step.quantity : 0;
     lines.push(
-      `  - ${step.resource}: ${step.quantity} units @ ${unitPrice.toFixed(4)}/unit = ${step.outputPrice.toFixed(2)} energy`
+      `  - ${step.resource}: ${step.quantity} units @ ${unitPrice.toFixed(4)}/unit = ${step.outputPrice.toFixed(
+        2
+      )} energy`
     );
 
     lines.push("");
@@ -367,10 +347,10 @@ export class ChainReporter {
   /**
    * Generate a simplified summary for logging.
    */
-  static generateSummary(chain: Chain): string {
+  public static generateSummary(chain: Chain): string {
     const profit = calculateProfit(chain);
     const roi = calculateChainROI(chain);
-    const corpTypes = chain.segments.map((s) => s.corpType).join(" -> ");
+    const corpTypes = chain.segments.map(s => s.corpType).join(" -> ");
 
     return `Chain ${chain.id}: ${corpTypes} | Profit: ${profit.toFixed(2)} | ROI: ${(roi * 100).toFixed(1)}%`;
   }
@@ -378,18 +358,13 @@ export class ChainReporter {
   /**
    * Generate reports for multiple chains and format as a comparison table.
    */
-  static generateComparisonTable(
-    chains: Chain[],
-    corpRegistry: Map<string, Corp>
-  ): string {
+  public static generateComparisonTable(chains: Chain[], _corpRegistry: Map<string, Corp>): string {
     const lines: string[] = [];
 
     lines.push("");
     lines.push("=== Chain Comparison ===");
     lines.push("");
-    lines.push(
-      "| Chain ID | Corps | Total Cost | Mint Value | Profit | ROI |"
-    );
+    lines.push("| Chain ID | Corps | Total Cost | Mint Value | Profit | ROI |");
     lines.push("|----------|-------|------------|------------|--------|-----|");
 
     for (const chain of chains) {
@@ -398,7 +373,9 @@ export class ChainReporter {
       const corpCount = chain.segments.length;
 
       lines.push(
-        `| ${chain.id.substring(0, 8)}... | ${corpCount} | ${chain.totalCost.toFixed(0)} | ${chain.mintValue.toFixed(0)} | ${profit.toFixed(0)} | ${(roi * 100).toFixed(0)}% |`
+        `| ${chain.id.substring(0, 8)}... | ${corpCount} | ${chain.totalCost.toFixed(0)} | ${chain.mintValue.toFixed(
+          0
+        )} | ${profit.toFixed(0)} | ${(roi * 100).toFixed(0)}% |`
       );
     }
 

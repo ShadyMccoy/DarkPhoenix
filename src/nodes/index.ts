@@ -20,7 +20,7 @@ export {
   deserializeNode,
   calculateNodeROI,
   distanceToPeak,
-  getNodeRooms,
+  getNodeRooms
 } from "./Node";
 
 export {

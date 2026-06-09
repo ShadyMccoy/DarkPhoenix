@@ -7,10 +7,10 @@
  * @module framework/FlowIntegration
  */
 
+import { FlowAllocation, solveFlowBalance } from "./FlowBalance";
+import { FlowNetwork, FlowNetworkAnalysis, FlowNetworkConfig } from "./FlowNetwork";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { FlowNetwork, FlowNetworkConfig, FlowNetworkAnalysis } from "./FlowNetwork";
-import { solveFlowBalance, FlowAllocation, formatFlowAllocation } from "./FlowBalance";
 
 /**
  * Result of building a flow network from nodes.
@@ -52,10 +52,7 @@ export function buildFlowNetworkFromNodes(
   const analysis = network.analyze();
 
   // Solve for optimal allocation
-  const allocation = solveFlowBalance(
-    network.getSupplyEdges(),
-    network.getCarryEdges()
-  );
+  const allocation = solveFlowBalance(network.getSupplyEdges(), network.getCarryEdges());
 
   // Build summary
   const summary = buildSummary(analysis, allocation);
@@ -64,17 +61,14 @@ export function buildFlowNetworkFromNodes(
     network,
     analysis,
     allocation,
-    summary,
+    summary
   };
 }
 
 /**
  * Builds a human-readable summary of the flow analysis.
  */
-function buildSummary(
-  analysis: FlowNetworkAnalysis,
-  allocation: FlowAllocation
-): string {
+function buildSummary(analysis: FlowNetworkAnalysis, allocation: FlowAllocation): string {
   const lines: string[] = [
     "╔════════════════════════════════════════╗",
     "║       FLOW NETWORK ANALYSIS            ║",
@@ -94,7 +88,7 @@ function buildSummary(
     "",
     "┌─ Allocation Result ─────────────────────",
     `│ Sustainable:     ${allocation.isSustainable ? "✓ YES" : "✗ NO"}`,
-    `│ Optimized:       ${allocation.projectEnergy.toFixed(2)}/tick for projects`,
+    `│ Optimized:       ${allocation.projectEnergy.toFixed(2)}/tick for projects`
   ];
 
   if (!allocation.isSustainable) {
@@ -120,10 +114,7 @@ function buildSummary(
     }
   }
 
-  lines.push(
-    "",
-    "╚════════════════════════════════════════╝"
-  );
+  lines.push("", "╚════════════════════════════════════════╝");
 
   return lines.join("\n");
 }
@@ -148,43 +139,24 @@ export interface EconomicRatios {
 /**
  * Calculates economic efficiency ratios from a flow allocation.
  */
-export function calculateEconomicRatios(
-  allocation: FlowAllocation
-): EconomicRatios {
-  const grossProduction = allocation.supplies.reduce(
-    (sum, s) => sum + s.harvestPerTick,
-    0
-  );
+export function calculateEconomicRatios(allocation: FlowAllocation): EconomicRatios {
+  const grossProduction = allocation.supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
 
-  const miningCost = allocation.supplies.reduce(
-    (sum, s) => sum + s.spawnCostPerTick,
-    0
-  );
+  const miningCost = allocation.supplies.reduce((sum, s) => sum + s.spawnCostPerTick, 0);
 
-  const haulingCost = allocation.carries.reduce(
-    (sum, c) => sum + c.spawnCostPerTick,
-    0
-  );
+  const haulingCost = allocation.carries.reduce((sum, c) => sum + c.spawnCostPerTick, 0);
 
-  const energyHauled = allocation.carries.reduce(
-    (sum, c) => sum + c.energyCarried,
-    0
-  );
+  const energyHauled = allocation.carries.reduce((sum, c) => sum + c.energyCarried, 0);
 
   return {
-    miningEfficiency:
-      grossProduction > 0 ? (grossProduction - miningCost) / grossProduction : 0,
+    miningEfficiency: grossProduction > 0 ? (grossProduction - miningCost) / grossProduction : 0,
 
-    haulingEfficiency:
-      energyHauled + haulingCost > 0
-        ? energyHauled / (energyHauled + haulingCost)
-        : 1,
+    haulingEfficiency: energyHauled + haulingCost > 0 ? energyHauled / (energyHauled + haulingCost) : 1,
 
-    overallEfficiency:
-      grossProduction > 0 ? allocation.projectEnergy / grossProduction : 0,
+    overallEfficiency: grossProduction > 0 ? allocation.projectEnergy / grossProduction : 0,
 
     // Spawn utilization would need spawn capacity info
-    spawnUtilization: 0, // TODO: calculate from spawn data
+    spawnUtilization: 0 // TODO: calculate from spawn data
   };
 }
 
@@ -201,10 +173,7 @@ export interface FlowBottleneck {
 /**
  * Identifies bottlenecks in the flow network.
  */
-export function identifyBottlenecks(
-  analysis: FlowNetworkAnalysis,
-  allocation: FlowAllocation
-): FlowBottleneck[] {
+export function identifyBottlenecks(analysis: FlowNetworkAnalysis, allocation: FlowAllocation): FlowBottleneck[] {
   const bottlenecks: FlowBottleneck[] = [];
 
   // Check for unsustainable network
@@ -213,7 +182,7 @@ export function identifyBottlenecks(
       type: "spawn_capacity",
       description: "Network is not self-sustaining",
       severity: "high",
-      suggestion: "Reduce mining or hauling allocation, or add more local sources",
+      suggestion: "Reduce mining or hauling allocation, or add more local sources"
     });
   }
 
@@ -225,9 +194,11 @@ export function identifyBottlenecks(
     if (harvestRate < sourceLimit * 0.9 && supply.minerCount > 0) {
       bottlenecks.push({
         type: "source_saturation",
-        description: `Source ${supply.edge.sourceId} under-harvested (${((harvestRate / sourceLimit) * 100).toFixed(0)}%)`,
+        description: `Source ${supply.edge.sourceId} under-harvested (${((harvestRate / sourceLimit) * 100).toFixed(
+          0
+        )}%)`,
         severity: "low",
-        suggestion: "Add more miners if spawn capacity allows",
+        suggestion: "Add more miners if spawn capacity allows"
       });
     }
   }
@@ -241,7 +212,7 @@ export function identifyBottlenecks(
       type: "hauling_capacity",
       description: `High hauling overhead (${((haulingCost / miningProduction) * 100).toFixed(0)}% of production)`,
       severity: "medium",
-      suggestion: "Consider building containers/links or mining closer sources",
+      suggestion: "Consider building containers/links or mining closer sources"
     });
   }
 
@@ -252,7 +223,7 @@ export function identifyBottlenecks(
         type: "distance",
         description: `Source ${supply.edge.sourceId} is far from spawn (${supply.edge.spawnToSourceDistance} tiles)`,
         severity: "low",
-        suggestion: "Consider building a closer spawn or using links",
+        suggestion: "Consider building a closer spawn or using links"
       });
     }
   }

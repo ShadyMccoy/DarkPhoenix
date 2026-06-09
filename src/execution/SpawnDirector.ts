@@ -15,13 +15,8 @@
  */
 
 import "../types/Memory";
+import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
 import { CorpRegistry } from "./CorpRunner";
-import {
-  scheduleSpawn,
-  SpawnDemand,
-  SpawnDemandContext,
-  ScheduleContext,
-} from "../spawn/SpawnScheduler";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -58,25 +53,25 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
 
       const demandCtx: SpawnDemandContext = {
         energyCapacity: room.energyCapacityAvailable,
-        tick: Game.time,
+        tick: Game.time
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
       if (demands.length === 0) continue;
 
       // Stamp aging timestamps so a repeatedly-losing demand eventually wins.
-      for (const d of demands) {
-        const key = `${d.buyerCorpId}:${d.role}`;
+      for (const demand of demands) {
+        const key = `${demand.buyerCorpId}:${demand.role}`;
         seenKeys.add(key);
         if (!demandSince.has(key)) demandSince.set(key, Game.time);
-        d.since = demandSince.get(key)!;
+        demand.since = demandSince.get(key)!;
       }
 
       const ctx: ScheduleContext = {
         energyAvailable: room.energyAvailable,
         energyCapacity: room.energyCapacityAvailable,
         energyIncome: income,
-        tick: Game.time,
+        tick: Game.time
       };
 
       const result = scheduleSpawn(demands, ctx);
@@ -117,11 +112,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
  * groupStarted so the scheduler finishes funding that source before opening a
  * fresh one - the "fund one corp fully, then move on" strategy.
  */
-function collectDemands(
-  registry: CorpRegistry,
-  spawnId: string,
-  ctx: SpawnDemandContext
-): SpawnDemand[] {
+function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
 
   for (const id in registry.harvestCorps) {

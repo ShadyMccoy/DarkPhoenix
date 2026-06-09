@@ -23,19 +23,17 @@
  * @module framework/FlowNetwork
  */
 
-import { Node, NodeResource } from "../nodes/Node";
-import { NodeNavigator, createEdgeKey } from "../nodes/NodeNavigator";
 import {
-  FlowEdge,
-  SupplyEdge,
   CarryEdge,
-  ProjectEdge,
-  createSupplyEdge,
-  createCarryEdge,
-  calculateSupplyEdgeNetPerTick,
-  calculateCarryEdgeThroughput,
+  SupplyEdge,
   calculateCarryEdgeCostPerEnergy,
+  calculateCarryEdgeThroughput,
+  calculateSupplyEdgeNetPerTick,
+  createCarryEdge,
+  createSupplyEdge
 } from "./FlowEdge";
+import { Node, NodeResource } from "../nodes/Node";
+import { NodeNavigator } from "../nodes/NodeNavigator";
 
 /**
  * A spawn node in the flow network.
@@ -122,7 +120,7 @@ const DEFAULT_CONFIG: FlowNetworkConfig = {
   maxCarryDistance: 200,
   minerLifetime: 1500,
   haulerLifetime: 1500,
-  defaultHaulerCarryParts: 10,
+  defaultHaulerCarryParts: 10
 };
 
 /**
@@ -140,12 +138,8 @@ export class FlowNetwork {
   private supplyEdges: Map<string, SupplyEdge>;
   private carryEdges: Map<string, CarryEdge>;
 
-  constructor(
-    nodes: Node[],
-    navigator: NodeNavigator,
-    config: Partial<FlowNetworkConfig> = {}
-  ) {
-    this.nodes = new Map(nodes.map((n) => [n.id, n]));
+  public constructor(nodes: Node[], navigator: NodeNavigator, config: Partial<FlowNetworkConfig> = {}) {
+    this.nodes = new Map(nodes.map(n => [n.id, n]));
     this.navigator = navigator;
     this.config = { ...DEFAULT_CONFIG, ...config };
 
@@ -162,7 +156,7 @@ export class FlowNetwork {
    * 3. Create carry edges (node → node transport)
    * 4. Calculate energy flows
    */
-  build(): void {
+  public build(): void {
     this.discoverSpawnNodes();
     this.createSupplyEdges();
     this.createCarryEdges();
@@ -174,7 +168,7 @@ export class FlowNetwork {
    */
   private discoverSpawnNodes(): void {
     for (const node of this.nodes.values()) {
-      const spawns = node.resources.filter((r) => r.type === "spawn");
+      const spawns = node.resources.filter(r => r.type === "spawn");
 
       for (const spawn of spawns) {
         const spawnNode: SpawnFlowNode = {
@@ -190,7 +184,7 @@ export class FlowNetwork {
           carryEdges: [],
           energyIncome: 0,
           energyCost: 0,
-          netEnergy: 0,
+          netEnergy: 0
         };
 
         this.spawnNodes.set(spawn.id, spawnNode);
@@ -207,7 +201,7 @@ export class FlowNetwork {
    */
   private createSupplyEdges(): void {
     // Find all sources
-    const sources: Array<{ resource: NodeResource; node: Node }> = [];
+    const sources: { resource: NodeResource; node: Node }[] = [];
     for (const node of this.nodes.values()) {
       for (const resource of node.resources) {
         if (resource.type === "source") {
@@ -222,11 +216,7 @@ export class FlowNetwork {
       let bestDistance = Infinity;
 
       for (const spawnNode of this.spawnNodes.values()) {
-        const distance = this.navigator.getDistance(
-          sourceNode.id,
-          spawnNode.nodeId,
-          "spatial"
-        );
+        const distance = this.navigator.getDistance(sourceNode.id, spawnNode.nodeId, "spatial");
 
         if (distance < bestDistance && distance <= this.config.maxSourceSpawnDistance) {
           bestDistance = distance;
@@ -243,7 +233,7 @@ export class FlowNetwork {
           spawnId: bestSpawn.spawnId,
           spawnNodeId: bestSpawn.nodeId,
           spawnToSourceDistance: bestDistance,
-          minerLifetime: this.config.minerLifetime,
+          minerLifetime: this.config.minerLifetime
         });
 
         this.supplyEdges.set(edge.id, edge);
@@ -279,7 +269,7 @@ export class FlowNetwork {
           spawnId: spawnNode.spawnId,
           walkingDistance: distance,
           haulerCarryParts: this.config.defaultHaulerCarryParts,
-          haulerLifetime: this.config.haulerLifetime,
+          haulerLifetime: this.config.haulerLifetime
         });
 
         this.carryEdges.set(edge.id, edge);
@@ -320,7 +310,7 @@ export class FlowNetwork {
         if (edge.fromNodeId !== spawnNode.nodeId) {
           // Find the carry edge cost
           const carryEdge = spawnNode.carryEdges.find(
-            (c) => c.toNodeId === edge.fromNodeId || c.fromNodeId === edge.fromNodeId
+            c => c.toNodeId === edge.fromNodeId || c.fromNodeId === edge.fromNodeId
           );
 
           if (carryEdge) {
@@ -341,7 +331,7 @@ export class FlowNetwork {
   /**
    * Analyzes the flow network and returns key metrics.
    */
-  analyze(): FlowNetworkAnalysis {
+  public analyze(): FlowNetworkAnalysis {
     let totalProduction = 0;
     let miningOverhead = 0;
     let haulingOverhead = 0;
@@ -376,35 +366,35 @@ export class FlowNetwork {
       haulingOverhead,
       projectEnergy,
       isSustainable,
-      bootstrapDeficit,
+      bootstrapDeficit
     };
   }
 
   /**
    * Gets all supply edges in the network.
    */
-  getSupplyEdges(): SupplyEdge[] {
+  public getSupplyEdges(): SupplyEdge[] {
     return Array.from(this.supplyEdges.values());
   }
 
   /**
    * Gets all carry edges in the network.
    */
-  getCarryEdges(): CarryEdge[] {
+  public getCarryEdges(): CarryEdge[] {
     return Array.from(this.carryEdges.values());
   }
 
   /**
    * Gets spawn nodes.
    */
-  getSpawnNodes(): SpawnFlowNode[] {
+  public getSpawnNodes(): SpawnFlowNode[] {
     return Array.from(this.spawnNodes.values());
   }
 
   /**
    * Gets the supply edge for a specific source.
    */
-  getSupplyEdgeForSource(sourceId: string): SupplyEdge | undefined {
+  public getSupplyEdgeForSource(sourceId: string): SupplyEdge | undefined {
     for (const edge of this.supplyEdges.values()) {
       if (edge.sourceId === sourceId) {
         return edge;
@@ -416,7 +406,7 @@ export class FlowNetwork {
   /**
    * Gets carry edges from a spawn node.
    */
-  getCarryEdgesFromSpawn(spawnId: string): CarryEdge[] {
+  public getCarryEdgesFromSpawn(spawnId: string): CarryEdge[] {
     const spawnNode = this.spawnNodes.get(spawnId);
     return spawnNode?.carryEdges ?? [];
   }
@@ -449,10 +439,7 @@ export function optimizeFlowAllocation(network: FlowNetwork): FlowNetworkAnalysi
  * If marginal value > 0, it's worth adding the miner.
  * If marginal value < 0, we're over-mining.
  */
-export function calculateMiningMarginalValue(
-  supplyEdge: SupplyEdge,
-  currentMiners: number
-): number {
+export function calculateMiningMarginalValue(supplyEdge: SupplyEdge, currentMiners: number): number {
   const harvestRatePerMiner = supplyEdge.minerWorkParts * 2;
   const currentHarvestRate = currentMiners * harvestRatePerMiner;
   const sourceRateLimit = supplyEdge.sourceCapacity / 300;
@@ -463,10 +450,7 @@ export function calculateMiningMarginalValue(
   }
 
   // Additional harvest rate from one more miner
-  const additionalHarvest = Math.min(
-    harvestRatePerMiner,
-    sourceRateLimit - currentHarvestRate
-  );
+  const additionalHarvest = Math.min(harvestRatePerMiner, sourceRateLimit - currentHarvestRate);
 
   // Marginal cost = spawn cost amortized
   const marginalCost = supplyEdge.minerSpawnCost / supplyEdge.minerLifetime;
@@ -495,10 +479,7 @@ export function calculateHaulingMarginalValue(
   }
 
   // Additional throughput from one more hauler
-  const additionalThroughput = Math.min(
-    throughputPerHauler,
-    energyToCarry - currentThroughput
-  );
+  const additionalThroughput = Math.min(throughputPerHauler, energyToCarry - currentThroughput);
 
   // Marginal cost = spawn cost amortized
   const marginalCost = carryEdge.haulerSpawnCost / carryEdge.haulerLifetime;

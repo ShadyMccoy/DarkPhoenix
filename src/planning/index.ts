@@ -68,12 +68,7 @@ export {
   createCompleteRoomFixture
 } from "./FixtureHydration";
 
-export {
-  ChainReporter,
-  ChainReport,
-  ChainStepReport,
-  ResourceMarketData
-} from "./ChainReporter";
+export { ChainReporter, ChainReport, ChainStepReport, ResourceMarketData } from "./ChainReporter";
 
 // Note: ScenarioRunner is not exported here as it depends on test-only modules
 // (ChainPlanner, OfferCollector, projections). Use directly from ./ScenarioRunner

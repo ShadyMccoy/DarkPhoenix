@@ -28,17 +28,17 @@ export const ErrorMapper = {
    * @param fn - Function to wrap
    * @returns Wrapped function with error handling
    */
-  wrapLoop<T extends Function>(fn: T): T {
+  wrapLoop<T extends (...args: any[]) => unknown>(fn: T): T {
     return ((...args: any[]) => {
       try {
         return fn(...args);
       } catch (e) {
         if (e instanceof Error) {
-          console.error(`Error in loop: ${e.message}\n${e.stack}`);
+          console.error(`Error in loop: ${e.message}\n${e.stack ?? ""}`);
         } else {
-          console.error(`Error in loop: ${e}`);
+          console.error(`Error in loop: ${String(e)}`);
         }
       }
     }) as unknown as T;
-  },
+  }
 };

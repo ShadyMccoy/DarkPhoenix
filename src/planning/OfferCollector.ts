@@ -7,8 +7,8 @@
  * @module planning/OfferCollector
  */
 
-import { AnyCorpState } from "../corps/CorpState";
 import { Offer, projectAll } from "./projections";
+import { AnyCorpState } from "../corps/CorpState";
 
 /**
  * Collected offers organized by resource type.
@@ -30,7 +30,7 @@ export class OfferCollector {
   /**
    * Clear all collected offers.
    */
-  clear(): void {
+  public clear(): void {
     this.sellsByResource.clear();
     this.buysByResource.clear();
   }
@@ -38,7 +38,7 @@ export class OfferCollector {
   /**
    * Collect offers from an array of corp states.
    */
-  collectFromCorpStates(states: AnyCorpState[], tick: number): void {
+  public collectFromCorpStates(states: AnyCorpState[], tick: number): void {
     this.clear();
 
     const projections = projectAll(states, tick);
@@ -63,35 +63,35 @@ export class OfferCollector {
   /**
    * Get all sell offers for a resource.
    */
-  getSells(resource: string): Offer[] {
+  public getSells(resource: string): Offer[] {
     return this.sellsByResource.get(resource) ?? [];
   }
 
   /**
    * Get all buy offers for a resource.
    */
-  getBuys(resource: string): Offer[] {
+  public getBuys(resource: string): Offer[] {
     return this.buysByResource.get(resource) ?? [];
   }
 
   /**
    * Get all resources that have sell offers.
    */
-  getSellingResources(): string[] {
+  public getSellingResources(): string[] {
     return Array.from(this.sellsByResource.keys());
   }
 
   /**
    * Get all resources that have buy offers.
    */
-  getBuyingResources(): string[] {
+  public getBuyingResources(): string[] {
     return Array.from(this.buysByResource.keys());
   }
 
   /**
    * Get collected offers summary.
    */
-  getCollected(): CollectedOffers {
+  public getCollected(): CollectedOffers {
     return {
       sells: new Map(this.sellsByResource),
       buys: new Map(this.buysByResource)
@@ -101,7 +101,7 @@ export class OfferCollector {
   /**
    * Get total sell quantity for a resource.
    */
-  getTotalSellQuantity(resource: string): number {
+  public getTotalSellQuantity(resource: string): number {
     const offers = this.getSells(resource);
     return offers.reduce((sum, o) => sum + o.quantity, 0);
   }
@@ -109,7 +109,7 @@ export class OfferCollector {
   /**
    * Get total buy quantity for a resource.
    */
-  getTotalBuyQuantity(resource: string): number {
+  public getTotalBuyQuantity(resource: string): number {
     const offers = this.getBuys(resource);
     return offers.reduce((sum, o) => sum + o.quantity, 0);
   }
