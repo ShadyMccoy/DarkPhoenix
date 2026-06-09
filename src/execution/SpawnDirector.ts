@@ -109,6 +109,13 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
 
 /**
  * Collect spawn demands from every corp that spawns at the given spawn.
+ *
+ * A source's miner (harvestCorps[id]) and that source's haulers (haulingCorps[id])
+ * are both keyed by the same source id, so they form one *income unit* (groupId
+ * = source id). A unit is "started" once the source has a miner in the field;
+ * from then on its remaining demands (its haulers, any second miner) are flagged
+ * groupStarted so the scheduler finishes funding that source before opening a
+ * fresh one - the "fund one corp fully, then move on" strategy.
  */
 function collectDemands(
   registry: CorpRegistry,
@@ -119,11 +126,23 @@ function collectDemands(
 
   for (const id in registry.harvestCorps) {
     const c = registry.harvestCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() !== spawnId) continue;
+    const started = sourceHasMiner(registry, id);
+    for (const d of c.getSpawnDemand(ctx)) {
+      d.groupId = id;
+      d.groupStarted = started;
+      demands.push(d);
+    }
   }
   for (const id in registry.haulingCorps) {
     const c = registry.haulingCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() !== spawnId) continue;
+    const started = sourceHasMiner(registry, id);
+    for (const d of c.getSpawnDemand(ctx)) {
+      d.groupId = id;
+      d.groupStarted = started;
+      demands.push(d);
+    }
   }
   for (const id in registry.upgradingCorps) {
     const c = registry.upgradingCorps[id];
@@ -139,6 +158,17 @@ function collectDemands(
   }
 
   return demands;
+}
+
+/**
+ * True once a source's income unit is underway: it already has a miner in the
+ * field, so the energy is being produced and what remains is to finish hauling
+ * it home. Keyed by source id (the registry key shared by the source's harvest
+ * and hauling corps).
+ */
+function sourceHasMiner(registry: CorpRegistry, sourceId: string): boolean {
+  const harvest = registry.harvestCorps[sourceId];
+  return !!harvest && harvest.getCreepCount() > 0;
 }
 
 /**

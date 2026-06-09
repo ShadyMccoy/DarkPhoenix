@@ -51,6 +51,22 @@ export interface SpawnDemand {
   blocking: boolean;
   /** True if this creep increases energy delivery (miner/hauler). */
   producesIncome: boolean;
+  /**
+   * Identifier of the funding group this demand belongs to - the income "unit"
+   * the scheduler funds as a whole (e.g. a source: its miner and that source's
+   * haulers share one groupId). Demands without a group default to standing
+   * alone. Used to implement the "fund one corp fully before opening the next"
+   * strategy.
+   */
+  groupId?: string;
+  /**
+   * True when this demand's group is already underway - it has its bootstrap
+   * producer in the field (e.g. the source is already being mined) and what
+   * remains is to finish staffing it. Such demands are boosted so the spawn
+   * completes a started income unit before opening a brand-new one. See
+   * {@link COMPLETION_BOOST}.
+   */
+  groupStarted?: boolean;
   /** Ideal body cost given the flow demand. */
   desiredCost: number;
   /** Smallest body cost still worth spawning (enables "small now, scale later"). */
@@ -109,14 +125,40 @@ export interface ScheduleResult {
 export const AGING_VALUE_PER_TICK = 0.5;
 
 /**
+ * How much to boost a demand that *completes an already-started income unit*
+ * (a source that is already being mined and now needs its haulers, or a second
+ * miner). This is the "fund one corp fully before opening the next" strategy:
+ * the spawn should finish staffing the source it has already started - getting
+ * that energy actually hauled home - before it spends spawn time opening a
+ * fresh source whose energy will just strand unhauled. This was the root of the
+ * "lots of remote miners going out, little energy coming back" failure: a fresh
+ * source's first miner (base value) used to outrank an already-mined source's
+ * remaining haulers, so the colony kept opening sources it never finished.
+ *
+ * The boost is sized to sit *above* the base values of the economy
+ * (miner/hauler/builder/upgrader are all ~90-110) so completion wins decisively
+ * over opening, yet *below* {@link effectiveValue}'s blocking boost (1000) so a
+ * genuinely blocking bootstrap demand (the colony's first miner, the first
+ * upgrader that keeps the controller alive) still comes first.
+ */
+export const COMPLETION_BOOST = 150;
+
+/**
  * Effective value used for ranking: base value, a large boost for blocking
- * demands, plus anti-starvation aging so a demand that keeps losing eventually
- * wins.
+ * demands, a boost for completing an already-started income unit (see
+ * {@link COMPLETION_BOOST}), plus anti-starvation aging so a demand that keeps
+ * losing eventually wins.
  */
 export function effectiveValue(demand: SpawnDemand, tick: number): number {
   const BLOCKING_BOOST = 1000;
   const age = Math.max(0, tick - demand.since);
-  return demand.value + (demand.blocking ? BLOCKING_BOOST : 0) + AGING_VALUE_PER_TICK * age;
+  const completing = demand.producesIncome && demand.groupStarted ? COMPLETION_BOOST : 0;
+  return (
+    demand.value +
+    (demand.blocking ? BLOCKING_BOOST : 0) +
+    completing +
+    AGING_VALUE_PER_TICK * age
+  );
 }
 
 /**
@@ -125,7 +167,9 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
  * fill).
  *
  * Decision procedure:
- *  1. Rank demands by {@link effectiveValue} (blocking + aging aware).
+ *  1. Rank demands by {@link effectiveValue} (blocking + completion + aging
+ *     aware - so a started income unit's remaining staffing outranks opening a
+ *     fresh one; see {@link COMPLETION_BOOST}).
  *  2. Walk from highest value:
  *     - If we can afford the demand's minimum body, spawn it now, spending up
  *       to its desired cost (capped by available energy).

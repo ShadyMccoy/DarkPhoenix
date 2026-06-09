@@ -131,6 +131,49 @@ describe("SpawnScheduler", () => {
       });
     });
 
+    describe("fund-one-corp-fully strategy", () => {
+      it("finishes a started source's haulers before opening a fresh source's miner", () => {
+        // Source A is already mined (groupStarted) and still wants a second
+        // hauler; source B's first miner is fresh. Even though the fresh miner
+        // has a slightly higher base value, completing the started unit wins, so
+        // A's energy gets hauled home before B is opened.
+        const startedHauler = demand({
+          buyerCorpId: "haulA", role: "hauler", value: 90,
+          producesIncome: true, groupId: "A", groupStarted: true,
+        });
+        const freshMiner = demand({
+          buyerCorpId: "minerB", role: "miner", value: 100,
+          producesIncome: true, groupId: "B", groupStarted: false,
+        });
+        const result = scheduleSpawn([freshMiner, startedHauler], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("haulA");
+      });
+
+      it("opens a fresh source once the started one is fully staffed", () => {
+        // No started-unit demand remains (A is done); only B's fresh miner is
+        // left, so the spawn moves on and opens it.
+        const freshMiner = demand({
+          buyerCorpId: "minerB", role: "miner", value: 100,
+          producesIncome: true, groupId: "B", groupStarted: false,
+        });
+        const result = scheduleSpawn([freshMiner], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("minerB");
+      });
+
+      it("still lets a blocking bootstrap demand outrank a started unit's completion", () => {
+        const bootstrapMiner = demand({
+          buyerCorpId: "boot", role: "miner", value: 100, blocking: true,
+          producesIncome: true, groupId: "A", groupStarted: false,
+        });
+        const startedHauler = demand({
+          buyerCorpId: "haulB", role: "hauler", value: 110,
+          producesIncome: true, groupId: "B", groupStarted: true,
+        });
+        const result = scheduleSpawn([startedHauler, bootstrapMiner], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("boot");
+      });
+    });
+
     describe("anti-starvation aging", () => {
       it("lets a long-waiting demand overtake a higher-base-value newcomer", () => {
         const newcomer = demand({ buyerCorpId: "new", value: 100, since: 1000 });
