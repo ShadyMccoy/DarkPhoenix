@@ -141,6 +141,11 @@ let corps: CorpRegistry = createCorpRegistry();
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
+  // Reclaim memory for creeps that died last tick. Done first so it always runs,
+  // even if a later phase throws (the loop is ErrorMapper-wrapped) - otherwise
+  // dead-creep memory would leak whenever planning/execution hit an error.
+  cleanupDeadCreeps();
+
   // ===========================================================================
   // PHASE 0: INIT - Lazy initialization (once per code push)
   // ===========================================================================
@@ -337,9 +342,6 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Render spatial visualization (territories, edges) for rooms with visual* flags
   renderSpatialVisuals(getAnalysisCache());
-
-  // Clean up memory for dead creeps
-  cleanupDeadCreeps();
 
   // Log stats periodically
   if (Game.time % 100 === 0) {

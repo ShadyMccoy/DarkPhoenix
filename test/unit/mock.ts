@@ -8,6 +8,12 @@ export const Game: {
   rooms: { [name: string]: any };
   spawns: { [name: string]: any };
   time: number;
+  cpu: {
+    bucket: number;
+    limit: number;
+    tickLimit: number;
+    getUsed: () => number;
+  };
   map: {
     getRoomTerrain: (roomName: string) => any;
   };
@@ -17,6 +23,12 @@ export const Game: {
   rooms: {},
   spawns: {},
   time: 12345,
+  cpu: {
+    bucket: 10000,
+    limit: 20,
+    tickLimit: 500,
+    getUsed: () => 0
+  },
   map: {
     getRoomTerrain: (roomName: string) => ({
       get: (x: number, y: number) => 0 // Default: not a wall
@@ -33,6 +45,17 @@ export const Memory: {
 } = {
   creeps: {},
   rooms: {}
+};
+
+// RawMemory mock - telemetry writes segments and (de)activates them here.
+export const RawMemory: {
+  segments: { [id: number]: string };
+  setActiveSegments: (ids: number[]) => void;
+  setPublicSegments: (ids: number[]) => void;
+} = {
+  segments: {},
+  setActiveSegments: (_ids: number[]) => {},
+  setPublicSegments: (_ids: number[]) => {}
 };
 
 // ============================================================================

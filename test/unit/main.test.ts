@@ -1,6 +1,6 @@
 import {assert} from "chai";
 import {loop} from "../../src/main";
-import {Game, Memory} from "./mock"
+import {Game, Memory, RawMemory} from "./mock"
 
 describe("main", () => {
   before(() => {
@@ -13,6 +13,8 @@ describe("main", () => {
     global.Game = _.clone(Game);
     // @ts-ignore : allow adding Memory to global
     global.Memory = _.clone(Memory);
+    // @ts-ignore : allow adding RawMemory to global (telemetry writes segments)
+    global.RawMemory = _.clone(RawMemory);
   });
 
   it("should export a loop function", () => {
