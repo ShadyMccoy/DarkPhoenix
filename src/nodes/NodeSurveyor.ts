@@ -1,5 +1,6 @@
 import { Position } from "../types/Position";
 import { CorpType } from "../corps/Corp";
+import { nodeSpawnValue } from "../planning/NodeEconomy";
 import {
   Node,
   NodeResource,
@@ -163,19 +164,26 @@ export class NodeSurveyor {
       return null; // One spawn corp per spawn
     }
 
-    // Spawning corps have good ROI because they're essential infrastructure
-    // They sell work-ticks and carry-ticks to other corps
-    const estimatedCreepsPerLifetime = 10; // ~150 ticks per creep, 1500 lifetime
-    const energyCostPerCreep = 300;
-    const revenuePerCreep = 100; // Margin on spawn service
-    const revenue = estimatedCreepsPerLifetime * revenuePerCreep;
-    const cost = estimatedCreepsPerLifetime * energyCostPerCreep * this.config.energyValue;
-    const roi = cost > 0 ? (revenue - cost) / cost : 0;
+    // A spawn is worth the chain it would stand up: price it with the planner
+    // over this node's own sources, feeding its controller. This replaces a
+    // hand-rolled "creeps per lifetime" guess with the real economy the spawn
+    // would run. (Reachable sources in adjacent nodes are folded in at the
+    // node-ROI level, which has the adjacency data this per-node survey does not.)
+    const controller = node.resources.find((r) => r.type === "controller");
+    const localSources = node.resources
+      .filter((r) => r.type === "source")
+      .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
+
+    const estimatedROI = nodeSpawnValue({
+      spawnPos: spawn.position,
+      localSources,
+      controllerPos: controller?.position,
+    });
 
     return {
       type: "spawning",
       resource: spawn,
-      estimatedROI: roi,
+      estimatedROI,
       position: spawn.position,
       config: {
         spawnId: spawn.id

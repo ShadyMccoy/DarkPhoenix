@@ -1,5 +1,6 @@
 import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
+import { nodeSpawnValue, ReachableSourceInput } from "../planning/NodeEconomy";
 
 // Declare Game for environments where @types/screeps is not available
 declare const Game: {
@@ -115,6 +116,14 @@ export interface NodeROI {
 
   /** Total estimated ROI from all potential corps (before distance adjustment) */
   rawCorpROI: number;
+
+  /**
+   * Planner-backed economic value of a spawn at this node's peak: the
+   * productive energy/tick of the whole chain it would stand up over this
+   * node's own AND its reachable neighbours' sources. This is the real driver
+   * of the scores below - the per-corp ROIs above are kept only for display.
+   */
+  economicValue: number;
 
   /** Potential corps that could operate in this node */
   potentialCorps: PotentialCorpROI[];
@@ -374,40 +383,41 @@ export function calculateNodeROI(
     resourceId: pc.resource.id
   }));
 
-  // Raw ROI is sum of all potential corps' estimated ROI
-  // Each corp's ROI is typically 0.1-2.0 range, so we scale it up for readability
+  // Raw ROI is sum of all potential corps' estimated ROI. Kept for telemetry
+  // display only - the score itself is now driven by the planner-backed
+  // economic value below, which avoids double-counting (the spawn's value
+  // already includes the miners/haulers/upgraders it staffs).
   const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
 
-  // Calculate base score (before distance and ownership adjustments)
-  // Base: raw corp ROI scaled to ~0-100 range + openness bonus
-  const baseScore = rawCorpROI * 50 + peakHeight * 2;
+  // Planner-backed economic value: price a spawn at this node's peak over its
+  // own sources AND its reachable neighbours' sources (the inter-node haul
+  // penalty is baked into the planner's hauler sizing). This single number
+  // replaces the old hand-rolled "sum of corp ROIs + ad-hoc reachable bonus".
+  const controller = node.resources.find((r) => r.type === "controller");
+  const localSources = node.resources
+    .filter((r) => r.type === "source")
+    .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
+  const reachable: ReachableSourceInput[] = reachableSources.map((rs, i) => ({
+    id: `reach-${i}`,
+    capacity: rs.capacity,
+    distance: rs.distance,
+  }));
+  const economicValue = nodeSpawnValue({
+    spawnPos: node.peakPosition,
+    localSources,
+    controllerPos: controller?.position,
+    reachableSources: reachable,
+  });
 
-  // Calculate expansion score: what would the ROI be if we claimed this room?
-  // This includes:
-  // 1. Local sources (baseScore without distance penalty)
-  // 2. Nearby sources from adjacent nodes that could be mined with haulers
-  // 3. Owned bonus (we'd have infrastructure)
-  let expansionScore = baseScore + 25; // Base + owned bonus
+  // Base score: economic value (scaled to a readable range) plus an openness
+  // bonus for buildable space.
+  const ECON_SCALE = 10;
+  const baseScore = economicValue * ECON_SCALE + peakHeight * 2;
 
-  // Add value from reachable sources in adjacent nodes
-  // Each reachable source contributes mining value minus hauling cost
-  for (const source of reachableSources) {
-    // Mining value: ~10 energy/tick from a source (3000 capacity / 300 regen)
-    const energyPerTick = source.capacity / 300;
-
-    // Hauling efficiency decreases with distance
-    // At 50 tiles (adjacent room), efficiency ~60%
-    // At 100 tiles (2 rooms away), efficiency ~30%
-    const haulingEfficiency = Math.max(0.1, 1 - source.distance / 150);
-
-    // Net value per tick, scaled similar to mining corps
-    const netValue = energyPerTick * haulingEfficiency * 0.01; // energyValue = 0.01
-
-    // Scale to match our ROI scoring (50x multiplier)
-    expansionScore += netValue * 50;
-  }
-
-  expansionScore = Math.max(0, expansionScore);
+  // Expansion score: value if we claimed this room and built a spawn at its
+  // peak. economicValue already accounts for reachable adjacent sources, so the
+  // only addition is the owned-infrastructure bonus.
+  let expansionScore = Math.max(0, baseScore + 25);
 
   // Calculate final score (current value based on distance)
   let score = baseScore;
@@ -432,6 +442,7 @@ export function calculateNodeROI(
     score,
     expansionScore,
     rawCorpROI,
+    economicValue,
     potentialCorps: potentialCorpROIs,
     openness: peakHeight,
     distanceFromOwned,
