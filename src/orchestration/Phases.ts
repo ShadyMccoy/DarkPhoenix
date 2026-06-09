@@ -306,7 +306,7 @@ export interface ExecutionResult {
 /**
  * Run the execution phase.
  */
-export function runExecutionPhase(corps: CorpRegistry, tick: number): ExecutionResult {
+export function runExecutionPhase(corps: CorpRegistry, _tick: number): ExecutionResult {
   return {
     corpsRun: countCorps(corps),
     contractsUpdated: 0

@@ -681,7 +681,7 @@ export class Telemetry {
    * Extract node ID from a flow ID (e.g., "source-abc123" → node ID from Memory).
    * Flow IDs reference game objects; we need to map them back to nodes.
    */
-  private extractNodeId(flowId: string): string | undefined {
+  private extractNodeId(_flowId: string): string | undefined {
     // For sources: "source-{gameId}" → find node containing this source
     // For sinks: "spawn-{gameId}" or "controller-{gameId}" → find node
     // This is a simplified mapping - in practice, we'd need the flow graph's node mappings

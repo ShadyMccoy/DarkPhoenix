@@ -11,12 +11,6 @@ import { MintValues } from "../colony/MintValues";
 import { AnyCorpState } from "../corps/CorpState";
 import { Chain, ChainSegment, buildSegment, createChain, createChainId, filterViable, sortByProfit } from "./Chain";
 import { OfferCollector } from "./OfferCollector";
-import { projectAll } from "./projections";
-
-/**
- * The production chain from sources to goals.
- */
-const RESOURCE_CHAIN = ["raw-energy", "harvested-energy", "delivered-energy", "controller-points"];
 
 /**
  * Default margin for each corp type.
@@ -51,7 +45,7 @@ export class ChainPlanner {
   /**
    * Register corp states for planning.
    */
-  public registerCorpStates(states: AnyCorpState[], tick: number): void {
+  public registerCorpStates(states: AnyCorpState[], _tick: number): void {
     this.corpStates = states;
     this.corpStateMap.clear();
     for (const state of states) {
@@ -64,7 +58,6 @@ export class ChainPlanner {
    */
   public findViableChains(tick: number): Chain[] {
     const chains: Chain[] = [];
-    const projections = projectAll(this.corpStates, tick);
 
     // Find goal corps (upgrading corps that produce controller points)
     const goalCorps = this.corpStates.filter(s => s.type === "upgrading");

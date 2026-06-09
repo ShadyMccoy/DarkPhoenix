@@ -203,7 +203,7 @@ export class NodeSurveyor {
   /**
    * Evaluate potential hauling routes between nodes
    */
-  public evaluateHaulingRoutes(sourceNode: Node, destNode: Node, currentTick: number): PotentialCorp[] {
+  public evaluateHaulingRoutes(sourceNode: Node, destNode: Node, _currentTick: number): PotentialCorp[] {
     const routes: PotentialCorp[] = [];
 
     // Find energy sources in source node
@@ -230,8 +230,8 @@ export class NodeSurveyor {
   private evaluateHaulingRoute(
     source: NodeResource,
     sink: NodeResource,
-    sourceNode: Node,
-    destNode: Node
+    _sourceNode: Node,
+    _destNode: Node
   ): PotentialCorp | null {
     // Calculate distance
     const distance = this.manhattanDistance(source.position, sink.position);

@@ -281,9 +281,6 @@ function findShortestPath(
  * while minimizing transport cost.
  */
 export function solveMinCostMaxFlow(graph: FlowGraph): FlowRoutingResult {
-  const sources = new Set(graph.getSources().map(n => n.id));
-  const sinks = new Set(graph.getSinks().map(n => n.id));
-
   // Track remaining supply at each source
   const remainingSupply = new Map<string, number>();
   for (const source of graph.getSources()) {

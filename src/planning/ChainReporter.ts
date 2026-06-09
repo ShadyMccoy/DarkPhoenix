@@ -8,17 +8,6 @@
  * Critical Requirement: Output must be readable by developers to
  * collaborate on vision.
  */
-
-/**
- * @fileoverview Human-readable chain report generation.
- *
- * This module generates formatted text output for production chains,
- * making it easy for developers to understand economic flows and
- * identify bottlenecks.
- *
- * Critical Requirement: Output must be readable by developers to
- * collaborate on vision.
- */
 import { Chain, calculateChainROI, calculateProfit } from "./Chain";
 import { Corp, CorpType } from "../corps/Corp";
 import { Position } from "../types/Position";
@@ -165,7 +154,7 @@ export class ChainReporter {
   /**
    * Generate market equilibrium summary from chain data.
    */
-  private static generateMarketSummary(chain: Chain, corpRegistry: Map<string, Corp>): ResourceMarketData[] {
+  private static generateMarketSummary(chain: Chain, _corpRegistry: Map<string, Corp>): ResourceMarketData[] {
     const resourceMap = new Map<string, { supply: number; demand: number; price: number }>();
 
     // Aggregate from segments
@@ -369,7 +358,7 @@ export class ChainReporter {
   /**
    * Generate reports for multiple chains and format as a comparison table.
    */
-  public static generateComparisonTable(chains: Chain[], corpRegistry: Map<string, Corp>): string {
+  public static generateComparisonTable(chains: Chain[], _corpRegistry: Map<string, Corp>): string {
     const lines: string[] = [];
 
     lines.push("");

@@ -29,38 +29,6 @@
  *
  * @module framework/FlowBalance
  */
-
-/**
- * @fileoverview Flow balance solver for the bootstrap problem.
- *
- * The bootstrap problem:
- * - Mining requires miners → miners require spawn energy
- * - Hauling requires haulers → haulers require spawn energy
- * - Spawning requires energy → energy requires hauling
- *
- * This creates a circular dependency. The solution is to find an equilibrium
- * where the system is self-sustaining.
- *
- * Mathematical model:
- *
- * Let:
- *   E = total energy produced per tick
- *   M = mining overhead per tick (miner spawn costs / lifetime)
- *   H = hauling overhead per tick (hauler spawn costs / lifetime)
- *   P = project energy per tick (what we're trying to maximize)
- *
- * Constraint: E = M + H + P
- *
- * But M and H depend on the configuration (how many miners/haulers we have),
- * and E depends on M (more miners = more energy up to source limit).
- *
- * Solution approach:
- * 1. Find minimum viable configuration (just enough to be self-sustaining)
- * 2. Iteratively add capacity where it has highest marginal value
- * 3. Stop when no more positive-marginal additions exist
- *
- * @module framework/FlowBalance
- */
 import { CarryEdge, SupplyEdge, calculateCarryEdgeThroughput } from "./FlowEdge";
 
 /**
@@ -324,7 +292,7 @@ function calculateCarryRequirements(supplies: SupplyAllocation[], carries: Carry
 /**
  * Removes the lowest value allocation to reduce deficit.
  */
-function trimLowestValueAllocation(supplies: SupplyAllocation[], carries: CarryAllocation[]): boolean {
+function trimLowestValueAllocation(supplies: SupplyAllocation[], _carries: CarryAllocation[]): boolean {
   // Find the supply with lowest net value per miner
   let lowestSupply: SupplyAllocation | null = null;
   let lowestValue = Infinity;

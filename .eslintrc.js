@@ -51,6 +51,12 @@ module.exports = {
       }
     ],
     "@typescript-eslint/no-unused-expressions": "error",
+    // A leading underscore marks an intentionally-unused binding (e.g. a
+    // parameter kept for signature compatibility).
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }
+    ],
     "@typescript-eslint/no-use-before-define": ["error", { functions: false }],
     "@typescript-eslint/prefer-for-of": "error",
     "@typescript-eslint/space-within-parens": ["off", "never"],

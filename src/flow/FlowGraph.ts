@@ -6,15 +6,6 @@
  *
  * This replaces the Market's role in connecting producers and consumers.
  */
-
-/**
- * FlowGraph - Flow Network Construction
- *
- * Builds the flow network from spatial nodes and navigator.
- * Discovers sources and sinks, creates edges, calculates distances.
- *
- * This replaces the Market's role in connecting producers and consumers.
- */
 import { Node, getResourcesByType } from "../nodes/Node";
 import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";

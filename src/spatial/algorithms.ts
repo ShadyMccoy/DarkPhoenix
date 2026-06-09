@@ -832,7 +832,7 @@ export function bfsDivideMultiRoom(
   peaks: WorldPeakData[],
   terrainCallback: MultiRoomTerrainCallback,
   wallMask = 1,
-  maxRooms = 9,
+  _maxRooms = 9,
   allowedRooms?: Set<string>
 ): Map<string, WorldCoordinate[]> {
   const territories = new Map<string, WorldCoordinate[]>();

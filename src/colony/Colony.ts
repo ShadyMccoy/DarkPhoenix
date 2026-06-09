@@ -1,4 +1,4 @@
-import { CreditLedger } from "./CreditLedger";
+import { CreditLedger, MoneySupply } from "./CreditLedger";
 import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
 import { Node } from "../nodes/Node";
 import { CorpRegistry } from "../execution/CorpRunner";
@@ -199,7 +199,7 @@ export class Colony {
   /**
    * Process survey result and potentially create corps
    */
-  private processSurveyResult(result: SurveyResult): void {
+  private processSurveyResult(_result: SurveyResult): void {
     // For now, log potential corps
     // In full implementation, would create corps based on ROI
     // and available treasury funds
@@ -278,7 +278,7 @@ export class Colony {
   /**
    * Get money supply information
    */
-  public getMoneySupply() {
+  public getMoneySupply(): MoneySupply {
     return this.ledger.getMoneySupply();
   }
 

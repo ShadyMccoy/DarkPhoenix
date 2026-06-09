@@ -236,7 +236,7 @@ export function hasResourceType(node: Node, type: NodeResourceType): boolean {
 /**
  * Check if a node has a corp for a specific resource
  */
-export function hasCorpForResource(node: Node, resourceId: string): boolean {
+export function hasCorpForResource(node: Node, _resourceId: string): boolean {
   // Corps would need to track their resource IDs for this to work
   // For now, check by type matching
   return node.corps.length > 0;

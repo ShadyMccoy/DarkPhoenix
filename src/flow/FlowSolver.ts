@@ -14,23 +14,6 @@
  * 5. Calculate hauling requirements for each allocation
  * 6. Verify system is sustainable (overhead < harvest)
  */
-
-/**
- * FlowSolver - Priority-Weighted Flow Allocation
- *
- * Solves the flow allocation problem: given sources, sinks, and edges,
- * determine optimal miner/hauler assignments and energy distribution.
- *
- * This replaces Market.clear() with a global optimization approach.
- *
- * Algorithm:
- * 1. Assign miners to sources (one per source)
- * 2. Calculate total harvest capacity
- * 3. Calculate mining overhead
- * 4. For each sink (by priority), allocate energy from nearest sources
- * 5. Calculate hauling requirements for each allocation
- * 6. Verify system is sustainable (overhead < harvest)
- */
 import {
   FlowConstraints,
   FlowEdge,
@@ -44,8 +27,7 @@ import {
   SOURCE_ENERGY_PER_TICK,
   SinkAllocation,
   calculateCarryParts,
-  calculateHaulerCostPerTick,
-  calculateRoundTrip
+  calculateHaulerCostPerTick
 } from "./FlowTypes";
 import { VariantConstraints, generateEdgeVariants, selectBestVariant } from "../framework/EdgeVariant";
 
@@ -202,7 +184,7 @@ export class FlowSolver {
     sources: FlowSource[],
     spawnSinks: FlowSink[],
     edgeMap: Map<string, FlowEdge>,
-    constraints: FlowConstraints
+    _constraints: FlowConstraints
   ): MinerAssignment[] {
     const assignments: MinerAssignment[] = [];
 
@@ -220,7 +202,6 @@ export class FlowSolver {
 
       // Estimate hauler overhead to nearest sink (spawn)
       // This is a conservative estimate - actual hauling may be shorter
-      const roundTrip = calculateRoundTrip(spawnDistance);
       const carryParts = calculateCarryParts(harvestRate, spawnDistance);
       const haulerOverhead = calculateHaulerCostPerTick(carryParts);
 
@@ -273,8 +254,8 @@ export class FlowSolver {
     sink: FlowSink,
     sourceEnergy: Map<string, number>,
     edgeMap: Map<string, FlowEdge>,
-    spawnSinks: FlowSink[],
-    constraints: FlowConstraints
+    _spawnSinks: FlowSink[],
+    _constraints: FlowConstraints
   ): SinkAllocation {
     const allocation: SinkAllocation = {
       sinkId: sink.id,

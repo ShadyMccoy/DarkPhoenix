@@ -532,7 +532,7 @@ export function createEdgeId(fromId: string, toId: string): string {
  * Calculate round trip time for a given distance.
  * Assumes 1:1 CARRY:MOVE ratio (full speed both ways).
  */
-export function calculateRoundTrip(distance: number, hasRoads = false): number {
+export function calculateRoundTrip(distance: number, _hasRoads = false): number {
   // With roads and 2:1 ratio, still full speed
   // Without roads, 1:1 ratio = full speed both ways
   return 2 * distance + 2;
