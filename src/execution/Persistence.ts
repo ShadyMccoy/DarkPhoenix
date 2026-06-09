@@ -9,10 +9,10 @@
  */
 
 import "../types/Memory";
-import { Colony } from "../colony";
 import { createEdgeKey, serializeNode } from "../nodes";
-import { MultiRoomAnalysisResult } from "../spatial";
+import { Colony } from "../colony";
 import { CorpRegistry } from "./CorpRunner";
+import { MultiRoomAnalysisResult } from "../spatial";
 
 /**
  * Persists all state to memory.

@@ -8,9 +8,9 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { PLANNING_EPOCH, SOURCE_REGEN_TIME } from "../planning/EconomicConstants";
 import { Position } from "../types/Position";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
-import { PLANNING_EPOCH, SOURCE_REGEN_TIME } from "../planning/EconomicConstants";
 
 /**
  * Serialized state specific to SourceCorp

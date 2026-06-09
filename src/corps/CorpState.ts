@@ -10,8 +10,8 @@
  * @module corps/CorpState
  */
 
-import { SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
+import { SerializedCorp } from "./Corp";
 
 /**
  * Source corp state - passive energy source representation.

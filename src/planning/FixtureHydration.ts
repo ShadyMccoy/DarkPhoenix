@@ -11,9 +11,6 @@
  * a live Screeps game environment.
  */
 
-import { Position } from "../types/Position";
-import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
-import { SOURCE_ENERGY_CAPACITY, calculateTravelTime } from "./EconomicConstants";
 import {
   AnyCorpState,
   createHaulingState,
@@ -22,6 +19,9 @@ import {
   createSpawningState,
   createUpgradingState
 } from "../corps/CorpState";
+import { Node, NodeResource, createNode, createNodeId } from "../nodes/Node";
+import { SOURCE_ENERGY_CAPACITY, calculateTravelTime } from "./EconomicConstants";
+import { Position } from "../types/Position";
 
 /**
  * Resource definition in a fixture

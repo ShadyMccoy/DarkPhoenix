@@ -13,14 +13,14 @@
  *   FlowSolution → groupByNode() → NodeFlow[] → materializeCorps() → CorpRegistry
  */
 
-import { CorpRegistry } from "../execution/CorpRunner";
-import { HarvestCorp } from "../corps/HarvestCorp";
-import { CarryCorp } from "../corps/CarryCorp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
-import { ConstructionCorp } from "../corps/ConstructionCorp";
 import { FlowSolution, HaulerAssignment, MinerAssignment, SinkAllocation } from "./FlowTypes";
 import { NodeFlow, NodeFlowMap, groupByNode } from "./NodeFlow";
+import { CarryCorp } from "../corps/CarryCorp";
+import { ConstructionCorp } from "../corps/ConstructionCorp";
+import { CorpRegistry } from "../execution/CorpRunner";
 import { FlowGraph } from "./FlowGraph";
+import { HarvestCorp } from "../corps/HarvestCorp";
+import { UpgradingCorp } from "../corps/UpgradingCorp";
 
 // =============================================================================
 // MATERIALIZATION RESULT

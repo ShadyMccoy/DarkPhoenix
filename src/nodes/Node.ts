@@ -1,5 +1,5 @@
-import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
+import { Position } from "../types/Position";
 
 // Declare Game for environments where @types/screeps is not available
 declare const Game:

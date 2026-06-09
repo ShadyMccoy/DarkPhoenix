@@ -17,13 +17,6 @@
  * ```
  */
 
-import { Node } from "../nodes/Node";
-import { NodeNavigator } from "../nodes/NodeNavigator";
-import { FlowGraph, createFlowGraph } from "./FlowGraph";
-import { FlowSolver, printSolutionSummary, solveIteratively } from "./FlowSolver";
-import { EconomyPlan } from "./EconomyPlanner";
-import { planFromGraph } from "./EconomyAdapter";
-import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
 import {
   DEFAULT_CONSTRAINTS,
   FlowConstraints,
@@ -35,6 +28,13 @@ import {
   SinkAllocation,
   SinkType
 } from "./FlowTypes";
+import { FlowGraph, createFlowGraph } from "./FlowGraph";
+import { FlowSolver, printSolutionSummary, solveIteratively } from "./FlowSolver";
+import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
+import { EconomyPlan } from "./EconomyPlanner";
+import { Node } from "../nodes/Node";
+import { NodeNavigator } from "../nodes/NodeNavigator";
+import { planFromGraph } from "./EconomyAdapter";
 
 // =============================================================================
 // FLOW ECONOMY CLASS

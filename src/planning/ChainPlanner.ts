@@ -7,9 +7,9 @@
  * @module planning/ChainPlanner
  */
 
-import { MintValues } from "../colony/MintValues";
-import { AnyCorpState } from "../corps/CorpState";
 import { Chain, ChainSegment, buildSegment, createChain, createChainId, filterViable, sortByProfit } from "./Chain";
+import { AnyCorpState } from "../corps/CorpState";
+import { MintValues } from "../colony/MintValues";
 import { OfferCollector } from "./OfferCollector";
 
 /**

@@ -7,9 +7,6 @@
  * @module types/Memory
  */
 
-import { SerializedColony } from "../colony/Colony";
-import { SerializedNode } from "../nodes/Node";
-import { SerializedChain } from "../planning/Chain";
 import {
   SerializedBootstrapCorp,
   SerializedCarryCorp,
@@ -22,6 +19,9 @@ import {
   SerializedTankerCorp,
   SerializedUpgradingCorp
 } from "../corps";
+import { SerializedChain } from "../planning/Chain";
+import { SerializedColony } from "../colony/Colony";
+import { SerializedNode } from "../nodes/Node";
 
 declare global {
   /**

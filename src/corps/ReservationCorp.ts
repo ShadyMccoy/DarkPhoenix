@@ -14,10 +14,10 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { buildReserverBody } from "../spawn/BodyBuilder";
 import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
+import { Position } from "../types/Position";
+import { buildReserverBody } from "../spawn/BodyBuilder";
 
 /**
  * Serialized state specific to ReservationCorp.

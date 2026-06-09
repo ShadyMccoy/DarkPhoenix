@@ -7,13 +7,13 @@
  * @module corps/HarvestCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import { CREEP_LIFETIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
-import { MinerAssignment } from "../flow/FlowTypes";
-import { buildMinerBody } from "../spawn/BodyBuilder";
+import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
+import { MinerAssignment } from "../flow/FlowTypes";
+import { Position } from "../types/Position";
+import { buildMinerBody } from "../spawn/BodyBuilder";
 
 /**
  * Serialized state specific to HarvestCorp

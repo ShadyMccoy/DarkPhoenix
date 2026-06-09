@@ -31,12 +31,8 @@
  * @module main
  */
 
+import "./types/Memory";
 import { Colony, createColony } from "./colony";
-import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
-import { applyPlanToCorps } from "./flow/EconomyAdapter";
-import { ErrorMapper } from "./utils";
-import { getTelemetry } from "./telemetry";
 import {
   CorpRegistry,
   cleanupDeadCreeps,
@@ -59,6 +55,8 @@ import {
   runSpawnScheduling,
   runSpawningCorps
 } from "./execution";
+import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
+import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
 import {
   PLANNING_INTERVAL,
   initCorps,
@@ -69,7 +67,9 @@ import {
   setLastSurveyTick,
   shouldRunPlanning
 } from "./orchestration";
-import "./types/Memory";
+import { ErrorMapper } from "./utils";
+import { applyPlanToCorps } from "./flow/EconomyAdapter";
+import { getTelemetry } from "./telemetry";
 
 // =============================================================================
 // GLOBALS

@@ -9,12 +9,12 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
-import { MAX_BUILDERS } from "./CorpConstants";
-import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { SinkAllocation } from "../flow/FlowTypes";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
+import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { MAX_BUILDERS } from "./CorpConstants";
+import { Position } from "../types/Position";
+import { SinkAllocation } from "../flow/FlowTypes";
 
 /**
  * Serialized state specific to ConstructionCorp

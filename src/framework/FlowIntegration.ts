@@ -7,10 +7,10 @@
  * @module framework/FlowIntegration
  */
 
+import { FlowAllocation, solveFlowBalance } from "./FlowBalance";
+import { FlowNetwork, FlowNetworkAnalysis, FlowNetworkConfig } from "./FlowNetwork";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { FlowNetwork, FlowNetworkAnalysis, FlowNetworkConfig } from "./FlowNetwork";
-import { FlowAllocation, solveFlowBalance } from "./FlowBalance";
 
 /**
  * Result of building a flow network from nodes.

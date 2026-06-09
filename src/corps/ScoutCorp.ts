@@ -5,7 +5,6 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import {
   MAX_INTEL_VALUE,
   MAX_SCOUTS,
@@ -15,6 +14,7 @@ import {
   STALE_THRESHOLD,
   VALUE_PER_STALE_TICK
 } from "./CorpConstants";
+import { Position } from "../types/Position";
 import { SpawningCorp } from "./SpawningCorp";
 
 /**

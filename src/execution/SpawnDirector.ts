@@ -15,8 +15,8 @@
  */
 
 import "../types/Memory";
-import { CorpRegistry } from "./CorpRunner";
 import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
+import { CorpRegistry } from "./CorpRunner";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp

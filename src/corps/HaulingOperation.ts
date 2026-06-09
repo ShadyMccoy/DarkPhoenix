@@ -5,8 +5,8 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import { MiningOperation } from "./MiningOperation";
+import { Position } from "../types/Position";
 
 /**
  * Serialized state for HaulingOperation

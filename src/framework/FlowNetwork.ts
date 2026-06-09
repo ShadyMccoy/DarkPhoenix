@@ -23,8 +23,6 @@
  * @module framework/FlowNetwork
  */
 
-import { Node, NodeResource } from "../nodes/Node";
-import { NodeNavigator } from "../nodes/NodeNavigator";
 import {
   CarryEdge,
   SupplyEdge,
@@ -34,6 +32,8 @@ import {
   createCarryEdge,
   createSupplyEdge
 } from "./FlowEdge";
+import { Node, NodeResource } from "../nodes/Node";
+import { NodeNavigator } from "../nodes/NodeNavigator";
 
 /**
  * A spawn node in the flow network.

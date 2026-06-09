@@ -13,7 +13,6 @@
  *     construction leaves - which is how "leftover goes to upgrading" emerges.
  */
 
-import { FlowGraph } from "./FlowGraph";
 import {
   EconomyPlan,
   PlannedFlow,
@@ -23,9 +22,10 @@ import {
   SinkKind,
   planEconomy
 } from "./EconomyPlanner";
-import { estimateWalkingDistance } from "../nodes/NodeNavigator";
 import { HaulerAssignment, SinkType } from "./FlowTypes";
 import { CorpRegistry } from "../execution/CorpRunner";
+import { FlowGraph } from "./FlowGraph";
+import { estimateWalkingDistance } from "../nodes/NodeNavigator";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / fully stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;

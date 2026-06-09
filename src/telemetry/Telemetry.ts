@@ -19,9 +19,9 @@
  * @module telemetry/Telemetry
  */
 
+import { SerializedChain, deserializeChain } from "../planning/Chain";
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
-import { SerializedChain, deserializeChain } from "../planning/Chain";
 import { FlowSolution } from "../flow/FlowTypes";
 
 /**

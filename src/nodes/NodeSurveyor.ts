@@ -1,5 +1,5 @@
-import { Position } from "../types/Position";
 import { Node, NodeResource, NodeResourceType, PotentialCorp, getCorpsByType, getResourcesByType } from "./Node";
+import { Position } from "../types/Position";
 
 /**
  * Configuration for surveying

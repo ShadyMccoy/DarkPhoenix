@@ -7,8 +7,8 @@
  * @module planning/OfferCollector
  */
 
-import { AnyCorpState } from "../corps/CorpState";
 import { Offer, projectAll } from "./projections";
+import { AnyCorpState } from "../corps/CorpState";
 
 /**
  * Collected offers organized by resource type.

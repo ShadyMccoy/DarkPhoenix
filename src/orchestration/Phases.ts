@@ -16,9 +16,6 @@
  * @module orchestration/Phases
  */
 
-import { Colony } from "../colony/Colony";
-import { CorpRegistry } from "../execution/CorpRunner";
-import { Chain, deserializeChain } from "../planning/Chain";
 import {
   BootstrapCorp,
   CarryCorp,
@@ -31,6 +28,9 @@ import {
   createSpawningCorp,
   createUpgradingCorp
 } from "../corps";
+import { Chain, deserializeChain } from "../planning/Chain";
+import { Colony } from "../colony/Colony";
+import { CorpRegistry } from "../execution/CorpRunner";
 
 /** Planning interval in ticks */
 export const PLANNING_INTERVAL = 5000;

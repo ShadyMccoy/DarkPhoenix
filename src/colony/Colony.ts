@@ -1,9 +1,9 @@
 import { CreditLedger, MoneySupply } from "./CreditLedger";
 import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
-import { Node } from "../nodes/Node";
-import { CorpRegistry } from "../execution/CorpRunner";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { Chain } from "../planning/Chain";
+import { CorpRegistry } from "../execution/CorpRunner";
+import { Node } from "../nodes/Node";
 
 /**
  * Colony configuration

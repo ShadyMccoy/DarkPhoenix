@@ -9,8 +9,6 @@
  */
 
 import "../types/Memory";
-import { Colony } from "../colony";
-import { Node, NodeSurveyor, ReachableSource, calculateNodeROI, createNode } from "../nodes";
 import {
   CrossRoomPeak,
   MultiRoomAnalysisResult,
@@ -19,6 +17,8 @@ import {
   analyzeMultiRoomTerrain,
   findTerritoryAdjacencies
 } from "../spatial";
+import { Node, NodeSurveyor, ReachableSource, calculateNodeROI, createNode } from "../nodes";
+import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms } from "../utils";
 
 // =============================================================================

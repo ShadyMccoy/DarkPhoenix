@@ -13,9 +13,9 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
+import { Position } from "../types/Position";
 
 /**
  * Serialized state for HaulerCorp persistence

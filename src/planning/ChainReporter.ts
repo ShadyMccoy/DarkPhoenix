@@ -8,10 +8,10 @@
  * Critical Requirement: Output must be readable by developers to
  * collaborate on vision.
  */
+import { CREEP_LIFETIME, calculateTravelTime } from "./EconomicConstants";
 import { Chain, calculateChainROI, calculateProfit } from "./Chain";
 import { Corp, CorpType } from "../corps/Corp";
 import { Position } from "../types/Position";
-import { CREEP_LIFETIME, calculateTravelTime } from "./EconomicConstants";
 
 /**
  * Detailed step information for reporting

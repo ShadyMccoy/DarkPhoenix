@@ -7,9 +7,9 @@
  * @module corps/SpawningCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import { BODY_PART_COST, CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
+import { Corp, SerializedCorp } from "./Corp";
+import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 import {
   UpgraderStrategy,
   buildMinerBody,
@@ -17,7 +17,7 @@ import {
   buildTankerBody,
   buildUpgraderBody
 } from "../spawn/BodyBuilder";
-import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+import { Position } from "../types/Position";
 
 /**
  * Types of creeps that can be spawned

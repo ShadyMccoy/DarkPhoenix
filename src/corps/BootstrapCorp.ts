@@ -15,8 +15,6 @@
  * @module corps/BootstrapCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
 import {
   ANTI_DOWNGRADE_MIN_RCL,
   ANTI_DOWNGRADE_SAFE_TICKS,
@@ -25,6 +23,8 @@ import {
   JACK_COST,
   SPAWN_COOLDOWN
 } from "./CorpConstants";
+import { Corp, SerializedCorp } from "./Corp";
+import { Position } from "../types/Position";
 
 /**
  * Ticks the spawn must be stuck (no creeps, low energy) before bootstrap activates.

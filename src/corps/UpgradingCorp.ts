@@ -7,14 +7,14 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
+import { Position } from "../types/Position";
+import { SinkAllocation } from "../flow/FlowTypes";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 6;
-import { SinkAllocation } from "../flow/FlowTypes";
-import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
-import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
  * Serialized state specific to UpgradingCorp

@@ -6,9 +6,6 @@
  *
  * This replaces the Market's role in connecting producers and consumers.
  */
-import { Node, getResourcesByType } from "../nodes/Node";
-import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
-import { countMiningSpots } from "../analysis/SourceAnalysis";
 import {
   DEFAULT_CONSTRAINTS,
   DEFAULT_SINK_PRIORITIES,
@@ -26,6 +23,9 @@ import {
   createFlowSink,
   createFlowSource
 } from "./FlowTypes";
+import { Node, getResourcesByType } from "../nodes/Node";
+import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
+import { countMiningSpots } from "../analysis/SourceAnalysis";
 
 // =============================================================================
 // FLOW GRAPH CLASS

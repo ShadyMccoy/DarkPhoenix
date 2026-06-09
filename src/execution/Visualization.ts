@@ -8,8 +8,8 @@
  * @module execution/Visualization
  */
 
-import { Colony } from "../colony";
 import { MultiRoomAnalysisResult, visualizeMultiRoomAnalysis } from "../spatial";
+import { Colony } from "../colony";
 
 /**
  * Renders node visualization in rooms with vision.

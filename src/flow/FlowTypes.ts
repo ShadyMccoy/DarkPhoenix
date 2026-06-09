@@ -7,10 +7,9 @@
 
 // Position type (shared across modules)
 export { Position } from "../types/Position";
-import { Position } from "../types/Position";
-
 // Import EdgeVariant types for route optimization
 import { EdgeVariant, HaulerRatio, MiningMode, TerrainProfile } from "../framework/EdgeVariant";
+import { Position } from "../types/Position";
 
 // =============================================================================
 // CONSTANTS

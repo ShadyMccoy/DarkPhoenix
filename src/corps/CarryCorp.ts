@@ -7,12 +7,12 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
-import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
-import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
 export { pickRuntToRecycle };
