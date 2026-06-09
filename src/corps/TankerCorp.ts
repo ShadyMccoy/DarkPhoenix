@@ -69,16 +69,10 @@ export class TankerCorp extends Corp {
   private accountedCreeps: Set<string> = new Set();
 
   /** Rolling average of fill operations for reactive scaling */
-  private fillOperationsPerTick: number = 0;
-  private lastMeasureTick: number = 0;
+  private fillOperationsPerTick = 0;
+  private lastMeasureTick = 0;
 
-  constructor(
-    nodeId: string,
-    spawnId: string,
-    nodeCenter: Position,
-    demand?: TankerDemand,
-    customId?: string
-  ) {
+  public constructor(nodeId: string, spawnId: string, nodeCenter: Position, demand?: TankerDemand, customId?: string) {
     super("hauling", nodeId, customId);
     this.spawnId = spawnId;
     this.nodeCenter = nodeCenter;
@@ -88,7 +82,7 @@ export class TankerCorp extends Corp {
       towerCount: 0,
       averageFillDistance: 5,
       spawnRate: 0.02,
-      energyPerTick: 10,
+      energyPerTick: 10
     };
     this.requiredCarryParts = this.calculateRequiredCarryParts();
   }
@@ -131,31 +125,25 @@ export class TankerCorp extends Corp {
    * Update demand model and recalculate requirements.
    * Called periodically to adjust to changing node conditions.
    */
-  updateDemand(room: Room): void {
+  public updateDemand(room: Room): void {
     const extensions = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) => s.structureType === STRUCTURE_EXTENSION,
+      filter: s => s.structureType === STRUCTURE_EXTENSION
     });
     const spawns = room.find(FIND_MY_SPAWNS);
     const towers = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) => s.structureType === STRUCTURE_TOWER,
+      filter: s => s.structureType === STRUCTURE_TOWER
     });
 
     // Calculate average distance from node center to structures
     const allStructures = [...extensions, ...spawns, ...towers];
     let totalDistance = 0;
-    const centerPos = new RoomPosition(
-      this.nodeCenter.x,
-      this.nodeCenter.y,
-      this.nodeCenter.roomName
-    );
+    const centerPos = new RoomPosition(this.nodeCenter.x, this.nodeCenter.y, this.nodeCenter.roomName);
 
     for (const s of allStructures) {
       totalDistance += s.pos.getRangeTo(centerPos);
     }
 
-    const avgDistance = allStructures.length > 0
-      ? totalDistance / allStructures.length
-      : 5;
+    const avgDistance = allStructures.length > 0 ? totalDistance / allStructures.length : 5;
 
     // Estimate spawn rate based on RCL and spawn count
     // RCL 1-2: ~0.01, RCL 3-4: ~0.02, RCL 5+: ~0.03
@@ -172,7 +160,7 @@ export class TankerCorp extends Corp {
       towerCount: towers.length,
       averageFillDistance: avgDistance,
       spawnRate,
-      energyPerTick,
+      energyPerTick
     };
 
     this.requiredCarryParts = this.calculateRequiredCarryParts();
@@ -185,11 +173,7 @@ export class TankerCorp extends Corp {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if (
-        creep.memory.corpId === this.id &&
-        creep.memory.workType === "tank" &&
-        !creep.spawning
-      ) {
+      if (creep.memory.corpId === this.id && creep.memory.workType === "tank" && !creep.spawning) {
         creeps.push(creep);
 
         // Track expected production for new creeps
@@ -209,14 +193,14 @@ export class TankerCorp extends Corp {
   /**
    * Get position for this corp (node center).
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     return this.nodeCenter;
   }
 
   /**
    * Main work loop - run tanker creeps.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -274,7 +258,7 @@ export class TankerCorp extends Corp {
   private collectEnergy(creep: Creep, room: Room): void {
     // Priority 1: Dropped energy (anywhere in room, prioritize larger piles)
     const dropped = room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount >= 50,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount >= 50
     });
 
     if (dropped.length > 0) {
@@ -293,7 +277,7 @@ export class TankerCorp extends Corp {
 
     // Priority 2: Tombstones with energy
     const tombstones = room.find(FIND_TOMBSTONES, {
-      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+      filter: t => t.store[RESOURCE_ENERGY] > 0
     });
 
     if (tombstones.length > 0) {
@@ -306,7 +290,7 @@ export class TankerCorp extends Corp {
 
     // Priority 3: Ruins with energy
     const ruins = room.find(FIND_RUINS, {
-      filter: (r) => r.store[RESOURCE_ENERGY] > 0,
+      filter: r => r.store[RESOURCE_ENERGY] > 0
     });
 
     if (ruins.length > 0) {
@@ -319,9 +303,7 @@ export class TankerCorp extends Corp {
 
     // Priority 4: Containers with significant energy
     const containers = room.find(FIND_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] >= 100,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] >= 100
     }) as StructureContainer[];
 
     if (containers.length > 0) {
@@ -344,9 +326,7 @@ export class TankerCorp extends Corp {
 
     // Priority 6: Links (receiver links near spawn/controller)
     const links = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_LINK &&
-        (s as StructureLink).store[RESOURCE_ENERGY] > 0,
+      filter: s => s.structureType === STRUCTURE_LINK && (s as StructureLink).store[RESOURCE_ENERGY] > 0
     }) as StructureLink[];
 
     if (links.length > 0) {
@@ -358,11 +338,7 @@ export class TankerCorp extends Corp {
     }
 
     // Nothing to collect - wait near node center
-    const centerPos = new RoomPosition(
-      this.nodeCenter.x,
-      this.nodeCenter.y,
-      this.nodeCenter.roomName
-    );
+    const centerPos = new RoomPosition(this.nodeCenter.x, this.nodeCenter.y, this.nodeCenter.roomName);
     if (creep.pos.getRangeTo(centerPos) > 3) {
       creep.moveTo(centerPos, { visualizePathStyle: { stroke: "#ffaa00" } });
     }
@@ -381,7 +357,7 @@ export class TankerCorp extends Corp {
     // Opportunistic: pick up nearby dropped energy while delivering
     if (creep.store.getFreeCapacity() > 0) {
       const nearbyDropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-        filter: (r) => r.resourceType === RESOURCE_ENERGY,
+        filter: r => r.resourceType === RESOURCE_ENERGY
       });
       if (nearbyDropped.length > 0) {
         creep.pickup(nearbyDropped[0]);
@@ -390,7 +366,7 @@ export class TankerCorp extends Corp {
 
     // Priority 1: Spawns that need energy
     const spawns = room.find(FIND_MY_SPAWNS, {
-      filter: (s) => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+      filter: s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
     });
 
     if (spawns.length > 0) {
@@ -400,9 +376,7 @@ export class TankerCorp extends Corp {
         if (result === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
         } else if (result === OK) {
-          this.recordProduction(
-            Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY))
-          );
+          this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
         }
         return;
       }
@@ -410,9 +384,8 @@ export class TankerCorp extends Corp {
 
     // Priority 2: Extensions that need energy (use slot-based to avoid herding)
     const extensions = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_EXTENSION &&
-        (s as StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+      filter: s =>
+        s.structureType === STRUCTURE_EXTENSION && (s as StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY) > 0
     }) as StructureExtension[];
 
     if (extensions.length > 0) {
@@ -423,9 +396,7 @@ export class TankerCorp extends Corp {
         if (result === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
         } else if (result === OK) {
-          this.recordProduction(
-            Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY))
-          );
+          this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
         }
         return;
       }
@@ -433,9 +404,7 @@ export class TankerCorp extends Corp {
 
     // Priority 3: Towers below 80% energy
     const towers = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_TOWER &&
-        (s as StructureTower).store[RESOURCE_ENERGY] < 800, // 80% of 1000
+      filter: s => s.structureType === STRUCTURE_TOWER && (s as StructureTower).store[RESOURCE_ENERGY] < 800 // 80% of 1000
     }) as StructureTower[];
 
     if (towers.length > 0) {
@@ -446,9 +415,7 @@ export class TankerCorp extends Corp {
       if (result === ERR_NOT_IN_RANGE) {
         creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
       } else if (result === OK) {
-        this.recordProduction(
-          Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY))
-        );
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
       }
       return;
     }
@@ -465,11 +432,7 @@ export class TankerCorp extends Corp {
     }
 
     // Nothing needs energy - wait near node center
-    const centerPos = new RoomPosition(
-      this.nodeCenter.x,
-      this.nodeCenter.y,
-      this.nodeCenter.roomName
-    );
+    const centerPos = new RoomPosition(this.nodeCenter.x, this.nodeCenter.y, this.nodeCenter.roomName);
     if (creep.pos.getRangeTo(centerPos) > 3) {
       creep.moveTo(centerPos, { visualizePathStyle: { stroke: "#ffffff" } });
     }
@@ -478,10 +441,7 @@ export class TankerCorp extends Corp {
   /**
    * Get a target using slot-based distribution to prevent herding.
    */
-  private getSlotBasedTarget<T extends Structure>(
-    creep: Creep,
-    structures: T[]
-  ): T | null {
+  private getSlotBasedTarget<T extends Structure>(creep: Creep, structures: T[]): T | null {
     if (structures.length === 0) return null;
 
     // Sort by ID for consistent ordering
@@ -489,7 +449,7 @@ export class TankerCorp extends Corp {
 
     // Get tanker's slot index
     const allTankers = this.getAssignedCreeps();
-    const myIndex = allTankers.findIndex((c) => c.name === creep.name);
+    const myIndex = allTankers.findIndex(c => c.name === creep.name);
     const slot = myIndex >= 0 ? myIndex : 0;
 
     // Start from slot offset and wrap around
@@ -505,31 +465,28 @@ export class TankerCorp extends Corp {
   /**
    * Get number of active tanker creeps.
    */
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getAssignedCreeps().length;
   }
 
   /**
    * Get total CARRY parts currently assigned.
    */
-  getCurrentCarryParts(): number {
-    return this.getAssignedCreeps().reduce(
-      (sum, creep) => sum + creep.getActiveBodyparts(CARRY),
-      0
-    );
+  public getCurrentCarryParts(): number {
+    return this.getAssignedCreeps().reduce((sum, creep) => sum + creep.getActiveBodyparts(CARRY), 0);
   }
 
   /**
    * Get the required CARRY parts based on demand model.
    */
-  getRequiredCarryParts(): number {
+  public getRequiredCarryParts(): number {
     return this.requiredCarryParts;
   }
 
   /**
    * Get the current demand model.
    */
-  getDemand(): TankerDemand {
+  public getDemand(): TankerDemand {
     return this.demand;
   }
 
@@ -537,27 +494,27 @@ export class TankerCorp extends Corp {
    * Check if tanker capacity is sufficient.
    * Returns true if current CARRY parts meet or exceed required.
    */
-  hasAdequateCapacity(): boolean {
+  public hasAdequateCapacity(): boolean {
     return this.getCurrentCarryParts() >= this.requiredCarryParts;
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedTankerCorp {
+  public serialize(): SerializedTankerCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
       nodeCenter: this.nodeCenter,
       demand: this.demand,
-      requiredCarryParts: this.requiredCarryParts,
+      requiredCarryParts: this.requiredCarryParts
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedTankerCorp): void {
+  public deserialize(data: SerializedTankerCorp): void {
     super.deserialize(data);
     this.nodeCenter = data.nodeCenter;
     this.demand = data.demand ?? this.demand;

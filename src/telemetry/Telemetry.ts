@@ -21,7 +21,7 @@
 
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
-import { deserializeChain, SerializedChain } from "../planning/Chain";
+import { SerializedChain, deserializeChain } from "../planning/Chain";
 import { FlowSolution } from "../flow/FlowTypes";
 
 /**
@@ -42,13 +42,13 @@ interface SpawningCorpLike extends Corp {
  * Segment assignments for telemetry data.
  */
 export const TELEMETRY_SEGMENTS = {
-  CORE: 0,      // Colony stats, money supply, creep counts
-  NODES: 1,     // Node territories, resources, ROI
-  EDGES: 2,     // Spatial and economic edges with flow rates
-  INTEL: 3,     // Room intel from scouting
-  CORPS: 4,     // Corps details
-  CHAINS: 5,    // Active chains
-  FLOW: 6,      // Flow economy: sources, sinks, allocations
+  CORE: 0, // Colony stats, money supply, creep counts
+  NODES: 1, // Node territories, resources, ROI
+  EDGES: 2, // Spatial and economic edges with flow rates
+  INTEL: 3, // Room intel from scouting
+  CORPS: 4, // Corps details
+  CHAINS: 5, // Active chains
+  FLOW: 6 // Flow economy: sources, sinks, allocations
 };
 
 /**
@@ -126,26 +126,27 @@ export interface NodeTelemetry {
   tick: number;
   nodes: {
     id: string;
-    r: string;  // roomName
-    p: { x: number; y: number; r: string };  // peakPosition
-    t: number;  // territorySize
-    res: {  // resources (compact)
-      t: string;  // type
+    r: string; // roomName
+    p: { x: number; y: number; r: string }; // peakPosition
+    t: number; // territorySize
+    res: {
+      // resources (compact)
+      t: string; // type
       x: number;
       y: number;
     }[];
     roi?: {
-      s: number;   // score
-      e: number;   // expansionScore
-      o: number;   // openness
-      d: number;   // distanceFromOwned
-      own: boolean;  // isOwned
-      src: number;   // sourceCount
+      s: number; // score
+      e: number; // expansionScore
+      o: number; // openness
+      d: number; // distanceFromOwned
+      own: boolean; // isOwned
+      src: number; // sourceCount
       ctrl: boolean; // hasController
     };
-    spans: string[];  // spansRooms
-    econ?: boolean;   // is part of economic network (has corps)
-    sp?: number;      // number of spawn structures in this node's room
+    spans: string[]; // spansRooms
+    econ?: boolean; // is part of economic network (has corps)
+    sp?: number; // number of spawn structures in this node's room
   }[];
   /** @deprecated Edges moved to segment 2 (EdgesTelemetry) in version 5 */
   edges?: string[];
@@ -282,8 +283,8 @@ export interface FlowTelemetry {
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
     id: string;
-    nodeId?: string;  // Optional - may not always be available
-    type: string;  // "spawn" | "controller" | "construction"
+    nodeId?: string; // Optional - may not always be available
+    type: string; // "spawn" | "controller" | "construction"
     demand: number;
     allocated: number;
     unmet: number;
@@ -320,8 +321,8 @@ export interface TelemetryConfig {
  */
 export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
   enabled: true,
-  updateInterval: 1,      // Every tick for core data
-  terrainInterval: 1000,  // Every 1000 ticks for terrain (rarely changes)
+  updateInterval: 1, // Every tick for core data
+  terrainInterval: 1000 // Every 1000 ticks for terrain (rarely changes)
 };
 
 /**
@@ -330,7 +331,7 @@ export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
 export class Telemetry {
   private config: TelemetryConfig;
 
-  constructor(config: Partial<TelemetryConfig> = {}) {
+  public constructor(config: Partial<TelemetryConfig> = {}) {
     this.config = { ...DEFAULT_TELEMETRY_CONFIG, ...config };
   }
 
@@ -338,7 +339,7 @@ export class Telemetry {
    * Updates all telemetry data in RawMemory segments.
    * Call this from the main game loop.
    */
-  update(
+  public update(
     colony: Colony | undefined,
     bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
     harvestCorps: { [sourceId: string]: CreepTrackingCorp },
@@ -358,13 +359,20 @@ export class Telemetry {
     RawMemory.setActiveSegments(PUBLIC_SEGMENTS);
 
     // Check if we should update based on interval
-    const shouldUpdate = this.config.updateInterval === 0 ||
-      Game.time % this.config.updateInterval === 0;
+    const shouldUpdate = this.config.updateInterval === 0 || Game.time % this.config.updateInterval === 0;
 
     if (!shouldUpdate) return;
 
     // Update core telemetry (always)
-    this.updateCoreTelemetry(colony, bootstrapCorps, harvestCorps, haulingCorps, upgradingCorps, scoutCorps, constructionCorps);
+    this.updateCoreTelemetry(
+      colony,
+      bootstrapCorps,
+      harvestCorps,
+      haulingCorps,
+      upgradingCorps,
+      scoutCorps,
+      constructionCorps
+    );
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
@@ -433,14 +441,14 @@ export class Telemetry {
       totalMinted: 0,
       totalTaxed: 0,
       treasuryBalance: 0,
-      averageROI: 0,
+      averageROI: 0
     };
 
     const money = colony?.getMoneySupply() || {
       minted: 0,
       taxed: 0,
       net: 0,
-      treasury: 0,
+      treasury: 0
     };
 
     // Build rooms array
@@ -454,7 +462,7 @@ export class Telemetry {
           rclProgress: room.controller.progress,
           rclProgressTotal: room.controller.progressTotal,
           energyAvailable: room.energyAvailable,
-          energyCapacity: room.energyCapacityAvailable,
+          energyCapacity: room.energyCapacityAvailable
         });
       }
     }
@@ -467,25 +475,25 @@ export class Telemetry {
         used: Game.cpu.getUsed(),
         limit: Game.cpu.limit,
         bucket: Game.cpu.bucket,
-        tickLimit: Game.cpu.tickLimit,
+        tickLimit: Game.cpu.tickLimit
       },
       gcl: {
         level: Game.gcl.level,
         progress: Game.gcl.progress,
-        progressTotal: Game.gcl.progressTotal,
+        progressTotal: Game.gcl.progressTotal
       },
       colony: {
         nodeCount: stats.nodeCount,
         totalCorps: stats.totalCorps,
         activeCorps: stats.activeCorps,
         activeChains: stats.activeChains,
-        averageROI: stats.averageROI,
+        averageROI: stats.averageROI
       },
       money: {
         treasury: money.treasury,
         minted: money.minted,
         taxed: money.taxed,
-        net: money.net,
+        net: money.net
       },
       creeps: {
         total: Object.keys(Game.creeps).length,
@@ -494,9 +502,9 @@ export class Telemetry {
         haulers: haulerCount,
         upgraders: upgraderCount,
         scouts: scoutCount,
-        builders: builderCount,
+        builders: builderCount
       },
-      rooms,
+      rooms
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.CORE] = JSON.stringify(telemetry);
@@ -513,9 +521,7 @@ export class Telemetry {
     const ownedNodes = nodes.filter(n => n.roi?.isOwned).length;
     const expansionCandidates = nodes.filter(n => !n.roi?.isOwned && (n.roi?.score || 0) > 0).length;
     const totalSources = nodes.reduce((sum, n) => sum + (n.roi?.sourceCount || 0), 0);
-    const avgROI = nodes.length > 0
-      ? nodes.reduce((sum, n) => sum + (n.roi?.score || 0), 0) / nodes.length
-      : 0;
+    const avgROI = nodes.length > 0 ? nodes.reduce((sum, n) => sum + (n.roi?.score || 0), 0) / nodes.length : 0;
 
     // Sort nodes: owned first, then by ROI score descending
     const sortedNodes = [...nodes].sort((a, b) => {
@@ -553,24 +559,26 @@ export class Telemetry {
       res: node.resources.map(r => ({
         t: r.type,
         x: r.position.x,
-        y: r.position.y,
+        y: r.position.y
       })),
-      roi: node.roi ? {
-        s: node.roi.score,
-        e: node.roi.expansionScore,
-        o: node.roi.openness,
-        d: node.roi.distanceFromOwned,
-        own: node.roi.isOwned,
-        src: node.roi.sourceCount,
-        ctrl: node.roi.hasController,
-      } : undefined,
+      roi: node.roi
+        ? {
+            s: node.roi.score,
+            e: node.roi.expansionScore,
+            o: node.roi.openness,
+            d: node.roi.distanceFromOwned,
+            own: node.roi.isOwned,
+            src: node.roi.sourceCount,
+            ctrl: node.roi.hasController
+          }
+        : undefined,
       spans: node.spansRooms,
       econ: econNodeIds.has(node.id) || undefined,
-      sp: spawnCountsByRoom[node.roomName] || undefined,
+      sp: spawnCountsByRoom[node.roomName] || undefined
     }));
 
     const telemetry: NodeTelemetry = {
-      version: 5,  // Version 5: edges moved to segment 2
+      version: 5, // Version 5: edges moved to segment 2
       tick: Game.time,
       nodes: nodeData,
       summary: {
@@ -578,8 +586,8 @@ export class Telemetry {
         ownedNodes,
         expansionCandidates,
         totalSources,
-        avgROI,
-      },
+        avgROI
+      }
     };
 
     const json = JSON.stringify(telemetry);
@@ -655,11 +663,11 @@ export class Telemetry {
     }
 
     const telemetry: EdgesTelemetry = {
-      version: 2,  // Version 2: includes flow rates
+      version: 2, // Version 2: includes flow rates
       tick: Game.time,
       nodeIndex,
       edges,
-      economicEdges,
+      economicEdges
     };
 
     const json = JSON.stringify(telemetry);
@@ -705,7 +713,7 @@ export class Telemetry {
           controllerReservation: intel.controllerReservation,
           hostileCreepCount: intel.hostileCreepCount,
           hostileStructureCount: intel.hostileStructureCount,
-          isSafe: intel.isSafe,
+          isSafe: intel.isSafe
         });
       }
     }
@@ -713,7 +721,7 @@ export class Telemetry {
     const telemetry: IntelTelemetry = {
       version: 1,
       tick: Game.time,
-      rooms,
+      rooms
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.INTEL] = JSON.stringify(telemetry);
@@ -749,7 +757,7 @@ export class Telemetry {
         isActive: corp.isActive,
         creepCount: corp.getCreepCount(),
         createdAt: corp.createdAt,
-        lastActivityTick: corp.lastActivityTick,
+        lastActivityTick: corp.lastActivityTick
       });
 
       corpsByType[corp.type] = (corpsByType[corp.type] || 0) + 1;
@@ -759,9 +767,8 @@ export class Telemetry {
     for (const sourceId in harvestCorps) {
       const corp = harvestCorps[sourceId];
       // Extract room from source ID (format is like "xxxxRoomName")
-      const roomName = Object.keys(Game.rooms).find(r =>
-        Game.rooms[r].find(FIND_SOURCES).some(s => s.id === sourceId)
-      ) || "unknown";
+      const roomName =
+        Object.keys(Game.rooms).find(r => Game.rooms[r].find(FIND_SOURCES).some(s => s.id === sourceId)) || "unknown";
       addCorp(corp, roomName);
     }
 
@@ -801,16 +808,14 @@ export class Telemetry {
         isActive: corp.isActive,
         creepCount: corp.getPendingOrderCount(), // Show pending orders as "creepCount"
         createdAt: corp.createdAt,
-        lastActivityTick: corp.lastActivityTick,
+        lastActivityTick: corp.lastActivityTick
       });
 
       corpsByType[corp.type] = (corpsByType[corp.type] || 0) + 1;
     }
 
     const totalBalance = corps.reduce((sum, c) => sum + c.balance, 0);
-    const avgProfit = corps.length > 0
-      ? corps.reduce((sum, c) => sum + c.profit, 0) / corps.length
-      : 0;
+    const avgProfit = corps.length > 0 ? corps.reduce((sum, c) => sum + c.profit, 0) / corps.length : 0;
 
     const telemetry: CorpsTelemetry = {
       version: 1,
@@ -821,8 +826,8 @@ export class Telemetry {
         activeCorps: corps.filter(c => c.isActive).length,
         totalBalance,
         avgProfit,
-        corpsByType,
-      },
+        corpsByType
+      }
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.CORPS] = JSON.stringify(telemetry);
@@ -835,9 +840,7 @@ export class Telemetry {
   private updateChainsTelemetry(): void {
     // Load chains from Memory (populated by ChainPlanner during planning phase)
     const memoryChains = Memory.chains || {};
-    const plannedChains = Object.values(memoryChains).map((data: SerializedChain) =>
-      deserializeChain(data)
-    );
+    const plannedChains = Object.values(memoryChains).map((data: SerializedChain) => deserializeChain(data));
 
     const chains: ChainsTelemetry["chains"] = plannedChains.map(chain => ({
       id: chain.id,
@@ -852,8 +855,8 @@ export class Telemetry {
         resource: seg.resource,
         inputCost: seg.inputCost,
         margin: seg.margin,
-        outputPrice: seg.outputPrice,
-      })),
+        outputPrice: seg.outputPrice
+      }))
     }));
 
     // Sort by profit (highest first)
@@ -861,9 +864,7 @@ export class Telemetry {
 
     const fundedChains = chains.filter(c => c.funded).length;
     const totalProfit = chains.reduce((sum, c) => sum + c.profit, 0);
-    const avgChainAge = chains.length > 0
-      ? chains.reduce((sum, c) => sum + c.age, 0) / chains.length
-      : 0;
+    const avgChainAge = chains.length > 0 ? chains.reduce((sum, c) => sum + c.age, 0) / chains.length : 0;
 
     const telemetry: ChainsTelemetry = {
       version: 1,
@@ -873,8 +874,8 @@ export class Telemetry {
         totalChains: chains.length,
         fundedChains,
         totalProfit,
-        avgChainAge,
-      },
+        avgChainAge
+      }
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.CHAINS] = JSON.stringify(telemetry);
@@ -899,7 +900,7 @@ export class Telemetry {
           // Work parts calculated from harvest rate (2 energy/tick per WORK part)
           workParts: Math.ceil(miner.harvestRate / 2),
           efficiency: miner.efficiency,
-          spawnDistance: miner.spawnDistance,
+          spawnDistance: miner.spawnDistance
         });
       }
 
@@ -912,7 +913,7 @@ export class Telemetry {
           demand: sink.demand,
           allocated: sink.allocated,
           unmet: sink.unmet,
-          priority: sink.priority,
+          priority: sink.priority
         });
       }
     }
@@ -922,24 +923,26 @@ export class Telemetry {
       tick: Game.time,
       sources,
       sinks,
-      summary: flowSolution ? {
-        totalHarvest: flowSolution.totalHarvest,
-        totalOverhead: flowSolution.totalOverhead,
-        netEnergy: flowSolution.netEnergy,
-        efficiency: flowSolution.efficiency,
-        isSustainable: flowSolution.isSustainable,
-        minerCount: flowSolution.miners.length,
-        haulerCount: flowSolution.haulers.length,
-      } : {
-        totalHarvest: 0,
-        totalOverhead: 0,
-        netEnergy: 0,
-        efficiency: 0,
-        isSustainable: false,
-        minerCount: 0,
-        haulerCount: 0,
-      },
-      warnings: flowSolution?.warnings || [],
+      summary: flowSolution
+        ? {
+            totalHarvest: flowSolution.totalHarvest,
+            totalOverhead: flowSolution.totalOverhead,
+            netEnergy: flowSolution.netEnergy,
+            efficiency: flowSolution.efficiency,
+            isSustainable: flowSolution.isSustainable,
+            minerCount: flowSolution.miners.length,
+            haulerCount: flowSolution.haulers.length
+          }
+        : {
+            totalHarvest: 0,
+            totalOverhead: 0,
+            netEnergy: 0,
+            efficiency: 0,
+            isSustainable: false,
+            minerCount: 0,
+            haulerCount: 0
+          },
+      warnings: flowSolution?.warnings || []
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.FLOW] = JSON.stringify(telemetry);

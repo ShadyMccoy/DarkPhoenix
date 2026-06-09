@@ -30,11 +30,7 @@ export function spawnIdleAndMaxed(room: Room, spawn: StructureSpawn): boolean {
  * full-size - in which case the fix is to add a creep, not recycle one). Pure, so
  * it serves miners (WORK), haulers (CARRY) and any other sized fleet identically.
  */
-export function pickRuntToRecycle(
-  partCounts: number[],
-  partsNeeded: number,
-  maxPartsPerCreep: number
-): number | null {
+export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, maxPartsPerCreep: number): number | null {
   if (partsNeeded <= 0) return null;
   const total = partCounts.reduce((sum, p) => sum + p, 0);
   if (total >= partsNeeded) return null; // fleet already meets the plan

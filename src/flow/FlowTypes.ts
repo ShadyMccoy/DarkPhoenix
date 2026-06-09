@@ -10,12 +10,7 @@ export { Position } from "../types/Position";
 import { Position } from "../types/Position";
 
 // Import EdgeVariant types for route optimization
-import {
-  EdgeVariant,
-  TerrainProfile,
-  HaulerRatio,
-  MiningMode,
-} from "../framework/EdgeVariant";
+import { EdgeVariant, HaulerRatio, MiningMode, TerrainProfile } from "../framework/EdgeVariant";
 
 // =============================================================================
 // CONSTANTS
@@ -31,7 +26,7 @@ export const CREEP_LIFETIME = 1500;
 export const BODY_COSTS = {
   WORK: 100,
   CARRY: 50,
-  MOVE: 50,
+  MOVE: 50
 } as const;
 
 /** Standard miner: 5W 3M */
@@ -49,18 +44,18 @@ export const MINER_OVERHEAD_PER_TICK = MINER_COST / CREEP_LIFETIME; // ~0.433
  * Priority ordering is handled by PriorityManager.
  */
 export type SinkType =
-  | "spawn"         // Spawn overhead - keeping creeps alive (CRITICAL)
-  | "extension"     // Extension fill - spawn capacity
-  | "tower"         // Tower energy - defense and repair
-  | "construction"  // Construction sites - building new structures
-  | "controller"    // Controller upgrading
-  | "terminal"      // Terminal operations
-  | "link"          // Link network transfers
-  | "storage"       // Storage buffer (lowest priority - excess only)
-  | "lab"           // Lab operations
-  | "factory"       // Factory production
-  | "nuker"         // Nuker charging
-  | "powerSpawn";   // Power processing
+  | "spawn" // Spawn overhead - keeping creeps alive (CRITICAL)
+  | "extension" // Extension fill - spawn capacity
+  | "tower" // Tower energy - defense and repair
+  | "construction" // Construction sites - building new structures
+  | "controller" // Controller upgrading
+  | "terminal" // Terminal operations
+  | "link" // Link network transfers
+  | "storage" // Storage buffer (lowest priority - excess only)
+  | "lab" // Lab operations
+  | "factory" // Factory production
+  | "nuker" // Nuker charging
+  | "powerSpawn"; // Power processing
 
 /**
  * Default priority values for each sink type.
@@ -68,18 +63,18 @@ export type SinkType =
  * These are defaults - PriorityManager adjusts based on game state.
  */
 export const DEFAULT_SINK_PRIORITIES: Record<SinkType, number> = {
-  spawn: 100,        // Always critical
-  extension: 85,     // High when spawning
-  tower: 80,         // High during combat
-  construction: 70,  // High after RCL-up
-  controller: 60,    // Normal operation
-  link: 50,          // Convenience
-  terminal: 40,      // Trade operations
-  storage: 30,       // Buffer
-  lab: 25,           // Production
-  factory: 20,       // Production
-  powerSpawn: 10,    // Luxury
-  nuker: 5,          // Very low priority
+  spawn: 100, // Always critical
+  extension: 85, // High when spawning
+  tower: 80, // High during combat
+  construction: 70, // High after RCL-up
+  controller: 60, // Normal operation
+  link: 50, // Convenience
+  terminal: 40, // Trade operations
+  storage: 30, // Buffer
+  lab: 25, // Production
+  factory: 20, // Production
+  powerSpawn: 10, // Luxury
+  nuker: 5 // Very low priority
 };
 
 // =============================================================================
@@ -318,11 +313,11 @@ export interface SinkAllocation {
   priority: number;
 
   /** Sources contributing to this sink */
-  sourceFlows: Array<{
+  sourceFlows: {
     sourceId: string;
     amount: number;
     distance: number;
-  }>;
+  }[];
 }
 
 // =============================================================================
@@ -384,7 +379,7 @@ export const DEFAULT_CONSTRAINTS: FlowConstraints = {
   maxMinersPerSource: 1,
   maxCarryPerEdge: 25, // 25C25M = 50 parts max
   minControllerUpgrade: 1, // At least 1/tick to prevent downgrade
-  allowDeficit: false,
+  allowDeficit: false
 };
 
 /**
@@ -486,7 +481,7 @@ export function createFlowSource(
   nodeId: string,
   position: Position,
   capacity: number = SOURCE_ENERGY_PER_TICK,
-  maxMiners: number = 1
+  maxMiners = 1
 ): FlowSource {
   return {
     id: `source-${gameId}`,
@@ -496,7 +491,7 @@ export function createFlowSource(
     gameId,
     assigned: false,
     currentOutput: 0,
-    maxMiners,
+    maxMiners
   };
 }
 
@@ -521,7 +516,7 @@ export function createFlowSink(
     demand,
     capacity,
     allocation: 0,
-    gameId,
+    gameId
   };
 }
 
@@ -537,7 +532,7 @@ export function createEdgeId(fromId: string, toId: string): string {
  * Calculate round trip time for a given distance.
  * Assumes 1:1 CARRY:MOVE ratio (full speed both ways).
  */
-export function calculateRoundTrip(distance: number, hasRoads: boolean = false): number {
+export function calculateRoundTrip(distance: number, hasRoads = false): number {
   // With roads and 2:1 ratio, still full speed
   // Without roads, 1:1 ratio = full speed both ways
   return 2 * distance + 2;
@@ -565,9 +560,4 @@ export function calculateHaulerCostPerTick(carryParts: number): number {
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
 
 // Re-export EdgeVariant types for convenience
-export {
-  EdgeVariant,
-  TerrainProfile,
-  HaulerRatio,
-  MiningMode,
-} from "../framework/EdgeVariant";
+export { EdgeVariant, TerrainProfile, HaulerRatio, MiningMode } from "../framework/EdgeVariant";

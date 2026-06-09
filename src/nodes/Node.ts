@@ -2,11 +2,13 @@ import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
 
 // Declare Game for environments where @types/screeps is not available
-declare const Game: {
-  map: {
-    getRoomLinearDistance(roomA: string, roomB: string): number;
-  };
-} | undefined;
+declare const Game:
+  | {
+      map: {
+        getRoomLinearDistance(roomA: string, roomB: string): number;
+      };
+    }
+  | undefined;
 
 /**
  * Estimate room distance for test environments where Game object is unavailable.
@@ -14,7 +16,7 @@ declare const Game: {
  */
 function estimateRoomDistance(roomA: string, roomB: string): number {
   const parseRoom = (name: string): { x: number; y: number } | null => {
-    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
+    const match = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
     if (!match) return null;
     const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
     const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
@@ -31,13 +33,7 @@ function estimateRoomDistance(roomA: string, roomB: string): number {
 /**
  * Types of resources that can exist in a node
  */
-export type NodeResourceType =
-  | "source"
-  | "controller"
-  | "mineral"
-  | "spawn"
-  | "storage"
-  | "container";
+export type NodeResourceType = "source" | "controller" | "mineral" | "spawn" | "storage" | "container";
 
 /**
  * A resource within a node territory
@@ -200,9 +196,9 @@ export function createNode(
   id: string,
   roomName: string,
   peakPosition: Position,
-  territorySize: number = 0,
+  territorySize = 0,
   spansRooms: string[] = [],
-  currentTick: number = 0
+  currentTick = 0
 ): Node {
   return {
     id,
@@ -220,24 +216,21 @@ export function createNode(
  * Get corps of a specific type from a node
  */
 export function getCorpsByType(node: Node, type: CorpType): Corp[] {
-  return node.corps.filter((corp) => corp.type === type);
+  return node.corps.filter(corp => corp.type === type);
 }
 
 /**
  * Get resources of a specific type from a node
  */
-export function getResourcesByType(
-  node: Node,
-  type: NodeResourceType
-): NodeResource[] {
-  return node.resources.filter((resource) => resource.type === type);
+export function getResourcesByType(node: Node, type: NodeResourceType): NodeResource[] {
+  return node.resources.filter(resource => resource.type === type);
 }
 
 /**
  * Check if a node has a specific resource type
  */
 export function hasResourceType(node: Node, type: NodeResourceType): boolean {
-  return node.resources.some((resource) => resource.type === type);
+  return node.resources.some(resource => resource.type === type);
 }
 
 /**
@@ -260,17 +253,17 @@ export function getTotalBalance(node: Node): number {
  * Get active corps in a node
  */
 export function getActiveCorps(node: Node): Corp[] {
-  return node.corps.filter((corp) => corp.isActive);
+  return node.corps.filter(corp => corp.isActive);
 }
 
 /**
  * Prune dead corps from a node
  * Returns the pruned corps
  */
-export function pruneDead(node: Node, currentTick: number, gracePeriod: number = 1500): Corp[] {
+export function pruneDead(node: Node, currentTick: number, gracePeriod = 1500): Corp[] {
   const pruned: Corp[] = [];
 
-  node.corps = node.corps.filter((corp) => {
+  node.corps = node.corps.filter(corp => {
     // Keep if has positive balance
     if (corp.balance > 10) return true;
 
@@ -300,7 +293,7 @@ export function serializeNode(node: Node): SerializedNode {
     territorySize: node.territorySize,
     spansRooms: node.spansRooms,
     resources: node.resources,
-    corpIds: node.corps.map((c) => c.id),
+    corpIds: node.corps.map(c => c.id),
     createdAt: node.createdAt,
     roi: node.roi
   };
@@ -352,9 +345,10 @@ export function calculateNodeROI(
   if (!isOwned) {
     distanceFromOwned = Infinity;
     for (const ownedRoom of ownedRooms) {
-      const dist = typeof Game !== "undefined"
-        ? Game.map.getRoomLinearDistance(node.roomName, ownedRoom)
-        : estimateRoomDistance(node.roomName, ownedRoom);
+      const dist =
+        typeof Game !== "undefined"
+          ? Game.map.getRoomLinearDistance(node.roomName, ownedRoom)
+          : estimateRoomDistance(node.roomName, ownedRoom);
       if (dist < distanceFromOwned) {
         distanceFromOwned = dist;
       }
@@ -448,17 +442,15 @@ export function calculateNodeROI(
 export function distanceToPeak(node: Node, position: Position): number {
   if (position.roomName === node.peakPosition.roomName) {
     // Same room - simple Manhattan distance
-    return (
-      Math.abs(position.x - node.peakPosition.x) +
-      Math.abs(position.y - node.peakPosition.y)
-    );
+    return Math.abs(position.x - node.peakPosition.x) + Math.abs(position.y - node.peakPosition.y);
   }
 
   // Cross-room distance estimation using linear distance
   // This is approximate but good enough for territory decisions
-  const roomDistance = typeof Game !== "undefined"
-    ? Game.map.getRoomLinearDistance(position.roomName, node.peakPosition.roomName)
-    : estimateRoomDistance(position.roomName, node.peakPosition.roomName);
+  const roomDistance =
+    typeof Game !== "undefined"
+      ? Game.map.getRoomLinearDistance(position.roomName, node.peakPosition.roomName)
+      : estimateRoomDistance(position.roomName, node.peakPosition.roomName);
 
   if (roomDistance === undefined || roomDistance === null) {
     return Infinity;

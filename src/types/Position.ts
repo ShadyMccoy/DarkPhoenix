@@ -42,8 +42,7 @@ export function estimateCrossRoomDistance(a: Position, b: Position): number {
   if (!aCoords || !bCoords) return Infinity;
 
   // Each room is 50 tiles, add in-room distances
-  const roomDist =
-    (Math.abs(aCoords.x - bCoords.x) + Math.abs(aCoords.y - bCoords.y)) * 50;
+  const roomDist = (Math.abs(aCoords.x - bCoords.x) + Math.abs(aCoords.y - bCoords.y)) * 50;
   const inRoomDist = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
   return roomDist + inRoomDist;
@@ -62,10 +61,8 @@ export function estimateRoomDistance(room1: string, room2: string): number {
 /**
  * Parse room name into coordinates (e.g., "W1N2" -> { x: -1, y: 2 })
  */
-export function parseRoomName(
-  roomName: string
-): { x: number; y: number } | null {
-  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+export function parseRoomName(roomName: string): { x: number; y: number } | null {
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
   if (!match) return null;
 
   const x = match[1] === "W" ? -parseInt(match[2], 10) : parseInt(match[2], 10);

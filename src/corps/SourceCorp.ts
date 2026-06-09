@@ -10,7 +10,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
-import { SOURCE_REGEN_TIME, PLANNING_EPOCH } from "../planning/EconomicConstants";
+import { PLANNING_EPOCH, SOURCE_REGEN_TIME } from "../planning/EconomicConstants";
 
 /**
  * Serialized state specific to SourceCorp
@@ -27,30 +27,25 @@ export interface SerializedSourceCorp extends SerializedCorp {
  */
 export class SourceCorp extends Corp {
   /** The game source ID */
-  readonly sourceId: string;
+  public readonly sourceId: string;
 
   /** Position of the source */
-  readonly position: Position;
+  public readonly position: Position;
 
   /** Energy capacity (usually 3000) */
-  readonly energyCapacity: number;
+  public readonly energyCapacity: number;
 
   /** Number of spots available for mining */
-  readonly miningSpots: number;
+  public readonly miningSpots: number;
 
   /**
    * Energy produced per planning epoch.
    */
-  get energyPerEpoch(): number {
+  public get energyPerEpoch(): number {
     return (this.energyCapacity / SOURCE_REGEN_TIME) * PLANNING_EPOCH;
   }
 
-  constructor(
-    sourceId: string,
-    position: Position,
-    energyCapacity: number,
-    miningSpots: number
-  ) {
+  public constructor(sourceId: string, position: Position, energyCapacity: number, miningSpots: number) {
     const nodeId = `${position.roomName}-source-${sourceId.slice(-4)}`;
     super("source", nodeId);
     this.sourceId = sourceId;
@@ -62,41 +57,41 @@ export class SourceCorp extends Corp {
   /**
    * SourceCorp doesn't do work - it's passive.
    */
-  work(_tick: number): void {
+  public work(_tick: number): void {
     // Sources just exist
   }
 
   /**
    * Get the source position.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     return this.position;
   }
 
   /**
    * Get the game Source object.
    */
-  getSource(): Source | null {
+  public getSource(): Source | null {
     return Game.getObjectById(this.sourceId as Id<Source>);
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedSourceCorp {
+  public serialize(): SerializedSourceCorp {
     return {
       ...super.serialize(),
       sourceId: this.sourceId,
       position: this.position,
       energyCapacity: this.energyCapacity,
-      miningSpots: this.miningSpots,
+      miningSpots: this.miningSpots
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedSourceCorp): void {
+  public deserialize(data: SerializedSourceCorp): void {
     super.deserialize(data);
   }
 }

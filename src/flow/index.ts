@@ -75,17 +75,14 @@ export {
   calculateCarryParts,
   calculateHaulerCostPerTick,
   chebyshevDistance,
-  estimateRoomDistance,
+  estimateRoomDistance
 } from "./FlowTypes";
 
 // =============================================================================
 // FLOW GRAPH
 // =============================================================================
 
-export {
-  FlowGraph,
-  createFlowGraph,
-} from "./FlowGraph";
+export { FlowGraph, createFlowGraph } from "./FlowGraph";
 
 // =============================================================================
 // FLOW SOLVER
@@ -96,29 +93,20 @@ export {
   solveIteratively,
   calculateEfficiency,
   estimateOverhead,
-  printSolutionSummary,
+  printSolutionSummary
 } from "./FlowSolver";
 
 // =============================================================================
 // PRIORITY MANAGER
 // =============================================================================
 
-export {
-  PriorityManager,
-  PRIORITY_PRESETS,
-  describePriority,
-  comparePriorities,
-} from "./PriorityManager";
+export { PriorityManager, PRIORITY_PRESETS, describePriority, comparePriorities } from "./PriorityManager";
 
 // =============================================================================
 // FLOW ECONOMY (Main Entry Point)
 // =============================================================================
 
-export {
-  FlowEconomy,
-  createFlowEconomy,
-  createFlowEconomyWithPreset,
-} from "./FlowEconomy";
+export { FlowEconomy, createFlowEconomy, createFlowEconomyWithPreset } from "./FlowEconomy";
 
 // =============================================================================
 // NODE FLOW (Flow Solution → Node Grouping)
@@ -134,15 +122,11 @@ export {
   getSinkAllocationByType,
   isNodeSelfSustaining,
   printNodeFlow,
-  printAllNodeFlows,
+  printAllNodeFlows
 } from "./NodeFlow";
 
 // =============================================================================
 // FLOW MATERIALIZER (Flow Solution → Corps)
 // =============================================================================
 
-export {
-  MaterializationResult,
-  materializeCorps,
-  cleanupStaleCorps,
-} from "./FlowMaterializer";
+export { MaterializationResult, materializeCorps, cleanupStaleCorps } from "./FlowMaterializer";

@@ -27,7 +27,7 @@ export {
   createMultiRoomTerrainCallback,
   collectFeaturePositions,
   collectFeaturePositionsFromIntel,
-  invalidateRoomMapCache,
+  invalidateRoomMapCache
 } from "./RoomMap";
 
 // Export pure algorithms and types for testing
@@ -54,5 +54,5 @@ export {
   RoomCoords,
   FilterPeaksOptions,
   // Constants
-  GRID_SIZE,
+  GRID_SIZE
 } from "./algorithms";

@@ -25,9 +25,9 @@ export class MiningOperation extends Corp {
   private readonly sourceCorp: SourceCorp;
   private readonly spawningCorpId: string;
   private creepNames: string[] = [];
-  private targetMiners: number = 1;
+  private targetMiners = 1;
 
-  constructor(sourceCorp: SourceCorp, spawningCorpId: string) {
+  public constructor(sourceCorp: SourceCorp, spawningCorpId: string) {
     const nodeId = `mining-${sourceCorp.sourceId.slice(-8)}`;
     super("mining", nodeId);
     this.sourceCorp = sourceCorp;
@@ -47,7 +47,7 @@ export class MiningOperation extends Corp {
     return this.sourceCorp.miningSpots;
   }
 
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
     this.pickupCreeps();
 
@@ -76,9 +76,7 @@ export class MiningOperation extends Corp {
   }
 
   private getCreeps(): Creep[] {
-    return this.creepNames
-      .map(name => Game.creeps[name])
-      .filter((c): c is Creep => c !== undefined);
+    return this.creepNames.map(name => Game.creeps[name]).filter((c): c is Creep => c !== undefined);
   }
 
   private pickupCreeps(): void {
@@ -93,32 +91,32 @@ export class MiningOperation extends Corp {
     }
   }
 
-  getPosition(): Position {
+  public getPosition(): Position {
     return this.sourcePosition;
   }
 
-  plan(tick: number): void {
+  public plan(tick: number): void {
     super.plan(tick);
     this.targetMiners = this.miningSpots;
   }
 
-  serialize(): SerializedMiningOperation {
+  public serialize(): SerializedMiningOperation {
     return {
       ...super.serialize(),
       sourceCorpId: this.sourceCorp.id,
       spawningCorpId: this.spawningCorpId,
       creepNames: this.creepNames,
-      targetMiners: this.targetMiners,
+      targetMiners: this.targetMiners
     };
   }
 
-  deserialize(data: SerializedMiningOperation): void {
+  public deserialize(data: SerializedMiningOperation): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.targetMiners = data.targetMiners || 1;
   }
 
-  getSourceCorp(): SourceCorp {
+  public getSourceCorp(): SourceCorp {
     return this.sourceCorp;
   }
 }

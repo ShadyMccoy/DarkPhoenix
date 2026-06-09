@@ -1,9 +1,4 @@
-export {
-  CreditLedger,
-  MintRecord,
-  MoneySupply,
-  SerializedLedger
-} from "./CreditLedger";
+export { CreditLedger, MintRecord, MoneySupply, SerializedLedger } from "./CreditLedger";
 
 export {
   MintValues,
@@ -15,11 +10,4 @@ export {
   createMintValues
 } from "./MintValues";
 
-export {
-  Colony,
-  ColonyConfig,
-  ColonyStats,
-  SerializedColony,
-  DEFAULT_COLONY_CONFIG,
-  createColony
-} from "./Colony";
+export { Colony, ColonyConfig, ColonyStats, SerializedColony, DEFAULT_COLONY_CONFIG, createColony } from "./Colony";

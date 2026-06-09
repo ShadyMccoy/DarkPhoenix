@@ -12,12 +12,7 @@
  * for their assignments. Instead, the flow solution IS the corps.
  */
 
-import {
-  FlowSolution,
-  MinerAssignment,
-  HaulerAssignment,
-  SinkAllocation,
-} from "./FlowTypes";
+import { FlowSolution, HaulerAssignment, MinerAssignment, SinkAllocation } from "./FlowTypes";
 
 // =============================================================================
 // NODE FLOW TYPE
@@ -120,7 +115,7 @@ export function groupByNode(
         totalConsumption: 0,
         importRate: 0,
         exportRate: 0,
-        spawnIds: new Set(),
+        spawnIds: new Set()
       };
       nodeFlows.set(nodeId, nodeFlow);
     }
@@ -215,10 +210,7 @@ export function getPrimarySpawn(nodeFlow: NodeFlow): string | undefined {
 /**
  * Get sink allocation for a specific sink type in a node.
  */
-export function getSinkAllocationByType(
-  nodeFlow: NodeFlow,
-  sinkType: string
-): SinkAllocation | undefined {
+export function getSinkAllocationByType(nodeFlow: NodeFlow, sinkType: string): SinkAllocation | undefined {
   return nodeFlow.sinks.find(s => s.sinkType === sinkType);
 }
 
@@ -265,7 +257,7 @@ export function getNodeBalance(nodeFlow: NodeFlow): NodeBalance {
     consumption: totalConsumption,
     exports: exportRate,
     net: totalHarvest + importRate - (totalConsumption + exportRate),
-    netTrade: importRate - exportRate,
+    netTrade: importRate - exportRate
   };
 }
 

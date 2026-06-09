@@ -78,30 +78,18 @@ export function estimateWalkingDistance(from: Position, to: Position): number {
 
   // Cross-room estimation
   // Parse room names to calculate room distance
-  const fromMatch = from.roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
-  const toMatch = to.roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  const fromMatch = /^([WE])(\d+)([NS])(\d+)$/.exec(from.roomName);
+  const toMatch = /^([WE])(\d+)([NS])(\d+)$/.exec(to.roomName);
 
   if (!fromMatch || !toMatch) {
     return Infinity;
   }
 
   // Calculate world coordinates
-  const fromWorldX =
-    fromMatch[1] === "E"
-      ? parseInt(fromMatch[2], 10)
-      : -parseInt(fromMatch[2], 10) - 1;
-  const fromWorldY =
-    fromMatch[3] === "N"
-      ? -parseInt(fromMatch[4], 10) - 1
-      : parseInt(fromMatch[4], 10);
-  const toWorldX =
-    toMatch[1] === "E"
-      ? parseInt(toMatch[2], 10)
-      : -parseInt(toMatch[2], 10) - 1;
-  const toWorldY =
-    toMatch[3] === "N"
-      ? -parseInt(toMatch[4], 10) - 1
-      : parseInt(toMatch[4], 10);
+  const fromWorldX = fromMatch[1] === "E" ? parseInt(fromMatch[2], 10) : -parseInt(fromMatch[2], 10) - 1;
+  const fromWorldY = fromMatch[3] === "N" ? -parseInt(fromMatch[4], 10) - 1 : parseInt(fromMatch[4], 10);
+  const toWorldX = toMatch[1] === "E" ? parseInt(toMatch[2], 10) : -parseInt(toMatch[2], 10) - 1;
+  const toWorldY = toMatch[3] === "N" ? -parseInt(toMatch[4], 10) - 1 : parseInt(toMatch[4], 10);
 
   // Room distance
   const roomDx = Math.abs(toWorldX - fromWorldX);
@@ -166,7 +154,7 @@ export class NodeNavigator {
    * @param edgeTypes - Optional map of edge keys to edge types.
    *                    If not provided, edges default to "spatial".
    */
-  constructor(
+  public constructor(
     nodes: Node[],
     edges: EdgeKey[],
     edgeWeights?: Map<EdgeKey, number>,
@@ -213,9 +201,7 @@ export class NodeNavigator {
   /**
    * Gets the adjacency map for the specified edge type.
    */
-  private getAdjacencyMap(
-    edgeType?: EdgeType
-  ): Map<string, Set<string>> {
+  private getAdjacencyMap(edgeType?: EdgeType): Map<string, Set<string>> {
     if (edgeType === "spatial") {
       return this.spatialAdjacency;
     } else if (edgeType === "economic") {
@@ -241,21 +227,21 @@ export class NodeNavigator {
   /**
    * Gets a node by ID.
    */
-  getNode(nodeId: string): Node | undefined {
+  public getNode(nodeId: string): Node | undefined {
     return this.nodes.get(nodeId);
   }
 
   /**
    * Gets all node IDs in the network.
    */
-  getNodeIds(): string[] {
+  public getNodeIds(): string[] {
     return Array.from(this.nodes.keys());
   }
 
   /**
    * Gets the number of nodes in the network.
    */
-  get nodeCount(): number {
+  public get nodeCount(): number {
     return this.nodes.size;
   }
 
@@ -263,7 +249,7 @@ export class NodeNavigator {
    * Gets the number of edges in the network.
    * @param edgeType - Optional filter by edge type
    */
-  getEdgeCount(edgeType?: EdgeType): number {
+  public getEdgeCount(edgeType?: EdgeType): number {
     if (!edgeType) {
       return this.edgeData.size;
     }
@@ -277,7 +263,7 @@ export class NodeNavigator {
   /**
    * Gets the total number of edges (for backwards compatibility).
    */
-  get edgeCount(): number {
+  public get edgeCount(): number {
     return this.edgeData.size;
   }
 
@@ -286,7 +272,7 @@ export class NodeNavigator {
    * @param nodeId - The node to get neighbors for
    * @param edgeType - Optional filter by edge type
    */
-  getNeighbors(nodeId: string, edgeType?: EdgeType): string[] {
+  public getNeighbors(nodeId: string, edgeType?: EdgeType): string[] {
     const adjacency = this.getAdjacencyMap(edgeType);
     const neighbors = adjacency.get(nodeId);
     return neighbors ? Array.from(neighbors) : [];
@@ -299,7 +285,7 @@ export class NodeNavigator {
    * @param nodeId2 - Second node ID
    * @param edgeType - Optional filter by edge type
    */
-  getEdgeWeight(nodeId1: string, nodeId2: string, edgeType?: EdgeType): number {
+  public getEdgeWeight(nodeId1: string, nodeId2: string, edgeType?: EdgeType): number {
     const edgeKey = createEdgeKey(nodeId1, nodeId2);
     const data = this.edgeData.get(edgeKey);
     if (!data) return Infinity;
@@ -311,7 +297,7 @@ export class NodeNavigator {
    * Gets the edge data for an edge.
    * Returns undefined if the edge doesn't exist.
    */
-  getEdgeData(nodeId1: string, nodeId2: string): EdgeData | undefined {
+  public getEdgeData(nodeId1: string, nodeId2: string): EdgeData | undefined {
     const edgeKey = createEdgeKey(nodeId1, nodeId2);
     return this.edgeData.get(edgeKey);
   }
@@ -320,7 +306,7 @@ export class NodeNavigator {
    * Gets the type of an edge.
    * Returns undefined if the edge doesn't exist.
    */
-  getEdgeType(nodeId1: string, nodeId2: string): EdgeType | undefined {
+  public getEdgeType(nodeId1: string, nodeId2: string): EdgeType | undefined {
     return this.getEdgeData(nodeId1, nodeId2)?.type;
   }
 
@@ -330,7 +316,7 @@ export class NodeNavigator {
    * @param nodeId2 - Second node ID
    * @param edgeType - Optional filter by edge type
    */
-  areAdjacent(nodeId1: string, nodeId2: string, edgeType?: EdgeType): boolean {
+  public areAdjacent(nodeId1: string, nodeId2: string, edgeType?: EdgeType): boolean {
     const adjacency = this.getAdjacencyMap(edgeType);
     const neighbors = adjacency.get(nodeId1);
     return neighbors ? neighbors.has(nodeId2) : false;
@@ -344,7 +330,7 @@ export class NodeNavigator {
    * @param edgeType - Optional filter by edge type (spatial, economic, or all)
    * @returns PathResult with path, total distance, and success flag
    */
-  findPath(startId: string, endId: string, edgeType?: EdgeType): PathResult {
+  public findPath(startId: string, endId: string, edgeType?: EdgeType): PathResult {
     // Handle edge cases
     if (startId === endId) {
       return { path: [startId], distance: 0, found: true };
@@ -434,7 +420,7 @@ export class NodeNavigator {
    * @param edgeType - Optional filter by edge type
    * @returns Walking distance, or Infinity if no path exists
    */
-  getDistance(startId: string, endId: string, edgeType?: EdgeType): number {
+  public getDistance(startId: string, endId: string, edgeType?: EdgeType): number {
     return this.findPath(startId, endId, edgeType).distance;
   }
 
@@ -447,11 +433,7 @@ export class NodeNavigator {
    * @param edgeType - Optional filter by edge type
    * @returns Map of reachable node IDs to their distances
    */
-  getNodesWithinDistance(
-    startId: string,
-    maxDistance: number,
-    edgeType?: EdgeType
-  ): Map<string, number> {
+  public getNodesWithinDistance(startId: string, maxDistance: number, edgeType?: EdgeType): Map<string, number> {
     const result = new Map<string, number>();
 
     if (!this.nodes.has(startId)) {
@@ -512,7 +494,7 @@ export class NodeNavigator {
    * @param edgeType - Optional filter by edge type
    * @returns Closest node ID and distance, or null if none reachable
    */
-  findClosest(
+  public findClosest(
     startId: string,
     candidateIds: Set<string>,
     edgeType?: EdgeType
@@ -576,17 +558,17 @@ export class NodeNavigator {
    * @param edgeType - Optional filter by edge type
    * @returns Array of {nodeId, distance} sorted by ascending distance
    */
-  getNodesByDistance(
+  public getNodesByDistance(
     startId: string,
     limit?: number,
     edgeType?: EdgeType
-  ): Array<{ nodeId: string; distance: number }> {
+  ): { nodeId: string; distance: number }[] {
     if (!this.nodes.has(startId)) {
       return [];
     }
 
     const adjacency = this.getAdjacencyMap(edgeType);
-    const result: Array<{ nodeId: string; distance: number }> = [];
+    const result: { nodeId: string; distance: number }[] = [];
     const distances = new Map<string, number>();
     const visited = new Set<string>();
     const queue: PriorityQueueEntry[] = [];
@@ -633,8 +615,8 @@ export class NodeNavigator {
    * Gets all edges in the network with their weights and types.
    * @param edgeType - Optional filter by edge type
    */
-  getEdges(edgeType?: EdgeType): Array<{ edge: EdgeKey; weight: number; type: EdgeType }> {
-    const result: Array<{ edge: EdgeKey; weight: number; type: EdgeType }> = [];
+  public getEdges(edgeType?: EdgeType): { edge: EdgeKey; weight: number; type: EdgeType }[] {
+    const result: { edge: EdgeKey; weight: number; type: EdgeType }[] = [];
     for (const [edge, data] of this.edgeData.entries()) {
       if (!edgeType || data.type === edgeType) {
         result.push({ edge, weight: data.weight, type: data.type });
@@ -649,7 +631,7 @@ export class NodeNavigator {
    * @param nodeIds - Set of node IDs to include
    * @param edgeType - Optional filter by edge type
    */
-  subgraph(nodeIds: Set<string>, edgeType?: EdgeType): NodeNavigator {
+  public subgraph(nodeIds: Set<string>, edgeType?: EdgeType): NodeNavigator {
     const subNodes: Node[] = [];
     const subEdges: EdgeKey[] = [];
     const subWeights = new Map<EdgeKey, number>();
@@ -680,7 +662,7 @@ export class NodeNavigator {
    * Checks if the graph is connected (all nodes reachable from any node).
    * @param edgeType - Optional filter by edge type
    */
-  isConnected(edgeType?: EdgeType): boolean {
+  public isConnected(edgeType?: EdgeType): boolean {
     if (this.nodes.size === 0) return true;
 
     const startIdResult = this.nodes.keys().next();
@@ -697,7 +679,7 @@ export class NodeNavigator {
    * Returns an array of sets, each containing the node IDs of a connected component.
    * @param edgeType - Optional filter by edge type
    */
-  getConnectedComponents(edgeType?: EdgeType): Set<string>[] {
+  public getConnectedComponents(edgeType?: EdgeType): Set<string>[] {
     const adjacency = this.getAdjacencyMap(edgeType);
     const components: Set<string>[] = [];
     const visited = new Set<string>();
@@ -741,7 +723,7 @@ export class NodeNavigator {
    * @param weight - Edge weight
    * @param type - Edge type (spatial or economic)
    */
-  addEdge(nodeId1: string, nodeId2: string, weight: number, type: EdgeType): void {
+  public addEdge(nodeId1: string, nodeId2: string, weight: number, type: EdgeType): void {
     if (!this.nodes.has(nodeId1) || !this.nodes.has(nodeId2)) {
       return;
     }
@@ -764,7 +746,7 @@ export class NodeNavigator {
   /**
    * Gets all nodes that have corps (economically significant nodes).
    */
-  getCorpHostingNodes(): Node[] {
+  public getCorpHostingNodes(): Node[] {
     const result: Node[] = [];
     for (const node of this.nodes.values()) {
       if (node.corps && node.corps.length > 0) {
@@ -777,7 +759,7 @@ export class NodeNavigator {
   /**
    * Gets IDs of all nodes that have corps (economically significant nodes).
    */
-  getCorpHostingNodeIds(): Set<string> {
+  public getCorpHostingNodeIds(): Set<string> {
     const result = new Set<string>();
     for (const node of this.nodes.values()) {
       if (node.corps && node.corps.length > 0) {
@@ -822,9 +804,7 @@ const MAX_ECONOMIC_NEIGHBORS = 10;
  * @param navigator - NodeNavigator with spatial edges already set up
  * @returns Map of economic edge keys to their weights (path costs)
  */
-export function buildEconomicEdges(
-  navigator: NodeNavigator
-): Map<EdgeKey, number> {
+export function buildEconomicEdges(navigator: NodeNavigator): Map<EdgeKey, number> {
   const economicEdges = new Map<EdgeKey, number>();
   const corpNodes = navigator.getCorpHostingNodeIds();
 

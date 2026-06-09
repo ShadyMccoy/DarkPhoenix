@@ -80,30 +80,21 @@ export const DEFENSIVE_MINT_VALUES: MintValues = {
 /**
  * Get mint value for a specific achievement type
  */
-export function getMintValue(
-  values: MintValues,
-  achievement: keyof MintValues
-): number {
+export function getMintValue(values: MintValues, achievement: keyof MintValues): number {
   return values[achievement] ?? 0;
 }
 
 /**
  * Calculate total mint value for an achievement with quantity
  */
-export function calculateMint(
-  values: MintValues,
-  achievement: keyof MintValues,
-  quantity: number = 1
-): number {
+export function calculateMint(values: MintValues, achievement: keyof MintValues, quantity = 1): number {
   return getMintValue(values, achievement) * quantity;
 }
 
 /**
  * Create custom mint values by overriding defaults
  */
-export function createMintValues(
-  overrides: Partial<MintValues>
-): MintValues {
+export function createMintValues(overrides: Partial<MintValues>): MintValues {
   return {
     ...DEFAULT_MINT_VALUES,
     ...overrides

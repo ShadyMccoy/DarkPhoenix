@@ -11,24 +11,24 @@ import { Node, NodeResource, getResourcesByType } from "../nodes/Node";
 import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 import {
-  FlowSource,
-  FlowSink,
+  DEFAULT_CONSTRAINTS,
+  DEFAULT_SINK_PRIORITIES,
+  FlowConstraints,
   FlowEdge,
   FlowProblem,
-  FlowConstraints,
-  SinkType,
+  FlowSink,
+  FlowSource,
+  Position,
   PriorityContext,
-  DEFAULT_SINK_PRIORITIES,
-  DEFAULT_CONSTRAINTS,
   SOURCE_ENERGY_PER_TICK,
-  createFlowSource,
-  createFlowSink,
-  createEdgeId,
-  calculateRoundTrip,
+  SinkType,
   calculateCarryParts,
   calculateHaulerCostPerTick,
+  calculateRoundTrip,
   chebyshevDistance,
-  Position,
+  createEdgeId,
+  createFlowSink,
+  createFlowSource
 } from "./FlowTypes";
 
 // =============================================================================
@@ -81,7 +81,7 @@ export class FlowGraph {
    * @param nodes - Array of territory nodes
    * @param navigator - Node navigator for pathfinding
    */
-  constructor(nodes: Node[], navigator: NodeNavigator) {
+  public constructor(nodes: Node[], navigator: NodeNavigator) {
     this.sources = new Map();
     this.sinks = new Map();
     this.edges = new Map();
@@ -135,13 +135,7 @@ export class FlowGraph {
           }
         }
 
-        const source = createFlowSource(
-          resource.id,
-          node.id,
-          resource.position,
-          ratePerTick,
-          maxMiners
-        );
+        const source = createFlowSource(resource.id, node.id, resource.position, ratePerTick, maxMiners);
         this.sources.set(source.id, source);
       }
     }
@@ -164,7 +158,7 @@ export class FlowGraph {
           node.id,
           resource.position,
           10, // Base spawn overhead demand
-          50  // Max capacity per tick
+          50 // Max capacity per tick
         );
         this.sinks.set(sink.id, sink);
       }
@@ -194,8 +188,8 @@ export class FlowGraph {
           resource.id,
           node.id,
           resource.position,
-          0,      // No active demand (only takes excess)
-          1000    // High capacity for buffering
+          0, // No active demand (only takes excess)
+          1000 // High capacity for buffering
         );
         this.sinks.set(sink.id, sink);
       }
@@ -223,7 +217,7 @@ export class FlowGraph {
    * Build transport edges between sources and sinks.
    * Each source connects to potential sinks based on distance.
    */
-  buildEdges(): void {
+  public buildEdges(): void {
     this.edges.clear();
 
     // For each source, create edges to reachable sinks
@@ -249,10 +243,10 @@ export class FlowGraph {
           toId: sink.id,
           distance,
           roundTrip,
-          carryParts: 0,    // Set by solver
-          flowRate: 0,      // Set by solver
+          carryParts: 0, // Set by solver
+          flowRate: 0, // Set by solver
           spawnCostPerTick: 0, // Set by solver
-          hasRoads: false,  // TODO: detect roads
+          hasRoads: false // TODO: detect roads
         };
 
         this.edges.set(edgeId, edge);
@@ -270,7 +264,7 @@ export class FlowGraph {
    *
    * @param context - Current game state context
    */
-  updatePriorities(context: PriorityContext): void {
+  public updatePriorities(context: PriorityContext): void {
     for (const sink of this.sinks.values()) {
       sink.priority = this.calculateSinkPriority(sink, context);
     }
@@ -355,7 +349,7 @@ export class FlowGraph {
    * @param progressRemaining - Build progress remaining
    * @param priority - Override priority (default: construction priority)
    */
-  addConstructionSite(
+  public addConstructionSite(
     id: string,
     nodeId: string,
     position: Position,
@@ -384,7 +378,7 @@ export class FlowGraph {
   /**
    * Remove a construction site sink (when complete or cancelled).
    */
-  removeConstructionSite(id: string): void {
+  public removeConstructionSite(id: string): void {
     const sinkId = `construction-${id}`;
     this.sinks.delete(sinkId);
 
@@ -399,18 +393,14 @@ export class FlowGraph {
   /**
    * Add an extension sink.
    */
-  addExtension(
-    id: string,
-    nodeId: string,
-    position: Position
-  ): void {
+  public addExtension(id: string, nodeId: string, position: Position): void {
     const sink = createFlowSink(
       "extension",
       id,
       nodeId,
       position,
-      50,  // Extensions need filling for spawning
-      50   // Extension capacity
+      50, // Extensions need filling for spawning
+      50 // Extension capacity
     );
     this.sinks.set(sink.id, sink);
   }
@@ -418,18 +408,14 @@ export class FlowGraph {
   /**
    * Add a tower sink.
    */
-  addTower(
-    id: string,
-    nodeId: string,
-    position: Position
-  ): void {
+  public addTower(id: string, nodeId: string, position: Position): void {
     const sink = createFlowSink(
       "tower",
       id,
       nodeId,
       position,
-      10,   // Tower base energy need
-      1000  // Tower capacity
+      10, // Tower base energy need
+      1000 // Tower capacity
     );
     this.sinks.set(sink.id, sink);
   }
@@ -441,21 +427,21 @@ export class FlowGraph {
   /**
    * Get all sources.
    */
-  getSources(): FlowSource[] {
+  public getSources(): FlowSource[] {
     return Array.from(this.sources.values());
   }
 
   /**
    * Get a source by ID.
    */
-  getSource(id: string): FlowSource | undefined {
+  public getSource(id: string): FlowSource | undefined {
     return this.sources.get(id);
   }
 
   /**
    * Get all sinks, optionally filtered by type.
    */
-  getSinks(type?: SinkType): FlowSink[] {
+  public getSinks(type?: SinkType): FlowSink[] {
     const sinks = Array.from(this.sinks.values());
     if (type) {
       return sinks.filter(s => s.type === type);
@@ -466,45 +452,42 @@ export class FlowGraph {
   /**
    * Get sinks sorted by priority (highest first).
    */
-  getSinksByPriority(): FlowSink[] {
-    return Array.from(this.sinks.values())
-      .sort((a, b) => b.priority - a.priority);
+  public getSinksByPriority(): FlowSink[] {
+    return Array.from(this.sinks.values()).sort((a, b) => b.priority - a.priority);
   }
 
   /**
    * Get a sink by ID.
    */
-  getSink(id: string): FlowSink | undefined {
+  public getSink(id: string): FlowSink | undefined {
     return this.sinks.get(id);
   }
 
   /**
    * Get all edges.
    */
-  getEdges(): FlowEdge[] {
+  public getEdges(): FlowEdge[] {
     return Array.from(this.edges.values());
   }
 
   /**
    * Get edges from a specific source.
    */
-  getEdgesFromSource(sourceId: string): FlowEdge[] {
-    return Array.from(this.edges.values())
-      .filter(e => e.fromId === sourceId);
+  public getEdgesFromSource(sourceId: string): FlowEdge[] {
+    return Array.from(this.edges.values()).filter(e => e.fromId === sourceId);
   }
 
   /**
    * Get edges to a specific sink.
    */
-  getEdgesToSink(sinkId: string): FlowEdge[] {
-    return Array.from(this.edges.values())
-      .filter(e => e.toId === sinkId);
+  public getEdgesToSink(sinkId: string): FlowEdge[] {
+    return Array.from(this.edges.values()).filter(e => e.toId === sinkId);
   }
 
   /**
    * Get the edge between a source and sink.
    */
-  getEdge(sourceId: string, sinkId: string): FlowEdge | undefined {
+  public getEdge(sourceId: string, sinkId: string): FlowEdge | undefined {
     const edgeId = createEdgeId(sourceId, sinkId);
     return this.edges.get(edgeId);
   }
@@ -512,14 +495,14 @@ export class FlowGraph {
   /**
    * Get nodes that contain spawns.
    */
-  getSpawnNodeIds(): Set<string> {
+  public getSpawnNodeIds(): Set<string> {
     return new Set(this.spawnNodeIds);
   }
 
   /**
    * Find the nearest spawn to a source.
    */
-  findNearestSpawn(sourceId: string): { sinkId: string; distance: number } | null {
+  public findNearestSpawn(sourceId: string): { sinkId: string; distance: number } | null {
     const source = this.sources.get(sourceId);
     if (!source) return null;
 
@@ -541,7 +524,7 @@ export class FlowGraph {
   /**
    * Find the nearest source to a sink.
    */
-  findNearestSource(sinkId: string): { sourceId: string; distance: number } | null {
+  public findNearestSource(sinkId: string): { sourceId: string; distance: number } | null {
     const sink = this.sinks.get(sinkId);
     if (!sink) return null;
 
@@ -567,15 +550,15 @@ export class FlowGraph {
    *
    * @param constraints - Optional constraint overrides
    */
-  getFlowProblem(constraints?: Partial<FlowConstraints>): FlowProblem {
+  public getFlowProblem(constraints?: Partial<FlowConstraints>): FlowProblem {
     return {
       sources: this.getSources(),
       sinks: this.getSinksByPriority(),
       edges: this.getEdges(),
       constraints: {
         ...DEFAULT_CONSTRAINTS,
-        ...constraints,
-      },
+        ...constraints
+      }
     };
   }
 
@@ -586,7 +569,7 @@ export class FlowGraph {
   /**
    * Get graph statistics.
    */
-  getStats(): {
+  public getStats(): {
     sourceCount: number;
     sinkCount: number;
     edgeCount: number;
@@ -611,14 +594,14 @@ export class FlowGraph {
       edgeCount: this.edges.size,
       sinksByType,
       totalCapacity,
-      totalDemand,
+      totalDemand
     };
   }
 
   /**
    * Debug: Print graph summary.
    */
-  debugPrint(): void {
+  public debugPrint(): void {
     const stats = this.getStats();
     console.log("\n=== FlowGraph Summary ===");
     console.log(`Sources: ${stats.sourceCount} (${stats.totalCapacity} energy/tick capacity)`);
@@ -645,7 +628,7 @@ export class FlowGraph {
  * but are not center rooms (where both end in 5).
  */
 function isSourceKeeperRoom(roomName: string): boolean {
-  const match = roomName.match(/^[WE](\d+)[NS](\d+)$/);
+  const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
   if (!match) return false;
 
   const x = parseInt(match[1]) % 10;

@@ -19,15 +19,12 @@ export {
   runConstructionCorps,
   runReservationCorps,
   runSpawningCorps,
-  logCorpStats,
+  logCorpStats
 } from "./CorpRunner";
 
 export { runSpawnScheduling } from "./SpawnDirector";
 
-export {
-  persistState,
-  cleanupDeadCreeps,
-} from "./Persistence";
+export { persistState, cleanupDeadCreeps } from "./Persistence";
 
 export {
   MULTI_ROOM_ANALYSIS_CACHE_TTL,
@@ -36,10 +33,7 @@ export {
   refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
-  runIncrementalAnalysis,
+  runIncrementalAnalysis
 } from "./IncrementalAnalysis";
 
-export {
-  renderNodeVisuals,
-  renderSpatialVisuals,
-} from "./Visualization";
+export { renderNodeVisuals, renderSpatialVisuals } from "./Visualization";

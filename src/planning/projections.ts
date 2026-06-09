@@ -134,7 +134,7 @@ export function projectCorp(state: AnyCorpState, tick: number): CorpProjection {
  * Project all corp states at a given tick.
  */
 export function projectAll(states: AnyCorpState[], tick: number): CorpProjection[] {
-  return states.map((state) => projectCorp(state, tick));
+  return states.map(state => projectCorp(state, tick));
 }
 
 /**

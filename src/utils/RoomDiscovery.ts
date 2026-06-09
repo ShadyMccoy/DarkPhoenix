@@ -14,7 +14,7 @@
  * @param maxDistance - Maximum number of room exits to traverse (default 2)
  * @returns Set of room names within range
  */
-export function discoverNearbyRooms(maxDistance: number = 2): Set<string> {
+export function discoverNearbyRooms(maxDistance = 2): Set<string> {
   const discovered = new Set<string>();
   const visited = new Set<string>();
 
@@ -67,14 +67,9 @@ export function discoverNearbyRooms(maxDistance: number = 2): Set<string> {
  * @param maxSearch - Maximum distance to search (default 10)
  * @returns Distance in room exits
  */
-export function getDistanceToOwnedRoom(
-  targetRoom: string,
-  maxSearch: number = 10
-): number {
+export function getDistanceToOwnedRoom(targetRoom: string, maxSearch = 10): number {
   const visited = new Set<string>();
-  const queue: { roomName: string; distance: number }[] = [
-    { roomName: targetRoom, distance: 0 },
-  ];
+  const queue: { roomName: string; distance: number }[] = [{ roomName: targetRoom, distance: 0 }];
   visited.add(targetRoom);
 
   while (queue.length > 0) {
@@ -114,13 +109,13 @@ export function getDistanceToOwnedRoom(
  * E.g., "E75N8" -> { xDir: "E", x: 75, yDir: "N", y: 8 }
  */
 function parseRoomName(roomName: string): { xDir: string; x: number; yDir: string; y: number } | null {
-  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
   if (!match) return null;
   return {
     xDir: match[1],
     x: parseInt(match[2], 10),
     yDir: match[3],
-    y: parseInt(match[4], 10),
+    y: parseInt(match[4], 10)
   };
 }
 
@@ -226,9 +221,7 @@ export function get7x7BoxAroundOwnedRooms(): Set<string> {
  * @param maxDistance - Maximum distance to discover
  * @returns Map of distance to room names at that distance
  */
-export function categorizeRoomsByDistance(
-  maxDistance: number = 2
-): Map<number, string[]> {
+export function categorizeRoomsByDistance(maxDistance = 2): Map<number, string[]> {
   const result = new Map<number, string[]>();
 
   // Initialize distance buckets

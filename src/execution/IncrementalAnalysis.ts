@@ -10,14 +10,14 @@
 
 import "../types/Memory";
 import { Colony } from "../colony";
-import { createNode, Node, calculateNodeROI, NodeSurveyor, ReachableSource } from "../nodes";
+import { Node, NodeSurveyor, ReachableSource, calculateNodeROI, createNode } from "../nodes";
 import {
-  analyzeMultiRoomTerrain,
+  CrossRoomPeak,
   MultiRoomAnalysisResult,
-  findTerritoryAdjacencies,
   WorldCoordinate,
   WorldPosition,
-  CrossRoomPeak,
+  analyzeMultiRoomTerrain,
+  findTerritoryAdjacencies
 } from "../spatial";
 import { get7x7BoxAroundOwnedRooms } from "../utils";
 
@@ -45,7 +45,7 @@ const ROOMS_PER_BATCH = 9;
 
 /** State for incremental terrain analysis */
 interface IncrementalAnalysisState {
-  phase: 'analyzing' | 'merging' | 'updating';
+  phase: "analyzing" | "merging" | "updating";
   allRooms: string[];
   batches: string[][];
   currentBatchIndex: number;
@@ -106,9 +106,7 @@ export function restoreVisualizationCache(colony: Colony): void {
 
   // Check if any nodes are missing ROI or expansionScore
   // If so, don't create the cache - let the full analysis run to calculate ROI
-  const hasMissingROI = nodes.some(node =>
-    !node.roi || node.roi.expansionScore === undefined
-  );
+  const hasMissingROI = nodes.some(node => !node.roi || node.roi.expansionScore === undefined);
   if (hasMissingROI) {
     console.log(`[Colony] Nodes missing ROI/expansionScore - skipping visualization cache to trigger analysis`);
     return;
@@ -123,9 +121,7 @@ export function restoreVisualizationCache(colony: Colony): void {
   }));
 
   // Restore adjacencies from memory
-  const adjacencies = Memory.nodeEdges
-    ? new Set<string>(Memory.nodeEdges)
-    : new Set<string>();
+  const adjacencies = Memory.nodeEdges ? new Set<string>(Memory.nodeEdges) : new Set<string>();
 
   // Create minimal cache for visualization
   multiRoomAnalysisCache = {
@@ -168,7 +164,7 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
 
     console.log(`[MultiRoom] Starting incremental analysis: ${allRooms.length} rooms in ${batches.length} batches`);
     incrementalState = {
-      phase: 'analyzing',
+      phase: "analyzing",
       allRooms,
       batches,
       currentBatchIndex: 0,
@@ -181,16 +177,18 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
   const state = incrementalState;
 
   // Phase 1: Analyze rooms in batches (one batch per tick)
-  if (state.phase === 'analyzing') {
+  if (state.phase === "analyzing") {
     if (state.currentBatchIndex < state.batches.length) {
       const batch = state.batches[state.currentBatchIndex];
-      console.log(`[MultiRoom] Analyzing batch ${state.currentBatchIndex + 1}/${state.batches.length}: ${batch.join(", ")}`);
+      console.log(
+        `[MultiRoom] Analyzing batch ${state.currentBatchIndex + 1}/${state.batches.length}: ${batch.join(", ")}`
+      );
 
       try {
         const result = analyzeMultiRoomTerrain(batch, {
           maxRooms: batch.length,
           peakOptions: { minHeight: 2 },
-          limitToStartRooms: true,
+          limitToStartRooms: true
         });
         state.batchResults.push(result);
         console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} complete: ${result.peaks.length} peaks`);
@@ -203,12 +201,12 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
     }
 
     // All batches done, move to merging
-    state.phase = 'merging';
+    state.phase = "merging";
     return false;
   }
 
   // Phase 2: Merge batch results
-  if (state.phase === 'merging') {
+  if (state.phase === "merging") {
     console.log(`[MultiRoom] Merging ${state.batchResults.length} batch results...`);
 
     // Merge all peaks and territories
@@ -229,11 +227,14 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
     // Compute adjacencies across all territories
     const territoriesAsWorldCoord = new Map<string, WorldCoordinate[]>();
     for (const [peakId, positions] of allTerritories) {
-      territoriesAsWorldCoord.set(peakId, positions.map(p => ({
-        x: p.x,
-        y: p.y,
-        roomName: p.roomName
-      })));
+      territoriesAsWorldCoord.set(
+        peakId,
+        positions.map(p => ({
+          x: p.x,
+          y: p.y,
+          roomName: p.roomName
+        }))
+      );
     }
     const adjacencies = findTerritoryAdjacencies(territoriesAsWorldCoord);
 
@@ -246,12 +247,12 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
     };
 
     console.log(`[MultiRoom] Merged: ${allPeaks.length} peaks, ${adjacencies.size} edges`);
-    state.phase = 'updating';
+    state.phase = "updating";
     return false;
   }
 
   // Phase 3: Update nodes
-  if (state.phase === 'updating' && state.mergedResult) {
+  if (state.phase === "updating" && state.mergedResult) {
     updateNodesFromAnalysis(colony, state.mergedResult);
     // A full pass just populated resources; start the refresh clock here so the
     // cheap interval refresh doesn't redundantly re-run on the very next tick.
@@ -325,7 +326,7 @@ export function refreshNodeResourcesFromCache(colony: Colony): void {
  * Updates colony nodes from analysis result.
  */
 function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult): void {
-  const newNodeIds = new Set(result.peaks.map((p) => p.peakId));
+  const newNodeIds = new Set(result.peaks.map(p => p.peakId));
 
   // Remove old nodes
   const existingNodes = colony.getNodes();
@@ -339,11 +340,11 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (room.memory.nodeIds) {
-      room.memory.nodeIds = room.memory.nodeIds.filter((id) => newNodeIds.has(id));
+      room.memory.nodeIds = room.memory.nodeIds.filter(id => newNodeIds.has(id));
     }
   }
 
-  const existingNodeIds = new Set(colony.getNodes().map((n) => n.id));
+  const existingNodeIds = new Set(colony.getNodes().map(n => n.id));
   const ownedRooms = new Set<string>();
   for (const roomName in Game.rooms) {
     if (Game.rooms[roomName].controller?.my) {
@@ -374,7 +375,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     if (!positions || positions.length === 0) continue;
 
     const territorySize = positions.length;
-    const spansRooms = [...new Set(positions.map((p) => p.roomName))];
+    const spansRooms = [...new Set(positions.map(p => p.roomName))];
 
     if (!existingNodeIds.has(nodeId)) {
       const peakPosition = { x: peak.center.x, y: peak.center.y, roomName: peak.roomName };
@@ -424,9 +425,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
       if (!adjNode) continue;
 
       // Get sources from adjacent node (skip Source Keeper rooms for now)
-      const sources = adjNode.resources.filter(r =>
-        r.type === "source" && !isSourceKeeperRoom(r.position.roomName)
-      );
+      const sources = adjNode.resources.filter(r => r.type === "source" && !isSourceKeeperRoom(r.position.roomName));
       for (const source of sources) {
         // Calculate distance from this node's peak to the source
         const distance = estimateSourceDistance(node, source.position);
@@ -456,7 +455,7 @@ function estimateSourceDistance(node: Node, sourcePos: { x: number; y: number; r
 
   // Cross-room: estimate room distance and add in-room distance
   const parseRoom = (name: string): { x: number; y: number } | null => {
-    const match = name.match(/^([WE])(\d+)([NS])(\d+)$/);
+    const match = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
     if (!match) return null;
     const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
     const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
@@ -480,7 +479,7 @@ function estimateSourceDistance(node: Node, sourcePos: { x: number; y: number; r
  * but are not center rooms (where both end in 5).
  */
 function isSourceKeeperRoom(roomName: string): boolean {
-  const match = roomName.match(/^[WE](\d+)[NS](\d+)$/);
+  const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
   if (!match) return false;
 
   const x = parseInt(match[1]) % 10;
@@ -507,7 +506,7 @@ function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void
   if (allNodes.length === 0) return;
 
   const spawnClaimed = (spawnId: string): boolean =>
-    allNodes.some((n) => n.resources.some((r) => r.type === "spawn" && r.id === spawnId));
+    allNodes.some(n => n.resources.some(r => r.type === "spawn" && r.id === spawnId));
 
   for (const roomName of ownedRooms) {
     const room = Game.rooms[roomName];
@@ -521,10 +520,7 @@ function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void
       for (const n of allNodes) {
         if (!n.spansRooms.includes(roomName)) continue;
         const samePenalty = n.peakPosition.roomName === roomName ? 0 : 50;
-        const dist =
-          Math.abs(n.peakPosition.x - spawn.pos.x) +
-          Math.abs(n.peakPosition.y - spawn.pos.y) +
-          samePenalty;
+        const dist = Math.abs(n.peakPosition.x - spawn.pos.x) + Math.abs(n.peakPosition.y - spawn.pos.y) + samePenalty;
         if (dist < bestDist) {
           bestDist = dist;
           best = n;
@@ -536,7 +532,7 @@ function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void
           type: "spawn",
           id: spawn.id,
           position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
-          capacity: 300,
+          capacity: 300
         });
       }
     }
@@ -617,7 +613,11 @@ function populateNodeResources(
       }
 
       // Add controller if within territory (only if owned by us)
-      if (room.controller && room.controller.my && shouldClaimResource(room.controller.pos.x, room.controller.pos.y, roomName)) {
+      if (
+        room.controller &&
+        room.controller.my &&
+        shouldClaimResource(room.controller.pos.x, room.controller.pos.y, roomName)
+      ) {
         node.resources.push({
           type: "controller",
           id: room.controller.id,
@@ -646,7 +646,7 @@ function populateNodeResources(
             type: "spawn",
             id: spawn.id,
             position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
-            capacity: 300  // Spawn energy capacity
+            capacity: 300 // Spawn energy capacity
           });
         }
       }
@@ -676,7 +676,11 @@ function populateNodeResources(
         }
 
         // Add controller from intel only if owned by us
-        if (intel.controllerPos && isOwnedRoom && shouldClaimResource(intel.controllerPos.x, intel.controllerPos.y, roomName)) {
+        if (
+          intel.controllerPos &&
+          isOwnedRoom &&
+          shouldClaimResource(intel.controllerPos.x, intel.controllerPos.y, roomName)
+        ) {
           node.resources.push({
             type: "controller",
             id: `intel-controller-${roomName}`,

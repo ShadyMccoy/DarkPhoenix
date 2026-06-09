@@ -40,5 +40,5 @@ export const ErrorMapper = {
         }
       }
     }) as unknown as T;
-  },
+  }
 };

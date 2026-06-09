@@ -32,16 +32,16 @@ export interface SerializedReservationCorp extends SerializedCorp {
 export class ReservationCorp extends Corp {
   private spawnId: string;
 
-  constructor(nodeId: string, spawnId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("reservation", nodeId, customId);
     this.spawnId = spawnId;
   }
 
-  getSpawnId(): string {
+  public getSpawnId(): string {
     return this.spawnId;
   }
 
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -83,7 +83,7 @@ export class ReservationCorp extends Corp {
     return [...targets];
   }
 
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -99,7 +99,7 @@ export class ReservationCorp extends Corp {
       // (Re)assign if the creep has no target, its target is no longer worth
       // reserving, or another reserver already covers it.
       if (!target || !targets.includes(target) || covered.has(target)) {
-        target = targets.find((r) => !covered.has(r));
+        target = targets.find(r => !covered.has(r));
         creep.memory.targetRoom = target;
       }
       if (!target) continue; // nothing to reserve right now - idle until reassigned
@@ -113,7 +113,7 @@ export class ReservationCorp extends Corp {
     if (creep.room.name !== targetRoom) {
       creep.moveTo(new RoomPosition(25, 25, targetRoom), {
         range: 20,
-        visualizePathStyle: { stroke: "#88aaff" },
+        visualizePathStyle: { stroke: "#88aaff" }
       });
       return;
     }
@@ -133,7 +133,7 @@ export class ReservationCorp extends Corp {
    * requested for rooms we already mine. Gated by affordability: CLAIM costs 600,
    * so a low-capacity room asks for nothing until it can build one.
    */
-  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+  public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
 
@@ -142,10 +142,10 @@ export class ReservationCorp extends Corp {
 
     const covered = new Set(
       this.getActiveCreeps()
-        .map((c) => c.memory.targetRoom)
+        .map(c => c.memory.targetRoom)
         .filter((r): r is string => !!r)
     );
-    if (targets.every((t) => covered.has(t))) return [];
+    if (targets.every(t => covered.has(t))) return [];
 
     const body = buildReserverBody(ctx.energyCapacity, 2);
     if (body.cost === 0) return []; // cannot afford a CLAIM yet
@@ -164,23 +164,23 @@ export class ReservationCorp extends Corp {
         desiredCost: body.cost,
         minCost: body.cost,
         since: 0,
-        bodyParam: body.claimParts,
-      },
+        bodyParam: body.claimParts
+      }
     ];
   }
 
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getActiveCreeps().length;
   }
 
-  serialize(): SerializedReservationCorp {
+  public serialize(): SerializedReservationCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId,
+      spawnId: this.spawnId
     };
   }
 
-  deserialize(data: SerializedReservationCorp): void {
+  public deserialize(data: SerializedReservationCorp): void {
     super.deserialize(data);
     this.spawnId = data.spawnId ?? this.spawnId;
   }

@@ -16,32 +16,28 @@
  */
 
 import {
-  FlowSource,
-  FlowSink,
-  FlowEdge,
-  FlowProblem,
-  FlowSolution,
-  FlowConstraints,
-  MinerAssignment,
-  HaulerAssignment,
-  SinkAllocation,
-  MINER_OVERHEAD_PER_TICK,
   BODY_COSTS,
   CREEP_LIFETIME,
+  EdgeVariant,
+  FlowConstraints,
+  FlowEdge,
+  FlowProblem,
+  FlowSink,
+  FlowSolution,
+  FlowSource,
+  HaulerAssignment,
+  HaulerRatio,
+  MINER_OVERHEAD_PER_TICK,
+  MinerAssignment,
+  MiningMode,
   SOURCE_ENERGY_PER_TICK,
+  SinkAllocation,
+  TerrainProfile,
   calculateCarryParts,
   calculateHaulerCostPerTick,
-  calculateRoundTrip,
-  TerrainProfile,
-  EdgeVariant,
-  HaulerRatio,
-  MiningMode,
+  calculateRoundTrip
 } from "./FlowTypes";
-import {
-  generateEdgeVariants,
-  selectBestVariant,
-  VariantConstraints,
-} from "../framework/EdgeVariant";
+import { VariantConstraints, generateEdgeVariants, selectBestVariant } from "../framework/EdgeVariant";
 
 // =============================================================================
 // SOLVER CLASS
@@ -63,7 +59,7 @@ export class FlowSolver {
    * @param problem - Flow problem with sources, sinks, edges, constraints
    * @returns Flow solution with assignments and metrics
    */
-  solve(problem: FlowProblem): FlowSolution {
+  public solve(problem: FlowProblem): FlowSolution {
     const { sources, sinks, edges, constraints } = problem;
     const currentTick = typeof Game !== "undefined" ? Game.time : 0;
 
@@ -81,7 +77,7 @@ export class FlowSolver {
       unmetDemand: new Map(),
       isSustainable: false,
       warnings: [],
-      computedAt: currentTick,
+      computedAt: currentTick
     };
 
     if (sources.length === 0) {
@@ -121,13 +117,7 @@ export class FlowSolver {
     const haulerAssignments: HaulerAssignment[] = [];
 
     for (const sink of sortedSinks) {
-      const allocation = this.allocateToSink(
-        sink,
-        sourceEnergy,
-        edgeMap,
-        spawnSinks,
-        constraints
-      );
+      const allocation = this.allocateToSink(sink, sourceEnergy, edgeMap, spawnSinks, constraints);
 
       solution.sinkAllocations.push(allocation);
 
@@ -166,15 +156,15 @@ export class FlowSolver {
     // Step 5: Calculate final metrics
     solution.totalOverhead = solution.miningOverhead + solution.haulingOverhead;
     solution.netEnergy = solution.totalHarvest - solution.totalOverhead;
-    solution.efficiency = solution.totalHarvest > 0
-      ? (solution.netEnergy / solution.totalHarvest) * 100
-      : 0;
+    solution.efficiency = solution.totalHarvest > 0 ? (solution.netEnergy / solution.totalHarvest) * 100 : 0;
 
     // Check sustainability
     solution.isSustainable = solution.netEnergy >= 0;
     if (!solution.isSustainable) {
       solution.warnings.push(
-        `Economy not sustainable: overhead ${solution.totalOverhead.toFixed(2)} > harvest ${solution.totalHarvest.toFixed(2)}`
+        `Economy not sustainable: overhead ${solution.totalOverhead.toFixed(
+          2
+        )} > harvest ${solution.totalHarvest.toFixed(2)}`
       );
     }
 
@@ -238,9 +228,11 @@ export class FlowSolver {
       const MIN_NET_ENERGY = 2.0;
       const MIN_EFFICIENCY = 65;
       if (netEnergy < MIN_NET_ENERGY || efficiency < MIN_EFFICIENCY) {
-        console.log(`[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
-          `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
-          `net=${netEnergy.toFixed(2)}, eff=${efficiency.toFixed(0)}%, distance=${spawnDistance}`);
+        console.log(
+          `[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
+            `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
+            `net=${netEnergy.toFixed(2)}, eff=${efficiency.toFixed(0)}%, distance=${spawnDistance}`
+        );
         continue;
       }
 
@@ -252,7 +244,7 @@ export class FlowSolver {
         harvestRate: source.capacity,
         spawnCostPerTick: MINER_OVERHEAD_PER_TICK,
         maxMiners: source.maxMiners,
-        efficiency,
+        efficiency
       });
     }
 
@@ -281,7 +273,7 @@ export class FlowSolver {
       demand: sink.demand,
       unmet: sink.demand,
       priority: sink.priority,
-      sourceFlows: [],
+      sourceFlows: []
     };
 
     // Special case: spawn sink needs overhead allocation
@@ -293,7 +285,7 @@ export class FlowSolver {
     }
 
     // Get all edges to this sink, sorted by distance
-    const edgesToSink: Array<{ sourceId: string; edge: FlowEdge; available: number }> = [];
+    const edgesToSink: { sourceId: string; edge: FlowEdge; available: number }[] = [];
 
     for (const [sourceId, available] of sourceEnergy) {
       if (available <= 0) continue;
@@ -322,7 +314,7 @@ export class FlowSolver {
       allocation.sourceFlows.push({
         sourceId,
         amount: take,
-        distance: edge.distance,
+        distance: edge.distance
       });
 
       allocation.allocated += take;
@@ -396,7 +388,7 @@ export class FlowSolver {
         canBuildLink: constraints.canBuildLink ?? false,
         infrastructureBudget: constraints.infrastructureBudget ?? 0,
         sourceCapacity: flow.amount * 300, // Convert flow/tick back to capacity
-        spawnToSourceDistance: flow.distance,
+        spawnToSourceDistance: flow.distance
       };
 
       // Generate and select best variant
@@ -423,7 +415,7 @@ export class FlowSolver {
           // Variant-specific fields
           terrain: edge.terrain,
           haulerRatio: bestVariant.hauler.ratio,
-          selectedVariant: bestVariant,
+          selectedVariant: bestVariant
         };
       }
     }
@@ -440,7 +432,7 @@ export class FlowSolver {
       carryParts,
       flowRate: flow.amount,
       spawnCostPerTick: haulerCost,
-      spawnId,
+      spawnId
     };
   }
 }
@@ -466,10 +458,7 @@ export class FlowSolver {
  * @param maxIterations - Maximum iterations (default: 10)
  * @returns Converged flow solution
  */
-export function solveIteratively(
-  problem: FlowProblem,
-  maxIterations: number = 10
-): FlowSolution {
+export function solveIteratively(problem: FlowProblem, maxIterations = 10): FlowSolution {
   const solver = new FlowSolver();
   let solution = solver.solve(problem);
 
@@ -479,7 +468,7 @@ export function solveIteratively(
   }
 
   // Iteratively reduce allocations to account for overhead
-  const originalDemands = problem.sinks.map((s) => s.demand);
+  const originalDemands = problem.sinks.map(s => s.demand);
   for (let i = 0; i < maxIterations; i++) {
     const prevOverhead = solution.totalOverhead;
 
@@ -563,7 +552,7 @@ export function estimateOverhead(problem: FlowProblem): {
   return {
     miningOverhead,
     haulingOverhead,
-    totalOverhead: miningOverhead + haulingOverhead,
+    totalOverhead: miningOverhead + haulingOverhead
   };
 }
 

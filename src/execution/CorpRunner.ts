@@ -11,27 +11,27 @@
 import "../types/Memory";
 import {
   BootstrapCorp,
-  createBootstrapCorp,
-  SerializedBootstrapCorp,
-  HarvestCorp,
-  SerializedHarvestCorp,
   CarryCorp,
-  SerializedCarryCorp,
-  UpgradingCorp,
-  SerializedUpgradingCorp,
-  ScoutCorp,
-  createScoutCorp,
-  SerializedScoutCorp,
   ConstructionCorp,
-  createConstructionCorp,
-  SerializedConstructionCorp,
+  HarvestCorp,
   ReservationCorp,
-  createReservationCorp,
+  ScoutCorp,
+  SerializedBootstrapCorp,
+  SerializedCarryCorp,
+  SerializedConstructionCorp,
+  SerializedHarvestCorp,
   SerializedReservationCorp,
-  SpawningCorp,
-  createSpawningCorp,
+  SerializedScoutCorp,
   SerializedSpawningCorp,
+  SerializedUpgradingCorp,
   SpawnableCreepType,
+  SpawningCorp,
+  UpgradingCorp,
+  createBootstrapCorp,
+  createConstructionCorp,
+  createReservationCorp,
+  createScoutCorp,
+  createSpawningCorp
 } from "../corps";
 import { getMaxSpawnCapacity } from "../planning/EconomicConstants";
 import { MAX_SCOUTS } from "../corps/CorpConstants";
@@ -63,7 +63,7 @@ export function createCorpRegistry(): CorpRegistry {
     scoutCorps: {},
     constructionCorps: {},
     spawningCorps: {},
-    reservationCorps: {},
+    reservationCorps: {}
   };
 }
 
@@ -92,12 +92,7 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
         const sources = room.find(FIND_SOURCES);
         if (spawns.length > 0 && sources.length > 0) {
           // Pass saved.id as customId to preserve the original ID
-          bootstrapCorp = new BootstrapCorp(
-            saved.nodeId,
-            saved.spawnId,
-            saved.sourceId,
-            saved.id
-          );
+          bootstrapCorp = new BootstrapCorp(saved.nodeId, saved.spawnId, saved.sourceId, saved.id);
           bootstrapCorp.deserialize(saved);
           registry.bootstrapCorps[roomName] = bootstrapCorp;
         }
@@ -379,5 +374,7 @@ export function logCorpStats(registry: CorpRegistry): void {
     totalBuilders += registry.constructionCorps[roomName].getCreepCount();
   }
 
-  console.log(`  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`);
+  console.log(
+    `  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`
+  );
 }

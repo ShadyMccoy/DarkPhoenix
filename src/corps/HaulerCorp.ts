@@ -54,7 +54,7 @@ export class HaulerCorp extends Corp {
   /** Creeps we've already recorded expected production for (session-only) */
   private accountedCreeps: Set<string> = new Set();
 
-  constructor(
+  public constructor(
     nodeId: string,
     spawnId: string,
     edgeId: string,
@@ -82,11 +82,7 @@ export class HaulerCorp extends Corp {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if (
-        creep.memory.corpId === this.id &&
-        creep.memory.workType === "haul" &&
-        !creep.spawning
-      ) {
+      if (creep.memory.corpId === this.id && creep.memory.workType === "haul" && !creep.spawning) {
         creeps.push(creep);
 
         // Track expected production for new creeps
@@ -105,14 +101,14 @@ export class HaulerCorp extends Corp {
   /**
    * Get position for this corp (source position).
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     return this.sourcePos;
   }
 
   /**
    * Main work loop - run hauler creeps along the edge.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
     const creeps = this.getAssignedCreeps();
 
@@ -155,11 +151,7 @@ export class HaulerCorp extends Corp {
    * 3. Tombstones/ruins near source
    */
   private pickupEnergy(creep: Creep): void {
-    const sourceRoomPos = new RoomPosition(
-      this.sourcePos.x,
-      this.sourcePos.y,
-      this.sourcePos.roomName
-    );
+    const sourceRoomPos = new RoomPosition(this.sourcePos.x, this.sourcePos.y, this.sourcePos.roomName);
 
     // If not in source room, travel there
     if (creep.room.name !== this.sourcePos.roomName) {
@@ -169,16 +161,12 @@ export class HaulerCorp extends Corp {
 
     // Priority 1: Dropped energy near source (within 5 tiles)
     const dropped = creep.room.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) =>
-        r.resourceType === RESOURCE_ENERGY &&
-        r.pos.getRangeTo(sourceRoomPos) <= 5,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.pos.getRangeTo(sourceRoomPos) <= 5
     });
 
     if (dropped.length > 0) {
       // Pick the largest pile
-      const target = dropped.reduce((best, curr) =>
-        curr.amount > best.amount ? curr : best
-      );
+      const target = dropped.reduce((best, curr) => (curr.amount > best.amount ? curr : best));
       if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
         creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
       }
@@ -187,10 +175,10 @@ export class HaulerCorp extends Corp {
 
     // Priority 2: Containers near source
     const containers = creep.room.find(FIND_STRUCTURES, {
-      filter: (s) =>
+      filter: s =>
         s.structureType === STRUCTURE_CONTAINER &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0 &&
-        s.pos.getRangeTo(sourceRoomPos) <= 3,
+        s.pos.getRangeTo(sourceRoomPos) <= 3
     }) as StructureContainer[];
 
     if (containers.length > 0) {
@@ -203,8 +191,7 @@ export class HaulerCorp extends Corp {
 
     // Priority 3: Tombstones near source
     const tombstones = creep.room.find(FIND_TOMBSTONES, {
-      filter: (t) =>
-        t.store[RESOURCE_ENERGY] > 0 && t.pos.getRangeTo(sourceRoomPos) <= 5,
+      filter: t => t.store[RESOURCE_ENERGY] > 0 && t.pos.getRangeTo(sourceRoomPos) <= 5
     });
 
     if (tombstones.length > 0) {
@@ -230,11 +217,7 @@ export class HaulerCorp extends Corp {
    * 3. Drop at sink if nothing else
    */
   private deliverEnergy(creep: Creep): void {
-    const sinkRoomPos = new RoomPosition(
-      this.sinkPos.x,
-      this.sinkPos.y,
-      this.sinkPos.roomName
-    );
+    const sinkRoomPos = new RoomPosition(this.sinkPos.x, this.sinkPos.y, this.sinkPos.roomName);
 
     // If not in sink room, travel there
     if (creep.room.name !== this.sinkPos.roomName) {
@@ -245,7 +228,7 @@ export class HaulerCorp extends Corp {
     // Opportunistic: pick up nearby dropped energy while traveling
     if (creep.store.getFreeCapacity() > 0) {
       const nearbyDropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-        filter: (r) => r.resourceType === RESOURCE_ENERGY,
+        filter: r => r.resourceType === RESOURCE_ENERGY
       });
       if (nearbyDropped.length > 0) {
         creep.pickup(nearbyDropped[0]);
@@ -254,10 +237,10 @@ export class HaulerCorp extends Corp {
 
     // Priority 1: Storage near sink
     const storage = creep.room.find(FIND_STRUCTURES, {
-      filter: (s) =>
+      filter: s =>
         s.structureType === STRUCTURE_STORAGE &&
         (s as StructureStorage).store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
-        s.pos.getRangeTo(sinkRoomPos) <= 5,
+        s.pos.getRangeTo(sinkRoomPos) <= 5
     }) as StructureStorage[];
 
     if (storage.length > 0) {
@@ -273,10 +256,10 @@ export class HaulerCorp extends Corp {
 
     // Priority 2: Containers near sink
     const containers = creep.room.find(FIND_STRUCTURES, {
-      filter: (s) =>
+      filter: s =>
         s.structureType === STRUCTURE_CONTAINER &&
         (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
-        s.pos.getRangeTo(sinkRoomPos) <= 3,
+        s.pos.getRangeTo(sinkRoomPos) <= 3
     }) as StructureContainer[];
 
     if (containers.length > 0) {
@@ -303,52 +286,49 @@ export class HaulerCorp extends Corp {
   /**
    * Get number of active hauler creeps.
    */
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getAssignedCreeps().length;
   }
 
   /**
    * Get total CARRY parts currently assigned.
    */
-  getCurrentCarryParts(): number {
-    return this.getAssignedCreeps().reduce(
-      (sum, creep) => sum + creep.getActiveBodyparts(CARRY),
-      0
-    );
+  public getCurrentCarryParts(): number {
+    return this.getAssignedCreeps().reduce((sum, creep) => sum + creep.getActiveBodyparts(CARRY), 0);
   }
 
   /**
    * Get the required CARRY parts from flow planning.
    */
-  getRequiredCarryParts(): number {
+  public getRequiredCarryParts(): number {
     return this.requiredCarryParts;
   }
 
   /**
    * Set the required CARRY parts (called by flow planner).
    */
-  setRequiredCarryParts(parts: number): void {
+  public setRequiredCarryParts(parts: number): void {
     this.requiredCarryParts = parts;
   }
 
   /**
    * Get the edge ID this hauler serves.
    */
-  getEdgeId(): string {
+  public getEdgeId(): string {
     return this.edgeId;
   }
 
   /**
    * Get the flow rate requirement.
    */
-  getFlowRate(): number {
+  public getFlowRate(): number {
     return this.flowRate;
   }
 
   /**
    * Update from a HaulerAssignment.
    */
-  updateFromAssignment(assignment: HaulerAssignment): void {
+  public updateFromAssignment(assignment: HaulerAssignment): void {
     this.flowRate = assignment.flowRate;
     this.distance = assignment.distance;
     this.requiredCarryParts = assignment.carryParts;
@@ -357,7 +337,7 @@ export class HaulerCorp extends Corp {
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedHaulerCorp {
+  public serialize(): SerializedHaulerCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
@@ -366,14 +346,14 @@ export class HaulerCorp extends Corp {
       sinkPos: this.sinkPos,
       flowRate: this.flowRate,
       distance: this.distance,
-      requiredCarryParts: this.requiredCarryParts,
+      requiredCarryParts: this.requiredCarryParts
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedHaulerCorp): void {
+  public deserialize(data: SerializedHaulerCorp): void {
     super.deserialize(data);
     this.edgeId = data.edgeId;
     this.sourcePos = data.sourcePos;
@@ -397,14 +377,5 @@ export function createHaulerCorp(
   distance: number,
   requiredCarryParts: number
 ): HaulerCorp {
-  return new HaulerCorp(
-    nodeId,
-    spawnId,
-    edgeId,
-    sourcePos,
-    sinkPos,
-    flowRate,
-    distance,
-    requiredCarryParts
-  );
+  return new HaulerCorp(nodeId, spawnId, edgeId, sourcePos, sinkPos, flowRate, distance, requiredCarryParts);
 }

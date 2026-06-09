@@ -12,12 +12,12 @@ import { AnyCorpState } from "../corps/CorpState";
 import {
   Chain,
   ChainSegment,
+  buildSegment,
   createChain,
   createChainId,
-  buildSegment,
   filterViable,
-  sortByProfit,
-  selectNonOverlapping
+  selectNonOverlapping,
+  sortByProfit
 } from "./Chain";
 import { OfferCollector } from "./OfferCollector";
 import { projectAll } from "./projections";
@@ -25,12 +25,7 @@ import { projectAll } from "./projections";
 /**
  * The production chain from sources to goals.
  */
-const RESOURCE_CHAIN = [
-  "raw-energy",
-  "harvested-energy",
-  "delivered-energy",
-  "controller-points"
-];
+const RESOURCE_CHAIN = ["raw-energy", "harvested-energy", "delivered-energy", "controller-points"];
 
 /**
  * Default margin for each corp type.
@@ -56,11 +51,7 @@ export class ChainPlanner {
   private corpStates: AnyCorpState[] = [];
   private corpStateMap: Map<string, AnyCorpState> = new Map();
 
-  constructor(
-    collector: OfferCollector,
-    mintValues: MintValues,
-    maxDepth: number = 10
-  ) {
+  public constructor(collector: OfferCollector, mintValues: MintValues, maxDepth = 10) {
     this.collector = collector;
     this.mintValues = mintValues;
     this.maxDepth = maxDepth;
@@ -69,7 +60,7 @@ export class ChainPlanner {
   /**
    * Register corp states for planning.
    */
-  registerCorpStates(states: AnyCorpState[], tick: number): void {
+  public registerCorpStates(states: AnyCorpState[], tick: number): void {
     this.corpStates = states;
     this.corpStateMap.clear();
     for (const state of states) {
@@ -80,12 +71,12 @@ export class ChainPlanner {
   /**
    * Find all viable chains at the given tick.
    */
-  findViableChains(tick: number): Chain[] {
+  public findViableChains(tick: number): Chain[] {
     const chains: Chain[] = [];
     const projections = projectAll(this.corpStates, tick);
 
     // Find goal corps (upgrading corps that produce controller points)
-    const goalCorps = this.corpStates.filter((s) => s.type === "upgrading");
+    const goalCorps = this.corpStates.filter(s => s.type === "upgrading");
 
     for (const goalCorp of goalCorps) {
       // Build chain backwards from goal to source
@@ -101,7 +92,7 @@ export class ChainPlanner {
   /**
    * Find the best chains within a budget.
    */
-  findBestChains(tick: number, budget: number): Chain[] {
+  public findBestChains(tick: number, budget: number): Chain[] {
     const viableChains = this.findViableChains(tick);
     const sorted = sortByProfit(viableChains);
 
@@ -112,9 +103,7 @@ export class ChainPlanner {
     for (const chain of sorted) {
       if (totalCost + chain.totalCost <= budget) {
         // Check if chain overlaps with already selected
-        const overlaps = selected.some((existing) =>
-          this.chainsOverlap(chain, existing)
-        );
+        const overlaps = selected.some(existing => this.chainsOverlap(chain, existing));
 
         if (!overlaps) {
           selected.push(chain);
@@ -133,11 +122,11 @@ export class ChainPlanner {
     const segments: ChainSegment[] = [];
 
     // Find the mining corp (source of harvested energy)
-    const miningCorps = this.corpStates.filter((s) => s.type === "mining");
+    const miningCorps = this.corpStates.filter(s => s.type === "mining");
     if (miningCorps.length === 0) return null;
 
     // Find the hauling corp
-    const haulingCorps = this.corpStates.filter((s) => s.type === "hauling");
+    const haulingCorps = this.corpStates.filter(s => s.type === "hauling");
     if (haulingCorps.length === 0) return null;
 
     // Use the first mining corp and hauling corp for simplicity
@@ -192,18 +181,14 @@ export class ChainPlanner {
     const mintValue = this.mintValues.rcl_upgrade * 1000;
 
     // Create and return the chain
-    return createChain(
-      createChainId(goalCorp.id, tick),
-      segments,
-      mintValue
-    );
+    return createChain(createChainId(goalCorp.id, tick), segments, mintValue);
   }
 
   /**
    * Check if two chains overlap (share corps).
    */
   private chainsOverlap(a: Chain, b: Chain): boolean {
-    const aCorps = new Set(a.segments.map((s) => s.corpId));
-    return b.segments.some((s) => aCorps.has(s.corpId));
+    const aCorps = new Set(a.segments.map(s => s.corpId));
+    return b.segments.some(s => aCorps.has(s.corpId));
   }
 }

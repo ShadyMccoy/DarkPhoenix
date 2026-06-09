@@ -28,9 +28,9 @@ export class HaulingOperation extends Corp {
   private readonly spawningCorpId: string;
   private readonly deliveryPosition: Position;
   private creepNames: string[] = [];
-  private targetHaulers: number = 1;
+  private targetHaulers = 1;
 
-  constructor(miningOp: MiningOperation, spawningCorpId: string, deliveryPosition: Position) {
+  public constructor(miningOp: MiningOperation, spawningCorpId: string, deliveryPosition: Position) {
     const nodeId = `hauling-${miningOp.id.slice(-8)}`;
     super("hauling", nodeId);
     this.miningOp = miningOp;
@@ -51,7 +51,7 @@ export class HaulingOperation extends Corp {
     return Math.abs(pickup.x - delivery.x) + Math.abs(pickup.y - delivery.y);
   }
 
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
     this.pickupCreeps();
 
@@ -128,9 +128,7 @@ export class HaulingOperation extends Corp {
   }
 
   private getCreeps(): Creep[] {
-    return this.creepNames
-      .map(name => Game.creeps[name])
-      .filter((c): c is Creep => c !== undefined);
+    return this.creepNames.map(name => Game.creeps[name]).filter((c): c is Creep => c !== undefined);
   }
 
   private pickupCreeps(): void {
@@ -145,34 +143,34 @@ export class HaulingOperation extends Corp {
     }
   }
 
-  getPosition(): Position {
+  public getPosition(): Position {
     return this.pickupPosition;
   }
 
-  plan(tick: number): void {
+  public plan(tick: number): void {
     super.plan(tick);
     const distance = this.calculateDistance();
     this.targetHaulers = Math.max(1, Math.ceil(distance / 25));
   }
 
-  serialize(): SerializedHaulingOperation {
+  public serialize(): SerializedHaulingOperation {
     return {
       ...super.serialize(),
       miningCorpId: this.miningOp.id,
       spawningCorpId: this.spawningCorpId,
       deliveryPosition: this.deliveryPosition,
       creepNames: this.creepNames,
-      targetHaulers: this.targetHaulers,
+      targetHaulers: this.targetHaulers
     };
   }
 
-  deserialize(data: SerializedHaulingOperation): void {
+  public deserialize(data: SerializedHaulingOperation): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.targetHaulers = data.targetHaulers || 1;
   }
 
-  getMiningOperation(): MiningOperation {
+  public getMiningOperation(): MiningOperation {
     return this.miningOp;
   }
 }

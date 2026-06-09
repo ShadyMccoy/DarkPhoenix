@@ -15,16 +15,16 @@
 
 import { FlowGraph } from "./FlowGraph";
 import {
-  planEconomy,
-  PlannerInput,
-  PlannerSource,
-  PlannerSink,
-  PlannedFlow,
   EconomyPlan,
+  PlannedFlow,
+  PlannerInput,
+  PlannerSink,
+  PlannerSource,
   SinkKind,
+  planEconomy
 } from "./EconomyPlanner";
 import { estimateWalkingDistance } from "../nodes/NodeNavigator";
-import { SinkType, HaulerAssignment } from "./FlowTypes";
+import { HaulerAssignment, SinkType } from "./FlowTypes";
 import { CorpRegistry } from "../execution/CorpRunner";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / fully stalls. */
@@ -43,7 +43,7 @@ export const CONSTRUCTION_ABSORB_RATE = 5;
 export const SINK_VALUE: Record<SinkKind, number> = {
   spawn: 100, // critical: the economy can't run without staffing creeps
   construction: 70, // building supersedes upgrading
-  controller: 50, // upgrading absorbs the leftover
+  controller: 50 // upgrading absorbs the leftover
 };
 
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
@@ -63,10 +63,10 @@ function toSinkKind(type: SinkType): SinkKind | null {
 
 /** Build the planner's input from the live flow graph. */
 export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInput {
-  const sources: PlannerSource[] = graph.getSources().map((s) => ({
+  const sources: PlannerSource[] = graph.getSources().map(s => ({
     id: s.id,
     supply: s.capacity, // energy/tick (e.g. 10)
-    pos: s.position,
+    pos: s.position
   }));
   const totalSupply = sources.reduce((sum, s) => sum + s.supply, 0);
 
@@ -82,16 +82,11 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
       // realistic absorb rate, so on a throughput-limited source the surplus
       // goes to the controller (consumption-scaled) instead of decaying.
       // controller: high - it mops up whatever's left.
-      capacity:
-        kind === "spawn"
-          ? 0
-          : kind === "construction"
-            ? CONSTRUCTION_ABSORB_RATE
-            : Math.max(totalSupply, 1),
+      capacity: kind === "spawn" ? 0 : kind === "construction" ? CONSTRUCTION_ABSORB_RATE : Math.max(totalSupply, 1),
       // The controller keeps a guaranteed anti-downgrade trickle even while
       // construction (higher value) would otherwise claim the whole supply.
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined,
-      pos: sink.position,
+      pos: sink.position
     });
   }
 
@@ -124,8 +119,8 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
 
     const spawnId = haulSpawnId(plan, sourceId);
     const assignments: HaulerAssignment[] = flows
-      .filter((f) => f.amount > 0)
-      .map((f) => ({
+      .filter(f => f.amount > 0)
+      .map(f => ({
         edgeId: `${f.sourceId}|${f.sinkId}`,
         fromId: f.sourceId,
         toId: f.sinkId,
@@ -133,7 +128,7 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
         carryParts: Math.max(1, Math.ceil((f.amount * (2 * f.distance + 2)) / 50)),
         flowRate: f.amount,
         spawnCostPerTick: 0,
-        spawnId,
+        spawnId
       }));
     if (assignments.length > 0) carryCorp.setHaulerAssignments(assignments);
   }
@@ -155,13 +150,13 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
       demand: spec.work,
       unmet: 0,
       priority: SINK_VALUE.controller,
-      sourceFlows: [],
+      sourceFlows: []
     });
   }
 }
 
 /** The spawn that staffs this source's haulers, per the plan. */
 function haulSpawnId(plan: EconomyPlan, sourceId: string): string {
-  const haul = plan.corps.find((c) => c.kind === "haul" && c.fromId === sourceId);
+  const haul = plan.corps.find(c => c.kind === "haul" && c.fromId === sourceId);
   return haul && haul.kind === "haul" ? haul.spawnId : "";
 }

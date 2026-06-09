@@ -12,7 +12,7 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { BODY_PART_COST } from "../planning/EconomicConstants";
-import { buildUpgraderBody, buildTankerBody } from "../spawn/BodyBuilder";
+import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
@@ -39,7 +39,7 @@ const EXTENSION_LIMITS: { [rcl: number]: number } = {
   5: 30,
   6: 40,
   7: 50,
-  8: 60,
+  8: 60
 };
 
 /**
@@ -74,10 +74,10 @@ export class ConstructionCorp extends Corp {
   private spawnId: string;
 
   /** Last tick we attempted to place extensions */
-  private lastPlacementAttempt: number = 0;
+  private lastPlacementAttempt = 0;
 
   /** Target number of builders (computed during planning) */
-  private targetBuilders: number = 0;
+  private targetBuilders = 0;
 
   /**
    * Flow-based construction allocations from FlowEconomy.
@@ -99,7 +99,7 @@ export class ConstructionCorp extends Corp {
    */
   private readonly tankers: Squad;
 
-  constructor(nodeId: string, spawnId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("building", nodeId, customId);
     this.spawnId = spawnId;
 
@@ -110,7 +110,7 @@ export class ConstructionCorp extends Corp {
       value: 95, // just below the core mining economy, above upgrading
       producesIncome: false,
       blockingWhenEmpty: false,
-      usefulPart: WORK,
+      usefulPart: WORK
     });
     this.tankers = new Squad({
       corpId: this.id,
@@ -119,14 +119,14 @@ export class ConstructionCorp extends Corp {
       value: 94, // feeding the builders is nearly as important as the builders
       producesIncome: false,
       blockingWhenEmpty: true, // the first feeder is essential
-      usefulPart: CARRY,
+      usefulPart: CARRY
     });
   }
 
   /**
    * Plan construction operations.
    */
-  plan(tick: number): void {
+  public plan(tick: number): void {
     super.plan(tick);
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -152,7 +152,7 @@ export class ConstructionCorp extends Corp {
   /**
    * Get the spawn position as the corp's location.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -163,7 +163,7 @@ export class ConstructionCorp extends Corp {
   /**
    * Main work loop - run builder creeps.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -180,11 +180,12 @@ export class ConstructionCorp extends Corp {
     const rcl = controller.level;
     const maxExtensions = EXTENSION_LIMITS[rcl] || 0;
     const currentExtensions = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) => s.structureType === STRUCTURE_EXTENSION,
+      filter: s => s.structureType === STRUCTURE_EXTENSION
     }).length;
     const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
 
-    const wantsContainer = rcl >= CONTAINER_MIN_RCL &&
+    const wantsContainer =
+      rcl >= CONTAINER_MIN_RCL &&
       (this.findMissingSourceContainer(room) !== null || this.findMissingControllerContainer(room) !== null);
     const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
 
@@ -214,8 +215,8 @@ export class ConstructionCorp extends Corp {
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
-    this.builders.run((creep) => this.runBuilder(creep, room), spawn);
-    this.tankers.run((creep) => this.runTanker(creep, room), spawn);
+    this.builders.run(creep => this.runBuilder(creep, room), spawn);
+    this.tankers.run(creep => this.runTanker(creep, room), spawn);
   }
 
   /**
@@ -238,12 +239,12 @@ export class ConstructionCorp extends Corp {
   private recycleUndersizedBuilder(room: Room): void {
     if (!room.memory.dedicatedBuildSourceId) return;
     const builders = this.builders.members();
-    if (builders.length === 0 || builders.some((b) => b.memory.recycling)) return;
+    if (builders.length === 0 || builders.some(b => b.memory.recycling)) return;
 
     const plan = this.builderPlan(room.energyCapacityAvailable, room);
     if (room.energyAvailable < plan.desiredCost) return;
 
-    const runt = builders.find((b) => b.getActiveBodyparts(WORK) < (plan.maxPartsPerMember ?? 1));
+    const runt = builders.find(b => b.getActiveBodyparts(WORK) < (plan.maxPartsPerMember ?? 1));
     if (runt) runt.memory.recycling = true;
   }
 
@@ -276,7 +277,7 @@ export class ConstructionCorp extends Corp {
       minCost: min.cost,
       bodyParam: partsPerMember,
       partsNeeded: totalWork,
-      maxPartsPerMember: maxPerBuilder,
+      maxPartsPerMember: maxPerBuilder
     };
   }
 
@@ -296,9 +297,7 @@ export class ConstructionCorp extends Corp {
       // Deliver to the nearest builder with room. Builders are static, so "nearest"
       // is a fixed pick, not a moving target - no thrash.
       const builders = this.builders.members();
-      const target = creep.pos.findClosestByRange(
-        builders.filter((b) => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0)
-      );
+      const target = creep.pos.findClosestByRange(builders.filter(b => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0));
       if (target) {
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
@@ -320,9 +319,7 @@ export class ConstructionCorp extends Corp {
     if (!source) return;
 
     const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     })[0] as StructureContainer | undefined;
     if (container) {
       if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
@@ -331,7 +328,7 @@ export class ConstructionCorp extends Corp {
       return;
     }
     const pile = source.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
     })[0];
     if (pile) {
       if (creep.pickup(pile) === ERR_NOT_IN_RANGE) {
@@ -451,13 +448,7 @@ export class ConstructionCorp extends Corp {
   }
 
   /** Create a construction site and record its cost. */
-  private placeSite(
-    room: Room,
-    x: number,
-    y: number,
-    type: BuildableStructureConstant,
-    cost: number
-  ): void {
+  private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant, cost: number): void {
     const result = room.createConstructionSite(x, y, type);
     if (result === OK) {
       this.recordCost(cost);
@@ -486,7 +477,7 @@ export class ConstructionCorp extends Corp {
     for (const source of room.find(FIND_SOURCES)) {
       if (this.hasContainerNear(room, source.pos, 1)) continue;
       const pile = source.pos
-        .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY })
+        .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
         .reduce((sum, r) => sum + r.amount, 0);
       if (pile < SOURCE_CONTAINER_PILE_THRESHOLD) continue;
       const tile = this.bestAdjacentTile(room, source.pos, 1);
@@ -513,18 +504,20 @@ export class ConstructionCorp extends Corp {
 
   /** True once the room is at its container cap (built + pending). */
   private containerBudgetFull(room: Room): boolean {
-    const built = room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }).length;
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }).length;
+    const built = room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length;
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    }).length;
     return built + sites >= CONTAINER_LIMIT;
   }
 
   /** Is there already a container (built or pending) within `range` of `pos`? */
   private hasContainerNear(room: Room, pos: RoomPosition, range: number): boolean {
     const containers = [
-      ...room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }),
-      ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }),
+      ...room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }),
+      ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
     ];
-    return containers.some((s) => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
+    return containers.some(s => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
   }
 
   /**
@@ -677,11 +670,7 @@ export class ConstructionCorp extends Corp {
    * Uses a simple line-walk approximation (not full pathfinding).
    * Swamps cost 5x, plains cost 1x.
    */
-  private estimatePathCost(
-    x1: number, y1: number,
-    x2: number, y2: number,
-    terrain: RoomTerrain
-  ): number {
+  private estimatePathCost(x1: number, y1: number, x2: number, y2: number, terrain: RoomTerrain): number {
     let cost = 0;
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -699,9 +688,9 @@ export class ConstructionCorp extends Corp {
         // Wall in path - add heavy penalty (path would go around)
         cost += 10;
       } else if (t === TERRAIN_MASK_SWAMP) {
-        cost += 5;  // Swamp costs 5x
+        cost += 5; // Swamp costs 5x
       } else {
-        cost += 1;  // Plains cost 1x
+        cost += 1; // Plains cost 1x
       }
     }
 
@@ -744,16 +733,16 @@ export class ConstructionCorp extends Corp {
    */
   private refuelInPlace(creep: Creep): void {
     const drop = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
     })[0];
     if (drop) {
       creep.pickup(drop);
       return;
     }
     const store = creep.pos.findInRange(FIND_STRUCTURES, 1, {
-      filter: (s) =>
+      filter: s =>
         (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     })[0] as StructureContainer | undefined;
     if (store) {
       creep.withdraw(store, RESOURCE_ENERGY);
@@ -792,7 +781,7 @@ export class ConstructionCorp extends Corp {
 
     // Check for dropped energy within range
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
     });
     if (dropped.length > 0) {
       const target = dropped[0];
@@ -804,7 +793,7 @@ export class ConstructionCorp extends Corp {
 
     // Check for tombstones with energy within range
     const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+      filter: t => t.store[RESOURCE_ENERGY] > 0
     });
     if (tombstones.length > 0) {
       const target = tombstones[0];
@@ -816,7 +805,7 @@ export class ConstructionCorp extends Corp {
 
     // Check for ruins with energy within range
     const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
-      filter: (r) => r.store[RESOURCE_ENERGY] > 0,
+      filter: r => r.store[RESOURCE_ENERGY] > 0
     });
     if (ruins.length > 0) {
       const target = ruins[0];
@@ -828,9 +817,7 @@ export class ConstructionCorp extends Corp {
 
     // Check containers within range
     const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
     }) as StructureContainer[];
     if (containers.length > 0) {
       const target = containers[0];
@@ -847,14 +834,14 @@ export class ConstructionCorp extends Corp {
   /**
    * Get number of active builder creeps.
    */
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.builders.members().length;
   }
 
   /**
    * Get the spawn ID this corp spawns from.
    */
-  getSpawnId(): string {
+  public getSpawnId(): string {
     return this.spawnId;
   }
 
@@ -868,7 +855,7 @@ export class ConstructionCorp extends Corp {
    * (an empty site has nothing to feed); after that both squads emit demand and
    * the scheduler arbitrates by value (builders 95 > feeders 94).
    */
-  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+  public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
@@ -897,7 +884,7 @@ export class ConstructionCorp extends Corp {
       target,
       desiredCost: desired.cost,
       minCost: min.cost,
-      bodyParam: perTanker,
+      bodyParam: perTanker
     };
   }
 
@@ -906,12 +893,7 @@ export class ConstructionCorp extends Corp {
    * builder's consumption over the refuel round-trip, never fewer than two so
    * there is always one staged for a seamless hot swap.
    */
-  private targetTankerCount(
-    room: Room,
-    site: ConstructionSite,
-    builders: Creep[],
-    perTanker: number
-  ): number {
+  private targetTankerCount(room: Room, site: ConstructionSite, builders: Creep[], perTanker: number): number {
     const work = builders.reduce((sum, b) => sum + b.getActiveBodyparts(WORK), 0);
     const consumption = Math.max(5, work * 5); // energy/tick the builder eats
     const source = site.pos.findClosestByRange(FIND_SOURCES);
@@ -933,7 +915,7 @@ export class ConstructionCorp extends Corp {
    * Set construction allocations from FlowEconomy.
    * Each allocation specifies energy rate for a construction site.
    */
-  setConstructionAllocations(allocations: SinkAllocation[]): void {
+  public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
     // Adjust target builders based on total allocated energy
     const totalAllocated = allocations.reduce((sum, a) => sum + a.allocated, 0);
@@ -945,51 +927,49 @@ export class ConstructionCorp extends Corp {
   /**
    * Get all construction allocations.
    */
-  getConstructionAllocations(): SinkAllocation[] {
+  public getConstructionAllocations(): SinkAllocation[] {
     return this.constructionAllocations;
   }
 
   /**
    * Check if this corp has flow-based allocations.
    */
-  hasFlowAllocations(): boolean {
+  public hasFlowAllocations(): boolean {
     return this.constructionAllocations.length > 0;
   }
 
   /**
    * Get total allocated energy rate for construction.
    */
-  getTotalAllocatedEnergy(): number {
+  public getTotalAllocatedEnergy(): number {
     return this.constructionAllocations.reduce((sum, a) => sum + a.allocated, 0);
   }
 
   /**
    * Get the highest priority construction site (from flow allocations).
    */
-  getHighestPriorityAllocation(): SinkAllocation | undefined {
+  public getHighestPriorityAllocation(): SinkAllocation | undefined {
     if (this.constructionAllocations.length === 0) return undefined;
-    return this.constructionAllocations.reduce((best, curr) =>
-      curr.priority > best.priority ? curr : best
-    );
+    return this.constructionAllocations.reduce((best, curr) => (curr.priority > best.priority ? curr : best));
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedConstructionCorp {
+  public serialize(): SerializedConstructionCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
       targetBuilders: this.targetBuilders,
-      constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
+      constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedConstructionCorp): void {
+  public deserialize(data: SerializedConstructionCorp): void {
     super.deserialize(data);
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
     this.targetBuilders = data.targetBuilders || 0;
@@ -1003,10 +983,7 @@ const CONSTRUCTION_CORP_STARTING_BALANCE = 1000;
 /**
  * Create a ConstructionCorp for a room.
  */
-export function createConstructionCorp(
-  room: Room,
-  spawn: StructureSpawn
-): ConstructionCorp {
+export function createConstructionCorp(room: Room, spawn: StructureSpawn): ConstructionCorp {
   const nodeId = `${room.name}-construction`;
   const corp = new ConstructionCorp(nodeId, spawn.id);
   corp.balance = CONSTRUCTION_CORP_STARTING_BALANCE;

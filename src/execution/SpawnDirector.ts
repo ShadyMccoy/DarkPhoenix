@@ -16,12 +16,7 @@
 
 import "../types/Memory";
 import { CorpRegistry } from "./CorpRunner";
-import {
-  scheduleSpawn,
-  SpawnDemand,
-  SpawnDemandContext,
-  ScheduleContext,
-} from "../spawn/SpawnScheduler";
+import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -58,7 +53,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
 
       const demandCtx: SpawnDemandContext = {
         energyCapacity: room.energyCapacityAvailable,
-        tick: Game.time,
+        tick: Game.time
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
@@ -76,7 +71,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         energyAvailable: room.energyAvailable,
         energyCapacity: room.energyCapacityAvailable,
         energyIncome: income,
-        tick: Game.time,
+        tick: Game.time
       };
 
       const result = scheduleSpawn(demands, ctx);
@@ -117,11 +112,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
  * groupStarted so the scheduler finishes funding that source before opening a
  * fresh one - the "fund one corp fully, then move on" strategy.
  */
-function collectDemands(
-  registry: CorpRegistry,
-  spawnId: string,
-  ctx: SpawnDemandContext
-): SpawnDemand[] {
+function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
 
   for (const id in registry.harvestCorps) {

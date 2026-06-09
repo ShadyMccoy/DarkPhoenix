@@ -70,7 +70,7 @@ export {
   calculateOptimalMinerSize,
   calculateMinerSpawnCost,
   calculateHaulerSpawnCost,
-  BODY_PART_COSTS,
+  BODY_PART_COSTS
 } from "./FlowEdge";
 
 // Flow network
@@ -81,7 +81,7 @@ export {
   SpawnFlowNode,
   optimizeFlowAllocation,
   calculateMiningMarginalValue,
-  calculateHaulingMarginalValue,
+  calculateHaulingMarginalValue
 } from "./FlowNetwork";
 
 // Balance solver
@@ -91,7 +91,7 @@ export {
   SupplyAllocation,
   CarryAllocation,
   BalanceSolverConfig,
-  formatFlowAllocation,
+  formatFlowAllocation
 } from "./FlowBalance";
 
 // Integration with node system
@@ -105,5 +105,5 @@ export {
   FlowRoutingResult,
   buildFlowGraph,
   solveMinCostMaxFlow,
-  formatFlowRouting,
+  formatFlowRouting
 } from "./FlowRouter";

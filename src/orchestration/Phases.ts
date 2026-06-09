@@ -18,27 +18,27 @@
 
 import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
-import { SerializedChain, Chain, deserializeChain, serializeChain } from "../planning/Chain";
+import { Chain, SerializedChain, deserializeChain, serializeChain } from "../planning/Chain";
 import { Node, NodeResource } from "../nodes/Node";
 import {
-  HarvestCorp,
-  createHarvestCorp,
-  SerializedHarvestCorp,
+  BootstrapCorp,
   CarryCorp,
-  createCarryCorp,
+  ConstructionCorp,
+  HarvestCorp,
+  ScoutCorp,
+  SerializedBootstrapCorp,
   SerializedCarryCorp,
-  UpgradingCorp,
-  createUpgradingCorp,
+  SerializedConstructionCorp,
+  SerializedHarvestCorp,
+  SerializedScoutCorp,
+  SerializedSpawningCorp,
   SerializedUpgradingCorp,
   SpawningCorp,
+  UpgradingCorp,
+  createCarryCorp,
+  createHarvestCorp,
   createSpawningCorp,
-  SerializedSpawningCorp,
-  BootstrapCorp,
-  SerializedBootstrapCorp,
-  ScoutCorp,
-  SerializedScoutCorp,
-  ConstructionCorp,
-  SerializedConstructionCorp,
+  createUpgradingCorp
 } from "../corps";
 
 /** Planning interval in ticks */
@@ -252,11 +252,7 @@ export function shouldRunPlanning(tick: number): boolean {
  *
  * In the flow-based economy, this just updates corp production targets.
  */
-export function runPlanningPhase(
-  corps: CorpRegistry,
-  colony: Colony,
-  tick: number
-): PlanningResult {
+export function runPlanningPhase(corps: CorpRegistry, colony: Colony, tick: number): PlanningResult {
   console.log(`[Planning] Running planning phase at tick ${tick}`);
 
   // Run planning on all corps
@@ -319,10 +315,7 @@ export interface ExecutionResult {
 /**
  * Run the execution phase.
  */
-export function runExecutionPhase(
-  corps: CorpRegistry,
-  tick: number
-): ExecutionResult {
+export function runExecutionPhase(corps: CorpRegistry, tick: number): ExecutionResult {
   return {
     corpsRun: countCorps(corps),
     contractsUpdated: 0
@@ -372,11 +365,7 @@ export interface SurveyResult {
 /**
  * Run the survey phase.
  */
-export function runSurveyPhase(
-  colony: Colony,
-  corps: CorpRegistry,
-  tick: number
-): SurveyResult {
+export function runSurveyPhase(colony: Colony, corps: CorpRegistry, tick: number): SurveyResult {
   console.log(`[Survey] Running survey phase at tick ${tick}`);
 
   const result: SurveyResult = {
@@ -453,10 +442,14 @@ export function runSurveyPhase(
     }
   }
 
-  console.log(`[Survey] Surveyed ${result.nodesSurveyed} nodes, created ${
-    result.corpsCreated.harvest + result.corpsCreated.hauling +
-    result.corpsCreated.upgrading + result.corpsCreated.spawning
-  } corps`);
+  console.log(
+    `[Survey] Surveyed ${result.nodesSurveyed} nodes, created ${
+      result.corpsCreated.harvest +
+      result.corpsCreated.hauling +
+      result.corpsCreated.upgrading +
+      result.corpsCreated.spawning
+    } corps`
+  );
 
   return result;
 }

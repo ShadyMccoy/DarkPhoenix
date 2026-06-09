@@ -12,15 +12,15 @@ import { SerializedNode } from "../nodes/Node";
 import { SerializedChain } from "../planning/Chain";
 import {
   SerializedBootstrapCorp,
-  SerializedHarvestCorp,
   SerializedCarryCorp,
-  SerializedUpgradingCorp,
-  SerializedScoutCorp,
   SerializedConstructionCorp,
-  SerializedReservationCorp,
-  SerializedSpawningCorp,
+  SerializedHarvestCorp,
   SerializedHaulerCorp,
+  SerializedReservationCorp,
+  SerializedScoutCorp,
+  SerializedSpawningCorp,
   SerializedTankerCorp,
+  SerializedUpgradingCorp
 } from "../corps";
 
 declare global {

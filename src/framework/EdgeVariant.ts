@@ -46,7 +46,7 @@ export const LINK_BUILD_COST = 5000;
 export const TERRAIN_FATIGUE: Record<TerrainType, number> = {
   road: 1,
   plain: 2,
-  swamp: 10,
+  swamp: 10
 };
 
 // =============================================================================
@@ -180,33 +180,25 @@ export interface VariantConstraints {
  * @param carryParts - Number of CARRY parts (0-4)
  * @returns Harvester configuration with costs
  */
-export function createHarvesterConfig(
-  workParts: number,
-  carryParts: number
-): HarvesterConfig {
+export function createHarvesterConfig(workParts: number, carryParts: number): HarvesterConfig {
   // Move parts: 1 per 2 work parts, minimum to reach source
   const moveParts = Math.ceil(workParts / 2);
 
   const spawnCost =
-    workParts * BODY_PART_COSTS.work +
-    carryParts * BODY_PART_COSTS.carry +
-    moveParts * BODY_PART_COSTS.move;
+    workParts * BODY_PART_COSTS.work + carryParts * BODY_PART_COSTS.carry + moveParts * BODY_PART_COSTS.move;
 
   return {
     workParts,
     carryParts,
     moveParts,
-    spawnCost,
+    spawnCost
   };
 }
 
 /**
  * Calculates harvester cost per tick (spawn cost amortized).
  */
-export function calculateHarvesterCostPerTick(
-  harvester: HarvesterConfig,
-  spawnToSourceDistance: number
-): number {
+export function calculateHarvesterCostPerTick(harvester: HarvesterConfig, spawnToSourceDistance: number): number {
   // Account for travel time reducing effective lifetime
   const effectiveLifetime = Math.max(1, CREEP_LIFETIME - spawnToSourceDistance);
   return harvester.spawnCost / effectiveLifetime;
@@ -237,10 +229,7 @@ function getPartRatio(ratio: HaulerRatio): { carry: number; move: number } {
  * @param carryPartsNeeded - Minimum CARRY parts needed for throughput
  * @returns Hauler configuration
  */
-export function createHaulerConfig(
-  ratio: HaulerRatio,
-  carryPartsNeeded: number
-): HaulerConfig {
+export function createHaulerConfig(ratio: HaulerRatio, carryPartsNeeded: number): HaulerConfig {
   const partRatio = getPartRatio(ratio);
 
   // Round up to nearest complete ratio unit
@@ -248,15 +237,14 @@ export function createHaulerConfig(
   const carryParts = units * partRatio.carry;
   const moveParts = units * partRatio.move;
 
-  const spawnCost =
-    carryParts * BODY_PART_COSTS.carry + moveParts * BODY_PART_COSTS.move;
+  const spawnCost = carryParts * BODY_PART_COSTS.carry + moveParts * BODY_PART_COSTS.move;
 
   return {
     ratio,
     carryParts,
     moveParts,
     carryCapacity: carryParts * CARRY_CAPACITY,
-    spawnCost,
+    spawnCost
   };
 }
 
@@ -270,10 +258,7 @@ export function createHaulerConfig(
  *
  * Weight = CARRY parts when full (empty CARRY doesn't count)
  */
-export function calculateTicksPerTile(
-  hauler: HaulerConfig,
-  terrain: TerrainType
-): number {
+export function calculateTicksPerTile(hauler: HaulerConfig, terrain: TerrainType): number {
   // When carrying, each CARRY part adds 1 weight
   const weight = hauler.carryParts;
   const fatiguePerTile = weight * TERRAIN_FATIGUE[terrain];
@@ -291,11 +276,7 @@ export function calculateTicksPerTile(
  * @param pickupDropoffTime - Extra ticks for loading/unloading (default 10)
  * @returns Total round trip time in ticks
  */
-export function calculateRoundTripTicks(
-  hauler: HaulerConfig,
-  terrain: TerrainProfile,
-  pickupDropoffTime: number = 10
-): number {
+export function calculateRoundTripTicks(hauler: HaulerConfig, terrain: TerrainProfile, pickupDropoffTime = 10): number {
   // Calculate one-way time (full when going to destination)
   let oneWayFull = 0;
   oneWayFull += terrain.road * calculateTicksPerTile(hauler, "road");
@@ -305,9 +286,7 @@ export function calculateRoundTripTicks(
   // Return trip is faster (empty, no weight)
   // Empty hauler: 1 tick per tile on road/plain, more on swamp
   const oneWayEmpty =
-    terrain.road * 1 +
-    terrain.plain * 1 +
-    terrain.swamp * Math.ceil(TERRAIN_FATIGUE.swamp / (hauler.moveParts * 2));
+    terrain.road * 1 + terrain.plain * 1 + terrain.swamp * Math.ceil(TERRAIN_FATIGUE.swamp / (hauler.moveParts * 2));
 
   return oneWayFull + oneWayEmpty + pickupDropoffTime;
 }
@@ -348,21 +327,14 @@ export function calculateHaulerMetrics(
  * @param miningSpots - Number of piles (mining positions)
  * @returns Decay cost in energy per tick
  */
-export function calculateDecayCost(
-  harvester: HarvesterConfig,
-  roundTripTicks: number,
-  miningSpots: number
-): number {
+export function calculateDecayCost(harvester: HarvesterConfig, roundTripTicks: number, miningSpots: number): number {
   if (miningSpots === 0) return 0;
 
   // Harvest rate
   const harvestRate = harvester.workParts * HARVEST_PER_WORK;
 
   // Time to fill harvester's CARRY before dropping
-  const fillTime =
-    harvester.carryParts > 0
-      ? (harvester.carryParts * CARRY_CAPACITY) / harvestRate
-      : 0;
+  const fillTime = harvester.carryParts > 0 ? (harvester.carryParts * CARRY_CAPACITY) / harvestRate : 0;
 
   // Time pile exists on ground per cycle
   const pileExistsTime = Math.max(0, roundTripTicks - fillTime);
@@ -385,10 +357,7 @@ export function calculateDecayCost(
  * @param isOwnedRoom - Whether the room is owned (affects container decay)
  * @returns Infrastructure cost per tick
  */
-export function calculateInfrastructureCost(
-  miningMode: MiningMode,
-  isOwnedRoom: boolean = true
-): number {
+export function calculateInfrastructureCost(miningMode: MiningMode, isOwnedRoom = true): number {
   switch (miningMode) {
     case "drop":
       return 0;
@@ -462,12 +431,7 @@ export function generateEdgeVariants(
 
       // Link transport mode
       if (miningMode === "link") {
-        const variant = createLinkVariant(
-          harvester,
-          grossPerTick,
-          spawnToSourceDistance,
-          miningMode
-        );
+        const variant = createLinkVariant(harvester, grossPerTick, spawnToSourceDistance, miningMode);
         variants.push(variant);
         continue;
       }
@@ -521,10 +485,7 @@ function createHaulerVariant(
   // Calculate costs
   const infrastructureCost = calculateInfrastructureCost(miningMode);
   const harvesterCost = calculateHarvesterCostPerTick(harvester, spawnToSourceDistance);
-  const decayCost =
-    miningMode === "drop"
-      ? calculateDecayCost(harvester, roundTrip, miningSpots)
-      : 0;
+  const decayCost = miningMode === "drop" ? calculateDecayCost(harvester, roundTrip, miningSpots) : 0;
   const haulerMetrics = calculateHaulerMetrics(hauler, terrain);
   const haulCost = haulerMetrics.costPerEnergy * grossPerTick;
 
@@ -551,7 +512,7 @@ function createHaulerVariant(
     costPerEnergy,
     grossPerTick,
     netPerTick,
-    efficiency,
+    efficiency
   };
 }
 
@@ -593,7 +554,7 @@ function createLinkVariant(
     costPerEnergy,
     grossPerTick,
     netPerTick,
-    efficiency,
+    efficiency
   };
 }
 
@@ -604,10 +565,7 @@ function createLinkVariant(
  * @param constraints - Current constraints
  * @returns Best viable variant, or null if none viable
  */
-export function selectBestVariant(
-  variants: EdgeVariant[],
-  constraints: VariantConstraints
-): EdgeVariant | null {
+export function selectBestVariant(variants: EdgeVariant[], constraints: VariantConstraints): EdgeVariant | null {
   for (const variant of variants) {
     // Check infrastructure budget
     if (variant.miningMode === "container") {

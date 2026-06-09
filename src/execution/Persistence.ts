@@ -10,7 +10,7 @@
 
 import "../types/Memory";
 import { Colony } from "../colony";
-import { serializeNode, createEdgeKey } from "../nodes";
+import { createEdgeKey, serializeNode } from "../nodes";
 import { MultiRoomAnalysisResult } from "../spatial";
 import { CorpRegistry } from "./CorpRunner";
 
@@ -99,13 +99,13 @@ export function persistState(
   // Track cumulative distance and stop if > MAX_ECON_DISTANCE
   // Then limit to top 10 closest neighbors per node
   const MAX_ECONOMIC_NEIGHBORS = 10;
-  const allNeighbors = new Map<string, Array<{ neighbor: string; dist: number }>>();
+  const allNeighbors = new Map<string, { neighbor: string; dist: number }[]>();
 
   for (const startId of economicNodeIds) {
     allNeighbors.set(startId, []);
     const visited = new Map<string, number>(); // nodeId -> distance from start
     visited.set(startId, 0);
-    const queue: Array<{ id: string; dist: number }> = [{ id: startId, dist: 0 }];
+    const queue: { id: string; dist: number }[] = [{ id: startId, dist: 0 }];
 
     while (queue.length > 0) {
       const { id: current, dist: currentDist } = queue.shift()!;

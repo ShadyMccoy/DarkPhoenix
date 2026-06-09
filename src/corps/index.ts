@@ -10,69 +10,25 @@
 // Shared constants
 export * from "./CorpConstants";
 
-export {
-  Corp,
-  CorpType,
-  SerializedCorp,
-  calculateMargin,
-  calculatePrice,
-  calculateROI
-} from "./Corp";
+export { Corp, CorpType, SerializedCorp, calculateMargin, calculatePrice, calculateROI } from "./Corp";
 
-export {
-  BootstrapCorp,
-  SerializedBootstrapCorp,
-  createBootstrapCorp
-} from "./BootstrapCorp";
+export { BootstrapCorp, SerializedBootstrapCorp, createBootstrapCorp } from "./BootstrapCorp";
 
-export {
-  HarvestCorp,
-  SerializedHarvestCorp,
-  createHarvestCorp
-} from "./HarvestCorp";
+export { HarvestCorp, SerializedHarvestCorp, createHarvestCorp } from "./HarvestCorp";
 
-export {
-  CarryCorp,
-  SerializedCarryCorp,
-  createCarryCorp
-} from "./CarryCorp";
+export { CarryCorp, SerializedCarryCorp, createCarryCorp } from "./CarryCorp";
 
-export {
-  HaulerCorp,
-  SerializedHaulerCorp,
-  createHaulerCorp
-} from "./HaulerCorp";
+export { HaulerCorp, SerializedHaulerCorp, createHaulerCorp } from "./HaulerCorp";
 
-export {
-  TankerCorp,
-  TankerDemand,
-  SerializedTankerCorp,
-  createTankerCorp
-} from "./TankerCorp";
+export { TankerCorp, TankerDemand, SerializedTankerCorp, createTankerCorp } from "./TankerCorp";
 
-export {
-  UpgradingCorp,
-  SerializedUpgradingCorp,
-  createUpgradingCorp
-} from "./UpgradingCorp";
+export { UpgradingCorp, SerializedUpgradingCorp, createUpgradingCorp } from "./UpgradingCorp";
 
-export {
-  ScoutCorp,
-  SerializedScoutCorp,
-  createScoutCorp
-} from "./ScoutCorp";
+export { ScoutCorp, SerializedScoutCorp, createScoutCorp } from "./ScoutCorp";
 
-export {
-  ConstructionCorp,
-  SerializedConstructionCorp,
-  createConstructionCorp
-} from "./ConstructionCorp";
+export { ConstructionCorp, SerializedConstructionCorp, createConstructionCorp } from "./ConstructionCorp";
 
-export {
-  ReservationCorp,
-  SerializedReservationCorp,
-  createReservationCorp
-} from "./ReservationCorp";
+export { ReservationCorp, SerializedReservationCorp, createReservationCorp } from "./ReservationCorp";
 
 export {
   SpawningCorp,
@@ -102,7 +58,4 @@ export {
 } from "./CorpState";
 
 // Registry for dependency resolution
-export {
-  CorpStateRegistry,
-  createCorpStateRegistry
-} from "./CorpStateRegistry";
+export { CorpStateRegistry, createCorpStateRegistry } from "./CorpStateRegistry";

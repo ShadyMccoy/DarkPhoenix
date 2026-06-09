@@ -49,11 +49,7 @@ export interface FilterPeaksOptions {
  * Callback type for multi-room terrain queries.
  * Returns terrain mask value for a position in any room.
  */
-export type MultiRoomTerrainCallback = (
-  roomName: string,
-  x: number,
-  y: number
-) => number;
+export type MultiRoomTerrainCallback = (roomName: string, x: number, y: number) => number;
 
 /**
  * 8-directional neighbors for BFS propagation.
@@ -66,7 +62,7 @@ const NEIGHBORS_8: { x: number; y: number }[] = [
   { x: 1, y: -1 },
   { x: 1, y: 0 },
   { x: 1, y: 1 },
-  { x: 0, y: -1 },
+  { x: 0, y: -1 }
 ];
 
 /**
@@ -76,7 +72,7 @@ const NEIGHBORS_4: { x: number; y: number }[] = [
   { x: -1, y: 0 },
   { x: 1, y: 0 },
   { x: 0, y: -1 },
-  { x: 0, y: 1 },
+  { x: 0, y: 1 }
 ];
 
 // ============================================================================
@@ -104,14 +100,14 @@ export interface RoomCoords {
  * @returns Parsed coordinates or null if invalid
  */
 export function parseRoomName(roomName: string): RoomCoords | null {
-  const match = roomName.match(/^([WE])(\d+)([NS])(\d+)$/);
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
   if (!match) return null;
 
   return {
     horizontalDir: match[1] as "W" | "E",
     horizontalPos: parseInt(match[2], 10),
     verticalDir: match[3] as "N" | "S",
-    verticalPos: parseInt(match[4], 10),
+    verticalPos: parseInt(match[4], 10)
   };
 }
 
@@ -144,7 +140,7 @@ export function getAdjacentRoomPosition(
   // Not an exit tile
   if (x !== 0 && x !== 49 && y !== 0 && y !== 49) return null;
 
-  let newCoords = { ...coords };
+  const newCoords = { ...coords };
   let newX = x;
   let newY = y;
 
@@ -209,7 +205,7 @@ export function getAdjacentRoomPosition(
   return {
     roomName: roomCoordsToName(newCoords),
     x: newX,
-    y: newY,
+    y: newY
   };
 }
 
@@ -233,8 +229,8 @@ export function getAdjacentRoomPosition(
 export function createMultiRoomDistanceTransform(
   startRooms: string[],
   terrainCallback: MultiRoomTerrainCallback,
-  wallMask: number = 1,
-  maxRooms: number = 9,
+  wallMask = 1,
+  maxRooms = 9,
   allowedRooms?: Set<string>
 ): Map<string, number> {
   const distances = new Map<string, number>();
@@ -349,9 +345,7 @@ export function createMultiRoomDistanceTransform(
  * @param distances - Multi-room distance map from createMultiRoomDistanceTransform
  * @returns Array of peaks with world coordinates
  */
-export function findMultiRoomPeaks(
-  distances: Map<string, number>
-): WorldPeakData[] {
+export function findMultiRoomPeaks(distances: Map<string, number>): WorldPeakData[] {
   // Collect all tiles with heights
   const tiles: { roomName: string; x: number; y: number; height: number }[] = [];
   const visited = new Set<string>();
@@ -364,7 +358,7 @@ export function findMultiRoomPeaks(
         roomName: roomPart,
         x: parseInt(xStr, 10),
         y: parseInt(yStr, 10),
-        height,
+        height
       });
     }
   }
@@ -439,14 +433,14 @@ export function findMultiRoomPeaks(
     }
 
     // Calculate center within the dominant room
-    const roomTiles = cluster.filter((c) => c.roomName === centerRoom);
+    const roomTiles = cluster.filter(c => c.roomName === centerRoom);
     const centerX = Math.round(roomTiles.reduce((s, t) => s + t.x, 0) / roomTiles.length);
     const centerY = Math.round(roomTiles.reduce((s, t) => s + t.y, 0) / roomTiles.length);
 
     peaks.push({
       tiles: cluster,
       center: { x: centerX, y: centerY, roomName: centerRoom },
-      height: tile.height,
+      height: tile.height
     });
   }
 
@@ -470,21 +464,13 @@ export function findMultiRoomPeaks(
  * @param options - Filtering options
  * @returns Filtered peaks with appropriate spacing
  */
-export function filterMultiRoomPeaks(
-  peaks: WorldPeakData[],
-  options: FilterPeaksOptions = {}
-): WorldPeakData[] {
-  const {
-    exclusionMultiplier = 1.5,
-    minHeight = 2,
-  } = options;
+export function filterMultiRoomPeaks(peaks: WorldPeakData[], options: FilterPeaksOptions = {}): WorldPeakData[] {
+  const { exclusionMultiplier = 1.5, minHeight = 2 } = options;
 
   if (peaks.length === 0) return [];
 
   // Filter by minimum height and sort by height descending
-  const sortedPeaks = peaks
-    .filter((p) => p.height >= minHeight)
-    .sort((a, b) => b.height - a.height);
+  const sortedPeaks = peaks.filter(p => p.height >= minHeight).sort((a, b) => b.height - a.height);
 
   const finalPeaks: WorldPeakData[] = [];
   const excludedPositions = new Set<string>();
@@ -545,8 +531,8 @@ export function bfsWalkingDistance(
   from: WorldCoordinate,
   to: WorldCoordinate,
   terrainCallback: MultiRoomTerrainCallback,
-  wallMask: number = 1,
-  maxDistance: number = 200
+  wallMask = 1,
+  maxDistance = 200
 ): number {
   if (from.roomName === to.roomName && from.x === to.x && from.y === to.y) {
     return 0;
@@ -554,7 +540,7 @@ export function bfsWalkingDistance(
 
   const visited = new Set<string>();
   const queue: { x: number; y: number; roomName: string; dist: number }[] = [
-    { x: from.x, y: from.y, roomName: from.roomName, dist: 0 },
+    { x: from.x, y: from.y, roomName: from.roomName, dist: 0 }
   ];
   visited.add(`${from.roomName}:${from.x},${from.y}`);
 
@@ -606,9 +592,7 @@ export function bfsWalkingDistance(
  * @param territories - Map of peak IDs to their territory coordinates
  * @returns Set of edge keys in format "peakId1|peakId2" (sorted alphabetically)
  */
-export function findTerritoryAdjacencies(
-  territories: Map<string, WorldCoordinate[]>
-): Set<string> {
+export function findTerritoryAdjacencies(territories: Map<string, WorldCoordinate[]>): Set<string> {
   // Build reverse lookup: "roomName:x,y" -> peakId
   const tileToTerritory = new Map<string, string>();
   for (const [peakId, tiles] of territories) {
@@ -688,9 +672,7 @@ export interface SkeletonBuilderState {
 /**
  * Creates initial state for incremental skeleton building.
  */
-export function createSkeletonBuilderState(
-  territories: Map<string, WorldCoordinate[]>
-): SkeletonBuilderState {
+export function createSkeletonBuilderState(territories: Map<string, WorldCoordinate[]>): SkeletonBuilderState {
   return {
     phase: "lookup",
     tileToTerritory: new Map(),
@@ -700,7 +682,7 @@ export function createSkeletonBuilderState(
     adjacencies: new Set(),
     adjacencyList: [],
     adjacencyIndex: 0,
-    edgeWeights: new Map(),
+    edgeWeights: new Map()
   };
 }
 
@@ -719,8 +701,8 @@ export function processSkeletonBuilderChunk(
   state: SkeletonBuilderState,
   peaks: { peakId: string; center: WorldCoordinate }[],
   terrainCallback: MultiRoomTerrainCallback,
-  wallMask: number = 1,
-  maxOpsPerTick: number = 1000
+  wallMask = 1,
+  maxOpsPerTick = 1000
 ): boolean {
   let ops = 0;
 
@@ -849,8 +831,8 @@ export function processSkeletonBuilderChunk(
 export function bfsDivideMultiRoom(
   peaks: WorldPeakData[],
   terrainCallback: MultiRoomTerrainCallback,
-  wallMask: number = 1,
-  maxRooms: number = 9,
+  wallMask = 1,
+  maxRooms = 9,
   allowedRooms?: Set<string>
 ): Map<string, WorldCoordinate[]> {
   const territories = new Map<string, WorldCoordinate[]>();
@@ -888,7 +870,7 @@ export function bfsDivideMultiRoom(
       x: peak.center.x,
       y: peak.center.y,
       roomName: peak.center.roomName,
-      peakId,
+      peakId
     });
   }
 
@@ -936,10 +918,7 @@ export function bfsDivideMultiRoom(
 
       const nkey = `${nRoomName}:${nx},${ny}`;
 
-      if (
-        !visited.has(nkey) &&
-        terrainCallback(nRoomName, nx, ny) !== wallMask
-      ) {
+      if (!visited.has(nkey) && terrainCallback(nRoomName, nx, ny) !== wallMask) {
         queue.push({ x: nx, y: ny, roomName: nRoomName, peakId });
       }
     }

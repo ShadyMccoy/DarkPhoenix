@@ -7,13 +7,13 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import {
-  STALE_THRESHOLD,
-  MAX_SCOUT_DISTANCE,
   MAX_INTEL_VALUE,
-  VALUE_PER_STALE_TICK,
   MAX_SCOUTS,
+  MAX_SCOUT_DISTANCE,
   MIN_SCOUT_RCL,
   SCOUT_SPAWN_COOLDOWN,
+  STALE_THRESHOLD,
+  VALUE_PER_STALE_TICK
 } from "./CorpConstants";
 import { SpawningCorp } from "./SpawningCorp";
 
@@ -31,10 +31,10 @@ export interface SerializedScoutCorp extends SerializedCorp {
  */
 export class ScoutCorp extends Corp {
   private spawnId: string;
-  private lastPurchaseTick: number = 0;
+  private lastPurchaseTick = 0;
   private blockedRooms: Set<string> = new Set();
 
-  constructor(nodeId: string, spawnId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("scout", nodeId, customId);
     this.spawnId = spawnId;
   }
@@ -50,7 +50,7 @@ export class ScoutCorp extends Corp {
     return creeps;
   }
 
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -58,7 +58,7 @@ export class ScoutCorp extends Corp {
     return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
   }
 
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -95,9 +95,7 @@ export class ScoutCorp extends Corp {
     }
 
     const visited = new Set<string>();
-    const queue: { roomName: string; distance: number }[] = [
-      { roomName: startRoom, distance: 0 },
-    ];
+    const queue: { roomName: string; distance: number }[] = [{ roomName: startRoom, distance: 0 }];
     visited.add(startRoom);
 
     while (queue.length > 0) {
@@ -146,8 +144,9 @@ export class ScoutCorp extends Corp {
 
       const excludeRooms = this.getAssignedTargets();
       excludeRooms.delete(targetRoom);
-      const newTarget = this.findStaleRoomExcluding(creep.room.name, excludeRooms)
-        || this.findStaleRoomExcluding(homeRoom, excludeRooms);
+      const newTarget =
+        this.findStaleRoomExcluding(creep.room.name, excludeRooms) ||
+        this.findStaleRoomExcluding(homeRoom, excludeRooms);
 
       if (newTarget) {
         creep.memory.targetRoom = newTarget;
@@ -173,7 +172,7 @@ export class ScoutCorp extends Corp {
       const targetPos = new RoomPosition(25, 25, finalTarget);
       const result = creep.moveTo(targetPos, {
         visualizePathStyle: { stroke: "#00ff00" },
-        reusePath: 10,
+        reusePath: 10
       });
       if (result === ERR_NO_PATH) {
         console.log(`[Scout] ${creep.name} can't reach ${finalTarget}, marking as blocked`);
@@ -194,7 +193,7 @@ export class ScoutCorp extends Corp {
     const value = Math.min(staleness * VALUE_PER_STALE_TICK, MAX_INTEL_VALUE);
 
     const sources = room.find(FIND_SOURCES);
-    const sourcePositions = sources.map((s) => ({ x: s.pos.x, y: s.pos.y }));
+    const sourcePositions = sources.map(s => ({ x: s.pos.x, y: s.pos.y }));
 
     const minerals = room.find(FIND_MINERALS);
     const mineral = minerals[0];
@@ -223,13 +222,13 @@ export class ScoutCorp extends Corp {
       controllerReservation,
       hostileCreepCount: hostileCreeps.length,
       hostileStructureCount: hostileStructures.length,
-      isSafe,
+      isSafe
     };
 
     return value;
   }
 
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getActiveCreeps().length;
   }
 
@@ -237,7 +236,7 @@ export class ScoutCorp extends Corp {
    * Check if scouts are needed and queue spawn orders.
    * Returns true if a spawn was requested.
    */
-  requestSpawnsIfNeeded(spawningCorp: SpawningCorp, tick: number): boolean {
+  public requestSpawnsIfNeeded(spawningCorp: SpawningCorp, tick: number): boolean {
     // Check cooldown since last spawn request
     if (tick - this.lastPurchaseTick < SCOUT_SPAWN_COOLDOWN) {
       return false;
@@ -283,16 +282,16 @@ export class ScoutCorp extends Corp {
     return true;
   }
 
-  serialize(): SerializedScoutCorp {
+  public serialize(): SerializedScoutCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
       lastPurchaseTick: this.lastPurchaseTick,
-      blockedRooms: Array.from(this.blockedRooms),
+      blockedRooms: Array.from(this.blockedRooms)
     };
   }
 
-  deserialize(data: SerializedScoutCorp): void {
+  public deserialize(data: SerializedScoutCorp): void {
     super.deserialize(data);
     this.lastPurchaseTick = data.lastPurchaseTick || 0;
     this.blockedRooms = new Set(data.blockedRooms || []);

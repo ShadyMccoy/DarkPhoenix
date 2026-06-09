@@ -19,7 +19,7 @@
  * @module framework/FlowRouter
  */
 
-import { CarryEdge, calculateCarryEdgeThroughput, calculateCarryEdgeCostPerEnergy } from "./FlowEdge";
+import { CarryEdge, calculateCarryEdgeCostPerEnergy, calculateCarryEdgeThroughput } from "./FlowEdge";
 
 /**
  * A node in the flow routing graph.
@@ -95,7 +95,7 @@ export class FlowGraph {
   /**
    * Adds a node to the graph.
    */
-  addNode(id: string, supply: number, isSource: boolean, isSink: boolean): void {
+  public addNode(id: string, supply: number, isSource: boolean, isSink: boolean): void {
     this.nodes.set(id, { id, supply, isSource, isSink });
     if (!this.adjacency.has(id)) {
       this.adjacency.set(id, []);
@@ -105,7 +105,7 @@ export class FlowGraph {
   /**
    * Adds an arc (directed edge) to the graph.
    */
-  addArc(from: string, to: string, capacity: number, cost: number, carryEdge?: CarryEdge): void {
+  public addArc(from: string, to: string, capacity: number, cost: number, carryEdge?: CarryEdge): void {
     const arc: FlowArc = { from, to, capacity, cost, flow: 0, carryEdge };
     this.arcs.push(arc);
     this.adjacency.get(from)?.push(arc);
@@ -114,42 +114,42 @@ export class FlowGraph {
   /**
    * Gets all arcs from a node.
    */
-  getArcsFrom(nodeId: string): FlowArc[] {
+  public getArcsFrom(nodeId: string): FlowArc[] {
     return this.adjacency.get(nodeId) ?? [];
   }
 
   /**
    * Gets all source nodes.
    */
-  getSources(): FlowNode[] {
+  public getSources(): FlowNode[] {
     return Array.from(this.nodes.values()).filter(n => n.isSource && n.supply > 0);
   }
 
   /**
    * Gets all sink nodes.
    */
-  getSinks(): FlowNode[] {
+  public getSinks(): FlowNode[] {
     return Array.from(this.nodes.values()).filter(n => n.isSink);
   }
 
   /**
    * Gets a node by ID.
    */
-  getNode(id: string): FlowNode | undefined {
+  public getNode(id: string): FlowNode | undefined {
     return this.nodes.get(id);
   }
 
   /**
    * Gets all arcs.
    */
-  getArcs(): FlowArc[] {
+  public getArcs(): FlowArc[] {
     return this.arcs;
   }
 
   /**
    * Gets all node IDs.
    */
-  getNodeIds(): string[] {
+  public getNodeIds(): string[] {
     return Array.from(this.nodes.keys());
   }
 }
@@ -158,8 +158,8 @@ export class FlowGraph {
  * Builds a flow graph from supply allocations and carry edges.
  */
 export function buildFlowGraph(
-  nodeSupplies: Map<string, number>,  // nodeId -> net energy supply
-  nodeDemands: Map<string, number>,   // nodeId -> energy demand (positive = needs energy)
+  nodeSupplies: Map<string, number>, // nodeId -> net energy supply
+  nodeDemands: Map<string, number>, // nodeId -> energy demand (positive = needs energy)
   carryEdges: CarryEdge[]
 ): FlowGraph {
   const graph = new FlowGraph();
@@ -169,7 +169,7 @@ export function buildFlowGraph(
     ...nodeSupplies.keys(),
     ...nodeDemands.keys(),
     ...carryEdges.map(e => e.fromNodeId),
-    ...carryEdges.map(e => e.toNodeId),
+    ...carryEdges.map(e => e.toNodeId)
   ]);
 
   for (const nodeId of allNodeIds) {
@@ -180,8 +180,8 @@ export function buildFlowGraph(
     graph.addNode(
       nodeId,
       netSupply,
-      netSupply > 0,  // isSource
-      demand > 0       // isSink
+      netSupply > 0, // isSource
+      demand > 0 // isSink
     );
   }
 
@@ -369,7 +369,7 @@ export function solveMinCostMaxFlow(graph: FlowGraph): FlowRoutingResult {
     totalCost,
     sinkFlows,
     unroutedSupply,
-    unsatisfiedDemand,
+    unsatisfiedDemand
   };
 }
 
@@ -383,7 +383,7 @@ export function formatFlowRouting(result: FlowRoutingResult): string {
     `Total Flow:       ${result.totalFlow.toFixed(2)} energy/tick`,
     `Transport Cost:   ${result.totalCost.toFixed(2)} energy/tick`,
     `Net Delivered:    ${(result.totalFlow - result.totalCost).toFixed(2)} energy/tick`,
-    "",
+    ""
   ];
 
   if (result.unroutedSupply > 0) {
@@ -400,7 +400,7 @@ export function formatFlowRouting(result: FlowRoutingResult): string {
     const efficiency = 1 / (1 + arc.cost);
     lines.push(
       `  ${arc.from} → ${arc.to}: ${arc.flow.toFixed(2)}/tick ` +
-      `(cost: ${arc.cost.toFixed(3)}/energy, ${(efficiency * 100).toFixed(1)}% efficient)`
+        `(cost: ${arc.cost.toFixed(3)}/energy, ${(efficiency * 100).toFixed(1)}% efficient)`
     );
   }
 

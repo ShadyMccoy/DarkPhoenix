@@ -15,11 +15,11 @@
 
 import {
   AnyCorpState,
-  SourceCorpState,
+  HaulingCorpState,
   MiningCorpState,
+  SourceCorpState,
   SpawningCorpState,
-  UpgradingCorpState,
-  HaulingCorpState
+  UpgradingCorpState
 } from "./CorpState";
 
 /**
@@ -28,7 +28,7 @@ import {
 export class CorpStateRegistry {
   private readonly stateById: Map<string, AnyCorpState>;
 
-  constructor(states: AnyCorpState[] = []) {
+  public constructor(states: AnyCorpState[] = []) {
     this.stateById = new Map();
     for (const state of states) {
       this.stateById.set(state.id, state);
@@ -39,7 +39,7 @@ export class CorpStateRegistry {
    * Get a corp state by ID with type checking.
    * @throws Error if not found
    */
-  get<T extends AnyCorpState>(id: string): T {
+  public get<T extends AnyCorpState>(id: string): T {
     const state = this.stateById.get(id);
     if (!state) {
       throw new Error(`Corp state not found: ${id}`);
@@ -50,56 +50,56 @@ export class CorpStateRegistry {
   /**
    * Get a corp state by ID, returning undefined if not found.
    */
-  tryGet<T extends AnyCorpState>(id: string): T | undefined {
+  public tryGet<T extends AnyCorpState>(id: string): T | undefined {
     return this.stateById.get(id) as T | undefined;
   }
 
   /**
    * Check if a corp state exists.
    */
-  has(id: string): boolean {
+  public has(id: string): boolean {
     return this.stateById.has(id);
   }
 
   /**
    * Register a new corp state.
    */
-  register(state: AnyCorpState): void {
+  public register(state: AnyCorpState): void {
     this.stateById.set(state.id, state);
   }
 
   /**
    * Get all registered states.
    */
-  getAll(): AnyCorpState[] {
+  public getAll(): AnyCorpState[] {
     return Array.from(this.stateById.values());
   }
 
   /**
    * Get states by type.
    */
-  getByType<T extends AnyCorpState>(type: T["type"]): T[] {
+  public getByType<T extends AnyCorpState>(type: T["type"]): T[] {
     return this.getAll().filter(s => s.type === type) as T[];
   }
 
   /**
    * Get the source corp for a mining operation.
    */
-  getSourceForMining(miningState: MiningCorpState): SourceCorpState {
+  public getSourceForMining(miningState: MiningCorpState): SourceCorpState {
     return this.get<SourceCorpState>(miningState.sourceCorpId);
   }
 
   /**
    * Get the spawning corp for an operation.
    */
-  getSpawning(corpId: string): SpawningCorpState {
+  public getSpawning(corpId: string): SpawningCorpState {
     return this.get<SpawningCorpState>(corpId);
   }
 
   /**
    * Get the mining corp for a hauling operation.
    */
-  getMiningForHauling(haulingState: HaulingCorpState): MiningCorpState {
+  public getMiningForHauling(haulingState: HaulingCorpState): MiningCorpState {
     return this.get<MiningCorpState>(haulingState.miningCorpId);
   }
 
@@ -107,7 +107,7 @@ export class CorpStateRegistry {
    * Validate that all dependencies are satisfied.
    * Returns a list of missing dependencies.
    */
-  validateDependencies(): string[] {
+  public validateDependencies(): string[] {
     const missing: string[] = [];
 
     for (const state of this.getAll()) {
@@ -149,21 +149,21 @@ export class CorpStateRegistry {
   /**
    * Check if all dependencies are satisfied.
    */
-  isValid(): boolean {
+  public isValid(): boolean {
     return this.validateDependencies().length === 0;
   }
 
   /**
    * Get the number of registered states.
    */
-  get size(): number {
+  public get size(): number {
     return this.stateById.size;
   }
 
   /**
    * Clear all registered states.
    */
-  clear(): void {
+  public clear(): void {
     this.stateById.clear();
   }
 }

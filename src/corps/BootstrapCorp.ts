@@ -18,12 +18,12 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import {
+  ANTI_DOWNGRADE_MIN_RCL,
+  ANTI_DOWNGRADE_SAFE_TICKS,
+  ANTI_DOWNGRADE_TRIGGER_TICKS,
   JACK_BODY,
   JACK_COST,
-  SPAWN_COOLDOWN,
-  ANTI_DOWNGRADE_TRIGGER_TICKS,
-  ANTI_DOWNGRADE_SAFE_TICKS,
-  ANTI_DOWNGRADE_MIN_RCL,
+  SPAWN_COOLDOWN
 } from "./CorpConstants";
 
 /**
@@ -89,15 +89,15 @@ export class BootstrapCorp extends Corp {
   private emergencyJackNames: string[] = [];
 
   /** Last tick we attempted to spawn */
-  private lastSpawnAttempt: number = 0;
+  private lastSpawnAttempt = 0;
 
   /** Last tick we dispatched an anti-downgrade jack */
-  private lastEmergencyAttempt: number = 0;
+  private lastEmergencyAttempt = 0;
 
   /** Tick when starvation was first detected */
-  private starvationStartTick: number = 0;
+  private starvationStartTick = 0;
 
-  constructor(nodeId: string, spawnId: string, sourceId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, sourceId: string, customId?: string) {
     super("bootstrap", nodeId, customId);
     this.spawnId = spawnId;
     this.sourceId = sourceId;
@@ -106,7 +106,7 @@ export class BootstrapCorp extends Corp {
   /**
    * Get the spawn position as the corp's location.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -119,11 +119,11 @@ export class BootstrapCorp extends Corp {
    * Main work loop - spawn creeps and run their behavior.
    * Bootstrap only spawns when truly starved (no creeps for a while).
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     // Clean up dead creeps
-    this.creepNames = this.creepNames.filter((name) => Game.creeps[name]);
+    this.creepNames = this.creepNames.filter(name => Game.creeps[name]);
 
     // Get spawn and source
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -140,12 +140,12 @@ export class BootstrapCorp extends Corp {
     const room = spawn.room;
     const allCreeps = room.find(FIND_MY_CREEPS);
     const ourCreepNames = new Set(this.creepNames);
-    const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
+    const otherCreeps = allCreeps.filter(c => !ourCreepNames.has(c.name));
 
     // Count ACTUAL haulers (workType === "haul") and jacks (our creeps)
     // Don't count upgraders/builders that happen to have CARRY parts
-    const actualHaulers = allCreeps.filter((c) => c.memory.workType === "haul");
-    const jackCount = this.creepNames.filter((n) => Game.creeps[n]).length;
+    const actualHaulers = allCreeps.filter(c => c.memory.workType === "haul");
+    const jackCount = this.creepNames.filter(n => Game.creeps[n]).length;
     const totalHaulers = actualHaulers.length + jackCount;
 
     // CRITICAL: If no haulers AND no jacks, bootstrap IMMEDIATELY
@@ -163,7 +163,7 @@ export class BootstrapCorp extends Corp {
       // spawned (haulers with nothing to carry). If the flow loses either, the
       // checks above re-activate bootstrap automatically.
       const flowHaulers = actualHaulers.length;
-      const flowMiners = otherCreeps.filter((c) => c.memory.workType === "harvest").length;
+      const flowMiners = otherCreeps.filter(c => c.memory.workType === "harvest").length;
       const flowEstablished = flowMiners >= 1 && flowHaulers >= 1;
       for (const name of this.creepNames) {
         const creep = Game.creeps[name];
@@ -178,8 +178,7 @@ export class BootstrapCorp extends Corp {
     }
 
     // Check for starvation condition: few creeps AND low energy (in room)
-    const isStarving = spawn.room.energyAvailable < BOOTSTRAP_ENERGY_THRESHOLD &&
-                       otherCreeps.length < 3;
+    const isStarving = spawn.room.energyAvailable < BOOTSTRAP_ENERGY_THRESHOLD && otherCreeps.length < 3;
 
     // No haulers = immediate activation, bypass all checks
     if (noHaulers) {
@@ -192,7 +191,9 @@ export class BootstrapCorp extends Corp {
       // Start or continue starvation timer
       if (this.starvationStartTick === 0) {
         this.starvationStartTick = tick;
-        console.log(`[Bootstrap] Starvation detected, waiting ${BOOTSTRAP_STARVATION_THRESHOLD} ticks before activating`);
+        console.log(
+          `[Bootstrap] Starvation detected, waiting ${BOOTSTRAP_STARVATION_THRESHOLD} ticks before activating`
+        );
       }
     } else if (allCreeps.length > 0) {
       // We have bootstrap creeps working, don't reset timer
@@ -204,9 +205,10 @@ export class BootstrapCorp extends Corp {
 
     // Only spawn if we've been starving long enough
     const ticksStarving = this.starvationStartTick > 0 ? tick - this.starvationStartTick : 0;
-    const shouldSpawn = ticksStarving >= BOOTSTRAP_STARVATION_THRESHOLD ||
-                        noHaulers ||
-                        (this.creepNames.length > 0 && this.creepNames.length < BOOTSTRAP_MAX_JACKS);
+    const shouldSpawn =
+      ticksStarving >= BOOTSTRAP_STARVATION_THRESHOLD ||
+      noHaulers ||
+      (this.creepNames.length > 0 && this.creepNames.length < BOOTSTRAP_MAX_JACKS);
 
     if (shouldSpawn && this.creepNames.length < BOOTSTRAP_MAX_JACKS) {
       this.trySpawn(spawn, tick);
@@ -249,12 +251,8 @@ export class BootstrapCorp extends Corp {
    * safe again the jack recycles itself. This is independent of the
    * starvation-fallback jacks (creepNames) and runs at every RCL >= MIN_RCL.
    */
-  private runAntiDowngrade(
-    spawn: StructureSpawn,
-    source: Source,
-    tick: number
-  ): void {
-    this.emergencyJackNames = this.emergencyJackNames.filter((n) => Game.creeps[n]);
+  private runAntiDowngrade(spawn: StructureSpawn, source: Source, tick: number): void {
+    this.emergencyJackNames = this.emergencyJackNames.filter(n => Game.creeps[n]);
 
     const controller = spawn.room.controller;
     if (!controller || !controller.my || controller.level < ANTI_DOWNGRADE_MIN_RCL) {
@@ -274,7 +272,7 @@ export class BootstrapCorp extends Corp {
     ) {
       const name = `antidowngrade-${this.id.slice(-6)}-${tick}`;
       const result = spawn.spawnCreep(JACK_BODY, name, {
-        memory: { corpId: this.id, workType: "upgrade" as const, working: false },
+        memory: { corpId: this.id, workType: "upgrade" as const, working: false }
       });
       this.lastEmergencyAttempt = tick;
       if (result === OK) {
@@ -352,8 +350,8 @@ export class BootstrapCorp extends Corp {
       memory: {
         corpId: this.id,
         workType: "harvest" as const,
-        working: false,
-      },
+        working: false
+      }
     });
 
     this.lastSpawnAttempt = tick;
@@ -372,11 +370,7 @@ export class BootstrapCorp extends Corp {
    * - If carrying energy: return to spawn
    * - If empty: go harvest
    */
-  private runCreep(
-    creep: Creep,
-    spawn: StructureSpawn,
-    source: Source
-  ): void {
+  private runCreep(creep: Creep, spawn: StructureSpawn, source: Source): void {
     // State transition
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
@@ -390,9 +384,8 @@ export class BootstrapCorp extends Corp {
     if (creep.memory.working) {
       // Find closest spawn or extension that needs energy
       const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
-        filter: (s) =>
-          (s.structureType === STRUCTURE_SPAWN ||
-           s.structureType === STRUCTURE_EXTENSION) &&
+        filter: s =>
+          (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) &&
           (s as StructureSpawn | StructureExtension).store.getFreeCapacity(RESOURCE_ENERGY) > 0
       }) as StructureSpawn | StructureExtension | null;
 
@@ -401,10 +394,7 @@ export class BootstrapCorp extends Corp {
           creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         } else {
           // Record revenue when we successfully transfer
-          const transferred = Math.min(
-            creep.store[RESOURCE_ENERGY],
-            target.store.getFreeCapacity(RESOURCE_ENERGY)
-          );
+          const transferred = Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
           // Very low "revenue" - bootstrap is not about profit
           this.recordRevenue(transferred * 0.001);
         }
@@ -424,7 +414,7 @@ export class BootstrapCorp extends Corp {
     } else {
       // Priority 1: Pick up dropped energy
       const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-        filter: (r) => r.resourceType === RESOURCE_ENERGY,
+        filter: r => r.resourceType === RESOURCE_ENERGY
       });
 
       if (droppedEnergy) {
@@ -436,9 +426,7 @@ export class BootstrapCorp extends Corp {
 
       // Priority 2: Withdraw from containers with energy
       const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-        filter: (s) =>
-          s.structureType === STRUCTURE_CONTAINER &&
-          s.store[RESOURCE_ENERGY] > 0
+        filter: s => s.structureType === STRUCTURE_CONTAINER && s.store[RESOURCE_ENERGY] > 0
       }) as StructureContainer | null;
 
       if (container) {
@@ -460,14 +448,14 @@ export class BootstrapCorp extends Corp {
    * Returns 0 unless we're in a starvation condition - bootstrap should
    * almost never be the preferred option.
    */
-  estimateROI(): number {
+  public estimateROI(): number {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return 0;
 
     const room = spawn.room;
     const allCreeps = room.find(FIND_MY_CREEPS);
     const ourCreepNames = new Set(this.creepNames);
-    const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
+    const otherCreeps = allCreeps.filter(c => !ourCreepNames.has(c.name));
 
     // If other corps have enough creeps (3+), bootstrap has no value
     if (otherCreeps.length >= 3) {
@@ -488,20 +476,20 @@ export class BootstrapCorp extends Corp {
    * Check if bootstrap should be active.
    * Bootstrap is a rare fallback - only activates after being starved for a while.
    */
-  shouldActivate(): boolean {
+  public shouldActivate(): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return false;
 
     const room = spawn.room;
     const allCreeps = room.find(FIND_MY_CREEPS);
     const ourCreepNames = new Set(this.creepNames);
-    const otherCreeps = allCreeps.filter((c) => !ourCreepNames.has(c.name));
+    const otherCreeps = allCreeps.filter(c => !ourCreepNames.has(c.name));
 
     // Only yield if other corps have enough creeps (3+) to sustain
     if (otherCreeps.length >= 3) return false;
 
     // If we have bootstrap creeps, continue working (to finish recovery)
-    if (this.creepNames.filter((n) => Game.creeps[n]).length > 0) {
+    if (this.creepNames.filter(n => Game.creeps[n]).length > 0) {
       return true;
     }
 
@@ -514,14 +502,14 @@ export class BootstrapCorp extends Corp {
   /**
    * Get number of active jack creeps.
    */
-  getCreepCount(): number {
-    return this.creepNames.filter((n) => Game.creeps[n]).length;
+  public getCreepCount(): number {
+    return this.creepNames.filter(n => Game.creeps[n]).length;
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedBootstrapCorp {
+  public serialize(): SerializedBootstrapCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
@@ -530,14 +518,14 @@ export class BootstrapCorp extends Corp {
       emergencyJackNames: this.emergencyJackNames,
       lastSpawnAttempt: this.lastSpawnAttempt,
       lastEmergencyAttempt: this.lastEmergencyAttempt,
-      starvationStartTick: this.starvationStartTick,
+      starvationStartTick: this.starvationStartTick
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedBootstrapCorp): void {
+  public deserialize(data: SerializedBootstrapCorp): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
     this.emergencyJackNames = data.emergencyJackNames || [];
@@ -564,8 +552,7 @@ export function createBootstrapCorp(room: Room): BootstrapCorp | null {
   // found (e.g. before roads/containers exist, or in restricted terrain).
   // findClosestByPath returning null must not leave the room without a
   // bootstrap economy.
-  const source =
-    spawn.pos.findClosestByPath(sources) ?? spawn.pos.findClosestByRange(sources);
+  const source = spawn.pos.findClosestByPath(sources) ?? spawn.pos.findClosestByRange(sources);
   if (!source) return null;
 
   const nodeId = `${room.name}-bootstrap`;

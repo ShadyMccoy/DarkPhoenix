@@ -1,13 +1,6 @@
 import { Position } from "../types/Position";
 import { CorpType } from "../corps/Corp";
-import {
-  Node,
-  NodeResource,
-  NodeResourceType,
-  PotentialCorp,
-  getResourcesByType,
-  getCorpsByType
-} from "./Node";
+import { Node, NodeResource, NodeResourceType, PotentialCorp, getCorpsByType, getResourcesByType } from "./Node";
 
 /**
  * Configuration for surveying
@@ -62,14 +55,14 @@ export interface SurveyResult {
 export class NodeSurveyor {
   private config: SurveyConfig;
 
-  constructor(config: Partial<SurveyConfig> = {}) {
+  public constructor(config: Partial<SurveyConfig> = {}) {
     this.config = { ...DEFAULT_SURVEY_CONFIG, ...config };
   }
 
   /**
    * Survey a node to identify resources and potential corps
    */
-  survey(node: Node, currentTick: number): SurveyResult {
+  public survey(node: Node, currentTick: number): SurveyResult {
     const potentialCorps: PotentialCorp[] = [];
 
     // Check for mining opportunities (sources)
@@ -116,10 +109,7 @@ export class NodeSurveyor {
   /**
    * Evaluate potential for a mining corp at a source
    */
-  private evaluateMiningCorp(
-    node: Node,
-    source: NodeResource
-  ): PotentialCorp | null {
+  private evaluateMiningCorp(node: Node, source: NodeResource): PotentialCorp | null {
     // Check if we already have a mining corp for this source
     const existingMiners = getCorpsByType(node, "mining");
     const hasExistingMiner = existingMiners.some(
@@ -153,10 +143,7 @@ export class NodeSurveyor {
   /**
    * Evaluate potential for a spawning corp at a spawn
    */
-  private evaluateSpawningCorp(
-    node: Node,
-    spawn: NodeResource
-  ): PotentialCorp | null {
+  private evaluateSpawningCorp(node: Node, spawn: NodeResource): PotentialCorp | null {
     // Check if we already have a spawning corp
     const existingSpawners = getCorpsByType(node, "spawning");
     if (existingSpawners.length > 0) {
@@ -186,10 +173,7 @@ export class NodeSurveyor {
   /**
    * Evaluate potential for an upgrading corp at a controller
    */
-  private evaluateUpgradingCorp(
-    node: Node,
-    controller: NodeResource
-  ): PotentialCorp | null {
+  private evaluateUpgradingCorp(node: Node, controller: NodeResource): PotentialCorp | null {
     // Check if we already have an upgrading corp
     const existingUpgraders = getCorpsByType(node, "upgrading");
     if (existingUpgraders.length > 0) {
@@ -220,21 +204,14 @@ export class NodeSurveyor {
   /**
    * Evaluate potential hauling routes between nodes
    */
-  evaluateHaulingRoutes(
-    sourceNode: Node,
-    destNode: Node,
-    currentTick: number
-  ): PotentialCorp[] {
+  public evaluateHaulingRoutes(sourceNode: Node, destNode: Node, currentTick: number): PotentialCorp[] {
     const routes: PotentialCorp[] = [];
 
     // Find energy sources in source node
     const sources = getResourcesByType(sourceNode, "source");
 
     // Find energy sinks in destination node (controller, spawn)
-    const sinks = [
-      ...getResourcesByType(destNode, "controller"),
-      ...getResourcesByType(destNode, "spawn")
-    ];
+    const sinks = [...getResourcesByType(destNode, "controller"), ...getResourcesByType(destNode, "spawn")];
 
     for (const source of sources) {
       for (const sink of sinks) {
@@ -297,14 +274,14 @@ export class NodeSurveyor {
   /**
    * Update survey configuration
    */
-  setConfig(config: Partial<SurveyConfig>): void {
+  public setConfig(config: Partial<SurveyConfig>): void {
     this.config = { ...this.config, ...config };
   }
 
   /**
    * Get current configuration
    */
-  getConfig(): SurveyConfig {
+  public getConfig(): SurveyConfig {
     return { ...this.config };
   }
 
@@ -353,8 +330,8 @@ export function estimateMiningROI(
   sourceCapacity: number,
   energyValue: number,
   workTickCost: number,
-  workParts: number = 5,
-  creepLifetime: number = 1500
+  workParts = 5,
+  creepLifetime = 1500
 ): number {
   const energyPerLifetime = (sourceCapacity / 300) * creepLifetime;
   const revenue = energyPerLifetime * energyValue;
@@ -369,9 +346,9 @@ export function estimateHaulingROI(
   distance: number,
   energyValue: number,
   carryTickCost: number,
-  destinationPremium: number = 1.2,
-  carryParts: number = 10,
-  creepLifetime: number = 1500
+  destinationPremium = 1.2,
+  carryParts = 10,
+  creepLifetime = 1500
 ): number {
   const capacity = carryParts * 50;
   const roundTripTime = Math.ceil(distance * 2 * 1.5);
