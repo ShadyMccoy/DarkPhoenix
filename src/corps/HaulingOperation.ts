@@ -6,7 +6,6 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { MiningOperation } from "./MiningOperation";
 
 /**

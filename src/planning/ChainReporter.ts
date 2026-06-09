@@ -9,10 +9,20 @@
  * collaborate on vision.
  */
 
-import { Chain, ChainSegment, calculateChainROI, calculateProfit } from "./Chain";
+/**
+ * @fileoverview Human-readable chain report generation.
+ *
+ * This module generates formatted text output for production chains,
+ * making it easy for developers to understand economic flows and
+ * identify bottlenecks.
+ *
+ * Critical Requirement: Output must be readable by developers to
+ * collaborate on vision.
+ */
+import { Chain, calculateChainROI, calculateProfit } from "./Chain";
 import { Corp, CorpType } from "../corps/Corp";
 import { Position } from "../types/Position";
-import { CREEP_LIFETIME, calculateEffectiveWorkTime, calculateTravelTime } from "./EconomicConstants";
+import { CREEP_LIFETIME, calculateTravelTime } from "./EconomicConstants";
 
 /**
  * Detailed step information for reporting

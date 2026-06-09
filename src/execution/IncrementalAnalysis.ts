@@ -457,8 +457,8 @@ function estimateSourceDistance(node: Node, sourcePos: { x: number; y: number; r
   const parseRoom = (name: string): { x: number; y: number } | null => {
     const match = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
     if (!match) return null;
-    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
-    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
+    const x = match[1] === "W" ? -parseInt(match[2], 10) : parseInt(match[2], 10);
+    const y = match[3] === "N" ? -parseInt(match[4], 10) : parseInt(match[4], 10);
     return { x, y };
   };
 
@@ -482,8 +482,8 @@ function isSourceKeeperRoom(roomName: string): boolean {
   const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
   if (!match) return false;
 
-  const x = parseInt(match[1]) % 10;
-  const y = parseInt(match[2]) % 10;
+  const x = parseInt(match[1], 10) % 10;
+  const y = parseInt(match[2], 10) % 10;
 
   // Center rooms (portals) have both coords ending in 5
   if (x === 5 && y === 5) return false;

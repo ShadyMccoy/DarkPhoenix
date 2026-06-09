@@ -15,10 +15,23 @@
  * 6. Verify system is sustainable (overhead < harvest)
  */
 
+/**
+ * FlowSolver - Priority-Weighted Flow Allocation
+ *
+ * Solves the flow allocation problem: given sources, sinks, and edges,
+ * determine optimal miner/hauler assignments and energy distribution.
+ *
+ * This replaces Market.clear() with a global optimization approach.
+ *
+ * Algorithm:
+ * 1. Assign miners to sources (one per source)
+ * 2. Calculate total harvest capacity
+ * 3. Calculate mining overhead
+ * 4. For each sink (by priority), allocate energy from nearest sources
+ * 5. Calculate hauling requirements for each allocation
+ * 6. Verify system is sustainable (overhead < harvest)
+ */
 import {
-  BODY_COSTS,
-  CREEP_LIFETIME,
-  EdgeVariant,
   FlowConstraints,
   FlowEdge,
   FlowProblem,
@@ -26,13 +39,10 @@ import {
   FlowSolution,
   FlowSource,
   HaulerAssignment,
-  HaulerRatio,
   MINER_OVERHEAD_PER_TICK,
   MinerAssignment,
-  MiningMode,
   SOURCE_ENERGY_PER_TICK,
   SinkAllocation,
-  TerrainProfile,
   calculateCarryParts,
   calculateHaulerCostPerTick,
   calculateRoundTrip

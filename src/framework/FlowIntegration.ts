@@ -10,7 +10,7 @@
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
 import { FlowNetwork, FlowNetworkAnalysis, FlowNetworkConfig } from "./FlowNetwork";
-import { FlowAllocation, formatFlowAllocation, solveFlowBalance } from "./FlowBalance";
+import { FlowAllocation, solveFlowBalance } from "./FlowBalance";
 
 /**
  * Result of building a flow network from nodes.

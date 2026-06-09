@@ -16,15 +16,6 @@ import {
   HarvestCorp,
   ReservationCorp,
   ScoutCorp,
-  SerializedBootstrapCorp,
-  SerializedCarryCorp,
-  SerializedConstructionCorp,
-  SerializedHarvestCorp,
-  SerializedReservationCorp,
-  SerializedScoutCorp,
-  SerializedSpawningCorp,
-  SerializedUpgradingCorp,
-  SpawnableCreepType,
   SpawningCorp,
   UpgradingCorp,
   createBootstrapCorp,
@@ -33,9 +24,6 @@ import {
   createScoutCorp,
   createSpawningCorp
 } from "../corps";
-import { getMaxSpawnCapacity } from "../planning/EconomicConstants";
-import { MAX_SCOUTS } from "../corps/CorpConstants";
-
 /**
  * Container for all active corps, organized by type.
  */

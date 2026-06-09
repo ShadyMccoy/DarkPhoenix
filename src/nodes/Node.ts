@@ -18,8 +18,8 @@ function estimateRoomDistance(roomA: string, roomB: string): number {
   const parseRoom = (name: string): { x: number; y: number } | null => {
     const match = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
     if (!match) return null;
-    const x = match[1] === "W" ? -parseInt(match[2]) : parseInt(match[2]);
-    const y = match[3] === "N" ? -parseInt(match[4]) : parseInt(match[4]);
+    const x = match[1] === "W" ? -parseInt(match[2], 10) : parseInt(match[2], 10);
+    const y = match[3] === "N" ? -parseInt(match[4], 10) : parseInt(match[4], 10);
     return { x, y };
   };
 

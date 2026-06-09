@@ -9,16 +9,7 @@
 
 import { MintValues } from "../colony/MintValues";
 import { AnyCorpState } from "../corps/CorpState";
-import {
-  Chain,
-  ChainSegment,
-  buildSegment,
-  createChain,
-  createChainId,
-  filterViable,
-  selectNonOverlapping,
-  sortByProfit
-} from "./Chain";
+import { Chain, ChainSegment, buildSegment, createChain, createChainId, filterViable, sortByProfit } from "./Chain";
 import { OfferCollector } from "./OfferCollector";
 import { projectAll } from "./projections";
 

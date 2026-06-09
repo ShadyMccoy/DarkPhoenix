@@ -9,7 +9,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
-import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { MinerAssignment } from "../flow/FlowTypes";
 import { buildMinerBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -130,7 +130,7 @@ export class HarvestCorp extends Corp {
       const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
       if (match) {
         const [, roomName, x, y] = match;
-        return { x: parseInt(x), y: parseInt(y), roomName };
+        return { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
       }
     }
 
@@ -158,13 +158,13 @@ export class HarvestCorp extends Corp {
       const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
       if (match) {
         const [, roomName, x, y] = match;
-        targetPos = new RoomPosition(parseInt(x), parseInt(y), roomName);
+        targetPos = new RoomPosition(parseInt(x, 10), parseInt(y, 10), roomName);
 
         // If we now have vision of the room, try to find the actual source
         const room = Game.rooms[roomName];
         if (room) {
           const sources = room.find(FIND_SOURCES);
-          source = sources.find(s => s.pos.x === parseInt(x) && s.pos.y === parseInt(y)) ?? null;
+          source = sources.find(s => s.pos.x === parseInt(x, 10) && s.pos.y === parseInt(y, 10)) ?? null;
         }
       }
     }

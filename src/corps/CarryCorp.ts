@@ -392,7 +392,7 @@ export class CarryCorp extends Corp {
         if (match) {
           const [, roomName, x, y] = match;
           // Store position for navigation even without source object
-          creep.memory.assignedSourcePos = { x: parseInt(x), y: parseInt(y), roomName };
+          creep.memory.assignedSourcePos = { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
         }
         return null; // No live source object for intel sources
       }

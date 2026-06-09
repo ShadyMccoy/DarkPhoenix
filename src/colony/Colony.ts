@@ -3,7 +3,7 @@ import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
 import { Node } from "../nodes/Node";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
-import { Chain, filterViable } from "../planning/Chain";
+import { Chain } from "../planning/Chain";
 
 /**
  * Colony configuration

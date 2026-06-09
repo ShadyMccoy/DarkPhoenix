@@ -32,6 +32,10 @@ module.exports = {
     "@typescript-eslint/consistent-type-assertions": "error",
     "@typescript-eslint/consistent-type-definitions": "error",
     "@typescript-eslint/explicit-function-return-type": "off",
+    // Disabled: ESLint's type view flags several @types/screeps Room.find()
+    // assertions as unnecessary, but the build compiler requires them. The
+    // rule's autofix would strip them and break `npm run build`.
+    "@typescript-eslint/no-unnecessary-type-assertion": "off",
     "@typescript-eslint/explicit-member-accessibility": [
       "error",
       {

@@ -1,5 +1,4 @@
 import { Position } from "../types/Position";
-import { CorpType } from "../corps/Corp";
 import { Node, NodeResource, NodeResourceType, PotentialCorp, getCorpsByType, getResourcesByType } from "./Node";
 
 /**

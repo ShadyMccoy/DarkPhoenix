@@ -24,11 +24,9 @@
  */
 
 import { Node, NodeResource } from "../nodes/Node";
-import { NodeNavigator, createEdgeKey } from "../nodes/NodeNavigator";
+import { NodeNavigator } from "../nodes/NodeNavigator";
 import {
   CarryEdge,
-  FlowEdge,
-  ProjectEdge,
   SupplyEdge,
   calculateCarryEdgeCostPerEnergy,
   calculateCarryEdgeThroughput,

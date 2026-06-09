@@ -17,7 +17,6 @@ import { CorpRegistry } from "../execution/CorpRunner";
 import { HarvestCorp } from "../corps/HarvestCorp";
 import { CarryCorp } from "../corps/CarryCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
-import { SpawningCorp } from "../corps/SpawningCorp";
 import { ConstructionCorp } from "../corps/ConstructionCorp";
 import { FlowSolution, HaulerAssignment, MinerAssignment, SinkAllocation } from "./FlowTypes";
 import { NodeFlow, NodeFlowMap, groupByNode } from "./NodeFlow";

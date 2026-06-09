@@ -11,7 +11,6 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { MAX_BUILDERS } from "./CorpConstants";
-import { BODY_PART_COST } from "../planning/EconomicConstants";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { SinkAllocation } from "../flow/FlowTypes";

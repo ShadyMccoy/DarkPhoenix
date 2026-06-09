@@ -7,7 +7,15 @@
  * This replaces the Market's role in connecting producers and consumers.
  */
 
-import { Node, NodeResource, getResourcesByType } from "../nodes/Node";
+/**
+ * FlowGraph - Flow Network Construction
+ *
+ * Builds the flow network from spatial nodes and navigator.
+ * Discovers sources and sinks, creates edges, calculates distances.
+ *
+ * This replaces the Market's role in connecting producers and consumers.
+ */
+import { Node, getResourcesByType } from "../nodes/Node";
 import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 import {
@@ -22,10 +30,7 @@ import {
   PriorityContext,
   SOURCE_ENERGY_PER_TICK,
   SinkType,
-  calculateCarryParts,
-  calculateHaulerCostPerTick,
   calculateRoundTrip,
-  chebyshevDistance,
   createEdgeId,
   createFlowSink,
   createFlowSource
@@ -631,8 +636,8 @@ function isSourceKeeperRoom(roomName: string): boolean {
   const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
   if (!match) return false;
 
-  const x = parseInt(match[1]) % 10;
-  const y = parseInt(match[2]) % 10;
+  const x = parseInt(match[1], 10) % 10;
+  const y = parseInt(match[2], 10) % 10;
 
   // Center rooms (portals) have both coords ending in 5
   if (x === 5 && y === 5) return false;
