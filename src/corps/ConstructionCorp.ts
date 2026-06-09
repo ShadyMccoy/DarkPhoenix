@@ -184,7 +184,8 @@ export class ConstructionCorp extends Corp {
     }).length;
     const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
 
-    const wantsContainer = rcl >= CONTAINER_MIN_RCL && this.findMissingContainer(room) !== null;
+    const wantsContainer = rcl >= CONTAINER_MIN_RCL &&
+      (this.findMissingSourceContainer(room) !== null || this.findMissingControllerContainer(room) !== null);
     const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
 
     if (canBuildMore) {
@@ -344,25 +345,36 @@ export class ConstructionCorp extends Corp {
     }
     this.lastPlacementAttempt = tick;
 
-    // Infrastructure first at RCL 3+. A source container turns roaming
-    // drop-mining into static mining; a controller container buffers the
-    // upgraders so they withdraw locally and upgrade continuously instead of
-    // starving while they wait for/chase a hauler. That efficiency lifts the
-    // WHOLE economy, so it earns its 5000 build cost back faster than the next
-    // extension would - hence it comes before finishing the extension set.
+    // 1. Source containers first (RCL 3+): they sit on the source, are cheap to
+    //    build, and turn roaming drop-mining into static mining - efficiency that
+    //    lifts the whole economy.
     if (rcl >= CONTAINER_MIN_RCL) {
-      const container = this.findMissingContainer(room);
-      if (container) {
-        this.placeSite(room, container.x, container.y, STRUCTURE_CONTAINER, 0);
+      const srcContainer = this.findMissingSourceContainer(room);
+      if (srcContainer) {
+        this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER, 0);
         return;
       }
     }
 
-    // Extensions: cheap (3000) and they compound spawn capacity (bigger creeps).
+    // 2. Extensions: cheap (3000), near the sources, and they compound spawn
+    //    capacity (bigger creeps) - so they come BEFORE the far controller
+    //    container. Building the controller container first (it sits ~20 tiles
+    //    from the sources) stalls the whole build set on one slow, hard-to-feed
+    //    structure while the cheap capacity-growing extensions wait.
     const ext = this.findGridPosition(room);
     if (ext) {
       this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
       return;
+    }
+
+    // 3. Controller container last: a luxury that only buffers upgrading and is
+    //    expensive to feed, so it waits until the extension set is done.
+    if (rcl >= CONTAINER_MIN_RCL) {
+      const ctrlContainer = this.findMissingControllerContainer(room);
+      if (ctrlContainer) {
+        this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER, 0);
+        return;
+      }
     }
   }
 
@@ -389,22 +401,18 @@ export class ConstructionCorp extends Corp {
    * the upgrader). Returns null when every source and the controller already
    * have a container (built or under construction). Caps at the room's limit.
    */
-  private findMissingContainer(room: Room): { x: number; y: number } | null {
-    const built = room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER });
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER });
-    if (built.length + sites.length >= CONTAINER_LIMIT) return null;
-    const taken = [...built, ...sites].map((s) => s.pos);
-    const hasContainerNear = (x: number, y: number, range: number): boolean =>
-      taken.some((p) => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= range);
-
-    // Source containers: at most one per source (sources that already have a
-    // container or pending site are skipped), and only once dropped energy has
-    // piled up at the source. The pile is the demand signal - it means a miner is
-    // mining there and out-producing the haulers, so a static container will pay
-    // for itself by buffering the energy and ending the drop decay. No pile means
-    // either no miner yet or haulers keeping up, so the 5000 build cost can wait.
+  /**
+   * A still-missing SOURCE container: a tile adjacent to a source that lacks one,
+   * but only once dropped energy has piled up there (the demand signal that a
+   * miner is out-producing the haulers, so a static container will pay for itself).
+   * At most one per source. These sit right on the source, so they are cheap to
+   * build and turn roaming drop-mining into static mining - infrastructure worth
+   * placing before extensions.
+   */
+  private findMissingSourceContainer(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
     for (const source of room.find(FIND_SOURCES)) {
-      if (hasContainerNear(source.pos.x, source.pos.y, 1)) continue;
+      if (this.hasContainerNear(room, source.pos, 1)) continue;
       const pile = source.pos
         .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY })
         .reduce((sum, r) => sum + r.amount, 0);
@@ -412,14 +420,39 @@ export class ConstructionCorp extends Corp {
       const tile = this.bestAdjacentTile(room, source.pos, 1);
       if (tile) return tile;
     }
-
-    // Controller container: a walkable tile within range 2 of the controller.
-    if (room.controller && room.controller.my && !hasContainerNear(room.controller.pos.x, room.controller.pos.y, 2)) {
-      const tile = this.bestAdjacentTile(room, room.controller.pos, 2);
-      if (tile) return tile;
-    }
-
     return null;
+  }
+
+  /**
+   * A still-missing CONTROLLER container: a tile within range 2 of the controller.
+   * It buffers the upgraders, but it sits far from the sources (expensive to feed
+   * a builder there) and only helps upgrading - a luxury. So it is placed LAST,
+   * after extensions, which are cheap, near the sources, and compound spawn
+   * capacity for the whole economy.
+   */
+  private findMissingControllerContainer(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    const ctrl = room.controller;
+    if (ctrl && ctrl.my && !this.hasContainerNear(room, ctrl.pos, 2)) {
+      return this.bestAdjacentTile(room, ctrl.pos, 2);
+    }
+    return null;
+  }
+
+  /** True once the room is at its container cap (built + pending). */
+  private containerBudgetFull(room: Room): boolean {
+    const built = room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }).length;
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }).length;
+    return built + sites >= CONTAINER_LIMIT;
+  }
+
+  /** Is there already a container (built or pending) within `range` of `pos`? */
+  private hasContainerNear(room: Room, pos: RoomPosition, range: number): boolean {
+    const containers = [
+      ...room.find(FIND_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }),
+      ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }),
+    ];
+    return containers.some((s) => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
   }
 
   /**
@@ -812,7 +845,11 @@ export class ConstructionCorp extends Corp {
     const source = site.pos.findClosestByRange(FIND_SOURCES);
     const dist = source ? site.pos.getRangeTo(source) : 8;
     const roundTrip = 2 * dist + 2;
-    const carryNeeded = Math.ceil((consumption * roundTrip) / 50);
+    // CARRY needed in flight to sustain consumption over the round trip, with a
+    // 1.5x margin: a tanker also spends ticks transferring at the builder and
+    // withdrawing at the source, so the bare round-trip figure under-delivers and
+    // a far site starves its builder. The margin scales the relay with distance.
+    const carryNeeded = Math.ceil((consumption * roundTrip * 1.5) / 50);
     return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
 
