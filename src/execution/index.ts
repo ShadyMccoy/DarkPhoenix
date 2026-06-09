@@ -19,7 +19,9 @@ export {
   runConstructionCorps,
   runReservationCorps,
   runSpawningCorps,
-  logCorpStats
+  logCorpStats,
+  snapshotCorpVariance,
+  CorpVarianceRow
 } from "./CorpRunner";
 
 export { runSpawnScheduling } from "./SpawnDirector";

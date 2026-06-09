@@ -85,6 +85,18 @@ export abstract class Corp {
   /** Units consumed (energy used) for tracking consumption */
   public unitsConsumed = 0;
 
+  /**
+   * Rolling production-rate meter (in-memory, not serialized).
+   * Anchors `unitsProduced` at a tick so {@link productionRate} can report a
+   * recent units/tick rate to compare against {@link budgetedRate}. Resets after
+   * a global reset, which only costs one window of warm-up.
+   */
+  private rateAnchorTick = 0;
+  private rateAnchorUnits = 0;
+
+  /** Window (ticks) over which the production rate is measured. */
+  private static readonly RATE_WINDOW = 100;
+
   /** Last tick when planning was performed */
   public lastPlannedTick = 0;
 
@@ -197,6 +209,57 @@ export abstract class Corp {
    */
   public getProfit(): number {
     return this.totalRevenue - this.totalCost;
+  }
+
+  // ===========================================================================
+  // BUDGET vs ACTUAL (variance)
+  // ===========================================================================
+  //
+  // Per-corp ROI is not comparable across corp types (a miner's "energy out"
+  // and an upgrader's "control points" are different currencies). But a corp's
+  // *variance* - how far its actual throughput strays from what the planner
+  // commissioned it for - IS a uniform signal, because it compares a corp only
+  // against itself. A large negative variance is the outlier worth looking at:
+  // a miner the plan budgeted 10 e/tick that delivers 0 is a stalled corp.
+
+  /**
+   * Units/tick this corp was commissioned to produce by the planner. Same unit
+   * as {@link recordProduction} for this corp type (so variance is unit-free).
+   * Default 0 means "off budget" - the corp is excluded from variance (e.g.
+   * scouts, bootstrap). Budgeted corps override this from their assignment.
+   */
+  public budgetedRate(): number {
+    return 0;
+  }
+
+  /**
+   * Recent actual production rate (units/tick), measured over a rolling window.
+   * Rolls the window forward once it has aged past {@link RATE_WINDOW}.
+   */
+  public productionRate(tick: number): number {
+    if (this.rateAnchorTick === 0) {
+      this.rateAnchorTick = tick;
+      this.rateAnchorUnits = this.unitsProduced;
+      return 0;
+    }
+    const elapsed = tick - this.rateAnchorTick;
+    const rate = elapsed > 0 ? (this.unitsProduced - this.rateAnchorUnits) / elapsed : 0;
+    if (elapsed >= Corp.RATE_WINDOW) {
+      this.rateAnchorTick = tick;
+      this.rateAnchorUnits = this.unitsProduced;
+    }
+    return rate;
+  }
+
+  /**
+   * Variance of actual production against budget: (actual - budget) / budget.
+   * Returns null for off-budget corps (no commissioned rate to compare to).
+   * -1 = producing nothing of what it was funded for; 0 = on budget; >0 = over.
+   */
+  public variance(tick: number): number | null {
+    const budget = this.budgetedRate();
+    if (budget <= 0) return null;
+    return (this.productionRate(tick) - budget) / budget;
   }
 
   /**

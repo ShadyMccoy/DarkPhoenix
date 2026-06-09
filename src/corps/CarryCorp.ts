@@ -714,6 +714,15 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Budgeted energy/tick: the total flow the plan routed through this corp's
+   * haul assignments. Matches recordProduction's unit (energy delivered). 0 when
+   * unassigned, excluding the corp from variance until the planner funds it.
+   */
+  public budgetedRate(): number {
+    return this.getTotalFlowRate();
+  }
+
+  /**
    * Get the assignment for a specific source (by game ID).
    * Returns the route a hauler should take from this source.
    */

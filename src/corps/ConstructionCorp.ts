@@ -945,6 +945,15 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
+   * Budgeted energy/tick: the construction allocation the plan routed here.
+   * Matches recordProduction's unit (WORK*5 energy invested). 0 when unallocated
+   * (or building off a dedicated source), excluding the corp from variance.
+   */
+  public budgetedRate(): number {
+    return this.getTotalAllocatedEnergy();
+  }
+
+  /**
    * Get the highest priority construction site (from flow allocations).
    */
   public getHighestPriorityAllocation(): SinkAllocation | undefined {

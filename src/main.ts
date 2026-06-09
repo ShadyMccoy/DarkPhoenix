@@ -53,7 +53,8 @@ import {
   runReservationCorps,
   runScoutCorps,
   runSpawnScheduling,
-  runSpawningCorps
+  runSpawningCorps,
+  snapshotCorpVariance
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
@@ -179,6 +180,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runScoutCorps(corps);
   runConstructionCorps(corps);
   runReservationCorps(corps);
+
+  // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
+  // below their commissioned throughput) surface in Memory.corpVariance.
+  if (Game.time % 25 === 0) {
+    snapshotCorpVariance(corps, Game.time);
+  }
 
   // ===========================================================================
   // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)

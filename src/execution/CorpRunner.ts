@@ -13,6 +13,7 @@ import {
   BootstrapCorp,
   CarryCorp,
   ConstructionCorp,
+  Corp,
   HarvestCorp,
   ReservationCorp,
   ScoutCorp,
@@ -326,6 +327,64 @@ export function runSpawningCorps(registry: CorpRegistry): void {
       spawningCorp.work(Game.time);
     }
   }
+}
+
+/** One corp's budget-vs-actual line in a variance snapshot. */
+export interface CorpVarianceRow {
+  id: string;
+  type: string;
+  /** Units/tick the planner commissioned. */
+  budget: number;
+  /** Recent actual units/tick. */
+  actual: number;
+  /** (actual - budget) / budget. */
+  variance: number;
+}
+
+/** Every budgeted corp in the registry (off-budget corps return null variance). */
+function allCorps(registry: CorpRegistry): Corp[] {
+  const out: Corp[] = [];
+  const groups = [
+    registry.harvestCorps,
+    registry.haulingCorps,
+    registry.upgradingCorps,
+    registry.constructionCorps,
+    registry.bootstrapCorps,
+    registry.scoutCorps,
+    registry.reservationCorps,
+    registry.spawningCorps
+  ];
+  for (const g of groups) for (const k in g) out.push(g[k]);
+  return out;
+}
+
+/**
+ * Snapshot every budgeted corp's budget vs actual throughput into
+ * `Memory.corpVariance`, sorted worst-variance first so outliers (the corps
+ * straying furthest below what they were funded to produce) sit at the top.
+ *
+ * Per-corp ROI is not comparable across types, but variance is - it measures a
+ * corp only against its own commission - so this is the uniform way to spot a
+ * stalled or misfiring corp (a miner budgeted 10 e/tick delivering 0).
+ */
+export function snapshotCorpVariance(registry: CorpRegistry, tick: number): CorpVarianceRow[] {
+  const rows: CorpVarianceRow[] = [];
+  for (const corp of allCorps(registry)) {
+    const variance = corp.variance(tick);
+    if (variance === null) continue; // off-budget corp
+    rows.push({
+      id: corp.id,
+      type: corp.type,
+      budget: Number(corp.budgetedRate().toFixed(2)),
+      actual: Number(corp.productionRate(tick).toFixed(2)),
+      variance: Number(variance.toFixed(2))
+    });
+  }
+  rows.sort((a, b) => a.variance - b.variance);
+  if (typeof Memory !== "undefined") {
+    (Memory as { corpVariance?: CorpVarianceRow[] }).corpVariance = rows;
+  }
+  return rows;
 }
 
 /**
