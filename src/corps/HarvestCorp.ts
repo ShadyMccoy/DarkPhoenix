@@ -9,7 +9,7 @@
 
 import { CREEP_LIFETIME, HARVEST_RATE, SOURCE_ENERGY_CAPACITY, SOURCE_REGEN_TIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
-import { ChainScene, CorpEconomics } from "./economics";
+import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
@@ -299,7 +299,7 @@ export class HarvestCorp extends Corp {
     if (body.cost === 0) return { costPerTick: 0, throughput: 0 };
 
     const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
-    const travel = scene.dist(scene.spawnPos, source.pos);
+    const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
     const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
     return { costPerTick: body.cost / usefulLife, throughput: harvestRate };
   }

@@ -45,3 +45,20 @@ export interface CorpEconomics {
   /** Energy/tick this corp delivers toward the goal (0 for pure consumers). */
   throughput: number;
 }
+
+/**
+ * Ticks a creep burns per tile walking from the spawn to its post.
+ *
+ * This is the bootstrap-awareness lever. Early on (low spawn capacity, no roads,
+ * MOVE-poor bodies that move at a fraction of a tile per tick) every tile costs
+ * several ticks of a short, precious life - so spawn placement matters a lot.
+ * Later (bigger spawns imply higher RCL, roads, balanced bodies) a tile is close
+ * to one tick and placement barely moves the needle. Energy capacity is the RCL
+ * proxy. As the corps learn about roads/terrain this is the one place to sharpen.
+ */
+export function travelTicksPerTile(energyCapacity: number): number {
+  const EARLY = 3; // RCL1: plain, no roads, slow bodies
+  const LATE = 1; // RCL6+: roads, balanced bodies
+  const t = Math.max(0, Math.min(1, (energyCapacity - 300) / (1300 - 300)));
+  return EARLY - (EARLY - LATE) * t;
+}

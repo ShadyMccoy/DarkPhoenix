@@ -97,7 +97,7 @@ export function evaluateSpawnChain(facts: SpawnChainFacts): number {
 
     const hauler = new CarryCorp(VIRTUAL, VIRTUAL);
     hauler.setHaulerAssignments([
-      route(s.id, mined.throughput, dist(s.pos, facts.controllerPos)),
+      route(s.id, "controller", mined.throughput, dist(s.pos, facts.controllerPos)),
     ]);
     cost += hauler.project(scene).costPerTick;
   }
@@ -110,20 +110,52 @@ export function evaluateSpawnChain(facts: SpawnChainFacts): number {
   upgrader.setSinkAllocation(controllerAllocation(netToController));
   cost += upgrader.project(scene).costPerTick;
 
+  // The spawn must itself be fed: its entire staffing overhead is energy that
+  // has to be hauled from the nearest source to the spawn, a continuous
+  // round-trip cost that grows with the spawn's distance from its sources. This
+  // is the term that makes placement bite - a spawn beside its sources feeds
+  // itself cheaply, one across the room pays a standing hauling tax.
+  const nearest = nearestSource(sources, facts.spawnPos, dist);
+  if (nearest) {
+    const supplyHauler = new CarryCorp(VIRTUAL, VIRTUAL);
+    supplyHauler.setHaulerAssignments([
+      route(nearest.id, "spawn", cost, dist(nearest.pos, facts.spawnPos)),
+    ]);
+    cost += supplyHauler.project(scene).costPerTick;
+  }
+
   return Math.max(0, harvest - cost);
 }
 
-/** A synthetic source->controller hauling route for a virtual CarryCorp. */
-function route(fromId: string, flowRate: number, distance: number): HaulerAssignment {
+/** The source closest to a position (the cheapest one to feed the spawn from). */
+function nearestSource(
+  sources: ChainSource[],
+  pos: Position,
+  dist: (a: Position, b: Position) => number
+): ChainSource | undefined {
+  let best: ChainSource | undefined;
+  let bestDist = Infinity;
+  for (const s of sources) {
+    const d = dist(s.pos, pos);
+    if (d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
+/** A synthetic hauling route from a source to a sink, for a virtual CarryCorp. */
+function route(fromId: string, toId: string, flowRate: number, distance: number): HaulerAssignment {
   return {
-    edgeId: `${fromId}|controller`,
+    edgeId: `${fromId}|${toId}`,
     fromId,
-    toId: "controller",
+    toId,
     distance,
     carryParts: 0,
     flowRate,
     spawnCostPerTick: 0,
-    spawnId: VIRTUAL,
+    spawnId: VIRTUAL
   };
 }
 

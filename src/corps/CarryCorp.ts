@@ -13,7 +13,7 @@ import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
-import { ChainScene, CorpEconomics } from "./economics";
+import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
@@ -607,7 +607,7 @@ export class CarryCorp extends Corp {
       const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
       if (body.cost === 0) continue;
       const pickup = scene.resource(a.fromId);
-      const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) : 0;
+      const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
       const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
       costPerTick += body.cost / usefulLife;
       throughput += a.flowRate;
