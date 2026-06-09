@@ -20,6 +20,7 @@
     "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
     "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
     "plan:corp-value": "ts-node -P tsconfig.test.json scripts/probe-corp-value.ts",
+    "plan:placement": "ts-node -P tsconfig.test.json scripts/probe-spawn-placement.ts",
     "watch-main": "rollup -cw --environment DEST:main",
     "watch-pserver": "rollup -cw --environment DEST:pserver",
     "watch-season": "rollup -cw --environment DEST:season",

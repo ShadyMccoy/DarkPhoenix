@@ -68,6 +68,53 @@ function supplyOf(capacity: number): number {
   return capacity / SOURCE_REGEN_TICKS;
 }
 
+/** Creep lifetime (ticks) - the window over which a body's cost is amortised. */
+const CREEP_LIFETIME = 1500;
+
+/** Floor on travel efficiency, so a pathologically distant spawn still scores. */
+const MIN_TRAVEL_EFFICIENCY = 0.5;
+
+/**
+ * Travel-to-post efficiency of a spawn at `spawnPos`: every creep it makes is
+ * born at the spawn and walks to its worksite, wasting that fraction of its
+ * life. The planner amortises body cost over the full lifetime and is blind to
+ * this, so two tiles in a territory look identical to it - yet a spawn beside
+ * its sources and controller plainly beats one in the far corner. This weights
+ * each worksite's spawn distance by its energy flow (miners/upgraders are born
+ * for sources and the controller) and returns the surviving fraction of life.
+ */
+function travelEfficiency(input: NodeSpawnValuationInput): number {
+  const { spawnPos, localSources, controllerPos, reachableSources = [] } = input;
+  const dist = input.dist ?? chebyshevDistance;
+
+  let weight = 0;
+  let weightedDist = 0;
+  let totalSupply = 0;
+
+  for (const s of localSources) {
+    const w = supplyOf(s.capacity);
+    weight += w;
+    weightedDist += w * dist(spawnPos, s.pos);
+    totalSupply += w;
+  }
+  for (const rs of reachableSources) {
+    const w = supplyOf(rs.capacity);
+    weight += w;
+    weightedDist += w * rs.distance; // synthetic source sits `distance` away
+    totalSupply += w;
+  }
+  // The controller consumes the colony's net energy, so weight its travel by
+  // total supply (the upgraders born to serve it scale with throughput).
+  if (controllerPos && totalSupply > 0) {
+    weight += totalSupply;
+    weightedDist += totalSupply * dist(spawnPos, controllerPos);
+  }
+
+  if (weight === 0) return 1;
+  const avgTravel = weightedDist / weight;
+  return Math.max(MIN_TRAVEL_EFFICIENCY, 1 - avgTravel / CREEP_LIFETIME);
+}
+
 /**
  * Build the planner input that prices a node's spawn. Returns null when the
  * spawn could not sustain any productive chain - no sources to mine, or no
@@ -130,11 +177,15 @@ export function valuateNodeSpawn(
 }
 
 /**
- * Scalar economic value of a node's spawn site (its productive energy/tick,
- * weighted by sink value), for ranking expansion candidates. Zero when the site
- * sustains no chain.
+ * Scalar economic value of a node's spawn site: its productive energy/tick
+ * (weighted by sink value) discounted by the travel-to-post efficiency of a
+ * spawn at this exact tile. The travel term is what makes this sensitive to
+ * WHERE in a territory the spawn sits - so it both ranks expansion candidates
+ * (at the peak) and drives the fine-grained placement sweep (per tile). Zero
+ * when the site sustains no chain.
  */
 export function nodeSpawnValue(input: NodeSpawnValuationInput): number {
   const valuation = valuateNodeSpawn(input);
-  return valuation ? valuation.marginalValue : 0;
+  if (!valuation) return 0;
+  return valuation.marginalValue * travelEfficiency(input);
 }

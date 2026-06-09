@@ -58,6 +58,9 @@ import {
   renderNodeVisuals,
   renderSpatialVisuals,
   runSpawnScheduling,
+  isSpawnPlacementInProgress,
+  startSpawnPlacement,
+  runSpawnPlacementStep,
 } from "./execution";
 import {
   initCorps,
@@ -192,6 +195,19 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // This must happen OUTSIDE the planning phase check to spread across ticks
   if (isAnalysisInProgress()) {
     runIncrementalAnalysis(colony);
+  }
+
+  // Fine-grained spawn placement: sweep the top nodes' territories for the best
+  // spawn tile, spread across ticks under a CPU budget (like the analysis above).
+  // Kick a fresh sweep on the planning cadence once node ROI is available; the
+  // results land in Memory.spawnPlacements for expansion/build planning to use.
+  if (isSpawnPlacementInProgress()) {
+    runSpawnPlacementStep();
+  } else if (shouldRunPlanning(Game.time) && !isAnalysisInProgress()) {
+    const cache = getAnalysisCache();
+    if (cache && colony.getNodes().length > 0) {
+      startSpawnPlacement(colony.getNodes(), cache.result.territories);
+    }
   }
 
   // Fresh respawn detection: if no nodes exist and no analysis in progress,
