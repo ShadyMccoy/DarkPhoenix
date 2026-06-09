@@ -17,10 +17,12 @@ export {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runReservationCorps,
   runSpawningCorps,
   logCorpStats,
-  requestFlowCreeps,
 } from "./CorpRunner";
+
+export { runSpawnScheduling } from "./SpawnDirector";
 
 export {
   persistState,
@@ -31,6 +33,7 @@ export {
   MULTI_ROOM_ANALYSIS_CACHE_TTL,
   getAnalysisCache,
   isAnalysisInProgress,
+  refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
   runIncrementalAnalysis,

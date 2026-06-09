@@ -11,6 +11,9 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME, SOURCE_ENERGY_CAPACITY, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { MinerAssignment } from "../flow/FlowTypes";
+import { buildMinerBody } from "../spawn/BodyBuilder";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
 
 /**
  * Serialized state specific to HarvestCorp
@@ -173,14 +176,43 @@ export class HarvestCorp extends Corp {
 
     // Run all assigned creeps
     const creeps = this.getActiveCreeps();
+
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (spawn) this.flagMinerRuntForRecycling(creeps, spawn);
+
     for (const creep of creeps) {
-      if (source) {
+      if (creep.memory.recycling && spawn) {
+        driveRecycle(creep, spawn);
+      } else if (source) {
         this.runHarvester(creep, source);
       } else if (targetPos) {
         // No vision yet - just move toward the target position
         this.moveToRemoteSource(creep, targetPos);
       }
     }
+  }
+
+  /**
+   * Retire an undersized bootstrap miner once the room is flush. The first miner
+   * is floored small so the cold economy can afford it; if it is still mining at
+   * less than the source's full WORK when the room is maxed out and the spawn
+   * would idle, recycle it so its corp respawns it at the full size the room can
+   * now build (e.g. a 2-WORK cold-start miner becomes a 5-WORK miner). Pure gate
+   * + pure pick, so it never fires in a constrained room.
+   */
+  private flagMinerRuntForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
+    if (!this.minerAssignment) return;
+    if (!spawnIdleAndMaxed(spawn.room, spawn)) return;
+    if (creeps.some((c) => c.memory.recycling)) return; // one at a time
+
+    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, spawn.room.energyCapacityAvailable).workParts);
+    const idx = pickRuntToRecycle(
+      creeps.map((c) => c.getActiveBodyparts(WORK)),
+      totalWork,
+      maxWorkPerMiner
+    );
+    if (idx !== null) creeps[idx].memory.recycling = true;
   }
 
   /**
@@ -201,29 +233,39 @@ export class HarvestCorp extends Corp {
    * Run a single harvester creep.
    */
   private runHarvester(creep: Creep, source: Source): number {
-    const result = creep.harvest(source);
-
-    if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
-      return 0;
+    // Static mining: when the source has a container, stand ON it so harvested
+    // energy drops straight into the container - the miner never roams, the
+    // energy never decays, and haulers withdraw it in bulk. Without a container,
+    // fall back to dropping it adjacent to the source.
+    const container = this.sourceContainer(source);
+    const onStation = container ? creep.pos.isEqualTo(container.pos) : creep.pos.isNearTo(source);
+    if (!onStation) {
+      const target = container ? container.pos : source.pos;
+      creep.moveTo(target, { range: container ? 0 : 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
+    const result = creep.harvest(source);
+
     if (result === OK) {
-      const workParts = creep.getActiveBodyparts(WORK);
-      const energyHarvested = workParts * 2;
-
-      // Track production for marginal cost
+      const energyHarvested = creep.getActiveBodyparts(WORK) * 2;
       this.recordProduction(energyHarvested);
-
       return energyHarvested;
     }
 
-    // Only log unexpected errors (not source empty, not on cooldown)
-    if (result !== ERR_NOT_ENOUGH_RESOURCES && result !== ERR_TIRED) {
+    // Only log unexpected errors (not source empty, not on cooldown, not range).
+    if (result !== ERR_NOT_ENOUGH_RESOURCES && result !== ERR_TIRED && result !== ERR_NOT_IN_RANGE) {
       console.log(`[Harvest] ${creep.name} unexpected error: ${result}`);
     }
 
     return 0;
+  }
+
+  /** The container sitting on/next to this source, if one has been built. */
+  private sourceContainer(source: Source): StructureContainer | null {
+    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: (s) => s.structureType === STRUCTURE_CONTAINER,
+    }) as StructureContainer[];
+    return containers[0] ?? null;
   }
 
   /**
@@ -231,6 +273,80 @@ export class HarvestCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * A source needs up to maxMiners creeps sized to harvest its full rate. The
+   * first miner is "blocking" (the source produces nothing without it) and
+   * produces income; additional miners are scaling demand (non-blocking). Value
+   * tracks mining efficiency so better sources are staffed first.
+   */
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    const assignment = this.minerAssignment;
+    if (!assignment) return [];
+
+    // WORK parts needed to saturate this source (2 energy/tick per WORK part).
+    const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));
+
+    // Size the miner COUNT to the source's actual need, not to the number of
+    // physical mining spots. A big room fields one large miner; a small room
+    // splits the work across a few small ones. Capping by maxMiners alone made
+    // an open source with 8 free tiles spawn 8 one-WORK miners that crowd the
+    // source and gridlock the surrounding chamber.
+    const affordableWork = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
+    const needed = Math.ceil(totalWork / affordableWork);
+    const target = Math.max(1, Math.min(assignment.maxMiners || 1, needed));
+
+    const current = this.getTotalCreepCount();
+    if (current >= target) return [];
+
+    // Desired WORK per miner to cover the source's harvest rate across miners.
+    const desiredWork = Math.max(1, Math.ceil(totalWork / target));
+
+    // Floor the miner so the scheduler can't spawn a 1-WORK runt under energy
+    // pressure. A 1-WORK miner harvests just 2/tick against a ~10/tick source, so
+    // the source stays under-mined, the spawn it feeds stays starved, and every
+    // OTHER corp then runts out too - the whole economy collapses to one-useful-
+    // part creeps. Even a bare spawn (300) affords a 2-WORK miner (250). The first
+    // miner is the bootstrap income, so it may spawn as small as that floor when
+    // energy is tight; later miners hold out for the full desired body, since the
+    // income already flows and a source has only so many spots - each one should
+    // be as large as the room can build.
+    const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
+    const minWork = current === 0 ? Math.min(desiredWork, 2) : desiredWork;
+    const min = buildMinerBody(minWork, ctx.energyCapacity);
+    if (min.cost === 0) return []; // room cannot afford even a minimal miner
+
+    return [{
+      buyerCorpId: this.id,
+      role: "miner",
+      value: 100 + (assignment.efficiency ?? 0) * 0.5,
+      // Blocking only for the colony's FIRST miner (no income at all). Every
+      // additional source's miner is expansion, NOT blocking - otherwise each new
+      // source's miner (blocking) outranks the haulers that complete an already-
+      // mined source, and the spawn fields miner after miner while their energy
+      // strands unhauled. Non-blocking here lets the blocking haulers finish one
+      // mining operation before the spawn opens the next.
+      blocking: current === 0 && !this.colonyHasMiner(),
+      producesIncome: true,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      since: 0,
+      bodyParam: desiredWork,
+    }];
+  }
+
+  /**
+   * True if the colony already has a miner producing income anywhere, so an
+   * additional source's miner is expansion rather than a blocking bootstrap need.
+   */
+  private colonyHasMiner(): boolean {
+    for (const name in Game.creeps) {
+      if (Game.creeps[name].memory.workType === "harvest") return true;
+    }
+    return false;
   }
 
   /**
@@ -256,6 +372,13 @@ export class HarvestCorp extends Corp {
   }
 
   /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
    * Get desired work parts for this source.
    */
   getDesiredWorkParts(): number {
@@ -272,8 +395,11 @@ export class HarvestCorp extends Corp {
    */
   setMinerAssignment(assignment: MinerAssignment): void {
     this.minerAssignment = assignment;
-    // Update spawn ID from flow solution (may be different from original)
-    this.spawnId = assignment.spawnId;
+    // Update spawn ID from flow solution (may be different from original).
+    // The flow sink id is prefixed ("spawn-<gameId>"); strip it so spawnId is
+    // the real spawn game id - the spawn scheduler matches corps to spawns by
+    // this id, and a prefixed value silently excludes the corp (no miners spawn).
+    this.spawnId = assignment.spawnId.replace("spawn-", "");
   }
 
   /**

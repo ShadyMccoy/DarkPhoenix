@@ -21,6 +21,9 @@ import {
   JACK_BODY,
   JACK_COST,
   SPAWN_COOLDOWN,
+  ANTI_DOWNGRADE_TRIGGER_TICKS,
+  ANTI_DOWNGRADE_SAFE_TICKS,
+  ANTI_DOWNGRADE_MIN_RCL,
 } from "./CorpConstants";
 
 /**
@@ -48,20 +51,29 @@ export interface SerializedBootstrapCorp extends SerializedCorp {
   spawnId: string;
   sourceId: string;
   creepNames: string[];
+  /** Names of anti-downgrade rescue jacks (job 2) */
+  emergencyJackNames?: string[];
   lastSpawnAttempt: number;
+  /** Tick the last anti-downgrade jack was dispatched */
+  lastEmergencyAttempt?: number;
   /** Tick when starvation was first detected (no creeps + low energy) */
   starvationStartTick: number;
 }
 
 /**
- * BootstrapCorp is a rare fallback for starvation recovery.
+ * BootstrapCorp keeps a room alive with self-sufficient jack creeps (harvest +
+ * deliver/upgrade + recycle) for the two situations the flow economy cannot
+ * cover on its own:
  *
- * This corp:
- * - ONLY activates after extended starvation (no creeps + low energy for 100+ ticks)
- * - Has NO contracts - operates outside the market system
- * - Spawns minimal jack creeps (1-2) just to recover
- * - Goes dormant immediately when other corps have creeps
- * - Self-sufficient: picks up dropped energy, harvests, delivers to spawn
+ * 1. Starvation fallback (work): when a room has no working creeps it spawns
+ *    1-2 jacks to recover, then goes dormant once the flow economy takes over.
+ * 2. Anti-downgrade rescue (runAntiDowngrade): at RCL 2+ the flow economy
+ *    starves the controller during construction, so when its downgrade timer
+ *    runs low a single jack tops the controller back up and recycles itself.
+ *
+ * Both jobs use the same self-sufficient jack, but they track their creeps
+ * separately (creepNames vs emergencyJackNames) so the two lifecycles never
+ * interfere. The corp has no contracts and operates outside the market.
  */
 export class BootstrapCorp extends Corp {
   /** ID of the spawn this corp uses */
@@ -70,11 +82,17 @@ export class BootstrapCorp extends Corp {
   /** ID of the source to harvest */
   private sourceId: string;
 
-  /** Names of creeps owned by this corp */
+  /** Names of starvation-fallback jacks (job 1) */
   private creepNames: string[] = [];
+
+  /** Names of anti-downgrade rescue jacks (job 2) */
+  private emergencyJackNames: string[] = [];
 
   /** Last tick we attempted to spawn */
   private lastSpawnAttempt: number = 0;
+
+  /** Last tick we dispatched an anti-downgrade jack */
+  private lastEmergencyAttempt: number = 0;
 
   /** Tick when starvation was first detected */
   private starvationStartTick: number = 0;
@@ -115,6 +133,10 @@ export class BootstrapCorp extends Corp {
       return;
     }
 
+    // Job 2 runs every tick, independent of the starvation-fallback flow below
+    // (which has several early returns).
+    this.runAntiDowngrade(spawn, source, tick);
+
     const room = spawn.room;
     const allCreeps = room.find(FIND_MY_CREEPS);
     const ourCreepNames = new Set(this.creepNames);
@@ -133,10 +155,22 @@ export class BootstrapCorp extends Corp {
     // If there are just 1-2 struggling creeps, bootstrap should help
     if (otherCreeps.length >= 3 && !noHaulers) {
       this.starvationStartTick = 0;
-      // Still run our existing creeps until they die
+
+      // The bootstrap is scaffolding. Only retire the jacks once the flow
+      // economy is TRULY self-sufficient - it has both its own miners (flow
+      // harvesters) AND haulers, so it can harvest and carry energy on its own.
+      // Recycling on haulers alone collapsed the colony when no flow miners had
+      // spawned (haulers with nothing to carry). If the flow loses either, the
+      // checks above re-activate bootstrap automatically.
+      const flowHaulers = actualHaulers.length;
+      const flowMiners = otherCreeps.filter((c) => c.memory.workType === "harvest").length;
+      const flowEstablished = flowMiners >= 1 && flowHaulers >= 1;
       for (const name of this.creepNames) {
         const creep = Game.creeps[name];
-        if (creep && !creep.spawning) {
+        if (!creep || creep.spawning) continue;
+        if (flowEstablished) {
+          this.recycleJack(creep, spawn);
+        } else {
           this.runCreep(creep, spawn, source);
         }
       }
@@ -183,6 +217,110 @@ export class BootstrapCorp extends Corp {
       const creep = Game.creeps[name];
       if (creep && !creep.spawning) {
         this.runCreep(creep, spawn, source);
+      }
+    }
+  }
+
+  /**
+   * Retire a jack: deliver any carried energy, then recycle it at the spawn to
+   * recover part of its body cost.
+   */
+  private recycleJack(creep: Creep, spawn: StructureSpawn): void {
+    if (creep.store[RESOURCE_ENERGY] > 0) {
+      // Dump remaining energy into the spawn network on the way out.
+      if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+      }
+      return;
+    }
+    if (creep.pos.isNearTo(spawn)) {
+      spawn.recycleCreep(creep);
+    } else {
+      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+    }
+  }
+
+  /**
+   * Job 2: rescue the controller from downgrading.
+   *
+   * While the flow economy is building, it deliberately starves the controller,
+   * so its downgrade timer falls. When it drops below the trigger we dispatch a
+   * single self-sufficient jack to top the controller back up; once the timer is
+   * safe again the jack recycles itself. This is independent of the
+   * starvation-fallback jacks (creepNames) and runs at every RCL >= MIN_RCL.
+   */
+  private runAntiDowngrade(
+    spawn: StructureSpawn,
+    source: Source,
+    tick: number
+  ): void {
+    this.emergencyJackNames = this.emergencyJackNames.filter((n) => Game.creeps[n]);
+
+    const controller = spawn.room.controller;
+    if (!controller || !controller.my || controller.level < ANTI_DOWNGRADE_MIN_RCL) {
+      return;
+    }
+
+    const atRisk = controller.ticksToDowngrade < ANTI_DOWNGRADE_TRIGGER_TICKS;
+    const safe = controller.ticksToDowngrade >= ANTI_DOWNGRADE_SAFE_TICKS;
+
+    // Dispatch one rescue jack when the timer is low and none is already on it.
+    if (
+      atRisk &&
+      this.emergencyJackNames.length === 0 &&
+      tick - this.lastEmergencyAttempt >= SPAWN_COOLDOWN &&
+      !spawn.spawning &&
+      spawn.room.energyAvailable >= JACK_COST
+    ) {
+      const name = `antidowngrade-${this.id.slice(-6)}-${tick}`;
+      const result = spawn.spawnCreep(JACK_BODY, name, {
+        memory: { corpId: this.id, workType: "upgrade" as const, working: false },
+      });
+      this.lastEmergencyAttempt = tick;
+      if (result === OK) {
+        this.emergencyJackNames.push(name);
+        this.recordCost(JACK_COST);
+      }
+    }
+
+    for (const name of this.emergencyJackNames) {
+      const creep = Game.creeps[name];
+      if (!creep || creep.spawning) continue;
+      this.runEmergencyJack(creep, spawn, source, controller, safe);
+    }
+  }
+
+  /**
+   * Behaviour of an anti-downgrade rescue jack: harvest until full, upgrade the
+   * controller to push its timer up, and recycle once the timer is safe and the
+   * jack has emptied its last load.
+   */
+  private runEmergencyJack(
+    creep: Creep,
+    spawn: StructureSpawn,
+    source: Source,
+    controller: StructureController,
+    safe: boolean
+  ): void {
+    if (safe && creep.store[RESOURCE_ENERGY] === 0) {
+      this.recycleJack(creep, spawn);
+      return;
+    }
+
+    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+      creep.memory.working = false;
+    }
+    if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
+      creep.memory.working = true;
+    }
+
+    if (creep.memory.working) {
+      if (creep.upgradeController(controller) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(controller, { range: 3, visualizePathStyle: { stroke: "#ff8888" } });
+      }
+    } else {
+      if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
       }
     }
   }
@@ -271,8 +409,15 @@ export class BootstrapCorp extends Corp {
           this.recordRevenue(transferred * 0.001);
         }
       } else {
-        // Everything full - wait near spawn
-        if (creep.pos.getRangeTo(spawn) > 3) {
+        // Spawn and extensions are full - put surplus energy into the
+        // controller so the colony still makes RCL progress during bootstrap,
+        // rather than idling. This makes bootstrap a complete minimal economy.
+        const controller = creep.room.controller;
+        if (controller && controller.my) {
+          if (creep.upgradeController(controller) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(controller, { range: 3, visualizePathStyle: { stroke: "#88ff88" } });
+          }
+        } else if (creep.pos.getRangeTo(spawn) > 3) {
           creep.moveTo(spawn);
         }
       }
@@ -382,7 +527,9 @@ export class BootstrapCorp extends Corp {
       spawnId: this.spawnId,
       sourceId: this.sourceId,
       creepNames: this.creepNames,
+      emergencyJackNames: this.emergencyJackNames,
       lastSpawnAttempt: this.lastSpawnAttempt,
+      lastEmergencyAttempt: this.lastEmergencyAttempt,
       starvationStartTick: this.starvationStartTick,
     };
   }
@@ -393,7 +540,9 @@ export class BootstrapCorp extends Corp {
   deserialize(data: SerializedBootstrapCorp): void {
     super.deserialize(data);
     this.creepNames = data.creepNames || [];
+    this.emergencyJackNames = data.emergencyJackNames || [];
     this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
+    this.lastEmergencyAttempt = data.lastEmergencyAttempt || 0;
     this.starvationStartTick = data.starvationStartTick || 0;
   }
 }
@@ -411,8 +560,12 @@ export function createBootstrapCorp(room: Room): BootstrapCorp | null {
   const sources = room.find(FIND_SOURCES);
   if (sources.length === 0) return null;
 
-  // Find nearest source to spawn
-  const source = spawn.pos.findClosestByPath(sources);
+  // Prefer the nearest source by path, but fall back to range if no path is
+  // found (e.g. before roads/containers exist, or in restricted terrain).
+  // findClosestByPath returning null must not leave the room without a
+  // bootstrap economy.
+  const source =
+    spawn.pos.findClosestByPath(sources) ?? spawn.pos.findClosestByRange(sources);
   if (!source) return null;
 
   const nodeId = `${room.name}-bootstrap`;

@@ -12,6 +12,7 @@ import {
   MAX_INTEL_VALUE,
   VALUE_PER_STALE_TICK,
   MAX_SCOUTS,
+  MIN_SCOUT_RCL,
   SCOUT_SPAWN_COOLDOWN,
 } from "./CorpConstants";
 import { SpawningCorp } from "./SpawningCorp";
@@ -242,8 +243,11 @@ export class ScoutCorp extends Corp {
       return false;
     }
 
-    // Check if we have enough scouts
-    const currentScouts = this.getCreepCount();
+    // Check if we have enough scouts. Count both live scouts AND orders already
+    // queued by this corp that have not spawned yet - otherwise, while a scout
+    // order waits in the spawn queue, every cooldown would queue another one and
+    // flood the spawn with duplicate scouts.
+    const currentScouts = this.getCreepCount() + spawningCorp.countPendingOrdersFrom(this.id);
     if (currentScouts >= MAX_SCOUTS) {
       return false;
     }
@@ -252,22 +256,30 @@ export class ScoutCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return false;
 
+    // Don't scout while the home economy is still bootstrapping. At RCL 1 the
+    // room has only 300 energy capacity and a single weak energy carrier, so a
+    // 50-energy scout (plus the spawn time it occupies) directly starves the
+    // miners/haulers/upgraders needed to reach RCL 2. Scouting is a luxury that
+    // must wait until the core economy can sustain it.
+    if ((spawn.room.controller?.level ?? 1) < MIN_SCOUT_RCL) {
+      return false;
+    }
+
     const homeRoom = spawn.room.name;
     const staleRoom = this.findStaleRoomExcluding(homeRoom, this.getAssignedTargets());
     if (!staleRoom) {
       return false; // No rooms need scouting
     }
 
-    // Queue spawn order
-    spawningCorp.queueSpawnOrder({
-      buyerCorpId: this.id,
-      creepType: "scout",
-      workTicksRequested: 0, // Scouts don't have WORK parts
-      queuedAt: tick,
-    });
+    // Spawn directly via the executor. Scouts are tightly gated (RCL >= 2,
+    // MAX_SCOUTS, cooldown, stale-room check) so they do not meaningfully
+    // compete with the economy; routing them through the value scheduler would
+    // add complexity for no benefit.
+    const spawned = spawningCorp.executeSpawn("scout", this.id, 50, tick);
+    if (!spawned) return false;
 
     this.lastPurchaseTick = tick;
-    console.log(`[Scout] Requested scout spawn for ${homeRoom}`);
+    console.log(`[Scout] Spawned scout for ${homeRoom}`);
     return true;
   }
 

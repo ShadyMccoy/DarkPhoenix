@@ -81,6 +81,13 @@ export const MAX_UPGRADERS = 2;
 export const MAX_SCOUTS = 1;
 
 /**
+ * Minimum room control level before a scout may be spawned. Below this the
+ * home economy is still bootstrapping and cannot spare the energy or spawn
+ * time for exploration.
+ */
+export const MIN_SCOUT_RCL = 2;
+
+/**
  * Maximum builders per construction corp.
  */
 export const MAX_BUILDERS = 2;
@@ -153,3 +160,17 @@ export const VALUE_PER_STALE_TICK = 0.001;
  * At RCL 2+, controllers downgrade after 10,000 ticks without upgrading.
  */
 export const CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD = 10000;
+
+/**
+ * Anti-downgrade emergency thresholds (see BootstrapCorp.runAntiDowngrade).
+ *
+ * During construction the flow economy starves the controller of energy on
+ * purpose (building supersedes upgrading), so its downgrade timer ticks down.
+ * When it falls below TRIGGER, a self-sufficient jack is dispatched to top the
+ * controller back up; once the timer climbs back above SAFE the jack's job is
+ * done and it recycles itself. Level-1 controllers cannot downgrade, so this
+ * only applies at MIN_RCL and above.
+ */
+export const ANTI_DOWNGRADE_TRIGGER_TICKS = 3000;
+export const ANTI_DOWNGRADE_SAFE_TICKS = 7000;
+export const ANTI_DOWNGRADE_MIN_RCL = 2;

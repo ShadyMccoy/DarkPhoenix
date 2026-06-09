@@ -257,13 +257,17 @@ export interface TankerBodyResult {
 /**
  * Builds a tanker body for local node distribution.
  *
- * Tankers work within a node, filling extensions and spawns.
- * They have shorter travel distances than haulers, so we optimize
- * for quick turnaround rather than maximum capacity.
+ * Tankers work within a node, shuttling energy between local sinks and sources
+ * (e.g. a hauler's drop-off -> the static builder). Crucially, a tanker spends
+ * most of its life PARKED at its worker, slowly being drained, and only
+ * occasionally trundles back to refuel. Movement speed therefore barely matters:
+ * the slow leg (loaded, on plains) is a small fraction of the duty cycle, and a
+ * hot-swap relay keeps the worker fed while one tanker is away.
  *
- * Pattern: 2 CARRY + 1 MOVE is efficient for road-based local movement.
- * This gives higher capacity per spawn cost at the expense of speed
- * on plains, but tankers mostly travel on roads within the base.
+ * So tankers are built CARRY-heavy (few MOVE parts). For the same energy this
+ * roughly doubles the buffer a tanker holds versus a balanced hauler body - at
+ * 300 energy, 5 CARRY + 1 MOVE (250 capacity) instead of 3 CARRY + 3 MOVE (150).
+ * On roads we can go even more CARRY-heavy (fatigue is halved).
  *
  * @param requiredCarry - Number of CARRY parts needed (from demand model)
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
@@ -283,9 +287,10 @@ export function buildTankerBody(
 
   const CARRY_CAPACITY = 50;
 
-  // For road-based movement: 2 CARRY + 1 MOVE (150 energy, 100 capacity)
-  // For plains movement: 1 CARRY + 1 MOVE (100 energy, 50 capacity)
-  const carryPerMove = useRoads ? 2 : 1;
+  // CARRY-heavy because a tanker is mostly stationary (see doc above). 1 MOVE
+  // per 3 CARRY on plains (slow when loaded, but it rarely moves); on roads,
+  // where fatigue is halved, go to 1 MOVE per 5 CARRY.
+  const carryPerMove = useRoads ? 5 : 3;
 
   let carryParts = 0;
   let moveParts = 0;
@@ -320,6 +325,21 @@ export function buildTankerBody(
     carryParts = 1;
     moveParts = 1;
     cost = minEnergy;
+  }
+
+  // A creep with zero MOVE parts cannot move at all - it is dead weight. With a
+  // CARRY-heavy ratio it is easy for the budget to be fully spent on CARRY
+  // before any MOVE is added, so guarantee at least one MOVE: add one if there
+  // is spare energy/part-slot, otherwise trade the last CARRY for it (same cost).
+  if (moveParts === 0 && carryParts > 0) {
+    if (cost + PART_COSTS[MOVE] <= energyCapacity && carryParts + 1 <= MAX_BODY_PARTS) {
+      moveParts = 1;
+      cost += PART_COSTS[MOVE];
+    } else {
+      carryParts -= 1;
+      moveParts = 1;
+      cost = cost - PART_COSTS[CARRY] + PART_COSTS[MOVE];
+    }
   }
 
   // Build body array (CARRY first, then MOVE for damage resistance)
@@ -386,22 +406,39 @@ export interface UpgraderBodyResult {
 }
 
 /**
+ * Upgrader energy-supply strategy. This is an EXPLICIT choice the corp makes and
+ * threads through to body construction, so a creep's shape always matches how it
+ * will be fed:
+ *
+ * - "mobile": there is no buffer at the controller. The upgrader has to hold a
+ *   meaningful reserve and/or fetch energy between intermittent hauler drops, so
+ *   it is built CARRY-heavier (the 2W/1C/1M unit) to self-buffer.
+ * - "containerFed": a container/link sits at the controller and refills the
+ *   creep every tick, so CARRY beyond a single part is wasted. Build it
+ *   WORK-heavy to convert as much of the buffered energy as possible.
+ */
+export type UpgraderStrategy = "mobile" | "containerFed";
+
+/**
  * Builds an optimal upgrader body given energy capacity and throughput.
  *
  * Upgraders need WORK parts for upgrading, CARRY for holding energy,
  * and MOVE for getting to the controller.
  *
- * Pattern: 2 WORK + 1 CARRY + 1 MOVE is the efficient unit (300 cost)
- * This gives 2 upgrade work per tick, consuming 2 energy per tick.
- * The CARRY holds 50 energy, enough for 25 ticks of work.
+ * The body SHAPE depends on the supply strategy (see {@link UpgraderStrategy}):
+ * "mobile" packs the CARRY-heavier 2W/1C/1M unit; "containerFed" goes WORK-heavy
+ * (one CARRY + one MOVE reserved, the rest WORK, a MOVE per 4 WORK) because a
+ * buffer at its feet refills it each tick.
  *
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
  * @param maxWorkParts - Maximum WORK parts to include (limits energy consumption)
+ * @param strategy - How the upgrader will be fed (defaults to "mobile")
  * @returns Body configuration with body array, cost, and work parts
  */
 export function buildUpgraderBody(
   energyCapacity: number,
-  maxWorkParts: number = 10
+  maxWorkParts: number = 10,
+  strategy: UpgraderStrategy = "mobile"
 ): UpgraderBodyResult {
   // Minimum viable upgrader: 1 WORK + 1 CARRY + 1 MOVE = 200 energy
   const minEnergy = PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE];
@@ -409,30 +446,45 @@ export function buildUpgraderBody(
     return { body: [], cost: 0, workParts: 0, energyPerTick: 0 };
   }
 
-  // Build with pattern: 2 WORK + 1 CARRY + 1 MOVE (300 cost per unit)
-  // Each unit gives 2 upgrade work per tick
-  const unitCost = 2 * PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE]; // 300
-  const workPerUnit = 2;
-
   let workParts = 0;
   let carryParts = 0;
   let moveParts = 0;
   let cost = 0;
 
-  // Add units up to energy limit and work cap
-  while (workParts + workPerUnit <= maxWorkParts) {
-    if (cost + unitCost > energyCapacity) {
-      break;
+  if (strategy === "containerFed") {
+    // WORK-heavy: reserve one CARRY (to hold the tick's withdrawal) and one MOVE
+    // (the one-time walk to the controller), then spend everything else on WORK,
+    // adding a MOVE per 4 WORK so relocating isn't unbearably slow. This packs the
+    // budget far better than the 2W/1C/1M unit, which at 550 capacity could only
+    // afford ONE unit (2 WORK, 250 wasted); here 550 yields 4 WORK.
+    carryParts = 1;
+    moveParts = 1;
+    cost = PART_COSTS[CARRY] + PART_COSTS[MOVE];
+    while (workParts < maxWorkParts) {
+      if (cost + PART_COSTS[WORK] > energyCapacity) break;
+      if (workParts + carryParts + moveParts + 1 > MAX_BODY_PARTS) break;
+      workParts += 1;
+      cost += PART_COSTS[WORK];
+      if (workParts % 4 === 0 &&
+          cost + PART_COSTS[MOVE] <= energyCapacity &&
+          workParts + carryParts + moveParts + 1 <= MAX_BODY_PARTS) {
+        moveParts += 1;
+        cost += PART_COSTS[MOVE];
+      }
     }
-
-    if (workParts + carryParts + moveParts + 4 > MAX_BODY_PARTS) {
-      break;
+  } else {
+    // Mobile: CARRY-heavier 2 WORK + 1 CARRY + 1 MOVE unit (300 cost). The CARRY
+    // holds 50 energy so the creep keeps upgrading between intermittent deliveries.
+    const unitCost = 2 * PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE]; // 300
+    const workPerUnit = 2;
+    while (workParts + workPerUnit <= maxWorkParts) {
+      if (cost + unitCost > energyCapacity) break;
+      if (workParts + carryParts + moveParts + 4 > MAX_BODY_PARTS) break;
+      workParts += workPerUnit;
+      carryParts += 1;
+      moveParts += 1;
+      cost += unitCost;
     }
-
-    workParts += workPerUnit;
-    carryParts += 1;
-    moveParts += 1;
-    cost += unitCost;
   }
 
   // If we couldn't afford a full unit, try the minimum viable body
@@ -456,4 +508,41 @@ export function buildUpgraderBody(
   }
 
   return { body, cost, workParts, energyPerTick: workParts };
+}
+
+/**
+ * Result of building a reserver body.
+ */
+export interface ReserverBodyResult {
+  body: BodyPartConstant[];
+  cost: number;
+  /** Number of CLAIM parts (reservation gained per tick while reserving). */
+  claimParts: number;
+}
+
+/**
+ * Build a reserver body: CLAIM parts (to reserve a remote controller) paired 1:1
+ * with MOVE so it can reach the controller. A single CLAIM held continuously
+ * keeps a controller reserved (and its sources at the full 3000 cap); more CLAIM
+ * builds the reservation buffer up faster so a brief gap between reservers does
+ * not let it lapse. CLAIM is expensive (600), so the count is capped both by the
+ * room's energy and by `maxClaim` (2 is plenty for a single remote room).
+ *
+ * @param energyCapacity - Available spawn energy capacity.
+ * @param maxClaim - Upper bound on CLAIM parts (default 2).
+ */
+export function buildReserverBody(
+  energyCapacity: number,
+  maxClaim: number = 2
+): ReserverBodyResult {
+  const unitCost = PART_COSTS[CLAIM] + PART_COSTS[MOVE]; // 650 per CLAIM+MOVE pair
+  const affordable = Math.floor(energyCapacity / unitCost);
+  const claimParts = Math.max(0, Math.min(maxClaim, affordable, Math.floor(MAX_BODY_PARTS / 2)));
+  if (claimParts === 0) {
+    return { body: [], cost: 0, claimParts: 0 };
+  }
+  const body: BodyPartConstant[] = [];
+  for (let i = 0; i < claimParts; i++) body.push(CLAIM);
+  for (let i = 0; i < claimParts; i++) body.push(MOVE);
+  return { body, cost: claimParts * unitCost, claimParts };
 }

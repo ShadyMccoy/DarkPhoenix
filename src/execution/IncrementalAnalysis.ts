@@ -28,6 +28,14 @@ import { get7x7BoxAroundOwnedRooms } from "../utils";
 /** TTL for multi-room analysis cache (5000 ticks ≈ ~4 hours) */
 export const MULTI_ROOM_ANALYSIS_CACHE_TTL = 5000;
 
+/**
+ * How often (ticks) to re-populate node RESOURCES from current vision/intel while
+ * the terrain cache is fresh. Far shorter than the terrain TTL: terrain is static
+ * but resources are dynamic (a newly scouted source must be claimed and mined
+ * promptly), and the refresh is cheap (reuses the cached territory map).
+ */
+const NODE_RESOURCE_REFRESH_INTERVAL = 50;
+
 /** Max rooms to analyze per batch to avoid CPU timeout */
 const ROOMS_PER_BATCH = 9;
 
@@ -51,6 +59,9 @@ let incrementalState: IncrementalAnalysisState | null = null;
 
 /** Cache for multi-room analysis results */
 let multiRoomAnalysisCache: { result: MultiRoomAnalysisResult; tick: number } | null = null;
+
+/** Last tick node resources were refreshed from vision/intel (see NODE_RESOURCE_REFRESH_INTERVAL). */
+let lastResourceRefreshTick = 0;
 
 // =============================================================================
 // PUBLIC API
@@ -76,6 +87,7 @@ export function isAnalysisInProgress(): boolean {
 export function resetAnalysis(): void {
   multiRoomAnalysisCache = null;
   incrementalState = null;
+  lastResourceRefreshTick = 0;
 }
 
 /**
@@ -241,6 +253,9 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
   // Phase 3: Update nodes
   if (state.phase === 'updating' && state.mergedResult) {
     updateNodesFromAnalysis(colony, state.mergedResult);
+    // A full pass just populated resources; start the refresh clock here so the
+    // cheap interval refresh doesn't redundantly re-run on the very next tick.
+    lastResourceRefreshTick = Game.time;
 
     // Cache result
     multiRoomAnalysisCache = { result: state.mergedResult, tick: Game.time };
@@ -258,6 +273,53 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
+
+/**
+ * Re-populate every existing node's resources from current vision/intel, reusing
+ * the cached terrain territories (no peak/territory recompute). This is what lets
+ * a source discovered after the initial terrain pass - e.g. a neighbouring room
+ * that was only just scouted - get claimed by its node and handed to the flow
+ * economy to mine, exactly like a source that was visible from the start. Mining
+ * is uniform; it never cared which room a source sits in, only that the source is
+ * known and in territory.
+ */
+export function refreshNodeResources(colony: Colony, result: MultiRoomAnalysisResult): void {
+  const positionToNode = new Map<string, string>();
+  for (const [nodeId, positions] of result.territories) {
+    for (const pos of positions) {
+      positionToNode.set(`${pos.roomName}-${pos.x}-${pos.y}`, nodeId);
+    }
+  }
+
+  for (const node of colony.getNodes()) {
+    const positions = result.territories.get(node.id);
+    if (positions && positions.length > 0) {
+      populateNodeResources(node, positions, positionToNode);
+    }
+  }
+
+  const ownedRooms = new Set<string>();
+  for (const roomName in Game.rooms) {
+    if (Game.rooms[roomName].controller?.my) ownedRooms.add(roomName);
+  }
+  attachOwnedSpawnsToNodes(colony, ownedRooms);
+}
+
+/**
+ * Refresh node resources from current vision/intel between full terrain passes,
+ * on a short interval (NODE_RESOURCE_REFRESH_INTERVAL). Call every tick from the
+ * main loop while nodes exist and no terrain analysis is running; cheap and
+ * interval-gated. This is what lets a source discovered after the one-time terrain
+ * pass - e.g. a neighbouring room only just scouted - get claimed and mined,
+ * rather than staying invisible until the next 5000-tick terrain rebuild. No-op
+ * until a terrain analysis has been cached.
+ */
+export function refreshNodeResourcesFromCache(colony: Colony): void {
+  if (!multiRoomAnalysisCache) return;
+  if (Game.time - lastResourceRefreshTick < NODE_RESOURCE_REFRESH_INTERVAL) return;
+  lastResourceRefreshTick = Game.time;
+  refreshNodeResources(colony, multiRoomAnalysisCache.result);
+}
 
 /**
  * Updates colony nodes from analysis result.
@@ -327,6 +389,14 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
       populateNodeResources(node, positions, positionToNode);
     }
   }
+
+  // Reconciliation: guarantee every owned spawn is attached to a node as a
+  // "spawn" resource. A spawn sits on a structure-blocked tile, which the
+  // territory division treats as an obstacle, so it can fall through
+  // populateNodeResources and leave the flow economy with no spawn sink
+  // ("No spawn sinks - cannot assign miners"). Attach any unclaimed spawn to
+  // the nearest node (by peak distance) that spans its room.
+  attachOwnedSpawnsToNodes(colony, ownedRooms);
 
   // Build adjacency map from result.adjacencies
   // Adjacencies are stored as "nodeA|nodeB" strings
@@ -421,6 +491,56 @@ function isSourceKeeperRoom(roomName: string): boolean {
 
   // SK rooms have both coords in [4, 5, 6] range
   return x >= 4 && x <= 6 && y >= 4 && y <= 6;
+}
+
+/**
+ * Ensures every owned, visible spawn is attached to exactly one node as a
+ * "spawn" resource. Spawns occupy structure-blocked tiles that the territory
+ * division skips, so they routinely fail the territory-claim check in
+ * populateNodeResources. Without a spawn resource the FlowGraph finds no spawn
+ * sink and the solver assigns zero miners, so the colony never mines via the
+ * flow economy. Any unclaimed spawn is attached to the nearest node (by peak
+ * Manhattan distance, preferring same-room peaks) that spans the spawn's room.
+ */
+function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void {
+  const allNodes = colony.getNodes();
+  if (allNodes.length === 0) return;
+
+  const spawnClaimed = (spawnId: string): boolean =>
+    allNodes.some((n) => n.resources.some((r) => r.type === "spawn" && r.id === spawnId));
+
+  for (const roomName of ownedRooms) {
+    const room = Game.rooms[roomName];
+    if (!room) continue;
+
+    for (const spawn of room.find(FIND_MY_SPAWNS)) {
+      if (spawnClaimed(spawn.id)) continue;
+
+      let best: Node | undefined;
+      let bestDist = Infinity;
+      for (const n of allNodes) {
+        if (!n.spansRooms.includes(roomName)) continue;
+        const samePenalty = n.peakPosition.roomName === roomName ? 0 : 50;
+        const dist =
+          Math.abs(n.peakPosition.x - spawn.pos.x) +
+          Math.abs(n.peakPosition.y - spawn.pos.y) +
+          samePenalty;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = n;
+        }
+      }
+
+      if (best) {
+        best.resources.push({
+          type: "spawn",
+          id: spawn.id,
+          position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
+          capacity: 300,
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -534,11 +654,14 @@ function populateNodeResources(
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];
       if (intel) {
-        // Check if this room is owned by us (from intel)
+        // Check if this room is owned OR reserved by us (from intel). A controller
+        // we reserve boosts its sources to the full 3000 cap just like ownership
+        // does - that is the whole economic point of reserving a remote room.
         const isOwnedRoom = myUsername && intel.controllerOwner === myUsername;
+        const isReservedByUs = myUsername && intel.controllerReservation === myUsername;
 
-        // Source capacity: 3000 for owned rooms, 1500 for unclaimed/unowned
-        const sourceCapacity = isOwnedRoom ? 3000 : 1500;
+        // Source capacity: 3000 for owned/reserved rooms, 1500 for unclaimed.
+        const sourceCapacity = isOwnedRoom || isReservedByUs ? 3000 : 1500;
 
         // Add sources from intel within territory
         for (const sourcePos of intel.sourcePositions || []) {

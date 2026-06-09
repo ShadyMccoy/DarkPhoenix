@@ -9,7 +9,12 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
+
+/** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
+const UPGRADER_COUNT_CAP = 6;
 import { SinkAllocation } from "../flow/FlowTypes";
+import { buildUpgraderBody, UpgraderStrategy } from "../spawn/BodyBuilder";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -41,6 +46,9 @@ export class UpgradingCorp extends Corp {
    * Specifies the energy rate allocated to this controller.
    */
   private sinkAllocation: SinkAllocation | null = null;
+
+  /** Last chosen supply strategy, so a switch is logged once rather than every tick. */
+  private lastStrategy: UpgraderStrategy | null = null;
 
   constructor(nodeId: string, spawnId: string, customId?: string) {
     super("upgrading", nodeId, customId);
@@ -134,49 +142,25 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
-    // Check for construction sites - prioritize building over upgrading
-    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    // Upgraders only upgrade - they camp at the controller and convert the
+    // energy the CarryCorp (local mover) delivers there. Construction is the
+    // ConstructionCorp's job; diverting the upgrader to build sites just pulls
+    // it away from the controller and stalls RCL progress.
+    if (creep.pos.getRangeTo(controller) > 3) {
+      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
+      return;
+    }
 
-    if (constructionSites.length > 0) {
-      // Building mode - go to construction site and stay there
-      const target = creep.pos.findClosestByRange(constructionSites);
-      if (target) {
-        // Move to construction site if not in range
-        if (creep.pos.getRangeTo(target) > 3) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
-          return;
-        }
-
-        if (creep.memory.working) {
-          const buildResult = creep.build(target);
-          if (buildResult === OK) {
-            const workParts = creep.getActiveBodyparts(WORK);
-            this.recordConsumption(workParts);
-            this.recordProduction(workParts);
-          }
-        } else {
-          // Stationary pickup near construction site
-          this.doPickupEnergyNearPosition(creep, target.pos);
-        }
+    if (creep.memory.working) {
+      const result = creep.upgradeController(controller);
+      if (result === OK) {
+        const workParts = creep.getActiveBodyparts(WORK);
+        this.recordConsumption(workParts);
+        this.recordProduction(workParts);
       }
     } else {
-      // Upgrading mode - stay near controller
-      if (creep.pos.getRangeTo(controller) > 3) {
-        creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
-        return;
-      }
-
-      if (creep.memory.working) {
-        const result = creep.upgradeController(controller);
-        if (result === OK) {
-          const workParts = creep.getActiveBodyparts(WORK);
-          this.recordConsumption(workParts);
-          this.recordProduction(workParts);
-        }
-      } else {
-        // Stationary pickup near controller
-        this.doPickupEnergy(creep, controller);
-      }
+      // Stationary pickup near controller
+      this.doPickupEnergy(creep, controller);
     }
   }
 
@@ -327,6 +311,107 @@ export class UpgradingCorp extends Corp {
    */
   getCreepCount(): number {
     return this.getActiveCreeps().length;
+  }
+
+  /**
+   * Get the spawn ID this corp spawns from.
+   */
+  getSpawnId(): string {
+    return this.spawnId;
+  }
+
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * The upgrader is what drives RCL progress, so its demand is blocking when no
+   * upgrader exists. Its value comes from the flow solution's controller-sink
+   * priority, and it is sized to the allocated energy rate (but can be spawned
+   * small and scaled up). It does not produce income - the scheduler's
+   * wait-for-blocking logic is what lets it accumulate energy against a steady
+   * trickle of mining demand.
+   */
+  /**
+   * Decide how upgraders are fed, EXPLICITLY: "containerFed" when a container or
+   * link sits at the controller (a per-tick buffer), otherwise "mobile". This one
+   * choice drives both the body shape (WORK-heavy vs CARRY-heavy) and the runt
+   * policy, so the corp commits to a single coherent strategy instead of mixing
+   * conflicting signals. Logged on change so the active strategy is visible.
+   */
+  private getUpgraderStrategy(controller: StructureController): UpgraderStrategy {
+    const buffers = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK,
+    });
+    const strategy: UpgraderStrategy = buffers.length > 0 ? "containerFed" : "mobile";
+    if (strategy !== this.lastStrategy) {
+      console.log(`[Upgrading] ${this.id} strategy=${strategy} (controller buffers: ${buffers.length})`);
+      this.lastStrategy = strategy;
+    }
+    return strategy;
+  }
+
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // Commit to a supply strategy up front; body shape and runt policy follow it.
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const controller = spawn?.room.controller;
+    const strategy: UpgraderStrategy = controller
+      ? this.getUpgraderStrategy(controller)
+      : "mobile";
+
+    // Energy/tick the controller is allocated; that is the WORK the upgraders
+    // must total to consume it (1 energy/tick per WORK part). Without an
+    // allocation, ask for a minimal upgrader to keep the controller alive.
+    const allocated = this.sinkAllocation && this.sinkAllocation.allocated > 0
+      ? this.sinkAllocation.allocated
+      : 2;
+
+    // One upgrader can only afford so many WORK parts at the current capacity;
+    // a single small upgrader cannot consume a whole source. Size the COUNT to
+    // the allocation, so consumption scales with supply (this is what lets a
+    // second source actually help instead of being wasted).
+    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, strategy).workParts);
+    // Cap the count as a safety bound: should a stale/over-large allocation slip
+    // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
+    // bounded by real supply in normal operation.
+    const targetCount = Math.max(1, Math.min(UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork)));
+    const current = this.getCreepCount();
+    if (current >= targetCount) return [];
+
+    const remainingWork = allocated - current * affordableWork;
+    const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
+    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, strategy);
+    // Runt policy follows the strategy. targetCount is sized assuming each
+    // upgrader is the full affordableWork; a runt permanently occupies one of the
+    // few slots and the controller under-consumes its allocation for that creep's
+    // whole 1500-tick life. In containerFed mode the buffer feeds the controller
+    // while the spawn fills, so EVERY upgrader (including the first) holds out for
+    // a full-size body - waiting tens of ticks for a 4-WORK creep beats fielding a
+    // 1-WORK one forever. In mobile mode there is no buffer, so the first upgrader
+    // still spawns small to keep the controller alive immediately.
+    const minWork = strategy === "containerFed" ? affordableWork : 1;
+    const min = buildUpgraderBody(ctx.energyCapacity, minWork, strategy);
+    if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
+
+    return [{
+      buyerCorpId: this.id,
+      role: "upgrader",
+      // Spawn priority is decoupled from the controller's ROUTING value (~50,
+      // which keeps construction ranked above it). Consuming the energy the
+      // plan budgets for upgrading is as essential as the producers/haulers that
+      // supply it - otherwise producers win the queue forever and the budgeted
+      // upgraders only trickle in via anti-starvation aging, so a second source
+      // is mined and wasted. Rank them alongside haulers.
+      value: 90,
+      // The first upgrader is blocking (controller would otherwise stall);
+      // additional upgraders are scaling capacity (non-blocking).
+      blocking: current === 0,
+      producesIncome: false,
+      desiredCost: desired.cost,
+      minCost: min.cost,
+      since: 0,
+      bodyParam: desiredWork,
+      bodyStrategy: strategy,
+    }];
   }
 
   // ===========================================================================

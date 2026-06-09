@@ -21,6 +21,8 @@ import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { FlowSolver, solveIteratively, printSolutionSummary } from "./FlowSolver";
+import { EconomyPlan } from "./EconomyPlanner";
+import { planFromGraph } from "./EconomyAdapter";
 import { PriorityManager, PRIORITY_PRESETS } from "./PriorityManager";
 import {
   FlowSolution,
@@ -59,6 +61,9 @@ export class FlowEconomy {
 
   /** Current solution (null if not yet solved) */
   private solution: FlowSolution | null;
+
+  /** Strategic plan from the new EconomyPlanner (computed alongside during migration). */
+  private plan: EconomyPlan | null = null;
 
   /** Current priority context */
   private context: PriorityContext | null;
@@ -148,6 +153,38 @@ export class FlowEconomy {
 
     // Use iterative solver for better convergence
     this.solution = solveIteratively(problem);
+
+    // New strategic layer: compute the EconomyPlanner roster alongside the old
+    // solution during migration, and stash a compact summary in Memory so it can
+    // be validated against the real world before it drives any corp.
+    this.computePlan();
+  }
+
+  /** Run the EconomyPlanner over the live graph and record its roster. */
+  private computePlan(): void {
+    try {
+      const spawnSink = this.graph.getSinks("spawn")[0];
+      if (!spawnSink) {
+        this.plan = null;
+        return;
+      }
+      this.plan = planFromGraph(this.graph, spawnSink.gameId ?? spawnSink.id);
+      if (typeof Memory !== "undefined") {
+        (Memory as { economyPlan?: unknown }).economyPlan = {
+          overhead: Number(this.plan.overhead.toFixed(2)),
+          unrouted: Number(this.plan.unrouted.toFixed(2)),
+          corps: this.plan.corps,
+        };
+      }
+    } catch (e) {
+      // Never let the experimental planner break the live economy.
+      this.plan = null;
+    }
+  }
+
+  /** Get the strategic plan (new economy layer), if computed. */
+  getPlan(): EconomyPlan | null {
+    return this.plan;
   }
 
   /**

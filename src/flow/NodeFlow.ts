@@ -59,6 +59,18 @@ export interface NodeFlow {
   /** Total energy consumed by sinks in this node */
   totalConsumption: number;
 
+  /**
+   * The node's inter-node trade, collapsed to a single boundary term each - the
+   * "representative source/sink for other nodes trading with us". Lets a node
+   * balance itself against the outside world without enumerating its neighbours:
+   * its internal sources + imports = its internal sinks + exports.
+   *
+   * importRate: energy arriving from OTHER nodes' sources (a virtual source).
+   * exportRate: energy this node's sources ship to OTHER nodes' sinks (a virtual sink).
+   */
+  importRate: number;
+  exportRate: number;
+
   /** Spawn IDs serving this node (for creep spawning) */
   spawnIds: Set<string>;
 }
@@ -106,6 +118,8 @@ export function groupByNode(
         totalHarvest: 0,
         totalOutflow: 0,
         totalConsumption: 0,
+        importRate: 0,
+        exportRate: 0,
         spawnIds: new Set(),
       };
       nodeFlows.set(nodeId, nodeFlow);
@@ -121,7 +135,11 @@ export function groupByNode(
     nodeFlow.spawnIds.add(miner.spawnId);
   }
 
-  // Group haulers by source node (where energy originates)
+  // Group haulers by source node (where energy originates), and classify each as
+  // intra-node or inter-node trade. A hauler whose destination sink lives in a
+  // DIFFERENT node is energy leaving its source node (an export) and entering the
+  // destination node (an import) - the single boundary term each side balances
+  // against.
   for (const hauler of solution.haulers) {
     // fromId is the source ID; look up its node
     const sourceNodeId = sourceNodeMap.get(hauler.fromId);
@@ -130,6 +148,12 @@ export function groupByNode(
       nodeFlow.haulers.push(hauler);
       nodeFlow.totalOutflow += hauler.flowRate;
       nodeFlow.spawnIds.add(hauler.spawnId);
+
+      const destNodeId = sinkNodeMap.get(hauler.toId);
+      if (destNodeId && destNodeId !== sourceNodeId) {
+        nodeFlow.exportRate += hauler.flowRate;
+        getOrCreateNodeFlow(destNodeId).importRate += hauler.flowRate;
+      }
     }
   }
 
@@ -199,12 +223,50 @@ export function getSinkAllocationByType(
 }
 
 /**
- * Check if a node is self-sustaining (harvest covers overhead + consumption).
+ * Check if a node is self-sustaining: it does not rely on imports to feed its own
+ * sinks (its harvest alone covers its internal consumption). A self-sustaining
+ * node with spare harvest is a net exporter; one that needs imports is not.
  */
 export function isNodeSelfSustaining(nodeFlow: NodeFlow): boolean {
-  // A node is self-sustaining if its harvest is enough for its consumption
-  // This is a simplified check; full sustainability includes spawn overhead
   return nodeFlow.totalHarvest >= nodeFlow.totalConsumption;
+}
+
+/** A node's energy balance, internal sources/sinks plus the trade boundary term. */
+export interface NodeBalance {
+  /** Internal sources (mined here). */
+  harvest: number;
+  /** Virtual boundary source: energy received from other nodes. */
+  imports: number;
+  /** Internal sinks (consumed here). */
+  consumption: number;
+  /** Virtual boundary sink: energy shipped to other nodes. */
+  exports: number;
+  /**
+   * (harvest + imports) - (consumption + exports). A balanced node nets ~0; any
+   * positive remainder is harvest not yet routed to a sink (spawn/mining overhead
+   * or genuine slack), a negative one a shortfall the trade term must close.
+   */
+  net: number;
+  /** Net trade position: >0 net importer, <0 net exporter, 0 closed. */
+  netTrade: number;
+}
+
+/**
+ * Resolve a node to its balance sheet, treating inter-node hauling as a single
+ * boundary source (imports) and sink (exports) - the representative trade term.
+ * This is what lets the node be reasoned about in isolation: a self-contained cell
+ * of internal sources and sinks that nets out against one trade flow.
+ */
+export function getNodeBalance(nodeFlow: NodeFlow): NodeBalance {
+  const { totalHarvest, importRate, totalConsumption, exportRate } = nodeFlow;
+  return {
+    harvest: totalHarvest,
+    imports: importRate,
+    consumption: totalConsumption,
+    exports: exportRate,
+    net: totalHarvest + importRate - (totalConsumption + exportRate),
+    netTrade: importRate - exportRate,
+  };
 }
 
 // =============================================================================
@@ -219,6 +281,7 @@ export function printNodeFlow(nodeFlow: NodeFlow): void {
   console.log(`  Harvest: ${nodeFlow.totalHarvest.toFixed(2)} e/tick`);
   console.log(`  Outflow: ${nodeFlow.totalOutflow.toFixed(2)} e/tick`);
   console.log(`  Consumption: ${nodeFlow.totalConsumption.toFixed(2)} e/tick`);
+  console.log(`  Trade: +${nodeFlow.importRate.toFixed(2)} import / -${nodeFlow.exportRate.toFixed(2)} export e/tick`);
   console.log(`  Spawns: ${Array.from(nodeFlow.spawnIds).join(", ")}`);
 
   console.log(`\n  Miners (${nodeFlow.miners.length}):`);

@@ -69,6 +69,12 @@ export {
 } from "./ConstructionCorp";
 
 export {
+  ReservationCorp,
+  SerializedReservationCorp,
+  createReservationCorp
+} from "./ReservationCorp";
+
+export {
   SpawningCorp,
   SerializedSpawningCorp,
   SpawnOrder,

@@ -46,6 +46,13 @@ import {
  * The graph is rebuilt when nodes change, but priorities can be
  * updated dynamically based on game state.
  */
+/** Normal controller upgrade demand (energy/tick) when nothing else competes. */
+export const DEFAULT_CONTROLLER_UPGRADE_DEMAND = 50;
+
+/** Minimal anti-downgrade controller demand used while construction is pending,
+ * so building new structures takes the lion's share of the node's energy. */
+export const MIN_CONTROLLER_UPGRADE_DEMAND = 1;
+
 export class FlowGraph {
   /** All energy sources indexed by ID */
   private sources: Map<string, FlowSource>;
@@ -173,7 +180,7 @@ export class FlowGraph {
           resource.id,
           node.id,
           resource.position,
-          50, // Default upgrade demand
+          DEFAULT_CONTROLLER_UPGRADE_DEMAND, // upgrade demand (reduced while building)
           100 // Max upgrade per tick (limited by WORK parts in practice)
         );
         this.sinks.set(sink.id, sink);
@@ -360,7 +367,13 @@ export class FlowGraph {
       id,
       nodeId,
       position,
-      5,  // Demand: 5 energy/tick (builder rate)
+      // Demand a real build crew's worth, not one builder's. Construction outranks
+      // the controller (priority 70 vs 60), so this makes building claim the node's
+      // surplus while there is something to build - "build supersedes upgrade" - and
+      // the builder squad sizes itself to the energy actually allocated (which the
+      // available surplus and MAX_BUILDERS still cap, so it does not over-claim).
+      // The controller resumes absorbing the surplus once building is done.
+      20, // Demand: roughly a full build crew (MAX_BUILDERS) at low/mid RCL
       50, // Capacity: max build rate
       priority
     );

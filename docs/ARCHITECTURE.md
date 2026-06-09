@@ -99,7 +99,7 @@ Business units that execute allocated work.
 | UpgradingCorp | Controller upgrades | Controller sink allocation |
 | ConstructionCorp | Structure building | Construction sink allocation |
 | SpawningCorp | Creep production | Spawn capacity |
-| BootstrapCorp | Emergency fallback | Starvation recovery only |
+| BootstrapCorp | Self-sufficient jacks: starvation recovery + anti-downgrade controller rescue | Outside the market (self-harvests) |
 
 Each corp receives allocations from the FlowSolver and executes accordingly.
 

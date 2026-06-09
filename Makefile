@@ -1,71 +1,44 @@
 # DarkPhoenix Screeps Makefile
 # Quick commands for development and testing
 
-.PHONY: help build test sim-start sim-stop sim-cli deploy watch reset bench scenario
+.PHONY: help install build lint test test-unit test-integration push-main
 
 help:
 	@echo "DarkPhoenix Development Commands"
 	@echo ""
+	@echo "Setup:"
+	@echo "  make install          - Install dependencies"
+	@echo ""
 	@echo "Build & Deploy:"
-	@echo "  make build      - Build the project"
-	@echo "  make deploy     - Build and deploy to private server"
-	@echo "  make watch      - Watch mode with auto-deploy"
+	@echo "  make build            - Build the project (dist/main.js)"
+	@echo "  make lint             - Lint the source"
+	@echo "  make push-main        - Deploy to the main Screeps server"
 	@echo ""
-	@echo "Testing:"
-	@echo "  make test       - Run unit tests"
-	@echo "  make scenario   - Run all scenarios"
-	@echo ""
-	@echo "Simulation Server:"
-	@echo "  make sim-start  - Start Docker server"
-	@echo "  make sim-stop   - Stop Docker server"
-	@echo "  make sim-cli    - Open server CLI"
-	@echo "  make reset      - Reset world data"
-	@echo "  make bench      - Run benchmark (1000 ticks)"
-	@echo ""
-	@echo "Quick Combos:"
-	@echo "  make quick      - Build + deploy + run 100 ticks"
-	@echo "  make full-test  - Start server + deploy + scenarios"
+	@echo "Testing (local verification, no Docker / Steam key required):"
+	@echo "  make test             - Run unit + integration tests"
+	@echo "  make test-unit        - Run fast unit tests"
+	@echo "  make test-integration - Build, then run the bot against an in-process Screeps engine"
+
+# Setup
+install:
+	npm install
 
 # Build
 build:
 	npm run build
 
-# Deploy
-deploy:
-	./scripts/sim.sh deploy
+lint:
+	npm run lint
 
-watch:
-	./scripts/sim.sh watch
+push-main:
+	npm run push-main
 
 # Testing
 test:
 	npm test
 
-scenario:
-	npm run scenario:all
+test-unit:
+	npm run test-unit
 
-# Simulation Server
-sim-start:
-	./scripts/sim.sh start
-
-sim-stop:
-	./scripts/sim.sh stop
-
-sim-cli:
-	./scripts/sim.sh cli
-
-reset:
-	./scripts/sim.sh reset
-
-bench:
-	./scripts/sim.sh bench
-
-# Quick iteration
-quick: build deploy
-	./scripts/sim.sh tick 100
-
-# Full test suite
-full-test: sim-start
-	@sleep 5
-	@make deploy
-	@make scenario
+test-integration:
+	npm run test-integration

@@ -17,6 +17,7 @@ import {
   SerializedUpgradingCorp,
   SerializedScoutCorp,
   SerializedConstructionCorp,
+  SerializedReservationCorp,
   SerializedSpawningCorp,
   SerializedHaulerCorp,
   SerializedTankerCorp,
@@ -167,6 +168,11 @@ declare global {
     constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
 
     /**
+     * Serialized reservation corps by room name.
+     */
+    reservationCorps?: { [roomName: string]: SerializedReservationCorp };
+
+    /**
      * Serialized spawning corps by spawn ID.
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
@@ -185,6 +191,13 @@ declare global {
      * Last surveyed tick for this room.
      */
     lastSurveyTick?: number;
+
+    /**
+     * The source dedicated to construction while a build is active: its miner
+     * feeds the builder's tankers and nothing else touches it (its haulers stand
+     * down). Set by ConstructionCorp, read by CarryCorp. Cleared when not building.
+     */
+    dedicatedBuildSourceId?: string;
   }
 
   /**
@@ -206,7 +219,7 @@ declare global {
      * - repair: Structure repair
      * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout";
+    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout" | "reserve";
 
     /**
      * Target ID for current task.
@@ -227,6 +240,13 @@ declare global {
      * Whether creep is currently working (vs traveling).
      */
     working?: boolean;
+
+    /**
+     * Flagged for retirement: the creep is an undersized runt that its corp
+     * wants to replace with a full-size body. It heads to the spawn to recycle
+     * itself once the room is maxed out and the spawn would otherwise idle.
+     */
+    recycling?: boolean;
 
     /**
      * ID of the SpawningCorp that spawned this creep.
@@ -285,6 +305,21 @@ declare global {
      * Cleared after successful delivery to trigger rotation.
      */
     deliveryTargetId?: string;
+
+    /**
+     * Which sink this hauler is delivering its CURRENT load to. Decided once per
+     * trip at fill-up (its home circuit, or the spawn if the spawn network is
+     * hungry that tick), then held for the whole trip so it never thrashes
+     * mid-route. Cleared when the load is emptied.
+     */
+    deliverSinkId?: "spawn" | "controller";
+
+    /**
+     * The hauler's PERMANENT delivery circuit, assigned once for life in
+     * proportion to the flow solver's per-sink allocations. This is its default
+     * destination every trip (overridden only to top up a hungry spawn).
+     */
+    homeSink?: "spawn" | "controller";
   }
 }
 

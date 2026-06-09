@@ -34,6 +34,7 @@
 import { Colony, createColony } from "./colony";
 import { deserializeNode, SerializedNode, createNodeNavigator, NodeNavigator, EdgeType, Node } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
+import { applyPlanToCorps } from "./flow/EconomyAdapter";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import {
@@ -43,18 +44,20 @@ import {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runReservationCorps,
   runSpawningCorps,
   logCorpStats,
   persistState,
   cleanupDeadCreeps,
   getAnalysisCache,
   isAnalysisInProgress,
+  refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
   runIncrementalAnalysis,
   renderNodeVisuals,
   renderSpatialVisuals,
-  requestFlowCreeps,
+  runSpawnScheduling,
 } from "./execution";
 import {
   initCorps,
@@ -105,6 +108,10 @@ let colony: Colony | undefined;
 
 /** Node navigator for pathfinding (created from persisted edges) */
 let nodeNavigator: NodeNavigator | undefined;
+
+/** How often (ticks) to re-solve the flow economy so it adapts to RCL-ups,
+ * new construction sites, etc. (the heavy spatial analysis is gated separately). */
+const FLOW_RESOLVE_INTERVAL = 50;
 
 /** Flow economy coordinator (replaces market-based allocation) */
 let flowEconomy: FlowEconomy | undefined;
@@ -170,6 +177,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runRealCorps(corps);
   runScoutCorps(corps);
   runConstructionCorps(corps);
+  runReservationCorps(corps);
 
   // ===========================================================================
   // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)
@@ -190,11 +198,56 @@ export const loop = ErrorMapper.wrapLoop(() => {
     runIncrementalAnalysis(colony);
   }
 
-  // ===========================================================================
-  // PHASE 2: PLANNING - Survey, Market, Plan (every 5000 ticks)
-  // ===========================================================================
+  // After a GLOBAL RESET (frequent on a live server, never in a sim) the module
+  // caches are wiped and only a territory-LESS visualization cache is restored,
+  // which leaves refreshNodeResourcesFromCache below with no territories to claim
+  // newly scouted sources from - so remote mining silently stops. If we have nodes
+  // but the analysis cache has no real territories, force a fresh terrain pass to
+  // rebuild them (it also re-claims resources from current vision/intel).
+  const analysisCache = getAnalysisCache();
+  const haveTerritories = !!analysisCache && analysisCache.result.territories.size > 0;
+  if (!hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
+    console.log(`[Respawn] Territory cache empty after reset - rebuilding for resource refresh`);
+    resetAnalysis();
+    runIncrementalAnalysis(colony);
+  }
 
-  if (shouldRunPlanning(Game.time)) {
+  // Keep node resources current with vision/intel between the (rare) full terrain
+  // passes, so a source in a room only just scouted gets claimed by its node and
+  // mined like any other - the terrain analysis itself runs at most every 5000
+  // ticks, far too coarse for picking up newly discovered sources. Interval-gated
+  // and cheap; a no-op until the first terrain pass has been cached.
+  if (!isAnalysisInProgress()) {
+    refreshNodeResourcesFromCache(colony);
+  }
+
+  // ===========================================================================
+  // PHASE 2: PLANNING - Survey, Market, Plan
+  // ===========================================================================
+  //
+  // Planning runs on a fixed cadence (every PLANNING_INTERVAL ticks) AND
+  // eagerly during bootstrap: as soon as spatial analysis has produced nodes
+  // but no harvest corps exist yet, materialize the economy immediately rather
+  // than waiting for the first cadence tick. Without this, a fresh colony has
+  // no miners/upgraders until tick PLANNING_INTERVAL and never bootstraps.
+
+  const economyNeedsBootstrap =
+    colony.getNodes().length > 0 &&
+    Object.keys(corps.harvestCorps).length === 0 &&
+    !isAnalysisInProgress() &&
+    Game.time % 10 === 0;
+
+  // Re-solve the flow economy on a light cadence so it adapts to changes the
+  // initial solve couldn't see: RCL-ups, new construction sites, etc. Without
+  // this the economy stays frozen on its first solution (the expensive spatial
+  // analysis inside is separately gated, so this only re-runs the cheap
+  // rebuild+solve+materialize).
+  const economyNeedsResolve =
+    colony.getNodes().length > 0 &&
+    !isAnalysisInProgress() &&
+    Game.time % FLOW_RESOLVE_INTERVAL === 0;
+
+  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
     // --- SURVEY: Analyze territory and create corps ---
@@ -216,6 +269,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
       const rebuilt = buildFlowEconomyFromMemory(planningNodes);
       nodeNavigator = rebuilt.navigator;
       flowEconomy = rebuilt.economy;
+
+      // Feed live construction sites into the flow as sinks so the solver can
+      // allocate energy (and hauler routes) to them. After an RCL-up the
+      // priority logic ranks construction above the controller, so the colony
+      // builds new structures first and only minimally upgrades.
+      addConstructionSitesToFlow(flowEconomy, planningNodes);
 
       // Update globals for debugging
       global.nodeNavigator = nodeNavigator;
@@ -246,10 +305,19 @@ export const loop = ErrorMapper.wrapLoop(() => {
     console.log(`[Planning] Complete`);
   }
 
-  // Request creeps from SpawningCorp based on flow assignments
-  // Runs AFTER planning so materialized assignments are available
-  // Priority: miners first, then haulers, then upgraders
-  requestFlowCreeps(corps);
+  // Let the strategic plan drive the corps (currently: hauling capacity) before
+  // they declare demand. With the anti-downgrade reserve in the value model the
+  // controller keeps a trickle even during a build, so this no longer freezes it.
+  if (flowEconomy) {
+    const plan = flowEconomy.getPlan();
+    if (plan) applyPlanToCorps(plan, corps);
+  }
+
+  // Demand-driven spawn scheduling. Each corp declares what it wants via
+  // getSpawnDemand(); the scheduler picks the single best creep to spawn per
+  // spawn, balancing flow-derived value, affordability and anti-starvation.
+  // Runs AFTER planning so materialized assignments/allocations are available.
+  runSpawnScheduling(corps);
 
   // ===========================================================================
   // PHASE 3: PERSIST - Save state and update telemetry (every tick)
@@ -328,6 +396,49 @@ function getOrCreateColony(): Colony {
  * @param nodes - Current colony nodes
  * @returns New navigator and economy instances
  */
+/**
+ * Feed the room's live construction sites into the flow economy as construction
+ * sinks, each mapped to the nearest node in its room. This makes construction a
+ * first-class consumer in the flow solve (with hauler routes), so the local
+ * mover delivers energy to builders per the solver's allocation.
+ */
+function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (sites.length === 0) continue;
+
+    const roomNodes = nodes.filter((n) => n.roomName === roomName);
+    if (roomNodes.length === 0) continue;
+
+    for (const site of sites) {
+      // Map the site to the nearest node in the same room.
+      let best: Node | undefined;
+      let bestDist = Infinity;
+      for (const node of roomNodes) {
+        const dx = node.peakPosition.x - site.pos.x;
+        const dy = node.peakPosition.y - site.pos.y;
+        const d = Math.abs(dx) + Math.abs(dy);
+        if (d < bestDist) {
+          bestDist = d;
+          best = node;
+        }
+      }
+      if (!best) continue;
+
+      const remaining = site.progressTotal - site.progress;
+      economy.addConstructionSite(
+        site.id,
+        best.id,
+        { x: site.pos.x, y: site.pos.y, roomName },
+        remaining
+      );
+    }
+  }
+}
+
 function buildFlowEconomyFromMemory(nodes: Node[]): {
   navigator: NodeNavigator;
   economy: FlowEconomy;

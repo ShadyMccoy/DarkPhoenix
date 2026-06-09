@@ -42,21 +42,15 @@ magnitude, it is recommended to prefer unit tests wherever possible.
 
 ## Integration Testing
 
-### Installing Screeps Server Mockup
+### Screeps Server Mockup
 
-Before starting to use integration testing, you must install [screeps-server-mockup](https://github.com/screepers/screeps-server-mockup) to your project.
-Please view that repository for more instruction on installation.
+Integration testing is powered by [screeps-server-mockup](https://github.com/screepers/screeps-server-mockup),
+which is already listed in `devDependencies` and wired into the test scripts — a
+plain `npm install` pulls it in. It has native dependencies; if a fresh install
+ever fails to build them, see that repository's troubleshooting notes (it needs a
+working node-gyp toolchain).
 
-```bash
-# Using yarn:
-yarn add -D screeps-server-mockup
-# Using npm
-npm install --save-dev screeps-server-mockup
-```
-
-You will also need to add scripts to run integration tests.
-
-In `package.json`, add a new `test-integration` script and add the new integration testing to the main `test` script.
+The scripts are already configured in `package.json`:
 
 ```json
   "scripts": {
@@ -65,7 +59,8 @@ In `package.json`, add a new `test-integration` script and add the new integrati
   }
 ```
 
-Now you can run integration tests by using the `test-integration` script or run both unit and integration tests using the `test` script.
+Run integration tests with the `test-integration` script, or run both unit and
+integration suites with `npm test`.
 
 ### Integration Testing with Screeps Server Mockup
 
@@ -96,25 +91,3 @@ are out of date and pulling in an older version of the [screeps
 server](https://github.com/screeps/screeps). If you notice that test environment
 behavior differs from the MMO server, ensure that all of these dependencies are
 correctly up to date.
-
-## Simulation Testing (Private Server)
-
-For running scenario-based tests against a local Screeps private server using Docker, see the [Simulation Testing Guide](./simulation-testing.md).
-
-**Quick start:**
-```bash
-npm run sim:start      # Start Docker server
-npm run sim:deploy     # Build and deploy code
-npm run scenario:all   # Run scenario tests
-```
-
-### Key Differences: Mockup vs Private Server
-
-| Feature | screeps-server-mockup | Private Server (Docker) |
-|---------|----------------------|------------------------|
-| World Setup | Automatic (3x3 grid with objects) | Manual (requires map import) |
-| Speed | Fast (in-process) | Slower (network calls) |
-| Use Case | Unit/Integration tests | Scenario/Behavior tests |
-| CI/CD | Easy | Requires Docker |
-
-**Recommendation:** Use screeps-server-mockup for most integration tests. Use the private server for manual debugging and long-running scenario tests.
