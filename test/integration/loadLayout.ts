@@ -111,6 +111,49 @@ export async function loadLayout(world: any, layout: RoomLayout | RoomLayout[]):
   }
 }
 
+/**
+ * Give an EXISTING bot a second (third, ...) owned room: claim that room's
+ * controller for the user and drop a functional spawn in it. This mirrors the
+ * two db writes `addBot` does for its first room, so a single player can own N
+ * rooms at once - the setup for "does N rooms behave like N independent single
+ * rooms?". The room must already have a controller (load its layout first).
+ */
+export async function addOwnedRoom(
+  world: any,
+  userId: string,
+  room: string,
+  x: number,
+  y: number,
+  spawnName: string
+): Promise<void> {
+  const { C, db } = await world.load();
+  const controller = await db["rooms.objects"].findOne({ $and: [{ room }, { type: "controller" }] });
+  if (controller == null) {
+    throw new Error(`addOwnedRoom: ${room} has no controller (load its layout first)`);
+  }
+  await Promise.all([
+    db.rooms.update({ _id: room }, { $set: { active: true } }),
+    db["rooms.objects"].update(
+      { room, type: "controller" },
+      { $set: { user: userId, level: 1, progress: 0, downgradeTime: null, safeMode: 20000 } }
+    ),
+    db["rooms.objects"].insert({
+      room,
+      type: "spawn",
+      x,
+      y,
+      user: userId,
+      name: spawnName,
+      store: { energy: C.SPAWN_ENERGY_START },
+      storeCapacityResource: { energy: C.SPAWN_ENERGY_CAPACITY },
+      hits: C.SPAWN_HITS,
+      hitsMax: C.SPAWN_HITS,
+      spawning: null,
+      notifyWhenAttacked: true
+    })
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 // Neighbour-room padding
 // ---------------------------------------------------------------------------

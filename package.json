@@ -17,6 +17,7 @@
     "sim:metrics": "ts-node -P tsconfig.test.json scripts/sim-metrics.ts",
     "sim:parallel": "ts-node -P tsconfig.test.json scripts/sim-parallel.ts",
     "sim:scenario": "ts-node -P tsconfig.test.json scripts/sim-scenario.ts",
+    "sim:multiroom": "ts-node -P tsconfig.test.json scripts/sim-multiroom.ts",
     "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
     "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
     "plan:placement": "ts-node -P tsconfig.test.json scripts/probe-spawn-placement.ts",
