@@ -240,16 +240,11 @@ export class CarryCorp extends Corp {
       creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
-    // Opportunistic: pick up nearby dropped energy while delivering
-    if (creep.memory.working && creep.store.getFreeCapacity() > 0) {
-      const nearbyDropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-        filter: (r) => r.resourceType === RESOURCE_ENERGY,
-      });
-      if (nearbyDropped.length > 0) {
-        creep.pickup(nearbyDropped[0]);
-      }
-    }
-
+    // A clean bus: it fills completely at its source stop, then runs the route and
+    // empties completely at its sink stop - no grabbing energy off-route mid-trip
+    // (that energy belongs to its own source's bus). The state flips above only on
+    // full and on empty, so the hauler waits at each stop until the transaction is
+    // done rather than leaving with a partial load.
     if (creep.memory.working) {
       this.deliverEnergy(creep, room, spawn);
     } else {
