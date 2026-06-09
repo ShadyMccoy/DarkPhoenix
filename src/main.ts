@@ -56,7 +56,8 @@ import {
   runSpawningCorps,
   isSpawnPlacementInProgress,
   startSpawnPlacement,
-  runSpawnPlacementStep
+  runSpawnPlacementStep,
+  snapshotCorpVariance
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
@@ -187,6 +188,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runScoutCorps(corps);
   runConstructionCorps(corps);
   runReservationCorps(corps);
+
+  // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
+  // below their commissioned throughput) surface in Memory.corpVariance.
+  if (Game.time % 25 === 0) {
+    snapshotCorpVariance(corps, Game.time);
+  }
 
   // ===========================================================================
   // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)
@@ -629,14 +636,10 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
  */
 function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
   const stats = activeColony.getStats();
-  const supply = activeColony.getMoneySupply();
 
   console.log(`[Colony] Tick ${Game.time}`);
   console.log(`  Nodes: ${stats.nodeCount}, Corps: ${stats.totalCorps} (${stats.activeCorps} active)`);
-  console.log(`  Chains: ${stats.activeChains}, Treasury: ${supply.treasury.toFixed(0)}`);
-  console.log(
-    `  Money Supply: ${supply.net.toFixed(0)} (minted: ${supply.minted.toFixed(0)}, taxed: ${supply.taxed.toFixed(0)})`
-  );
+  console.log(`  Chains: ${stats.activeChains}`);
 
   logCorpStats(activeCorps);
 }
@@ -783,7 +786,6 @@ global.status = () => {
   if (colony) {
     console.log("\n=== Colony ===");
     console.log(`Nodes: ${colony.getNodes().length}`);
-    console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
   }
 };
 
@@ -1028,7 +1030,6 @@ global.forgiveDebt = (amount = 1000) => {
     unitsProduced: number;
     expectedUnitsProduced: number;
     unitsConsumed: number;
-    acquisitionCost: number;
   }) => {
     corp.balance = amount;
     corp.totalRevenue = 0;
@@ -1036,7 +1037,6 @@ global.forgiveDebt = (amount = 1000) => {
     corp.unitsProduced = 0;
     corp.expectedUnitsProduced = 0;
     corp.unitsConsumed = 0;
-    corp.acquisitionCost = 0;
     corpsReset++;
   };
 

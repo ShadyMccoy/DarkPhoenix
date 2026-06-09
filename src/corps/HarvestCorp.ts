@@ -447,6 +447,15 @@ export class HarvestCorp extends Corp {
   }
 
   /**
+   * Budgeted energy/tick: the harvest rate the flow plan commissioned, or 0 when
+   * this source has no assignment yet (so it is excluded from variance until the
+   * planner funds it). Matches recordProduction's unit (energy harvested).
+   */
+  public budgetedRate(): number {
+    return this.minerAssignment?.harvestRate ?? 0;
+  }
+
+  /**
    * Get spawn distance from flow assignment.
    */
   public getSpawnDistance(): number {

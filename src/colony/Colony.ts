@@ -1,4 +1,3 @@
-import { CreditLedger, MoneySupply } from "./CreditLedger";
 import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { Chain } from "../planning/Chain";
@@ -11,8 +10,6 @@ import { Node } from "../nodes/Node";
 export interface ColonyConfig {
   /** Tax rate applied per tick (default 0.001 = 0.1%) */
   taxRate: number;
-  /** Seed capital for bootstrapping (given to first spawn corp) */
-  seedCapital: number;
   /** Grace period for new corps before pruning (ticks) */
   corpGracePeriod: number;
   /** Minimum treasury balance before funding new chains */
@@ -24,7 +21,6 @@ export interface ColonyConfig {
  */
 export const DEFAULT_COLONY_CONFIG: ColonyConfig = {
   taxRate: 0.001,
-  seedCapital: 10000,
   corpGracePeriod: 1500,
   minTreasuryBuffer: 1000
 };
@@ -41,12 +37,6 @@ export interface ColonyStats {
   activeCorps: number;
   /** Number of funded chains */
   activeChains: number;
-  /** Total credits minted this session */
-  totalMinted: number;
-  /** Total credits taxed this session */
-  totalTaxed: number;
-  /** Current treasury balance */
-  treasuryBalance: number;
   /** Average corp ROI */
   averageROI: number;
 }
@@ -56,23 +46,19 @@ export interface ColonyStats {
  *
  * The colony manages:
  * 1. Nodes (territories) - spatial regions identified by peak detection
- * 2. Treasury (CreditLedger) - seed capital and money supply
- * 3. Surveys - identifying potential corps in territories
- * 4. Statistics - tracking economic health
+ * 2. Surveys - identifying potential corps in territories
+ * 3. Statistics - tracking economic health
  *
  * NOTE: Actual corp execution is handled by CorpRunner in the execution module.
  * Corps (HarvestCorp, CarryCorp, etc.) are managed via CorpRegistry,
- * not via node.corps. This class provides economic infrastructure (treasury,
- * surveying) but doesn't directly run corps.
+ * not via node.corps. This class provides economic infrastructure (surveying)
+ * but doesn't directly run corps.
  *
  * See main.ts for the full game loop orchestration.
  */
 export class Colony {
   /** All nodes in this colony */
   private nodes: Node[] = [];
-
-  /** The credit ledger (treasury) */
-  private ledger: CreditLedger;
 
   /** Node surveyor for finding opportunities */
   private surveyor: NodeSurveyor;
@@ -98,24 +84,13 @@ export class Colony {
     totalCorps: 0,
     activeCorps: 0,
     activeChains: 0,
-    totalMinted: 0,
-    totalTaxed: 0,
-    treasuryBalance: 0,
     averageROI: 0
   };
 
   public constructor(config: Partial<ColonyConfig> = {}, mintValues: Partial<MintValues> = {}) {
     this.config = { ...DEFAULT_COLONY_CONFIG, ...config };
     this.mintValues = { ...DEFAULT_MINT_VALUES, ...mintValues };
-    this.ledger = new CreditLedger();
     this.surveyor = new NodeSurveyor();
-  }
-
-  /**
-   * Get colony treasury balance
-   */
-  public get treasury(): number {
-    return this.ledger.getBalance();
   }
 
   /**
@@ -131,7 +106,7 @@ export class Colony {
   public run(tick: number, corpRegistry: CorpRegistry): void {
     this.currentTick = tick;
 
-    // Bootstrap if needed (mint seed capital)
+    // Bootstrap once on first run.
     if (!this.bootstrapped) {
       this.bootstrap();
     }
@@ -147,10 +122,9 @@ export class Colony {
   }
 
   /**
-   * Bootstrap the colony with seed capital
+   * Bootstrap the colony (one-time initialization marker).
    */
   private bootstrap(): void {
-    this.ledger.mint(this.config.seedCapital, "bootstrap");
     this.bootstrapped = true;
   }
 
@@ -221,8 +195,6 @@ export class Colony {
    * Update colony statistics
    */
   private updateStats(corpRegistry: CorpRegistry): void {
-    const moneySupply = this.ledger.getMoneySupply();
-
     // Count corps from registry
     const totalCorps =
       Object.keys(corpRegistry.bootstrapCorps).length +
@@ -261,9 +233,6 @@ export class Colony {
       totalCorps,
       activeCorps,
       activeChains: this.activeChains.filter(c => c.funded).length,
-      totalMinted: moneySupply.minted,
-      totalTaxed: moneySupply.taxed,
-      treasuryBalance: moneySupply.treasury,
       averageROI: 0
     };
   }
@@ -276,24 +245,10 @@ export class Colony {
   }
 
   /**
-   * Get money supply information
-   */
-  public getMoneySupply(): MoneySupply {
-    return this.ledger.getMoneySupply();
-  }
-
-  /**
    * Get active chains
    */
   public getActiveChains(): Chain[] {
     return [...this.activeChains];
-  }
-
-  /**
-   * Get ledger for direct operations
-   */
-  public getLedger(): CreditLedger {
-    return this.ledger;
   }
 
   /**
@@ -349,7 +304,6 @@ export class Colony {
       currentTick: this.currentTick,
       config: this.config,
       mintValues: this.mintValues,
-      ledger: this.ledger.serialize(),
       nodeIds: this.nodes.map(n => n.id),
       activeChainIds: this.activeChains.map(c => c.id)
     };
@@ -363,9 +317,6 @@ export class Colony {
     this.currentTick = data.currentTick ?? 0;
     this.config = { ...DEFAULT_COLONY_CONFIG, ...data.config };
     this.mintValues = { ...DEFAULT_MINT_VALUES, ...data.mintValues };
-    if (data.ledger) {
-      this.ledger.deserialize(data.ledger);
-    }
     // Node and chain restoration would need additional logic
   }
 }
@@ -378,7 +329,6 @@ export interface SerializedColony {
   currentTick: number;
   config: ColonyConfig;
   mintValues: MintValues;
-  ledger: ReturnType<CreditLedger["serialize"]>;
   nodeIds: string[];
   activeChainIds: string[];
 }

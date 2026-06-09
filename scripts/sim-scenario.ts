@@ -90,6 +90,24 @@ async function main(): Promise<void> {
     );
   }
 
+  // Budget-vs-actual variance: surface the corps straying furthest below the
+  // throughput the planner commissioned them for (the outliers worth looking at).
+  const finalMem = await mem(bot);
+  const variance = finalMem.corpVariance as
+    | { id: string; type: string; budget: number; actual: number; variance: number }[]
+    | undefined;
+  if (variance && variance.length) {
+    console.log("\nbudget-vs-actual variance (worst first):");
+    console.log(["corp", "type", "budget", "actual", "var%"].map(pad).join(" "));
+    for (const r of variance.slice(0, 8)) {
+      console.log(
+        [r.id.slice(-9), r.type, String(r.budget), String(r.actual), `${(r.variance * 100).toFixed(0)}%`]
+          .map(pad)
+          .join(" ")
+      );
+    }
+  }
+
   await server.stop();
   process.exit(0);
 }

@@ -32,7 +32,6 @@ export interface SerializedCorp {
   unitsProduced: number;
   expectedUnitsProduced: number;
   unitsConsumed: number;
-  acquisitionCost: number;
   // Planning state
   lastPlannedTick: number;
 }
@@ -87,23 +86,23 @@ export abstract class Corp {
   /** Units consumed (energy used) for tracking consumption */
   public unitsConsumed = 0;
 
-  /** Total acquisition cost for purchased inputs (for middleman corps like hauling) */
-  public acquisitionCost = 0;
+  /**
+   * Rolling production-rate meter (in-memory, not serialized).
+   * Anchors `unitsProduced` at a tick so {@link productionRate} can report a
+   * recent units/tick rate to compare against {@link budgetedRate}. Resets after
+   * a global reset, which only costs one window of warm-up.
+   */
+  private rateAnchorTick = 0;
+  private rateAnchorUnits = 0;
+
+  /** Window (ticks) over which the production rate is measured. */
+  private static readonly RATE_WINDOW = 100;
 
   /** Last tick when planning was performed */
   public lastPlannedTick = 0;
 
   /** How often to re-run planning (ticks) */
   protected static readonly PLANNING_INTERVAL = 100;
-
-  /** Base margin for cost-plus pricing (10%) */
-  private readonly BASE_MARGIN = 0.1;
-
-  /** Maximum wealth discount on margin (5%) */
-  private readonly MAX_WEALTH_DISCOUNT = 0.05;
-
-  /** Balance threshold for maximum discount */
-  private readonly WEALTH_THRESHOLD = 10000;
 
   /** Optional custom ID generator for deterministic testing */
   private static idGenerator: ((type: CorpType, nodeId: string) => string) | null = null;
@@ -155,28 +154,6 @@ export abstract class Corp {
   }
 
   /**
-   * Get current margin based on wealth.
-   * Wealthy corps can afford lower margins, allowing them to undercut competition.
-   *
-   * - Balance = 0: 10% margin
-   * - Balance >= 10000: 5% margin
-   */
-  public getMargin(): number {
-    const wealthRatio = Math.min(this.balance / this.WEALTH_THRESHOLD, 1);
-    const discount = wealthRatio * this.MAX_WEALTH_DISCOUNT;
-    return this.BASE_MARGIN - discount;
-  }
-
-  /**
-   * Calculate sell price using cost-plus pricing.
-   * Price = input cost × (1 + margin)
-   */
-  public getPrice(inputCost: number): number {
-    if (inputCost <= 0) return 0;
-    return inputCost * (1 + this.getMargin());
-  }
-
-  /**
    * Record revenue from a sale
    */
   public recordRevenue(amount: number): void {
@@ -221,41 +198,6 @@ export abstract class Corp {
   }
 
   /**
-   * Record acquisition cost for purchased inputs (middleman corps)
-   */
-  public recordAcquisition(cost: number, units: number): void {
-    if (cost <= 0 || units <= 0) return;
-    this.acquisitionCost += cost;
-    this.unitsProduced += units;
-  }
-
-  /**
-   * Get marginal cost per unit produced.
-   * For producers: totalCost / unitsProduced
-   * For middlemen: (acquisitionCost + operatingCost) / unitsProduced
-   *
-   * Uses the larger of actual or expected production to amortize upfront costs
-   * over the full expected lifetime, preventing price spikes during bootstrapping.
-   */
-  public getMarginalCost(): number {
-    // Use max of actual and expected production to amortize upfront costs
-    const production = Math.max(this.unitsProduced, this.expectedUnitsProduced);
-    if (production === 0) return Infinity;
-    // Operating cost = totalCost - acquisitionCost (what we paid to produce/transport)
-    const operatingCost = this.totalCost - this.acquisitionCost;
-    return (this.acquisitionCost + operatingCost) / production;
-  }
-
-  /**
-   * Get the sell price per unit using marginal cost + margin
-   */
-  public getSellPrice(): number {
-    const marginalCost = this.getMarginalCost();
-    if (!isFinite(marginalCost)) return 1; // Default price when no production yet
-    return this.getPrice(marginalCost);
-  }
-
-  /**
    * Get actual ROI based on lifetime revenue and costs
    */
   public getActualROI(): number {
@@ -268,6 +210,57 @@ export abstract class Corp {
    */
   public getProfit(): number {
     return this.totalRevenue - this.totalCost;
+  }
+
+  // ===========================================================================
+  // BUDGET vs ACTUAL (variance)
+  // ===========================================================================
+  //
+  // Per-corp ROI is not comparable across corp types (a miner's "energy out"
+  // and an upgrader's "control points" are different currencies). But a corp's
+  // *variance* - how far its actual throughput strays from what the planner
+  // commissioned it for - IS a uniform signal, because it compares a corp only
+  // against itself. A large negative variance is the outlier worth looking at:
+  // a miner the plan budgeted 10 e/tick that delivers 0 is a stalled corp.
+
+  /**
+   * Units/tick this corp was commissioned to produce by the planner. Same unit
+   * as {@link recordProduction} for this corp type (so variance is unit-free).
+   * Default 0 means "off budget" - the corp is excluded from variance (e.g.
+   * scouts, bootstrap). Budgeted corps override this from their assignment.
+   */
+  public budgetedRate(): number {
+    return 0;
+  }
+
+  /**
+   * Recent actual production rate (units/tick), measured over a rolling window.
+   * Rolls the window forward once it has aged past {@link RATE_WINDOW}.
+   */
+  public productionRate(tick: number): number {
+    if (this.rateAnchorTick === 0) {
+      this.rateAnchorTick = tick;
+      this.rateAnchorUnits = this.unitsProduced;
+      return 0;
+    }
+    const elapsed = tick - this.rateAnchorTick;
+    const rate = elapsed > 0 ? (this.unitsProduced - this.rateAnchorUnits) / elapsed : 0;
+    if (elapsed >= Corp.RATE_WINDOW) {
+      this.rateAnchorTick = tick;
+      this.rateAnchorUnits = this.unitsProduced;
+    }
+    return rate;
+  }
+
+  /**
+   * Variance of actual production against budget: (actual - budget) / budget.
+   * Returns null for off-budget corps (no commissioned rate to compare to).
+   * -1 = producing nothing of what it was funded for; 0 = on budget; >0 = over.
+   */
+  public variance(tick: number): number | null {
+    const budget = this.budgetedRate();
+    if (budget <= 0) return null;
+    return (this.productionRate(tick) - budget) / budget;
   }
 
   /**
@@ -290,17 +283,6 @@ export abstract class Corp {
    */
   public shouldPrune(currentTick: number): boolean {
     return this.isBankrupt() || this.isDormant(currentTick);
-  }
-
-  /**
-   * Apply taxation (reduces balance by percentage)
-   * Returns the amount taxed
-   */
-  public applyTax(rate: number): number {
-    if (this.balance <= 0 || rate <= 0) return 0;
-    const taxAmount = this.balance * rate;
-    this.balance -= taxAmount;
-    return taxAmount;
   }
 
   /**
@@ -352,7 +334,6 @@ export abstract class Corp {
       unitsProduced: this.unitsProduced,
       expectedUnitsProduced: this.expectedUnitsProduced,
       unitsConsumed: this.unitsConsumed,
-      acquisitionCost: this.acquisitionCost,
       lastPlannedTick: this.lastPlannedTick
     };
   }
@@ -370,7 +351,6 @@ export abstract class Corp {
     this.unitsProduced = data.unitsProduced ?? 0;
     this.expectedUnitsProduced = data.expectedUnitsProduced ?? 0;
     this.unitsConsumed = data.unitsConsumed ?? 0;
-    this.acquisitionCost = data.acquisitionCost ?? 0;
     this.lastPlannedTick = data.lastPlannedTick ?? 0;
   }
 
@@ -399,23 +379,6 @@ export abstract class Corp {
    * Used for distance calculations.
    */
   public abstract getPosition(): Position;
-}
-
-/**
- * Calculate margin for a given balance (pure function for testing)
- */
-export function calculateMargin(balance: number, baseMargin = 0.1, maxDiscount = 0.05, threshold = 10000): number {
-  const wealthRatio = Math.min(balance / threshold, 1);
-  const discount = wealthRatio * maxDiscount;
-  return baseMargin - discount;
-}
-
-/**
- * Calculate price with margin (pure function for testing)
- */
-export function calculatePrice(inputCost: number, margin: number): number {
-  if (inputCost <= 0) return 0;
-  return inputCost * (1 + margin);
 }
 
 /**

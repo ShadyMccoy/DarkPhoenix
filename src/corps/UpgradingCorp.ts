@@ -459,6 +459,15 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
+   * Budgeted energy/tick: the controller allocation the plan routed here. Matches
+   * recordProduction's unit (WORK consumed ~ 1 energy/tick per WORK). 0 when
+   * unallocated, excluding the corp from variance.
+   */
+  public budgetedRate(): number {
+    return this.sinkAllocation?.allocated ?? 0;
+  }
+
+  /**
    * Get the demanded energy rate from flow solution.
    */
   public getDemandedEnergyRate(): number {

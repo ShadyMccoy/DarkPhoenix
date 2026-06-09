@@ -10,17 +10,13 @@
 // Shared constants
 export * from "./CorpConstants";
 
-export { Corp, CorpType, SerializedCorp, calculateMargin, calculatePrice, calculateROI } from "./Corp";
+export { Corp, CorpType, SerializedCorp, calculateROI } from "./Corp";
 
 export { BootstrapCorp, SerializedBootstrapCorp, createBootstrapCorp } from "./BootstrapCorp";
 
 export { HarvestCorp, SerializedHarvestCorp, createHarvestCorp } from "./HarvestCorp";
 
 export { CarryCorp, SerializedCarryCorp, createCarryCorp } from "./CarryCorp";
-
-export { HaulerCorp, SerializedHaulerCorp, createHaulerCorp } from "./HaulerCorp";
-
-export { TankerCorp, TankerDemand, SerializedTankerCorp, createTankerCorp } from "./TankerCorp";
 
 export { UpgradingCorp, SerializedUpgradingCorp, createUpgradingCorp } from "./UpgradingCorp";
 
