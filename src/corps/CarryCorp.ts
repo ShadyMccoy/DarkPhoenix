@@ -438,72 +438,52 @@ export class CarryCorp extends Corp {
     const sources = room.find(FIND_SOURCES);
     const assignedSource = this.getAssignedSource(creep, sources);
 
-    // Get target position (from source object or intel position)
+    // The one fixed pickup stop on this hauler's bus route: its assigned source.
     let targetPos: RoomPosition | null = null;
     if (assignedSource) {
       targetPos = assignedSource.pos;
     } else if (creep.memory.assignedSourcePos) {
-      const pos = creep.memory.assignedSourcePos;
-      targetPos = new RoomPosition(pos.x, pos.y, pos.roomName);
+      const p = creep.memory.assignedSourcePos;
+      targetPos = new RoomPosition(p.x, p.y, p.roomName);
     }
+    if (!targetPos) return;
 
-    // If target is in a different room, navigate there first
-    if (targetPos && targetPos.roomName !== creep.room.name) {
+    if (targetPos.roomName !== creep.room.name) {
       creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
       return;
     }
 
-    // Use creep's current room for searching (important for remote rooms)
-    const searchRoom = creep.room;
-
-    // First try dropped energy near assigned source (within range 5)
-    const dropped = searchRoom.find(FIND_DROPPED_RESOURCES, {
-      filter: (r) => {
-        if (r.resourceType !== RESOURCE_ENERGY) return false;
-        // If we have a target position, prefer energy near it
-        if (targetPos) {
-          return r.pos.getRangeTo(targetPos) <= 5;
-        }
-        return true;
-      },
-    });
-
-    if (dropped.length > 0) {
-      // Pick the largest pile near our source instead of closest
-      const target = dropped.reduce((best, curr) =>
-        curr.amount > best.amount ? curr : best
-      );
-      const result = creep.pickup(target);
-      if (result === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+    // Drive to the source and take whatever is there - its container if static
+    // mining built one, otherwise the miner's drop pile. No room-wide "largest
+    // pile" search: that pick changes as piles grow and shrink, so the hauler
+    // wanders between them instead of running its route. A bus stops at its stop.
+    const container = targetPos.findInRange(FIND_STRUCTURES, 1, {
+      filter: (s) =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
+    })[0] as StructureContainer | undefined;
+    if (container) {
+      if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(container, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       }
       return;
     }
 
-    // If no dropped energy near assigned source, check containers near it
-    const containers = searchRoom.find(FIND_STRUCTURES, {
-      filter: (s) => {
-        if (s.structureType !== STRUCTURE_CONTAINER) return false;
-        if ((s as StructureContainer).store[RESOURCE_ENERGY] === 0) return false;
-        if (targetPos) {
-          return s.pos.getRangeTo(targetPos) <= 3;
-        }
-        return true;
-      },
-    }) as StructureContainer[];
-
-    if (containers.length > 0) {
-      const target = containers[0]; // Take first container near source
-      const result = creep.withdraw(target, RESOURCE_ENERGY);
-      if (result === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+    // The miner's drop sits adjacent to the source (a fixed tile - the miner is
+    // static), so this stays put; take the biggest of the (usually one) piles.
+    const pile = targetPos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
+      .sort((a, b) => b.amount - a.amount)[0];
+    if (pile) {
+      if (creep.pickup(pile) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(pile, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       }
       return;
     }
 
-    // If nothing to pick up, move towards assigned source (where miners drop)
-    if (targetPos && creep.pos.getRangeTo(targetPos) > 3) {
-      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+    // Nothing to grab yet: wait at the stop for the next drop.
+    if (creep.pos.getRangeTo(targetPos) > 1) {
+      creep.moveTo(targetPos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
   }
 
@@ -619,50 +599,33 @@ export class CarryCorp extends Corp {
     const controller = room.controller;
     if (!controller) return false;
 
-    // Upgrader container near the controller.
-    const containers = room.find(FIND_STRUCTURES, {
+    // The controller end of the bus route is one fixed drop-off: the upgrader
+    // container if static upgrading built one, otherwise the controller itself
+    // (drop beside it for the camping upgraders to draw from). No chasing whichever
+    // upgrader currently has the most room - that pick changes every tick and the
+    // hauler ends up shuttling between workers instead of running its route.
+    const container = controller.pos.findInRange(FIND_STRUCTURES, 4, {
       filter: (s) =>
         s.structureType === STRUCTURE_CONTAINER &&
-        s.pos.getRangeTo(controller) <= 4 &&
         (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-    }) as StructureContainer[];
-    if (containers.length > 0) {
-      const target = containers[0];
-      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+    })[0] as StructureContainer | undefined;
+    if (container) {
+      if (creep.transfer(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(container, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
       } else {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], container.store.getFreeCapacity(RESOURCE_ENERGY)));
       }
       return true;
     }
 
-    // Upgraders/builders near the controller that need energy.
-    const workers = room.find(FIND_MY_CREEPS, {
-      filter: (c) =>
-        (c.memory.workType === "upgrade" || c.memory.workType === "build") &&
-        c.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
-        c.pos.getRangeTo(controller) <= 5,
-    });
-    if (workers.length > 0) {
-      workers.sort((a, b) => b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY));
-      const target = workers[0];
-      const result = creep.transfer(target, RESOURCE_ENERGY);
-      if (result === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-      } else if (result === OK) {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
-      }
-      return true;
-    }
-
-    // No container/worker yet: drop the load next to the controller so the
-    // stationary upgrader can pick it up.
-    if (creep.pos.getRangeTo(controller) <= 3) {
+    // No container: drive to the controller and drop the load there. The
+    // stationary upgraders camp at the controller and pick it up.
+    if (creep.pos.getRangeTo(controller) > 2) {
+      creep.moveTo(controller, { range: 2, visualizePathStyle: { stroke: "#ffffff" } });
+    } else {
       const dropped = creep.store[RESOURCE_ENERGY];
       creep.drop(RESOURCE_ENERGY);
       this.recordProduction(dropped);
-    } else {
-      creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
     }
     return true;
   }
