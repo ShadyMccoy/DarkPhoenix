@@ -605,11 +605,16 @@ export class CarryCorp extends Corp {
     let throughput = 0;
     for (const a of this.haulerAssignments) {
       const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
-      if (body.cost === 0) continue;
+      if (body.cost === 0 || body.carryCapacity === 0) continue;
+      // Energy in flight over the round trip sets the carry needed; one capped
+      // body may not cover a long/high-flow route, so run as many as it takes -
+      // this is what makes hauling cost rise properly with distance.
+      const carryEnergyNeeded = a.flowRate * 2 * a.distance * 1.2;
+      const haulers = Math.max(1, Math.ceil(carryEnergyNeeded / body.carryCapacity));
       const pickup = scene.resource(a.fromId);
       const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
       const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
-      costPerTick += body.cost / usefulLife;
+      costPerTick += (haulers * body.cost) / usefulLife;
       throughput += a.flowRate;
     }
     return { costPerTick, throughput };

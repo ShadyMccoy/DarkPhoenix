@@ -75,14 +75,21 @@ export function evaluateSpawnChain(facts: SpawnChainFacts): number {
   });
   if (sources.length === 0) return 0;
 
+  // The candidate position is the base's hub (its spawn/storage centre). All
+  // energy flows THROUGH it: source -> hub -> controller. So the position pays a
+  // hauling toll on the whole harvest, not just the spawn's own overhead - which
+  // is what makes "where to put a functioning base" a real decision rather than
+  // a rounding error.
+  const hub = facts.spawnPos;
   const resources = new Map<string, SceneResource>();
   for (const s of sources) resources.set(s.id, { pos: s.pos, capacity: s.capacity });
+  resources.set("hub", { pos: hub });
   const scene: ChainScene = {
-    spawnPos: facts.spawnPos,
+    spawnPos: hub,
     energyCapacity,
     controllerPos: facts.controllerPos,
     dist,
-    resource: (id) => resources.get(id),
+    resource: id => resources.get(id)
   };
 
   let harvest = 0;
@@ -95,54 +102,27 @@ export function evaluateSpawnChain(facts: SpawnChainFacts): number {
     harvest += mined.throughput;
     cost += mined.costPerTick;
 
-    const hauler = new CarryCorp(VIRTUAL, VIRTUAL);
-    hauler.setHaulerAssignments([
-      route(s.id, "controller", mined.throughput, dist(s.pos, facts.controllerPos)),
-    ]);
-    cost += hauler.project(scene).costPerTick;
+    // Haul this source's energy in to the hub.
+    const inHauler = new CarryCorp(VIRTUAL, VIRTUAL);
+    inHauler.setHaulerAssignments([route(s.id, "hub", mined.throughput, dist(s.pos, hub))]);
+    cost += inHauler.project(scene).costPerTick;
   }
   if (harvest <= 0) return 0;
 
-  // Energy left for the controller after miners and haulers are staffed; the
-  // upgrader is sized to that, then it too charges its overhead.
+  // Push the energy gathered at the hub out to the controller.
+  const atHub = Math.max(0, harvest - cost);
+  const outHauler = new CarryCorp(VIRTUAL, VIRTUAL);
+  outHauler.setHaulerAssignments([route("hub", "controller", atHub, dist(hub, facts.controllerPos))]);
+  cost += outHauler.project(scene).costPerTick;
+
+  // The upgrader is sized to what actually reaches the controller, then charges
+  // its own overhead (its creeps walk out from the hub).
   const netToController = Math.max(0, harvest - cost);
   const upgrader = new UpgradingCorp(VIRTUAL, VIRTUAL);
   upgrader.setSinkAllocation(controllerAllocation(netToController));
   cost += upgrader.project(scene).costPerTick;
 
-  // The spawn must itself be fed: its entire staffing overhead is energy that
-  // has to be hauled from the nearest source to the spawn, a continuous
-  // round-trip cost that grows with the spawn's distance from its sources. This
-  // is the term that makes placement bite - a spawn beside its sources feeds
-  // itself cheaply, one across the room pays a standing hauling tax.
-  const nearest = nearestSource(sources, facts.spawnPos, dist);
-  if (nearest) {
-    const supplyHauler = new CarryCorp(VIRTUAL, VIRTUAL);
-    supplyHauler.setHaulerAssignments([
-      route(nearest.id, "spawn", cost, dist(nearest.pos, facts.spawnPos)),
-    ]);
-    cost += supplyHauler.project(scene).costPerTick;
-  }
-
   return Math.max(0, harvest - cost);
-}
-
-/** The source closest to a position (the cheapest one to feed the spawn from). */
-function nearestSource(
-  sources: ChainSource[],
-  pos: Position,
-  dist: (a: Position, b: Position) => number
-): ChainSource | undefined {
-  let best: ChainSource | undefined;
-  let bestDist = Infinity;
-  for (const s of sources) {
-    const d = dist(s.pos, pos);
-    if (d < bestDist) {
-      bestDist = d;
-      best = s;
-    }
-  }
-  return best;
 }
 
 /** A synthetic hauling route from a source to a sink, for a virtual CarryCorp. */
