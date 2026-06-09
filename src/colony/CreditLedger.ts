@@ -8,15 +8,15 @@
  * - Tracking money supply health
  */
 export class CreditLedger {
-  private treasury: number = 0;
-  private totalMinted: number = 0;
-  private totalTaxed: number = 0;
+  private treasury = 0;
+  private totalMinted = 0;
+  private totalTaxed = 0;
   private mintHistory: MintRecord[] = [];
 
   /**
    * Get the current colony treasury balance
    */
-  getBalance(): number {
+  public getBalance(): number {
     return this.treasury;
   }
 
@@ -24,7 +24,7 @@ export class CreditLedger {
    * Mint new credits into the treasury.
    * Credits are created from achievements (upgrades, bounties, etc.)
    */
-  mint(amount: number, reason: string): void {
+  public mint(amount: number, reason: string): void {
     if (amount <= 0) return;
 
     this.treasury += amount;
@@ -45,7 +45,7 @@ export class CreditLedger {
    * Spend credits from the treasury.
    * Returns true if successful, false if insufficient funds.
    */
-  spend(amount: number): boolean {
+  public spend(amount: number): boolean {
     if (amount <= 0) return true;
     if (amount > this.treasury) return false;
 
@@ -57,7 +57,7 @@ export class CreditLedger {
    * Record tax destruction (removes credits from circulation).
    * Tax is applied to corp balances and destroyed to control inflation.
    */
-  recordTaxDestroyed(amount: number): void {
+  public recordTaxDestroyed(amount: number): void {
     if (amount <= 0) return;
     this.totalTaxed += amount;
   }
@@ -65,7 +65,7 @@ export class CreditLedger {
   /**
    * Get money supply statistics for economic health monitoring.
    */
-  getMoneySupply(): MoneySupply {
+  public getMoneySupply(): MoneySupply {
     return {
       minted: this.totalMinted,
       taxed: this.totalTaxed,
@@ -77,14 +77,14 @@ export class CreditLedger {
   /**
    * Get recent mint history for debugging/analysis.
    */
-  getMintHistory(): MintRecord[] {
+  public getMintHistory(): MintRecord[] {
     return [...this.mintHistory];
   }
 
   /**
    * Check if the treasury can afford a given amount.
    */
-  canAfford(amount: number): boolean {
+  public canAfford(amount: number): boolean {
     return amount <= this.treasury;
   }
 
@@ -92,7 +92,7 @@ export class CreditLedger {
    * Transfer credits directly to a corp's balance.
    * Deducts from treasury and returns the amount transferred.
    */
-  transferTo(amount: number): number {
+  public transferTo(amount: number): number {
     if (amount <= 0) return 0;
     const actual = Math.min(amount, this.treasury);
     this.treasury -= actual;
@@ -102,7 +102,7 @@ export class CreditLedger {
   /**
    * Serialize ledger state for persistence.
    */
-  serialize(): SerializedLedger {
+  public serialize(): SerializedLedger {
     return {
       treasury: this.treasury,
       totalMinted: this.totalMinted,
@@ -114,7 +114,7 @@ export class CreditLedger {
   /**
    * Restore ledger state from persistence.
    */
-  deserialize(data: SerializedLedger): void {
+  public deserialize(data: SerializedLedger): void {
     this.treasury = data.treasury ?? 0;
     this.totalMinted = data.totalMinted ?? 0;
     this.totalTaxed = data.totalTaxed ?? 0;

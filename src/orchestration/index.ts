@@ -39,5 +39,5 @@ export {
   loadChains,
   loadContracts,
   getLastPlanningTick,
-  setLastPlanningTick,
+  setLastPlanningTick
 } from "./Phases";

@@ -64,7 +64,7 @@ function buildMiningChain(
   cost = calculatePrice(cost, uMargin);
   segments.push(buildSegment(`${name}-upgrader`, "upgrading", "rcl-progress", rclOutput, segments[2].outputPrice, uMargin));
 
-  return createChain(`${name}-chain`, segments, rclOutput * DEFAULT_MINT_VALUES.rcl_upgrade);
+  return createChain(`${name}-chain`, segments, rclOutput * DEFAULT_MINT_VALUES.rclUpgrade);
 }
 
 // Local chain: close source, no distance penalty
@@ -233,7 +233,7 @@ function buildChainWithSharedSpawn(name: string, distancePenalty: number): Chain
   cost = calculatePrice(cost, uMargin);
   segments.push(buildSegment(`${name}-upgrader`, "upgrading", "rcl-progress", 300, segments[2].outputPrice, uMargin));
 
-  return createChain(`${name}-shared-spawn`, segments, 300 * DEFAULT_MINT_VALUES.rcl_upgrade);
+  return createChain(`${name}-shared-spawn`, segments, 300 * DEFAULT_MINT_VALUES.rclUpgrade);
 }
 
 const localShared = buildChainWithSharedSpawn("local", 0);
@@ -275,7 +275,7 @@ console.log(`
 
   Investment calculation:
     - New spawn cost: ~15,000 energy
-    - Mint value for spawn: ${DEFAULT_MINT_VALUES.extension_built * 5} (est.)
+    - Mint value for spawn: ${DEFAULT_MINT_VALUES.extensionBuilt * 5} (est.)
     - Enables: +${remoteShared.profit.toFixed(0)} profit from remote chain
 
   Payback period: Very fast if remote source is profitable!

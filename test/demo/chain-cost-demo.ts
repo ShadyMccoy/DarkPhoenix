@@ -34,12 +34,12 @@ const upgradingOutput = calculatePrice(miningOutput, upgradingMargin);
 console.log(`    - Output price: ${upgradingOutput.toFixed(2)}`);
 
 const rclPoints = 100;
-const mintValue = rclPoints * DEFAULT_MINT_VALUES.rcl_upgrade;
+const mintValue = rclPoints * DEFAULT_MINT_VALUES.rclUpgrade;
 const profit = mintValue - upgradingOutput;
 
 console.log(`\n  Chain Economics:`);
 console.log(`    - RCL points produced: ${rclPoints}`);
-console.log(`    - Mint value: ${rclPoints} × ${DEFAULT_MINT_VALUES.rcl_upgrade} = ${mintValue}`);
+console.log(`    - Mint value: ${rclPoints} × ${DEFAULT_MINT_VALUES.rclUpgrade} = ${mintValue}`);
 console.log(`    - Total cost: ${upgradingOutput.toFixed(2)}`);
 console.log(`    - Profit: ${profit.toFixed(2)}`);
 console.log(`    - Viable: ${profit > 0 ? '✓ YES' : '✗ NO'}`);
@@ -77,7 +77,7 @@ const upgraderOutput = calculatePrice(haulerOutput, upgraderMargin);
 console.log(`    - Output price: ${haulerOutput.toFixed(2)} × ${(1 + upgraderMargin).toFixed(2)} = ${upgraderOutput.toFixed(2)}`);
 
 const rclPoints2 = 100;
-const mintValue2 = rclPoints2 * DEFAULT_MINT_VALUES.rcl_upgrade;
+const mintValue2 = rclPoints2 * DEFAULT_MINT_VALUES.rclUpgrade;
 const profit2 = mintValue2 - upgraderOutput;
 
 console.log(`\n  Chain Economics:`);
@@ -123,12 +123,12 @@ console.log("\n" + "=".repeat(70));
 console.log("EXAMPLE 4: Finding the Break-Even Point");
 console.log("=".repeat(70));
 
-console.log(`\n  Mint value per RCL point: ${DEFAULT_MINT_VALUES.rcl_upgrade}`);
+console.log(`\n  Mint value per RCL point: ${DEFAULT_MINT_VALUES.rclUpgrade}`);
 console.log(`  Question: What's the maximum cost we can afford per RCL point?`);
 
 // Work backwards from mint value
 const targetRclPoints = 100;
-const totalMint = targetRclPoints * DEFAULT_MINT_VALUES.rcl_upgrade;
+const totalMint = targetRclPoints * DEFAULT_MINT_VALUES.rclUpgrade;
 console.log(`\n  For ${targetRclPoints} RCL points:`);
 console.log(`    - Total mint value: ${totalMint}`);
 console.log(`    - Break-even cost: ${totalMint} per ${targetRclPoints} points = ${totalMint / targetRclPoints} per point`);
@@ -156,7 +156,7 @@ const seg1 = buildSegment("mining-corp", "mining", "energy", 1000, 50, 0.10);
 const seg2 = buildSegment("hauling-corp", "hauling", "energy", 1000, seg1.outputPrice, 0.075);
 const seg3 = buildSegment("upgrading-corp", "upgrading", "rcl-progress", 100, seg2.outputPrice, 0.10);
 
-const chain = createChain("demo-chain", [seg1, seg2, seg3], 100 * DEFAULT_MINT_VALUES.rcl_upgrade);
+const chain = createChain("demo-chain", [seg1, seg2, seg3], 100 * DEFAULT_MINT_VALUES.rclUpgrade);
 
 console.log(`\n  Chain: ${chain.id}`);
 console.log(`  Segments:`);

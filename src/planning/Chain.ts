@@ -125,11 +125,7 @@ export function buildSegment(
 /**
  * Create a new chain from segments
  */
-export function createChain(
-  id: string,
-  segments: ChainSegment[],
-  mintValue: number
-): Chain {
+export function createChain(id: string, segments: ChainSegment[], mintValue: number): Chain {
   const totalCost = calculateTotalCost(segments);
   const profit = mintValue - totalCost;
   const leafCost = segments.length > 0 ? segments[0].inputCost : 0;
@@ -158,9 +154,7 @@ export function sortByProfit(chains: Chain[]): Chain[] {
  * Sort chains by ROI (highest first)
  */
 export function sortByROI(chains: Chain[]): Chain[] {
-  return [...chains].sort(
-    (a, b) => calculateChainROI(b) - calculateChainROI(a)
-  );
+  return [...chains].sort((a, b) => calculateChainROI(b) - calculateChainROI(a));
 }
 
 /**
@@ -174,7 +168,7 @@ export function filterViable(chains: Chain[]): Chain[] {
  * Get all corp IDs involved in a chain
  */
 export function getCorpIds(chain: Chain): string[] {
-  return chain.segments.map((s) => s.corpId);
+  return chain.segments.map(s => s.corpId);
 }
 
 /**
@@ -182,7 +176,7 @@ export function getCorpIds(chain: Chain): string[] {
  */
 export function chainsOverlap(a: Chain, b: Chain): boolean {
   const aCorps = new Set(getCorpIds(a));
-  return getCorpIds(b).some((id) => aCorps.has(id));
+  return getCorpIds(b).some(id => aCorps.has(id));
 }
 
 /**
@@ -195,11 +189,11 @@ export function selectNonOverlapping(chains: Chain[]): Chain[] {
 
   for (const chain of sorted) {
     const corpIds = getCorpIds(chain);
-    const hasOverlap = corpIds.some((id) => usedCorps.has(id));
+    const hasOverlap = corpIds.some(id => usedCorps.has(id));
 
     if (!hasOverlap) {
       selected.push(chain);
-      corpIds.forEach((id) => usedCorps.add(id));
+      corpIds.forEach(id => usedCorps.add(id));
     }
   }
 

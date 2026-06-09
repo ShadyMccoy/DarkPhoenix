@@ -10,8 +10,8 @@
  * @module corps/CorpState
  */
 
-import { SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
+import { SerializedCorp } from "./Corp";
 
 /**
  * Source corp state - passive energy source representation.
@@ -207,7 +207,7 @@ export function createSourceState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    lastPlannedTick: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -243,7 +243,7 @@ export function createMiningState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    lastPlannedTick: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -257,9 +257,9 @@ export function createSpawningState(
   id: string,
   nodeId: string,
   position: Position,
-  energyCapacity: number = 300,
-  pendingOrderCount: number = 0,
-  isSpawning: boolean = false
+  energyCapacity = 300,
+  pendingOrderCount = 0,
+  isSpawning = false
 ): SpawningCorpState {
   return {
     id,
@@ -279,7 +279,7 @@ export function createSpawningState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    lastPlannedTick: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -313,7 +313,7 @@ export function createUpgradingState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    lastPlannedTick: 0,
+    lastPlannedTick: 0
   };
 }
 
@@ -351,7 +351,7 @@ export function createHaulingState(
     expectedUnitsProduced: 0,
     unitsConsumed: 0,
     acquisitionCost: 0,
-    lastPlannedTick: 0,
+    lastPlannedTick: 0
   };
 }
 

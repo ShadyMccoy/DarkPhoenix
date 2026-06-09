@@ -185,10 +185,10 @@ export class ScenarioRunner {
   constructor() {
     // Default mint values for scenarios (simplified for testing)
     this.defaultMintValues = createMintValues({
-      rcl_upgrade: 1.0,
-      gcl_upgrade: 1.0,
-      remote_source_tap: 0.5,
-      container_built: 0.1
+      rclUpgrade: 1.0,
+      gclUpgrade: 1.0,
+      remoteSourceTap: 0.5,
+      containerBuilt: 0.1
     });
   }
 

@@ -165,12 +165,7 @@ export type ProjectType = "upgrade" | "build" | "repair" | "fortify";
 /**
  * Creates a unique edge ID.
  */
-export function createFlowEdgeId(
-  type: FlowEdgeType,
-  fromNodeId: string,
-  toNodeId: string,
-  suffix?: string
-): string {
+export function createFlowEdgeId(type: FlowEdgeType, fromNodeId: string, toNodeId: string, suffix?: string): string {
   const base = `${type}:${fromNodeId}→${toNodeId}`;
   return suffix ? `${base}:${suffix}` : base;
 }
@@ -294,7 +289,7 @@ export const BODY_PART_COSTS = {
   ranged_attack: 150,
   heal: 250,
   claim: 600,
-  tough: 10,
+  tough: 10
 };
 
 /**
@@ -323,10 +318,7 @@ export function calculateHaulerSpawnCost(carryParts: number): number {
  * @param regenPeriod - Ticks between regen (typically 300)
  * @returns Optimal number of WORK parts
  */
-export function calculateOptimalMinerSize(
-  sourceCapacity: number = 3000,
-  regenPeriod: number = 300
-): number {
+export function calculateOptimalMinerSize(sourceCapacity = 3000, regenPeriod = 300): number {
   // Energy per tick needed to fully harvest
   const energyPerTick = sourceCapacity / regenPeriod; // 10 for standard source
 
@@ -369,7 +361,7 @@ export function createSupplyEdge(params: {
     minerSpawnCost: spawnCost,
     minerWorkParts: workParts,
     minerLifetime: lifetime,
-    spawnToSourceDistance: params.spawnToSourceDistance,
+    spawnToSourceDistance: params.spawnToSourceDistance
   };
 }
 
@@ -405,7 +397,7 @@ export function createCarryEdge(params: {
     haulerCarryCapacity: carryCapacity,
     haulerLifetime: lifetime,
     walkingDistance: params.walkingDistance,
-    roundTripTicks: roundTrip,
+    roundTripTicks: roundTrip
   };
 
   // Calculate derived values

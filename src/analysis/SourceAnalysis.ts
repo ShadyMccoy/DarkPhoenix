@@ -20,7 +20,7 @@ const ADJACENT_OFFSETS: { x: number; y: number }[] = [
   { x: 0, y: 1 },
   { x: 1, y: -1 },
   { x: 1, y: 0 },
-  { x: 1, y: 1 },
+  { x: 1, y: 1 }
 ];
 
 /**
@@ -33,10 +33,7 @@ const ADJACENT_OFFSETS: { x: number; y: number }[] = [
  * @param spawnPos - Position of the spawn for distance calculations
  * @returns SourceMine configuration for this source
  */
-export function analyzeSource(
-  source: Source,
-  spawnPos: RoomPosition
-): SourceMine {
+export function analyzeSource(source: Source, spawnPos: RoomPosition): SourceMine {
   const terrain = source.room.getTerrain();
   const harvestPositions: RoomPosition[] = [];
 
@@ -72,7 +69,7 @@ export function analyzeSource(
     sourceId: source.id,
     harvestPositions,
     flow: 10, // 5 WORK parts = 10 energy/tick (full harvest rate)
-    distanceToSpawn,
+    distanceToSpawn
   };
 }
 
@@ -114,7 +111,7 @@ export function countMiningSpots(source: Source): number {
  */
 export function isSourceKeeperSource(source: Source): boolean {
   const keeperLairs = source.pos.findInRange(FIND_HOSTILE_STRUCTURES, 5, {
-    filter: (s) => s.structureType === STRUCTURE_KEEPER_LAIR,
+    filter: s => s.structureType === STRUCTURE_KEEPER_LAIR
   });
   return keeperLairs.length > 0;
 }
@@ -127,5 +124,5 @@ export function isSourceKeeperSource(source: Source): boolean {
  */
 export function getMinableSources(room: Room): Source[] {
   const sources = room.find(FIND_SOURCES);
-  return sources.filter((source) => !isSourceKeeperSource(source));
+  return sources.filter(source => !isSourceKeeperSource(source));
 }

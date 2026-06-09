@@ -29,14 +29,7 @@
  *
  * @module framework/FlowBalance
  */
-
-import {
-  SupplyEdge,
-  CarryEdge,
-  calculateSupplyEdgeNetPerTick,
-  calculateCarryEdgeThroughput,
-  calculateCarryEdgeCostPerEnergy,
-} from "./FlowEdge";
+import { CarryEdge, SupplyEdge, calculateCarryEdgeThroughput } from "./FlowEdge";
 
 /**
  * Allocation of resources to a supply edge (source mining).
@@ -119,7 +112,7 @@ export interface BalanceSolverConfig {
 const DEFAULT_CONFIG: BalanceSolverConfig = {
   maxIterations: 100,
   convergenceThreshold: 0.01,
-  minProjectEnergy: 1,
+  minProjectEnergy: 1
 };
 
 /**
@@ -140,21 +133,21 @@ export function solveFlowBalance(
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   // Initialize allocations
-  const supplies: SupplyAllocation[] = supplyEdges.map((edge) => ({
+  const supplies: SupplyAllocation[] = supplyEdges.map(edge => ({
     edge,
     minerCount: 1, // Start with one miner per source
     harvestPerTick: 0,
     spawnCostPerTick: 0,
     netPerTick: 0,
-    isLocal: false, // Will be determined later
+    isLocal: false // Will be determined later
   }));
 
-  const carries: CarryAllocation[] = carryEdges.map((edge) => ({
+  const carries: CarryAllocation[] = carryEdges.map(edge => ({
     edge,
     haulerCount: 0, // Start with no haulers
     throughputPerTick: 0,
     spawnCostPerTick: 0,
-    energyCarried: 0,
+    energyCarried: 0
   }));
 
   // Group supply edges by spawn node to determine local vs remote
@@ -188,25 +181,25 @@ export function solveFlowBalance(
     calculateSupplyMetrics(supplies);
     calculateCarryRequirements(supplies, carries);
 
-    const totalProduction = supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
+    const iterTotalProduction = supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
     const miningOverhead = supplies.reduce((sum, s) => sum + s.spawnCostPerTick, 0);
     const haulingOverhead = carries.reduce((sum, c) => sum + c.spawnCostPerTick, 0);
-    const projectEnergy = totalProduction - miningOverhead - haulingOverhead;
+    const iterProjectEnergy = iterTotalProduction - miningOverhead - haulingOverhead;
 
     // Check convergence
-    if (Math.abs(projectEnergy - previousProjectEnergy) < cfg.convergenceThreshold) {
+    if (Math.abs(iterProjectEnergy - previousProjectEnergy) < cfg.convergenceThreshold) {
       break;
     }
-    previousProjectEnergy = projectEnergy;
+    previousProjectEnergy = iterProjectEnergy;
 
     // If not sustainable, trim allocations
-    if (projectEnergy < 0) {
+    if (iterProjectEnergy < 0) {
       trimLowestValueAllocation(supplies, carries);
       continue;
     }
 
     // If sustainable with excess, try to add more capacity
-    if (projectEnergy > cfg.minProjectEnergy) {
+    if (iterProjectEnergy > cfg.minProjectEnergy) {
       const added = addHighestValueAllocation(supplies, carries);
       if (!added) {
         // No more positive-marginal additions possible
@@ -221,8 +214,7 @@ export function solveFlowBalance(
 
   const totalProduction = supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
   const totalOverhead =
-    supplies.reduce((sum, s) => sum + s.spawnCostPerTick, 0) +
-    carries.reduce((sum, c) => sum + c.spawnCostPerTick, 0);
+    supplies.reduce((sum, s) => sum + s.spawnCostPerTick, 0) + carries.reduce((sum, c) => sum + c.spawnCostPerTick, 0);
   const projectEnergy = totalProduction - totalOverhead;
 
   return {
@@ -231,7 +223,7 @@ export function solveFlowBalance(
     totalProduction,
     totalOverhead,
     projectEnergy,
-    isSustainable: projectEnergy >= 0,
+    isSustainable: projectEnergy >= 0
   };
 }
 
@@ -249,14 +241,10 @@ function calculateSupplyMetrics(supplies: SupplyAllocation[]): void {
     const sourceLimit = edge.sourceCapacity / 300;
 
     // Actual harvest rate (capped by source)
-    supply.harvestPerTick = Math.min(
-      supply.minerCount * harvestPerMiner,
-      sourceLimit
-    );
+    supply.harvestPerTick = Math.min(supply.minerCount * harvestPerMiner, sourceLimit);
 
     // Spawn cost (amortized)
-    supply.spawnCostPerTick =
-      (supply.minerCount * edge.minerSpawnCost) / edge.minerLifetime;
+    supply.spawnCostPerTick = (supply.minerCount * edge.minerSpawnCost) / edge.minerLifetime;
 
     // Net energy
     supply.netPerTick = supply.harvestPerTick - supply.spawnCostPerTick;
@@ -266,10 +254,7 @@ function calculateSupplyMetrics(supplies: SupplyAllocation[]): void {
 /**
  * Calculates hauler requirements based on remote source production.
  */
-function calculateCarryRequirements(
-  supplies: SupplyAllocation[],
-  carries: CarryAllocation[]
-): void {
+function calculateCarryRequirements(supplies: SupplyAllocation[], carries: CarryAllocation[]): void {
   // Build map of node -> energy to carry out
   const energyToCarry = new Map<string, number>();
 
@@ -291,14 +276,9 @@ function calculateCarryRequirements(
 
       if (throughputPerHauler > 0) {
         carry.haulerCount = Math.ceil(energyNeeded / throughputPerHauler);
-        carry.throughputPerTick = Math.min(
-          carry.haulerCount * throughputPerHauler,
-          energyNeeded
-        );
+        carry.throughputPerTick = Math.min(carry.haulerCount * throughputPerHauler, energyNeeded);
         carry.energyCarried = carry.throughputPerTick;
-        carry.spawnCostPerTick =
-          (carry.haulerCount * carry.edge.haulerSpawnCost) /
-          carry.edge.haulerLifetime;
+        carry.spawnCostPerTick = (carry.haulerCount * carry.edge.haulerSpawnCost) / carry.edge.haulerLifetime;
       }
     } else {
       carry.haulerCount = 0;
@@ -312,10 +292,7 @@ function calculateCarryRequirements(
 /**
  * Removes the lowest value allocation to reduce deficit.
  */
-function trimLowestValueAllocation(
-  supplies: SupplyAllocation[],
-  carries: CarryAllocation[]
-): boolean {
+function trimLowestValueAllocation(supplies: SupplyAllocation[], _carries: CarryAllocation[]): boolean {
   // Find the supply with lowest net value per miner
   let lowestSupply: SupplyAllocation | null = null;
   let lowestValue = Infinity;
@@ -342,10 +319,7 @@ function trimLowestValueAllocation(
 /**
  * Adds the highest marginal value allocation.
  */
-function addHighestValueAllocation(
-  supplies: SupplyAllocation[],
-  _carries: CarryAllocation[]
-): boolean {
+function addHighestValueAllocation(supplies: SupplyAllocation[], _carries: CarryAllocation[]): boolean {
   // Find supply with highest marginal value for adding a miner
   let bestSupply: SupplyAllocation | null = null;
   let bestMarginalValue = 0;
@@ -408,7 +382,7 @@ export function formatFlowAllocation(allocation: FlowAllocation): string {
     `Project Energy:   ${allocation.projectEnergy.toFixed(2)}/tick`,
     `Sustainable:      ${allocation.isSustainable ? "YES" : "NO"}`,
     "",
-    "--- Mining ---",
+    "--- Mining ---"
   ];
 
   for (const supply of allocation.supplies) {

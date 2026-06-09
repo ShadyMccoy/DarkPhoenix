@@ -7,14 +7,14 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { ChainScene, CorpEconomics } from "./economics";
-import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
-import { sourcePickupSpot, controllerDeliverySpot, workSpot } from "./nodeEnergy";
+import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
 export { pickRuntToRecycle };
@@ -116,7 +116,7 @@ export class CarryCorp extends Corp {
    */
   private haulerAssignments: HaulerAssignment[] = [];
 
-  constructor(nodeId: string, spawnId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
     this.spawnId = spawnId;
   }
@@ -128,14 +128,17 @@ export class CarryCorp extends Corp {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if ((creep.memory.corpId === this.id || creep.memory.corpId === this.nodeId) &&
-          creep.memory.workType === "haul" && !creep.spawning) {
+      if (
+        (creep.memory.corpId === this.id || creep.memory.corpId === this.nodeId) &&
+        creep.memory.workType === "haul" &&
+        !creep.spawning
+      ) {
         creeps.push(creep);
 
         if (!this.accountedCreeps.has(name)) {
           this.accountedCreeps.add(name);
           const carryCapacity = creep.store.getCapacity();
-          const expectedDeliveries = carryCapacity * CREEP_LIFETIME / 50; // Estimate
+          const expectedDeliveries = (carryCapacity * CREEP_LIFETIME) / 50; // Estimate
           this.recordExpectedProduction(expectedDeliveries);
         }
       }
@@ -146,7 +149,7 @@ export class CarryCorp extends Corp {
   /**
    * Get transport cost per energy unit based on actual operations.
    */
-  getTransportCostPerEnergy(): number {
+  public getTransportCostPerEnergy(): number {
     if (this.unitsProduced === 0) return TRANSPORT_FEE_PER_ENERGY;
     const operatingCost = this.totalCost - this.acquisitionCost;
     return operatingCost / this.unitsProduced;
@@ -155,7 +158,7 @@ export class CarryCorp extends Corp {
   /**
    * Get the spawn position as the corp's location.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn) {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
@@ -166,7 +169,7 @@ export class CarryCorp extends Corp {
   /**
    * Main work loop - run hauler creeps.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -204,10 +207,10 @@ export class CarryCorp extends Corp {
    */
   private flagRuntForRecycling(creeps: Creep[], room: Room, spawn: StructureSpawn): void {
     if (!spawnIdleAndMaxed(room, spawn)) return;
-    if (creeps.some((c) => c.memory.recycling)) return; // one at a time
+    if (creeps.some(c => c.memory.recycling)) return; // one at a time
 
     const idx = pickRuntToRecycle(
-      creeps.map((c) => c.getActiveBodyparts(CARRY)),
+      creeps.map(c => c.getActiveBodyparts(CARRY)),
       this.haulCarryNeeded(),
       this.maxCarryPerHauler(room)
     );
@@ -238,8 +241,7 @@ export class CarryCorp extends Corp {
       // (the critical bottleneck, under-weighted by its tiny flow share), else run
       // the home circuit. Fixed for the whole trip, so no mid-route thrash.
       const homeSink = creep.memory.homeSink as LocalSink;
-      creep.memory.deliverSinkId =
-        homeSink !== "spawn" && this.spawnNetworkHungry(room) ? "spawn" : homeSink;
+      creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkHungry(room) ? "spawn" : homeSink;
       creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
@@ -266,9 +268,7 @@ export class CarryCorp extends Corp {
    */
   private getSpawnZoneStructures(room: Room): (StructureSpawn | StructureExtension)[] {
     const structures = room.find(FIND_MY_STRUCTURES, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_SPAWN ||
-        s.structureType === STRUCTURE_EXTENSION,
+      filter: s => s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION
     }) as (StructureSpawn | StructureExtension)[];
 
     // Sort by ID for consistent ordering
@@ -390,11 +390,11 @@ export class CarryCorp extends Corp {
       // Check if this is an intel-based source (remote room without vision)
       if (sourceGameId.startsWith("intel-")) {
         // Intel source: parse position from ID format "intel-ROOMNAME-X-Y"
-        const match = sourceGameId.match(/^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/);
+        const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(sourceGameId);
         if (match) {
           const [, roomName, x, y] = match;
           // Store position for navigation even without source object
-          creep.memory.assignedSourcePos = { x: parseInt(x), y: parseInt(y), roomName };
+          creep.memory.assignedSourcePos = { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
         }
         return null; // No live source object for intel sources
       }
@@ -547,10 +547,7 @@ export class CarryCorp extends Corp {
     if (result === ERR_NOT_IN_RANGE) {
       creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
     } else if (result === OK) {
-      const transferred = Math.min(
-        creep.store[RESOURCE_ENERGY],
-        target.store.getFreeCapacity(RESOURCE_ENERGY)
-      );
+      const transferred = Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
       this.recordProduction(transferred);
       this.advanceCirculation(creep, allSpawnStructures.length);
     } else if (result === ERR_FULL) {
@@ -579,14 +576,14 @@ export class CarryCorp extends Corp {
   /**
    * Get number of active hauler creeps.
    */
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getAssignedCreeps().length;
   }
 
   /**
    * Get the spawn ID this corp spawns from.
    */
-  getSpawnId(): string {
+  public getSpawnId(): string {
     return this.spawnId;
   }
 
@@ -603,7 +600,7 @@ export class CarryCorp extends Corp {
    * hauler per route, sized to its flow and distance, costed over the life left
    * after walking out to the pickup. Throughput is the energy it moves.
    */
-  project(scene: ChainScene): CorpEconomics {
+  public project(scene: ChainScene): CorpEconomics {
     let costPerTick = 0;
     let throughput = 0;
     for (const a of this.haulerAssignments) {
@@ -618,7 +615,7 @@ export class CarryCorp extends Corp {
     return { costPerTick, throughput };
   }
 
-  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+  public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
 
@@ -656,20 +653,22 @@ export class CarryCorp extends Corp {
     const HAULER_MIN_CARRY = 3;
     const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * PART_PAIR_COST;
 
-    return [{
-      buyerCorpId: this.id,
-      role: "hauler",
-      value: 90 + Math.min(carryNeeded, 20),
-      // The first hauler is blocking (the source's energy is stranded without
-      // any carrier); additional haulers are scaling capacity (non-blocking).
-      blocking: current === 0,
-      producesIncome: true,
-      desiredCost,
-      minCost,
-      since: 0,
-      bodyParam: desiredCarry,
-      haulerRatio: assignments[0].haulerRatio,
-    }];
+    return [
+      {
+        buyerCorpId: this.id,
+        role: "hauler",
+        value: 90 + Math.min(carryNeeded, 20),
+        // The first hauler is blocking (the source's energy is stranded without
+        // any carrier); additional haulers are scaling capacity (non-blocking).
+        blocking: current === 0,
+        producesIncome: true,
+        desiredCost,
+        minCost,
+        since: 0,
+        bodyParam: desiredCarry,
+        haulerRatio: assignments[0].haulerRatio
+      }
+    ];
   }
 
   // ===========================================================================
@@ -680,28 +679,28 @@ export class CarryCorp extends Corp {
    * Set hauler assignments from FlowEconomy.
    * Each assignment describes a route from source to sink with CARRY requirements.
    */
-  setHaulerAssignments(assignments: HaulerAssignment[]): void {
+  public setHaulerAssignments(assignments: HaulerAssignment[]): void {
     this.haulerAssignments = assignments;
   }
 
   /**
    * Get all hauler assignments for this corp.
    */
-  getHaulerAssignments(): HaulerAssignment[] {
+  public getHaulerAssignments(): HaulerAssignment[] {
     return this.haulerAssignments;
   }
 
   /**
    * Check if this corp has flow-based assignments.
    */
-  hasFlowAssignments(): boolean {
+  public hasFlowAssignments(): boolean {
     return this.haulerAssignments.length > 0;
   }
 
   /**
    * Get total CARRY parts needed from flow assignments.
    */
-  getTotalCarryPartsNeeded(): number {
+  public getTotalCarryPartsNeeded(): number {
     return this.haulerAssignments.reduce((sum, h) => sum + h.carryParts, 0);
   }
 
@@ -716,7 +715,7 @@ export class CarryCorp extends Corp {
   private haulCarryNeeded(): number {
     return Math.ceil(
       this.haulerAssignments
-        .filter((a) => !(a.toId ?? "").startsWith("construction-"))
+        .filter(a => !(a.toId ?? "").startsWith("construction-"))
         .reduce((sum, a) => sum + a.carryParts, 0)
     );
   }
@@ -742,7 +741,7 @@ export class CarryCorp extends Corp {
   /**
    * Get total flow rate from all assignments.
    */
-  getTotalFlowRate(): number {
+  public getTotalFlowRate(): number {
     return this.haulerAssignments.reduce((sum, h) => sum + h.flowRate, 0);
   }
 
@@ -750,7 +749,7 @@ export class CarryCorp extends Corp {
    * Get the assignment for a specific source (by game ID).
    * Returns the route a hauler should take from this source.
    */
-  getAssignmentForSource(sourceGameId: string): HaulerAssignment | undefined {
+  public getAssignmentForSource(sourceGameId: string): HaulerAssignment | undefined {
     const sourceFlowId = `source-${sourceGameId}`;
     return this.haulerAssignments.find(h => h.fromId === sourceFlowId);
   }
@@ -758,18 +757,18 @@ export class CarryCorp extends Corp {
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedCarryCorp {
+  public serialize(): SerializedCarryCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
-      haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
+      haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedCarryCorp): void {
+  public deserialize(data: SerializedCarryCorp): void {
     super.deserialize(data);
     this.haulerAssignments = data.haulerAssignments ?? [];
   }
@@ -778,10 +777,7 @@ export class CarryCorp extends Corp {
 /**
  * Create a CarryCorp for a room.
  */
-export function createCarryCorp(
-  room: Room,
-  spawn: StructureSpawn
-): CarryCorp {
+export function createCarryCorp(room: Room, spawn: StructureSpawn): CarryCorp {
   const nodeId = `${room.name}-hauling`;
   return new CarryCorp(nodeId, spawn.id);
 }

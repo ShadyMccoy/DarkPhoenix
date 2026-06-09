@@ -1,9 +1,9 @@
-import { CreditLedger } from "./CreditLedger";
-import { MintValues, DEFAULT_MINT_VALUES } from "./MintValues";
-import { Node } from "../nodes/Node";
-import { CorpRegistry } from "../execution/CorpRunner";
+import { CreditLedger, MoneySupply } from "./CreditLedger";
+import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
-import { Chain, filterViable } from "../planning/Chain";
+import { Chain } from "../planning/Chain";
+import { CorpRegistry } from "../execution/CorpRunner";
+import { Node } from "../nodes/Node";
 
 /**
  * Colony configuration
@@ -87,10 +87,10 @@ export class Colony {
   private config: ColonyConfig;
 
   /** Current tick */
-  private currentTick: number = 0;
+  private currentTick = 0;
 
   /** Whether colony has been bootstrapped */
-  private bootstrapped: boolean = false;
+  private bootstrapped = false;
 
   /** Stats tracking */
   private stats: ColonyStats = {
@@ -104,10 +104,7 @@ export class Colony {
     averageROI: 0
   };
 
-  constructor(
-    config: Partial<ColonyConfig> = {},
-    mintValues: Partial<MintValues> = {}
-  ) {
+  public constructor(config: Partial<ColonyConfig> = {}, mintValues: Partial<MintValues> = {}) {
     this.config = { ...DEFAULT_COLONY_CONFIG, ...config };
     this.mintValues = { ...DEFAULT_MINT_VALUES, ...mintValues };
     this.ledger = new CreditLedger();
@@ -117,7 +114,7 @@ export class Colony {
   /**
    * Get colony treasury balance
    */
-  get treasury(): number {
+  public get treasury(): number {
     return this.ledger.getBalance();
   }
 
@@ -131,7 +128,7 @@ export class Colony {
    * - Chain aging (lifecycle management)
    * - Stats updates
    */
-  run(tick: number, corpRegistry: CorpRegistry): void {
+  public run(tick: number, corpRegistry: CorpRegistry): void {
     this.currentTick = tick;
 
     // Bootstrap if needed (mint seed capital)
@@ -160,9 +157,9 @@ export class Colony {
   /**
    * Add a node to the colony
    */
-  addNode(node: Node): void {
+  public addNode(node: Node): void {
     // Check for duplicate
-    if (this.nodes.some((n) => n.id === node.id)) {
+    if (this.nodes.some(n => n.id === node.id)) {
       return;
     }
     this.nodes.push(node);
@@ -171,22 +168,22 @@ export class Colony {
   /**
    * Remove a node from the colony
    */
-  removeNode(nodeId: string): void {
-    this.nodes = this.nodes.filter((n) => n.id !== nodeId);
+  public removeNode(nodeId: string): void {
+    this.nodes = this.nodes.filter(n => n.id !== nodeId);
   }
 
   /**
    * Get all nodes
    */
-  getNodes(): Node[] {
+  public getNodes(): Node[] {
     return [...this.nodes];
   }
 
   /**
    * Get a node by ID
    */
-  getNode(nodeId: string): Node | undefined {
-    return this.nodes.find((n) => n.id === nodeId);
+  public getNode(nodeId: string): Node | undefined {
+    return this.nodes.find(n => n.id === nodeId);
   }
 
   /**
@@ -202,7 +199,7 @@ export class Colony {
   /**
    * Process survey result and potentially create corps
    */
-  private processSurveyResult(result: SurveyResult): void {
+  private processSurveyResult(_result: SurveyResult): void {
     // For now, log potential corps
     // In full implementation, would create corps based on ROI
     // and available treasury funds
@@ -217,7 +214,7 @@ export class Colony {
     }
 
     // Remove chains that are too old (creep lifetime expired)
-    this.activeChains = this.activeChains.filter((chain) => chain.age < 1500);
+    this.activeChains = this.activeChains.filter(chain => chain.age < 1500);
   }
 
   /**
@@ -263,7 +260,7 @@ export class Colony {
       nodeCount: this.nodes.length,
       totalCorps,
       activeCorps,
-      activeChains: this.activeChains.filter((c) => c.funded).length,
+      activeChains: this.activeChains.filter(c => c.funded).length,
       totalMinted: moneySupply.minted,
       totalTaxed: moneySupply.taxed,
       treasuryBalance: moneySupply.treasury,
@@ -274,64 +271,64 @@ export class Colony {
   /**
    * Get colony statistics
    */
-  getStats(): ColonyStats {
+  public getStats(): ColonyStats {
     return { ...this.stats };
   }
 
   /**
    * Get money supply information
    */
-  getMoneySupply() {
+  public getMoneySupply(): MoneySupply {
     return this.ledger.getMoneySupply();
   }
 
   /**
    * Get active chains
    */
-  getActiveChains(): Chain[] {
+  public getActiveChains(): Chain[] {
     return [...this.activeChains];
   }
 
   /**
    * Get ledger for direct operations
    */
-  getLedger(): CreditLedger {
+  public getLedger(): CreditLedger {
     return this.ledger;
   }
 
   /**
    * Get mint values
    */
-  getMintValues(): MintValues {
+  public getMintValues(): MintValues {
     return { ...this.mintValues };
   }
 
   /**
    * Update mint values (policy change)
    */
-  setMintValues(values: Partial<MintValues>): void {
+  public setMintValues(values: Partial<MintValues>): void {
     this.mintValues = { ...this.mintValues, ...values };
   }
 
   /**
    * Get configuration
    */
-  getConfig(): ColonyConfig {
+  public getConfig(): ColonyConfig {
     return { ...this.config };
   }
 
   /**
    * Update configuration
    */
-  setConfig(config: Partial<ColonyConfig>): void {
+  public setConfig(config: Partial<ColonyConfig>): void {
     this.config = { ...this.config, ...config };
   }
 
   /**
    * Add a chain to be funded
    */
-  addChain(chain: Chain): void {
-    if (!this.activeChains.some((c) => c.id === chain.id)) {
+  public addChain(chain: Chain): void {
+    if (!this.activeChains.some(c => c.id === chain.id)) {
       this.activeChains.push(chain);
     }
   }
@@ -339,29 +336,29 @@ export class Colony {
   /**
    * Get current tick
    */
-  getCurrentTick(): number {
+  public getCurrentTick(): number {
     return this.currentTick;
   }
 
   /**
    * Serialize colony state for persistence
    */
-  serialize(): SerializedColony {
+  public serialize(): SerializedColony {
     return {
       bootstrapped: this.bootstrapped,
       currentTick: this.currentTick,
       config: this.config,
       mintValues: this.mintValues,
       ledger: this.ledger.serialize(),
-      nodeIds: this.nodes.map((n) => n.id),
-      activeChainIds: this.activeChains.map((c) => c.id)
+      nodeIds: this.nodes.map(n => n.id),
+      activeChainIds: this.activeChains.map(c => c.id)
     };
   }
 
   /**
    * Restore colony state from persistence
    */
-  deserialize(data: SerializedColony): void {
+  public deserialize(data: SerializedColony): void {
     this.bootstrapped = data.bootstrapped ?? false;
     this.currentTick = data.currentTick ?? 0;
     this.config = { ...DEFAULT_COLONY_CONFIG, ...data.config };
@@ -389,9 +386,6 @@ export interface SerializedColony {
 /**
  * Create a colony with default configuration
  */
-export function createColony(
-  config?: Partial<ColonyConfig>,
-  mintValues?: Partial<MintValues>
-): Colony {
+export function createColony(config?: Partial<ColonyConfig>, mintValues?: Partial<MintValues>): Colony {
   return new Colony(config, mintValues);
 }

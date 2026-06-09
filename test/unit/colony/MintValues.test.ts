@@ -12,17 +12,17 @@ import {
 describe("MintValues", () => {
   describe("DEFAULT_MINT_VALUES", () => {
     it("should have all required properties", () => {
-      expect(DEFAULT_MINT_VALUES).to.have.property("rcl_upgrade");
-      expect(DEFAULT_MINT_VALUES).to.have.property("gcl_upgrade");
-      expect(DEFAULT_MINT_VALUES).to.have.property("remote_source_tap");
-      expect(DEFAULT_MINT_VALUES).to.have.property("room_claim");
-      expect(DEFAULT_MINT_VALUES).to.have.property("container_built");
-      expect(DEFAULT_MINT_VALUES).to.have.property("extension_built");
-      expect(DEFAULT_MINT_VALUES).to.have.property("road_built");
-      expect(DEFAULT_MINT_VALUES).to.have.property("storage_built");
-      expect(DEFAULT_MINT_VALUES).to.have.property("enemy_killed");
-      expect(DEFAULT_MINT_VALUES).to.have.property("tower_built");
-      expect(DEFAULT_MINT_VALUES).to.have.property("link_built");
+      expect(DEFAULT_MINT_VALUES).to.have.property("rclUpgrade");
+      expect(DEFAULT_MINT_VALUES).to.have.property("gclUpgrade");
+      expect(DEFAULT_MINT_VALUES).to.have.property("remoteSourceTap");
+      expect(DEFAULT_MINT_VALUES).to.have.property("roomClaim");
+      expect(DEFAULT_MINT_VALUES).to.have.property("containerBuilt");
+      expect(DEFAULT_MINT_VALUES).to.have.property("extensionBuilt");
+      expect(DEFAULT_MINT_VALUES).to.have.property("roadBuilt");
+      expect(DEFAULT_MINT_VALUES).to.have.property("storageBuilt");
+      expect(DEFAULT_MINT_VALUES).to.have.property("enemyKilled");
+      expect(DEFAULT_MINT_VALUES).to.have.property("towerBuilt");
+      expect(DEFAULT_MINT_VALUES).to.have.property("linkBuilt");
     });
 
     it("should have positive values for all achievements", () => {
@@ -32,77 +32,77 @@ describe("MintValues", () => {
       }
     });
 
-    it("should value rcl_upgrade higher than gcl_upgrade", () => {
+    it("should value rclUpgrade higher than gclUpgrade", () => {
       // RCL upgrades are more valuable early game
-      expect(DEFAULT_MINT_VALUES.rcl_upgrade).to.be.greaterThan(
-        DEFAULT_MINT_VALUES.gcl_upgrade
+      expect(DEFAULT_MINT_VALUES.rclUpgrade).to.be.greaterThan(
+        DEFAULT_MINT_VALUES.gclUpgrade
       );
     });
 
-    it("should value room_claim highly", () => {
+    it("should value roomClaim highly", () => {
       // Claiming a room is a major achievement
-      expect(DEFAULT_MINT_VALUES.room_claim).to.be.greaterThan(1000);
+      expect(DEFAULT_MINT_VALUES.roomClaim).to.be.greaterThan(1000);
     });
   });
 
   describe("EXPANSION_MINT_VALUES", () => {
     it("should value remote sources higher than default", () => {
-      expect(EXPANSION_MINT_VALUES.remote_source_tap).to.be.greaterThan(
-        DEFAULT_MINT_VALUES.remote_source_tap
+      expect(EXPANSION_MINT_VALUES.remoteSourceTap).to.be.greaterThan(
+        DEFAULT_MINT_VALUES.remoteSourceTap
       );
     });
 
     it("should value room claims higher than default", () => {
-      expect(EXPANSION_MINT_VALUES.room_claim).to.be.greaterThan(
-        DEFAULT_MINT_VALUES.room_claim
+      expect(EXPANSION_MINT_VALUES.roomClaim).to.be.greaterThan(
+        DEFAULT_MINT_VALUES.roomClaim
       );
     });
 
     it("should preserve non-expansion values", () => {
-      expect(EXPANSION_MINT_VALUES.enemy_killed).to.equal(
-        DEFAULT_MINT_VALUES.enemy_killed
+      expect(EXPANSION_MINT_VALUES.enemyKilled).to.equal(
+        DEFAULT_MINT_VALUES.enemyKilled
       );
     });
   });
 
   describe("DEFENSIVE_MINT_VALUES", () => {
     it("should value enemy kills higher than default", () => {
-      expect(DEFENSIVE_MINT_VALUES.enemy_killed).to.be.greaterThan(
-        DEFAULT_MINT_VALUES.enemy_killed
+      expect(DEFENSIVE_MINT_VALUES.enemyKilled).to.be.greaterThan(
+        DEFAULT_MINT_VALUES.enemyKilled
       );
     });
 
     it("should value towers higher than default", () => {
-      expect(DEFENSIVE_MINT_VALUES.tower_built).to.be.greaterThan(
-        DEFAULT_MINT_VALUES.tower_built
+      expect(DEFENSIVE_MINT_VALUES.towerBuilt).to.be.greaterThan(
+        DEFAULT_MINT_VALUES.towerBuilt
       );
     });
   });
 
   describe("getMintValue()", () => {
     it("should return correct value for achievement", () => {
-      expect(getMintValue(DEFAULT_MINT_VALUES, "rcl_upgrade")).to.equal(1000);
-      expect(getMintValue(DEFAULT_MINT_VALUES, "enemy_killed")).to.equal(200);
+      expect(getMintValue(DEFAULT_MINT_VALUES, "rclUpgrade")).to.equal(1000);
+      expect(getMintValue(DEFAULT_MINT_VALUES, "enemyKilled")).to.equal(200);
     });
 
     it("should return 0 for undefined achievement", () => {
       const customValues = { ...DEFAULT_MINT_VALUES };
-      delete (customValues as any).rcl_upgrade;
-      expect(getMintValue(customValues, "rcl_upgrade")).to.equal(0);
+      delete (customValues as any).rclUpgrade;
+      expect(getMintValue(customValues, "rclUpgrade")).to.equal(0);
     });
   });
 
   describe("calculateMint()", () => {
     it("should multiply value by quantity", () => {
-      expect(calculateMint(DEFAULT_MINT_VALUES, "rcl_upgrade", 10)).to.equal(10000);
+      expect(calculateMint(DEFAULT_MINT_VALUES, "rclUpgrade", 10)).to.equal(10000);
     });
 
     it("should default to quantity 1", () => {
-      expect(calculateMint(DEFAULT_MINT_VALUES, "rcl_upgrade")).to.equal(1000);
+      expect(calculateMint(DEFAULT_MINT_VALUES, "rclUpgrade")).to.equal(1000);
     });
 
     it("should return 0 for zero quantity", () => {
-      expect(calculateMint(DEFAULT_MINT_VALUES, "rcl_upgrade", 0)).to.equal(0);
+      expect(calculateMint(DEFAULT_MINT_VALUES, "rclUpgrade", 0)).to.equal(0);
     });
   });
 
@@ -113,26 +113,26 @@ describe("MintValues", () => {
     });
 
     it("should override specified values", () => {
-      const values = createMintValues({ rcl_upgrade: 2000 });
-      expect(values.rcl_upgrade).to.equal(2000);
-      expect(values.gcl_upgrade).to.equal(DEFAULT_MINT_VALUES.gcl_upgrade);
+      const values = createMintValues({ rclUpgrade: 2000 });
+      expect(values.rclUpgrade).to.equal(2000);
+      expect(values.gclUpgrade).to.equal(DEFAULT_MINT_VALUES.gclUpgrade);
     });
 
     it("should allow multiple overrides", () => {
       const values = createMintValues({
-        rcl_upgrade: 2000,
-        enemy_killed: 500,
-        road_built: 5
+        rclUpgrade: 2000,
+        enemyKilled: 500,
+        roadBuilt: 5
       });
-      expect(values.rcl_upgrade).to.equal(2000);
-      expect(values.enemy_killed).to.equal(500);
-      expect(values.road_built).to.equal(5);
+      expect(values.rclUpgrade).to.equal(2000);
+      expect(values.enemyKilled).to.equal(500);
+      expect(values.roadBuilt).to.equal(5);
     });
 
     it("should not modify DEFAULT_MINT_VALUES", () => {
-      const originalValue = DEFAULT_MINT_VALUES.rcl_upgrade;
-      createMintValues({ rcl_upgrade: 9999 });
-      expect(DEFAULT_MINT_VALUES.rcl_upgrade).to.equal(originalValue);
+      const originalValue = DEFAULT_MINT_VALUES.rclUpgrade;
+      createMintValues({ rclUpgrade: 9999 });
+      expect(DEFAULT_MINT_VALUES.rclUpgrade).to.equal(originalValue);
     });
   });
 });

@@ -7,16 +7,16 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { Position } from "../types/Position";
+import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
+import { Position } from "../types/Position";
+import { SinkAllocation } from "../flow/FlowTypes";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { ChainScene, CorpEconomics } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 6;
-import { SinkAllocation } from "../flow/FlowTypes";
-import { buildUpgraderBody, UpgraderStrategy } from "../spawn/BodyBuilder";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
-import { ChainScene, CorpEconomics } from "./economics";
-import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -41,7 +41,7 @@ export class UpgradingCorp extends Corp {
   private spawnId: string;
 
   /** Target number of upgraders (computed during planning) */
-  private targetUpgraders: number = 2;
+  private targetUpgraders = 2;
 
   /**
    * Flow-based sink allocation from FlowEconomy.
@@ -52,7 +52,7 @@ export class UpgradingCorp extends Corp {
   /** Last chosen supply strategy, so a switch is logged once rather than every tick. */
   private lastStrategy: UpgraderStrategy | null = null;
 
-  constructor(nodeId: string, spawnId: string, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("upgrading", nodeId, customId);
     this.spawnId = spawnId;
   }
@@ -75,7 +75,7 @@ export class UpgradingCorp extends Corp {
    * Plan upgrading operations. Called periodically to compute targets.
    * Adjusts target upgraders based on controller level and downgrade risk.
    */
-  plan(tick: number): void {
+  public plan(tick: number): void {
     super.plan(tick);
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -99,7 +99,7 @@ export class UpgradingCorp extends Corp {
   /**
    * Get the controller position as the corp's location.
    */
-  getPosition(): Position {
+  public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (spawn && spawn.room.controller) {
       const ctrl = spawn.room.controller;
@@ -111,7 +111,7 @@ export class UpgradingCorp extends Corp {
   /**
    * Main work loop - run upgrader creeps.
    */
-  work(tick: number): void {
+  public work(tick: number): void {
     this.lastActivityTick = tick;
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -131,11 +131,7 @@ export class UpgradingCorp extends Corp {
    * Run behavior for an upgrader creep.
    * Upgraders are stationary - they stay near the controller and only pick up nearby energy.
    */
-  private runUpgrader(
-    creep: Creep,
-    room: Room,
-    controller: StructureController
-  ): void {
+  private runUpgrader(creep: Creep, room: Room, controller: StructureController): void {
     // Track working state for energy pickup
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
@@ -175,7 +171,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for dropped energy within range
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
     });
     if (dropped.length > 0) {
       const target = dropped[0];
@@ -187,7 +183,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for tombstones with energy within range
     const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+      filter: t => t.store[RESOURCE_ENERGY] > 0
     });
     if (tombstones.length > 0) {
       const target = tombstones[0];
@@ -199,7 +195,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for ruins with energy within range
     const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
-      filter: (r) => r.store[RESOURCE_ENERGY] > 0,
+      filter: r => r.store[RESOURCE_ENERGY] > 0
     });
     if (ruins.length > 0) {
       const target = ruins[0];
@@ -211,9 +207,7 @@ export class UpgradingCorp extends Corp {
 
     // Check containers within range
     const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
     }) as StructureContainer[];
     if (containers.length > 0) {
       const target = containers[0];
@@ -225,9 +219,7 @@ export class UpgradingCorp extends Corp {
 
     // Check links within range (for higher RCL)
     const links = creep.pos.findInRange(FIND_MY_STRUCTURES, PICKUP_RANGE, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_LINK &&
-        (s as StructureLink).store[RESOURCE_ENERGY] > 0,
+      filter: s => s.structureType === STRUCTURE_LINK && (s as StructureLink).store[RESOURCE_ENERGY] > 0
     }) as StructureLink[];
     if (links.length > 0) {
       const target = links[0];
@@ -239,9 +231,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for containers near the controller (even if not near creep)
     const controllerContainers = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
     }) as StructureContainer[];
     if (controllerContainers.length > 0) {
       const target = controllerContainers[0];
@@ -266,7 +256,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for dropped energy within range
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 20,
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
     });
     if (dropped.length > 0) {
       const target = dropped[0];
@@ -278,7 +268,7 @@ export class UpgradingCorp extends Corp {
 
     // Check for tombstones with energy within range
     const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: (t) => t.store[RESOURCE_ENERGY] > 0,
+      filter: t => t.store[RESOURCE_ENERGY] > 0
     });
     if (tombstones.length > 0) {
       const target = tombstones[0];
@@ -290,9 +280,7 @@ export class UpgradingCorp extends Corp {
 
     // Check containers within range
     const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 50,
+      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
     }) as StructureContainer[];
     if (containers.length > 0) {
       const target = containers[0];
@@ -311,14 +299,14 @@ export class UpgradingCorp extends Corp {
   /**
    * Get number of active upgrader creeps.
    */
-  getCreepCount(): number {
+  public getCreepCount(): number {
     return this.getActiveCreeps().length;
   }
 
   /**
    * Get the spawn ID this corp spawns from.
    */
-  getSpawnId(): string {
+  public getSpawnId(): string {
     return this.spawnId;
   }
 
@@ -341,8 +329,7 @@ export class UpgradingCorp extends Corp {
    */
   private getUpgraderStrategy(controller: StructureController): UpgraderStrategy {
     const buffers = controller.pos.findInRange(FIND_STRUCTURES, 3, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK,
+      filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
     });
     const strategy: UpgraderStrategy = buffers.length > 0 ? "containerFed" : "mobile";
     if (strategy !== this.lastStrategy) {
@@ -358,7 +345,7 @@ export class UpgradingCorp extends Corp {
    * life left after walking out to the controller. It is a pure consumer, so it
    * reports cost only (no throughput).
    */
-  project(scene: ChainScene): CorpEconomics {
+  public project(scene: ChainScene): CorpEconomics {
     const allocated = this.sinkAllocation?.allocated ?? 0;
     if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0 };
 
@@ -372,20 +359,16 @@ export class UpgradingCorp extends Corp {
     return { costPerTick: body.cost / usefulLife, throughput: 0 };
   }
 
-  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+  public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     // Commit to a supply strategy up front; body shape and runt policy follow it.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const controller = spawn?.room.controller;
-    const strategy: UpgraderStrategy = controller
-      ? this.getUpgraderStrategy(controller)
-      : "mobile";
+    const strategy: UpgraderStrategy = controller ? this.getUpgraderStrategy(controller) : "mobile";
 
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an
     // allocation, ask for a minimal upgrader to keep the controller alive.
-    const allocated = this.sinkAllocation && this.sinkAllocation.allocated > 0
-      ? this.sinkAllocation.allocated
-      : 2;
+    const allocated = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -414,26 +397,28 @@ export class UpgradingCorp extends Corp {
     const min = buildUpgraderBody(ctx.energyCapacity, minWork, strategy);
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
 
-    return [{
-      buyerCorpId: this.id,
-      role: "upgrader",
-      // Spawn priority is decoupled from the controller's ROUTING value (~50,
-      // which keeps construction ranked above it). Consuming the energy the
-      // plan budgets for upgrading is as essential as the producers/haulers that
-      // supply it - otherwise producers win the queue forever and the budgeted
-      // upgraders only trickle in via anti-starvation aging, so a second source
-      // is mined and wasted. Rank them alongside haulers.
-      value: 90,
-      // The first upgrader is blocking (controller would otherwise stall);
-      // additional upgraders are scaling capacity (non-blocking).
-      blocking: current === 0,
-      producesIncome: false,
-      desiredCost: desired.cost,
-      minCost: min.cost,
-      since: 0,
-      bodyParam: desiredWork,
-      bodyStrategy: strategy,
-    }];
+    return [
+      {
+        buyerCorpId: this.id,
+        role: "upgrader",
+        // Spawn priority is decoupled from the controller's ROUTING value (~50,
+        // which keeps construction ranked above it). Consuming the energy the
+        // plan budgets for upgrading is as essential as the producers/haulers that
+        // supply it - otherwise producers win the queue forever and the budgeted
+        // upgraders only trickle in via anti-starvation aging, so a second source
+        // is mined and wasted. Rank them alongside haulers.
+        value: 90,
+        // The first upgrader is blocking (controller would otherwise stall);
+        // additional upgraders are scaling capacity (non-blocking).
+        blocking: current === 0,
+        producesIncome: false,
+        desiredCost: desired.cost,
+        minCost: min.cost,
+        since: 0,
+        bodyParam: desiredWork,
+        bodyStrategy: strategy
+      }
+    ];
   }
 
   // ===========================================================================
@@ -444,7 +429,7 @@ export class UpgradingCorp extends Corp {
    * Set the sink allocation from FlowEconomy.
    * This determines how much energy should flow to upgrading.
    */
-  setSinkAllocation(allocation: SinkAllocation): void {
+  public setSinkAllocation(allocation: SinkAllocation): void {
     this.sinkAllocation = allocation;
     // Dynamically adjust target upgraders based on allocated energy
     // Each upgrader with ~3 WORK parts uses about 3 energy/tick
@@ -455,54 +440,54 @@ export class UpgradingCorp extends Corp {
   /**
    * Get the current sink allocation (if set by FlowEconomy).
    */
-  getSinkAllocation(): SinkAllocation | null {
+  public getSinkAllocation(): SinkAllocation | null {
     return this.sinkAllocation;
   }
 
   /**
    * Check if this corp has a flow-based allocation.
    */
-  hasFlowAllocation(): boolean {
+  public hasFlowAllocation(): boolean {
     return this.sinkAllocation !== null;
   }
 
   /**
    * Get the allocated energy rate from flow solution.
    */
-  getAllocatedEnergyRate(): number {
+  public getAllocatedEnergyRate(): number {
     return this.sinkAllocation?.allocated ?? 0;
   }
 
   /**
    * Get the demanded energy rate from flow solution.
    */
-  getDemandedEnergyRate(): number {
+  public getDemandedEnergyRate(): number {
     return this.sinkAllocation?.demand ?? 0;
   }
 
   /**
    * Get the priority from flow solution.
    */
-  getFlowPriority(): number {
+  public getFlowPriority(): number {
     return this.sinkAllocation?.priority ?? 60; // Default controller priority
   }
 
   /**
    * Serialize for persistence.
    */
-  serialize(): SerializedUpgradingCorp {
+  public serialize(): SerializedUpgradingCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
       targetUpgraders: this.targetUpgraders,
-      sinkAllocation: this.sinkAllocation ?? undefined,
+      sinkAllocation: this.sinkAllocation ?? undefined
     };
   }
 
   /**
    * Deserialize from persistence.
    */
-  deserialize(data: SerializedUpgradingCorp): void {
+  public deserialize(data: SerializedUpgradingCorp): void {
     super.deserialize(data);
     this.targetUpgraders = data.targetUpgraders || 2;
     this.sinkAllocation = data.sinkAllocation ?? null;
@@ -512,10 +497,7 @@ export class UpgradingCorp extends Corp {
 /**
  * Create an UpgradingCorp for a room.
  */
-export function createUpgradingCorp(
-  room: Room,
-  spawn: StructureSpawn
-): UpgradingCorp {
+export function createUpgradingCorp(room: Room, spawn: StructureSpawn): UpgradingCorp {
   const nodeId = `${room.name}-upgrading`;
   return new UpgradingCorp(nodeId, spawn.id);
 }

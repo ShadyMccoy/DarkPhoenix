@@ -17,24 +17,24 @@
  * ```
  */
 
+import {
+  DEFAULT_CONSTRAINTS,
+  FlowConstraints,
+  FlowSolution,
+  HaulerAssignment,
+  MinerAssignment,
+  Position,
+  PriorityContext,
+  SinkAllocation,
+  SinkType
+} from "./FlowTypes";
+import { FlowGraph, createFlowGraph } from "./FlowGraph";
+import { FlowSolver, printSolutionSummary, solveIteratively } from "./FlowSolver";
+import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
+import { EconomyPlan } from "./EconomyPlanner";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { FlowGraph, createFlowGraph } from "./FlowGraph";
-import { FlowSolver, solveIteratively, printSolutionSummary } from "./FlowSolver";
-import { EconomyPlan } from "./EconomyPlanner";
 import { planFromGraph } from "./EconomyAdapter";
-import { PriorityManager, PRIORITY_PRESETS } from "./PriorityManager";
-import {
-  FlowSolution,
-  FlowConstraints,
-  PriorityContext,
-  MinerAssignment,
-  HaulerAssignment,
-  SinkAllocation,
-  SinkType,
-  DEFAULT_CONSTRAINTS,
-  Position,
-} from "./FlowTypes";
 
 // =============================================================================
 // FLOW ECONOMY CLASS
@@ -90,11 +90,7 @@ export class FlowEconomy {
    * @param navigator - Node navigator for pathfinding
    * @param constraints - Optional constraint overrides
    */
-  constructor(
-    nodes: Node[],
-    navigator: NodeNavigator,
-    constraints?: Partial<FlowConstraints>
-  ) {
+  public constructor(nodes: Node[], navigator: NodeNavigator, constraints?: Partial<FlowConstraints>) {
     this.nodes = new Map();
     for (const node of nodes) {
       this.nodes.set(node.id, node);
@@ -122,11 +118,12 @@ export class FlowEconomy {
    * @param context - Current game state context
    * @param force - Force re-solve even if within update interval
    */
-  update(context: PriorityContext, force: boolean = false): void {
+  public update(context: PriorityContext, force = false): void {
     this.context = context;
 
     // Check if we should re-solve
-    const shouldSolve = force ||
+    const shouldSolve =
+      force ||
       !this.solution ||
       context.tick - this.lastUpdateTick >= this.updateInterval ||
       this.hasSignificantChange(context);
@@ -140,7 +137,7 @@ export class FlowEconomy {
   /**
    * Force a re-solve of the economy.
    */
-  solve(): void {
+  public solve(): void {
     if (!this.context) {
       this.context = PriorityManager.createMockContext();
     }
@@ -173,7 +170,7 @@ export class FlowEconomy {
         (Memory as { economyPlan?: unknown }).economyPlan = {
           overhead: Number(this.plan.overhead.toFixed(2)),
           unrouted: Number(this.plan.unrouted.toFixed(2)),
-          corps: this.plan.corps,
+          corps: this.plan.corps
         };
       }
     } catch (e) {
@@ -183,7 +180,7 @@ export class FlowEconomy {
   }
 
   /** Get the strategic plan (new economy layer), if computed. */
-  getPlan(): EconomyPlan | null {
+  public getPlan(): EconomyPlan | null {
     return this.plan;
   }
 
@@ -208,21 +205,21 @@ export class FlowEconomy {
   /**
    * Get all miner assignments.
    */
-  getMinerAssignments(): MinerAssignment[] {
+  public getMinerAssignments(): MinerAssignment[] {
     return this.solution?.miners ?? [];
   }
 
   /**
    * Get miner assignment for a specific source.
    */
-  getMinerAssignment(sourceId: string): MinerAssignment | null {
+  public getMinerAssignment(sourceId: string): MinerAssignment | null {
     return this.solution?.miners.find(m => m.sourceId === sourceId) ?? null;
   }
 
   /**
    * Get miner assignments for a node.
    */
-  getMinerAssignmentsForNode(nodeId: string): MinerAssignment[] {
+  public getMinerAssignmentsForNode(nodeId: string): MinerAssignment[] {
     return this.solution?.miners.filter(m => m.nodeId === nodeId) ?? [];
   }
 
@@ -233,28 +230,28 @@ export class FlowEconomy {
   /**
    * Get all hauler assignments.
    */
-  getHaulerAssignments(): HaulerAssignment[] {
+  public getHaulerAssignments(): HaulerAssignment[] {
     return this.solution?.haulers ?? [];
   }
 
   /**
    * Get hauler assignments originating from a source.
    */
-  getHaulerAssignmentsFromSource(sourceId: string): HaulerAssignment[] {
+  public getHaulerAssignmentsFromSource(sourceId: string): HaulerAssignment[] {
     return this.solution?.haulers.filter(h => h.fromId === sourceId) ?? [];
   }
 
   /**
    * Get hauler assignments to a sink.
    */
-  getHaulerAssignmentsToSink(sinkId: string): HaulerAssignment[] {
+  public getHaulerAssignmentsToSink(sinkId: string): HaulerAssignment[] {
     return this.solution?.haulers.filter(h => h.toId === sinkId) ?? [];
   }
 
   /**
    * Get total CARRY parts needed for a node.
    */
-  getCarryPartsForNode(nodeId: string): number {
+  public getCarryPartsForNode(nodeId: string): number {
     const node = this.nodes.get(nodeId);
     if (!node) return 0;
 
@@ -278,43 +275,42 @@ export class FlowEconomy {
   /**
    * Get all sink allocations.
    */
-  getSinkAllocations(): SinkAllocation[] {
+  public getSinkAllocations(): SinkAllocation[] {
     return this.solution?.sinkAllocations ?? [];
   }
 
   /**
    * Get allocation for a specific sink.
    */
-  getSinkAllocation(sinkId: string): SinkAllocation | null {
+  public getSinkAllocation(sinkId: string): SinkAllocation | null {
     return this.solution?.sinkAllocations.find(a => a.sinkId === sinkId) ?? null;
   }
 
   /**
    * Get allocations for a sink type.
    */
-  getSinkAllocationsByType(type: SinkType): SinkAllocation[] {
+  public getSinkAllocationsByType(type: SinkType): SinkAllocation[] {
     return this.solution?.sinkAllocations.filter(a => a.sinkType === type) ?? [];
   }
 
   /**
    * Get total energy allocated to a sink type.
    */
-  getTotalAllocationForType(type: SinkType): number {
-    return this.getSinkAllocationsByType(type)
-      .reduce((sum, a) => sum + a.allocated, 0);
+  public getTotalAllocationForType(type: SinkType): number {
+    return this.getSinkAllocationsByType(type).reduce((sum, a) => sum + a.allocated, 0);
   }
 
   /**
    * Get upgrade rate (energy to controller).
    */
-  getUpgradeRate(): number {
+  public getUpgradeRate(): number {
     return this.getTotalAllocationForType("controller");
   }
 
   /**
    * Get build rate (energy to construction sites).
    */
-  getBuildRate(): number {
+  public getBuildRate(): number {
     return this.getTotalAllocationForType("construction");
   }
 
@@ -325,56 +321,56 @@ export class FlowEconomy {
   /**
    * Get current solution (or null if not solved).
    */
-  getSolution(): FlowSolution | null {
+  public getSolution(): FlowSolution | null {
     return this.solution;
   }
 
   /**
    * Get total harvest rate.
    */
-  getTotalHarvest(): number {
+  public getTotalHarvest(): number {
     return this.solution?.totalHarvest ?? 0;
   }
 
   /**
    * Get total overhead.
    */
-  getTotalOverhead(): number {
+  public getTotalOverhead(): number {
     return this.solution?.totalOverhead ?? 0;
   }
 
   /**
    * Get net energy (harvest - overhead).
    */
-  getNetEnergy(): number {
+  public getNetEnergy(): number {
     return this.solution?.netEnergy ?? 0;
   }
 
   /**
    * Get efficiency percentage.
    */
-  getEfficiency(): number {
+  public getEfficiency(): number {
     return this.solution?.efficiency ?? 0;
   }
 
   /**
    * Check if economy is sustainable.
    */
-  isSustainable(): boolean {
+  public isSustainable(): boolean {
     return this.solution?.isSustainable ?? false;
   }
 
   /**
    * Get unmet demand map.
    */
-  getUnmetDemand(): Map<string, number> {
-    return this.solution?.unmetDemand ?? new Map();
+  public getUnmetDemand(): Map<string, number> {
+    return this.solution?.unmetDemand ?? new Map<string, number>();
   }
 
   /**
    * Get warnings from last solve.
    */
-  getWarnings(): string[] {
+  public getWarnings(): string[] {
     return this.solution?.warnings ?? [];
   }
 
@@ -386,12 +382,7 @@ export class FlowEconomy {
    * Add a construction site dynamically.
    * Call this when a new site is placed.
    */
-  addConstructionSite(
-    id: string,
-    nodeId: string,
-    position: Position,
-    progressRemaining: number
-  ): void {
+  public addConstructionSite(id: string, nodeId: string, position: Position, progressRemaining: number): void {
     this.graph.addConstructionSite(id, nodeId, position, progressRemaining);
     // Rebuild edges for new sink
     this.graph.buildEdges();
@@ -401,14 +392,14 @@ export class FlowEconomy {
    * Remove a construction site.
    * Call this when a site completes or is cancelled.
    */
-  removeConstructionSite(id: string): void {
+  public removeConstructionSite(id: string): void {
     this.graph.removeConstructionSite(id);
   }
 
   /**
    * Add an extension.
    */
-  addExtension(id: string, nodeId: string, position: Position): void {
+  public addExtension(id: string, nodeId: string, position: Position): void {
     this.graph.addExtension(id, nodeId, position);
     this.graph.buildEdges();
   }
@@ -416,7 +407,7 @@ export class FlowEconomy {
   /**
    * Add a tower.
    */
-  addTower(id: string, nodeId: string, position: Position): void {
+  public addTower(id: string, nodeId: string, position: Position): void {
     this.graph.addTower(id, nodeId, position);
     this.graph.buildEdges();
   }
@@ -425,7 +416,7 @@ export class FlowEconomy {
    * Rebuild the graph from nodes.
    * Call this when room structures change significantly.
    */
-  rebuild(nodes: Node[]): void {
+  public rebuild(nodes: Node[]): void {
     this.nodes.clear();
     for (const node of nodes) {
       this.nodes.set(node.id, node);
@@ -441,28 +432,28 @@ export class FlowEconomy {
   /**
    * Set update interval (ticks between re-solves).
    */
-  setUpdateInterval(ticks: number): void {
+  public setUpdateInterval(ticks: number): void {
     this.updateInterval = Math.max(1, ticks);
   }
 
   /**
    * Set constraints.
    */
-  setConstraints(constraints: Partial<FlowConstraints>): void {
+  public setConstraints(constraints: Partial<FlowConstraints>): void {
     this.constraints = { ...this.constraints, ...constraints };
   }
 
   /**
    * Get the priority manager for custom rule configuration.
    */
-  getPriorityManager(): PriorityManager {
+  public getPriorityManager(): PriorityManager {
     return this.priorityManager;
   }
 
   /**
    * Get the flow graph for direct access.
    */
-  getFlowGraph(): FlowGraph {
+  public getFlowGraph(): FlowGraph {
     return this.graph;
   }
 
@@ -473,7 +464,7 @@ export class FlowEconomy {
   /**
    * Print economy summary to console.
    */
-  debugPrint(): void {
+  public debugPrint(): void {
     console.log("\n=== FlowEconomy Debug ===");
     console.log(`Nodes: ${this.nodes.size}`);
     console.log(`Last update: tick ${this.lastUpdateTick}`);
@@ -501,11 +492,7 @@ export class FlowEconomy {
  * @param navigator - Node navigator for pathfinding
  * @param context - Initial priority context
  */
-export function createFlowEconomy(
-  nodes: Node[],
-  navigator: NodeNavigator,
-  context?: PriorityContext
-): FlowEconomy {
+export function createFlowEconomy(nodes: Node[], navigator: NodeNavigator, context?: PriorityContext): FlowEconomy {
   const economy = new FlowEconomy(nodes, navigator);
 
   if (context) {

@@ -14,7 +14,7 @@ function at(x: number, y: number): Position {
   return { x, y, roomName: "W0N0" };
 }
 
-const mint = createMintValues({ rcl_upgrade: 1.0 });
+const mint = createMintValues({ rclUpgrade: 1.0 });
 
 function planner(states: AnyCorpState[]): ChainPlanner {
   const p = new ChainPlanner(new OfferCollector(), mint);
@@ -31,7 +31,7 @@ function basicStates(): AnyCorpState[] {
   ];
 }
 
-describe("ChainPlanner (planner-backed)", () => {
+describe("ChainPlanner (corp-driven)", () => {
   it("finds a viable mine -> haul -> upgrade chain from corp states", () => {
     const chains = planner(basicStates()).findViableChains(0);
 
