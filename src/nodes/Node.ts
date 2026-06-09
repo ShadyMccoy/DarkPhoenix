@@ -1,5 +1,4 @@
 import { Corp, CorpType } from "../corps/Corp";
-import { evaluateSpawnChain, ReachableChainSource } from "../corps/ChainEvaluator";
 import { Position } from "../types/Position";
 
 // Declare Game for environments where @types/screeps is not available
@@ -345,7 +344,7 @@ export function calculateNodeROI(
   peakHeight: number,
   ownedRooms: Set<string>,
   potentialCorps: PotentialCorp[] = [],
-  reachableSources: ReachableSource[] = []
+  economicValue = 0
 ): NodeROI {
   const isOwned = ownedRooms.has(node.roomName);
 
@@ -383,26 +382,11 @@ export function calculateNodeROI(
   // already includes the miners/haulers/upgraders it staffs).
   const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
 
-  // Planner-backed economic value: price a spawn at this node's peak over its
-  // own sources AND its reachable neighbours' sources. The score comes from the
-  // corps a spawn here would run (a miner + hauler per source, an upgrader on
-  // the controller), each projecting its own cost - so it tracks the corps with
-  // no separate model to maintain. Replaces the old "sum of corp ROIs + ad-hoc
-  // reachable bonus".
-  const controller = node.resources.find((r) => r.type === "controller");
-  const localSources = node.resources
-    .filter((r) => r.type === "source")
-    .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
-  const reachable: ReachableChainSource[] = reachableSources.map((rs) => ({
-    capacity: rs.capacity,
-    distance: rs.distance,
-  }));
-  const economicValue = evaluateSpawnChain({
-    spawnPos: node.peakPosition,
-    sources: localSources,
-    controllerPos: controller?.position,
-    reachableSources: reachable,
-  });
+  // `economicValue` is the node's MARGINAL contribution to the colony - the
+  // whole-colony economy with this node minus without it (see
+  // ColonyEconomy.marginalNodeValue, computed by the caller, which has the
+  // colony context). Marginal, so a node that would only cannibalise a
+  // neighbour's sources scores ~0 here rather than being credited their energy.
 
   // Base score: economic value (scaled to a readable range) plus an openness
   // bonus for buildable space.
