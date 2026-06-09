@@ -87,13 +87,6 @@ export interface CoreTelemetry {
     activeChains: number;
     averageROI: number;
   };
-  /** Money supply */
-  money: {
-    treasury: number;
-    minted: number;
-    taxed: number;
-    net: number;
-  };
   /** Creep counts by type */
   creeps: {
     total: number;
@@ -438,17 +431,7 @@ export class Telemetry {
       totalCorps: 0,
       activeCorps: 0,
       activeChains: 0,
-      totalMinted: 0,
-      totalTaxed: 0,
-      treasuryBalance: 0,
       averageROI: 0
-    };
-
-    const money = colony?.getMoneySupply() || {
-      minted: 0,
-      taxed: 0,
-      net: 0,
-      treasury: 0
     };
 
     // Build rooms array
@@ -488,12 +471,6 @@ export class Telemetry {
         activeCorps: stats.activeCorps,
         activeChains: stats.activeChains,
         averageROI: stats.averageROI
-      },
-      money: {
-        treasury: money.treasury,
-        minted: money.minted,
-        taxed: money.taxed,
-        net: money.net
       },
       creeps: {
         total: Object.keys(Game.creeps).length,

@@ -12,11 +12,9 @@ import {
   SerializedCarryCorp,
   SerializedConstructionCorp,
   SerializedHarvestCorp,
-  SerializedHaulerCorp,
   SerializedReservationCorp,
   SerializedScoutCorp,
   SerializedSpawningCorp,
-  SerializedTankerCorp,
   SerializedUpgradingCorp
 } from "../corps";
 import { SerializedChain } from "../planning/Chain";
@@ -139,18 +137,6 @@ declare global {
      * Each source has its own CarryCorp for independent hauler scaling.
      */
     haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-
-    /**
-     * Serialized hauler corps by edge ID.
-     * Haulers work on edges, transporting energy from source to sink.
-     */
-    haulerCorps?: { [edgeId: string]: SerializedHaulerCorp };
-
-    /**
-     * Serialized tanker corps by node ID.
-     * Tankers work within nodes, distributing energy locally.
-     */
-    tankerCorps?: { [nodeId: string]: SerializedTankerCorp };
 
     /**
      * Serialized upgrading corps by room name.
