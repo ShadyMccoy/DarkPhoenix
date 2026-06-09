@@ -17,7 +17,7 @@
  */
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { loadLayout, addOwnedRoom, padNeighborTerrain, RoomLayout } from "../test/integration/loadLayout";
+import { loadLayout, addOwnedRoom, padNeighborTerrain, enableMods, FREE_ECONOMY_MOD, RoomLayout } from "../test/integration/loadLayout";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
@@ -49,7 +49,7 @@ interface RoomMetric {
   progress: number;
 }
 
-async function run(nRooms: number, ticks: number, sampleEvery: number): Promise<RoomMetric[]> {
+async function run(nRooms: number, ticks: number, sampleEvery: number, free = false): Promise<RoomMetric[]> {
   const port = 24000 + Math.floor(Math.random() * 1000);
   const serverPath = path.resolve("server", `multiroom-${port}`);
   mkdirSync(path.join(serverPath, "logs"), { recursive: true });
@@ -67,6 +67,10 @@ async function run(nRooms: number, ticks: number, sampleEvery: number): Promise<
   for (let i = 1; i < nRooms; i += 1) {
     await addOwnedRoom(server.world, player.id, rooms[i], 25, 25, `Spawn${i + 1}`);
   }
+
+  // Inject the free-economy mod after the world is built, before the engine
+  // forks - zeroes the build/upgrade energy sinks for faster, "longer" sims.
+  if (free) enableMods(serverPath, [FREE_ECONOMY_MOD]);
 
   await server.start();
   for (let t = 1; t <= ticks; t += 1) {
@@ -107,11 +111,12 @@ async function main(): Promise<void> {
   const nRooms = parseInt(getArg("rooms", "3"), 10);
   const ticks = parseInt(getArg("ticks", "1000"), 10);
   const sampleEvery = parseInt(getArg("sample", "100"), 10);
+  const free = args.includes("--free");
 
-  console.log(`Baseline (1 room) vs ${nRooms} rooms, ${ticks} ticks each...`);
+  console.log(`Baseline (1 room) vs ${nRooms} rooms, ${ticks} ticks each${free ? " [free economy]" : ""}...`);
 
-  const baseline = (await run(1, ticks, sampleEvery))[0];
-  const multi = await run(nRooms, ticks, sampleEvery);
+  const baseline = (await run(1, ticks, sampleEvery, free))[0];
+  const multi = await run(nRooms, ticks, sampleEvery, free);
 
   summarize("baseline (1 room)", [baseline]);
   summarize(`${nRooms} rooms (one colony)`, multi);

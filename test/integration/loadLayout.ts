@@ -17,6 +17,8 @@
 // screeps-server-mockup ships no type definitions, so require it directly.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { TerrainMatrix } = require("screeps-server-mockup");
+import * as fs from "fs";
+import * as path from "path";
 
 export type ObjectType = "source" | "controller" | "mineral" | string;
 
@@ -153,6 +155,27 @@ export async function addOwnedRoom(
     })
   ]);
 }
+
+/**
+ * Load engine mods that override game constants, by injecting a `mods` array
+ * into the server's db.json - the file the engine processes read as their
+ * MODFILE (config-manager loads each listed module with the live `config`).
+ *
+ * Call AFTER the world is built (so db.json exists, having been copied on the
+ * first world op) and BEFORE `server.start()` (so the engine processes read it
+ * when they fork). Storage has already loaded the db into memory, so adding a
+ * `mods` key here does not disturb the live world - it only feeds the engine's
+ * constant-loading step.
+ */
+export function enableMods(serverPath: string, modPaths: string[]): void {
+  const dbPath = path.resolve(serverPath, "db.json");
+  const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
+  db.mods = modPaths.map(p => path.resolve(p));
+  fs.writeFileSync(dbPath, JSON.stringify(db));
+}
+
+/** Absolute path to the bundled free-economy mod (zeroes build/upgrade sinks). */
+export const FREE_ECONOMY_MOD = path.resolve(__dirname, "mods", "freeEconomy.js");
 
 // ---------------------------------------------------------------------------
 // Neighbour-room padding
