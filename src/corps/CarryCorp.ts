@@ -18,7 +18,6 @@ import { Position } from "../types/Position";
 export { pickRuntToRecycle };
 
 /** Transport fee per energy unit (base cost before margin) */
-const TRANSPORT_FEE_PER_ENERGY = 0.05;
 
 /**
  * Decide which local sink a CarryCorp should deliver its next load to, balancing
@@ -142,15 +141,6 @@ export class CarryCorp extends Corp {
       }
     }
     return creeps;
-  }
-
-  /**
-   * Get transport cost per energy unit based on actual operations.
-   */
-  public getTransportCostPerEnergy(): number {
-    if (this.unitsProduced === 0) return TRANSPORT_FEE_PER_ENERGY;
-    const operatingCost = this.totalCost - this.acquisitionCost;
-    return operatingCost / this.unitsProduced;
   }
 
   /**

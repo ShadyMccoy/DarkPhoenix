@@ -1010,7 +1010,6 @@ global.forgiveDebt = (amount = 1000) => {
     unitsProduced: number;
     expectedUnitsProduced: number;
     unitsConsumed: number;
-    acquisitionCost: number;
   }) => {
     corp.balance = amount;
     corp.totalRevenue = 0;
@@ -1018,7 +1017,6 @@ global.forgiveDebt = (amount = 1000) => {
     corp.unitsProduced = 0;
     corp.expectedUnitsProduced = 0;
     corp.unitsConsumed = 0;
-    corp.acquisitionCost = 0;
     corpsReset++;
   };
 
