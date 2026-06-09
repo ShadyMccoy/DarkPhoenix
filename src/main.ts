@@ -618,14 +618,10 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
  */
 function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
   const stats = activeColony.getStats();
-  const supply = activeColony.getMoneySupply();
 
   console.log(`[Colony] Tick ${Game.time}`);
   console.log(`  Nodes: ${stats.nodeCount}, Corps: ${stats.totalCorps} (${stats.activeCorps} active)`);
-  console.log(`  Chains: ${stats.activeChains}, Treasury: ${supply.treasury.toFixed(0)}`);
-  console.log(
-    `  Money Supply: ${supply.net.toFixed(0)} (minted: ${supply.minted.toFixed(0)}, taxed: ${supply.taxed.toFixed(0)})`
-  );
+  console.log(`  Chains: ${stats.activeChains}`);
 
   logCorpStats(activeCorps);
 }
@@ -772,7 +768,6 @@ global.status = () => {
   if (colony) {
     console.log("\n=== Colony ===");
     console.log(`Nodes: ${colony.getNodes().length}`);
-    console.log(`Treasury: ${colony.treasury.toFixed(0)}`);
   }
 };
 

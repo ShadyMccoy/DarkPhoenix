@@ -41,12 +41,6 @@ export interface CoreTelemetry {
     activeChains: number;
     averageROI: number;
   };
-  money: {
-    treasury: number;
-    minted: number;
-    taxed: number;
-    net: number;
-  };
   creeps: {
     total: number;
     bootstrap: number;

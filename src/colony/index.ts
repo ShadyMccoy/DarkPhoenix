@@ -1,5 +1,3 @@
-export { CreditLedger, MintRecord, MoneySupply, SerializedLedger } from "./CreditLedger";
-
 export {
   MintValues,
   DEFAULT_MINT_VALUES,

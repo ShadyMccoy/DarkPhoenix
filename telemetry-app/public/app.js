@@ -48,12 +48,6 @@ const elements = {
   gclProgress: document.getElementById("gcl-progress"),
   gclBar: document.getElementById("gcl-bar"),
 
-  // Money
-  moneyTreasury: document.getElementById("money-treasury"),
-  moneyMinted: document.getElementById("money-minted"),
-  moneyTaxed: document.getElementById("money-taxed"),
-  moneyNet: document.getElementById("money-net"),
-
   // Colony
   colonyNodes: document.getElementById("colony-nodes"),
   colonyCorps: document.getElementById("colony-corps"),
@@ -297,16 +291,6 @@ function updateUI() {
   elements.gclBar.style.width = `${
     (core.gcl.progress / core.gcl.progressTotal) * 100
   }%`;
-
-  // Update Money
-  elements.moneyTreasury.textContent = formatNumber(
-    Math.round(core.money.treasury)
-  );
-  elements.moneyMinted.textContent = formatNumber(
-    Math.round(core.money.minted)
-  );
-  elements.moneyTaxed.textContent = formatNumber(Math.round(core.money.taxed));
-  elements.moneyNet.textContent = formatNumber(Math.round(core.money.net));
 
   // Update Colony
   elements.colonyNodes.textContent = core.colony.nodeCount;
