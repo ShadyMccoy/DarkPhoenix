@@ -12,6 +12,7 @@ import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
+import { sourcePickupSpot, controllerDeliverySpot, workSpot } from "./nodeEnergy";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
 export { pickRuntToRecycle };
@@ -448,38 +449,9 @@ export class CarryCorp extends Corp {
       return;
     }
 
-    // Drive to the source and take whatever is there - its container if static
-    // mining built one, otherwise the miner's drop pile. No room-wide "largest
-    // pile" search: that pick changes as piles grow and shrink, so the hauler
-    // wanders between them instead of running its route. A bus stops at its stop.
-    const container = targetPos.findInRange(FIND_STRUCTURES, 1, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0,
-    })[0] as StructureContainer | undefined;
-    if (container) {
-      if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(container, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
-      }
-      return;
-    }
-
-    // The miner's drop sits adjacent to the source (a fixed tile - the miner is
-    // static), so this stays put; take the biggest of the (usually one) piles.
-    const pile = targetPos
-      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
-      .sort((a, b) => b.amount - a.amount)[0];
-    if (pile) {
-      if (creep.pickup(pile) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(pile, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
-      }
-      return;
-    }
-
-    // Nothing to grab yet: wait at the stop for the next drop.
-    if (creep.pos.getRangeTo(targetPos) > 1) {
-      creep.moveTo(targetPos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
-    }
+    // The source node resolves its own output spot (container / drop pile / wait
+    // tile - see nodeEnergy); the hauler just routes there and collects.
+    workSpot(creep, sourcePickupSpot(targetPos), "collect");
   }
 
   /**
@@ -594,34 +566,11 @@ export class CarryCorp extends Corp {
     const controller = room.controller;
     if (!controller) return false;
 
-    // The controller end of the bus route is one fixed drop-off: the upgrader
-    // container if static upgrading built one, otherwise the controller itself
-    // (drop beside it for the camping upgraders to draw from). No chasing whichever
-    // upgrader currently has the most room - that pick changes every tick and the
-    // hauler ends up shuttling between workers instead of running its route.
-    const container = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-      filter: (s) =>
-        s.structureType === STRUCTURE_CONTAINER &&
-        (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-    })[0] as StructureContainer | undefined;
-    if (container) {
-      if (creep.transfer(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(container, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
-      } else {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], container.store.getFreeCapacity(RESOURCE_ENERGY)));
-      }
-      return true;
-    }
-
-    // No container: drive to the controller and drop the load there. The
-    // stationary upgraders camp at the controller and pick it up.
-    if (creep.pos.getRangeTo(controller) > 2) {
-      creep.moveTo(controller, { range: 2, visualizePathStyle: { stroke: "#ffffff" } });
-    } else {
-      const dropped = creep.store[RESOURCE_ENERGY];
-      creep.drop(RESOURCE_ENERGY);
-      this.recordProduction(dropped);
-    }
+    // The controller node resolves its own input spot (upgrader container, else a
+    // drop beside the controller for the camping upgraders - see nodeEnergy). The
+    // hauler just routes there and deposits; no chasing whichever upgrader has the
+    // most room (that pick flips every tick and turns the route into a shuffle).
+    this.recordProduction(workSpot(creep, controllerDeliverySpot(controller), "deposit"));
     return true;
   }
 
