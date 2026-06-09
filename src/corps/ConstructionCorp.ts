@@ -197,10 +197,20 @@ export class ConstructionCorp extends Corp {
       this.tryPlaceNextSite(room, tick, rcl);
     }
 
+    // Reserve a whole source for the builder while building, so its miner feeds
+    // the tankers directly and nothing else drains it (see updateDedicatedSource).
+    this.updateDedicatedSource(room, activeSites > 0);
+
+    // A reserved source feeds far more than a runt builder (spawned small under
+    // early energy pressure) can use. Retire the runt so it respawns at the size
+    // the dedicated source can keep busy - but only when the room can afford the
+    // full body, else we would just respawn another runt and loop.
+    this.recycleUndersizedBuilder(room);
+
     // Once the room is maxed and the spawn would idle, retire an undersized
     // builder so it respawns at the size the room can now build (a no-op in a
     // constrained room - see Squad.flagRuntForRecycling).
-    this.builders.flagRuntForRecycling(room, spawn, this.builderPlan(room.energyCapacityAvailable));
+    this.builders.flagRuntForRecycling(room, spawn, this.builderPlan(room.energyCapacityAvailable, room));
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
@@ -218,14 +228,48 @@ export class ConstructionCorp extends Corp {
    * partsNeeded/maxPartsPerMember let a maxed room recycle a bootstrap runt up to
    * full size.
    */
-  private builderPlan(energyCapacity: number): SquadPlan {
-    const totalWork = Math.max(1, Math.ceil(this.getTotalAllocatedEnergy() / 5));
+  /**
+   * Recycle a builder that is smaller than the dedicated source can feed, so its
+   * replacement spawns at full size. Gated on (a) a source actually being reserved
+   * and (b) the room being able to afford the full body right now - otherwise the
+   * replacement would spawn small again and we would churn builders forever. One
+   * at a time.
+   */
+  private recycleUndersizedBuilder(room: Room): void {
+    if (!room.memory.dedicatedBuildSourceId) return;
+    const builders = this.builders.members();
+    if (builders.length === 0 || builders.some((b) => b.memory.recycling)) return;
+
+    const plan = this.builderPlan(room.energyCapacityAvailable, room);
+    if (room.energyAvailable < plan.desiredCost) return;
+
+    const runt = builders.find((b) => b.getActiveBodyparts(WORK) < (plan.maxPartsPerMember ?? 1));
+    if (runt) runt.memory.recycling = true;
+  }
+
+  private builderPlan(energyCapacity: number, room: Room): SquadPlan {
+    // Energy the crew should consume: the flow's construction allocation, OR -
+    // when a whole source is reserved for the builder - that source's full output
+    // (which all flows to construction). Sizing to the dedicated source lets the
+    // crew actually use it (a 10/tick source -> a 2-WORK builder) instead of being
+    // capped at the flow's smaller nominal share and leaving the source half-idle.
+    let buildEnergy = this.getTotalAllocatedEnergy();
+    const dedicated = room.memory.dedicatedBuildSourceId;
+    if (dedicated) {
+      const src = Game.getObjectById(dedicated as Id<Source>);
+      if (src) buildEnergy = Math.max(buildEnergy, src.energyCapacity / ENERGY_REGEN_TIME);
+    }
+    const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.
     const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
     const { count, partsPerMember } = splitIntoMembers(totalWork, maxPerBuilder, MAX_BUILDERS);
 
     const desired = buildUpgraderBody(energyCapacity, partsPerMember);
-    const min = buildUpgraderBody(energyCapacity, 1);
+    // Floor the builder at its planned size rather than a 1-WORK runt: a reserved
+    // source feeds a full builder, and a 1-WORK builder (5/tick) would leave half
+    // that source idle. Better to wait a few ticks for the energy and spawn the
+    // right body (the scheduler still ranks the builder high, so it spawns soon).
+    const min = desired;
     return {
       target: count,
       desiredCost: desired.cost,
@@ -307,7 +351,35 @@ export class ConstructionCorp extends Corp {
    * (so a relay spreads itself across a room's sources), with a stable id
    * tie-break. After that it never changes - the route is fixed.
    */
+  /**
+   * Reserve one whole source for the builder while a build is active: the source
+   * nearest the site (shortest tanker shuttle). Its miner then feeds the tankers
+   * directly and its haulers stand down (CarryCorp reads dedicatedBuildSourceId),
+   * so the builder gets the source's full output instead of fighting the haulers
+   * for it. Only when there is a spare source - the others still feed
+   * spawn/controller; a one-source room can't give its only source away.
+   */
+  private updateDedicatedSource(room: Room, building: boolean): void {
+    const sources = room.find(FIND_SOURCES);
+    if (!building || sources.length < 2) {
+      delete room.memory.dedicatedBuildSourceId;
+      return;
+    }
+    const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+    const nearest = site ? site.pos.findClosestByRange(sources) : null;
+    room.memory.dedicatedBuildSourceId = nearest?.id;
+  }
+
   private tankerSource(creep: Creep, room: Room): Source | null {
+    // While building, every tanker draws from the one reserved source.
+    const dedicated = room.memory.dedicatedBuildSourceId;
+    if (dedicated) {
+      const s = Game.getObjectById(dedicated as Id<Source>);
+      if (s) {
+        creep.memory.assignedSourceId = s.id;
+        return s;
+      }
+    }
     if (creep.memory.assignedSourceId) {
       const s = Game.getObjectById(creep.memory.assignedSourceId as Id<Source>);
       if (s) return s;
@@ -802,7 +874,7 @@ export class ConstructionCorp extends Corp {
     const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) return [];
 
-    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity));
+    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, spawn.room));
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;

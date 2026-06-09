@@ -431,6 +431,10 @@ export class CarryCorp extends Corp {
    * Haulers are assigned to specific sources to prevent thrashing.
    */
   private pickupEnergy(creep: Creep, room: Room): void {
+    // Our source is reserved for the builder: don't draw from it. Stand by (idle
+    // until the build finishes) so the construction tankers get its full output.
+    if (this.yieldsToBuild()) return;
+
     const sources = room.find(FIND_SOURCES);
     const assignedSource = this.getAssignedSource(creep, sources);
 
@@ -689,6 +693,10 @@ export class CarryCorp extends Corp {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
 
+    // If this source is reserved for the builder, field no haulers - its energy
+    // belongs to the construction tankers.
+    if (this.yieldsToBuild()) return [];
+
     const carryNeeded = this.haulCarryNeeded();
     if (carryNeeded <= 0) return [];
 
@@ -782,6 +790,24 @@ export class CarryCorp extends Corp {
         .filter((a) => !(a.toId ?? "").startsWith("construction-"))
         .reduce((sum, a) => sum + a.carryParts, 0)
     );
+  }
+
+  /** This corp's source game id (from its flow assignments). */
+  private mySourceId(): string | undefined {
+    const a = this.haulerAssignments[0];
+    return a ? a.fromId.replace("source-", "") : undefined;
+  }
+
+  /**
+   * True when this corp's source has been reserved for the builder: it must stand
+   * down (field no haulers, and existing ones stop drawing from it) so the
+   * construction tankers get the source's full output. The reservation is set by
+   * ConstructionCorp in room memory while a build is active.
+   */
+  private yieldsToBuild(): boolean {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
+    return !!dedicated && this.mySourceId() === dedicated;
   }
 
   /**

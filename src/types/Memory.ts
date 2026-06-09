@@ -191,6 +191,13 @@ declare global {
      * Last surveyed tick for this room.
      */
     lastSurveyTick?: number;
+
+    /**
+     * The source dedicated to construction while a build is active: its miner
+     * feeds the builder's tankers and nothing else touches it (its haulers stand
+     * down). Set by ConstructionCorp, read by CarryCorp. Cleared when not building.
+     */
+    dedicatedBuildSourceId?: string;
   }
 
   /**
