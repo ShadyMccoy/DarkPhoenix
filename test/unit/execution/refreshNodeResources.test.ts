@@ -99,4 +99,20 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
 
     expect(node.resources.filter((r) => r.type === "source")).to.have.length(0);
   });
+
+  it("claims nothing when the territory map is empty (the post-reset failure mode)", () => {
+    // After a global reset only a territory-LESS visualization cache is restored,
+    // so the refresh runs with empty territories and silently claims nothing -
+    // which is why main forces a fresh terrain pass to rebuild them. This pins the
+    // failure mode: empty territories => no claim, even though the source is in intel.
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    Memory.roomIntel!["W1N0"] = intelWithSource(100, 25, 25) as never;
+
+    // Empty territories - the node id has no positions (the viz cache shape).
+    refreshNodeResources(colony, { peaks: [], territories: new Map(), distances: new Map() } as MultiRoomAnalysisResult);
+
+    expect(node.resources.filter((r) => r.type === "source")).to.have.length(0);
+  });
 });

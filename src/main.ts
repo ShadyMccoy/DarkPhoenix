@@ -198,6 +198,20 @@ export const loop = ErrorMapper.wrapLoop(() => {
     runIncrementalAnalysis(colony);
   }
 
+  // After a GLOBAL RESET (frequent on a live server, never in a sim) the module
+  // caches are wiped and only a territory-LESS visualization cache is restored,
+  // which leaves refreshNodeResourcesFromCache below with no territories to claim
+  // newly scouted sources from - so remote mining silently stops. If we have nodes
+  // but the analysis cache has no real territories, force a fresh terrain pass to
+  // rebuild them (it also re-claims resources from current vision/intel).
+  const analysisCache = getAnalysisCache();
+  const haveTerritories = !!analysisCache && analysisCache.result.territories.size > 0;
+  if (!hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
+    console.log(`[Respawn] Territory cache empty after reset - rebuilding for resource refresh`);
+    resetAnalysis();
+    runIncrementalAnalysis(colony);
+  }
+
   // Keep node resources current with vision/intel between the (rare) full terrain
   // passes, so a source in a room only just scouted gets claimed by its node and
   // mined like any other - the terrain analysis itself runs at most every 5000
