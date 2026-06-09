@@ -32,24 +32,68 @@ interface Scenario {
   startRcl?: number;
 }
 
-function plainRoom(room: string, sources: Array<{ x: number; y: number }>): RoomLayout {
+function grid(): string[] {
+  return Array.from({ length: 50 }, () => ".".repeat(50));
+}
+function setTile(g: string[], x: number, y: number, ch: string): void {
+  if (x < 0 || x > 49 || y < 0 || y > 49) return;
+  g[y] = g[y].slice(0, x) + ch + g[y].slice(x + 1);
+}
+function vWall(g: string[], x: number, gap?: [number, number]): void {
+  for (let y = 1; y < 49; y++) if (!gap || y < gap[0] || y > gap[1]) setTile(g, x, y, "#");
+}
+function swampBand(g: string[], y1: number, y2: number): void {
+  for (let y = y1; y <= y2; y++) for (let x = 1; x < 49; x++) setTile(g, x, y, "~");
+}
+/** Wall a source's 8 neighbours except one opening (north), so it has 1 mining spot. */
+function pocket(g: string[], x: number, y: number): void {
+  for (let dx = -1; dx <= 1; dx++)
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      if (dx === 0 && dy === -1) continue; // opening to the north
+      setTile(g, x + dx, y + dy, "#");
+    }
+}
+
+function layout(
+  room: string,
+  sources: Array<{ x: number; y: number }>,
+  opts: { terrain?: string[]; controller?: { x: number; y: number } } = {}
+): RoomLayout {
   return {
     room,
-    terrain: Array.from({ length: 50 }, () => ".".repeat(50)),
+    terrain: opts.terrain ?? grid(),
     objects: [
-      { type: "controller", x: 25, y: 10 },
+      { type: "controller", x: opts.controller?.x ?? 25, y: opts.controller?.y ?? 10 },
       ...sources.map((s) => ({ type: "source", x: s.x, y: s.y })),
     ],
   };
 }
+function plainRoom(room: string, sources: Array<{ x: number; y: number }>): RoomLayout {
+  return layout(room, sources);
+}
+const withTerrain = (build: (g: string[]) => void): string[] => {
+  const g = grid();
+  build(g);
+  return g;
+};
 
-// Distinct rooms (must be separate room names in one world). Vary the design to
-// compare: source count, source distance from the central controller/spawn, etc.
+// Distinct, well-spaced rooms (spacing 2 so no bot's analysis box overlaps
+// another's owned room). Each stresses a different "little thing" that tends to
+// get stuck: source distance, count, corners/edges, a 1-spot pocket, a swamp
+// haul, a choke point between source and spawn, and a far controller.
 const SCENARIOS: Scenario[] = [
-  { name: "1src-near", room: "W0N0", layout: plainRoom("W0N0", [{ x: 25, y: 30 }]) },
-  { name: "1src-far", room: "W1N0", layout: plainRoom("W1N0", [{ x: 25, y: 45 }]) },
-  { name: "2src-near", room: "W2N0", layout: plainRoom("W2N0", [{ x: 18, y: 30 }, { x: 32, y: 30 }]) },
-  { name: "2src-far", room: "W3N0", layout: plainRoom("W3N0", [{ x: 8, y: 45 }, { x: 42, y: 45 }]) },
+  { name: "1src-near", room: "W0N0", layout: layout("W0N0", [{ x: 25, y: 30 }]) },
+  { name: "1src-far", room: "W2N0", layout: layout("W2N0", [{ x: 25, y: 45 }]) },
+  { name: "2src-near", room: "W4N0", layout: layout("W4N0", [{ x: 18, y: 30 }, { x: 32, y: 30 }]) },
+  { name: "2src-far", room: "W6N0", layout: layout("W6N0", [{ x: 8, y: 45 }, { x: 42, y: 45 }]) },
+  { name: "1src-corner", room: "W8N0", layout: layout("W8N0", [{ x: 3, y: 3 }]) },
+  { name: "1src-edge", room: "W10N0", layout: layout("W10N0", [{ x: 1, y: 25 }]) },
+  { name: "src-pocket", room: "W12N0", layout: layout("W12N0", [{ x: 10, y: 25 }], { terrain: withTerrain((g) => pocket(g, 10, 25)) }) },
+  { name: "swamp-haul", room: "W14N0", layout: layout("W14N0", [{ x: 25, y: 42 }], { terrain: withTerrain((g) => swampBand(g, 18, 24)) }) },
+  { name: "choke", room: "W16N0", layout: layout("W16N0", [{ x: 8, y: 25 }], { terrain: withTerrain((g) => vWall(g, 15, [24, 25])) }) },
+  { name: "3src", room: "W18N0", layout: layout("W18N0", [{ x: 12, y: 30 }, { x: 25, y: 42 }, { x: 38, y: 30 }]) },
+  { name: "ctrl-corner", room: "W20N0", layout: layout("W20N0", [{ x: 20, y: 30 }, { x: 30, y: 30 }], { controller: { x: 45, y: 45 } }) },
 ];
 
 function getArg(name: string, def: number): number {

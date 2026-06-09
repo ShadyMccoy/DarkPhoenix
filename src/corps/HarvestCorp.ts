@@ -323,13 +323,30 @@ export class HarvestCorp extends Corp {
       buyerCorpId: this.id,
       role: "miner",
       value: 100 + (assignment.efficiency ?? 0) * 0.5,
-      blocking: current === 0,
+      // Blocking only for the colony's FIRST miner (no income at all). Every
+      // additional source's miner is expansion, NOT blocking - otherwise each new
+      // source's miner (blocking) outranks the haulers that complete an already-
+      // mined source, and the spawn fields miner after miner while their energy
+      // strands unhauled. Non-blocking here lets the blocking haulers finish one
+      // mining operation before the spawn opens the next.
+      blocking: current === 0 && !this.colonyHasMiner(),
       producesIncome: true,
       desiredCost: desired.cost,
       minCost: min.cost,
       since: 0,
       bodyParam: desiredWork,
     }];
+  }
+
+  /**
+   * True if the colony already has a miner producing income anywhere, so an
+   * additional source's miner is expansion rather than a blocking bootstrap need.
+   */
+  private colonyHasMiner(): boolean {
+    for (const name in Game.creeps) {
+      if (Game.creeps[name].memory.workType === "harvest") return true;
+    }
+    return false;
   }
 
   /**
