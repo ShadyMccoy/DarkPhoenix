@@ -60,11 +60,11 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       if (demands.length === 0) continue;
 
       // Stamp aging timestamps so a repeatedly-losing demand eventually wins.
-      for (const d of demands) {
-        const key = `${d.buyerCorpId}:${d.role}`;
+      for (const demand of demands) {
+        const key = `${demand.buyerCorpId}:${demand.role}`;
         seenKeys.add(key);
         if (!demandSince.has(key)) demandSince.set(key, Game.time);
-        d.since = demandSince.get(key)!;
+        demand.since = demandSince.get(key)!;
       }
 
       const ctx: ScheduleContext = {

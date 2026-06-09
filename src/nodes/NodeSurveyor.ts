@@ -116,7 +116,7 @@ export class NodeSurveyor {
       () => existingMiners.length > 0
     );
 
-    if (hasExistingMiner && existingMiners.length >= sources(node).length) {
+    if (hasExistingMiner && existingMiners.length >= getNodeSources(node).length) {
       return null;
     }
 
@@ -299,7 +299,7 @@ export class NodeSurveyor {
 /**
  * Helper to get sources from a node
  */
-function sources(node: Node): NodeResource[] {
+function getNodeSources(node: Node): NodeResource[] {
   return getResourcesByType(node, "source");
 }
 

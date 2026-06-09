@@ -169,7 +169,7 @@ export class ChainPlanner {
     );
 
     // Calculate mint value based on controller points
-    const mintValue = this.mintValues.rcl_upgrade * 1000;
+    const mintValue = this.mintValues.rclUpgrade * 1000;
 
     // Create and return the chain
     return createChain(createChainId(goalCorp.id, tick), segments, mintValue);

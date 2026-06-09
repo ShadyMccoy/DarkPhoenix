@@ -213,25 +213,25 @@ export function solveFlowBalance(
     calculateSupplyMetrics(supplies);
     calculateCarryRequirements(supplies, carries);
 
-    const totalProduction = supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
+    const iterTotalProduction = supplies.reduce((sum, s) => sum + s.harvestPerTick, 0);
     const miningOverhead = supplies.reduce((sum, s) => sum + s.spawnCostPerTick, 0);
     const haulingOverhead = carries.reduce((sum, c) => sum + c.spawnCostPerTick, 0);
-    const projectEnergy = totalProduction - miningOverhead - haulingOverhead;
+    const iterProjectEnergy = iterTotalProduction - miningOverhead - haulingOverhead;
 
     // Check convergence
-    if (Math.abs(projectEnergy - previousProjectEnergy) < cfg.convergenceThreshold) {
+    if (Math.abs(iterProjectEnergy - previousProjectEnergy) < cfg.convergenceThreshold) {
       break;
     }
-    previousProjectEnergy = projectEnergy;
+    previousProjectEnergy = iterProjectEnergy;
 
     // If not sustainable, trim allocations
-    if (projectEnergy < 0) {
+    if (iterProjectEnergy < 0) {
       trimLowestValueAllocation(supplies, carries);
       continue;
     }
 
     // If sustainable with excess, try to add more capacity
-    if (projectEnergy > cfg.minProjectEnergy) {
+    if (iterProjectEnergy > cfg.minProjectEnergy) {
       const added = addHighestValueAllocation(supplies, carries);
       if (!added) {
         // No more positive-marginal additions possible

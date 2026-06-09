@@ -204,7 +204,7 @@ export function getTotalCarryParts(nodeFlow: NodeFlow): number {
  * Get the primary spawn for a node (first spawn serving it).
  */
 export function getPrimarySpawn(nodeFlow: NodeFlow): string | undefined {
-  return nodeFlow.spawnIds.values().next().value;
+  return [...nodeFlow.spawnIds][0];
 }
 
 /**

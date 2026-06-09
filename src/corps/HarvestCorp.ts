@@ -129,8 +129,8 @@ export class HarvestCorp extends Corp {
     if (this.sourceId.startsWith("intel-")) {
       const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
       if (match) {
-        const [, roomName, x, y] = match;
-        return { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
+        const [, parsedRoom, x, y] = match;
+        return { x: parseInt(x, 10), y: parseInt(y, 10), roomName: parsedRoom };
       }
     }
 

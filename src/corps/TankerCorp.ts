@@ -257,16 +257,16 @@ export class TankerCorp extends Corp {
    */
   private collectEnergy(creep: Creep, room: Room): void {
     // Priority 1: Dropped energy (anywhere in room, prioritize larger piles)
-    const dropped = room.find(FIND_DROPPED_RESOURCES, {
+    const dropped: Resource[] = room.find(FIND_DROPPED_RESOURCES, {
       filter: r => r.resourceType === RESOURCE_ENERGY && r.amount >= 50
     });
 
     if (dropped.length > 0) {
       // Sort by amount descending, then by distance
-      dropped.sort((a, b) => {
+      dropped.sort((a: Resource, b: Resource) => {
         const amountDiff = b.amount - a.amount;
         if (Math.abs(amountDiff) > 100) return amountDiff;
-        return creep.pos.getRangeTo(a) - creep.pos.getRangeTo(b);
+        return creep.pos.getRangeTo(a.pos) - creep.pos.getRangeTo(b.pos);
       });
       const target = dropped[0];
       if (creep.pickup(target) === ERR_NOT_IN_RANGE) {

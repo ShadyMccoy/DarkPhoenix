@@ -364,7 +364,7 @@ export class FlowEconomy {
    * Get unmet demand map.
    */
   public getUnmetDemand(): Map<string, number> {
-    return this.solution?.unmetDemand ?? new Map();
+    return this.solution?.unmetDemand ?? new Map<string, number>();
   }
 
   /**

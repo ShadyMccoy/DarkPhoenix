@@ -149,8 +149,8 @@ export class ChainReporter {
       };
 
       // Add travel/work time for applicable corps
-      if (corp && (corp as any).spawnLocation) {
-        const spawnLocation = (corp as any).spawnLocation as Position;
+      if (corp && (corp as { spawnLocation?: Position }).spawnLocation) {
+        const spawnLocation = (corp as { spawnLocation?: Position }).spawnLocation as Position;
         const travelTime = calculateTravelTime(spawnLocation, corp.getPosition());
         report.travelTime = travelTime;
         report.effectiveWorkTime = CREEP_LIFETIME - travelTime;
@@ -299,7 +299,7 @@ export class ChainReporter {
     lines.push(`Location: ${step.position.roomName} (${step.position.x}, ${step.position.y})`);
 
     if (step.travelTime !== undefined) {
-      lines.push(`Travel Time: ${step.travelTime} ticks (${step.effectiveWorkTime} effective work time)`);
+      lines.push(`Travel Time: ${step.travelTime} ticks (${String(step.effectiveWorkTime)} effective work time)`);
     }
 
     lines.push("");

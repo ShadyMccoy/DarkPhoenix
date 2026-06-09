@@ -193,7 +193,7 @@ export function runIncrementalAnalysis(colony: Colony): boolean {
         state.batchResults.push(result);
         console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} complete: ${result.peaks.length} peaks`);
       } catch (e) {
-        console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} failed: ${e}`);
+        console.log(`[MultiRoom] Batch ${state.currentBatchIndex + 1} failed: ${String(e)}`);
       }
 
       state.currentBatchIndex++;
@@ -379,8 +379,8 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
 
     if (!existingNodeIds.has(nodeId)) {
       const peakPosition = { x: peak.center.x, y: peak.center.y, roomName: peak.roomName };
-      const node = createNode(nodeId, peak.roomName, peakPosition, territorySize, spansRooms, Game.time);
-      colony.addNode(node);
+      const createdNode = createNode(nodeId, peak.roomName, peakPosition, territorySize, spansRooms, Game.time);
+      colony.addNode(createdNode);
     }
 
     const node = colony.getNode(nodeId);

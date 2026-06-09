@@ -56,7 +56,9 @@ module.exports = {
     "@typescript-eslint/space-within-parens": ["off", "never"],
     "@typescript-eslint/unified-signatures": "error",
     "arrow-parens": ["off", "as-needed"],
-    camelcase: "error",
+    // Property names map to Screeps body-part constants (e.g. ranged_attack)
+    // and serialized domain keys, so enforce camelCase on identifiers only.
+    camelcase: ["error", { properties: "never" }],
     complexity: "off",
     "dot-notation": "error",
     "eol-last": "off",

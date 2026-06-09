@@ -402,10 +402,10 @@ export class NodeNavigator {
     }
 
     const path: string[] = [];
-    let current: string | null = endId;
-    while (current !== null) {
-      path.unshift(current);
-      current = previous.get(current) ?? null;
+    let pathNode: string | null = endId;
+    while (pathNode !== null) {
+      path.unshift(pathNode);
+      pathNode = previous.get(pathNode) ?? null;
     }
 
     return { path, distance: finalDistance, found: true };

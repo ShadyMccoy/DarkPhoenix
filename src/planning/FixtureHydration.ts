@@ -331,20 +331,20 @@ function createCorpStatesWithDependencies(
 
     for (const resource of fixtureNode.resourceNodes) {
       if (resource.type === "controller") {
-        const controllerPosition: Position = {
+        const upgradeControllerPos: Position = {
           x: resource.position.x,
           y: resource.position.y,
           roomName: fixtureNode.roomName
         };
 
-        const nearestSpawn = findNearestSpawn(controllerPosition, spawns);
+        const nearestSpawn = findNearestSpawn(upgradeControllerPos, spawns);
         const upgradingCorpId = idGen("upgrading", node.id, corpIndex++);
 
         const upgradingState = createUpgradingState(
           upgradingCorpId,
           node.id,
           spawningCorpId!, // spawningCorpId dependency
-          controllerPosition,
+          upgradeControllerPos,
           resource.capacity ?? 1,
           nearestSpawn
         );

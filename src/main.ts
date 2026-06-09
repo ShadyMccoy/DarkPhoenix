@@ -76,6 +76,7 @@ import "./types/Memory";
 // =============================================================================
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- augmenting NodeJS.Global has no ES-module equivalent
   namespace NodeJS {
     interface Global {
       log: any;
@@ -286,7 +287,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       if (solution) {
         console.log(`[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
         console.log(
-          `[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${solution.isSustainable}`
+          `[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${String(solution.isSustainable)}`
         );
         if (solution.warnings.length > 0) {
           console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
@@ -483,11 +484,11 @@ function buildFlowEconomyFromMemory(nodes: Node[]): {
  *
  * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
  */
-function getOrCreateFlowEconomy(colony: Colony): {
+function getOrCreateFlowEconomy(activeColony: Colony): {
   navigator: NodeNavigator;
   economy: FlowEconomy;
 } {
-  const nodes = colony.getNodes();
+  const nodes = activeColony.getNodes();
   const { navigator, economy } = buildFlowEconomyFromMemory(nodes);
 
   if (nodes.length > 0) {
@@ -525,7 +526,7 @@ function getOrCreateFlowEconomy(colony: Colony): {
  * This context is used by the flow economy to calculate dynamic
  * sink priorities (e.g., higher priority for towers during attack).
  */
-function buildPriorityContext(corps: CorpRegistry): PriorityContext {
+function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
   // Find the first owned room to use as context
   let targetRoom: Room | undefined;
   for (const roomName in Game.rooms) {
@@ -560,8 +561,8 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
 
   // Calculate spawn queue size from spawning corps
   let spawnQueueSize = 0;
-  for (const spawnId in corps.spawningCorps) {
-    spawnQueueSize += corps.spawningCorps[spawnId].getPendingOrderCount();
+  for (const spawnId in activeCorps.spawningCorps) {
+    spawnQueueSize += activeCorps.spawningCorps[spawnId].getPendingOrderCount();
   }
 
   // Track RCL upgrade time (using memory if available)
@@ -590,17 +591,17 @@ function buildPriorityContext(corps: CorpRegistry): PriorityContext {
 /**
  * Updates telemetry data in RawMemory segments for external monitoring.
  */
-function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
+function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void {
   const telemetry = getTelemetry();
   telemetry.update(
-    colony,
-    corps.bootstrapCorps,
-    corps.harvestCorps,
-    corps.haulingCorps,
-    corps.upgradingCorps,
-    corps.scoutCorps,
-    corps.constructionCorps,
-    corps.spawningCorps,
+    activeColony,
+    activeCorps.bootstrapCorps,
+    activeCorps.harvestCorps,
+    activeCorps.haulingCorps,
+    activeCorps.upgradingCorps,
+    activeCorps.scoutCorps,
+    activeCorps.constructionCorps,
+    activeCorps.spawningCorps,
     flowEconomy?.getSolution() ?? undefined
   );
 }
@@ -608,9 +609,9 @@ function updateTelemetry(colony: Colony, corps: CorpRegistry): void {
 /**
  * Logs statistics for monitoring.
  */
-function logStats(colony: Colony, corps: CorpRegistry): void {
-  const stats = colony.getStats();
-  const supply = colony.getMoneySupply();
+function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
+  const stats = activeColony.getStats();
+  const supply = activeColony.getMoneySupply();
 
   console.log(`[Colony] Tick ${Game.time}`);
   console.log(`  Nodes: ${stats.nodeCount}, Corps: ${stats.totalCorps} (${stats.activeCorps} active)`);
@@ -619,7 +620,7 @@ function logStats(colony: Colony, corps: CorpRegistry): void {
     `  Money Supply: ${supply.net.toFixed(0)} (minted: ${supply.minted.toFixed(0)}, taxed: ${supply.taxed.toFixed(0)})`
   );
 
-  logCorpStats(corps);
+  logCorpStats(activeCorps);
 }
 
 // =============================================================================
@@ -1082,9 +1083,8 @@ global.forceBootstrap = () => {
 
   for (const roomName in corps.bootstrapCorps) {
     const bootstrap = corps.bootstrapCorps[roomName];
-    // Set starvation start tick to force activation
-    // Access private property via any cast
-    (bootstrap as any).starvationStartTick = Game.time - 100;
+    // Set starvation start tick to force activation (access private field)
+    (bootstrap as unknown as { starvationStartTick: number }).starvationStartTick = Game.time - 100;
     activated++;
     console.log(`[GodMode] Forced bootstrap activation for ${roomName}`);
   }

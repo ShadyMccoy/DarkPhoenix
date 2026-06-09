@@ -572,7 +572,7 @@ export function estimateOverhead(problem: FlowProblem): {
 export function printSolutionSummary(solution: FlowSolution): void {
   console.log("\n=== Flow Solution ===");
   console.log(`Computed at tick: ${solution.computedAt}`);
-  console.log(`Sustainable: ${solution.isSustainable}`);
+  console.log(`Sustainable: ${String(solution.isSustainable)}`);
   console.log("");
   console.log("Energy Flow:");
   console.log(`  Total Harvest:    ${solution.totalHarvest.toFixed(2)}/tick`);

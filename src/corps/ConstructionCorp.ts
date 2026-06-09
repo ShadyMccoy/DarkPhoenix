@@ -643,8 +643,8 @@ export class ConstructionCorp extends Corp {
           // Haulers walk from sources to extensions - shorter = better
           // Extensions near sources are great: short haul distance + energy available for spawning
           let minWeightedDist = Infinity;
-          for (const source of sources) {
-            const weightedDist = this.estimatePathCost(x, y, source.pos.x, source.pos.y, terrain);
+          for (const nearSource of sources) {
+            const weightedDist = this.estimatePathCost(x, y, nearSource.pos.x, nearSource.pos.y, terrain);
             minWeightedDist = Math.min(minWeightedDist, weightedDist);
           }
 

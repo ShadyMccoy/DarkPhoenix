@@ -305,7 +305,7 @@ export function solveMinCostMaxFlow(graph: FlowGraph): FlowRoutingResult {
   }
 
   // Successive shortest paths
-  while (true) {
+  for (;;) {
     // Find active sources (still have supply)
     const activeSources = new Set<string>();
     for (const [id, supply] of remainingSupply) {
