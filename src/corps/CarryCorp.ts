@@ -203,10 +203,9 @@ export class CarryCorp extends Corp {
     if (!spawnIdleAndMaxed(room, spawn)) return;
     if (creeps.some((c) => c.memory.recycling)) return; // one at a time
 
-    const carryNeeded = Math.ceil(this.haulerAssignments.reduce((sum, a) => sum + a.carryParts, 0));
     const idx = pickRuntToRecycle(
       creeps.map((c) => c.getActiveBodyparts(CARRY)),
-      carryNeeded,
+      this.haulCarryNeeded(),
       this.maxCarryPerHauler(room)
     );
     if (idx !== null) creeps[idx].memory.recycling = true;
@@ -690,11 +689,7 @@ export class CarryCorp extends Corp {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
 
-    // Total CARRY parts the flow needs for ALL of this source's routes combined
-    // (spawn + controller + construction). One hauler usually can't sustain them
-    // all - especially long routes - so we ferry the energy with as many haulers
-    // as the carry demand requires.
-    const carryNeeded = Math.ceil(assignments.reduce((sum, a) => sum + a.carryParts, 0));
+    const carryNeeded = this.haulCarryNeeded();
     if (carryNeeded <= 0) return [];
 
     const PART_PAIR_COST = 100; // 1 CARRY + 1 MOVE
@@ -771,6 +766,22 @@ export class CarryCorp extends Corp {
    */
   getTotalCarryPartsNeeded(): number {
     return this.haulerAssignments.reduce((sum, h) => sum + h.carryParts, 0);
+  }
+
+  /**
+   * CARRY parts the hauler fleet should staff: this source's SPAWN + CONTROLLER
+   * routes only. Construction is excluded because the builder is fed by the
+   * construction tankers - sizing (and therefore sending) haulers for the
+   * builder's energy is what lets them show up and grab it. A source routed
+   * entirely to construction yields zero here, so it fields no haulers and its
+   * energy is left for the tankers.
+   */
+  private haulCarryNeeded(): number {
+    return Math.ceil(
+      this.haulerAssignments
+        .filter((a) => !(a.toId ?? "").startsWith("construction-"))
+        .reduce((sum, a) => sum + a.carryParts, 0)
+    );
   }
 
   /**
