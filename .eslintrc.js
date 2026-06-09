@@ -44,6 +44,11 @@ module.exports = {
     ],
     "@typescript-eslint/no-explicit-any": "off",
     "@typescript-eslint/no-parameter-properties": "off",
+    // The remaining non-null assertions back provable invariants in graph
+    // algorithms (queue.shift() inside while-non-empty loops, map.get() after a
+    // has()/set() guard, Dijkstra distance maps). Guarding them would add dead
+    // branches to hot per-tick loops (CPU matters in Screeps), so allow them.
+    "@typescript-eslint/no-non-null-assertion": "off",
     "@typescript-eslint/no-shadow": [
       "error",
       {
