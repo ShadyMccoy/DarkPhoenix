@@ -1,4 +1,5 @@
 import { Position } from "../types/Position";
+import { ChainScene, CorpEconomics } from "./economics";
 
 /**
  * Corp types in the economic system
@@ -371,6 +372,20 @@ export abstract class Corp {
     this.unitsConsumed = data.unitsConsumed ?? 0;
     this.acquisitionCost = data.acquisitionCost ?? 0;
     this.lastPlannedTick = data.lastPlannedTick ?? 0;
+  }
+
+  /**
+   * Project this corp's per-tick economics in a hypothetical scene, with no
+   * live game state - the basis for scoring spawn sites, expansions, etc.
+   *
+   * The default is "contributes nothing"; corps that take part in a production
+   * chain (mining, hauling, upgrading, ...) override it with their own body and
+   * cost logic. Because the projection comes from the corp, adding a corp type
+   * or improving an existing one changes the scores with no separate model to
+   * update.
+   */
+  project(_scene: ChainScene): CorpEconomics {
+    return { costPerTick: 0, throughput: 0 };
   }
 
   /**

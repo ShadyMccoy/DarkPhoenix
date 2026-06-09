@@ -10,6 +10,8 @@ import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
+import { buildHaulerBody } from "../spawn/BodyBuilder";
+import { ChainScene, CorpEconomics } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { pickRuntToRecycle, spawnIdleAndMaxed, driveRecycle } from "./recycle";
 import { sourcePickupSpot, controllerDeliverySpot, workSpot } from "./nodeEnergy";
@@ -596,6 +598,26 @@ export class CarryCorp extends Corp {
    * stranded - and produces income. The hauler is sized (CARRY:MOVE pairs) to
    * the flow-solved carry-part requirement; it can be spawned small and scaled.
    */
+  /**
+   * Project the economics of hauling this corp's routes from a given spawn: one
+   * hauler per route, sized to its flow and distance, costed over the life left
+   * after walking out to the pickup. Throughput is the energy it moves.
+   */
+  project(scene: ChainScene): CorpEconomics {
+    let costPerTick = 0;
+    let throughput = 0;
+    for (const a of this.haulerAssignments) {
+      const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
+      if (body.cost === 0) continue;
+      const pickup = scene.resource(a.fromId);
+      const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) : 0;
+      const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+      costPerTick += body.cost / usefulLife;
+      throughput += a.flowRate;
+    }
+    return { costPerTick, throughput };
+  }
+
   getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];

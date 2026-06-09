@@ -7,8 +7,11 @@
  * a handful of ranked candidates - the same valuation the live CPU-budgeted
  * sweep performs, just run all at once here.
  */
+// Define the Screeps body-part constants the corps' body builders read at load
+// (the game/test harness provides these; a bare ts-node script does not).
+import "../test/setup-mocha";
 import { Position } from "../src/types/Position";
-import { nodeSpawnValue } from "../src/planning/NodeEconomy";
+import { evaluateSpawnChain } from "../src/corps/ChainEvaluator";
 import {
   SpawnCandidateContext,
   createPlacementJob,
@@ -45,7 +48,7 @@ console.log(`evaluated ${job.evaluated} candidate tiles`);
 console.log(`\nbest spawn tile: (${best.pos!.x},${best.pos!.y})  value=${best.value.toFixed(3)} e/tick`);
 
 const ranked = candidates
-  .map((pos) => ({ pos, value: nodeSpawnValue({ spawnPos: pos, localSources: ctx.localSources, controllerPos }) }))
+  .map((pos) => ({ pos, value: evaluateSpawnChain({ spawnPos: pos, sources: ctx.localSources, controllerPos }) }))
   .sort((a, b) => b.value - a.value);
 
 console.log(`\ntop 5 tiles:`);

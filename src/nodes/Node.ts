@@ -1,6 +1,6 @@
 import { Position } from "../types/Position";
 import { Corp, CorpType } from "../corps/Corp";
-import { nodeSpawnValue, ReachableSourceInput } from "../planning/NodeEconomy";
+import { evaluateSpawnChain, ReachableChainSource } from "../corps/ChainEvaluator";
 
 // Declare Game for environments where @types/screeps is not available
 declare const Game: {
@@ -390,21 +390,22 @@ export function calculateNodeROI(
   const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
 
   // Planner-backed economic value: price a spawn at this node's peak over its
-  // own sources AND its reachable neighbours' sources (the inter-node haul
-  // penalty is baked into the planner's hauler sizing). This single number
-  // replaces the old hand-rolled "sum of corp ROIs + ad-hoc reachable bonus".
+  // own sources AND its reachable neighbours' sources. The score comes from the
+  // corps a spawn here would run (a miner + hauler per source, an upgrader on
+  // the controller), each projecting its own cost - so it tracks the corps with
+  // no separate model to maintain. Replaces the old "sum of corp ROIs + ad-hoc
+  // reachable bonus".
   const controller = node.resources.find((r) => r.type === "controller");
   const localSources = node.resources
     .filter((r) => r.type === "source")
     .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
-  const reachable: ReachableSourceInput[] = reachableSources.map((rs, i) => ({
-    id: `reach-${i}`,
+  const reachable: ReachableChainSource[] = reachableSources.map((rs) => ({
     capacity: rs.capacity,
     distance: rs.distance,
   }));
-  const economicValue = nodeSpawnValue({
+  const economicValue = evaluateSpawnChain({
     spawnPos: node.peakPosition,
-    localSources,
+    sources: localSources,
     controllerPos: controller?.position,
     reachableSources: reachable,
   });

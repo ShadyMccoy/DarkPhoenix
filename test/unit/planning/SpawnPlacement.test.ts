@@ -7,7 +7,7 @@ import {
   buildPlacementContexts,
   MAX_CANDIDATES_PER_NODE,
 } from "../../../src/planning/SpawnPlacement";
-import { nodeSpawnValue } from "../../../src/planning/NodeEconomy";
+import { evaluateSpawnChain } from "../../../src/corps/ChainEvaluator";
 import { Node, NodeResource, NodeROI, createNode } from "../../../src/nodes/Node";
 import { Position } from "../../../src/types/Position";
 
@@ -36,9 +36,9 @@ describe("SpawnPlacement", () => {
       const expected = candidates
         .map((pos) => ({
           pos,
-          value: nodeSpawnValue({
+          value: evaluateSpawnChain({
             spawnPos: pos,
-            localSources: ctx.localSources,
+            sources: ctx.localSources,
             controllerPos: ctx.controllerPos,
           }),
         }))

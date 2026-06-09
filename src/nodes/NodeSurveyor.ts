@@ -1,6 +1,6 @@
 import { Position } from "../types/Position";
 import { CorpType } from "../corps/Corp";
-import { nodeSpawnValue } from "../planning/NodeEconomy";
+import { evaluateSpawnChain } from "../corps/ChainEvaluator";
 import {
   Node,
   NodeResource,
@@ -174,9 +174,9 @@ export class NodeSurveyor {
       .filter((r) => r.type === "source")
       .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
 
-    const estimatedROI = nodeSpawnValue({
+    const estimatedROI = evaluateSpawnChain({
       spawnPos: spawn.position,
-      localSources,
+      sources: localSources,
       controllerPos: controller?.position,
     });
 
