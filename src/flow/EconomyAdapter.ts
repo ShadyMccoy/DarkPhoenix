@@ -24,6 +24,7 @@ import {
 } from "./EconomyPlanner";
 import { HaulerAssignment, SinkType } from "./FlowTypes";
 import { CorpRegistry } from "../execution/CorpRunner";
+import { CarryCorp } from "../corps/CarryCorp";
 import { FlowGraph } from "./FlowGraph";
 import { estimateWalkingDistance } from "../nodes/NodeNavigator";
 
@@ -114,10 +115,16 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
 
   for (const [sourceId, flows] of flowsBySource) {
     const sourceGameId = sourceId.replace("source-", "");
-    const carryCorp = corps.haulingCorps[sourceGameId];
+    const spawnId = haulSpawnId(plan, sourceId);
+
+    // The plan commissions this source's hauling; field it as a real corp even
+    // when the flow solver routed no haulers of its own. Without this, a source
+    // whose CarryCorp the flow materializer never created (it bails on an empty
+    // hauler list) silently drops the plan's CARRY here, so the source is mined
+    // but its energy is never carried home - the "mine but don't haul" stall.
+    const carryCorp = getOrCreateCarryCorp(corps, sourceGameId, spawnId);
     if (!carryCorp) continue;
 
-    const spawnId = haulSpawnId(plan, sourceId);
     const assignments: HaulerAssignment[] = flows
       .filter(f => f.amount > 0)
       .map(f => ({
@@ -159,4 +166,25 @@ export function applyPlanToCorps(plan: EconomyPlan, corps: CorpRegistry): void {
 function haulSpawnId(plan: EconomyPlan, sourceId: string): string {
   const haul = plan.corps.find(c => c.kind === "haul" && c.fromId === sourceId);
   return haul && haul.kind === "haul" ? haul.spawnId : "";
+}
+
+/**
+ * Find the source's CarryCorp, creating one if the flow materializer never did.
+ * Keyed by the source's game id (matching the materializer) so the source's
+ * miner and haulers stay a single income unit. Returns undefined only when the
+ * commissioned spawn can't be resolved (no live spawn to attach the corp to).
+ */
+function getOrCreateCarryCorp(corps: CorpRegistry, sourceGameId: string, spawnFlowId: string): CarryCorp | undefined {
+  const existing = corps.haulingCorps[sourceGameId];
+  if (existing) return existing;
+
+  const spawnGameId = spawnFlowId.replace("spawn-", "");
+  const spawn = Game.getObjectById(spawnGameId as Id<StructureSpawn>);
+  if (!spawn) return undefined;
+
+  const nodeId = `${spawn.room.name}-hauling-${sourceGameId.slice(-4)}`;
+  const carryCorp = new CarryCorp(nodeId, spawn.id);
+  carryCorp.createdAt = Game.time;
+  corps.haulingCorps[sourceGameId] = carryCorp;
+  return carryCorp;
 }
