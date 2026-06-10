@@ -11,7 +11,7 @@ import { CREEP_LIFETIME, HARVEST_RATE, SOURCE_ENERGY_CAPACITY, SOURCE_REGEN_TIME
 import { Corp, SerializedCorp } from "./Corp";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
+import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
@@ -194,26 +194,38 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Retire an undersized bootstrap miner once the room is flush. The first miner
-   * is floored small so the cold economy can afford it; if it is still mining at
-   * less than the source's full WORK when the room is maxed out and the spawn
-   * would idle, recycle it so its corp respawns it at the full size the room can
-   * now build (e.g. a 2-WORK cold-start miner becomes a 5-WORK miner). Pure gate
-   * + pure pick, so it never fires in a constrained room.
+   * Retire an undersized bootstrap miner so its corp respawns it at full size.
+   * The first miner is floored small so the cold economy can afford it; left
+   * alone it caps the source's output for its whole 1500-tick life.
+   *
+   * We recycle a runt once the room can IMMEDIATELY rebuild it one size larger
+   * (energyAvailable covers a bigger body): the replacement is a guaranteed
+   * upgrade and spawns with minimal unmined gap. The old gate required the room
+   * to be fully maxed (energyAvailable >= energyCapacityAvailable), but a runt
+   * under-mines the source that fills the room - so a thin room never reached
+   * "maxed" and the runt was immortal, holding the whole economy down (the
+   * runt catch-22). The affordability check still keeps us from disrupting a
+   * miner in a room that genuinely cannot build a bigger one.
    */
   private flagMinerRuntForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
     if (!this.minerAssignment) return;
-    if (!spawnIdleAndMaxed(spawn.room, spawn)) return;
+    if (spawn.spawning) return; // don't compete with an in-progress spawn
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
 
+    const room = spawn.room;
     const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
-    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, spawn.room.energyCapacityAvailable).workParts);
-    const idx = pickRuntToRecycle(
-      creeps.map(c => c.getActiveBodyparts(WORK)),
-      totalWork,
-      maxWorkPerMiner
-    );
-    if (idx !== null) creeps[idx].memory.recycling = true;
+    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, room.energyCapacityAvailable).workParts);
+    const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
+    const idx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
+    if (idx === null) return;
+
+    // Only recycle once we can afford to rebuild this runt at least one WORK
+    // larger right now - guarantees a real upgrade and no long unmined gap.
+    const upgradeWork = Math.min(maxWorkPerMiner, workCounts[idx] + 1);
+    const upgradeCost = buildMinerBody(upgradeWork, room.energyCapacityAvailable).cost;
+    if (room.energyAvailable < upgradeCost) return;
+
+    creeps[idx].memory.recycling = true;
   }
 
   /**
@@ -330,13 +342,17 @@ export class HarvestCorp extends Corp {
     // pressure. A 1-WORK miner harvests just 2/tick against a ~10/tick source, so
     // the source stays under-mined, the spawn it feeds stays starved, and every
     // OTHER corp then runts out too - the whole economy collapses to one-useful-
-    // part creeps. Even a bare spawn (300) affords a 2-WORK miner (250). The first
-    // miner is the bootstrap income, so it may spawn as small as that floor when
-    // energy is tight; later miners hold out for the full desired body, since the
-    // income already flows and a source has only so many spots - each one should
-    // be as large as the room can build.
+    // part creeps. Even a bare spawn (300) affords a 2-WORK miner (250). The runt
+    // floor is ONLY for the colony's very first miner, which is the bootstrap
+    // income and must spawn fast even if tiny. Once income flows (this colony
+    // already has a miner elsewhere - e.g. a second source, or a regrow after a
+    // runt was recycled), hold out for the full desired body: the income already
+    // covers the wait, and a source has only so many spots so each should be as
+    // large as the room can build. This also prevents a single-source regrow from
+    // respawning as a runt again (thrash).
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
-    const minWork = current === 0 ? Math.min(desiredWork, 2) : desiredWork;
+    const colonyColdStart = current === 0 && !this.colonyHasMiner();
+    const minWork = colonyColdStart ? Math.min(desiredWork, 2) : desiredWork;
     const min = buildMinerBody(minWork, ctx.energyCapacity);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
 
