@@ -64,6 +64,38 @@ export function asymmetricTwoSource(opts: { room?: string } = {}): Scenario {
 }
 
 /**
+ * A single source gated behind a full-width swamp band, so the only route from
+ * spawn to source crosses ~10 tiles of swamp (5x move cost). This stresses the
+ * travel-cost / useful-TTL math from a different angle than {@link
+ * asymmetricTwoSource}: the straight-line distance is modest but the *effective*
+ * walk is long, so a miner spends much of its life in transit and a hauler's
+ * round trip is slow - the body sizing and hauler count must account for the
+ * terrain, not just the tile distance. Pre-advanced to RCL 3 with a full RCL-2
+ * extension set.
+ */
+export function swampSource(opts: { room?: string } = {}): Scenario {
+  const room = opts.room ?? "W0N0";
+  const builder = new RoomBuilder(room)
+    .border()
+    .rect(1, 31, 48, 40, "swamp") // a swamp band spanning the room
+    .controller(25, 8) // north of the spawn, on clear ground
+    .source(25, 46); // south, reachable only across the swamp band
+  const exts = [
+    { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+  ];
+  return {
+    name: "swamp-source",
+    description: "Open room, one source gated behind a full-width swamp band. RCL 3 + 5 extensions.",
+    rooms: [builder.toRoom()],
+    bot: { room, ...SPAWN },
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room, type: "extension", x: e.x, y: e.y, energy: 50 })),
+    },
+  };
+}
+
+/**
  * A single open room with one source at the given depth, a central spawn and a
  * controller near the top. `sourceY` controls how far the source is from the
  * spawn - the classic near/far mining comparison.
