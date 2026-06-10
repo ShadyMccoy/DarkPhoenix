@@ -45,11 +45,12 @@ const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 /**
  * Fill fraction at which a dedicated build source's container is judged to be
  * "backing up": the builder isn't draining the source's full output (a runt
- * builder, or no active build), so the surplus would otherwise pile up until the
- * container is full and the miner stalls. Above this the source's haulers resume
- * and drain the surplus to the core, so the miner keeps producing and the energy
- * isn't wasted - the economy rebalances around whatever the builder actually
- * consumes. Half-full leaves ample headroom before the container caps out.
+ * builder, or no active consumption), so the energy just accumulates in the
+ * container and, once it caps out, overflows onto the ground and decays - wasted.
+ * Above this the source's haulers resume and move the surplus to the core instead,
+ * so the economy rebalances around whatever the builder actually consumes rather
+ * than stranding the rest at the source. Half-full leaves ample headroom before
+ * the container caps out.
  */
 const DEDICATED_SOURCE_DRAIN_FILL = 0.5;
 
@@ -639,10 +640,18 @@ export class CarryCorp extends Corp {
     const current = this.getCreepCount();
     if (current >= targetHaulers) return [];
 
-    // Size this hauler to its share of the remaining carry need (capped by what
-    // the room can afford in one body).
-    const remainingCarry = carryNeeded - current * maxCarryPerHauler;
-    const desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, remainingCarry));
+    // Size this hauler to an EVEN share of the route's carry across the haulers it
+    // needs - not a greedy "max out each body and leave whatever is left for the
+    // last one". The greedy split leaves a runt tail whenever the route doesn't
+    // divide into full bodies: a 4-CARRY route at a 3-CARRY-body cap builds 3 + 1,
+    // and that 1-CARRY runt moves only 50 energy a round trip yet holds a fleet slot
+    // for its whole 1500-tick life. The even split fields the same hauler count and
+    // total CARRY with no runt (3 + 1 -> 2 + 2). Each hauler index gets the floor
+    // share, and the first `remainder` haulers get one more - deterministic from the
+    // spawn order alone, so it needs no per-creep body inspection.
+    const base = Math.floor(carryNeeded / targetHaulers);
+    const remainder = carryNeeded % targetHaulers;
+    const desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, base + (current < remainder ? 1 : 0)));
     const desiredCost = desiredCarry * PART_PAIR_COST;
 
     // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
@@ -741,9 +750,10 @@ export class CarryCorp extends Corp {
    * The reservation holds only while the builder keeps the source's container
    * drained. If energy backs up past DEDICATED_SOURCE_DRAIN_FILL the builder can't
    * consume the source's full output (a runt builder, or no active consumption),
-   * so we resume hauling the surplus to the core: the miner never stalls on a full
-   * container and the excess isn't wasted. The builder, sized to the whole source,
-   * holds the container near-empty in the normal case, so haulers stay stood down.
+   * so we resume hauling the surplus to the core: the accumulated energy goes home
+   * instead of overflowing the container and decaying on the ground. The builder,
+   * sized to the whole source, holds the container near-empty in the normal case,
+   * so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);

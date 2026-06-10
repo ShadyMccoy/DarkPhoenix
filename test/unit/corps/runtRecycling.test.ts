@@ -39,14 +39,16 @@ describe("runt recycling: which runts heal?", () => {
     expect(pickRuntToRecycle(fleet.workParts, needWork, maxWorkWarm)).to.equal(null);
   });
 
-  it("does NOT recycle the cold-start [3,1] hauler runt tail (stuck even once the room grows)", () => {
+  it("splits the cold-start hauler fleet evenly, so there is no runt tail to recycle", () => {
+    // Unlike the miner 2x2 wart above, hauler sizing now even-splits the route, so
+    // the old 3 + 1 cold-start tail never forms - there is no runt to heal.
     const fleet = simulateHaulerFleet({ energyCapacity: 300, carryParts: 4 });
-    expect(fleet.carryParts, fleet.shape).to.deep.equal([3, 1]); // the cold-start runt tail
+    expect(fleet.carryParts, fleet.shape).to.deep.equal([2, 2]); // even split, no runt
 
     const needCarry = 4; // the route's total CARRY need
     const maxCarryWarm = 8; // a warmed-up room (800) could build an 8-CARRY hauler
-    // total (4) already >= need (4): the 1-CARRY runt is never retired, so it
-    // holds a fleet slot moving 50 energy per round trip for its whole life.
+    // Two equal haulers already cover the need with no sub-max runt, so there is
+    // nothing for the recycler to retire.
     expect(pickRuntToRecycle(fleet.carryParts, needCarry, maxCarryWarm)).to.equal(null);
   });
 });

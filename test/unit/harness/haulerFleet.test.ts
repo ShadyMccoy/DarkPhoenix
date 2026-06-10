@@ -21,17 +21,18 @@ describe("hauler fleet (spawn harness)", () => {
     expect(simulateHaulerFleet({ energyCapacity: 800, carryParts: 4 }).carryParts).to.deep.equal([4]);
   });
 
-  it("a route beyond one body splits across haulers sized to the remaining need", () => {
+  it("a route beyond one body splits EVENLY across the haulers it needs", () => {
     // 12 CARRY at 800 capacity caps each body at 8 CARRY (1:1, 800/100), so it
-    // takes one 8-CARRY hauler plus a 4-CARRY hauler for the remainder.
+    // takes two haulers - split evenly into 6 + 6 rather than a greedy 8 + 4.
+    // Same hauler count and total CARRY, but balanced (and never a runt tail).
     const fleet = simulateHaulerFleet({ energyCapacity: 800, carryParts: 12 });
-    expect(fleet.shape, fleet.shape).to.equal("8 CARRY + 4 CARRY");
-    expect(fleet.carryParts).to.deep.equal([8, 4]);
+    expect(fleet.shape, fleet.shape).to.equal("2 x 6 CARRY");
+    expect(fleet.carryParts).to.deep.equal([6, 6]);
   });
 
-  it("a clean split sizes both haulers usefully (no runt)", () => {
-    // 8 CARRY at 550 (max 5/body) splits 5 + 3 - both >= the 3-CARRY floor.
-    expect(simulateHaulerFleet({ energyCapacity: 550, carryParts: 8 }).carryParts).to.deep.equal([5, 3]);
+  it("a two-hauler route splits evenly (no runt)", () => {
+    // 8 CARRY at 550 (max 5/body) needs two haulers: an even 4 + 4, not 5 + 3.
+    expect(simulateHaulerFleet({ energyCapacity: 550, carryParts: 8 }).carryParts).to.deep.equal([4, 4]);
   });
 
   it("small routes are not inflated to the 3-CARRY floor", () => {
@@ -42,27 +43,28 @@ describe("hauler fleet (spawn harness)", () => {
   });
 
   it("hauler ratio is plumbed through: 1:2 (swamp) trades CARRY for MOVE", () => {
-    // Same route + budget, different ratio: the swamp body spends more of each
-    // 100 energy on MOVE, so it carries fewer CARRY parts per hauler than 1:1.
-    const plains = simulateHaulerFleet({ energyCapacity: 550, carryParts: 8, haulerRatio: "1:1" });
-    const swamp = simulateHaulerFleet({ energyCapacity: 550, carryParts: 8, haulerRatio: "1:2" });
-    const roads = simulateHaulerFleet({ energyCapacity: 550, carryParts: 8, haulerRatio: "2:1" });
+    // A single right-sized hauler (5-CARRY route fits one body at 550), so the
+    // ratio's effect on CARRY-per-body is visible directly rather than masked by an
+    // even fleet split: the swamp body spends more of each unit on MOVE (and is
+    // budget-capped), carrying fewer CARRY than 1:1, while the road body packs more.
+    const plains = simulateHaulerFleet({ energyCapacity: 550, carryParts: 5, haulerRatio: "1:1" });
+    const swamp = simulateHaulerFleet({ energyCapacity: 550, carryParts: 5, haulerRatio: "1:2" });
+    const roads = simulateHaulerFleet({ energyCapacity: 550, carryParts: 5, haulerRatio: "2:1" });
     expect(swamp.carryParts[0], "swamp lead hauler carries less than plains").to.be.lessThan(plains.carryParts[0]);
     expect(roads.carryParts[0], "road lead hauler carries more than plains").to.be.greaterThan(plains.carryParts[0]);
   });
 
-  describe("the cold-start runt tail (hauler analog of the 2x2 miner split)", () => {
-    it("a 300-energy spawn leaves a 1-CARRY runt on the tail hauler", () => {
+  describe("the cold-start runt tail is split away (hauler analog of the 2x2 miner split)", () => {
+    it("a 300-energy spawn splits a 4-CARRY route EVENLY, with no 1-CARRY runt", () => {
       // At 300 capacity a body caps at 3 CARRY, so a 4-CARRY route takes two
-      // haulers - and the tail covers just the 1 remaining CARRY. The 3-CARRY
-      // floor only floors a hauler at min(desiredCarry, 3), so when the REMAINDER
-      // is 1 the tail is a 1-CARRY runt: it moves 50 energy a round trip yet
-      // holds a fleet slot for its whole life. This is the hauler counterpart of
-      // the miner 2x2 cold-start split (see miner-fleet harness); freezing it
-      // here makes the fix (on the hauler-sizing branch) a visible diff.
+      // haulers. A greedy "max each body" split would build 3 + 1 - and that
+      // 1-CARRY tail moves only 50 energy a round trip yet holds a fleet slot for
+      // its whole life. The even split fields the same two haulers as a balanced
+      // 2 + 2 instead, so neither is a runt. (The miner harness still freezes the
+      // analogous 2x2 miner wart; only hauler sizing is fixed here.)
       const fleet = simulateHaulerFleet({ energyCapacity: 300, carryParts: 4 });
-      expect(fleet.shape, fleet.shape).to.equal("3 CARRY + 1 CARRY");
-      expect(fleet.carryParts).to.deep.equal([3, 1]);
+      expect(fleet.shape, fleet.shape).to.equal("2 x 2 CARRY");
+      expect(fleet.carryParts).to.deep.equal([2, 2]);
     });
   });
 });
