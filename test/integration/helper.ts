@@ -35,6 +35,7 @@ export interface AddBotOptions {
 export class IntegrationTestHelper {
   private _server: any;
   private _player: any;
+  private _serverPath = "";
 
   get server() {
     return this._server;
@@ -42,6 +43,17 @@ export class IntegrationTestHelper {
 
   get player() {
     return this._player;
+  }
+
+  /**
+   * Filesystem path of the current server instance. The engine reads its
+   * `db.json` here as its MODFILE, so tests that want to load engine mods (e.g.
+   * the free-economy mod) call `enableMods(helper.serverPath, [...])` from
+   * inside the `buildWorld` callback - after the world is built (db.json exists)
+   * and before the server starts.
+   */
+  get serverPath() {
+    return this._serverPath;
   }
 
   /**
@@ -54,6 +66,7 @@ export class IntegrationTestHelper {
     const port = nextPort;
     nextPort += 1;
     const serverPath = path.resolve("server", String(port));
+    this._serverPath = serverPath;
     const logdir = path.join(serverPath, "logs");
     // The mockup's own mkdir is non-recursive, so ensure the tree exists first.
     mkdirSync(logdir, { recursive: true });

@@ -111,8 +111,11 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
  * from then on its remaining demands (its haulers, any second miner) are flagged
  * groupStarted so the scheduler finishes funding that source before opening a
  * fresh one - the "fund one corp fully, then move on" strategy.
+ *
+ * Exported so the spawn-decision harness can drive the real grouping logic (not
+ * a re-implementation) when freezing "what spawns next" regression moments.
  */
-function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
+export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
 
   for (const id in registry.harvestCorps) {
