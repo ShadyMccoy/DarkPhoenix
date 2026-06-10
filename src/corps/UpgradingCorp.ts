@@ -7,6 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
@@ -122,8 +123,13 @@ export class UpgradingCorp extends Corp {
     if (!controller) return;
 
     const creeps = this.getActiveCreeps();
+    this.flagExcessForRecycling(creeps, spawn);
     for (const creep of creeps) {
-      this.runUpgrader(creep, room, controller);
+      if (creep.memory.recycling) {
+        driveRecycle(creep, spawn);
+      } else {
+        this.runUpgrader(creep, room, controller);
+      }
     }
   }
 
@@ -395,8 +401,12 @@ export class UpgradingCorp extends Corp {
 
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an
-    // allocation, ask for a minimal upgrader to keep the controller alive.
-    const allocated = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
+    // allocation, ask for a minimal upgrader to keep the controller alive. While
+    // a source is reserved for the builder, the allocation is scaled to the
+    // sources still feeding the core (see effectiveAllocated) so we don't field
+    // upgraders the remaining supply can't feed.
+    const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
+    const allocated = spawn ? this.effectiveAllocated(spawn.room, base) : base;
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -452,6 +462,54 @@ export class UpgradingCorp extends Corp {
   // ===========================================================================
   // FLOW INTEGRATION
   // ===========================================================================
+
+  /**
+   * Scale the raw energy allocation down to the sources still feeding the core
+   * economy. While the builder has a whole source reserved (its haulers stand
+   * down - see CarryCorp.yieldsToBuild), only the remaining sources deliver to
+   * the spawn/controller. Sizing upgrading to the full allocation then fields
+   * more upgraders than that reduced supply can feed: they sit starved at the
+   * controller while the spawn (fed by the same shrunken supply) can't refill,
+   * which in turn keeps the lone remaining miner a runt that can't regrow.
+   * Scaling the target to the core's source share lets the spawn keep its fill,
+   * the miner regrow, and the single source become "plenty" - the economy
+   * rebalances around the build instead of starving for it.
+   */
+  private effectiveAllocated(room: Room, base: number): number {
+    if (!room.memory.dedicatedBuildSourceId) return base;
+    const total = room.find(FIND_SOURCES).length || 1;
+    return (base * Math.max(0, total - 1)) / total;
+  }
+
+  /**
+   * Shed the smallest upgrader when the fleet's total WORK over-shoots what the
+   * (build-aware) allocation can actually feed - the "recycle if needed" half of
+   * the rebalance. Only sheds when retiring the runt still leaves us at or above
+   * the target, so a correctly-sized fleet is never disturbed and we can't thrash
+   * below target. The retired creep walks to the spawn and recycles, returning
+   * its body energy to the economy that now needs it.
+   */
+  private flagExcessForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
+    if (spawn.spawning) return; // don't compete with an in-progress spawn
+    if (creeps.some(c => c.memory.recycling)) return; // one at a time
+    if (creeps.length === 0) return;
+
+    const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
+    const target = this.effectiveAllocated(spawn.room, base);
+
+    let smallest: Creep | null = null;
+    let smallestWork = Infinity;
+    let totalWork = 0;
+    for (const c of creeps) {
+      const w = c.getActiveBodyparts(WORK);
+      totalWork += w;
+      if (w < smallestWork) {
+        smallestWork = w;
+        smallest = c;
+      }
+    }
+    if (smallest && totalWork - smallestWork >= target) smallest.memory.recycling = true;
+  }
 
   /**
    * Set the sink allocation from FlowEconomy.
