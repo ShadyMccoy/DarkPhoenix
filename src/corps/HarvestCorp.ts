@@ -366,8 +366,15 @@ export class HarvestCorp extends Corp {
    * additional source's miner is expansion rather than a blocking bootstrap need.
    */
   private colonyHasMiner(): boolean {
+    // Count only real FLOW miners (a HarvestCorp's creep, corpId "mining-..."),
+    // NOT bootstrap jacks - which also carry workType "harvest" but corpId
+    // "bootstrap-...". Counting jacks here made every flow miner non-blocking
+    // while jacks were alive, so the blocking upgrader/haulers always outranked
+    // it and no flow miner ever spawned: the colony could never hand off from
+    // bootstrap to the flow economy.
     for (const name in Game.creeps) {
-      if (Game.creeps[name].memory.workType === "harvest") return true;
+      const memory = Game.creeps[name].memory;
+      if (memory.workType === "harvest" && memory.corpId?.startsWith("mining-")) return true;
     }
     return false;
   }

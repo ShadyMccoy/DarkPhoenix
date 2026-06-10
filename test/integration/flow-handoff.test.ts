@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
-import { loadLayout, padNeighborTerrain } from "./loadLayout";
+import { loadLayout, padNeighborTerrain, setRoomLevel } from "./loadLayout";
 
 before(() => hookConsole());
 afterEach(async () => helper.afterEach());
@@ -40,10 +40,15 @@ describe("flow hand-off probe", () => {
       });
       await padNeighborTerrain(world, ["W0N0"]);
       await helper.addBot({ room: "W0N0", x: 12, y: 25 });
+      // Start at RCL 2 (with 5 extensions) so the flow economy's gate is open
+      // from tick 1 - no need to grind bootstrap up from RCL 1.
+      await setRoomLevel(world, "W0N0", 2, [
+        { x: 13, y: 24 }, { x: 11, y: 24 }, { x: 13, y: 26 }, { x: 11, y: 26 }, { x: 14, y: 25 }
+      ]);
     });
 
     const samples: string[] = [];
-    for (let t = 1; t <= 400; t += 1) {
+    for (let t = 1; t <= 500; t += 1) {
       await helper.server.tick();
       if (t % 100 !== 0) continue;
 
@@ -75,8 +80,16 @@ describe("flow hand-off probe", () => {
     console.log("\n=== flow hand-off probe ===");
     for (const line of samples) console.log(line);
 
-    const lastObjects = await helper.server.world.roomObjects("W0N0");
-    const liveCreeps = lastObjects.filter((o: any) => o.type === "creep").length;
-    assert.isAbove(liveCreeps, 0, "colony should keep at least one creep alive");
+    // Regression guard for the bootstrap->flow hand-off: starting at RCL 2 the
+    // colony must actually staff its FLOW corps - a flow miner producing real
+    // energy (corpVariance actual > 0) and a hauler moving it. Before the
+    // colonyHasMiner / withMinerPrecedence fixes this stayed 0 forever while the
+    // colony ran only on bootstrap jacks.
+    const mem = JSON.parse((await helper.player.memory) || "{}");
+    const rows = (mem.corpVariance || []) as Array<{ type: string; actual: number }>;
+    const minerProducing = rows.some(r => r.type === "mining" && r.actual > 0);
+    const haulerProducing = rows.some(r => r.type === "hauling" && r.actual > 0);
+    assert.isTrue(minerProducing, "a flow miner should be producing energy (hand-off)");
+    assert.isTrue(haulerProducing, "a flow hauler should be moving energy (hand-off)");
   });
 });

@@ -213,17 +213,20 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 }
 
 /**
- * Drop hauler demands whose funding group still has an unmet miner demand - the
- * miner must be staffed before its haulers (a hauler with no miner has nothing to
- * carry). Other roles, and haulers whose group has no pending miner, pass
- * through unchanged. Pure, so the precedence rule can be unit tested directly.
+ * Drop hauler demands whose source has NO miner in the field yet - the first
+ * miner must be staffed before its haulers (a hauler with no miner has nothing
+ * to carry). Gated on `groupStarted` (a miner is already mining), NOT on the
+ * mere presence of a miner demand: once the first miner exists, its haulers may
+ * proceed even while a bigger/second miner is still wanted - otherwise an
+ * under-target miner starves its own haulers forever and the source's energy
+ * strands unhauled. Other roles pass through. Pure, so it can be unit tested.
  */
 export function withMinerPrecedence(demands: SpawnDemand[]): SpawnDemand[] {
-  const sourcesAwaitingMiner = new Set(
-    demands.filter(d => d.role === "miner" && d.groupId !== undefined).map(d => d.groupId)
+  const sourcesWithoutMiner = new Set(
+    demands.filter(d => d.role === "miner" && !d.groupStarted && d.groupId !== undefined).map(d => d.groupId)
   );
-  if (sourcesAwaitingMiner.size === 0) return demands;
+  if (sourcesWithoutMiner.size === 0) return demands;
   return demands.filter(
-    d => !(d.role === "hauler" && d.groupId !== undefined && sourcesAwaitingMiner.has(d.groupId))
+    d => !(d.role === "hauler" && d.groupId !== undefined && sourcesWithoutMiner.has(d.groupId))
   );
 }

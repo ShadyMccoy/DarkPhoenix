@@ -177,6 +177,39 @@ export function enableMods(serverPath: string, modPaths: string[]): void {
 /** Absolute path to the bundled free-economy mod (zeroes build/upgrade sinks). */
 export const FREE_ECONOMY_MOD = path.resolve(__dirname, "mods", "freeEconomy.js");
 
+/**
+ * Set an owned room's controller level (and optional extension count), so a sim
+ * can START at a given RCL instead of grinding through bootstrap to reach it.
+ * Call after the bot is added (its controller exists). Extensions are dropped
+ * around the spawn so energyCapacityAvailable reflects the level.
+ */
+export async function setRoomLevel(
+  world: any,
+  room: string,
+  level: number,
+  extensions: Array<{ x: number; y: number }> = []
+): Promise<void> {
+  const { C, db } = await world.load();
+  await db["rooms.objects"].update(
+    { room, type: "controller" },
+    { $set: { level, progress: 0, downgradeTime: null } }
+  );
+  for (const e of extensions) {
+    await db["rooms.objects"].insert({
+      room,
+      type: "extension",
+      x: e.x,
+      y: e.y,
+      user: (await db["rooms.objects"].findOne({ room, type: "controller" })).user,
+      store: { energy: 0 },
+      storeCapacityResource: { energy: C.EXTENSION_ENERGY_CAPACITY[level] ?? 50 },
+      hits: C.EXTENSION_HITS,
+      hitsMax: C.EXTENSION_HITS,
+      notifyWhenAttacked: true
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Neighbour-room padding
 // ---------------------------------------------------------------------------

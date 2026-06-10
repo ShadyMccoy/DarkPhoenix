@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { withMinerPrecedence } from "../../../src/spawn/SpawnScheduler";
 import { SpawnDemand, SpawnRole } from "../../../src/spawn/SpawnScheduler";
 
-function demand(role: SpawnRole, groupId: string | undefined, value = 100): SpawnDemand {
+function demand(role: SpawnRole, groupId: string | undefined, value = 100, groupStarted = false): SpawnDemand {
   return {
     buyerCorpId: `${role}-${groupId}`,
     role,
@@ -10,6 +10,7 @@ function demand(role: SpawnRole, groupId: string | undefined, value = 100): Spaw
     blocking: false,
     producesIncome: role === "miner" || role === "hauler",
     groupId,
+    groupStarted,
     desiredCost: 300,
     minCost: 150,
     since: 0
@@ -30,6 +31,15 @@ describe("withMinerPrecedence", () => {
     const out = withMinerPrecedence(demands);
 
     expect(out).to.have.length(2);
+  });
+
+  it("keeps a source's haulers once its first miner is in the field (groupStarted)", () => {
+    // srcA still wants a bigger/second miner, but one is already mining
+    // (groupStarted) - so its haulers must NOT be held back.
+    const demands = [demand("miner", "srcA", 100, true), demand("hauler", "srcA")];
+    const out = withMinerPrecedence(demands);
+
+    expect(out.map(d => d.role)).to.deep.equal(["miner", "hauler"]);
   });
 
   it("only holds back haulers of the same source, not other sources", () => {
