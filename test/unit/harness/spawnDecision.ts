@@ -147,7 +147,7 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
     }
 
     if (situation.upgrader) {
-      const up = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID);
+      const up = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID, `upgrading-${ROOM}`);
       up.setSinkAllocation({
         sinkId: "controller-x", sinkType: "controller", allocated: 5, demand: 5, unmet: 0, priority: 65
       } as SinkAllocation);
