@@ -101,6 +101,43 @@ describe("SpawnScheduler", () => {
         expect(result?.demand.buyerCorpId).to.equal("miner");
       });
 
+      it("holds for a blocking income PRODUCER at income==0 instead of funding more producers", () => {
+        // The first hauler deadlock: a freshly-mining source's blocking hauler
+        // costs more than the drained spawn holds, and income is 0 (bootstrap
+        // delivers separately). Spawning the affordable extra miner would bleed
+        // the spawn and the hauler's body would never accumulate - energy is
+        // already being mined, it just needs moving. So we hold (spawn nothing).
+        const hauler = demand({
+          buyerCorpId: "hauler", role: "hauler", value: 100, blocking: true,
+          producesIncome: true, minCost: 300, desiredCost: 500,
+        });
+        const extraMiner = demand({
+          buyerCorpId: "miner2", role: "miner", value: 30, producesIncome: true,
+          minCost: 150, desiredCost: 250,
+        });
+        const result = scheduleSpawn([hauler, extraMiner], ctx({
+          energyAvailable: 200, energyCapacity: 550, energyIncome: 0,
+        }));
+        expect(result).to.equal(null);
+      });
+
+      it("still spawns a lower-ranked blocking demand while holding for an unaffordable one", () => {
+        // Holding for one blocking producer must not block ANOTHER source's
+        // affordable first miner - that makes real progress (more income).
+        const hauler = demand({
+          buyerCorpId: "hauler", role: "hauler", value: 100, blocking: true,
+          producesIncome: true, minCost: 300, desiredCost: 500,
+        });
+        const firstMiner = demand({
+          buyerCorpId: "minerB", role: "miner", value: 90, blocking: true,
+          producesIncome: true, minCost: 150, desiredCost: 250,
+        });
+        const result = scheduleSpawn([hauler, firstMiner], ctx({
+          energyAvailable: 200, energyCapacity: 550, energyIncome: 0,
+        }));
+        expect(result?.demand.buyerCorpId).to.equal("minerB");
+      });
+
       it("does NOT wait for a blocking demand the room can never afford", () => {
         const tooBig = demand({
           buyerCorpId: "toobig", role: "upgrader", value: 80, blocking: true,

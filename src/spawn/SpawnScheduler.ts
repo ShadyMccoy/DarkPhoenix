@@ -167,15 +167,20 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
  *     fresh one; see {@link COMPLETION_BOOST}).
  *  2. Walk from highest value:
  *     - If we can afford the demand's minimum body, spawn it now, spending up
- *       to its desired cost (capped by available energy).
- *     - Otherwise, if it is a *blocking* demand that the room can eventually
- *       afford AND energy is actually flowing in (income > 0), wait: hold the
- *       spawn so energy accumulates for it, rather than spending on a
- *       lower-value creep. This is what lets the upgrader win against a steady
- *       trickle of mining orders.
- *     - Otherwise skip it and consider the next demand. In particular, when no
- *       energy is coming in yet (income == 0) we never wait - we fall through to
- *       spawn whatever affordable income producer gets the economy moving.
+ *       to its desired cost (capped by available energy) - UNLESS we are holding
+ *       the spawn for a higher-ranked blocking demand we cannot yet afford, in
+ *       which case we only spend on another *blocking* demand (never on a lower
+ *       non-blocking creep) so energy keeps accumulating for the blocking one.
+ *     - If a *blocking* demand the room can eventually afford is unaffordable
+ *       right now, hold the spawn for it: directly when energy is flowing
+ *       (income > 0), or - even at income == 0 - by refusing to spend the dribble
+ *       on lower-priority non-blocking creeps. The latter is what breaks the
+ *       first-hauler deadlock: a freshly-mining source's blocking hauler costs
+ *       more than a near-empty spawn holds, and if we kept funding extra miners /
+ *       upgraders the spawn would never accumulate the hauler's body. Cold-start
+ *       income is supplied by the bootstrap corp (which spawns its jacks
+ *       directly, ahead of this scheduler), so holding here cannot deadlock the
+ *       very first creep.
  */
 export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
@@ -188,8 +193,25 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 
   const ranked = [...eligible].sort((a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick));
 
+  // Set once we pass a blocking demand we cannot afford yet but the room can
+  // eventually build. From then on we decline to spend the dribble on
+  // lower-priority creeps, letting the spawn fill for the blocking demand.
+  let holdForBlocking = false;
+  // Strict hold: the blocking demand we are waiting on is itself an income
+  // PRODUCER (a hauler), which means energy is already being mined and just
+  // needs moving - spawning more producers would not help, so even an affordable
+  // income producer must wait. When the blocking demand is a consumer (upgrader)
+  // we are NOT strict: an affordable income producer still spawns, because we
+  // need income flowing before the consumer can ever be afforded (cold start).
+  let holdStrict = false;
+
   for (const demand of ranked) {
     if (ctx.energyAvailable >= demand.minCost) {
+      // While holding for an unaffordable blocking demand, decline lower-priority
+      // creeps that would bleed the spawn back below the body we are accumulating
+      // for. A blocking demand always spends; a non-blocking income producer
+      // spends only when the hold is not strict (see holdStrict).
+      if (holdForBlocking && !demand.blocking && (holdStrict || !demand.producesIncome)) continue;
       const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
       return {
         demand,
@@ -200,11 +222,18 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 
     // Cannot afford even the minimum body for this demand.
     const canEverAfford = ctx.energyCapacity >= demand.minCost;
-    const worthWaiting = demand.blocking && canEverAfford && ctx.energyIncome > 0;
-    if (worthWaiting) {
-      // Hold the spawn for this high-value blocking demand instead of spending
-      // energy on something less important.
-      return null;
+    if (demand.blocking && canEverAfford) {
+      if (ctx.energyIncome > 0) {
+        // Energy is flowing in - just hold the spawn for this blocking demand
+        // instead of spending on something less important.
+        return null;
+      }
+      // No income yet: don't spend the dribble on lower-priority creeps. Keep
+      // scanning in case a lower-ranked demand we DO allow is affordable (a
+      // blocking demand always; an income producer when the hold is not strict),
+      // which still makes progress; otherwise we fall through to the final hold.
+      holdForBlocking = true;
+      if (demand.producesIncome) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn.
   }
