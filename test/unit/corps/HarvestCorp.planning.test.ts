@@ -117,9 +117,10 @@ describe("HarvestCorp mining planning (spots x capacity)", () => {
     expect(harvestOf(fieldFleet(3, 300).work)).to.equal(10);
   });
 
-  describe("miner recycling (once the room is flush)", () => {
-    // The corp's maxed+idle gate is exercised in the live loop; here we pin the
-    // WORK-based decision shared with hauler recycling.
+  describe("miner recycling (regrow undersized miners)", () => {
+    // The corp's recycle gate (recycle a runt once the room can afford to rebuild
+    // it one size larger) is exercised in the live loop; here we pin the
+    // WORK-based pick decision shared with hauler recycling.
     it("retires a cold-start 2-WORK miner once the room can build a 5-WORK one", () => {
       // source needs 5 WORK, room now builds up to 5, lone miner is 2 -> recycle it
       expect(pickRuntToRecycle([2], 5, 5)).to.equal(0);
