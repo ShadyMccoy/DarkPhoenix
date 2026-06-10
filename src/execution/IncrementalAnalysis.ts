@@ -17,7 +17,9 @@ import {
   analyzeMultiRoomTerrain,
   findTerritoryAdjacencies
 } from "../spatial";
-import { Node, NodeSurveyor, ReachableSource, calculateNodeROI, createNode } from "../nodes";
+import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
+import { ChainSource } from "../corps/ChainEvaluator";
+import { ColonyNode, marginalNodeValue } from "../planning/ColonyEconomy";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms } from "../utils";
 
@@ -399,78 +401,46 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
   // the nearest node (by peak distance) that spans its room.
   attachOwnedSpawnsToNodes(colony, ownedRooms);
 
-  // Build adjacency map from result.adjacencies
-  // Adjacencies are stored as "nodeA|nodeB" strings
-  const adjacencyMap = new Map<string, Set<string>>();
-  for (const edgeKey of result.adjacencies || []) {
-    const [nodeA, nodeB] = edgeKey.split("|");
-    if (!adjacencyMap.has(nodeA)) adjacencyMap.set(nodeA, new Set());
-    if (!adjacencyMap.has(nodeB)) adjacencyMap.set(nodeB, new Set());
-    adjacencyMap.get(nodeA)!.add(nodeB);
-    adjacencyMap.get(nodeB)!.add(nodeA);
-  }
-
-  // Second pass: calculate ROI with reachable sources from adjacent nodes
-  for (const peak of result.peaks) {
-    const nodeId = peak.peakId;
-    const node = colony.getNode(nodeId);
-    if (!node) continue;
-
-    // Gather reachable sources from adjacent nodes
-    const reachableSources: ReachableSource[] = [];
-    const adjacentNodeIds = adjacencyMap.get(nodeId) || new Set();
-
-    for (const adjNodeId of adjacentNodeIds) {
-      const adjNode = colony.getNode(adjNodeId);
-      if (!adjNode) continue;
-
-      // Get sources from adjacent node (skip Source Keeper rooms for now)
-      const sources = adjNode.resources.filter(r => r.type === "source" && !isSourceKeeperRoom(r.position.roomName));
-      for (const source of sources) {
-        // Calculate distance from this node's peak to the source
-        const distance = estimateSourceDistance(node, source.position);
-        reachableSources.push({
-          capacity: source.capacity ?? 3000,
-          distance
-        });
+  // Build the colony context once: every node is a candidate hub, and every
+  // source in the colony goes into one shared pool. A node's economic value is
+  // then its MARGINAL contribution - the colony economy with it minus without it
+  // - so a node that would only cannibalise a neighbour's sources scores ~0
+  // rather than being credited their energy (see ColonyEconomy).
+  const allNodes = colony.getNodes();
+  const allSources: ChainSource[] = [];
+  for (const n of allNodes) {
+    for (const r of n.resources) {
+      if (r.type === "source" && !isSourceKeeperRoom(r.position.roomName)) {
+        allSources.push({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position });
       }
     }
+  }
+  // The existing colony is the owned bases; a node's value is what it adds to them.
+  const ownedHubs: ColonyNode[] = [];
+  for (const n of allNodes) {
+    if (ownedRooms.has(n.roomName)) ownedHubs.push(toColonyNode(n));
+  }
+
+  // Second pass: score each node by its marginal value to the colony.
+  for (const peak of result.peaks) {
+    const node = colony.getNode(peak.peakId);
+    if (!node) continue;
+
+    const candidate = toColonyNode(node);
+    const existing = ownedHubs.filter(h => h.id !== node.id);
+    const economicValue = marginalNodeValue(existing, candidate, allSources);
 
     const surveyResult = surveyor.survey(node, Game.time);
-    node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps, reachableSources);
+    node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps, economicValue);
   }
 
   console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);
 }
 
-/**
- * Estimate distance from a node's peak to a source position.
- * Uses Manhattan distance for same room, adds 50 tiles per room for cross-room.
- */
-function estimateSourceDistance(node: Node, sourcePos: { x: number; y: number; roomName: string }): number {
-  if (node.peakPosition.roomName === sourcePos.roomName) {
-    // Same room - Manhattan distance
-    return Math.abs(node.peakPosition.x - sourcePos.x) + Math.abs(node.peakPosition.y - sourcePos.y);
-  }
-
-  // Cross-room: estimate room distance and add in-room distance
-  const parseRoom = (name: string): { x: number; y: number } | null => {
-    const match = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
-    if (!match) return null;
-    const x = match[1] === "W" ? -parseInt(match[2], 10) : parseInt(match[2], 10);
-    const y = match[3] === "N" ? -parseInt(match[4], 10) : parseInt(match[4], 10);
-    return { x, y };
-  };
-
-  const nodeRoomCoord = parseRoom(node.peakPosition.roomName);
-  const sourceRoomCoord = parseRoom(sourcePos.roomName);
-
-  if (!nodeRoomCoord || !sourceRoomCoord) return 100; // Fallback
-
-  const roomDistance = Math.abs(nodeRoomCoord.x - sourceRoomCoord.x) + Math.abs(nodeRoomCoord.y - sourceRoomCoord.y);
-
-  // Base: 50 tiles per room + average in-room distance (~25 tiles)
-  return roomDistance * 50 + 25;
+/** A node as a colony hub: its peak is the hub centre, its controller the sink. */
+function toColonyNode(node: Node): ColonyNode {
+  const controller = node.resources.find(r => r.type === "controller");
+  return { id: node.id, hubPos: node.peakPosition, controllerPos: controller?.position };
 }
 
 /**

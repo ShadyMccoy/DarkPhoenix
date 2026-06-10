@@ -139,6 +139,31 @@ function buildSinkNodeMap(graph: FlowGraph): Map<string, string> {
   return map;
 }
 
+/**
+ * Group hauler assignments by their source, keeping only sources that have a
+ * miner (per `hasMiner`). Sources with haulers but no miner are returned in
+ * `orphaned` so the caller can drop them - a hauler with no miner has nothing to
+ * pick up. Pure, so the gate can be unit tested directly.
+ */
+export function groupHaulersByMinedSource(
+  haulers: HaulerAssignment[],
+  hasMiner: (sourceId: string) => boolean
+): { bySource: Map<string, HaulerAssignment[]>; orphaned: string[] } {
+  const bySource = new Map<string, HaulerAssignment[]>();
+  const orphaned = new Set<string>();
+  for (const hauler of haulers) {
+    const src = hauler.fromId.replace("source-", "");
+    if (!hasMiner(src)) {
+      orphaned.add(src);
+      continue;
+    }
+    const list = bySource.get(src);
+    if (list) list.push(hauler);
+    else bySource.set(src, [hauler]);
+  }
+  return { bySource, orphaned: [...orphaned] };
+}
+
 // =============================================================================
 // NODE FLOW MATERIALIZATION
 // =============================================================================
@@ -173,12 +198,16 @@ function materializeNodeFlow(
   // local "mover": it distributes the source's energy across the local sinks in
   // proportion to the flow solver's allocations, rather than dumping everything
   // into the spawn.
-  const haulersBySource = new Map<string, HaulerAssignment[]>();
-  for (const hauler of nodeFlow.haulers) {
-    const src = hauler.fromId.replace("source-", "");
-    const list = haulersBySource.get(src);
-    if (list) list.push(hauler);
-    else haulersBySource.set(src, [hauler]);
+  // Only field haulers for a source we actually mine. A remote source we
+  // currently have no vision of has its HarvestCorp skipped (the live source
+  // object isn't found), so without this gate we would create a CarryCorp with
+  // no miner - haulers with nothing to pick up, burning spawn capacity.
+  const { bySource: haulersBySource, orphaned } = groupHaulersByMinedSource(
+    nodeFlow.haulers,
+    src => corps.harvestCorps[src] !== undefined
+  );
+  for (const src of orphaned) {
+    result.warnings.push(`No miner for source ${src.slice(-4)}; skipping its haulers`);
   }
   for (const haulers of haulersBySource.values()) {
     materializeCarryCorpForSource(haulers, corps, tick, result);

@@ -39,3 +39,10 @@ export {
 } from "./IncrementalAnalysis";
 
 export { renderNodeVisuals, renderSpatialVisuals } from "./Visualization";
+
+export {
+  isSpawnPlacementInProgress,
+  resetSpawnPlacement,
+  startSpawnPlacement,
+  runSpawnPlacementStep
+} from "./SpawnPlacementScheduler";
