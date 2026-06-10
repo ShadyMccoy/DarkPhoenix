@@ -131,6 +131,28 @@ describe("EconomyPlanner", () => {
     assert.isAtLeast(work(corps, "build"), 1, "construction still gets the rest");
   });
 
+  it("scales mining to consumable capacity - lots of sources does NOT over-plan", () => {
+    // Four sources (40 supply) but a small controller (capacity 10) and no other
+    // sink: the colony cannot USE more than ~its overhead + 10/tick, so the
+    // planner mines only that much. A miner is commissioned only for a source
+    // whose energy is actually routed (see "one initiative per worked source,
+    // sized to its routed output"), so most sources are left in the ground rather
+    // than opening a miner + hauler the spawn would have to keep alive for energy
+    // that has nowhere to go. The same planner, given capacity to consume it,
+    // opens every source - so the cap is driven by demand, not an arbitrary limit.
+    const sources = [source("s0", 5), source("s1", 15), source("s2", 35), source("s3", 45)];
+    const small = plan(sources, [sink("spawn", "spawn", 100, 0, 25), sink("ctrl", "controller", 50, 10, 25)]);
+    const big = plan(sources, [sink("spawn", "spawn", 100, 0, 25), sink("ctrl", "controller", 50, 1000, 25)]);
+
+    const smallMiners = corp(small.corps, "mine").length;
+    const bigMiners = corp(big.corps, "mine").length;
+
+    assert.isBelow(smallMiners, sources.length, "a capped colony does NOT open a miner per source");
+    assert.isAbove(small.unrouted, 0, "the supply it cannot consume is left unmined");
+    assert.equal(bigMiners, sources.length, "with capacity to consume it, every source IS opened");
+    assert.isAbove(small.unrouted, big.unrouted, "the small-sink colony leaves far more in the ground");
+  });
+
   it("closes the energy loop: a far source self-consistently leaves less for its project", () => {
     // Same supply and same value/capacity, only the haul distance differs. The
     // far economy must staff bigger haulers, so its overhead is higher and its
