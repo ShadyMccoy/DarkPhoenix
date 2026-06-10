@@ -67,9 +67,13 @@ export function controllerDeliverySpot(controller: StructureController): EnergyS
  * still travelling), so the caller can account for what it delivered.
  */
 export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "deposit"): number {
-  // A bare drop spot only needs range 2 (drop/pickup reach an adjacent tile);
-  // a structure must be touched at range 1.
-  const range = spot.structure ? 1 : 2;
+  // pickup/withdraw must be adjacent to the energy (range 1); a structure is
+  // likewise touched at range 1. Only a bare DROP can be done from range 2 - the
+  // energy lands on the creep's own tile, so it just needs to be near the spot.
+  // Collecting from a bare drop pile at range 2 was the bug: the hauler stopped a
+  // tile short of the pile (common in remote mining, where there is no container)
+  // and the range-1 pickup never reached it.
+  const range = mode === "collect" || spot.structure ? 1 : 2;
   if (creep.pos.getRangeTo(spot.pos) > range) {
     creep.moveTo(spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
     return 0;
