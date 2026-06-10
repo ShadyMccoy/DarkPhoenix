@@ -10,7 +10,7 @@
 import { CREEP_LIFETIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { driveRecycle, pickRuntToRecycle } from "./recycle";
+import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
@@ -202,17 +202,11 @@ export class HarvestCorp extends Corp {
    */
   private flagMinerRuntForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
     if (!this.minerAssignment) return;
-    if (spawn.spawning) return;
+    if (!spawnIdleAndMaxed(spawn.room, spawn)) return;
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
 
     const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
-    const full = buildMinerBody(totalWork, spawn.room.energyCapacityAvailable);
-    const maxWorkPerMiner = Math.max(1, full.workParts);
-    // Resize an undersized miner as soon as the room can afford its full-size
-    // replacement right now - not only when the room is completely full (a
-    // working colony rarely is, which is why runts used to be permanent). Gating
-    // on affordability keeps the income gap to one miner's recycle + respawn.
-    if (spawn.room.energyAvailable < full.cost) return;
+    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, spawn.room.energyCapacityAvailable).workParts);
     const idx = pickRuntToRecycle(
       creeps.map(c => c.getActiveBodyparts(WORK)),
       totalWork,
@@ -321,13 +315,7 @@ export class HarvestCorp extends Corp {
     // income already flows and a source has only so many spots - each one should
     // be as large as the room can build.
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
-    // Floor to a 2-WORK bootstrap miner ONLY in a bare room (no extensions yet),
-    // where 2-WORK-now beats 5-WORK-never. Once the room has extension capacity,
-    // size to the full affordable body: a count-1 runt must not permanently
-    // satisfy a source that needs more WORK. The scheduler's blocking + wait
-    // accumulates the energy for the full body.
-    const coldStart = ctx.energyCapacity <= 300;
-    const minWork = coldStart ? Math.min(desiredWork, 2) : desiredWork;
+    const minWork = current === 0 ? Math.min(desiredWork, 2) : desiredWork;
     const min = buildMinerBody(minWork, ctx.energyCapacity);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
 
