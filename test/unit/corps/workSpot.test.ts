@@ -65,4 +65,20 @@ describe("workSpot (hauler energy access)", () => {
     expect(creep.calls.moveTo).to.equal(0);
     expect(creep.calls.pickup).to.equal(1);
   });
+
+  it("keeps clear of a bare source (waitClear): approaches only to range 2", () => {
+    // No pile yet - the spot is the source tile, flagged waitClear so the hauler
+    // idles nearby instead of camping the miner's harvest tile.
+    const spot: EnergySpot = { pos: { x: 25, y: 25 } as any, waitClear: true };
+
+    const far = makeCreep(25, 28, []); // range 3 - should move, but only to range 2
+    workSpot(far as any, spot, "collect");
+    expect(far.calls.moveTo).to.equal(1);
+    expect(far.calls.lastMoveRange).to.equal(2);
+
+    const near = makeCreep(25, 27, []); // range 2 - close enough; wait (no pile, no move)
+    workSpot(near as any, spot, "collect");
+    expect(near.calls.moveTo).to.equal(0);
+    expect(near.calls.pickup).to.equal(0);
+  });
 });

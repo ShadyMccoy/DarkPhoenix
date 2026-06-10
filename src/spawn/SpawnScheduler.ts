@@ -180,7 +180,13 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
 export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
 
-  const ranked = [...demands].sort((a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick));
+  // Within a mining unit the miner is a prerequisite for its haulers: while a
+  // source still has an unmet miner demand, hold back that source's haulers so
+  // the miner is staffed first. Otherwise a hauler can outrank its own miner on
+  // raw value and get funded with nothing to pick up.
+  const eligible = withMinerPrecedence(demands);
+
+  const ranked = [...eligible].sort((a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick));
 
   for (const demand of ranked) {
     if (ctx.energyAvailable >= demand.minCost) {
@@ -204,4 +210,20 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   }
 
   return null;
+}
+
+/**
+ * Drop hauler demands whose funding group still has an unmet miner demand - the
+ * miner must be staffed before its haulers (a hauler with no miner has nothing to
+ * carry). Other roles, and haulers whose group has no pending miner, pass
+ * through unchanged. Pure, so the precedence rule can be unit tested directly.
+ */
+export function withMinerPrecedence(demands: SpawnDemand[]): SpawnDemand[] {
+  const sourcesAwaitingMiner = new Set(
+    demands.filter(d => d.role === "miner" && d.groupId !== undefined).map(d => d.groupId)
+  );
+  if (sourcesAwaitingMiner.size === 0) return demands;
+  return demands.filter(
+    d => !(d.role === "hauler" && d.groupId !== undefined && sourcesAwaitingMiner.has(d.groupId))
+  );
 }
