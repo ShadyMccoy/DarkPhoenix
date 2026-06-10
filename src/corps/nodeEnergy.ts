@@ -23,6 +23,13 @@ export interface EnergySpot {
   pos: RoomPosition;
   /** If set, transfer-to / withdraw-from this; if absent, drop / pick up at pos. */
   structure?: StoreStructure;
+  /**
+   * True when `pos` is a stand-clear point, not an energy target yet - a bare
+   * source with no drop pile. The hauler should wait NEAR it (not on it) so it
+   * doesn't block the miner's harvest tile, and approach the actual pile once the
+   * miner starts dropping.
+   */
+  waitClear?: boolean;
 }
 
 /**
@@ -42,7 +49,8 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
     .sort((a, b) => b.amount - a.amount)[0];
   if (pile) return { pos: pile.pos };
 
-  return { pos: sourcePos };
+  // No pile yet: stand clear of the source so we don't block the miner's tile.
+  return { pos: sourcePos, waitClear: true };
 }
 
 /**
@@ -68,12 +76,14 @@ export function controllerDeliverySpot(controller: StructureController): EnergyS
  */
 export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "deposit"): number {
   // pickup/withdraw must be adjacent to the energy (range 1); a structure is
-  // likewise touched at range 1. Only a bare DROP can be done from range 2 - the
-  // energy lands on the creep's own tile, so it just needs to be near the spot.
-  // Collecting from a bare drop pile at range 2 was the bug: the hauler stopped a
-  // tile short of the pile (common in remote mining, where there is no container)
-  // and the range-1 pickup never reached it.
-  const range = mode === "collect" || spot.structure ? 1 : 2;
+  // likewise touched at range 1. A bare DROP only needs range 2 (it lands on the
+  // creep's own tile). A waitClear spot (a bare source with no pile yet) is also
+  // approached only to range 2, so the hauler idles near the source rather than
+  // camping the miner's harvest tile - it closes to range 1 once a real pile
+  // appears (sourcePickupSpot then returns the pile, not the waitClear source).
+  // Collecting a real pile at range 2 was the original bug (the hauler stopped a
+  // tile short, common in remote mining where there is no container).
+  const range = mode === "collect" && !spot.waitClear ? 1 : spot.structure ? 1 : 2;
   if (creep.pos.getRangeTo(spot.pos) > range) {
     creep.moveTo(spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
     return 0;
