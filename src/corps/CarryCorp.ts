@@ -43,6 +43,17 @@ export type LocalSink = "spawn" | "controller";
 const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 
 /**
+ * Fill fraction at which a dedicated build source's container is judged to be
+ * "backing up": the builder isn't draining the source's full output (a runt
+ * builder, or no active build), so the surplus would otherwise pile up until the
+ * container is full and the miner stalls. Above this the source's haulers resume
+ * and drain the surplus to the core, so the miner keeps producing and the energy
+ * isn't wasted - the economy rebalances around whatever the builder actually
+ * consumes. Half-full leaves ample headroom before the container caps out.
+ */
+const DEDICATED_SOURCE_DRAIN_FILL = 0.5;
+
+/**
  * Choose which local sink to commit a load to. The spawn network has strict
  * priority: whenever it has real free capacity, fill it first regardless of the
  * proportional allocation (the spawn is critical but small, so it tops up fast
@@ -726,11 +737,35 @@ export class CarryCorp extends Corp {
    * down (field no haulers, and existing ones stop drawing from it) so the
    * construction tankers get the source's full output. The reservation is set by
    * ConstructionCorp in room memory while a build is active.
+   *
+   * The reservation holds only while the builder keeps the source's container
+   * drained. If energy backs up past DEDICATED_SOURCE_DRAIN_FILL the builder can't
+   * consume the source's full output (a runt builder, or no active consumption),
+   * so we resume hauling the surplus to the core: the miner never stalls on a full
+   * container and the excess isn't wasted. The builder, sized to the whole source,
+   * holds the container near-empty in the normal case, so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
-    return !!dedicated && this.mySourceId() === dedicated;
+    if (!dedicated || this.mySourceId() !== dedicated) return false;
+
+    const source = Game.getObjectById(dedicated as Id<Source>);
+    const container = source ? this.sourceContainerAt(source) : null;
+    if (container) {
+      const energy = container.store[RESOURCE_ENERGY];
+      const capacity = container.store.getCapacity(RESOURCE_ENERGY) || 2000;
+      if (energy >= capacity * DEDICATED_SOURCE_DRAIN_FILL) return false; // surplus - drain it
+    }
+    return true;
+  }
+
+  /** The static container on a source's tile, if any (where the miner deposits). */
+  private sourceContainerAt(source: Source): StructureContainer | null {
+    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    }) as StructureContainer[];
+    return containers[0] ?? null;
   }
 
   /**
