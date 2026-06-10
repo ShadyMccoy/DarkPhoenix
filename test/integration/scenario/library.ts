@@ -31,6 +31,39 @@ export function twoSource(opts: { room?: string } = {}): Scenario {
 }
 
 /**
+ * An open room whose two sources sit at very different distances from the spawn:
+ * one adjacent to the centre, one in the far corner. The symmetric {@link
+ * twoSource} masks distance-sensitive bugs (both sources cost the same to mine
+ * and haul); this asymmetry is the one that stresses them - the far source has a
+ * much longer haul and a miner that spends a big chunk of its life just walking
+ * out (less useful TTL), so it exercises travel-cost / marginal-value accounting
+ * and the question "does the colony still bother to mine the far source?".
+ * Pre-advanced to RCL 3 with a full RCL-2 extension set so the home economy has
+ * the spare hauler capacity to reach the corner.
+ */
+export function asymmetricTwoSource(opts: { room?: string } = {}): Scenario {
+  const room = opts.room ?? "W0N0";
+  const builder = new RoomBuilder(room)
+    .border()
+    .controller(25, 8)
+    .source(22, 22) // near: ~3 tiles from the central spawn
+    .source(45, 45); // far: opposite corner, a long haul home
+  const exts = [
+    { x: 22, y: 24 }, { x: 28, y: 24 }, { x: 22, y: 26 }, { x: 28, y: 26 }, { x: 24, y: 22 },
+  ];
+  return {
+    name: "asymmetric-two-source",
+    description: "Open room, one near + one far-corner source, spawn at centre. RCL 3 + 5 extensions.",
+    rooms: [builder.toRoom()],
+    bot: { room, ...SPAWN },
+    state: {
+      controller: { level: 3, progress: 0 },
+      structures: exts.map((e) => ({ room, type: "extension", x: e.x, y: e.y, energy: 50 })),
+    },
+  };
+}
+
+/**
  * A single open room with one source at the given depth, a central spawn and a
  * controller near the top. `sourceY` controls how far the source is from the
  * spawn - the classic near/far mining comparison.
