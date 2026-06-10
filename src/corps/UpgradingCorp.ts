@@ -488,8 +488,15 @@ export class UpgradingCorp extends Corp {
    * the target, so a correctly-sized fleet is never disturbed and we can't thrash
    * below target. The retired creep walks to the spawn and recycles, returning
    * its body energy to the economy that now needs it.
+   *
+   * Scoped to the dedicated-build rebalance only: without a reserved build source
+   * the upgrade target equals the full allocation (effectiveAllocated is a no-op),
+   * so this is exactly the situation the recycle is for. Firing it more broadly
+   * churned upgraders against the normal fallback target and stole spawn ticks
+   * from a second source's miner during the cold ramp.
    */
   private flagExcessForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
+    if (!spawn.room.memory.dedicatedBuildSourceId) return; // only rebalance during a dedicated build
     if (spawn.spawning) return; // don't compete with an in-progress spawn
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
     if (creeps.length === 0) return;
