@@ -1,85 +1,32 @@
 #!/usr/bin/env ts-node
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * sim-variance - hunt for corps whose ACTUAL throughput strays far from the
- * BUDGET they were funded with, across a range of room generations.
+ * sim-variance - track corp budget-vs-actual variance over a run.
  *
- * The bot writes Memory.corpVariance every tick (snapshotCorpVariance): each
- * budgeted corp's budgeted vs actual rate and (actual-budget)/budget, sorted
- * worst-first. This runs several deliberately awkward rooms - long hauls, swamp
- * belts, far-flung or single sources - and prints the worst outliers in each, so
- * we can see which corp types misfire and where the cost model under/over-shoots.
+ * The bot writes Memory.corpVariance every 25 ticks (snapshotCorpVariance): each
+ * budgeted corp's budgeted vs actual production rate and (actual-budget)/budget,
+ * sorted worst-first. This runs the standard stub world (9 rooms, the path where
+ * the engine reliably persists the bot's Memory), samples that snapshot over
+ * time, and reports the worst outliers - the corps straying furthest below what
+ * they were funded to produce - and how the gap evolves as the colony matures.
  *
- * Runs with the free-economy mod by default so colonies reach a working state
- * fast (energy is not burned on build/upgrade); pass --paid to keep the sinks.
+ * Runs with the free-economy mod by default (build/upgrade sinks zeroed) so the
+ * colony is not starved; pass --paid to keep them.
  *
  * Usage:
- *   npm run sim:variance                  # all scenarios, default ticks
- *   npm run sim:variance -- --ticks 2000 --top 8 --paid
+ *   npm run sim:variance                 # default ticks
+ *   npm run sim:variance -- --ticks 2500 --sample 250 --top 8 --paid
  *
  * Build first (npm run build) so dist/main.js is current.
  */
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { loadLayout, padNeighborTerrain, enableMods, FREE_ECONOMY_MOD, RoomLayout } from "../test/integration/loadLayout";
+import { enableMods, FREE_ECONOMY_MOD } from "../test/integration/loadLayout";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
 
 const DIST_MAIN_JS = "dist/main.js";
-const ROOM = "W0N0";
-
-/** A 50-line terrain with a horizontal swamp belt across the given rows. */
-function swampBelt(y0: number, y1: number): string[] {
-  return Array.from({ length: 50 }, (_v, y) => (y >= y0 && y <= y1 ? "~".repeat(50) : ".".repeat(50)));
-}
-
-interface Scenario {
-  name: string;
-  description: string;
-  layout: RoomLayout;
-  /** Where the bot's spawn goes. */
-  spawn: { x: number; y: number };
-}
-
-const SCENARIOS: Scenario[] = [
-  {
-    name: "plain-2src",
-    description: "baseline: two sources, controller, all plain",
-    layout: { room: ROOM, objects: [
-      { type: "controller", x: 25, y: 10 },
-      { type: "source", x: 12, y: 40 }, { type: "source", x: 38, y: 40 }
-    ] },
-    spawn: { x: 25, y: 25 }
-  },
-  {
-    name: "far-sources",
-    description: "sources in opposite corners - long, unequal hauls",
-    layout: { room: ROOM, objects: [
-      { type: "controller", x: 25, y: 25 },
-      { type: "source", x: 3, y: 3 }, { type: "source", x: 46, y: 46 }
-    ] },
-    spawn: { x: 25, y: 25 }
-  },
-  {
-    name: "swamp-belt",
-    description: "swamp band between the sources and the spawn - slow haulers",
-    layout: { room: ROOM, terrain: swampBelt(20, 30), objects: [
-      { type: "controller", x: 25, y: 8 },
-      { type: "source", x: 12, y: 44 }, { type: "source", x: 38, y: 44 }
-    ] },
-    spawn: { x: 25, y: 12 }
-  },
-  {
-    name: "one-src-far",
-    description: "a single far-corner source - low income, long haul",
-    layout: { room: ROOM, objects: [
-      { type: "controller", x: 25, y: 25 },
-      { type: "source", x: 45, y: 45 }
-    ] },
-    spawn: { x: 25, y: 25 }
-  }
-];
 
 interface VarianceRow {
   id: string;
@@ -89,53 +36,43 @@ interface VarianceRow {
   variance: number;
 }
 
-async function run(scenario: Scenario, ticks: number, free: boolean): Promise<VarianceRow[]> {
+interface Snapshot {
+  tick: number;
+  rows: VarianceRow[];
+}
+
+async function run(ticks: number, sampleEvery: number, free: boolean): Promise<Snapshot[]> {
   const port = 25000 + Math.floor(Math.random() * 1000);
   const serverPath = path.resolve("server", `variance-${port}`);
   mkdirSync(path.join(serverPath, "logs"), { recursive: true });
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
 
   await server.world.reset();
-  await loadLayout(server.world, scenario.layout);
-  await padNeighborTerrain(server.world, [scenario.layout.room]);
-
-  const modules = { main: readFileSync(DIST_MAIN_JS).toString() };
-  const player = await server.world.addBot({ username: "player", room: scenario.layout.room, x: scenario.spawn.x, y: scenario.spawn.y, modules });
+  await server.world.stubWorld();
+  const player = await server.world.addBot({ username: "player", room: "W0N1", x: 15, y: 15, modules: { main: readFileSync(DIST_MAIN_JS).toString() } });
 
   if (free) enableMods(serverPath, [FREE_ECONOMY_MOD]);
   await server.start();
 
+  const snapshots: Snapshot[] = [];
   for (let t = 1; t <= ticks; t += 1) {
     await server.tick();
-    if (t % 200 === 0) process.stdout.write(".");
-  }
-  process.stdout.write("\n");
-
-  let rows: VarianceRow[] = [];
-  try {
-    const mem = JSON.parse((await player.memory) || "{}");
-    rows = (mem.corpVariance as VarianceRow[]) ?? [];
-  } catch {
-    rows = [];
+    if (t % sampleEvery === 0 || t === ticks) {
+      let rows: VarianceRow[] = [];
+      try {
+        rows = (JSON.parse((await player.memory) || "{}").corpVariance as VarianceRow[]) ?? [];
+      } catch {
+        rows = [];
+      }
+      snapshots.push({ tick: t, rows });
+    }
   }
   await server.stop();
-  return rows;
+  return snapshots;
 }
 
-function report(scenario: Scenario, rows: VarianceRow[], top: number): void {
-  console.log(`\n--- ${scenario.name} (${scenario.description}) ---`);
-  if (rows.length === 0) {
-    console.log("  (no budgeted corps reported)");
-    return;
-  }
-  console.log("  corp                         type          budget   actual   variance");
-  for (const r of rows.slice(0, top)) {
-    console.log(
-      `  ${r.id.slice(0, 26).padEnd(28)} ${r.type.padEnd(12)} ${String(r.budget).padStart(7)}  ${String(r.actual).padStart(7)}  ${String(r.variance).padStart(8)}`
-    );
-  }
-  const worst = rows[0];
-  console.log(`  worst: ${worst.type} ${worst.id.slice(0, 24)} budget ${worst.budget} -> actual ${worst.actual} (${(worst.variance * 100).toFixed(0)}%)`);
+function mean(xs: number[]): number {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
 }
 
 async function main(): Promise<void> {
@@ -145,23 +82,33 @@ async function main(): Promise<void> {
     return i !== -1 && args[i + 1] ? args[i + 1] : fallback;
   };
   const ticks = parseInt(getArg("ticks", "1500"), 10);
+  const sampleEvery = parseInt(getArg("sample", "150"), 10);
   const top = parseInt(getArg("top", "6"), 10);
   const free = !args.includes("--paid");
 
-  console.log(`Hunting corp budget-vs-actual outliers across ${SCENARIOS.length} rooms, ${ticks} ticks${free ? " [free economy]" : ""}...`);
+  console.log(`Tracking corp budget-vs-actual variance over ${ticks} ticks (stub world)${free ? " [free economy]" : ""}...`);
 
-  const summary: Array<{ scenario: string; worstType: string; worstVariance: number }> = [];
-  for (const scenario of SCENARIOS) {
-    const rows = await run(scenario, ticks, free);
-    report(scenario, rows, top);
-    if (rows.length > 0) {
-      summary.push({ scenario: scenario.name, worstType: rows[0].type, worstVariance: rows[0].variance });
-    }
+  const snapshots = await run(ticks, sampleEvery, free);
+
+  // Trend: how the average variance (over budgeted corps) moves as the colony matures.
+  console.log("\n=== Variance trend (mean over budgeted corps) ===");
+  console.log("  tick   corps   meanVariance   onBudget(|v|<0.2)");
+  for (const s of snapshots) {
+    const vs = s.rows.map(r => r.variance);
+    const onBudget = vs.filter(v => Math.abs(v) < 0.2).length;
+    console.log(`  ${String(s.tick).padStart(4)}  ${String(s.rows.length).padStart(5)}   ${mean(vs).toFixed(2).padStart(12)}   ${onBudget}/${s.rows.length}`);
   }
 
-  console.log("\n=== Worst outlier per scenario ===");
-  for (const s of summary) {
-    console.log(`  ${s.scenario.padEnd(14)} ${s.worstType.padEnd(12)} ${(s.worstVariance * 100).toFixed(0)}%`);
+  // Worst outliers at the final sample.
+  const last = snapshots[snapshots.length - 1];
+  console.log(`\n=== Worst outliers @ tick ${last?.tick ?? 0} ===`);
+  if (!last || last.rows.length === 0) {
+    console.log("  (no budgeted corps reported)");
+    return;
+  }
+  console.log("  corp                          type          budget   actual   variance");
+  for (const r of last.rows.slice(0, top)) {
+    console.log(`  ${r.id.slice(0, 27).padEnd(29)} ${r.type.padEnd(12)} ${String(r.budget).padStart(7)}  ${String(r.actual).padStart(7)}  ${String(r.variance).padStart(8)}`);
   }
 }
 
