@@ -23,7 +23,7 @@
  * @module test/unit/harness/spawnDecision
  */
 
-import { setupGlobals, Game } from "../mock";
+import { setupGlobals, Game, FIND_MY_CREEPS } from "../mock";
 import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
@@ -117,11 +117,33 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const game = Game as any;
   const savedCreeps = game.creeps;
+  const savedGetObjectById = game.getObjectById;
   game.creeps = {};
   (situation.creeps ?? []).forEach((c, i) => {
     const creep = fakeCreep(c, i);
     game.creeps[creep.name] = creep;
   });
+
+  // A fake spawn so corps that consult Game.getObjectById(spawnId) run their real
+  // room-aware logic - notably the upgrader's "no flow upgrader until a hauler is
+  // delivering" gate (roomHasHauler scans room.find(FIND_MY_CREEPS)) and the
+  // hauler's yieldsToBuild (reads room.memory). Without it those paths were
+  // silently skipped and the gate never exercised. No controller is provided, so
+  // the upgrader uses its mobile strategy.
+  const fakeSpawn = {
+    id: SPAWN_ID,
+    spawning: false,
+    room: {
+      name: ROOM,
+      energyAvailable: situation.energyAvailable,
+      energyCapacityAvailable: energyCapacity,
+      memory: {},
+      controller: undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      find: (type: number) => (type === FIND_MY_CREEPS ? Object.values(game.creeps) : [])
+    }
+  };
+  game.getObjectById = (id: string) => (id === SPAWN_ID ? fakeSpawn : null);
 
   try {
     const registry = createCorpRegistry();
@@ -166,5 +188,6 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
     return { role: result.demand.role, buyerCorpId: result.demand.buyerCorpId, reason: result.reason };
   } finally {
     game.creeps = savedCreeps;
+    game.getObjectById = savedGetObjectById;
   }
 }

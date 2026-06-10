@@ -107,6 +107,31 @@ describe("next spawn decision (key moments)", () => {
     expect(decision.buyerCorpId).to.equal("mining-B");
   });
 
+  it("an upgrader stands down until a hauler is delivering (supply before demand)", () => {
+    // The controller wants energy and the spawn is full, but there is no hauler in
+    // the room. The upgrader must stand down - that energy is reserved for the
+    // hauler that closes the delivery loop. Funding the upgrader here is the
+    // cold-start deadlock the gate prevents: the spawn drains on upgraders and can
+    // never afford the hauler that would refill it. With no other eligible demand,
+    // the director spawns nothing this tick.
+    const noHauler = decideNextSpawn({
+      energyAvailable: 550,
+      energyCapacity: 550,
+      upgrader: true // controller wants energy, but no hauler is configured
+    });
+    expect(noHauler.role).to.equal(null);
+
+    // The moment a hauler is delivering (corpId "hauling-*"), the same upgrader is
+    // eligible and funded. The contrast IS the gate.
+    const withHauler = decideNextSpawn({
+      energyAvailable: 550,
+      energyCapacity: 550,
+      upgrader: true,
+      creeps: [{ corpId: "hauling-A", workType: "haul", carry: 4 }]
+    });
+    expect(withHauler.role).to.equal("upgrader");
+  });
+
   it("funds the upgrader before opening a fresh source once income is staffed", () => {
     // Source A is fully staffed and its energy is coming home, but the colony has
     // not upgraded yet (no upgrader in the field, so the upgrader demand is
