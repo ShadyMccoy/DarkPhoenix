@@ -12,6 +12,8 @@ import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
+import { buildHaulerBody } from "../spawn/BodyBuilder";
+import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
@@ -583,6 +585,31 @@ export class CarryCorp extends Corp {
    * stranded - and produces income. The hauler is sized (CARRY:MOVE pairs) to
    * the flow-solved carry-part requirement; it can be spawned small and scaled.
    */
+  /**
+   * Project the economics of hauling this corp's routes from a given spawn: one
+   * hauler per route, sized to its flow and distance, costed over the life left
+   * after walking out to the pickup. Throughput is the energy it moves.
+   */
+  public project(scene: ChainScene): CorpEconomics {
+    let costPerTick = 0;
+    let throughput = 0;
+    for (const a of this.haulerAssignments) {
+      const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
+      if (body.cost === 0 || body.carryCapacity === 0) continue;
+      // Energy in flight over the round trip sets the carry needed; one capped
+      // body may not cover a long/high-flow route, so run as many as it takes -
+      // this is what makes hauling cost rise properly with distance.
+      const carryEnergyNeeded = a.flowRate * 2 * a.distance * 1.2;
+      const haulers = Math.max(1, Math.ceil(carryEnergyNeeded / body.carryCapacity));
+      const pickup = scene.resource(a.fromId);
+      const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
+      const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+      costPerTick += (haulers * body.cost) / usefulLife;
+      throughput += a.flowRate;
+    }
+    return { costPerTick, throughput };
+  }
+
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];

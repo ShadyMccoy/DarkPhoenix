@@ -17,6 +17,8 @@
 // screeps-server-mockup ships no type definitions, so require it directly.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { TerrainMatrix } = require("screeps-server-mockup");
+import * as fs from "fs";
+import * as path from "path";
 
 export type ObjectType = "source" | "controller" | "mineral" | string;
 
@@ -110,6 +112,70 @@ export async function loadLayout(world: any, layout: RoomLayout | RoomLayout[]):
     await applyRoomLayout(world, single);
   }
 }
+
+/**
+ * Give an EXISTING bot a second (third, ...) owned room: claim that room's
+ * controller for the user and drop a functional spawn in it. This mirrors the
+ * two db writes `addBot` does for its first room, so a single player can own N
+ * rooms at once - the setup for "does N rooms behave like N independent single
+ * rooms?". The room must already have a controller (load its layout first).
+ */
+export async function addOwnedRoom(
+  world: any,
+  userId: string,
+  room: string,
+  x: number,
+  y: number,
+  spawnName: string
+): Promise<void> {
+  const { C, db } = await world.load();
+  const controller = await db["rooms.objects"].findOne({ $and: [{ room }, { type: "controller" }] });
+  if (controller == null) {
+    throw new Error(`addOwnedRoom: ${room} has no controller (load its layout first)`);
+  }
+  await Promise.all([
+    db.rooms.update({ _id: room }, { $set: { active: true } }),
+    db["rooms.objects"].update(
+      { room, type: "controller" },
+      { $set: { user: userId, level: 1, progress: 0, downgradeTime: null, safeMode: 20000 } }
+    ),
+    db["rooms.objects"].insert({
+      room,
+      type: "spawn",
+      x,
+      y,
+      user: userId,
+      name: spawnName,
+      store: { energy: C.SPAWN_ENERGY_START },
+      storeCapacityResource: { energy: C.SPAWN_ENERGY_CAPACITY },
+      hits: C.SPAWN_HITS,
+      hitsMax: C.SPAWN_HITS,
+      spawning: null,
+      notifyWhenAttacked: true
+    })
+  ]);
+}
+
+/**
+ * Load engine mods that override game constants, by injecting a `mods` array
+ * into the server's db.json - the file the engine processes read as their
+ * MODFILE (config-manager loads each listed module with the live `config`).
+ *
+ * Call AFTER the world is built (so db.json exists, having been copied on the
+ * first world op) and BEFORE `server.start()` (so the engine processes read it
+ * when they fork). Storage has already loaded the db into memory, so adding a
+ * `mods` key here does not disturb the live world - it only feeds the engine's
+ * constant-loading step.
+ */
+export function enableMods(serverPath: string, modPaths: string[]): void {
+  const dbPath = path.resolve(serverPath, "db.json");
+  const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
+  db.mods = modPaths.map(p => path.resolve(p));
+  fs.writeFileSync(dbPath, JSON.stringify(db));
+}
+
+/** Absolute path to the bundled free-economy mod (zeroes build/upgrade sinks). */
+export const FREE_ECONOMY_MOD = path.resolve(__dirname, "mods", "freeEconomy.js");
 
 // ---------------------------------------------------------------------------
 // Neighbour-room padding

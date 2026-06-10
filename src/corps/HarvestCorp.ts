@@ -7,8 +7,9 @@
  * @module corps/HarvestCorp
  */
 
-import { CREEP_LIFETIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, HARVEST_RATE, SOURCE_ENERGY_CAPACITY, SOURCE_REGEN_TIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
+import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
@@ -283,6 +284,26 @@ export class HarvestCorp extends Corp {
    * produces income; additional miners are scaling demand (non-blocking). Value
    * tracks mining efficiency so better sources are staffed first.
    */
+  /**
+   * Project the economics of mining this corp's source from a given spawn: a
+   * miner sized to the source, costed by its body over the life left after
+   * walking out to the source, producing the source's energy/tick.
+   */
+  public project(scene: ChainScene): CorpEconomics {
+    const source = scene.resource(this.sourceId);
+    if (!source) return { costPerTick: 0, throughput: 0 };
+
+    const capacity = source.capacity ?? SOURCE_ENERGY_CAPACITY;
+    const supply = capacity / SOURCE_REGEN_TIME;
+    const body = buildMinerBody(calculateOptimalWorkParts(capacity), scene.energyCapacity);
+    if (body.cost === 0) return { costPerTick: 0, throughput: 0 };
+
+    const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
+    const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
+    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    return { costPerTick: body.cost / usefulLife, throughput: harvestRate };
+  }
+
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignment = this.minerAssignment;
     if (!assignment) return [];

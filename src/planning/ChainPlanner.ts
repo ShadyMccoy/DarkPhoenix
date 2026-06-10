@@ -1,40 +1,39 @@
 /**
  * @fileoverview ChainPlanner finds viable production chains.
  *
- * The ChainPlanner analyzes corp states and their offers to identify
- * profitable chains from resource sources to value-creating goals.
+ * A "chain" is a path from free source energy to a value-creating goal (a
+ * controller upgrade), via the miners, haulers and the spawn that staff them.
+ * The economics come entirely from the corps: ChainPlanner stands up the real
+ * corps a chain would need (a miner + hauler per source, an upgrader on the
+ * controller) and asks each to {@link Corp.project} its own per-tick cost from
+ * its own body logic. There is no separate cost model here - improve a corp and
+ * the chains it appears in re-price themselves.
  *
  * @module planning/ChainPlanner
  */
 
-import { Chain, ChainSegment, buildSegment, createChain, createChainId, filterViable, sortByProfit } from "./Chain";
-import { AnyCorpState } from "../corps/CorpState";
+import { Position, chebyshevDistance } from "../types/Position";
 import { MintValues } from "../colony/MintValues";
+import { AnyCorpState, MiningCorpState, SpawningCorpState, UpgradingCorpState } from "../corps/CorpState";
+import { ChainScene, SceneResource } from "../corps/economics";
+import { HarvestCorp } from "../corps/HarvestCorp";
+import { CarryCorp } from "../corps/CarryCorp";
+import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { HaulerAssignment, SinkAllocation } from "../flow/FlowTypes";
+import { Chain, ChainSegment, buildSegment, createChain, createChainId, filterViable, sortByProfit } from "./Chain";
 import { OfferCollector } from "./OfferCollector";
 
-/**
- * Default margin for each corp type.
- */
-const DEFAULT_MARGINS: Record<string, number> = {
-  source: 0,
-  mining: 0.1,
-  hauling: 0.1,
-  spawning: 0.1,
-  upgrading: 0.1,
-  building: 0.1,
-  bootstrap: 0,
-  scout: 0
-};
+const VIRTUAL = "virtual";
 
 /**
- * ChainPlanner discovers and evaluates production chains.
+ * ChainPlanner discovers and evaluates production chains by standing up the
+ * corps each chain would run and reading their projected economics.
  */
 export class ChainPlanner {
-  private collector: OfferCollector;
-  private mintValues: MintValues;
-  private maxDepth: number;
+  private readonly collector: OfferCollector;
+  private readonly mintValues: MintValues;
+  private readonly maxDepth: number;
   private corpStates: AnyCorpState[] = [];
-  private corpStateMap: Map<string, AnyCorpState> = new Map();
 
   public constructor(collector: OfferCollector, mintValues: MintValues, maxDepth = 10) {
     this.collector = collector;
@@ -42,137 +41,135 @@ export class ChainPlanner {
     this.maxDepth = maxDepth;
   }
 
-  /**
-   * Register corp states for planning.
-   */
+  /** Register corp states for planning. */
   public registerCorpStates(states: AnyCorpState[], _tick: number): void {
     this.corpStates = states;
-    this.corpStateMap.clear();
-    for (const state of states) {
-      this.corpStateMap.set(state.id, state);
-    }
   }
 
   /**
-   * Find all viable chains at the given tick.
+   * Find all viable chains at the given tick: one chain per upgrading goal,
+   * costed by the corps it would take to feed that goal.
    */
   public findViableChains(tick: number): Chain[] {
+    const spawn = this.corpStates.find((s): s is SpawningCorpState => s.type === "spawning");
+    const miners = this.corpStates.filter((s): s is MiningCorpState => s.type === "mining");
+    const goals = this.corpStates.filter((s): s is UpgradingCorpState => s.type === "upgrading");
+    if (!spawn || miners.length === 0 || goals.length === 0) return [];
+
+    const scene = this.buildScene(spawn, miners);
+
     const chains: Chain[] = [];
-
-    // Find goal corps (upgrading corps that produce controller points)
-    const goalCorps = this.corpStates.filter(s => s.type === "upgrading");
-
-    for (const goalCorp of goalCorps) {
-      // Build chain backwards from goal to source
-      const chain = this.buildChainToGoal(goalCorp, tick);
-      if (chain) {
-        chains.push(chain);
-      }
+    for (const goal of goals) {
+      const chain = this.buildChain(goal, miners, scene, tick);
+      if (chain) chains.push(chain);
     }
-
     return filterViable(chains);
   }
 
-  /**
-   * Find the best chains within a budget.
-   */
+  /** Find the best non-overlapping chains within a cost budget. */
   public findBestChains(tick: number, budget: number): Chain[] {
-    const viableChains = this.findViableChains(tick);
-    const sorted = sortByProfit(viableChains);
-
-    // Select non-overlapping chains within budget
+    const sorted = sortByProfit(this.findViableChains(tick));
     const selected: Chain[] = [];
     let totalCost = 0;
-
     for (const chain of sorted) {
-      if (totalCost + chain.totalCost <= budget) {
-        // Check if chain overlaps with already selected
-        const overlaps = selected.some(existing => this.chainsOverlap(chain, existing));
-
-        if (!overlaps) {
-          selected.push(chain);
-          totalCost += chain.totalCost;
-        }
-      }
+      if (totalCost + chain.totalCost > budget) continue;
+      if (selected.some(existing => this.chainsOverlap(chain, existing))) continue;
+      selected.push(chain);
+      totalCost += chain.totalCost;
     }
-
     return selected;
   }
 
-  /**
-   * Build a production chain from sources to a goal corp.
-   */
-  private buildChainToGoal(goalCorp: AnyCorpState, tick: number): Chain | null {
-    const segments: ChainSegment[] = [];
-
-    // Find the mining corp (source of harvested energy)
-    const miningCorps = this.corpStates.filter(s => s.type === "mining");
-    if (miningCorps.length === 0) return null;
-
-    // Find the hauling corp
-    const haulingCorps = this.corpStates.filter(s => s.type === "hauling");
-    if (haulingCorps.length === 0) return null;
-
-    // Use the first mining corp and hauling corp for simplicity
-    const miningCorp = miningCorps[0];
-    const haulingCorp = haulingCorps[0];
-
-    // Build segments from production to goal
-    let currentCost = 0;
-
-    // Segment 1: Mining (harvests energy)
-    const miningMargin = DEFAULT_MARGINS.mining;
-    segments.push(
-      buildSegment(
-        miningCorp.id,
-        "mining",
-        "harvested-energy",
-        miningCorp.type === "mining" ? miningCorp.sourceCapacity : 3000,
-        currentCost,
-        miningMargin
-      )
-    );
-    currentCost = segments[segments.length - 1].outputPrice;
-
-    // Segment 2: Hauling (transports energy)
-    const haulingMargin = DEFAULT_MARGINS.hauling;
-    segments.push(
-      buildSegment(
-        haulingCorp.id,
-        "hauling",
-        "delivered-energy",
-        haulingCorp.type === "hauling" ? haulingCorp.carryCapacity * 10 : 500,
-        currentCost,
-        haulingMargin
-      )
-    );
-    currentCost = segments[segments.length - 1].outputPrice;
-
-    // Segment 3: Upgrading (converts energy to controller points)
-    const upgradingMargin = DEFAULT_MARGINS.upgrading;
-    segments.push(
-      buildSegment(
-        goalCorp.id,
-        "upgrading",
-        "controller-points",
-        1000, // work output estimate
-        currentCost,
-        upgradingMargin
-      )
-    );
-
-    // Calculate mint value based on controller points
-    const mintValue = this.mintValues.rclUpgrade * 1000;
-
-    // Create and return the chain
-    return createChain(createChainId(goalCorp.id, tick), segments, mintValue);
+  /** A scene the virtual corps reason about: the spawn, its energy, the sources. */
+  private buildScene(spawn: SpawningCorpState, miners: MiningCorpState[]): ChainScene {
+    const resources = new Map<string, SceneResource>();
+    for (const m of miners) resources.set(m.id, { pos: m.position, capacity: m.sourceCapacity });
+    return {
+      spawnPos: spawn.position,
+      energyCapacity: spawn.energyCapacity,
+      dist: (a: Position, b: Position) => chebyshevDistance(a, b),
+      resource: (id: string) => resources.get(id)
+    };
   }
 
   /**
-   * Check if two chains overlap (share corps).
+   * Build a mine -> haul -> upgrade chain feeding one controller, costing each
+   * step from the corp that would do it.
    */
+  private buildChain(
+    goal: UpgradingCorpState,
+    miners: MiningCorpState[],
+    scene: ChainScene,
+    tick: number
+  ): Chain | null {
+    const sceneToGoal: ChainScene = { ...scene, controllerPos: goal.position };
+
+    let harvest = 0;
+    let minerCost = 0;
+    let haulerCost = 0;
+    for (const m of miners) {
+      const miner = new HarvestCorp(VIRTUAL, VIRTUAL, m.id);
+      const mined = miner.project(sceneToGoal);
+      if (mined.throughput <= 0) continue;
+      harvest += mined.throughput;
+      minerCost += mined.costPerTick;
+
+      const hauler = new CarryCorp(VIRTUAL, VIRTUAL);
+      hauler.setHaulerAssignments([route(m.id, mined.throughput, scene.dist(m.position, goal.position))]);
+      haulerCost += hauler.project(sceneToGoal).costPerTick;
+    }
+    if (harvest <= 0) return null;
+
+    const netToController = Math.max(0, harvest - minerCost - haulerCost);
+    const upgrader = new UpgradingCorp(VIRTUAL, VIRTUAL);
+    upgrader.setSinkAllocation(controllerAllocation(netToController));
+    const upgraderCost = upgrader.project(sceneToGoal).costPerTick;
+
+    // Cost-carrying segments: each step's output price is the running staffing
+    // overhead, so the chain's totalCost is the whole roster's cost/tick.
+    const dominant = miners[0];
+    const segments: ChainSegment[] = [
+      buildSegment(dominant.id, "mining", "harvested-energy", harvest, minerCost, 0),
+      buildSegment(`haul-${goal.id}`, "hauling", "delivered-energy", harvest, minerCost + haulerCost, 0),
+      buildSegment(goal.id, "upgrading", "controller-points", harvest, minerCost + haulerCost + upgraderCost, 0)
+    ];
+
+    // The chain mints value for the net energy that actually reaches the controller.
+    const net = Math.max(0, harvest - minerCost - haulerCost - upgraderCost);
+    const mintValue = net * this.mintValues.rclUpgrade;
+    return createChain(createChainId(goal.id, tick), segments, mintValue);
+  }
+
+  /** Whether two chains share any corp. */
   private chainsOverlap(a: Chain, b: Chain): boolean {
     const aCorps = new Set(a.segments.map(s => s.corpId));
     return b.segments.some(s => aCorps.has(s.corpId));
   }
+}
+
+/** A synthetic source->controller hauling route for a virtual CarryCorp. */
+function route(fromId: string, flowRate: number, distance: number): HaulerAssignment {
+  return {
+    edgeId: `${fromId}|controller`,
+    fromId,
+    toId: "controller",
+    distance,
+    carryParts: 0,
+    flowRate,
+    spawnCostPerTick: 0,
+    spawnId: VIRTUAL
+  };
+}
+
+/** A synthetic controller allocation for a virtual UpgradingCorp. */
+function controllerAllocation(allocated: number): SinkAllocation {
+  return {
+    sinkId: "controller",
+    sinkType: "controller",
+    allocated,
+    demand: allocated,
+    unmet: 0,
+    priority: 0,
+    sourceFlows: []
+  };
 }

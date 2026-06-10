@@ -12,6 +12,8 @@ import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 6;
@@ -335,6 +337,26 @@ export class UpgradingCorp extends Corp {
       this.lastStrategy = strategy;
     }
     return strategy;
+  }
+
+  /**
+   * Project the economics of upgrading the scene's controller with the energy
+   * allocated to this corp: an upgrader sized to that energy, costed over the
+   * life left after walking out to the controller. It is a pure consumer, so it
+   * reports cost only (no throughput).
+   */
+  public project(scene: ChainScene): CorpEconomics {
+    const allocated = this.sinkAllocation?.allocated ?? 0;
+    if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0 };
+
+    // Virtual mode has no vision of buffers, so assume the mobile (no-container)
+    // strategy - the conservative, CARRY-heavier body.
+    const body = buildUpgraderBody(scene.energyCapacity, Math.max(1, Math.ceil(allocated)), "mobile");
+    if (body.cost === 0) return { costPerTick: 0, throughput: 0 };
+
+    const travel = scene.dist(scene.spawnPos, scene.controllerPos) * travelTicksPerTile(scene.energyCapacity);
+    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    return { costPerTick: body.cost / usefulLife, throughput: 0 };
   }
 
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {

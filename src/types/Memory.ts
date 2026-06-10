@@ -107,6 +107,14 @@ declare global {
     lastSurveyTick?: number;
 
     /**
+     * Best spawn tile found per node by the fine-grained placement sweep,
+     * with the economic value of a spawn there. Written when a sweep completes.
+     */
+    spawnPlacements?: {
+      [nodeId: string]: { x: number; y: number; roomName: string; value: number };
+    };
+
+    /**
      * Tick when the controller RCL last increased.
      * Used by FlowEconomy to boost construction priority after RCL-up.
      */

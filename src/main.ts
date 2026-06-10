@@ -54,6 +54,9 @@ import {
   runScoutCorps,
   runSpawnScheduling,
   runSpawningCorps,
+  isSpawnPlacementInProgress,
+  startSpawnPlacement,
+  runSpawnPlacementStep,
   snapshotCorpVariance
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
@@ -143,6 +146,11 @@ const corps: CorpRegistry = createCorpRegistry();
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
 export const loop = ErrorMapper.wrapLoop(() => {
+  // Reclaim memory for creeps that died last tick. Done first so it always runs,
+  // even if a later phase throws (the loop is ErrorMapper-wrapped) - otherwise
+  // dead-creep memory would leak whenever planning/execution hit an error.
+  cleanupDeadCreeps();
+
   // ===========================================================================
   // PHASE 0: INIT - Lazy initialization (once per code push)
   // ===========================================================================
@@ -195,6 +203,19 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // This must happen OUTSIDE the planning phase check to spread across ticks
   if (isAnalysisInProgress()) {
     runIncrementalAnalysis(colony);
+  }
+
+  // Fine-grained spawn placement: sweep the top nodes' territories for the best
+  // spawn tile, spread across ticks under a CPU budget (like the analysis above).
+  // Kick a fresh sweep on the planning cadence once node ROI is available; the
+  // results land in Memory.spawnPlacements for expansion/build planning to use.
+  if (isSpawnPlacementInProgress()) {
+    runSpawnPlacementStep();
+  } else if (shouldRunPlanning(Game.time) && !isAnalysisInProgress()) {
+    const cache = getAnalysisCache();
+    if (cache && colony.getNodes().length > 0) {
+      startSpawnPlacement(colony.getNodes(), cache.result.territories);
+    }
   }
 
   // Fresh respawn detection: if no nodes exist and no analysis in progress,
@@ -346,9 +367,6 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Render spatial visualization (territories, edges) for rooms with visual* flags
   renderSpatialVisuals(getAnalysisCache());
-
-  // Clean up memory for dead creeps
-  cleanupDeadCreeps();
 
   // Log stats periodically
   if (Game.time % 100 === 0) {
