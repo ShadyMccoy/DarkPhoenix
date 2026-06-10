@@ -106,4 +106,45 @@ describe("next spawn decision (key moments)", () => {
     expect(decision.role).to.equal("miner");
     expect(decision.buyerCorpId).to.equal("mining-B");
   });
+
+  it("funds the upgrader before opening a fresh source once income is staffed", () => {
+    // Source A is fully staffed and its energy is coming home, but the colony has
+    // not upgraded yet (no upgrader in the field, so the upgrader demand is
+    // blocking). A fresh source B wants its first (non-blocking) miner. The
+    // colony must drive RCL - fund the blocking upgrader - rather than open yet
+    // another source while the controller goes un-upgraded.
+    const decision = decideNextSpawn({
+      energyAvailable: 550,
+      energyCapacity: 550,
+      sources: [
+        { id: "A", haulCarry: 4 }, // fully staffed below
+        { id: "B" } // fresh: first miner pending, non-blocking
+      ],
+      upgrader: true,
+      creeps: [
+        { corpId: "mining-A", workType: "harvest", work: 5 },
+        { corpId: "hauling-A", workType: "haul", carry: 5 }
+      ]
+    });
+
+    expect(decision.role).to.equal("upgrader");
+    expect(decision.buyerCorpId).to.equal("upgrading-W1N1");
+  });
+
+  it("holds the spawn rather than spawning a 1-WORK miner runt at a drained spawn", () => {
+    // Cold start with the spawn drained to 200: a 1-WORK miner (150) is
+    // affordable right now, but a 1-WORK miner harvests just 2/tick against a
+    // ~10/tick source - a runt that occupies the source's spot for its whole
+    // life. The first miner is floored at 2 WORK (250), which is not affordable
+    // yet; since it is blocking and income is flowing, the director must HOLD the
+    // spawn to accumulate energy for the real miner, not spend it on the runt.
+    const decision = decideNextSpawn({
+      energyAvailable: 200,
+      energyCapacity: 550,
+      energyIncome: 10,
+      sources: [{ id: "A" }]
+    });
+
+    expect(decision.role).to.equal(null); // spawn nothing this tick - wait for the floored miner
+  });
 });
