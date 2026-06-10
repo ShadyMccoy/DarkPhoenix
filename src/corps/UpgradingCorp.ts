@@ -311,6 +311,20 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
+   * True if the room already has a real flow hauler in the field (corpId
+   * "hauling-..."), i.e. the mining->spawn delivery loop is closed. Bootstrap
+   * jacks (which also move energy) are deliberately excluded - see the
+   * supply-before-demand gate in getSpawnDemand.
+   */
+  private roomHasHauler(room: Room): boolean {
+    for (const creep of room.find(FIND_MY_CREEPS)) {
+      const memory = creep.memory;
+      if (memory.workType === "haul" && memory.corpId?.startsWith("hauling-")) return true;
+    }
+    return false;
+  }
+
+  /**
    * Declare this corp's spawn demand for the scheduler.
    *
    * The upgrader is what drives RCL progress, so its demand is blocking when no
@@ -364,6 +378,20 @@ export class UpgradingCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const controller = spawn?.room.controller;
     const strategy: UpgraderStrategy = controller ? this.getUpgraderStrategy(controller) : "mobile";
+
+    // SUPPLY BEFORE DEMAND: don't fund flow upgraders until the room's delivery
+    // loop exists (a real hauler in the field). At cold start the first miner
+    // spawns and then travels to its source; while it is not yet mining,
+    // withMinerPrecedence holds that source's haulers back, leaving the blocking
+    // first upgrader (and its non-blocking siblings) as the top *eligible* demand.
+    // They then drain the spawn's starting energy before the hauler is ever
+    // eligible, and the room freezes: the spawn empties with no hauler to refill
+    // it and no way to afford one (the cold-start delivery deadlock). Gating
+    // upgraders on an established hauler reserves that energy for the hauler that
+    // closes the supply loop; the controller is kept alive meanwhile by the
+    // bootstrap corp's anti-downgrade upgrading. Bootstrap jacks do NOT count -
+    // we want their deliveries to fund the first hauler, not be spent upgrading.
+    if (spawn && !this.roomHasHauler(spawn.room)) return [];
 
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an
