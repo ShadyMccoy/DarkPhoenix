@@ -91,13 +91,27 @@ target is ONE planner (the GOAP `CorpPlanner`) whose operators are corps.
 
 | System | File(s) | Status | Disposition |
 |--------|---------|--------|-------------|
-| **FlowSolver** | `flow/FlowSolver.ts` | LIVE — drives materialisation | Absorbed by `CorpPlanner` |
-| **EconomyPlanner** | `flow/EconomyPlanner.ts`, `flow/EconomyAdapter.ts` | SHADOW — value-routes, applied only as a hauling-cap overlay | Absorbed by `CorpPlanner`; overlay deleted |
+| **CorpPlanner** | `economy/CorpPlanner.ts`, `economy/flowAdapter.ts` | ✅ LIVE — the single economy authority | — |
+| **FlowSolver** | `flow/FlowSolver.ts` | ⬇️ no longer live (CorpPlanner replaced it) | Retained for `printSolutionSummary` + its math test; delete once relocated |
+| **EconomyPlanner / EconomyAdapter** | `flow/EconomyPlanner.ts`, `flow/EconomyAdapter.ts` | ✅ DELETED | Absorbed by `CorpPlanner`; overlay removed from `main.ts` |
+| **Duplicate formulas** | 9 files (see analysis) | partially collapsed | `economy/primitives.ts` is the canonical home; CorpPlanner uses it. Remaining live call-sites (CarryCorp/ConstructionCorp/BodyBuilder) still to migrate |
+| **Four "value" models** | mintValue / net-energy / effectiveNet / sink.value | ✅ one model | `DEFAULT_SINK_VALUE` in the planner (spawn 100 / construction 70 / controller 50) |
 | **ChainPlanner / Chain / projections / OfferCollector** | `planning/*`, `corps/CorpState.ts` | VESTIGIAL — not driving spawns; market-era artifact | Out of scope now; isolate, then retire |
 | **EdgeVariant variant search** | `framework/EdgeVariant.ts` (`generateEdgeVariants`/`selectBestVariant`), `FlowSolver` terrain branch | DEAD — `edge.terrain` never populated | Remove functions + branch; keep `HaulerRatio`/`MiningMode` types (used by body building) |
 | **FlowEdge (framework)** | `framework/FlowEdge.ts` | DEAD — imported only by EdgeVariant + its test | Remove |
-| **Duplicate formulas** | 9 files (see analysis) | Divergence risk | Replaced by `economy/primitives.ts` |
-| **Four "value" models** | mintValue / net-energy / effectiveNet / sink.value | Inconsistent ranking | One sink-value model in the planner |
+
+### Progress (this pass)
+
+Done: ontology + canonical `economy/primitives.ts` (15 tests); GOAP `CorpPlanner`
+(11 tests, 1→N); `flowAdapter` drop-in (3 tests); **swapped live** in
+`FlowEconomy.solve`; shadow `EconomyPlanner`/`EconomyAdapter` **deleted** (~600
+LOC); profitability test migrated to the live planner. Validated by the fast
+fixture harness (singleSource / twoSourceRcl3 / threeChamberRcl2 all mine their
+sources). 441 unit tests pass.
+
+Next: migrate the remaining duplicate-formula call-sites to `primitives`; delete
+the dead `framework/FlowEdge.ts` + `EdgeVariant` functions (relocating the live
+`HaulerRatio`/`MiningMode` types); then retire the vestigial chain/market layer.
 
 ### Integration contract
 
