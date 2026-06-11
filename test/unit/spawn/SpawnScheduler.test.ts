@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import {
   scheduleSpawn,
-  effectiveValue,
+  spawnPriority,
   SpawnDemand,
   ScheduleContext,
 } from "../../../src/spawn/SpawnScheduler";
@@ -201,7 +201,7 @@ describe("SpawnScheduler", () => {
         // The heart of "fund one corp fully, then move on": source B is already
         // mining and needs its hauler to get that energy home; source A is a fresh
         // source whose first miner is blocking. Completing B (haulB) must outrank
-        // opening A (boot) - COMPLETION_BOOST > BLOCKING_BOOST - otherwise the spawn
+        // opening A (boot) - started corps outrank fresh ones - otherwise the spawn
         // keeps opening new sources while started ones strand their energy unhauled
         // (haulers parked at sources, the exact failure this guards against).
         const freshBlockingMiner = demand({
@@ -217,27 +217,25 @@ describe("SpawnScheduler", () => {
       });
     });
 
-    describe("anti-starvation aging", () => {
-      it("lets a long-waiting demand overtake a higher-base-value newcomer", () => {
-        const newcomer = demand({ buyerCorpId: "new", value: 100, since: 1000 });
-        const oldcomer = demand({ buyerCorpId: "old", value: 10, since: 0 });
-        // After enough ticks, aging on the old demand exceeds the value gap.
-        const result = scheduleSpawn([newcomer, oldcomer], ctx({ tick: 1000, energyAvailable: 300 }));
-        expect(result?.demand.buyerCorpId).to.equal("old");
-      });
-    });
   });
 
-  describe("effectiveValue()", () => {
-    it("boosts blocking demands above non-blocking ones", () => {
-      const block = demand({ blocking: true, value: 1 });
-      const noblock = demand({ blocking: false, value: 1 });
-      expect(effectiveValue(block, 0)).to.be.greaterThan(effectiveValue(noblock, 0));
+  describe("spawnPriority()", () => {
+    it("ranks any income corp above consumption, even a higher-value consumer", () => {
+      const income = demand({ role: "miner", value: 100, producesIncome: true, groupId: "A" });
+      const consumer = demand({ role: "upgrader", value: 110, blocking: true }); // no groupId
+      expect(spawnPriority(income)).to.be.greaterThan(spawnPriority(consumer));
     });
 
-    it("increases with age", () => {
-      const d = demand({ value: 10, since: 0 });
-      expect(effectiveValue(d, 100)).to.be.greaterThan(effectiveValue(d, 0));
+    it("ranks a started income corp above a fresh one regardless of value", () => {
+      const started = demand({ role: "hauler", value: 90, producesIncome: true, groupId: "A", groupStarted: true });
+      const fresh = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "B", groupStarted: false });
+      expect(spawnPriority(started)).to.be.greaterThan(spawnPriority(fresh));
+    });
+
+    it("nudges the urgent (blocking) demand ahead within a tier", () => {
+      const urgent = demand({ role: "hauler", value: 90, blocking: true, producesIncome: true, groupId: "A", groupStarted: true });
+      const scaling = demand({ role: "miner", value: 90, blocking: false, producesIncome: true, groupId: "A", groupStarted: true });
+      expect(spawnPriority(urgent)).to.be.greaterThan(spawnPriority(scaling));
     });
   });
 });

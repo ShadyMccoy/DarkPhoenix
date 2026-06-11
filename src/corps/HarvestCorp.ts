@@ -367,9 +367,8 @@ export class HarvestCorp extends Corp {
         // must outrank consumption and get staffed, in expected-value order. The
         // old failure - a fresh source's miner outranking the haulers that complete
         // an already-started source, so the spawn fields miner after miner while
-        // energy strands unhauled - is prevented by COMPLETION_BOOST > BLOCKING_BOOST
-        // (a started unit's remaining staffing outranks opening a fresh one), not by
-        // withholding the block here.
+        // energy strands unhauled - is prevented by spawnPriority's tiers (a started
+        // income corp outranks opening a fresh one), not by withholding the block here.
         blocking: current === 0,
         producesIncome: true,
         desiredCost: desired.cost,
