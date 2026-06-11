@@ -64,8 +64,6 @@ import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from 
 import {
   PLANNING_INTERVAL,
   initCorps,
-  loadChains,
-  loadContracts,
   runSurveyPhase,
   setLastPlanningTick,
   setLastSurveyTick,
@@ -634,7 +632,6 @@ function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
 
   console.log(`[Colony] Tick ${Game.time}`);
   console.log(`  Nodes: ${stats.nodeCount}, Corps: ${stats.totalCorps} (${stats.activeCorps} active)`);
-  console.log(`  Chains: ${stats.activeChains}`);
 
   logCorpStats(activeCorps);
 }
@@ -755,19 +752,11 @@ global.plan = () => {
  * - Corp counts by type
  */
 global.status = () => {
-  const chains = loadChains();
-  const contracts = loadContracts();
-  const activeContracts = contracts.filter(c => Game.time < c.startTick + c.duration && c.delivered < c.quantity);
-
   console.log("\n=== Orchestration Status ===");
   console.log(`Current tick: ${Game.time}`);
   console.log(`Last survey: ${Memory.lastSurveyTick ?? "never"}`);
   console.log(`Last planning: ${Memory.lastPlanningTick ?? "never"}`);
   console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
-
-  console.log("\n=== Chains & Contracts ===");
-  console.log(`Active chains: ${chains.length}`);
-  console.log(`Active contracts: ${activeContracts.length} / ${contracts.length} total`);
 
   console.log("\n=== Corps ===");
   console.log(`Mining: ${Object.keys(corps.harvestCorps).length}`);

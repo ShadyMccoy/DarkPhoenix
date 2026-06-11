@@ -28,7 +28,6 @@ import {
   createSpawningCorp,
   createUpgradingCorp
 } from "../corps";
-import { Chain, deserializeChain } from "../planning/Chain";
 import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
 
@@ -209,24 +208,9 @@ export function initCorps(corps: CorpRegistry): InitResult {
 // =============================================================================
 
 /**
- * Simplified contract for chain planning.
- */
-export interface SimpleContract {
-  id: string;
-  startTick: number;
-  duration: number;
-  delivered: number;
-  quantity: number;
-}
-
-/**
  * Result of the planning phase.
  */
 export interface PlanningResult {
-  /** Chains that were planned */
-  chains: Chain[];
-  /** Contracts derived from chains */
-  contracts: SimpleContract[];
   /** Tick when planning was performed */
   planningTick: number;
 }
@@ -263,30 +247,8 @@ export function runPlanningPhase(corps: CorpRegistry, colony: Colony, tick: numb
   console.log(`[Planning] Planning phase complete`);
 
   return {
-    chains: [],
-    contracts: [],
     planningTick: tick
   };
-}
-
-/**
- * Load chains from Memory.
- */
-export function loadChains(): Chain[] {
-  if (!Memory.chains) return [];
-
-  const chains: Chain[] = [];
-  for (const chainId in Memory.chains) {
-    chains.push(deserializeChain(Memory.chains[chainId]));
-  }
-  return chains;
-}
-
-/**
- * Load contracts from Memory.
- */
-export function loadContracts(): SimpleContract[] {
-  return [];
 }
 
 // =============================================================================
@@ -465,8 +427,6 @@ export function setLastSurveyTick(tick: number): void {
 export function getOrchestrationStatus(): {
   lastSurveyTick: number;
   lastPlanningTick: number;
-  activeChains: number;
-  activeContracts: number;
   corpCounts: {
     mining: number;
     hauling: number;
@@ -477,13 +437,9 @@ export function getOrchestrationStatus(): {
     construction: number;
   };
 } {
-  const chains = loadChains();
-
   return {
     lastSurveyTick: getLastSurveyTick(),
     lastPlanningTick: getLastPlanningTick(),
-    activeChains: chains.length,
-    activeContracts: 0,
     corpCounts: {
       mining: 0,
       hauling: 0,

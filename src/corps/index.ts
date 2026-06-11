@@ -2,7 +2,6 @@
  * @fileoverview Corps module exports.
  *
  * Corps are the execution units that actually control creeps in the game.
- * For planning/simulation models (used in ChainPlanner), see src/planning/models/.
  *
  * @module corps
  */
@@ -33,25 +32,3 @@ export {
   SpawnableCreepType,
   createSpawningCorp
 } from "./SpawningCorp";
-
-// Corp state types for pure projection functions
-export {
-  SourceCorpState,
-  MiningCorpState,
-  SpawningCorpState,
-  UpgradingCorpState,
-  HaulingCorpState,
-  BuildingCorpState,
-  BootstrapCorpState,
-  ScoutCorpState,
-  AnyCorpState,
-  createSourceState,
-  createMiningState,
-  createSpawningState,
-  createUpgradingState,
-  createHaulingState,
-  getCorpPosition
-} from "./CorpState";
-
-// Registry for dependency resolution
-export { CorpStateRegistry, createCorpStateRegistry } from "./CorpStateRegistry";

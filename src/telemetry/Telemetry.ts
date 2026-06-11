@@ -10,7 +10,6 @@
  * - Segment 2: Edge data (spatial and economic edges with flow rates)
  * - Segment 3: Room intel data (scouted room information)
  * - Segment 4: Corps data (mining, hauling, upgrading corps)
- * - Segment 5: Active chains data
  * - Segment 6: Flow economy (sources, sinks, allocations)
  *
  * ## Data Flow
@@ -19,7 +18,6 @@
  * @module telemetry/Telemetry
  */
 
-import { SerializedChain, deserializeChain } from "../planning/Chain";
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
 import { FlowSolution } from "../flow/FlowTypes";
@@ -47,7 +45,6 @@ export const TELEMETRY_SEGMENTS = {
   EDGES: 2, // Spatial and economic edges with flow rates
   INTEL: 3, // Room intel from scouting
   CORPS: 4, // Corps details
-  CHAINS: 5, // Active chains
   FLOW: 6 // Flow economy: sources, sinks, allocations
 };
 
@@ -84,7 +81,6 @@ export interface CoreTelemetry {
     nodeCount: number;
     totalCorps: number;
     activeCorps: number;
-    activeChains: number;
     averageROI: number;
   };
   /** Creep counts by type */
@@ -226,36 +222,6 @@ export interface CorpsTelemetry {
 }
 
 /**
- * Chains telemetry data structure (Segment 5).
- */
-export interface ChainsTelemetry {
-  version: number;
-  tick: number;
-  chains: {
-    id: string;
-    funded: boolean;
-    age: number;
-    leafCost: number;
-    totalCost: number;
-    mintValue: number;
-    profit: number;
-    segments: {
-      corpType: string;
-      resource: string;
-      inputCost: number;
-      margin: number;
-      outputPrice: number;
-    }[];
-  }[];
-  summary: {
-    totalChains: number;
-    fundedChains: number;
-    totalProfit: number;
-    avgChainAge: number;
-  };
-}
-
-/**
  * Flow telemetry data structure (Segment 6).
  * Shows flow economy state: sources, sinks, and energy flow.
  */
@@ -379,9 +345,6 @@ export class Telemetry {
     // Update corps telemetry
     this.updateCorpsTelemetry(harvestCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
 
-    // Update chains telemetry (reads from Memory.chains)
-    this.updateChainsTelemetry();
-
     // Update flow telemetry (sources, sinks, allocations)
     this.updateFlowTelemetry(flowSolution);
   }
@@ -430,7 +393,6 @@ export class Telemetry {
       nodeCount: 0,
       totalCorps: 0,
       activeCorps: 0,
-      activeChains: 0,
       averageROI: 0
     };
 
@@ -469,7 +431,6 @@ export class Telemetry {
         nodeCount: stats.nodeCount,
         totalCorps: stats.totalCorps,
         activeCorps: stats.activeCorps,
-        activeChains: stats.activeChains,
         averageROI: stats.averageROI
       },
       creeps: {
@@ -808,54 +769,6 @@ export class Telemetry {
     };
 
     RawMemory.segments[TELEMETRY_SEGMENTS.CORPS] = JSON.stringify(telemetry);
-  }
-
-  /**
-   * Updates chains telemetry (Segment 5).
-   * Reads from Memory.chains (latest planned chains from ChainPlanner).
-   */
-  private updateChainsTelemetry(): void {
-    // Load chains from Memory (populated by ChainPlanner during planning phase)
-    const memoryChains = Memory.chains || {};
-    const plannedChains = Object.values(memoryChains).map((data: SerializedChain) => deserializeChain(data));
-
-    const chains: ChainsTelemetry["chains"] = plannedChains.map(chain => ({
-      id: chain.id,
-      funded: chain.funded,
-      age: chain.age,
-      leafCost: chain.leafCost,
-      totalCost: chain.totalCost,
-      mintValue: chain.mintValue,
-      profit: chain.profit,
-      segments: chain.segments.map(seg => ({
-        corpType: seg.corpType,
-        resource: seg.resource,
-        inputCost: seg.inputCost,
-        margin: seg.margin,
-        outputPrice: seg.outputPrice
-      }))
-    }));
-
-    // Sort by profit (highest first)
-    chains.sort((a, b) => b.profit - a.profit);
-
-    const fundedChains = chains.filter(c => c.funded).length;
-    const totalProfit = chains.reduce((sum, c) => sum + c.profit, 0);
-    const avgChainAge = chains.length > 0 ? chains.reduce((sum, c) => sum + c.age, 0) / chains.length : 0;
-
-    const telemetry: ChainsTelemetry = {
-      version: 1,
-      tick: Game.time,
-      chains,
-      summary: {
-        totalChains: chains.length,
-        fundedChains,
-        totalProfit,
-        avgChainAge
-      }
-    };
-
-    RawMemory.segments[TELEMETRY_SEGMENTS.CHAINS] = JSON.stringify(telemetry);
   }
 
   /**
