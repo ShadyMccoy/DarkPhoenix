@@ -62,28 +62,28 @@ describe("next spawn decision (key moments)", () => {
     expect(decision.buyerCorpId).to.equal("mining-A");
   });
 
-  it("fund one corp fully: completes a started source's haulers before opening a fresh source", () => {
-    // Source A is already underway (a miner + one hauler in the field) and wants
-    // a second hauler; source B is fresh and wants its (non-blocking, since the
-    // colony already mines A) first miner. Neither demand is blocking and B's
-    // miner has the higher BASE value - but the completion boost must carry A's
-    // hauler so the colony finishes hauling A's energy home before opening B,
-    // instead of stranding A's energy to start a source it won't finish.
+  it("breadth-first: opens a fresh source's first miner before a started source's SECOND hauler", () => {
+    // Source A is already underway (miner + one hauler) and its energy is being
+    // hauled, so its pending demand is a SCALING second hauler. Source B has never
+    // been mined - its first miner is the critical path of a whole second source.
+    // Opening B (its first miner) beats topping up A, so every source gets producing
+    // before any is fully fleshed out. (The old "fund A fully first" let A's endless
+    // scaling demand monopolise the spawn so B never got a miner.)
     const decision = decideNextSpawn({
       energyAvailable: 550,
       energyCapacity: 550,
       sources: [
-        { id: "A", haulCarry: 8 }, // wants 2 haulers; one already exists
-        { id: "B" } // fresh source, first miner pending
+        { id: "A", haulCarry: 8 }, // wants 2 haulers; one already exists (scaling)
+        { id: "B" } // fresh source, first miner pending (critical path)
       ],
       creeps: [
         { corpId: "mining-A", workType: "harvest", work: 5 }, // A's miner: A is "started"
-        { corpId: "hauling-A", workType: "haul", carry: 5 } // A's first hauler
+        { corpId: "hauling-A", workType: "haul", carry: 5 } // A's first hauler already hauling
       ]
     });
 
-    expect(decision.role).to.equal("hauler");
-    expect(decision.buyerCorpId).to.equal("hauling-A");
+    expect(decision.role).to.equal("miner");
+    expect(decision.buyerCorpId).to.equal("mining-B");
   });
 
   it("opens the next source once the started one is fully staffed", () => {
