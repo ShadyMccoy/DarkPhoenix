@@ -72,7 +72,6 @@ import {
   shouldRunPlanning
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
-import { applyPlanToCorps } from "./flow/EconomyAdapter";
 import { getTelemetry } from "./telemetry";
 
 // =============================================================================
@@ -335,13 +334,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
     console.log(`[Planning] Complete`);
   }
 
-  // Let the strategic plan drive the corps (currently: hauling capacity) before
-  // they declare demand. With the anti-downgrade reserve in the value model the
-  // controller keeps a trickle even during a build, so this no longer freezes it.
-  if (flowEconomy) {
-    const plan = flowEconomy.getPlan();
-    if (plan) applyPlanToCorps(plan, corps);
-  }
+  // (The shadow EconomyPlanner overlay that used to re-size haulers here is
+  // retired: CorpPlanner sizes each hauler to its full routed flow during the
+  // solve, so the materialised assignments are already complete.)
 
   // Demand-driven spawn scheduling. Each corp declares what it wants via
   // getSpawnDemand(); the scheduler picks the single best creep to spawn per

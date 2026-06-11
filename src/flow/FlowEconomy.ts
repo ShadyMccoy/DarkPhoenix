@@ -31,7 +31,6 @@ import {
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { FlowSolver, printSolutionSummary } from "./FlowSolver";
 import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
-import { EconomyPlan } from "./EconomyPlanner";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
 import { solveWithCorpPlanner } from "../economy/flowAdapter";
@@ -62,8 +61,6 @@ export class FlowEconomy {
   /** Current solution (null if not yet solved) */
   private solution: FlowSolution | null;
 
-  /** Strategic plan from the new EconomyPlanner (computed alongside during migration). */
-  private plan: EconomyPlan | null = null;
 
   /** Current priority context */
   private context: PriorityContext | null;
@@ -150,15 +147,6 @@ export class FlowEconomy {
     // build-budget) and value routing (feed the spawn, then the controller) that
     // FlowSolver and the shadow EconomyPlanner used to do separately.
     this.solution = solveWithCorpPlanner(this.graph, this.context.tick);
-
-    // The shadow EconomyPlanner overlay is retired: CorpPlanner already sizes
-    // haulers to the full routed flow, so there is nothing left to override.
-    this.plan = null;
-  }
-
-  /** Get the strategic plan (new economy layer), if computed. */
-  public getPlan(): EconomyPlan | null {
-    return this.plan;
   }
 
   /**
