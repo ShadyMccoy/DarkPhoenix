@@ -81,9 +81,52 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     const sources = node.resources.filter((r) => r.type === "source");
     expect(sources, "remote source should be claimed from intel").to.have.length(1);
     expect(sources[0].position.roomName).to.equal("W1N0");
-    // Unowned room: a source there regenerates only 1500 (not 3000) - the
-    // economics the planner already prices in.
+    // No controller in this intel (controllerPos null), so it can't be reserved -
+    // the source regenerates only the unreserved 1500.
     expect(sources[0].capacity).to.equal(1500);
+  });
+
+  it("values a reservable scouted room's source as RESERVED (3000) once a reserver is affordable", () => {
+    // Home is RCL3 (800 >= the 650 reserver body) and the remote room has a
+    // controller we could reserve (unowned, unreserved), so the planner values its
+    // source at the reserved 3000 - the rate it becomes once the ReservationCorp
+    // holds it. Without this the remote looks like 5 e/tick and may never be opened.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.spawns = { Spawn1: { owner: { username: "me" }, room: { energyCapacityAvailable: 800 } } };
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" }, { x: 24, y: 25, roomName: "W1N0" }, { x: 26, y: 25, roomName: "W1N0" }
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const intel = intelWithSource(100, 25, 25) as any;
+    intel.controllerPos = { x: 10, y: 10 }; // a controller we could reserve
+    Memory.roomIntel!["W1N0"] = intel as never;
+
+    refreshNodeResources(colony, result);
+    expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(3000);
+  });
+
+  it("stays unreserved (1500) when a reserver is unaffordable (below RCL3)", () => {
+    // Same reservable room, but home is RCL1 (300 < 650) - it cannot build a
+    // reserver, so the source is valued at the unreserved 1500. No RCL gate: the
+    // affordability floor produces the cutoff.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.spawns = { Spawn1: { owner: { username: "me" }, room: { energyCapacityAvailable: 300 } } };
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" }, { x: 24, y: 25, roomName: "W1N0" }, { x: 26, y: 25, roomName: "W1N0" }
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const intel = intelWithSource(100, 25, 25) as any;
+    intel.controllerPos = { x: 10, y: 10 };
+    Memory.roomIntel!["W1N0"] = intel as never;
+
+    refreshNodeResources(colony, result);
+    expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(1500);
   });
 
   it("does not claim a source outside the node's territory", () => {
