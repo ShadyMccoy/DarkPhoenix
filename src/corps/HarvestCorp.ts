@@ -19,6 +19,30 @@ import { sourceHarvestSpot } from "./nodeEnergy";
 import { travelTo } from "./movement";
 
 /**
+ * How a miner should move this tick.
+ * - "spot":   go to the single static harvest tile (range 0) - drops land in the
+ *             source container.
+ * - "spread": go to ANY free tile adjacent to the source (range 1) - for extra
+ *             miners when the static tile is taken.
+ * - "stay":   already in position; just harvest.
+ */
+export type MinerApproach = "spot" | "spread" | "stay";
+
+/**
+ * Decide a miner's move. A poor room splits a source across several small miners
+ * (see getSpawnDemand), but static mining points them ALL at one tile
+ * (sourceHarvestSpot, range 0). If every extra miner insists on that one tile they
+ * pile onto the single (occupied) tile, get blocked two tiles out, and never
+ * harvest - the "miners standing around a source" bug. So only ONE miner claims the
+ * static spot; the rest spread to the source's other adjacent tiles. Pure.
+ */
+export function minerApproach(onSpot: boolean, adjacentToSource: boolean, spotHeldByOther: boolean): MinerApproach {
+  if (onSpot) return "stay";
+  if (spotHeldByOther) return adjacentToSource ? "stay" : "spread";
+  return "spot";
+}
+
+/**
  * Serialized state specific to HarvestCorp
  */
 export interface SerializedHarvestCorp extends SerializedCorp {
@@ -252,8 +276,13 @@ export class HarvestCorp extends Corp {
     // transient second miner can't claim the exact tile.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const spot = sourceHarvestSpot(source, spawn?.pos);
-    if (!creep.pos.isEqualTo(spot)) {
+    const spotHeldByOther = spot.lookFor(LOOK_CREEPS).some(c => c.name !== creep.name);
+    const approach = minerApproach(creep.pos.isEqualTo(spot), creep.pos.isNearTo(source), spotHeldByOther);
+    if (approach === "spot") {
       travelTo(creep, spot, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
+    } else if (approach === "spread") {
+      // The static tile is taken; harvest from any other tile adjacent to the source.
+      travelTo(creep, source, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
     const result = creep.harvest(source);
