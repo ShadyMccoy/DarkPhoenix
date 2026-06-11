@@ -24,6 +24,12 @@ export interface EnergySpot {
   /** If set, transfer-to / withdraw-from this; if absent, drop / pick up at pos. */
   structure?: StoreStructure;
   /**
+   * Collect-only withdraw target for scavenging: a tombstone or ruin holding
+   * energy. Distinct from `structure` because you can withdraw from these but never
+   * deposit into them.
+   */
+  withdrawFrom?: Tombstone | Ruin;
+  /**
    * True when `pos` is a stand-clear point, not an energy target yet - a bare
    * source with no drop pile. The hauler should wait NEAR it (not on it) so it
    * doesn't block the miner's harvest tile, and approach the actual pile once the
@@ -51,6 +57,31 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
 
   // No pile yet: stand clear of the source so we don't block the miner's tile.
   return { pos: sourcePos, waitClear: true };
+}
+
+/**
+ * Where a scavenger collects a ground stock: a tombstone or ruin holding energy
+ * (withdraw), else a dropped pile (pick up), at or beside `pos`. Returns null when
+ * the stock is gone - the scavenger has drained it and can stand down. Position-
+ * based so it serves the stock by where it was detected.
+ */
+export function scavengeSpot(pos: RoomPosition): EnergySpot | null {
+  const tomb = pos
+    .findInRange(FIND_TOMBSTONES, 1, { filter: t => t.store[RESOURCE_ENERGY] > 0 })
+    .sort((a, b) => b.store[RESOURCE_ENERGY] - a.store[RESOURCE_ENERGY])[0];
+  if (tomb) return { pos: tomb.pos, withdrawFrom: tomb };
+
+  const ruin = pos
+    .findInRange(FIND_RUINS, 1, { filter: r => r.store[RESOURCE_ENERGY] > 0 })
+    .sort((a, b) => b.store[RESOURCE_ENERGY] - a.store[RESOURCE_ENERGY])[0];
+  if (ruin) return { pos: ruin.pos, withdrawFrom: ruin };
+
+  const pile = pos
+    .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
+    .sort((a, b) => b.amount - a.amount)[0];
+  if (pile) return { pos: pile.pos };
+
+  return null;
 }
 
 /**
@@ -93,6 +124,8 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
   if (mode === "collect") {
     if (spot.structure) {
       creep.withdraw(spot.structure, RESOURCE_ENERGY);
+    } else if (spot.withdrawFrom) {
+      creep.withdraw(spot.withdrawFrom, RESOURCE_ENERGY); // scavenge a tombstone / ruin
     } else {
       const pile = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
         filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
