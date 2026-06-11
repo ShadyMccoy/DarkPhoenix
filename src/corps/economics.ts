@@ -111,3 +111,55 @@ export function travelTicksPerTile(energyCapacity: number): number {
   const t = Math.max(0, Math.min(1, (energyCapacity - 300) / (1300 - 300)));
   return EARLY - (EARLY - LATE) * t;
 }
+
+// ---------------------------------------------------------------------------
+// Reserving a remote room
+// ---------------------------------------------------------------------------
+
+/**
+ * Lifetime of a creep carrying a CLAIM part (CREEP_CLAIM_LIFE_TIME). Reservers
+ * live only 600 ticks, not 1500 - a big part of why the reserver toll is steep.
+ */
+export const CLAIM_LIFETIME = 600;
+
+/**
+ * Reserver duty cycle. A reservation accumulates (to 5000) and decays 1/tick, so a
+ * reserver need not be present continuously - let it build up, let it tick down,
+ * then top up. ~50% duty roughly halves the amortized cost.
+ */
+export const RESERVER_DUTY = 0.5;
+
+/** Energy cost of the smallest reserver that can hold a room: 1 CLAIM + 1 MOVE. */
+export const RESERVER_BODY_COST = 650;
+
+/**
+ * Energy-equivalent cost per tick of keeping ONE remote room reserved from a spawn
+ * `distance` tiles away - the reserver's body upkeep plus its spawn build-time
+ * priced in energy, amortized over its short (CLAIM) life and its duty cycle.
+ * Returns Infinity when the room cannot even afford a reserver body (energyCapacity
+ * < 650, i.e. below RCL 3) - so reserving simply never wins there, with no RCL gate.
+ *
+ * This is a per-ROOM cost: one reserver covers all of a room's sources, so callers
+ * weigh it against the whole room's reserved gain (see {@link reserveRoomWorthIt}).
+ */
+export function reserverTollPerRoom(energyCapacity: number, distance: number): number {
+  if (energyCapacity < RESERVER_BODY_COST) return Infinity; // can't build a reserver yet
+  const RESERVER_PARTS = 2; // CLAIM + MOVE
+  const life = Math.max(1, CLAIM_LIFETIME - distance); // walks out, then reserves
+  const energyOH = RESERVER_BODY_COST / life;
+  const partOH = (RESERVER_PARTS / life) * SPAWN_PART_ENERGY_VALUE;
+  return RESERVER_DUTY * (energyOH + partOH);
+}
+
+/**
+ * Is reserving a remote room worth it? Reserving lifts each of the room's `sources`
+ * from the unreserved 5 e/tick to the reserved 10 (+5 each); that whole-room gain is
+ * weighed against the single per-room reserver toll. So two sources justify
+ * reserving (and reaching farther) where one might not, and a room too far - or a
+ * spawn too small to build a reserver - simply loses. The miner/hauler costs are
+ * the same either way, so they cancel and only the +5/source vs the toll matter.
+ */
+export function reserveRoomWorthIt(energyCapacity: number, distance: number, sources: number): boolean {
+  return sources * 5 > reserverTollPerRoom(energyCapacity, distance);
+}
+
