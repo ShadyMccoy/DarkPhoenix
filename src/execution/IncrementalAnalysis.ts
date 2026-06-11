@@ -19,6 +19,7 @@ import {
 } from "../spatial";
 import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
 import { ChainSource } from "../corps/ChainEvaluator";
+import { RESERVER_BODY_COST } from "../corps/economics";
 import { ColonyNode, marginalNodeValue } from "../planning/ColonyEconomy";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms } from "../utils";
@@ -630,8 +631,23 @@ function populateNodeResources(
         const isOwnedRoom = myUsername && intel.controllerOwner === myUsername;
         const isReservedByUs = myUsername && intel.controllerReservation === myUsername;
 
-        // Source capacity: 3000 for owned/reserved rooms, 1500 for unclaimed.
-        const sourceCapacity = isOwnedRoom || isReservedByUs ? 3000 : 1500;
+        // A controllered, unowned room we COULD reserve will be lifted to 3000 by
+        // the ReservationCorp once we mine it - so value its sources as reserved
+        // *now*, provided we can afford a reserver (capacity >= 650, i.e. RCL3+).
+        // Without this the planner sees only the unreserved 1500 (5 e/tick) and may
+        // never open a remote that is only worthwhile reserved - the reserved-mining
+        // op should rank like the 3000 it becomes. Over-commitment and too-far rooms
+        // are held back downstream by the source's own net-energy gate and the
+        // dynamic spawn-time budget, so no distance check is needed here.
+        const homeCapacity = Object.values(Game.spawns)[0]?.room?.energyCapacityAvailable ?? 300;
+        const couldReserve =
+          !!intel.controllerPos &&
+          !intel.controllerOwner &&
+          (!intel.controllerReservation || intel.controllerReservation === myUsername) &&
+          homeCapacity >= RESERVER_BODY_COST;
+
+        // Source capacity: 3000 for owned/reserved/reservable rooms, 1500 otherwise.
+        const sourceCapacity = isOwnedRoom || isReservedByUs || couldReserve ? 3000 : 1500;
 
         // Add sources from intel within territory
         for (const sourcePos of intel.sourcePositions || []) {
