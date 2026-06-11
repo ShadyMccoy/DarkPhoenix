@@ -43,7 +43,6 @@ export interface GroundStock {
 
 /** A raw energy find before thresholding - the testable input to collectStocks. */
 export interface EnergyFind {
-  id: string;
   pos: Position;
   energy: number;
 }
@@ -59,13 +58,22 @@ export function scavengeRate(amount: number): number {
 }
 
 /**
+ * Stable, position-encoded id for a stock: "scavenge-ROOM-X-Y". Mirrors the
+ * "intel-ROOM-X-Y" source id so the CarryCorp can parse the pickup position from
+ * the id alone, with no live game object to look up.
+ */
+export function stockId(pos: Position): string {
+  return `scavenge-${pos.roomName}-${pos.x}-${pos.y}`;
+}
+
+/**
  * Filter raw finds to stocks worth a dedicated scavenger (>= threshold) and tag
- * them with a stable scavenge id. Pure.
+ * each with its position-encoded id. Pure.
  */
 export function collectStocks(finds: EnergyFind[], threshold = SCAVENGE_THRESHOLD): GroundStock[] {
   return finds
     .filter(f => f.energy >= threshold)
-    .map(f => ({ id: `scavenge-${f.id}`, pos: f.pos, amount: f.energy }));
+    .map(f => ({ id: stockId(f.pos), pos: f.pos, amount: f.energy }));
 }
 
 /** Turn a detected stock into a transient PlannerSource (no miner; bounded drain rate). */
@@ -90,16 +98,16 @@ export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): Gr
 
   for (const r of room.find(FIND_DROPPED_RESOURCES)) {
     if (r.resourceType === RESOURCE_ENERGY && r.amount > 0) {
-      finds.push({ id: r.id, pos: r.pos, energy: r.amount });
+      finds.push({ pos: r.pos, energy: r.amount });
     }
   }
   for (const t of room.find(FIND_TOMBSTONES)) {
     const energy = t.store[RESOURCE_ENERGY];
-    if (energy > 0) finds.push({ id: t.id, pos: t.pos, energy });
+    if (energy > 0) finds.push({ pos: t.pos, energy });
   }
   for (const ruin of room.find(FIND_RUINS)) {
     const energy = ruin.store[RESOURCE_ENERGY];
-    if (energy > 0) finds.push({ id: ruin.id, pos: ruin.pos, energy });
+    if (energy > 0) finds.push({ pos: ruin.pos, energy });
   }
 
   return collectStocks(finds, threshold);

@@ -153,7 +153,9 @@ export function groupHaulersByMinedSource(
   const orphaned = new Set<string>();
   for (const hauler of haulers) {
     const src = hauler.fromId.replace("source-", "");
-    if (!hasMiner(src)) {
+    // A scavenger serves a transient ground stock, which intentionally has no
+    // miner (the energy is already harvested) - so it is never orphaned.
+    if (!src.startsWith("scavenge-") && !hasMiner(src)) {
       orphaned.add(src);
       continue;
     }

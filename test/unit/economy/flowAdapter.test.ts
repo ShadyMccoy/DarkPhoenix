@@ -4,6 +4,7 @@ import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
+import { PlannerSource } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";
 
 const ROOM = "W0N0";
@@ -75,6 +76,27 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     const mined = sol.miners.map(m => m.sourceId);
     expect(mined).to.include("source-s_near");
     expect(mined).to.not.include("source-s_far");
+  });
+
+  it("fields a scavenger (hauler, no miner) for an injected ground stock", () => {
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    // a 1500-energy stock at x=30 (distance 25 from the spawn), as a transient source
+    const stock: PlannerSource = {
+      id: "scavenge-W0N0-30-25",
+      nodeId: "W0N0-scavenge",
+      pos: at(30),
+      rate: 8,
+      maxMiners: 0,
+      transient: true
+    };
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [stock]);
+
+    // the real source is mined; the stock is scavenged with NO miner of its own
+    expect(sol.miners.map(m => m.sourceId)).to.deep.equal(["source-s1"]);
+    const scavHaulers = sol.haulers.filter(h => h.fromId === "scavenge-W0N0-30-25");
+    expect(scavHaulers.length, "a scavenger hauls the stock").to.be.greaterThan(0);
+    // the stock's energy reaches a sink
+    expect(sol.totalHarvest).to.be.closeTo(10 + 8, 1e-9);
   });
 
   it("honors the controller's anti-downgrade reserve under scarce supply", () => {

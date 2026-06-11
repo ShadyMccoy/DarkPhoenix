@@ -10,7 +10,7 @@ import {
 } from "../../../src/economy/scavenge";
 
 const ROOM = "W0N0";
-const find = (id: string, energy: number, x = 10): EnergyFind => ({ id, energy, pos: { x, y: 25, roomName: ROOM } });
+const find = (_id: string, energy: number, x = 10): EnergyFind => ({ energy, pos: { x, y: 25, roomName: ROOM } });
 
 describe("economy/scavenge", () => {
   describe("scavengeRate", () => {
@@ -24,10 +24,10 @@ describe("economy/scavenge", () => {
   });
 
   describe("collectStocks", () => {
-    it("keeps stocks at or above the threshold and tags a stable scavenge id", () => {
-      const stocks = collectStocks([find("aaa", SCAVENGE_THRESHOLD)]);
+    it("keeps stocks at or above the threshold and tags a position-encoded id", () => {
+      const stocks = collectStocks([find("aaa", SCAVENGE_THRESHOLD, 12)]);
       expect(stocks).to.have.length(1);
-      expect(stocks[0].id).to.equal("scavenge-aaa");
+      expect(stocks[0].id).to.equal("scavenge-W0N0-12-25");
       expect(stocks[0].amount).to.equal(SCAVENGE_THRESHOLD);
     });
     it("ignores the trickle below the threshold (left to source-hauler pickup)", () => {

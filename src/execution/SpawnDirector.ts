@@ -107,7 +107,10 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   for (const id in registry.haulingCorps) {
     const c = registry.haulingCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
-    const started = sourceHasMiner(registry, id);
+    // A scavenger's energy is already on the ground (no miner to wait for), so its
+    // income unit is always "started" - otherwise withMinerPrecedence would drop it
+    // for having no miner and the scavenger could never spawn.
+    const started = id.startsWith("scavenge-") || sourceHasMiner(registry, id);
     for (const d of c.getSpawnDemand(ctx)) {
       d.groupId = id;
       d.groupStarted = started;
