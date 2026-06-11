@@ -605,6 +605,14 @@ describe("Economy Scenarios (from minimal-economy)", () => {
       }
     });
 
+    it("mines a lone far source a static price would have skipped (idle spawn reaches far)", () => {
+      // At d=120 the earlier STATIC effectiveNet penalty pushed the score negative
+      // (~75-tile cutoff) and skipped this source even with the spawn idle. With the
+      // dynamic budget it is the only claimant on its spawn, so spare build-time
+      // mines it. Guards against re-introducing a hard/static distance cutoff.
+      expect(solveIteratively(createScenario(120)).miners, "spare build-time reaches far").to.have.length(1);
+    });
+
     it("drops the least build-efficient source only when the spawn is the bottleneck", () => {
       // Three net-energy-positive but far (d=150) sources all funnel to ONE spawn.
       // Each is profitable, so with spare build-time all three would be mined - but

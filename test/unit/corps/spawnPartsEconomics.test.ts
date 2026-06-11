@@ -2,9 +2,10 @@ import { expect } from "chai";
 import "../../../src/types/Memory";
 import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
+import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { ChainScene, effectiveNet, SPAWN_PART_ENERGY_VALUE } from "../../../src/corps/economics";
 import { chebyshevDistance } from "../../../src/types/Position";
-import { HaulerAssignment } from "../../../src/flow/FlowTypes";
+import { HaulerAssignment, SinkAllocation } from "../../../src/flow/FlowTypes";
 
 const SPAWN = { x: 0, y: 0, roomName: "W1N1" };
 function scene(): ChainScene {
@@ -32,6 +33,32 @@ describe("spawn-part economics", () => {
     expect(e.spawnPartsPerTick).to.be.greaterThan(0);
     // A 5W3M miner (8 parts) at d=5 lives ~1500-15 ticks: 8/~1485 ~ 0.0054.
     expect(e.spawnPartsPerTick).to.be.closeTo(0.0054, 0.002);
+  });
+
+  it("a farther MINER draws more spawn parts/tick (shorter TTL -> rebuilt more often)", () => {
+    // Same 8-part body, but a static miner at d=200 lives only ~1300 ticks vs ~1495
+    // at d=5, so it consumes the spawn's build-rate more often. This is the TTL
+    // term the flat model used to miss.
+    const near = new HarvestCorp("v", "v", "src@5").project(scene()).spawnPartsPerTick;
+    const far = new HarvestCorp("v", "v", "src@200").project(scene()).spawnPartsPerTick;
+    expect(far).to.be.greaterThan(near);
+  });
+
+  it("an upgrader reports a spawn-part cost sized to its allocation", () => {
+    const corp = new UpgradingCorp("v", "v");
+    corp.setSinkAllocation({
+      sinkId: "c", sinkType: "controller", allocated: 6, demand: 6, unmet: 0, priority: 65
+    } as SinkAllocation);
+    expect(corp.project(scene()).spawnPartsPerTick).to.be.greaterThan(0);
+  });
+
+  it("a far source's build-time is dominated by the HAULER, not the miner", () => {
+    const d = 200;
+    const miner = new HarvestCorp("v", "v", `src@${d}`).project(scene());
+    const hauler = new CarryCorp("v", "v");
+    hauler.setHaulerAssignments([haulRoute(`src@${d}`, d)]);
+    const haul = hauler.project(scene());
+    expect(haul.spawnPartsPerTick).to.be.greaterThan(miner.spawnPartsPerTick);
   });
 
   it("a farther hauling route draws MORE spawn parts (the part-hungry term)", () => {
