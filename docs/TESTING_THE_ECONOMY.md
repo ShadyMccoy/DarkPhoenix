@@ -53,6 +53,14 @@ every corp — the colony couldn't start; it now runs one room.) There is a late
 robustness question — should the bootstrap survive a many-node world (a mature
 colony re-bootstrapping after a wipe)? — but it does not occur in normal play.
 
+**Run integration tests one file at a time, not as a back-to-back suite.** The
+mockup's storage subprocess does not always clean up between sequential
+`ScreepsServer` instances, so a later test's colony can malfunction (e.g. the
+flow-handoff probe fails *in the full suite* but passes run alone, where the
+hand-off is clearly fine — mining 4/10, hauling 6/10 by tick 500). This is test
+infrastructure flakiness, not a colony bug. If servers pile up, `rm -rf server/`
+and `pkill -f '@screeps/(storage|engine)'` between runs.
+
 ### Two practices that keep these honest
 
 - **Mutation verification.** A guard is only real if it bites. After writing a
