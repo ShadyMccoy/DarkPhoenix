@@ -137,7 +137,14 @@ export function groupByNode(
   // against.
   for (const hauler of solution.haulers) {
     // fromId is the source ID; look up its node
-    const sourceNodeId = sourceNodeMap.get(hauler.fromId);
+    let sourceNodeId = sourceNodeMap.get(hauler.fromId);
+    // A scavenger's source is a transient ground stock, not a graph node. Bucket
+    // all of a room's scavenge haulers under one synthetic node so they stay
+    // together (per-source grouping then gives each stock its own CarryCorp).
+    if (!sourceNodeId && hauler.fromId.startsWith("scavenge-")) {
+      const m = /^scavenge-([EW]\d+[NS]\d+)-/.exec(hauler.fromId);
+      if (m) sourceNodeId = `${m[1]}-scavenge`;
+    }
     if (sourceNodeId) {
       const nodeFlow = getOrCreateNodeFlow(sourceNodeId);
       nodeFlow.haulers.push(hauler);
