@@ -566,11 +566,30 @@ function populateNodeResources(
 
   // Get my username for ownership checks
   const myUsername = Object.values(Game.spawns)[0]?.owner?.username;
+  // Home energy capacity gates whether we can afford a reserver (RCL3+). Hoisted
+  // out of the per-room loop so both the live-vision and intel branches apply the
+  // same reservable-source lift (see couldReserve below).
+  const homeCapacity = Object.values(Game.spawns)[0]?.room?.energyCapacityAvailable ?? 300;
 
   for (const roomName of node.spansRooms) {
     // Try live data first (if we have vision)
     const room = Game.rooms[roomName];
     if (room) {
+      // A controllered, unowned room we COULD reserve regenerates only the
+      // unreserved 1500 *until* the ReservationCorp holds it - but its true worth
+      // is the reserved 3000 it becomes. Lift live source capacity to 3000 just as
+      // the intel branch does, so the valuation does not collapse from 3000 to 1500
+      // the moment a miner gives us vision of the remote (which would make the
+      // planner thrash on a remote that is only worthwhile reserved). Owned/already-
+      // reserved rooms already read 3000 from source.energyCapacity, so this only
+      // lifts the reservable-but-not-yet-reserved gap.
+      const ctrl = room.controller;
+      const couldReserveLive =
+        !!ctrl &&
+        !ctrl.owner &&
+        (!ctrl.reservation || ctrl.reservation.username === myUsername) &&
+        homeCapacity >= RESERVER_BODY_COST;
+
       // Add sources within territory
       for (const source of room.find(FIND_SOURCES)) {
         if (shouldClaimResource(source.pos.x, source.pos.y, roomName)) {
@@ -578,7 +597,7 @@ function populateNodeResources(
             type: "source",
             id: source.id,
             position: { x: source.pos.x, y: source.pos.y, roomName },
-            capacity: source.energyCapacity
+            capacity: couldReserveLive ? Math.max(source.energyCapacity, 3000) : source.energyCapacity
           });
         }
       }
@@ -639,7 +658,6 @@ function populateNodeResources(
         // op should rank like the 3000 it becomes. Over-commitment and too-far rooms
         // are held back downstream by the source's own net-energy gate and the
         // dynamic spawn-time budget, so no distance check is needed here.
-        const homeCapacity = Object.values(Game.spawns)[0]?.room?.energyCapacityAvailable ?? 300;
         const couldReserve =
           !!intel.controllerPos &&
           !intel.controllerOwner &&
