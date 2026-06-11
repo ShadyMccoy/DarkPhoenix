@@ -281,14 +281,22 @@ reach extends. Tune it to the colony, don't hard-code a distance.
 ### 4. Reserving a remote room is a per-ROOM cost
 
 Reserving lifts a remote source from 5 → 10 e/tick, but a reserver is **expensive
-in both currencies**: a `CLAIM+MOVE` body costs 650 energy, CLAIM creeps live only
-~600 ticks, and it must walk to the room — so amortized it is ~`650/(600−d)` e/tick
-*plus* its parts priced in energy, **per room**. That cost is shared across the
-room's sources, so it amortizes over them: a **two-source** room halves the
-per-source reserver cost, which is why two sources justify reserving (and reaching
-farther) where one source may not. Reserve only while `+5/source` gross beats the
-amortized per-source reserver cost — another decision that falls straight out of
-`effectiveNet`.
+in both currencies**: a `CLAIM+MOVE` body costs 650 energy, and CLAIM creeps live
+only **`CREEP_CLAIM_LIFE_TIME` = 600 ticks** (not 1500), so its short life makes it
+cost more than its body suggests. It also walks to the room — amortized ~`650/(600−d)`
+e/tick *plus* its parts priced in energy. Two effects pull that toll back down:
+
+- **Per-room, shared across the room's sources.** A **two-source** room halves the
+  per-source reserver cost, so two sources justify reserving (and reaching farther)
+  where one source may not.
+- **Duty cycle ~50%.** Reservation accumulates (up to 5000) and decays 1/tick, so a
+  reserver is *not* needed continuously — let it build up, let it tick down, then
+  top up. That roughly halves the amortized cost again.
+
+Reserve only while `+5/source` gross beats the (duty-cycled, per-source) reserver
+toll — another decision that falls straight out of `effectiveNet`. With both
+effects, the toll is ~0.8–1.2 e/tick per room and reserving wins out to ~50 tiles
+for one source, ~75 for two.
 
 ## ROI Tracking
 

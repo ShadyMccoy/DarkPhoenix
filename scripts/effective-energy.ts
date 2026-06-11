@@ -25,15 +25,20 @@ const MINER_PARTS = 8; // 5 WORK + 3 MOVE
 const SPAWN_PART_ENERGY_VALUE = 155; // energy per part/tick held
 
 // Reserver: a CLAIM+MOVE creep that holds a remote room at the full 3000 cap.
-// CLAIM creeps live only ~600 ticks; one CLAIM keeps a room reserved.
+// CLAIM creeps live only CREEP_CLAIM_LIFE_TIME = 600 ticks (vs 1500), so the
+// reserver's short life makes it more expensive than its body suggests.
 const CLAIM_LIFETIME = 600;
 const RESERVER_COST = COST.CLAIM + COST.MOVE; // 650
 const RESERVER_PARTS = 2; // CLAIM + MOVE
+// Reservation accumulates (up to 5000) and decays 1/tick, so a reserver is NOT
+// needed 100% of the time - let it build up, let it tick down, then top up. ~50%
+// duty roughly halves the amortized reserver cost.
+const RESERVER_DUTY = 0.5;
 
 /** Per-ROOM reserver cost in energy-equivalent (upkeep + parts priced), at distance d. */
 function reserverCostPerRoom(d: number): number {
   const life = Math.max(1, CLAIM_LIFETIME - d); // walks out, then reserves
-  return RESERVER_COST / life + (RESERVER_PARTS / life) * SPAWN_PART_ENERGY_VALUE;
+  return RESERVER_DUTY * (RESERVER_COST / life + (RESERVER_PARTS / life) * SPAWN_PART_ENERGY_VALUE);
 }
 
 /** Round trip ticks for a one-way distance d (matches calculateRoundTrip). */
