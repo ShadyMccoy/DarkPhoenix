@@ -124,7 +124,19 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   }
   for (const id in registry.reservationCorps) {
     const c = registry.reservationCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() !== spawnId) continue;
+    for (const d of c.getSpawnDemand(ctx)) {
+      // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
+      // remote room it holds (a remote we already mine, so its demand only appears
+      // once that income is underway). Give it a groupId so spawnPriority places it
+      // in the income tier (it already declares producesIncome) - otherwise it sits
+      // at its base value (92), below every income corp AND every blocking consumer,
+      // and is starved forever while the colony ramps, so the remote never gets
+      // reserved and stays at the unreserved half-rate. It is a *fresh* income unit
+      // (not groupStarted), so the core miners/haulers still complete first.
+      d.groupId = c.id;
+      demands.push(d);
+    }
   }
 
   return demands;
