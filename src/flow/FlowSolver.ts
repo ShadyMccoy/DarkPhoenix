@@ -33,7 +33,15 @@ import {
   calculateCarryParts,
   calculateHaulerCostPerTick
 } from "./FlowTypes";
-import { SPAWN_PART_ENERGY_VALUE } from "../corps/economics";
+import { SPAWN_PARTS_PER_TICK } from "../corps/economics";
+
+/**
+ * Fraction of a spawn's build-rate that mining + hauling may claim. The spawn
+ * also builds upgraders, builders, reservers, so miners/haulers get only part of
+ * its 1/3 parts-per-tick. Tunable; it sets how hard the spawn-time budget bites
+ * before far sources start to fall out.
+ */
+const MINING_BUDGET_FRACTION = 0.6;
 import { VariantConstraints, generateEdgeVariants, selectBestVariant } from "../framework/EdgeVariant";
 
 // =============================================================================
@@ -191,58 +199,84 @@ export class FlowSolver {
     edgeMap: Map<string, FlowEdge>,
     _constraints: FlowConstraints
   ): MinerAssignment[] {
-    const assignments: MinerAssignment[] = [];
+    // Phase 1 - cost every source from its nearest spawn. A source is a CANDIDATE
+    // whenever it nets positive ENERGY (its real profit), no matter how far: we
+    // never skip a profitable source just for distance. We also record the spawn
+    // BUILD-TIME its miner+hauler fleet consumes (parts/tick over the TTL: a static
+    // miner walks out and then dies at the source, so it amortizes over
+    // CREEP_LIFETIME minus the walk). That build-time is what Phase 2 budgets.
+    interface Candidate {
+      spawnId: string;
+      netEnergy: number;
+      spawnPartsPerTick: number;
+      assignment: MinerAssignment;
+    }
+    const candidates: Candidate[] = [];
 
     for (const source of sources) {
-      // Find nearest spawn
       const nearestSpawn = this.findNearestSpawn(source.id, spawnSinks, edgeMap);
       if (!nearestSpawn) continue;
 
       const spawnDistance = nearestSpawn.distance;
-
-      // Profitability in EFFECTIVE energy: gross harvest, minus the miner and
-      // hauler upkeep, minus the spawn BUILD-TIME those bodies consume priced in
-      // energy. Both overheads are amortized over the creep's TTL: a static miner
-      // walks `spawnDistance` tiles out and then dies at the source, so it lives
-      // (and amortizes) over CREEP_LIFETIME minus the walk - the farther the
-      // source, the more often it must be rebuilt. The spawn-part penalty is what
-      // makes a far source FALL OUT: its hauler fleet can stay net-energy-positive
-      // yet cost more spawn build-time than it is worth, so effectiveNet goes
-      // negative - no hard distance/efficiency threshold required.
       const harvestRate = source.capacity;
       const life = Math.max(1, CREEP_LIFETIME - spawnDistance);
       const minerOverhead = MINER_COST / life;
       const carryParts = calculateCarryParts(harvestRate, spawnDistance);
       const haulerOverhead = (carryParts * (BODY_COSTS.CARRY + BODY_COSTS.MOVE)) / life;
-      const totalParts = MINER_PARTS + 2 * carryParts; // miner 8 + hauler CARRY+MOVE
-      const partPenalty = (totalParts / life) * SPAWN_PART_ENERGY_VALUE;
-
       const netEnergy = harvestRate - minerOverhead - haulerOverhead;
-      const effectiveNet = netEnergy - partPenalty;
-      // Rank by effective profit per gross energy, so when the spawn is the
-      // bottleneck the nearest (most build-time-efficient) sources are staffed first.
-      const efficiency = (effectiveNet / harvestRate) * 100;
 
-      // Mine only when the source is worth more than the spawn build-time it eats.
-      if (effectiveNet <= 0) {
+      if (netEnergy <= 0) {
         console.log(
-          `[FlowSolver] Skipping source ${source.id.slice(-8)} (build-time not worth it): ` +
-            `harvest=${harvestRate.toFixed(1)}, net=${netEnergy.toFixed(2)}, ` +
-            `partPenalty=${partPenalty.toFixed(2)}, effNet=${effectiveNet.toFixed(2)}, distance=${spawnDistance}`
+          `[FlowSolver] Skipping source ${source.id.slice(-8)} (net-energy-negative): ` +
+            `net=${netEnergy.toFixed(2)}, distance=${spawnDistance}`
         );
         continue;
       }
 
-      assignments.push({
-        sourceId: source.id,
-        nodeId: source.nodeId,
+      const spawnPartsPerTick = (MINER_PARTS + 2 * carryParts) / life; // miner 8 + hauler CARRY+MOVE
+      candidates.push({
         spawnId: nearestSpawn.id,
-        spawnDistance,
-        harvestRate: source.capacity,
-        spawnCostPerTick: minerOverhead,
-        maxMiners: source.maxMiners,
-        efficiency
+        netEnergy,
+        spawnPartsPerTick,
+        assignment: {
+          sourceId: source.id,
+          nodeId: source.nodeId,
+          spawnId: nearestSpawn.id,
+          spawnDistance,
+          harvestRate,
+          spawnCostPerTick: minerOverhead,
+          maxMiners: source.maxMiners,
+          efficiency: (netEnergy / harvestRate) * 100
+        }
       });
+    }
+
+    // Phase 2 - the DYNAMIC spawn-time wall. Each spawn builds one part every 3
+    // ticks; mining+hauling may claim only a fraction of that (consumers need the
+    // rest). Per spawn, keep candidates by descending net energy PER build-part,
+    // spending the budget; the rest fall out. So a far source is dropped ONLY when
+    // its spawn is actually the bottleneck - when there is spare build-time, every
+    // profitable source is mined no matter how far. This is the spawn-time wall as
+    // CONTENTION, not a fixed price: an idle spawn reaches far, a saturated one
+    // pulls in, and the cutoff distance emerges from the sources actually present.
+    const budgetPerSpawn = SPAWN_PARTS_PER_TICK * MINING_BUDGET_FRACTION;
+    candidates.sort((a, b) => b.netEnergy / b.spawnPartsPerTick - a.netEnergy / a.spawnPartsPerTick);
+
+    const usedBySpawn = new Map<string, number>();
+    const assignments: MinerAssignment[] = [];
+    for (const c of candidates) {
+      const spent = usedBySpawn.get(c.spawnId) ?? 0;
+      // Always staff a spawn's first (best) source even if it alone exceeds the
+      // mining budget - a spawn with one far source should still mine it.
+      if (spent > 0 && spent + c.spawnPartsPerTick > budgetPerSpawn) {
+        console.log(
+          `[FlowSolver] Source ${c.assignment.sourceId.slice(-8)} falls out: ` +
+            `spawn build-time budget spent (distance=${c.assignment.spawnDistance})`
+        );
+        continue;
+      }
+      usedBySpawn.set(c.spawnId, spent + c.spawnPartsPerTick);
+      assignments.push(c.assignment);
     }
 
     return assignments;
