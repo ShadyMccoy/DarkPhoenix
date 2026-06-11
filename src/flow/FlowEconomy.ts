@@ -29,12 +29,12 @@ import {
   SinkType
 } from "./FlowTypes";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
-import { FlowSolver, printSolutionSummary, solveIteratively } from "./FlowSolver";
+import { FlowSolver, printSolutionSummary } from "./FlowSolver";
 import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
 import { EconomyPlan } from "./EconomyPlanner";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { planFromGraph } from "./EconomyAdapter";
+import { solveWithCorpPlanner } from "../economy/flowAdapter";
 
 // =============================================================================
 // FLOW ECONOMY CLASS
@@ -145,38 +145,15 @@ export class FlowEconomy {
     // Update priorities based on context
     this.graph.updatePriorities(this.context);
 
-    // Get flow problem and solve
-    const problem = this.graph.getFlowProblem(this.constraints);
+    // Solve the colony economy with the GOAP CorpPlanner - the single economy
+    // authority. It unifies producer selection (which sources to mine, per spawn
+    // build-budget) and value routing (feed the spawn, then the controller) that
+    // FlowSolver and the shadow EconomyPlanner used to do separately.
+    this.solution = solveWithCorpPlanner(this.graph, this.context.tick);
 
-    // Use iterative solver for better convergence
-    this.solution = solveIteratively(problem);
-
-    // New strategic layer: compute the EconomyPlanner roster alongside the old
-    // solution during migration, and stash a compact summary in Memory so it can
-    // be validated against the real world before it drives any corp.
-    this.computePlan();
-  }
-
-  /** Run the EconomyPlanner over the live graph and record its roster. */
-  private computePlan(): void {
-    try {
-      const spawnSink = this.graph.getSinks("spawn")[0];
-      if (!spawnSink) {
-        this.plan = null;
-        return;
-      }
-      this.plan = planFromGraph(this.graph, spawnSink.gameId ?? spawnSink.id);
-      if (typeof Memory !== "undefined") {
-        (Memory as { economyPlan?: unknown }).economyPlan = {
-          overhead: Number(this.plan.overhead.toFixed(2)),
-          unrouted: Number(this.plan.unrouted.toFixed(2)),
-          corps: this.plan.corps
-        };
-      }
-    } catch (e) {
-      // Never let the experimental planner break the live economy.
-      this.plan = null;
-    }
+    // The shadow EconomyPlanner overlay is retired: CorpPlanner already sizes
+    // haulers to the full routed flow, so there is nothing left to override.
+    this.plan = null;
   }
 
   /** Get the strategic plan (new economy layer), if computed. */

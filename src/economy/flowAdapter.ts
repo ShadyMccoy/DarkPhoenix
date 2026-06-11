@@ -105,6 +105,39 @@ export function buildColonyProblem(graph: FlowGraph, dist: ColonyProblem["dist"]
  * Solve the colony economy with the CorpPlanner and return a FlowSolution.
  * Drop-in replacement for FlowSolver.solve / solveIteratively.
  */
+/** Energy/tick one WORK part consumes at each consumer (for roster sizing). */
+const ENERGY_PER_WORK = { upgrade: 1, build: 5 } as const;
+
+/**
+ * Publish the commissioned roster to Memory.economyPlan so tooling (the
+ * plan-vs-spawn harness, telemetry) can compare what the single planner asked
+ * for against what was actually fielded. Same shape the shadow planner used to
+ * write, now sourced from the live CorpPlanner.
+ */
+function publishRoster(plan: ReturnType<typeof planColony>): void {
+  if (typeof Memory === "undefined") return;
+  const corps: Record<string, unknown>[] = [];
+  for (const m of plan.miners) {
+    corps.push({ kind: "mine", work: Math.max(1, Math.ceil(m.rate / 2)), sourceId: m.sourceId, spawnId: m.spawnId });
+  }
+  for (const h of plan.haulers) {
+    corps.push({ kind: "haul", carry: Math.max(1, Math.ceil(h.carryParts)), fromId: h.sourceId, toId: h.sinkId, spawnId: h.spawnId });
+  }
+  for (const k of plan.sinks) {
+    if (k.allocated <= 1e-9) continue;
+    if (k.kind === "controller") {
+      corps.push({ kind: "upgrade", work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.upgrade)), sinkId: k.sinkId });
+    } else if (k.kind === "construction") {
+      corps.push({ kind: "build", work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.build)), sinkId: k.sinkId });
+    }
+  }
+  (Memory as { economyPlan?: unknown }).economyPlan = {
+    corps,
+    overhead: Number(plan.totalOverhead.toFixed(2)),
+    unrouted: Number((plan.totalProduced - plan.totalDelivered).toFixed(2))
+  };
+}
+
 export function solveWithCorpPlanner(
   graph: FlowGraph,
   tick = 0,
@@ -112,6 +145,7 @@ export function solveWithCorpPlanner(
 ): FlowSolution {
   const problem = buildColonyProblem(graph, dist);
   const plan = planColony(problem);
+  publishRoster(plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({
     sourceId: m.sourceId,
