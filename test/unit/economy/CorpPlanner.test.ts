@@ -36,6 +36,15 @@ function problem(p: Partial<ColonyProblem> & Pick<ColonyProblem, "spawns" | "sou
   return { dist: manhattan, ...p };
 }
 
+const stock = (id: string, x: number, rate: number): PlannerSource => ({
+  id,
+  nodeId: `node-${id}`,
+  pos: at(x),
+  rate,
+  maxMiners: 0,
+  transient: true
+});
+
 describe("economy/CorpPlanner", () => {
   describe("Phase 1 - producer selection", () => {
     it("N=1: mines a single profitable source and sizes its hauler to the controller", () => {
@@ -180,6 +189,63 @@ describe("economy/CorpPlanner", () => {
       expect(ctrl.sources).to.have.length(1);
       expect(ctrl.sources[0].sourceId).to.equal("near");
       expect(ctrl.sources[0].amount).to.be.closeTo(10, 1e-9);
+    });
+  });
+
+  describe("scavenging - transient sources", () => {
+    it("hauls a ground stock to a sink WITHOUT commissioning a miner", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [stock("pile", 10, 8)], // 8/tick scavengeable stock at distance 10
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      // a transient stock is already harvested: no miner, but a scavenger hauls it
+      expect(plan.miners).to.have.length(0);
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      expect(ctrl.allocated).to.be.closeTo(8, 1e-9);
+      expect(plan.haulers.filter(h => h.sourceId === "pile").length).to.be.greaterThan(0);
+      expect(plan.totalProduced).to.be.closeTo(8, 1e-9);
+    });
+
+    it("adds stock energy to the routed supply alongside staffed sources", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("s1", 10), stock("pile", 15, 6)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      // the staffed source is mined; the stock is scavenged; both reach the sink
+      expect(plan.miners.map(m => m.sourceId)).to.deep.equal(["s1"]);
+      expect(plan.totalProduced).to.be.closeTo(16, 1e-9);
+      expect(plan.sinks.find(s => s.sinkId === "ctrl")!.allocated).to.be.closeTo(16, 1e-9);
+      expect(plan.haulers.some(h => h.sourceId === "s1")).to.equal(true);
+      expect(plan.haulers.some(h => h.sourceId === "pile")).to.equal(true);
+    });
+
+    it("never commissions a miner for a transient source even when steady sources contend", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("s1", 10), stock("pile", 12, 10)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.miners.some(m => m.sourceId === "pile")).to.equal(false);
+    });
+
+    it("skips a stock too far to scavenge profitably (haul cost exceeds the energy)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [stock("faraway", 350, 8)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.haulers).to.have.length(0);
+      expect(plan.totalProduced).to.be.closeTo(0, 1e-9);
     });
   });
 

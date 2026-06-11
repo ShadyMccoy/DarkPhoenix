@@ -8,7 +8,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { controllerDeliverySpot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
@@ -396,6 +396,17 @@ export class CarryCorp extends Corp {
       // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
       const sourceGameId = assignment.fromId.replace("source-", "");
 
+      // Scavenger: the "source" is a ground stock (no live object). Parse its
+      // position from the id (scavenge-ROOM-X-Y) the same way as an intel source.
+      if (sourceGameId.startsWith("scavenge-")) {
+        const match = /^scavenge-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(sourceGameId);
+        if (match) {
+          const [, roomName, x, y] = match;
+          creep.memory.assignedSourcePos = { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
+        }
+        return null;
+      }
+
       // Check if this is an intel-based source (remote room without vision)
       if (sourceGameId.startsWith("intel-")) {
         // Intel source: parse position from ID format "intel-ROOMNAME-X-Y"
@@ -460,9 +471,21 @@ export class CarryCorp extends Corp {
       return;
     }
 
-    // The source node resolves its own output spot (container / drop pile / wait
-    // tile - see nodeEnergy); the hauler just routes there and collects.
+    // A scavenger draws from a ground stock (tombstone / ruin / pile); an ordinary
+    // hauler from its source's output spot (container / drop pile / wait tile). The
+    // stock spot is null once drained - the scavenger then just carries home what
+    // it has and stands down (re-detection drops the stock next economy rebuild).
+    if (this.isScavenger()) {
+      const spot = scavengeSpot(targetPos);
+      if (spot) workSpot(creep, spot, "collect");
+      return;
+    }
     workSpot(creep, sourcePickupSpot(targetPos), "collect");
+  }
+
+  /** True when this corp serves a transient ground stock rather than a source. */
+  private isScavenger(): boolean {
+    return this.haulerAssignments[0]?.fromId.startsWith("scavenge-") ?? false;
   }
 
   /**

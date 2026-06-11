@@ -57,6 +57,13 @@ export interface PlannerSource {
   rate: number;
   /** Walkable mining spots adjacent to the source. */
   maxMiners: number;
+  /**
+   * A transient source - a ground energy stock (dropped pile / tombstone / ruin)
+   * that is ALREADY harvested. It needs no miner: only a scavenger hauls it home.
+   * Its `rate` is a bounded drain rate; it lasts only until the stock is gone, at
+   * which point re-detection drops it from the world and scavenging demobilises.
+   */
+  transient?: boolean;
 }
 
 export type SinkKind = "spawn" | "controller" | "construction" | "storage";
@@ -178,6 +185,7 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
 
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
+    if (source.transient) continue; // transient stocks need no miner (already harvested)
     const near = nearestSpawn(source.pos, spawns, dist);
     if (!near) continue;
     const net = netEnergy(source.rate, near.distance);
@@ -227,22 +235,51 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
   return miners;
 }
 
+/** A unit of energy available to route: a staffed source or a scavengeable stock. */
+interface SupplyPoint {
+  sourceId: string;
+  rate: number;
+  spawnId: string;
+}
+
 /**
- * Phase 2 - VALUE ROUTING. Route the gross output of the selected sources to
- * sinks: a reserve pre-pass for critical floors, then a value-descending pass
- * filling each sink to capacity from the nearest sources first. Each source->sink
- * flow becomes a hauler.
+ * Transient supply - SCAVENGING. Each transient source (a ground stock) is free
+ * energy needing no miner, so it joins the routing pool directly. It is worth
+ * scavenging whenever hauling it home nets positive (no miner cost to offset), so
+ * a reachable stock essentially always qualifies. The scavenger's home spawn is
+ * the nearest one.
+ */
+function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
+  const { sources, spawns, dist } = problem;
+  if (spawns.length === 0) return [];
+  const supply: SupplyPoint[] = [];
+  for (const source of sources) {
+    if (!source.transient) continue;
+    const near = nearestSpawn(source.pos, spawns, dist);
+    if (!near) continue;
+    const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
+    if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
+    supply.push({ sourceId: source.id, rate: source.rate, spawnId: near.spawn.id });
+  }
+  return supply;
+}
+
+/**
+ * Phase 2 - VALUE ROUTING. Route the gross output of all supply (staffed sources
+ * plus scavengeable stocks) to sinks: a reserve pre-pass for critical floors, then
+ * a value-descending pass filling each sink to capacity from the nearest sources
+ * first. Each source->sink flow becomes a hauler.
  */
 function routeToSinks(
   problem: ColonyProblem,
-  miners: CommissionedMiner[]
+  supply: SupplyPoint[]
 ): { haulers: CommissionedHauler[]; sinks: CommissionedSink[] } {
   const { sinks, dist } = problem;
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
-  const spawnBySource = new Map(miners.map(m => [m.sourceId, m.spawnId]));
+  const spawnBySource = new Map(supply.map(s => [s.sourceId, s.spawnId]));
 
-  // Remaining gross energy each selected source can still ship.
-  const pool = new Map<string, number>(miners.map(m => [m.sourceId, m.rate]));
+  // Remaining gross energy each supply point can still ship.
+  const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
@@ -302,9 +339,14 @@ function routeToSinks(
  */
 export function planColony(problem: ColonyProblem): ColonyPlan {
   const miners = selectProducers(problem);
-  const { haulers, sinks } = routeToSinks(problem, miners);
+  // Supply = staffed sources + scavengeable transient stocks (no miner needed).
+  const supply: SupplyPoint[] = [
+    ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
+    ...selectTransientSupply(problem)
+  ];
+  const { haulers, sinks } = routeToSinks(problem, supply);
 
-  const totalProduced = miners.reduce((s, m) => s + m.rate, 0);
+  const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
   const totalDelivered = sinks.reduce((s, k) => s + k.allocated, 0);
   const miningOverhead = miners.reduce((s, m) => s + minerOverhead(m.distance), 0);
   const haulOverhead = haulers.reduce((s, h) => s + haulerOverhead(h.carryParts, h.distance), 0);

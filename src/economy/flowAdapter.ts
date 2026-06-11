@@ -22,6 +22,7 @@ import {
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { minerOverhead, haulerOverhead } from "./primitives";
+import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   planColony,
   ColonyProblem,
@@ -63,7 +64,26 @@ function toSinkKind(type: SinkType): SinkKind | null {
  * energy itself. Capacity = demand keeps the spawn fed without letting it (value
  * 100) starve the controller of the surplus.
  */
-export function buildColonyProblem(graph: FlowGraph, dist: ColonyProblem["dist"] = pathDistance): ColonyProblem {
+/**
+ * Detect scavengeable ground stocks across visible rooms and turn them into
+ * transient sources. Live default for buildColonyProblem; injectable for tests.
+ */
+export function detectTransientSources(): PlannerSource[] {
+  if (typeof Game === "undefined" || !Game.rooms) return [];
+  const out: PlannerSource[] = [];
+  for (const roomName in Game.rooms) {
+    for (const stock of detectRoomStocks(Game.rooms[roomName])) {
+      out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
+    }
+  }
+  return out;
+}
+
+export function buildColonyProblem(
+  graph: FlowGraph,
+  dist: ColonyProblem["dist"] = pathDistance,
+  transientSources: PlannerSource[] = detectTransientSources()
+): ColonyProblem {
   const spawns: PlannerSpawn[] = graph
     .getSinks("spawn")
     .map(s => ({ id: s.id, pos: s.position }));
@@ -75,6 +95,8 @@ export function buildColonyProblem(graph: FlowGraph, dist: ColonyProblem["dist"]
     rate: s.capacity,
     maxMiners: s.maxMiners
   }));
+  // Ground stocks join as miner-less transient sources (scavenging).
+  sources.push(...transientSources);
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
 
   const sinks: PlannerSink[] = [];
@@ -141,9 +163,10 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
 export function solveWithCorpPlanner(
   graph: FlowGraph,
   tick = 0,
-  dist: ColonyProblem["dist"] = pathDistance
+  dist: ColonyProblem["dist"] = pathDistance,
+  transientSources: PlannerSource[] = detectTransientSources()
 ): FlowSolution {
-  const problem = buildColonyProblem(graph, dist);
+  const problem = buildColonyProblem(graph, dist, transientSources);
   const plan = planColony(problem);
   publishRoster(plan);
 
