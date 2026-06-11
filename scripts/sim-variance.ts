@@ -21,12 +21,10 @@
  */
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { enableMods, FREE_ECONOMY_MOD, padNeighborTerrain } from "../test/integration/loadLayout";
+import { enableMods, FREE_ECONOMY_MOD, padNeighborTerrain, loadLayout, setRoomLevel } from "../test/integration/loadLayout";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ScreepsServer, TerrainMatrix } = require("screeps-server-mockup");
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const stubRooms = require("screeps-server-mockup/assets/rooms.json");
+const { ScreepsServer } = require("screeps-server-mockup");
 
 const DIST_MAIN_JS = "dist/main.js";
 
@@ -50,27 +48,34 @@ async function run(ticks: number, sampleEvery: number, free: boolean): Promise<S
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
 
   await server.world.reset();
-  // A SINGLE working room, not the 9-room stub world. The full stub world is
-  // degenerate for a from-scratch bot: it exposes all 9 rooms at once (~102
-  // nodes), which a real bot never sees at RCL1, and the colony stalls there (1
-  // jack, 0 progress). One room with real (walled) terrain bootstraps fine AND
-  // produces nodes for the flow economy - so the variance reflects a colony that
-  // actually runs. We reuse the stub world's W0N1 terrain (proven to ramp).
-  const room = "W0N1";
-  const data = stubRooms[room];
-  await server.world.addRoom(room);
-  await server.world.setTerrain(room, TerrainMatrix.unserialize(data.serial));
-  for (const o of data.objects) {
-    if (o.type === "controller" || o.type === "source" || o.type === "mineral") {
-      await server.world.addRoomObject(room, o.type, o.x, o.y, o.attributes);
-    }
-  }
-  await padNeighborTerrain(server.world, [room]);
-  const src = data.objects.find((o: any) => o.type === "source");
-  const player = await server.world.addBot({
-    username: "player", room, x: Math.min(48, src.x + 1), y: src.y,
-    modules: { main: readFileSync(DIST_MAIN_JS).toString() }
+  // A single PROVEN-GOOD room, not the 9-room stub world (degenerate: ~102 nodes,
+  // the colony stalls) and not the awkward stub W0N1 (a forced corner spawn next
+  // to a source + a far controller starves hauling/upgrading). This is the
+  // flow-handoff two-chamber layout - walled (so peak detection finds nodes), a
+  // central spawn, two well-separated sources, a controller across the divide -
+  // which ramps, hauls and upgrades cleanly, so the variance reflects a colony
+  // that actually functions. Started at RCL 2 (with extensions) so the flow
+  // economy runs from tick 1 instead of grinding up from bootstrap.
+  const room = "W0N0";
+  const terrain = Array.from({ length: 50 }, (_v, y) =>
+    ".".repeat(25) + (y >= 23 && y <= 27 ? "." : "#") + ".".repeat(24)
+  );
+  await loadLayout(server.world, {
+    room,
+    terrain,
+    objects: [
+      { type: "controller", x: 38, y: 25 },
+      { type: "source", x: 10, y: 10 },
+      { type: "source", x: 40, y: 40 }
+    ]
   });
+  await padNeighborTerrain(server.world, [room]);
+  const player = await server.world.addBot({
+    username: "player", room, x: 12, y: 25, modules: { main: readFileSync(DIST_MAIN_JS).toString() }
+  });
+  await setRoomLevel(server.world, room, 2, [
+    { x: 13, y: 24 }, { x: 11, y: 24 }, { x: 13, y: 26 }, { x: 11, y: 26 }, { x: 14, y: 25 }
+  ]);
 
   if (free) enableMods(serverPath, [FREE_ECONOMY_MOD]);
   await server.start();
