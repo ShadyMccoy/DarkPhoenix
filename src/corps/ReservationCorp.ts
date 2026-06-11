@@ -18,6 +18,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { buildReserverBody } from "../spawn/BodyBuilder";
+import { travelTo } from "./movement";
 
 /**
  * Serialized state specific to ReservationCorp.
@@ -111,7 +112,7 @@ export class ReservationCorp extends Corp {
   /** Walk to the target room's controller and hold the reservation. */
   private runReserver(creep: Creep, targetRoom: string): void {
     if (creep.room.name !== targetRoom) {
-      creep.moveTo(new RoomPosition(25, 25, targetRoom), {
+      travelTo(creep, new RoomPosition(25, 25, targetRoom), {
         range: 20,
         visualizePathStyle: { stroke: "#88aaff" }
       });
