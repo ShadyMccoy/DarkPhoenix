@@ -26,7 +26,7 @@ import { HaulerAssignment, SinkType } from "./FlowTypes";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { CarryCorp } from "../corps/CarryCorp";
 import { FlowGraph } from "./FlowGraph";
-import { estimateWalkingDistance } from "../nodes/NodeNavigator";
+import { pathDistance } from "../nodes/NodeNavigator";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / fully stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
@@ -91,7 +91,7 @@ export function buildPlannerInput(graph: FlowGraph, spawnId: string): PlannerInp
     });
   }
 
-  return { sources, sinks, spawnId, dist: estimateWalkingDistance };
+  return { sources, sinks, spawnId, dist: pathDistance };
 }
 
 /** Plan the economy directly from the live flow graph. */

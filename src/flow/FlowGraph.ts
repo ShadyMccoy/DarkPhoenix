@@ -24,7 +24,7 @@ import {
   createFlowSource
 } from "./FlowTypes";
 import { Node, getResourcesByType } from "../nodes/Node";
-import { NodeNavigator, estimateWalkingDistance } from "../nodes/NodeNavigator";
+import { NodeNavigator, pathDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 
 // =============================================================================
@@ -225,9 +225,10 @@ export class FlowGraph {
         // Verify sink has a valid node
         if (!this.nodes.has(sink.nodeId)) continue;
 
-        // Calculate distance using direct position-to-position estimation
-        // This is more accurate than navigator paths which may have incorrect weights
-        const distance = estimateWalkingDistance(source.position, sink.position);
+        // Real (cached) path distance, so walls/swamps between a source and its
+        // sink are reflected in the haul round-trip and the profitability gate.
+        // Falls back to the analytic estimate when PathFinder can't path.
+        const distance = pathDistance(source.position, sink.position);
 
         // Create edge
         const edgeId = createEdgeId(source.id, sink.id);
