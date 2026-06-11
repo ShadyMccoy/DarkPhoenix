@@ -367,16 +367,16 @@ export class UpgradingCorp extends Corp {
    */
   public project(scene: ChainScene): CorpEconomics {
     const allocated = this.sinkAllocation?.allocated ?? 0;
-    if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0 };
+    if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     // Virtual mode has no vision of buffers, so assume the mobile (no-container)
     // strategy - the conservative, CARRY-heavier body.
     const body = buildUpgraderBody(scene.energyCapacity, Math.max(1, Math.ceil(allocated)), "mobile");
-    if (body.cost === 0) return { costPerTick: 0, throughput: 0 };
+    if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     const travel = scene.dist(scene.spawnPos, scene.controllerPos) * travelTicksPerTile(scene.energyCapacity);
     const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
-    return { costPerTick: body.cost / usefulLife, throughput: 0 };
+    return { costPerTick: body.cost / usefulLife, throughput: 0, spawnPartsPerTick: body.body.length / usefulLife };
   }
 
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {

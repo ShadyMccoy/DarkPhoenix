@@ -34,6 +34,34 @@ export interface ChainScene {
   resource(id: string): SceneResource | undefined;
 }
 
+/**
+ * Body parts a single spawn can build per tick. A spawn produces one part every
+ * SPAWN_TIME_PER_PART (3) ticks, so this is 1/3 - i.e. 500 parts over a creep's
+ * 1500-tick life. It is the spawn's *time* budget, separate from and often
+ * tighter than its energy budget: a far source can stay net-energy-positive yet
+ * demand more hauler parts than the spawn can physically build. Corps compete for
+ * this budget the same way they compete for energy, so a source that is too far
+ * loses the competition and falls out - no hard distance limit required.
+ */
+export const SPAWN_PARTS_PER_TICK = 1 / 3;
+
+/**
+ * Energy value of one unit of spawn throughput - energy per (part/tick), i.e. the
+ * energy a body part held continuously (respawned forever) is worth. Multiply a
+ * corp's {@link CorpEconomics.spawnPartsPerTick} by this to price its spawn
+ * build-time in energy, then subtract from net (see {@link effectiveNet}). This
+ * is what makes the spawn-time wall fall out of a pure-energy ranking: a far
+ * source whose haulers eat the build budget is penalized enough to lose to a near
+ * one, with no hard distance limit.
+ *
+ * Calibrated from a representative source at the average remote distance
+ * (~75 tiles): it nets ~7.4 e/tick on ~70 body parts, so a held part is worth
+ * ~7.4/70 ~ 0.1 e/tick, i.e. ~155 energy over its 1500-tick life. The implied
+ * "harvest a spawn can support" is ~155 * 0.333 ~ 52 e/tick. Tunable; recalibrate
+ * against real colonies.
+ */
+export const SPAWN_PART_ENERGY_VALUE = 155;
+
 /** What a corp projects it would cost and move, per tick, in a given scene. */
 export interface CorpEconomics {
   /**
@@ -44,6 +72,27 @@ export interface CorpEconomics {
   costPerTick: number;
   /** Energy/tick this corp delivers toward the goal (0 for pure consumers). */
   throughput: number;
+  /**
+   * Body parts/tick this corp draws from spawn throughput: its claim on the
+   * spawn's finite build rate (see {@link SPAWN_PARTS_PER_TICK}). Computed on the
+   * same creep-count and useful-life basis as {@link costPerTick}, so the two
+   * budgets stay in step. This is what makes the spawn-time wall fall out of
+   * planning: sum it across the corps a spawn supports and a far, part-hungry
+   * roster exceeds the spawn's build rate long before it exhausts the energy.
+   */
+  spawnPartsPerTick: number;
+}
+
+/**
+ * Net energy/tick of a corp (or a summed chain) in a single currency: its energy
+ * delivery, minus its energy upkeep, minus its spawn build-time priced in energy
+ * (see {@link SPAWN_PART_ENERGY_VALUE}). This is the number to RANK by - a corp
+ * that delivers energy but hogs the spawn's build rate (a far hauler fleet, a
+ * reserver) is demoted just as if it cost that much energy, so the spawn-time
+ * constraint falls out of the same comparison that already weighs energy.
+ */
+export function effectiveNet(econ: CorpEconomics): number {
+  return econ.throughput - econ.costPerTick - econ.spawnPartsPerTick * SPAWN_PART_ENERGY_VALUE;
 }
 
 /**

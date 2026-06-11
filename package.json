@@ -20,6 +20,8 @@
     "sim:planspawn": "ts-node -P tsconfig.test.json scripts/plan-vs-spawn.ts",
     "sim:multiroom": "ts-node -P tsconfig.test.json scripts/sim-multiroom.ts",
     "sim:variance": "ts-node -P tsconfig.test.json scripts/sim-variance.ts",
+    "sim:ab": "ts-node -P tsconfig.test.json scripts/ab-cold-start.ts",
+    "sim:energy": "ts-node -P tsconfig.test.json scripts/effective-energy.ts",
     "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
     "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
     "plan:placement": "ts-node -P tsconfig.test.json scripts/probe-spawn-placement.ts",

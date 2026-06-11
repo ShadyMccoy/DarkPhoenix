@@ -621,6 +621,7 @@ export class CarryCorp extends Corp {
   public project(scene: ChainScene): CorpEconomics {
     let costPerTick = 0;
     let throughput = 0;
+    let spawnPartsPerTick = 0;
     for (const a of this.haulerAssignments) {
       const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
       if (body.cost === 0 || body.carryCapacity === 0) continue;
@@ -633,9 +634,13 @@ export class CarryCorp extends Corp {
       const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
       const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
       costPerTick += (haulers * body.cost) / usefulLife;
+      // The hauler fleet is the part-hungry one: more haulers, each a bigger
+      // body, the farther the route - this is the term that makes a far source
+      // exhaust the spawn's build-rate budget.
+      spawnPartsPerTick += (haulers * body.body.length) / usefulLife;
       throughput += a.flowRate;
     }
-    return { costPerTick, throughput };
+    return { costPerTick, throughput, spawnPartsPerTick };
   }
 
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {

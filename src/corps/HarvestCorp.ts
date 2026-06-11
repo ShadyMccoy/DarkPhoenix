@@ -303,17 +303,23 @@ export class HarvestCorp extends Corp {
    */
   public project(scene: ChainScene): CorpEconomics {
     const source = scene.resource(this.sourceId);
-    if (!source) return { costPerTick: 0, throughput: 0 };
+    if (!source) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     const capacity = source.capacity ?? SOURCE_ENERGY_CAPACITY;
     const supply = capacity / SOURCE_REGEN_TIME;
     const body = buildMinerBody(calculateOptimalWorkParts(capacity), scene.energyCapacity);
-    if (body.cost === 0) return { costPerTick: 0, throughput: 0 };
+    if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
     const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
     const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
-    return { costPerTick: body.cost / usefulLife, throughput: harvestRate };
+    // A static miner walks out once and dies at the source, so it both costs
+    // energy and consumes spawn build-time over its (shortened) useful life.
+    return {
+      costPerTick: body.cost / usefulLife,
+      throughput: harvestRate,
+      spawnPartsPerTick: body.body.length / usefulLife
+    };
   }
 
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {

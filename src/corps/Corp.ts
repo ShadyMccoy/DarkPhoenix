@@ -365,7 +365,7 @@ export abstract class Corp {
    * update.
    */
   project(_scene: ChainScene): CorpEconomics {
-    return { costPerTick: 0, throughput: 0 };
+    return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
   }
 
   /**

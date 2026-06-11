@@ -593,14 +593,47 @@ describe("Economy Scenarios (from minimal-economy)", () => {
     });
 
     it("should show efficiency decreasing with distance", () => {
+      // A single source has no spawn contention, so any net-energy-positive source
+      // is mined no matter how far - but farther = lower efficiency.
       const distances = [10, 20, 30, 50, 75, 100];
       let prevEfficiency = 100;
-
       for (const d of distances) {
         const solution = solveIteratively(createScenario(d));
+        expect(solution.miners, `d=${d} should still be mined (no contention)`).to.have.length(1);
         expect(solution.efficiency).to.be.lessThan(prevEfficiency);
         prevEfficiency = solution.efficiency;
       }
+    });
+
+    it("mines a lone far source a static price would have skipped (idle spawn reaches far)", () => {
+      // At d=120 the earlier STATIC effectiveNet penalty pushed the score negative
+      // (~75-tile cutoff) and skipped this source even with the spawn idle. With the
+      // dynamic budget it is the only claimant on its spawn, so spare build-time
+      // mines it. Guards against re-introducing a hard/static distance cutoff.
+      expect(solveIteratively(createScenario(120)).miners, "spare build-time reaches far").to.have.length(1);
+    });
+
+    it("drops the least build-efficient source only when the spawn is the bottleneck", () => {
+      // Three net-energy-positive but far (d=150) sources all funnel to ONE spawn.
+      // Each is profitable, so with spare build-time all three would be mined - but
+      // their combined hauler fleets exceed the spawn's mining build-time budget, so
+      // the least-efficient one FALLS OUT. No hard distance limit: it is dropped by
+      // contention for spawn time, and only because they share one spawn.
+      const source = (id: string, y: number): FlowSource =>
+        createFlowSource(id, `n-${id}`, { x: 150, y, roomName: "E1N1" });
+      const spawn = createFlowSink("spawn", "sp", "nsp", { x: 0, y: 0, roomName: "E1N1" }, 2, 50);
+      const sources = [source("a", 0), source("b", 8), source("c", -8)];
+      const edges: FlowEdge[] = sources.map(s => {
+        const d = Math.max(Math.abs(s.position.x), Math.abs(s.position.y - 0));
+        return {
+          id: createEdgeId(s.id, spawn.id), fromId: s.id, toId: spawn.id,
+          distance: d, roundTrip: calculateRoundTrip(d),
+          carryParts: 0, flowRate: 0, spawnCostPerTick: 0, hasRoads: false
+        };
+      });
+      const solution = solveIteratively({ sources, sinks: [spawn], edges, constraints: DEFAULT_CONSTRAINTS });
+      expect(solution.miners.length, "one far source falls out of the spawn-time budget").to.be.lessThan(3);
+      expect(solution.miners.length, "but the spawn still mines what it can afford").to.be.greaterThan(0);
     });
   });
 

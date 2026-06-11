@@ -30,6 +30,8 @@ export const BODY_COSTS = {
 
 /** Standard miner: 5W 3M */
 export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
+/** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */
+export const MINER_PARTS = 8;
 
 /** Miner spawn overhead per tick */
 export const MINER_OVERHEAD_PER_TICK = MINER_COST / CREEP_LIFETIME; // ~0.433
