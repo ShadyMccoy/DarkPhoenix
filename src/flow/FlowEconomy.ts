@@ -29,7 +29,7 @@ import {
   SinkType
 } from "./FlowTypes";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
-import { FlowSolver, printSolutionSummary } from "./FlowSolver";
+import { printSolutionSummary } from "./FlowSolver";
 import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
@@ -52,8 +52,6 @@ export class FlowEconomy {
   /** Flow graph built from nodes */
   private graph: FlowGraph;
 
-  /** Flow solver instance */
-  private solver: FlowSolver;
 
   /** Priority manager instance */
   private priorityManager: PriorityManager;
@@ -95,7 +93,6 @@ export class FlowEconomy {
 
     this.navigator = navigator;
     this.graph = createFlowGraph(nodes, navigator);
-    this.solver = new FlowSolver();
     this.priorityManager = new PriorityManager();
     this.solution = null;
     this.context = null;
