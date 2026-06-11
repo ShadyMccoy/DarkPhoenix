@@ -27,7 +27,9 @@ async function main(): Promise<void> {
   const player = await server.world.addBot({
     username: "player", room: "W0N1", x: 15, y: 15, modules: { main: readFileSync("dist/main.js").toString() }
   });
-  enableMods(serverPath, [FREE_ECONOMY_MOD]);
+  // --paid keeps the real build/upgrade energy sinks (free economy is on by
+  // default, to match sim-variance); used to isolate free-economy artifacts.
+  if (!process.argv.includes("--paid")) enableMods(serverPath, [FREE_ECONOMY_MOD]);
   await server.start();
 
   for (let t = 1; t <= 1000; t += 1) {
