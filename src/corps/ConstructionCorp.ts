@@ -12,6 +12,7 @@ import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -136,7 +137,9 @@ export class ConstructionCorp extends Corp {
 
     const constructionSites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) {
-      this.targetBuilders = 0;
+      // Nothing to build, but containers decay - keep one builder while any needs
+      // repair, so a finished (RCL-maxed) room still maintains its containers.
+      this.targetBuilders = this.wantsMaintenance(spawn.room) ? 1 : 0;
       return;
     }
 
@@ -699,7 +702,58 @@ export class ConstructionCorp extends Corp {
   /**
    * Run behavior for a builder creep.
    */
+  /** Every container in the room (source + controller), for maintenance scanning. */
+  private roomContainers(room: Room): StructureContainer[] {
+    return room.find(FIND_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    }) as StructureContainer[];
+  }
+
+  /** The container most in need of repair (below the ceiling), or null. */
+  private findRepairTarget(room: Room): StructureContainer | null {
+    return pickRepairTarget(this.roomContainers(room), REPAIR_TO);
+  }
+
+  /** Whether to field/keep a maintenance builder for decaying containers (hysteresis). */
+  private wantsMaintenance(room: Room): boolean {
+    return wantsMaintenanceBuilder(this.roomContainers(room), this.builders.count() > 0);
+  }
+
+  /**
+   * Maintain decaying containers when there is nothing to build. Self-contained: the
+   * builder fuels from the very container it repairs (source containers hold energy;
+   * the controller container is fed by haulers), so maintenance needs no tanker. It
+   * tops up the most-decayed container, then the next, until all reach the ceiling -
+   * at which point findRepairTarget returns null and the builder idles to be recycled.
+   */
+  private doMaintenance(creep: Creep, room: Room): void {
+    const target = this.findRepairTarget(room);
+    if (!target) return; // all healthy: idle until plan() retires this builder
+
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+      // Refuel from the container we maintain (or move to it).
+      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      }
+      return;
+    }
+
+    const result = creep.repair(target);
+    if (result === ERR_NOT_IN_RANGE) {
+      creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+    } else if (result === OK) {
+      this.recordConsumption(creep.getActiveBodyparts(WORK)); // repair: 1 energy/WORK/tick
+    }
+  }
+
   private runBuilder(creep: Creep, room: Room): void {
+    // No construction sites: switch to container maintenance (fuel from + repair the
+    // most decayed container) instead of standing idle.
+    if (room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) {
+      this.doMaintenance(creep, room);
+      return;
+    }
+
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
       creep.say("pickup");
@@ -858,7 +912,13 @@ export class ConstructionCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) return [];
+    if (sites.length === 0) {
+      // No sites, but containers decay: field one small builder to maintain them.
+      // It self-fuels at the container, so no tankers are needed (hence we return
+      // only the builder demand here, never the feeder demand below).
+      if (!this.wantsMaintenance(spawn.room)) return [];
+      return this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, spawn.room));
+    }
 
     const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, spawn.room));
 
