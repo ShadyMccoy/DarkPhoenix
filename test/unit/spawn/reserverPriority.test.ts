@@ -52,18 +52,17 @@ describe("reserver spawn priority (income, not starved)", () => {
     expect(spawnPriority(reserver)).to.be.lessThan(spawnPriority(startedHauler));
   });
 
-  it("a started reserver outranks opening a brand-new source (reserved mining beats plain mining)", () => {
-    // The headline intent: reserving a remote we ALREADY mine (doubling committed
-    // infrastructure) beats opening a fresh source (+5/tick but needs a new miner,
-    // haulers and road). The reserver's demand only exists once its remote has a
-    // miner, so it is a started unit (1e6+92) and leads any fresh source-opening
-    // miner (1e6+100) - which, as a *fresh* reserver (1e6+92 < 1e6+100), it would not.
+  it("ranks in the scaling-income tier: above a fresh source's SECOND miner, below any source's FIRST miner", () => {
+    // The reserver optimises an already-producing source (it doubles its regen), so
+    // it belongs with scaling income, not on the critical path. As a started, non-
+    // blocking income demand it outranks fresh SCALING demands (a second miner)...
     const startedReserver = demand({ role: "reserver", value: 92, producesIncome: true, groupId: "reservation-W1N0", groupStarted: true });
-    const freshMiner = demand({ role: "miner", value: 100, producesIncome: true, groupId: "new-src" });
-    expect(spawnPriority(startedReserver)).to.be.greaterThan(spawnPriority(freshMiner));
+    const freshSecondMiner = demand({ role: "miner", value: 100, blocking: false, producesIncome: true, groupId: "new-src", groupStarted: false });
+    expect(spawnPriority(startedReserver)).to.be.greaterThan(spawnPriority(freshSecondMiner));
 
-    // The contrast that motivates groupStarted: a *fresh* reserver loses to the fresh miner.
-    const freshReserver = demand({ role: "reserver", value: 92, producesIncome: true, groupId: "reservation-W1N0" });
-    expect(spawnPriority(freshReserver)).to.be.lessThan(spawnPriority(freshMiner));
+    // ...but it yields to opening a brand-new source's FIRST miner (blocking, the
+    // critical path): get every source producing before optimising existing ones.
+    const freshFirstMiner = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "new-src", groupStarted: false });
+    expect(spawnPriority(startedReserver)).to.be.lessThan(spawnPriority(freshFirstMiner));
   });
 });

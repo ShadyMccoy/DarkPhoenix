@@ -16,6 +16,7 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { sourceHarvestSpot } from "./nodeEnergy";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -482,8 +483,13 @@ export class ConstructionCorp extends Corp {
         .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
         .reduce((sum, r) => sum + r.amount, 0);
       if (pile < SOURCE_CONTAINER_PILE_THRESHOLD) continue;
-      const tile = this.bestAdjacentTile(room, source.pos, 1);
-      if (tile) return tile;
+      // Place the container on the SAME tile the miner stands on (sourceHarvestSpot),
+      // so the static miner ends up standing on its own container - the drop pile,
+      // the container, and the haulers' pickup all converge on one tile instead of
+      // the miner dropping energy on a tile the haulers never visit.
+      const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+      const spot = sourceHarvestSpot(source, spawn?.pos);
+      return { x: spot.x, y: spot.y };
     }
     return null;
   }

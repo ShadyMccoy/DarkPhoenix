@@ -15,6 +15,8 @@
  * @module corps/nodeEnergy
  */
 
+import { travelTo } from "./movement";
+
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension;
 
@@ -36,6 +38,67 @@ export interface EnergySpot {
    * miner starts dropping.
    */
   waitClear?: boolean;
+}
+
+/**
+ * The deterministic best tile within `range` of `target`: walkable, unoccupied,
+ * and nearest the spawn (shorter hauls). Iteration order makes ties deterministic.
+ *
+ * Shared by the source-container placement (where to BUILD), the miner (where to
+ * STAND), and - via {@link sourceHarvestSpot} - the drop pile, so all three
+ * converge on ONE tile instead of three different ones. That convergence is what
+ * stops a miner dropping energy on a tile the haulers never visit.
+ */
+export function bestAdjacentTile(
+  room: Room,
+  target: RoomPosition,
+  range: number,
+  spawnPos?: RoomPosition
+): RoomPosition | null {
+  const terrain = room.getTerrain();
+  const occupied = new Set<string>();
+  for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+  for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+
+  let best: { x: number; y: number; d: number } | null = null;
+  for (let dx = -range; dx <= range; dx++) {
+    for (let dy = -range; dy <= range; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = target.x + dx;
+      const y = target.y + dy;
+      if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      if (occupied.has(`${x},${y}`)) continue;
+      const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;
+      if (!best || d < best.d) best = { x, y, d };
+    }
+  }
+  return best ? new RoomPosition(best.x, best.y, room.name) : null;
+}
+
+/**
+ * Where a source's miner should STAND: on the source container (built or planned)
+ * if one is adjacent - static mining drops the harvested energy straight in - else
+ * the deterministic best harvest tile ({@link bestAdjacentTile}). Construction
+ * places the source container on that SAME tile, so the miner is already standing
+ * where the container will appear: the miner's drop pile, the future container, and
+ * the haulers' pickup all land on one tile. Without this the miner parks on an
+ * arbitrary adjacent tile, drops its energy there, and the haulers - routed to the
+ * planned container tile - never collect it, so it piles up un-hauled.
+ *
+ * Falls back to the source tile only if nothing adjacent is walkable (shouldn't
+ * happen for a real source, which always has an open mining tile).
+ */
+export function sourceHarvestSpot(source: Source, spawnPos?: RoomPosition): RoomPosition {
+  const built = source.pos.findInRange(FIND_STRUCTURES, 1, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER
+  })[0];
+  if (built) return built.pos;
+  const site = source.pos.findInRange(FIND_MY_CONSTRUCTION_SITES, 1, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER
+  })[0];
+  if (site) return site.pos;
+  return bestAdjacentTile(source.room, source.pos, 1, spawnPos) ?? source.pos;
 }
 
 /**
@@ -116,7 +179,8 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
   // tile short, common in remote mining where there is no container).
   const range = mode === "collect" && !spot.waitClear ? 1 : spot.structure ? 1 : 2;
   if (creep.pos.getRangeTo(spot.pos) > range) {
-    creep.moveTo(spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
+    // travelTo so a hauler crossing into a remote room doesn't bounce on the border.
+    travelTo(creep, spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
     return 0;
   }
 

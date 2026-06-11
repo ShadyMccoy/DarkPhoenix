@@ -9,6 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { controllerDeliverySpot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { travelTo } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
@@ -467,7 +468,7 @@ export class CarryCorp extends Corp {
     if (!targetPos) return;
 
     if (targetPos.roomName !== creep.room.name) {
-      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+      travelTo(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
       return;
     }
 

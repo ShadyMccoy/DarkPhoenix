@@ -15,6 +15,8 @@ import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
+import { sourceHarvestSpot } from "./nodeEnergy";
+import { travelTo } from "./movement";
 
 /**
  * Serialized state specific to HarvestCorp
@@ -232,29 +234,26 @@ export class HarvestCorp extends Corp {
    * Move creep toward a remote source position (when we don't have vision).
    */
   private moveToRemoteSource(creep: Creep, targetPos: RoomPosition): void {
-    if (creep.pos.roomName !== targetPos.roomName) {
-      // Not in the target room yet - move there
-      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
-    } else {
-      // In the room - we should have found the source by now
-      // This shouldn't happen, but move closer just in case
-      creep.moveTo(targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
-    }
+    // travelTo crosses the border without bouncing: once the creep enters the
+    // target room on its exit edge, it steps inward instead of flipping back.
+    travelTo(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
   }
 
   /**
    * Run a single harvester creep.
    */
   private runHarvester(creep: Creep, source: Source): number {
-    // Static mining: when the source has a container, stand ON it so harvested
-    // energy drops straight into the container - the miner never roams, the
-    // energy never decays, and haulers withdraw it in bulk. Without a container,
-    // fall back to dropping it adjacent to the source.
-    const container = this.sourceContainer(source);
-    const onStation = container ? creep.pos.isEqualTo(container.pos) : creep.pos.isNearTo(source);
-    if (!onStation) {
-      const target = container ? container.pos : source.pos;
-      creep.moveTo(target, { range: container ? 0 : 1, visualizePathStyle: { stroke: "#ffaa00" } });
+    // Static mining: stand on the ONE designated harvest tile - the source
+    // container if built, else the exact tile the container is (or will be) placed
+    // on. The miner's dropped energy, the container, and the haulers' pickup all
+    // converge on this tile, so the energy never sits on a tile the haulers never
+    // visit (the "source piles up un-hauled" bug). Harvest fires whenever we are
+    // adjacent to the source, so we still mine while walking onto the spot or if a
+    // transient second miner can't claim the exact tile.
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spot = sourceHarvestSpot(source, spawn?.pos);
+    if (!creep.pos.isEqualTo(spot)) {
+      travelTo(creep, spot, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
     const result = creep.harvest(source);
@@ -271,14 +270,6 @@ export class HarvestCorp extends Corp {
     }
 
     return 0;
-  }
-
-  /** The container sitting on/next to this source, if one has been built. */
-  private sourceContainer(source: Source): StructureContainer | null {
-    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER
-    }) as StructureContainer[];
-    return containers[0] ?? null;
   }
 
   /**

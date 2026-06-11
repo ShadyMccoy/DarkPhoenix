@@ -168,52 +168,65 @@ describe("SpawnScheduler", () => {
       });
     });
 
-    describe("fund-one-corp-fully strategy", () => {
-      it("finishes a started source's haulers before opening a fresh source's miner", () => {
-        // Source A is already mined (groupStarted) and still wants a second
-        // hauler; source B's first miner is fresh. Even though the fresh miner
-        // has a slightly higher base value, completing the started unit wins, so
-        // A's energy gets hauled home before B is opened.
+    describe("breadth-first-on-the-critical-path strategy", () => {
+      it("finishes a started source's SCALING hauler before opening a fresh source's SCALING demand", () => {
+        // Both demands are scaling (non-blocking): A is already mined and wants
+        // another hauler, B wants a second miner. Among scaling demands the started
+        // source is finished first, so A's extra hauler beats B's extra miner.
         const startedHauler = demand({
           buyerCorpId: "haulA", role: "hauler", value: 90,
           producesIncome: true, groupId: "A", groupStarted: true,
         });
-        const freshMiner = demand({
+        const freshScaling = demand({
           buyerCorpId: "minerB", role: "miner", value: 100,
           producesIncome: true, groupId: "B", groupStarted: false,
         });
-        const result = scheduleSpawn([freshMiner, startedHauler], ctx({ energyAvailable: 300 }));
+        const result = scheduleSpawn([freshScaling, startedHauler], ctx({ energyAvailable: 300 }));
         expect(result?.demand.buyerCorpId).to.equal("haulA");
       });
 
-      it("opens a fresh source once the started one is fully staffed", () => {
-        // No started-unit demand remains (A is done); only B's fresh miner is
-        // left, so the spawn moves on and opens it.
+      it("opens a fresh source's FIRST MINER before scaling up an already-hauled source", () => {
+        // The bug fix: source A is mined AND already has its first hauler, so its
+        // remaining demand is a SCALING hauler (non-blocking). Source B has never
+        // been mined - its first miner is blocking. Opening B (the critical path of a
+        // whole second source) must beat topping up A, otherwise A monopolises the
+        // spawn and B stays at zero income forever (the user-reported "other source
+        // has no miner" while the first piles up).
+        const scalingHaulerA = demand({
+          buyerCorpId: "haulA", role: "hauler", value: 110, blocking: false,
+          producesIncome: true, groupId: "A", groupStarted: true,
+        });
+        const freshBlockingMinerB = demand({
+          buyerCorpId: "minerB", role: "miner", value: 100, blocking: true,
+          producesIncome: true, groupId: "B", groupStarted: false,
+        });
+        const result = scheduleSpawn([scalingHaulerA, freshBlockingMinerB], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("minerB");
+      });
+
+      it("still staffs a started source's FIRST HAULER before opening a fresh source's miner", () => {
+        // The good half of the old strategy, preserved: a started source whose energy
+        // is stranding (its FIRST hauler is blocking) is unstranded before a fresh
+        // source's first miner opens, so we never leave a producing source un-hauled.
+        const blockingFirstHaulerA = demand({
+          buyerCorpId: "haulA", role: "hauler", value: 90, blocking: true,
+          producesIncome: true, groupId: "A", groupStarted: true,
+        });
+        const freshBlockingMinerB = demand({
+          buyerCorpId: "minerB", role: "miner", value: 100, blocking: true,
+          producesIncome: true, groupId: "B", groupStarted: false,
+        });
+        const result = scheduleSpawn([freshBlockingMinerB, blockingFirstHaulerA], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("haulA");
+      });
+
+      it("opens a fresh source once no started-source critical demand remains", () => {
         const freshMiner = demand({
-          buyerCorpId: "minerB", role: "miner", value: 100,
+          buyerCorpId: "minerB", role: "miner", value: 100, blocking: true,
           producesIncome: true, groupId: "B", groupStarted: false,
         });
         const result = scheduleSpawn([freshMiner], ctx({ energyAvailable: 300 }));
         expect(result?.demand.buyerCorpId).to.equal("minerB");
-      });
-
-      it("completes a started unit before opening a fresh source's blocking miner", () => {
-        // The heart of "fund one corp fully, then move on": source B is already
-        // mining and needs its hauler to get that energy home; source A is a fresh
-        // source whose first miner is blocking. Completing B (haulB) must outrank
-        // opening A (boot) - started corps outrank fresh ones - otherwise the spawn
-        // keeps opening new sources while started ones strand their energy unhauled
-        // (haulers parked at sources, the exact failure this guards against).
-        const freshBlockingMiner = demand({
-          buyerCorpId: "boot", role: "miner", value: 100, blocking: true,
-          producesIncome: true, groupId: "A", groupStarted: false,
-        });
-        const startedHauler = demand({
-          buyerCorpId: "haulB", role: "hauler", value: 110,
-          producesIncome: true, groupId: "B", groupStarted: true,
-        });
-        const result = scheduleSpawn([startedHauler, freshBlockingMiner], ctx({ energyAvailable: 300 }));
-        expect(result?.demand.buyerCorpId).to.equal("haulB");
       });
     });
 
@@ -226,9 +239,23 @@ describe("SpawnScheduler", () => {
       expect(spawnPriority(income)).to.be.greaterThan(spawnPriority(consumer));
     });
 
-    it("ranks a started income corp above a fresh one regardless of value", () => {
+    it("ranks a fresh source's FIRST MINER (blocking) above a started source's SCALING hauler", () => {
+      // The critical-path fix: opening a new source beats topping up an old one.
+      const freshFirstMiner = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "B", groupStarted: false });
+      const startedScalingHauler = demand({ role: "hauler", value: 110, blocking: false, producesIncome: true, groupId: "A", groupStarted: true });
+      expect(spawnPriority(freshFirstMiner)).to.be.greaterThan(spawnPriority(startedScalingHauler));
+    });
+
+    it("ranks a started source's FIRST HAULER (blocking) above a fresh source's first miner", () => {
+      // ...but a producing source's stranded energy is hauled before a new source opens.
+      const startedFirstHauler = demand({ role: "hauler", value: 90, blocking: true, producesIncome: true, groupId: "A", groupStarted: true });
+      const freshFirstMiner = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "B", groupStarted: false });
+      expect(spawnPriority(startedFirstHauler)).to.be.greaterThan(spawnPriority(freshFirstMiner));
+    });
+
+    it("ranks a started scaling demand above a fresh scaling demand (finish a started source first)", () => {
       const started = demand({ role: "hauler", value: 90, producesIncome: true, groupId: "A", groupStarted: true });
-      const fresh = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "B", groupStarted: false });
+      const fresh = demand({ role: "miner", value: 100, producesIncome: true, groupId: "B", groupStarted: false });
       expect(spawnPriority(started)).to.be.greaterThan(spawnPriority(fresh));
     });
 

@@ -16,6 +16,7 @@ import {
 } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SpawningCorp } from "./SpawningCorp";
+import { travelTo } from "./movement";
 
 /**
  * Serialized state specific to ScoutCorp
@@ -185,7 +186,7 @@ export class ScoutCorp extends Corp {
     const finalTarget = creep.memory.targetRoom as string;
     if (creep.room.name !== finalTarget) {
       const targetPos = new RoomPosition(25, 25, finalTarget);
-      const result = creep.moveTo(targetPos, {
+      const result = travelTo(creep, targetPos, {
         visualizePathStyle: { stroke: "#00ff00" },
         reusePath: 10
       });

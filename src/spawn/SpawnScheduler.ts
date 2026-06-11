@@ -126,32 +126,48 @@ export interface ScheduleResult {
  * the order is obvious and needs no tuning (this replaces the old additive soup
  * of blocking + completion + aging boosts that no one could reason about):
  *
- *   1. income corp, already started   - finish what's underway (its haulers /
- *                                        a second miner) before anything else
- *   2. income corp, fresh             - open the next source's first miner
- *   3. consumption (upgrade/build/...) - spend the leftover, once income is staffed
+ *   1. income, BLOCKING - the critical path of EVERY source: its first miner
+ *                         (without it the source is dead) and, once mined, its
+ *                         first hauler (without it the energy strands). Across all
+ *                         sources, so each source is brought online before any
+ *                         source is fully fleshed out (breadth-first on income).
+ *   2. income, scaling  - the 2nd+ hauler / 2nd miner that saturate an
+ *                         already-producing-and-hauled source (depth, after breadth).
+ *   3. consumption      - spend the leftover, once income is staffed.
  *
- * Within a tier the higher-VALUE corp/sink wins, so income corps are opened and
- * completed in expected-value order. Within one corp `blocking` nudges the urgent
- * demand ahead (a mining source with no hauler stranding its energy; the first
- * upgrader that keeps the controller alive). That is the entire strategy: rank
- * income corps by value, staff the top one to completion before the next, consume
- * only what income leaves - with no boosts to balance and no aging to drift.
+ * Within a tier the higher-VALUE corp/sink wins, so corps are ordered by
+ * expected value. `groupStarted` is a SMALL tiebreak BELOW `blocking`: among
+ * blocking demands it finishes a started source's first hauler before opening a
+ * fresh source's first miner (don't strand a producing source's energy); among
+ * scaling demands it finishes a started source first.
+ *
+ * The crucial ordering this encodes - and the bug it fixes - is that a fresh
+ * source's FIRST MINER (income, blocking) outranks another source's SCALING
+ * hauler (income, started, non-blocking). The old model put ALL started income
+ * above ALL fresh income (STARTED >> URGENT), so one source's never-ending
+ * scaling-hauler demand monopolised the spawn and a second source NEVER got a
+ * miner (its energy zero) while the first was endlessly topped up. Putting
+ * BLOCKING above STARTED makes every source get a miner + first hauler before any
+ * source is scaled - the user-visible "one source piles un-hauled, the other has
+ * no miner, the controller starves" all trace back to that monopoly.
  *
  * The tier gaps (1e6 >> 1e4 >> 1e3 >> value~50-110) are pure separators, not
- * tunables: a started corp always outranks a fresh one, income always outranks
- * consumption, regardless of the raw values involved. At cold start no corp is
- * started, so the colony's first miner (tier 2) leads.
+ * tunables. At cold start no corp is started, so the colony's first miner (income,
+ * blocking) leads.
  */
 export function spawnPriority(demand: SpawnDemand): number {
   const INCOME_TIER = 1_000_000;
-  const STARTED = 10_000;
-  const URGENT = 1_000; // first hauler (stranded energy) / first upgrader (anti-downgrade)
+  const BLOCKING = 10_000; // first miner of ANY source / first hauler of a started one - the critical path
+  const STARTED = 1_000; // tiebreak WITHIN a blocking class: finish a started source before a fresh one
   let p = demand.value; // base corp/sink value, ~50-110
-  if (demand.blocking) p += URGENT;
   if (demand.groupId !== undefined && demand.producesIncome) {
     p += INCOME_TIER;
+    if (demand.blocking) p += BLOCKING;
     if (demand.groupStarted) p += STARTED;
+  } else if (demand.blocking) {
+    // Non-income critical work (the first upgrader holding the controller against
+    // downgrade): above idle consumption, but still below all income.
+    p += STARTED;
   }
   return p;
 }
