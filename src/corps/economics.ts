@@ -46,26 +46,21 @@ export interface ChainScene {
 export const SPAWN_PARTS_PER_TICK = 1 / 3;
 
 /**
- * Rough energy/tick a single spawn can keep harvested + delivered. Used only to
- * PRICE spawn build-time in energy terms, not as a hard cap. Pricing the spawn's
- * 0.333 parts/tick against this gives {@link SPAWN_PART_ENERGY_VALUE}, the energy
- * a unit of spawn throughput is "worth" - so a part-hungry corp can be penalized
- * in pure energy and ranked against everything else. A conservative mid estimate
- * (a couple of well-staffed sources); tune against real colonies.
+ * Energy value of one unit of spawn throughput - energy per (part/tick), i.e. the
+ * energy a body part held continuously (respawned forever) is worth. Multiply a
+ * corp's {@link CorpEconomics.spawnPartsPerTick} by this to price its spawn
+ * build-time in energy, then subtract from net (see {@link effectiveNet}). This
+ * is what makes the spawn-time wall fall out of a pure-energy ranking: a far
+ * source whose haulers eat the build budget is penalized enough to lose to a near
+ * one, with no hard distance limit.
+ *
+ * Calibrated from a representative source at the average remote distance
+ * (~75 tiles): it nets ~7.4 e/tick on ~70 body parts, so a held part is worth
+ * ~7.4/70 ~ 0.1 e/tick, i.e. ~155 energy over its 1500-tick life. The implied
+ * "harvest a spawn can support" is ~155 * 0.333 ~ 52 e/tick. Tunable; recalibrate
+ * against real colonies.
  */
-export const SPAWN_SUPPORTED_HARVEST = 60;
-
-/**
- * Energy value of one unit of spawn throughput (energy per part/tick): how much
- * harvested energy the spawn could support if that build-time went to its best
- * use. = SPAWN_SUPPORTED_HARVEST / SPAWN_PARTS_PER_TICK. Multiply a corp's
- * {@link CorpEconomics.spawnPartsPerTick} by this to get its build-time cost in
- * energy, then subtract it from net energy (see {@link effectiveNet}). This is
- * what makes the spawn-time wall fall out of a pure-energy ranking: a far source
- * whose haulers eat the build budget is penalized enough to lose to a near one,
- * with no hard distance limit.
- */
-export const SPAWN_PART_ENERGY_VALUE = SPAWN_SUPPORTED_HARVEST / SPAWN_PARTS_PER_TICK;
+export const SPAWN_PART_ENERGY_VALUE = 155;
 
 /** What a corp projects it would cost and move, per tick, in a given scene. */
 export interface CorpEconomics {
