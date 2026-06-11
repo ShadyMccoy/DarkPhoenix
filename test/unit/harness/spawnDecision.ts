@@ -6,7 +6,7 @@
  *   - each corp's getSpawnDemand (count, sizing, value, blocking flags),
  *   - the director's collectDemands grouping (groupId / groupStarted, the
  *     "fund one income unit fully" bookkeeping), and
- *   - the scheduler (withMinerPrecedence + effectiveValue ranking + the
+ *   - the scheduler (withMinerPrecedence + spawnPriority ranking + the
  *     wait-for-blocking / affordability decision).
  *
  * Bugs hide in the *seams* between them - e.g. a miner that stopped counting as

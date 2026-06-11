@@ -62,9 +62,9 @@ export interface SpawnDemand {
   /**
    * True when this demand's group is already underway - it has its bootstrap
    * producer in the field (e.g. the source is already being mined) and what
-   * remains is to finish staffing it. Such demands are boosted so the spawn
-   * completes a started income unit before opening a brand-new one. See
-   * {@link COMPLETION_BOOST}.
+   * remains is to finish staffing it. {@link spawnPriority} ranks such demands
+   * above fresh income corps so the spawn completes a started income unit before
+   * opening a brand-new one.
    */
   groupStarted?: boolean;
   /** Ideal body cost given the flow demand. */
@@ -121,39 +121,39 @@ export interface ScheduleResult {
   reason: string;
 }
 
-/** How much a demand's effective value grows per tick spent waiting. */
-export const AGING_VALUE_PER_TICK = 0.5;
-
 /**
- * How much to boost a demand that *completes an already-started income unit*
- * (a source that is already being mined and now needs its haulers, or a second
- * miner). This is the "fund one corp fully before opening the next" strategy:
- * the spawn should finish staffing the source it has already started - getting
- * that energy actually hauled home - before it spends spawn time opening a
- * fresh source whose energy will just strand unhauled. This was the root of the
- * "lots of remote miners going out, little energy coming back" failure: a fresh
- * source's first miner (base value) used to outrank an already-mined source's
- * remaining haulers, so the colony kept opening sources it never finished.
+ * Spawn priority of a single demand - higher spawns first. Strictly TIERED, so
+ * the order is obvious and needs no tuning (this replaces the old additive soup
+ * of blocking + completion + aging boosts that no one could reason about):
  *
- * The boost is sized to sit *above* the base values of the economy
- * (miner/hauler/builder/upgrader are all ~90-110) so completion wins decisively
- * over opening, yet *below* {@link effectiveValue}'s blocking boost (1000) so a
- * genuinely blocking bootstrap demand (the colony's first miner, the first
- * upgrader that keeps the controller alive) still comes first.
+ *   1. income corp, already started   - finish what's underway (its haulers /
+ *                                        a second miner) before anything else
+ *   2. income corp, fresh             - open the next source's first miner
+ *   3. consumption (upgrade/build/...) - spend the leftover, once income is staffed
+ *
+ * Within a tier the higher-VALUE corp/sink wins, so income corps are opened and
+ * completed in expected-value order. Within one corp `blocking` nudges the urgent
+ * demand ahead (a mining source with no hauler stranding its energy; the first
+ * upgrader that keeps the controller alive). That is the entire strategy: rank
+ * income corps by value, staff the top one to completion before the next, consume
+ * only what income leaves - with no boosts to balance and no aging to drift.
+ *
+ * The tier gaps (1e6 >> 1e4 >> 1e3 >> value~50-110) are pure separators, not
+ * tunables: a started corp always outranks a fresh one, income always outranks
+ * consumption, regardless of the raw values involved. At cold start no corp is
+ * started, so the colony's first miner (tier 2) leads.
  */
-export const COMPLETION_BOOST = 150;
-
-/**
- * Effective value used for ranking: base value, a large boost for blocking
- * demands, a boost for completing an already-started income unit (see
- * {@link COMPLETION_BOOST}), plus anti-starvation aging so a demand that keeps
- * losing eventually wins.
- */
-export function effectiveValue(demand: SpawnDemand, tick: number): number {
-  const BLOCKING_BOOST = 1000;
-  const age = Math.max(0, tick - demand.since);
-  const completing = demand.producesIncome && demand.groupStarted ? COMPLETION_BOOST : 0;
-  return demand.value + (demand.blocking ? BLOCKING_BOOST : 0) + completing + AGING_VALUE_PER_TICK * age;
+export function spawnPriority(demand: SpawnDemand): number {
+  const INCOME_TIER = 1_000_000;
+  const STARTED = 10_000;
+  const URGENT = 1_000; // first hauler (stranded energy) / first upgrader (anti-downgrade)
+  let p = demand.value; // base corp/sink value, ~50-110
+  if (demand.blocking) p += URGENT;
+  if (demand.groupId !== undefined && demand.producesIncome) {
+    p += INCOME_TIER;
+    if (demand.groupStarted) p += STARTED;
+  }
+  return p;
 }
 
 /**
@@ -162,10 +162,9 @@ export function effectiveValue(demand: SpawnDemand, tick: number): number {
  * fill).
  *
  * Decision procedure:
- *  1. Rank demands by {@link effectiveValue} (blocking + completion + aging
- *     aware - so a started income unit's remaining staffing outranks opening a
- *     fresh one; see {@link COMPLETION_BOOST}).
- *  2. Walk from highest value:
+ *  1. Rank demands by {@link spawnPriority} (a started income corp's remaining
+ *     staffing outranks opening a fresh source, which outranks consumption).
+ *  2. Walk from highest priority:
  *     - If we can afford the demand's minimum body, spawn it now, spending up
  *       to its desired cost (capped by available energy) - UNLESS we are holding
  *       the spawn for a higher-ranked blocking demand we cannot yet afford, in
@@ -191,7 +190,7 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
 
-  const ranked = [...eligible].sort((a, b) => effectiveValue(b, ctx.tick) - effectiveValue(a, ctx.tick));
+  const ranked = [...eligible].sort((a, b) => spawnPriority(b) - spawnPriority(a));
 
   // Set once we pass a blocking demand we cannot afford yet but the room can
   // eventually build. From then on we decline to spend the dribble on
@@ -242,20 +241,17 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 }
 
 /**
- * Drop hauler demands whose source has NO miner in the field yet - the first
- * miner must be staffed before its haulers (a hauler with no miner has nothing
- * to carry). Gated on `groupStarted` (a miner is already mining), NOT on the
- * mere presence of a miner demand: once the first miner exists, its haulers may
- * proceed even while a bigger/second miner is still wanted - otherwise an
- * under-target miner starves its own haulers forever and the source's energy
- * strands unhauled. Other roles pass through. Pure, so it can be unit tested.
+ * Drop hauler demands whose source has NO miner in the field (`groupStarted` is
+ * false) - a hauler with no miner has nothing to carry, so it must never spawn.
+ * This is the single invariant behind "no hauler without a staffed miner": it
+ * fires on the source's mining state directly, so it catches BOTH a source whose
+ * miner is still being staffed AND an orphan hauler whose source has no miner
+ * demand at all (e.g. a remote source the miner-profitability gate rejected) -
+ * the "green haulers parked at minerless sources in every room" failure. Once a
+ * miner is mining (`groupStarted`), its haulers proceed even while a bigger/second
+ * miner is still wanted. Demands with no groupId (non-source roles) pass through.
+ * Pure, so it can be unit tested.
  */
 export function withMinerPrecedence(demands: SpawnDemand[]): SpawnDemand[] {
-  const sourcesWithoutMiner = new Set(
-    demands.filter(d => d.role === "miner" && !d.groupStarted && d.groupId !== undefined).map(d => d.groupId)
-  );
-  if (sourcesWithoutMiner.size === 0) return demands;
-  return demands.filter(
-    d => !(d.role === "hauler" && d.groupId !== undefined && sourcesWithoutMiner.has(d.groupId))
-  );
+  return demands.filter(d => !(d.role === "hauler" && d.groupId !== undefined && d.groupStarted === false));
 }

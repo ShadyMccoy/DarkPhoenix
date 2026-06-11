@@ -26,15 +26,10 @@ import { CorpRegistry } from "./CorpRunner";
  */
 const FLOW_MIN_RCL = 2;
 
-/** Persistent aging timestamps, keyed by `${buyerCorpId}:${role}`. */
-const demandSince: Map<string, number> = new Map();
-
 /**
  * Run the demand-driven spawn scheduler for all owned spawns.
  */
 export function runSpawnScheduling(registry: CorpRegistry): void {
-  const seenKeys = new Set<string>();
-
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
@@ -59,14 +54,6 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       const demands = collectDemands(registry, spawn.id, demandCtx);
       if (demands.length === 0) continue;
 
-      // Stamp aging timestamps so a repeatedly-losing demand eventually wins.
-      for (const demand of demands) {
-        const key = `${demand.buyerCorpId}:${demand.role}`;
-        seenKeys.add(key);
-        if (!demandSince.has(key)) demandSince.set(key, Game.time);
-        demand.since = demandSince.get(key)!;
-      }
-
       const ctx: ScheduleContext = {
         energyAvailable: room.energyAvailable,
         energyCapacity: room.energyCapacityAvailable,
@@ -78,7 +65,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       if (!result) continue;
 
       const d = result.demand;
-      const ok = spawningCorp.executeSpawn(
+      spawningCorp.executeSpawn(
         d.role,
         d.buyerCorpId,
         result.energyBudget,
@@ -87,18 +74,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         d.haulerRatio,
         d.bodyStrategy
       );
-      if (ok) {
-        // Reset aging for the demand we just fulfilled.
-        demandSince.delete(`${d.buyerCorpId}:${d.role}`);
-        seenKeys.delete(`${d.buyerCorpId}:${d.role}`);
-      }
     }
-  }
-
-  // Drop aging entries for demands that no longer exist, so a demand that
-  // disappears and later returns starts fresh rather than instantly aged.
-  for (const key of Array.from(demandSince.keys())) {
-    if (!seenKeys.has(key)) demandSince.delete(key);
   }
 }
 

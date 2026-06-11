@@ -42,6 +42,8 @@ export {
   createEdgeKey,
   parseEdgeKey,
   estimateWalkingDistance,
+  pathDistance,
+  clearPathDistanceCache,
   createNodeNavigator,
   buildEconomicEdges,
   addEconomicEdgesToNavigator

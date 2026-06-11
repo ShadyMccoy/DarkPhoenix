@@ -367,13 +367,15 @@ export class HarvestCorp extends Corp {
         buyerCorpId: this.id,
         role: "miner",
         value: 100 + (assignment.efficiency ?? 0) * 0.5,
-        // Blocking only for the colony's FIRST miner (no income at all). Every
-        // additional source's miner is expansion, NOT blocking - otherwise each new
-        // source's miner (blocking) outranks the haulers that complete an already-
-        // mined source, and the spawn fields miner after miner while their energy
-        // strands unhauled. Non-blocking here lets the blocking haulers finish one
-        // mining operation before the spawn opens the next.
-        blocking: current === 0 && !this.colonyHasMiner(),
+        // A source's first miner is blocking, per SOURCE - an income unit must be
+        // staffed before any lower-value work (construction, upgrading). This is
+        // not gated on the whole colony having a miner: every source's first miner
+        // must outrank consumption and get staffed, in expected-value order. The
+        // old failure - a fresh source's miner outranking the haulers that complete
+        // an already-started source, so the spawn fields miner after miner while
+        // energy strands unhauled - is prevented by spawnPriority's tiers (a started
+        // income corp outranks opening a fresh one), not by withholding the block here.
+        blocking: current === 0,
         producesIncome: true,
         desiredCost: desired.cost,
         minCost: min.cost,

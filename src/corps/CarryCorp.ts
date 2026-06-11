@@ -9,7 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { controllerDeliverySpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
-import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
+import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
@@ -197,26 +197,33 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * Replace an undersized hauler with a full-size one, but only at zero cost:
-   * when the room is maxed out (every store full) and the spawn would otherwise
-   * idle. Spawning during bootstrap floors haulers at a modest size to keep the
-   * spawn affordable; that leaves the fleet short of the planned CARRY once it
-   * hits its target COUNT. Here - and only here, where the energy and the spawn
-   * tick would otherwise go to waste - we retire the smallest runt so its corp
-   * respawns it at full size, lifting realized throughput toward the plan. In a
-   * constrained room (the common case) the gate never opens, which is correct:
-   * we never disrupt deliveries to chase a bigger body we cannot afford.
+   * Actively heal a runt fleet by retiring the smallest hauler so getSpawnDemand
+   * rebuilds it bigger - but ONLY once conditions are ready: the spawn must already
+   * hold enough energy to rebuild a body strictly bigger than that runt RIGHT NOW.
+   * That gate is the whole trick. We do NOT wait for the runt to die of old age
+   * (1500 ticks of capped throughput), and we do NOT hold the spawn for a full body
+   * (that stalls - this colony's spawn is a flow-through conduit that rarely fills).
+   * We simply pounce whenever the spawn momentarily carries a full-ish load, swap a
+   * runt out for the bigger body it can afford on that tick, and converge the fleet
+   * upward one rung at a time. When the spawn is starved the gate stays shut, so we
+   * never disrupt deliveries to chase a body we cannot afford - no thrash.
    */
   private flagRuntForRecycling(creeps: Creep[], room: Room, spawn: StructureSpawn): void {
-    if (!spawnIdleAndMaxed(room, spawn)) return;
+    if (spawn.spawning) return; // a body is already mid-build; don't pile on
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
+    if (creeps.length < 2) return; // never strand the source
 
-    const idx = pickRuntToRecycle(
-      creeps.map(c => c.getActiveBodyparts(CARRY)),
-      this.haulCarryNeeded(),
-      this.maxCarryPerHauler(room)
-    );
-    if (idx !== null) creeps[idx].memory.recycling = true;
+    const carry = creeps.map(c => c.getActiveBodyparts(CARRY));
+    const minCarry = Math.min(...carry);
+    const maxCarry = this.maxCarryPerHauler(room);
+    if (minCarry >= maxCarry) return; // nothing under-built to heal
+
+    // Conditions ready: the spawn can immediately build a hauler with at least one
+    // more CARRY than the smallest runt (1 CARRY + 1 MOVE = 100 energy per step).
+    const PART_PAIR_COST = 100;
+    if (room.energyAvailable < (minCarry + 1) * PART_PAIR_COST) return;
+
+    creeps[carry.indexOf(minCarry)].memory.recycling = true;
   }
 
   /**
@@ -672,15 +679,17 @@ export class CarryCorp extends Corp {
     // moves only 50 energy a round trip yet holds a fleet slot for its whole life;
     // the even split makes it 2 + 2). Each index gets the floor share and the first
     // `remainder` get one more - deterministic from spawn order. Once PAST the
-    // planned count we are topping up a runt shortfall, so size to just the missing
-    // CARRY rather than another full share.
+    // planned count we are healing a runt fleet (bootstrap under-built the bodies),
+    // so target a FULL body: the scheduler scales it down to whatever energy is on
+    // hand, but on a flush tick it lands a big hauler that flagRuntForRecycling can
+    // then swap a runt for - converging toward fewer, full-size bodies.
     let desiredCarry: number;
     if (current < targetHaulers) {
       const base = Math.floor(carryNeeded / targetHaulers);
       const remainder = carryNeeded % targetHaulers;
       desiredCarry = base + (current < remainder ? 1 : 0);
     } else {
-      desiredCarry = carryNeeded - fieldedCarry;
+      desiredCarry = maxCarryPerHauler;
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
     const desiredCost = desiredCarry * PART_PAIR_COST;
