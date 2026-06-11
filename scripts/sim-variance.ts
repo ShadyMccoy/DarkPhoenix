@@ -21,10 +21,12 @@
  */
 import { readFileSync, mkdirSync } from "fs";
 import * as path from "path";
-import { enableMods, FREE_ECONOMY_MOD } from "../test/integration/loadLayout";
+import { enableMods, FREE_ECONOMY_MOD, padNeighborTerrain } from "../test/integration/loadLayout";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ScreepsServer } = require("screeps-server-mockup");
+const { ScreepsServer, TerrainMatrix } = require("screeps-server-mockup");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const stubRooms = require("screeps-server-mockup/assets/rooms.json");
 
 const DIST_MAIN_JS = "dist/main.js";
 
@@ -48,8 +50,27 @@ async function run(ticks: number, sampleEvery: number, free: boolean): Promise<S
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
 
   await server.world.reset();
-  await server.world.stubWorld();
-  const player = await server.world.addBot({ username: "player", room: "W0N1", x: 15, y: 15, modules: { main: readFileSync(DIST_MAIN_JS).toString() } });
+  // A SINGLE working room, not the 9-room stub world. The full stub world is
+  // degenerate for a from-scratch bot: it exposes all 9 rooms at once (~102
+  // nodes), which a real bot never sees at RCL1, and the colony stalls there (1
+  // jack, 0 progress). One room with real (walled) terrain bootstraps fine AND
+  // produces nodes for the flow economy - so the variance reflects a colony that
+  // actually runs. We reuse the stub world's W0N1 terrain (proven to ramp).
+  const room = "W0N1";
+  const data = stubRooms[room];
+  await server.world.addRoom(room);
+  await server.world.setTerrain(room, TerrainMatrix.unserialize(data.serial));
+  for (const o of data.objects) {
+    if (o.type === "controller" || o.type === "source" || o.type === "mineral") {
+      await server.world.addRoomObject(room, o.type, o.x, o.y, o.attributes);
+    }
+  }
+  await padNeighborTerrain(server.world, [room]);
+  const src = data.objects.find((o: any) => o.type === "source");
+  const player = await server.world.addBot({
+    username: "player", room, x: Math.min(48, src.x + 1), y: src.y,
+    modules: { main: readFileSync(DIST_MAIN_JS).toString() }
+  });
 
   if (free) enableMods(serverPath, [FREE_ECONOMY_MOD]);
   await server.start();
