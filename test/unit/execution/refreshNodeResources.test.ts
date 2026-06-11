@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the Memory type augmentation
-import { Game as MockGame } from "../mock";
+import { Game as MockGame, FIND_SOURCES } from "../mock";
 import { Colony } from "../../../src/colony/Colony";
 import { createNode } from "../../../src/nodes/Node";
 import { refreshNodeResources } from "../../../src/execution/IncrementalAnalysis";
@@ -46,6 +46,14 @@ function resultWith(nodeId: string, positions: { x: number; y: number; roomName:
 
 describe("refreshNodeResources (room-agnostic source claiming)", () => {
   beforeEach(() => {
+    // The live-vision branch calls room.find with the bare FIND_* globals; make
+    // them resolve so the mock room's find matches FIND_SOURCES (105).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_SOURCES = FIND_SOURCES;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MINERALS = 106;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MY_SPAWNS = 112;
     // A bot that owns nothing in the remote room: a spawn (for the username
     // ownership probe) but no vision of and no controller in the remote room.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,6 +132,65 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     const intel = intelWithSource(100, 25, 25) as any;
     intel.controllerPos = { x: 10, y: 10 };
     Memory.roomIntel!["W1N0"] = intel as never;
+
+    refreshNodeResources(colony, result);
+    expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(1500);
+  });
+
+  it("keeps a visible reservable remote's source at the reserved 3000 (no collapse on vision)", () => {
+    // The valuation must not discontinue across the visibility boundary. Once a
+    // miner reaches a remote we get LIVE vision of it, and a live source reads its
+    // raw energyCapacity (1500 while unreserved) - so without the same couldReserve
+    // lift the live branch applies, the remote's worth would collapse 3000 -> 1500
+    // the instant we commit to it, making the planner thrash on a remote that is
+    // only worthwhile reserved. Home is RCL3 (800 >= 650), the live controller is
+    // unowned/unreserved, so the visible source stays valued at 3000.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.spawns = { Spawn1: { owner: { username: "me" }, room: { energyCapacityAvailable: 800 } } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.rooms = {
+      W1N0: {
+        name: "W1N0",
+        controller: { pos: { x: 10, y: 10 }, owner: undefined, reservation: undefined },
+        find: (type: number) =>
+          type === FIND_SOURCES
+            ? [{ id: "live-src", pos: { x: 25, y: 25 }, energyCapacity: 1500 }]
+            : []
+      }
+    };
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" }, { x: 24, y: 25, roomName: "W1N0" }, { x: 26, y: 25, roomName: "W1N0" }
+    ]);
+
+    refreshNodeResources(colony, result);
+    expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(3000);
+  });
+
+  it("does not lift a visible remote already reserved by someone else (stays 1500)", () => {
+    // A live remote whose controller is reserved by a RIVAL cannot be lifted - we
+    // can't reserve it, so its source is worth only the raw unreserved 1500.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.spawns = { Spawn1: { owner: { username: "me" }, room: { energyCapacityAvailable: 800 } } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.rooms = {
+      W1N0: {
+        name: "W1N0",
+        controller: { pos: { x: 10, y: 10 }, owner: undefined, reservation: { username: "rival" } },
+        find: (type: number) =>
+          type === FIND_SOURCES
+            ? [{ id: "live-src", pos: { x: 25, y: 25 }, energyCapacity: 1500 }]
+            : []
+      }
+    };
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" }, { x: 24, y: 25, roomName: "W1N0" }, { x: 26, y: 25, roomName: "W1N0" }
+    ]);
 
     refreshNodeResources(colony, result);
     expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(1500);
