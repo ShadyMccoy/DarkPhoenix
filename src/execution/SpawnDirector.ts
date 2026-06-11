@@ -127,14 +127,23 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
     if (c.getSpawnId() !== spawnId) continue;
     for (const d of c.getSpawnDemand(ctx)) {
       // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
-      // remote room it holds (a remote we already mine, so its demand only appears
-      // once that income is underway). Give it a groupId so spawnPriority places it
-      // in the income tier (it already declares producesIncome) - otherwise it sits
-      // at its base value (92), below every income corp AND every blocking consumer,
-      // and is starved forever while the colony ramps, so the remote never gets
-      // reserved and stays at the unreserved half-rate. It is a *fresh* income unit
-      // (not groupStarted), so the core miners/haulers still complete first.
+      // remote room it holds. Give it a groupId so spawnPriority places it in the
+      // income tier (it already declares producesIncome) - otherwise it sits at its
+      // base value (92), below every income corp AND every blocking consumer, and is
+      // starved forever while the colony ramps, so the remote never gets reserved and
+      // stays at the unreserved half-rate.
+      //
+      // It is also groupStarted: the reserver's demand only exists once a miner is
+      // already harvesting that remote (ReservationCorp.targetRooms gates on it), so
+      // the reserved-mining OP is already underway - reserving merely doubles an
+      // already-committed source (infra built, miner fielded). Treating it as a fresh
+      // unit would rank it BELOW opening a brand-new source (1e6+92 < 1e6+100), so the
+      // planner would open new sources before reserving one it already mines - the
+      // opposite of the intent that reserved mining outranks plain mining. As a
+      // started unit it leads all fresh source-opening while still yielding to the
+      // higher-value started haulers that move the base energy.
       d.groupId = c.id;
+      d.groupStarted = true;
       demands.push(d);
     }
   }
