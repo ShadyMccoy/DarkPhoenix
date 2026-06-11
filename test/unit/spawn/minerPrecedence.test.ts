@@ -25,28 +25,31 @@ describe("withMinerPrecedence", () => {
     expect(out.map(d => d.role)).to.deep.equal(["miner"]);
   });
 
-  it("keeps haulers once their source has no pending miner demand", () => {
-    // srcA's miner is fully staffed (no miner demand), so its haulers proceed.
+  it("drops an orphan hauler whose source has no miner in the field", () => {
+    // srcA has a hauler demand but no miner mining yet (groupStarted false) - e.g.
+    // a remote source the miner-profitability gate rejected. The hauler has nothing
+    // to carry, so it must be dropped (the "parked at a minerless source" failure).
     const demands = [demand("hauler", "srcA"), demand("upgrader", "roomX")];
     const out = withMinerPrecedence(demands);
 
-    expect(out).to.have.length(2);
+    expect(out.map(d => d.role)).to.deep.equal(["upgrader"]);
   });
 
   it("keeps a source's haulers once its first miner is in the field (groupStarted)", () => {
     // srcA still wants a bigger/second miner, but one is already mining
-    // (groupStarted) - so its haulers must NOT be held back.
-    const demands = [demand("miner", "srcA", 100, true), demand("hauler", "srcA")];
+    // (groupStarted) - so its haulers must NOT be held back. collectDemands stamps
+    // every demand of a started source with groupStarted=true.
+    const demands = [demand("miner", "srcA", 100, true), demand("hauler", "srcA", 100, true)];
     const out = withMinerPrecedence(demands);
 
     expect(out.map(d => d.role)).to.deep.equal(["miner", "hauler"]);
   });
 
-  it("only holds back haulers of the same source, not other sources", () => {
+  it("holds back haulers of unstarted sources, keeps haulers of a started one", () => {
     const demands = [
-      demand("miner", "srcA"),
+      demand("miner", "srcA"), // srcA not mining yet -> its hauler held
       demand("hauler", "srcA"),
-      demand("hauler", "srcB") // srcB has no pending miner -> allowed
+      demand("hauler", "srcB", 100, true) // srcB is mining (groupStarted) -> allowed
     ];
     const out = withMinerPrecedence(demands);
 

@@ -135,13 +135,16 @@ export const AGING_VALUE_PER_TICK = 0.5;
  * source's first miner (base value) used to outrank an already-mined source's
  * remaining haulers, so the colony kept opening sources it never finished.
  *
- * The boost is sized to sit *above* the base values of the economy
- * (miner/hauler/builder/upgrader are all ~90-110) so completion wins decisively
- * over opening, yet *below* {@link effectiveValue}'s blocking boost (1000) so a
- * genuinely blocking bootstrap demand (the colony's first miner, the first
- * upgrader that keeps the controller alive) still comes first.
+ * The boost sits *above* {@link effectiveValue}'s blocking boost (1000): finishing
+ * an already-started income unit (getting its energy hauled home) outranks opening
+ * a fresh source whose first miner is itself blocking. This is the ordering that
+ * makes income corps complete one at a time, highest-value first, instead of the
+ * spawn fielding miner after miner across many half-staffed sources (the "haulers
+ * parked at minerless sources in every room" failure). At cold start no unit is
+ * started yet, so the colony's very first miner (blocking, no completion-boosted
+ * rival exists) still comes first.
  */
-export const COMPLETION_BOOST = 150;
+export const COMPLETION_BOOST = 2000;
 
 /**
  * Effective value used for ranking: base value, a large boost for blocking
@@ -242,20 +245,17 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 }
 
 /**
- * Drop hauler demands whose source has NO miner in the field yet - the first
- * miner must be staffed before its haulers (a hauler with no miner has nothing
- * to carry). Gated on `groupStarted` (a miner is already mining), NOT on the
- * mere presence of a miner demand: once the first miner exists, its haulers may
- * proceed even while a bigger/second miner is still wanted - otherwise an
- * under-target miner starves its own haulers forever and the source's energy
- * strands unhauled. Other roles pass through. Pure, so it can be unit tested.
+ * Drop hauler demands whose source has NO miner in the field (`groupStarted` is
+ * false) - a hauler with no miner has nothing to carry, so it must never spawn.
+ * This is the single invariant behind "no hauler without a staffed miner": it
+ * fires on the source's mining state directly, so it catches BOTH a source whose
+ * miner is still being staffed AND an orphan hauler whose source has no miner
+ * demand at all (e.g. a remote source the miner-profitability gate rejected) -
+ * the "green haulers parked at minerless sources in every room" failure. Once a
+ * miner is mining (`groupStarted`), its haulers proceed even while a bigger/second
+ * miner is still wanted. Demands with no groupId (non-source roles) pass through.
+ * Pure, so it can be unit tested.
  */
 export function withMinerPrecedence(demands: SpawnDemand[]): SpawnDemand[] {
-  const sourcesWithoutMiner = new Set(
-    demands.filter(d => d.role === "miner" && !d.groupStarted && d.groupId !== undefined).map(d => d.groupId)
-  );
-  if (sourcesWithoutMiner.size === 0) return demands;
-  return demands.filter(
-    d => !(d.role === "hauler" && d.groupId !== undefined && sourcesWithoutMiner.has(d.groupId))
-  );
+  return demands.filter(d => !(d.role === "hauler" && d.groupId !== undefined && d.groupStarted === false));
 }

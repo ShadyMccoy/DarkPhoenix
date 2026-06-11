@@ -245,14 +245,14 @@ function formatRoomName(x: number, y: number): string {
  * PathFinder something to read; creeps still have no targets out there, so they
  * never actually leave their room.
  */
-export async function padNeighborTerrain(world: any, rooms: string[]): Promise<void> {
+export async function padNeighborTerrain(world: any, rooms: string[], radius = 1): Promise<void> {
   const real = new Set(rooms);
   const needed = new Set<string>();
   for (const name of rooms) {
     const c = parseRoomName(name);
     if (!c) continue;
-    for (let dx = -1; dx <= 1; dx += 1) {
-      for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
         if (dx === 0 && dy === 0) continue;
         const neighbor = formatRoomName(c.x + dx, c.y + dy);
         if (!real.has(neighbor)) needed.add(neighbor);

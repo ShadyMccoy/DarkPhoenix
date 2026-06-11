@@ -197,8 +197,14 @@ describe("SpawnScheduler", () => {
         expect(result?.demand.buyerCorpId).to.equal("minerB");
       });
 
-      it("still lets a blocking bootstrap demand outrank a started unit's completion", () => {
-        const bootstrapMiner = demand({
+      it("completes a started unit before opening a fresh source's blocking miner", () => {
+        // The heart of "fund one corp fully, then move on": source B is already
+        // mining and needs its hauler to get that energy home; source A is a fresh
+        // source whose first miner is blocking. Completing B (haulB) must outrank
+        // opening A (boot) - COMPLETION_BOOST > BLOCKING_BOOST - otherwise the spawn
+        // keeps opening new sources while started ones strand their energy unhauled
+        // (haulers parked at sources, the exact failure this guards against).
+        const freshBlockingMiner = demand({
           buyerCorpId: "boot", role: "miner", value: 100, blocking: true,
           producesIncome: true, groupId: "A", groupStarted: false,
         });
@@ -206,8 +212,8 @@ describe("SpawnScheduler", () => {
           buyerCorpId: "haulB", role: "hauler", value: 110,
           producesIncome: true, groupId: "B", groupStarted: true,
         });
-        const result = scheduleSpawn([startedHauler, bootstrapMiner], ctx({ energyAvailable: 300 }));
-        expect(result?.demand.buyerCorpId).to.equal("boot");
+        const result = scheduleSpawn([startedHauler, freshBlockingMiner], ctx({ energyAvailable: 300 }));
+        expect(result?.demand.buyerCorpId).to.equal("haulB");
       });
     });
 
