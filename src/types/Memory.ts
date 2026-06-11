@@ -17,7 +17,6 @@ import {
   SerializedSpawningCorp,
   SerializedUpgradingCorp
 } from "../corps";
-import { SerializedChain } from "../planning/Chain";
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 
@@ -90,11 +89,6 @@ declare global {
      * Format: Map of "nodeId1|nodeId2" -> distance (sorted alphabetically).
      */
     economicEdges?: { [edge: string]: number };
-
-    /**
-     * Serialized chains for persistence.
-     */
-    chains?: { [chainId: string]: SerializedChain };
 
     /**
      * Tick when last planning phase was run.

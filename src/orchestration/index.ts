@@ -4,11 +4,11 @@
  * This module contains the phased orchestration logic:
  * - Init phase (once per code push, lazy initialization)
  * - Survey phase (when nodes are created)
- * - Planning phase (every 5000 ticks) - unified ChainPlanner-based planning
+ * - Planning phase (every 5000 ticks) - refreshes corp production targets
  * - Execution phase (every tick)
  *
- * The ChainPlanner is the single source of truth for economic planning.
- * It finds viable chains, creates contracts, and assigns them to corps.
+ * The economy itself is planned by the CorpPlanner (src/economy); this module
+ * just sequences the phases and persistence.
  *
  * @module orchestration
  */
@@ -26,7 +26,7 @@ export {
   SurveyResult,
   getLastSurveyTick,
   setLastSurveyTick,
-  // Planning phase (unified ChainPlanner-based)
+  // Planning phase (refreshes corp production targets)
   shouldRunPlanning,
   runPlanningPhase,
   PlanningResult,
@@ -36,8 +36,6 @@ export {
   // Status
   getOrchestrationStatus,
   // Persistence
-  loadChains,
-  loadContracts,
   getLastPlanningTick,
   setLastPlanningTick
 } from "./Phases";

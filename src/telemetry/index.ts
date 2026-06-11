@@ -19,6 +19,5 @@ export {
   type EdgesTelemetry,
   type IntelTelemetry,
   type CorpsTelemetry,
-  type ChainsTelemetry,
   type FlowTelemetry
 } from "./Telemetry";

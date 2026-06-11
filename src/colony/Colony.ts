@@ -1,6 +1,4 @@
-import { DEFAULT_MINT_VALUES, MintValues } from "./MintValues";
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
-import { Chain } from "../planning/Chain";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { Node } from "../nodes/Node";
 
@@ -12,7 +10,7 @@ export interface ColonyConfig {
   taxRate: number;
   /** Grace period for new corps before pruning (ticks) */
   corpGracePeriod: number;
-  /** Minimum treasury balance before funding new chains */
+  /** Minimum treasury balance before funding new work */
   minTreasuryBuffer: number;
 }
 
@@ -33,26 +31,24 @@ export interface ColonyStats {
   nodeCount: number;
   /** Total corps across all nodes */
   totalCorps: number;
-  /** Active corps (in funded chains) */
+  /** Active corps (with creeps) */
   activeCorps: number;
-  /** Number of funded chains */
-  activeChains: number;
   /** Average corp ROI */
   averageROI: number;
 }
 
 /**
- * Colony is the top-level economic coordinator.
+ * Colony is the top-level spatial coordinator.
  *
  * The colony manages:
  * 1. Nodes (territories) - spatial regions identified by peak detection
  * 2. Surveys - identifying potential corps in territories
  * 3. Statistics - tracking economic health
  *
- * NOTE: Actual corp execution is handled by CorpRunner in the execution module.
- * Corps (HarvestCorp, CarryCorp, etc.) are managed via CorpRegistry,
- * not via node.corps. This class provides economic infrastructure (surveying)
- * but doesn't directly run corps.
+ * NOTE: Actual corp execution is handled by CorpRunner in the execution module,
+ * and the colony economy is solved by the CorpPlanner (src/economy). Corps are
+ * managed via CorpRegistry, not via node.corps. This class provides spatial
+ * infrastructure (surveying) but doesn't directly run corps or plan the economy.
  *
  * See main.ts for the full game loop orchestration.
  */
@@ -62,12 +58,6 @@ export class Colony {
 
   /** Node surveyor for finding opportunities */
   private surveyor: NodeSurveyor;
-
-  /** Active chains being executed */
-  private activeChains: Chain[] = [];
-
-  /** Mint values (policy configuration) */
-  private mintValues: MintValues;
 
   /** Colony configuration */
   private config: ColonyConfig;
@@ -83,24 +73,21 @@ export class Colony {
     nodeCount: 0,
     totalCorps: 0,
     activeCorps: 0,
-    activeChains: 0,
     averageROI: 0
   };
 
-  public constructor(config: Partial<ColonyConfig> = {}, mintValues: Partial<MintValues> = {}) {
+  public constructor(config: Partial<ColonyConfig> = {}) {
     this.config = { ...DEFAULT_COLONY_CONFIG, ...config };
-    this.mintValues = { ...DEFAULT_MINT_VALUES, ...mintValues };
     this.surveyor = new NodeSurveyor();
   }
 
   /**
-   * Main colony tick - run economic coordination.
+   * Main colony tick - run spatial coordination.
    *
-   * NOTE: This does NOT run corps - that's handled by CorpRunner in main.ts.
-   * This method handles:
-   * - Bootstrap (initial seed capital)
+   * NOTE: This does NOT run corps - that's handled by CorpRunner in main.ts -
+   * nor does it plan the economy (CorpPlanner does). This method handles:
+   * - Bootstrap (one-time initialization marker)
    * - Node surveying (identify potential corps)
-   * - Chain aging (lifecycle management)
    * - Stats updates
    */
   public run(tick: number, corpRegistry: CorpRegistry): void {
@@ -113,9 +100,6 @@ export class Colony {
 
     // Survey nodes for new opportunities (ROI calculation)
     this.surveyNodes();
-
-    // Age active chains (lifecycle tracking)
-    this.ageChains();
 
     // Update stats
     this.updateStats(corpRegistry);
@@ -180,18 +164,6 @@ export class Colony {
   }
 
   /**
-   * Age all active chains
-   */
-  private ageChains(): void {
-    for (const chain of this.activeChains) {
-      chain.age++;
-    }
-
-    // Remove chains that are too old (creep lifetime expired)
-    this.activeChains = this.activeChains.filter(chain => chain.age < 1500);
-  }
-
-  /**
    * Update colony statistics
    */
   private updateStats(corpRegistry: CorpRegistry): void {
@@ -232,7 +204,6 @@ export class Colony {
       nodeCount: this.nodes.length,
       totalCorps,
       activeCorps,
-      activeChains: this.activeChains.filter(c => c.funded).length,
       averageROI: 0
     };
   }
@@ -242,27 +213,6 @@ export class Colony {
    */
   public getStats(): ColonyStats {
     return { ...this.stats };
-  }
-
-  /**
-   * Get active chains
-   */
-  public getActiveChains(): Chain[] {
-    return [...this.activeChains];
-  }
-
-  /**
-   * Get mint values
-   */
-  public getMintValues(): MintValues {
-    return { ...this.mintValues };
-  }
-
-  /**
-   * Update mint values (policy change)
-   */
-  public setMintValues(values: Partial<MintValues>): void {
-    this.mintValues = { ...this.mintValues, ...values };
   }
 
   /**
@@ -280,15 +230,6 @@ export class Colony {
   }
 
   /**
-   * Add a chain to be funded
-   */
-  public addChain(chain: Chain): void {
-    if (!this.activeChains.some(c => c.id === chain.id)) {
-      this.activeChains.push(chain);
-    }
-  }
-
-  /**
    * Get current tick
    */
   public getCurrentTick(): number {
@@ -303,9 +244,7 @@ export class Colony {
       bootstrapped: this.bootstrapped,
       currentTick: this.currentTick,
       config: this.config,
-      mintValues: this.mintValues,
-      nodeIds: this.nodes.map(n => n.id),
-      activeChainIds: this.activeChains.map(c => c.id)
+      nodeIds: this.nodes.map(n => n.id)
     };
   }
 
@@ -316,8 +255,7 @@ export class Colony {
     this.bootstrapped = data.bootstrapped ?? false;
     this.currentTick = data.currentTick ?? 0;
     this.config = { ...DEFAULT_COLONY_CONFIG, ...data.config };
-    this.mintValues = { ...DEFAULT_MINT_VALUES, ...data.mintValues };
-    // Node and chain restoration would need additional logic
+    // Node restoration would need additional logic
   }
 }
 
@@ -328,14 +266,12 @@ export interface SerializedColony {
   bootstrapped: boolean;
   currentTick: number;
   config: ColonyConfig;
-  mintValues: MintValues;
   nodeIds: string[];
-  activeChainIds: string[];
 }
 
 /**
  * Create a colony with default configuration
  */
-export function createColony(config?: Partial<ColonyConfig>, mintValues?: Partial<MintValues>): Colony {
-  return new Colony(config, mintValues);
+export function createColony(config?: Partial<ColonyConfig>): Colony {
+  return new Colony(config);
 }
