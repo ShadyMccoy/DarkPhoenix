@@ -15,6 +15,8 @@
  * 6. Verify system is sustainable (overhead < harvest)
  */
 import {
+  BODY_COSTS,
+  CREEP_LIFETIME,
   FlowConstraints,
   FlowEdge,
   FlowProblem,
@@ -22,13 +24,16 @@ import {
   FlowSolution,
   FlowSource,
   HaulerAssignment,
+  MINER_COST,
   MINER_OVERHEAD_PER_TICK,
+  MINER_PARTS,
   MinerAssignment,
   SOURCE_ENERGY_PER_TICK,
   SinkAllocation,
   calculateCarryParts,
   calculateHaulerCostPerTick
 } from "./FlowTypes";
+import { SPAWN_PART_ENERGY_VALUE } from "../corps/economics";
 import { VariantConstraints, generateEdgeVariants, selectBestVariant } from "../framework/EdgeVariant";
 
 // =============================================================================
@@ -195,34 +200,35 @@ export class FlowSolver {
 
       const spawnDistance = nearestSpawn.distance;
 
-      // Calculate profitability: is this source worth mining?
-      // Net = harvestRate - minerOverhead - haulerOverhead
+      // Profitability in EFFECTIVE energy: gross harvest, minus the miner and
+      // hauler upkeep, minus the spawn BUILD-TIME those bodies consume priced in
+      // energy. Both overheads are amortized over the creep's TTL: a static miner
+      // walks `spawnDistance` tiles out and then dies at the source, so it lives
+      // (and amortizes) over CREEP_LIFETIME minus the walk - the farther the
+      // source, the more often it must be rebuilt. The spawn-part penalty is what
+      // makes a far source FALL OUT: its hauler fleet can stay net-energy-positive
+      // yet cost more spawn build-time than it is worth, so effectiveNet goes
+      // negative - no hard distance/efficiency threshold required.
       const harvestRate = source.capacity;
-      const minerOverhead = MINER_OVERHEAD_PER_TICK;
-
-      // Estimate hauler overhead to nearest sink (spawn)
-      // This is a conservative estimate - actual hauling may be shorter
+      const life = Math.max(1, CREEP_LIFETIME - spawnDistance);
+      const minerOverhead = MINER_COST / life;
       const carryParts = calculateCarryParts(harvestRate, spawnDistance);
-      const haulerOverhead = calculateHaulerCostPerTick(carryParts);
+      const haulerOverhead = (carryParts * (BODY_COSTS.CARRY + BODY_COSTS.MOVE)) / life;
+      const totalParts = MINER_PARTS + 2 * carryParts; // miner 8 + hauler CARRY+MOVE
+      const partPenalty = (totalParts / life) * SPAWN_PART_ENERGY_VALUE;
 
-      const totalOverhead = minerOverhead + haulerOverhead;
-      const netEnergy = harvestRate - totalOverhead;
+      const netEnergy = harvestRate - minerOverhead - haulerOverhead;
+      const effectiveNet = netEnergy - partPenalty;
+      // Rank by effective profit per gross energy, so when the spawn is the
+      // bottleneck the nearest (most build-time-efficient) sources are staffed first.
+      const efficiency = (effectiveNet / harvestRate) * 100;
 
-      // Calculate efficiency percentage: (harvestRate - totalOverhead) / harvestRate * 100
-      const efficiency = (netEnergy / harvestRate) * 100;
-
-      // Only mine if profitable:
-      // 1. Net energy must be positive (at least 2 e/tick buffer)
-      // 2. Efficiency must be at least 65% (otherwise overhead is too high)
-      // Higher thresholds = fewer but more profitable remote mines
-      // This prevents long-range mines that waste creep time and spawn capacity
-      const MIN_NET_ENERGY = 2.0;
-      const MIN_EFFICIENCY = 65;
-      if (netEnergy < MIN_NET_ENERGY || efficiency < MIN_EFFICIENCY) {
+      // Mine only when the source is worth more than the spawn build-time it eats.
+      if (effectiveNet <= 0) {
         console.log(
-          `[FlowSolver] Skipping unprofitable source ${source.id.slice(-8)}: ` +
-            `harvest=${harvestRate.toFixed(1)}, overhead=${totalOverhead.toFixed(2)}, ` +
-            `net=${netEnergy.toFixed(2)}, eff=${efficiency.toFixed(0)}%, distance=${spawnDistance}`
+          `[FlowSolver] Skipping source ${source.id.slice(-8)} (build-time not worth it): ` +
+            `harvest=${harvestRate.toFixed(1)}, net=${netEnergy.toFixed(2)}, ` +
+            `partPenalty=${partPenalty.toFixed(2)}, effNet=${effectiveNet.toFixed(2)}, distance=${spawnDistance}`
         );
         continue;
       }
@@ -233,7 +239,7 @@ export class FlowSolver {
         spawnId: nearestSpawn.id,
         spawnDistance,
         harvestRate: source.capacity,
-        spawnCostPerTick: MINER_OVERHEAD_PER_TICK,
+        spawnCostPerTick: minerOverhead,
         maxMiners: source.maxMiners,
         efficiency
       });
