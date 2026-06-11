@@ -583,6 +583,15 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Total CARRY parts the fleet currently fields. Used to size the fleet by actual
+   * capacity rather than creep count, so a fleet of runts (spawned small under
+   * energy pressure) is recognised as under-capacity and topped up.
+   */
+  private fieldedCarry(): number {
+    return this.getAssignedCreeps().reduce((sum, c) => sum + c.getActiveBodyparts(CARRY), 0);
+  }
+
+  /**
    * Get the spawn ID this corp spawns from.
    */
   public getSpawnId(): string {
@@ -638,20 +647,37 @@ export class CarryCorp extends Corp {
     const targetHaulers = Math.max(1, Math.ceil(carryNeeded / maxCarryPerHauler));
 
     const current = this.getCreepCount();
-    if (current >= targetHaulers) return [];
+    const fieldedCarry = this.fieldedCarry();
 
-    // Size this hauler to an EVEN share of the route's carry across the haulers it
-    // needs - not a greedy "max out each body and leave whatever is left for the
-    // last one". The greedy split leaves a runt tail whenever the route doesn't
-    // divide into full bodies: a 4-CARRY route at a 3-CARRY-body cap builds 3 + 1,
-    // and that 1-CARRY runt moves only 50 energy a round trip yet holds a fleet slot
-    // for its whole 1500-tick life. The even split fields the same hauler count and
-    // total CARRY with no runt (3 + 1 -> 2 + 2). Each hauler index gets the floor
-    // share, and the first `remainder` haulers get one more - deterministic from the
-    // spawn order alone, so it needs no per-creep body inspection.
-    const base = Math.floor(carryNeeded / targetHaulers);
-    const remainder = carryNeeded % targetHaulers;
-    const desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, base + (current < remainder ? 1 : 0)));
+    // Stop once the fleet has BOTH the planned count and enough total CARRY. The
+    // count alone is not enough: under energy pressure haulers spawn at the runt
+    // floor (see minCost below), so the planned count can be reached while the
+    // fielded CARRY still falls short of the route. A source left under-hauled piles
+    // its energy up, which keeps the spawn starved and the next hauler a runt too -
+    // a self-sustaining stall. Keep adding haulers until the CARRY is actually
+    // covered, capped at twice the planned count so a pathologically starved room
+    // can't spawn an unbounded swarm.
+    if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
+    if (current >= targetHaulers * 2) return [];
+
+    // Size while FILLING the planned fleet by an EVEN share of the route's carry -
+    // not a greedy "max out each body and leave whatever is left for the last one",
+    // which leaves a runt tail whenever the route doesn't divide into full bodies
+    // (a 4-CARRY route at a 3-CARRY-body cap builds 3 + 1, and that 1-CARRY runt
+    // moves only 50 energy a round trip yet holds a fleet slot for its whole life;
+    // the even split makes it 2 + 2). Each index gets the floor share and the first
+    // `remainder` get one more - deterministic from spawn order. Once PAST the
+    // planned count we are topping up a runt shortfall, so size to just the missing
+    // CARRY rather than another full share.
+    let desiredCarry: number;
+    if (current < targetHaulers) {
+      const base = Math.floor(carryNeeded / targetHaulers);
+      const remainder = carryNeeded % targetHaulers;
+      desiredCarry = base + (current < remainder ? 1 : 0);
+    } else {
+      desiredCarry = carryNeeded - fieldedCarry;
+    }
+    desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
     const desiredCost = desiredCarry * PART_PAIR_COST;
 
     // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it

@@ -29,6 +29,7 @@ function fakeHauler(corpId: string): unknown {
     memory: { corpId, workType: "haul" },
     spawning: false,
     store: { getCapacity: () => 250 },
+    getActiveBodyparts: (part: string) => (part === "carry" ? 5 : 0), // a full 5-CARRY hauler
   };
 }
 
