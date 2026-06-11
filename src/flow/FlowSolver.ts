@@ -42,7 +42,6 @@ import { SPAWN_PARTS_PER_TICK } from "../corps/economics";
  * before far sources start to fall out.
  */
 const MINING_BUDGET_FRACTION = 0.6;
-import { VariantConstraints, generateEdgeVariants, selectBestVariant } from "../framework/EdgeVariant";
 
 // =============================================================================
 // SOLVER CLASS
@@ -141,7 +140,6 @@ export class FlowSolver {
         // Find nearest spawn for these haulers
         const nearestSpawn = this.findNearestSpawn(flow.sourceId, spawnSinks, edgeMap);
 
-        // Try variant-based optimization if terrain data is available
         const haulerAssignment = this.createHaulerAssignment(
           edge,
           flow,
@@ -401,57 +399,14 @@ export class FlowSolver {
     return nearest;
   }
 
-  /**
-   * Create a hauler assignment, using variant optimization if terrain data is available.
-   */
+  /** Create a hauler assignment with the classic 1:1 CARRY:MOVE sizing. */
   private createHaulerAssignment(
     edge: FlowEdge,
     flow: { sourceId: string; amount: number; distance: number },
     sinkId: string,
     spawnId: string,
-    constraints: FlowConstraints
+    _constraints: FlowConstraints
   ): HaulerAssignment {
-    // If edge has terrain profile and we have spawn energy capacity, use variant selection
-    if (edge.terrain && constraints.spawnEnergyCapacity) {
-      const variantConstraints: VariantConstraints = {
-        spawnEnergy: constraints.spawnEnergyCapacity,
-        canBuildContainer: constraints.canBuildContainer ?? false,
-        canBuildLink: constraints.canBuildLink ?? false,
-        infrastructureBudget: constraints.infrastructureBudget ?? 0,
-        sourceCapacity: flow.amount * 300, // Convert flow/tick back to capacity
-        spawnToSourceDistance: flow.distance
-      };
-
-      // Generate and select best variant
-      const variants = generateEdgeVariants(
-        flow.amount * 300, // sourceCapacity
-        edge.terrain,
-        flow.distance,
-        variantConstraints
-      );
-
-      const bestVariant = selectBestVariant(variants, variantConstraints);
-
-      if (bestVariant && bestVariant.hauler) {
-        // Use variant-optimized configuration
-        return {
-          edgeId: edge.id,
-          fromId: flow.sourceId,
-          toId: sinkId,
-          distance: flow.distance,
-          carryParts: bestVariant.hauler.carryParts,
-          flowRate: flow.amount,
-          spawnCostPerTick: bestVariant.haulCost,
-          spawnId,
-          // Variant-specific fields
-          terrain: edge.terrain,
-          haulerRatio: bestVariant.hauler.ratio,
-          selectedVariant: bestVariant
-        };
-      }
-    }
-
-    // Fallback: use classic 1:1 calculation
     const carryParts = calculateCarryParts(flow.amount, flow.distance);
     const haulerCost = calculateHaulerCostPerTick(carryParts);
 

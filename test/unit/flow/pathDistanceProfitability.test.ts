@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
-import { FlowSolver } from "../../../src/flow/FlowSolver";
+import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
 import { NodeNavigator, clearPathDistanceCache } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { DEFAULT_CONSTRAINTS, MinerAssignment } from "../../../src/flow/FlowTypes";
+import { MinerAssignment } from "../../../src/flow/FlowTypes";
 import { Position } from "../../../src/types/Position";
 
 const ROOM = "W0N0";
@@ -103,12 +103,9 @@ function buildGraph(): FlowGraph {
 }
 
 function minerFor(graph: FlowGraph, sourceId: string): MinerAssignment | undefined {
-  const solution = new FlowSolver().solve({
-    sources: graph.getSources(),
-    sinks: graph.getSinks(),
-    edges: graph.getEdges(),
-    constraints: DEFAULT_CONSTRAINTS
-  });
+  // Validate the LIVE planner (CorpPlanner), which uses pathDistance for the
+  // source->spawn distance - so the installed wall pathfinder is reflected.
+  const solution = solveWithCorpPlanner(graph, 0);
   return solution.miners.find(m => m.sourceId === sourceId);
 }
 
