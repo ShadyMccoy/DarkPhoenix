@@ -592,15 +592,21 @@ describe("Economy Scenarios (from minimal-economy)", () => {
       expect(sol30.efficiency).to.be.greaterThan(sol100.efficiency);
     });
 
-    it("should show efficiency decreasing with distance", () => {
-      const distances = [10, 20, 30, 50, 75, 100];
+    it("should show efficiency decreasing with distance, then the source falling out", () => {
+      // Within the profitable range, farther = lower effective efficiency.
       let prevEfficiency = 100;
-
-      for (const d of distances) {
+      for (const d of [10, 20, 30, 50]) {
         const solution = solveIteratively(createScenario(d));
+        expect(solution.miners, `d=${d} should still be mined`).to.have.length(1);
         expect(solution.efficiency).to.be.lessThan(prevEfficiency);
         prevEfficiency = solution.efficiency;
       }
+      // Past the build-time break-even (~75 tiles at the current SPAWN_PART_ENERGY_VALUE
+      // calibration) the source FALLS OUT: its hauler fleet costs more spawn
+      // build-time than the source is worth, so effectiveNet goes negative and no
+      // miner is assigned - no hard distance/efficiency threshold, it falls out of
+      // the effectiveNet gate.
+      expect(solveIteratively(createScenario(120)).miners, "a far source falls out").to.have.length(0);
     });
   });
 
