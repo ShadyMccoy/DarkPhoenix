@@ -42,6 +42,17 @@ a pure-scheduler test (synthetic demands) structurally can't reach.
 all-plain room produces zero nodes (degenerate peak detection) and the flow
 economy can't plan; use the walled two-chamber layout.
 
+**Avoid the mockup's 9-room `stubWorld` for colony sims.** It is degenerate in the
+*other* direction: it exposes all nine rooms at once (~102 nodes), which a real bot
+never sees at RCL1 (you start with vision of only your home room), and a
+from-scratch colony **stalls** there — one jack, zero controller progress forever
+(`scripts/diag-stub` reproduces it; `--paid` rules out free-economy; `diag-stubroom`
+shows the *same* `W0N1` as a lone room bootstraps to RCL2 fine, with ~29 nodes). Use
+a single real-terrain room. (This is why `sim:variance` was reading variance −1 for
+every corp — the colony couldn't start; it now runs one room.) There is a latent
+robustness question — should the bootstrap survive a many-node world (a mature
+colony re-bootstrapping after a wipe)? — but it does not occur in normal play.
+
 ### Two practices that keep these honest
 
 - **Mutation verification.** A guard is only real if it bites. After writing a
