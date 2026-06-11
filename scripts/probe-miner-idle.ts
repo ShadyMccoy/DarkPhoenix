@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   await server.world.reset();
   const mainJs = readFileSync("dist/main.js").toString();
 
-  const scenario = (library as any).twoSourceRcl3();
+  const scenario = (library as any)[process.argv[3] ?? "twoSourceRcl3"]();
   const room = scenario.bot.room;
   const { bot } = await loadScenario(server, scenario, mainJs);
   await server.start();
