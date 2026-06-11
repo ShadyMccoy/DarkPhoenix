@@ -211,6 +211,85 @@ interface FlowSolution {
 // Efficiency: 97.3%
 ```
 
+## Effective Energy: What a Source TRULY Nets
+
+The net-energy example above is the *co-located* best case. The real value of a
+source is its **effective energy/tick** after every overhead it actually incurs,
+and that is what should drive "is this source worth mining, and from where?".
+Three effects, all distance-driven, pull it down — and a fourth currency makes
+the cutoff fall out without a hard limit.
+
+Tools: `npm run sim:energy` prints the effective-energy table;
+`scripts/effective-energy.ts` is the model. Each corp reports its own numbers via
+`Corp.project()` → `CorpEconomics`, and `effectiveNet()` collapses them to one
+number to rank by (`src/corps/economics.ts`).
+
+### 1. The hauler dominates, and grows with distance
+
+The miner is a flat, small cost (a 5W3M body, ~0.43 e/tick amortized). The
+**hauler** is the cost that explodes: CARRY scales with the round trip, so
+`haulerOverhead ≈ rate·(2d+2)/750`. For an owned source (10 e/tick gross):
+
+| one-way dist | net e/tick | efficiency | total body parts |
+|---|---|---|---|
+| 0   | 9.5 | 95% | 10  |
+| 50  | 8.1 | 81% | 50  |
+| 100 | 6.6 | 66% | 90  |
+| 200 | 3.3 | 33% | 170 |
+| 300 | −0.6 | −6% | 250 |
+
+### 2. Travel TTL shortens the miner's life
+
+A static miner walks `d` tiles out and then **dies at the source**, so it only
+mines for `1500 − d` ticks and must be respawned that much more often. Its real
+amortized cost is `650/(1500−d)` (e.g. respawn every 1300 at d=200), not the flat
+`650/1500` the old `FlowSolver` used. The same initial walk-out shortens a
+hauler's productive life too. TTL pulls the *net-zero* break-even in from ~356 to
+~285 tiles (owned) / ~339 to ~270 (unreserved).
+
+### 3. Spawn build-time is a SECOND budget — priced in energy
+
+A spawn has two budgets, not one. Besides energy it has **build-time**: it makes
+one body part every `SPAWN_TIME_PER_PART` (3) ticks = **500 parts over a 1500-tick
+life** (`SPAWN_PARTS_PER_TICK = 1/3`). A far source can stay net-energy-positive
+yet demand more hauler parts than the spawn can physically build — so build-time
+is often the *tighter* wall, and it bites at a closer distance than the energy
+break-even. A single owned source at d≈200 already eats ~40% of one spawn's entire
+part budget; two such sources nearly saturate it before a single upgrader is built.
+
+Rather than a hard part cap, we **price build-time in energy** and fold it into the
+same ranking that already weighs energy:
+
+```
+effectiveNet = throughput − energyUpkeep − spawnPartsPerTick · SPAWN_PART_ENERGY_VALUE
+```
+
+`SPAWN_PART_ENERGY_VALUE ≈ 155` (energy per part/tick) is calibrated from a
+representative source at the average remote distance (~75 tiles): it nets ~7.4
+e/tick on ~70 parts, so a held part is worth ~0.1 e/tick ≈ 155 over its life.
+Ranking by `effectiveNet`, a part-hungry far source is demoted below a near one in
+pure energy — so the spawn-time wall **falls out of planning**, no hard distance
+limit required.
+
+The constant is really a stand-in for the colony's **marginal alternative use of a
+part** (an idle spawn → cheap parts → far sources welcome; abundant near sources →
+expensive parts → far sources excluded). By construction `effNet` crosses zero at
+the calibration distance, so with 155 a single spawn's profitable remote reach is
+about **50–75 tiles**; lower the constant (a poorer marginal alternative) and the
+reach extends. Tune it to the colony, don't hard-code a distance.
+
+### 4. Reserving a remote room is a per-ROOM cost
+
+Reserving lifts a remote source from 5 → 10 e/tick, but a reserver is **expensive
+in both currencies**: a `CLAIM+MOVE` body costs 650 energy, CLAIM creeps live only
+~600 ticks, and it must walk to the room — so amortized it is ~`650/(600−d)` e/tick
+*plus* its parts priced in energy, **per room**. That cost is shared across the
+room's sources, so it amortizes over them: a **two-source** room halves the
+per-source reserver cost, which is why two sources justify reserving (and reaching
+farther) where one source may not. Reserve only while `+5/source` gross beats the
+amortized per-source reserver cost — another decision that falls straight out of
+`effectiveNet`.
+
 ## ROI Tracking
 
 Even with flow-based allocation, we track corps performance:
