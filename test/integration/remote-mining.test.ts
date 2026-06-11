@@ -67,10 +67,16 @@ describe("remote reserved-mining probe", () => {
     for (const line of samples) console.log(line);
     console.log(`first remote miner ~tick ${mineSeenTick}, first reservation ~tick ${reserveSeenTick}`);
 
-    // Diagnostic probe: it always reports (the value is the printed remote-mining /
-    // reservation timeline + variance). Soft-assert only that the colony stayed
-    // alive across the run, so the diagnostic is never masked by a crash. A hard
-    // "remote IS mined within N ticks" guard is added once the timeline confirms it.
-    assert.isAtLeast(await helper.server.world.gameTime, 1200, "the colony should run the full horizon");
+    // Regression guard: the bot must open the remote source - scout the neighbour,
+    // claim it as territory, and field a miner there - within the horizon (observed
+    // ~tick 600-750 across runs). This is the headline of remote mining: energy
+    // across the border gets worked like any home source. The reservation bonus the
+    // ReservationCorp adds lands later (~tick 1200) and is reported, not asserted,
+    // so the guard never flakes on reservation timing. (couldReserve in the planner
+    // only values the source at the reserved 3000 once a SCOUT has recorded the
+    // remote controller - recordRoomIntel runs per scout-visited room - so for an
+    // adjacent remote, mining starts at the unreserved budget and the reservation
+    // upgrade follows; both are fine since the source is net-positive either way.)
+    assert.isAbove(mineSeenTick, 0, "the bot should mine the remote source within the horizon");
   });
 });
