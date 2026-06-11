@@ -56,6 +56,34 @@ const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 const DEDICATED_SOURCE_DRAIN_FILL = 0.5;
 
 /**
+ * Dropped energy (within range 1 of a dedicated build source) above which the
+ * source's haulers RESUME and clear the surplus instead of yielding to the builder.
+ * Without a container the miner drops straight on the ground, and the container
+ * fill check above can't see it - so a bare-pile source would otherwise leave the
+ * hauler frozen while a big pile grows and decays. This is the ground-pile analogue
+ * of DEDICATED_SOURCE_DRAIN_FILL: a pile this size means the builder isn't keeping
+ * pace, so the overflow should flow to the core.
+ */
+const DEDICATED_SOURCE_DRAIN_PILE = 300;
+
+/**
+ * Whether a hauler on the dedicated build source should RESUME hauling (drain the
+ * surplus) rather than yield: true when energy is backing up - a container past the
+ * drain fill, OR a ground pile past the drain threshold - meaning the builder isn't
+ * consuming the source's full output. Pure so it can be unit tested directly.
+ */
+export function shouldDrainDedicatedSource(
+  containerEnergy: number | null,
+  containerCapacity: number,
+  groundPile: number
+): boolean {
+  if (containerEnergy !== null && containerCapacity > 0) {
+    if (containerEnergy >= containerCapacity * DEDICATED_SOURCE_DRAIN_FILL) return true;
+  }
+  return groundPile >= DEDICATED_SOURCE_DRAIN_PILE;
+}
+
+/**
  * Choose which local sink to commit a load to. The spawn network has strict
  * priority: whenever it has real free capacity, fill it first regardless of the
  * proportional allocation (the spawn is critical but small, so it tops up fast
@@ -825,12 +853,20 @@ export class CarryCorp extends Corp {
     if (!dedicated || this.mySourceId() !== dedicated) return false;
 
     const source = Game.getObjectById(dedicated as Id<Source>);
-    const container = source ? this.sourceContainerAt(source) : null;
-    if (container) {
-      const energy = container.store[RESOURCE_ENERGY];
-      const capacity = container.store.getCapacity(RESOURCE_ENERGY) || 2000;
-      if (energy >= capacity * DEDICATED_SOURCE_DRAIN_FILL) return false; // surplus - drain it
-    }
+    if (!source) return true;
+
+    const container = this.sourceContainerAt(source);
+    const containerEnergy = container ? container.store[RESOURCE_ENERGY] : null;
+    const containerCapacity = container ? container.store.getCapacity(RESOURCE_ENERGY) || 2000 : 0;
+    // The miner drops on the ground when there is no container; count that pile too,
+    // so a bare-pile source doesn't leave the hauler frozen while energy decays.
+    const groundPile = source.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
+      .reduce((sum, r) => sum + r.amount, 0);
+
+    // Resume hauling (don't yield) whenever the surplus is backing up - the builder
+    // is not keeping pace with the miner, so the overflow should flow to the core.
+    if (shouldDrainDedicatedSource(containerEnergy, containerCapacity, groundPile)) return false;
     return true;
   }
 

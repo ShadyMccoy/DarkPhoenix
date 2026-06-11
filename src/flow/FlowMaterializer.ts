@@ -17,6 +17,7 @@ import { FlowSolution, HaulerAssignment, MinerAssignment, SinkAllocation } from 
 import { NodeFlow, NodeFlowMap, groupByNode } from "./NodeFlow";
 import { CarryCorp } from "../corps/CarryCorp";
 import { ConstructionCorp } from "../corps/ConstructionCorp";
+import { REPAIR_TO } from "../corps/repair";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { FlowGraph } from "./FlowGraph";
 import { HarvestCorp } from "../corps/HarvestCorp";
@@ -225,9 +226,15 @@ function materializeNodeFlow(
         materializeUpgradingCorp(controllerSink, room, spawn, corps, tick, result);
       }
 
-      // Materialize ConstructionCorp from construction sinks
+      // Materialize the ConstructionCorp when there is something to build, OR keep
+      // one alive to MAINTAIN containers: containers decay and need periodic repair
+      // even in a fully-built room with no construction sinks, so the corp must
+      // exist there too (it self-recycles its builder once all containers are full).
       const constructionSinks = nodeFlow.sinks.filter(s => s.sinkType === "construction");
-      if (constructionSinks.length > 0) {
+      const decayingContainer = room.find(FIND_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER && s.hits < s.hitsMax * REPAIR_TO
+      }).length > 0;
+      if (constructionSinks.length > 0 || decayingContainer) {
         materializeConstructionCorp(constructionSinks, room, spawn, corps, tick, result);
       }
     }
