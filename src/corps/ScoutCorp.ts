@@ -67,6 +67,21 @@ export class ScoutCorp extends Corp {
     const homeRoom = spawn.room.name;
     const creeps = this.getActiveCreeps();
 
+    // Record intel for EVERY room we currently have vision of - any room in
+    // Game.rooms means we see it (a creep there, or we own it), not just rooms a
+    // scout creep is visiting. Without this, a remote room we are already MINING
+    // never gets its controller recorded until a dedicated scout reaches it, so
+    // the planner cannot value its source as reservable (3000) and leaves it at
+    // the unreserved 1500. Throttled to rooms whose intel is missing or stale (a
+    // continuously-mined room is re-recorded once per STALE_THRESHOLD), so it stays
+    // cheap. recordRoomIntel stamps lastVisit, keeping the room fresh in between.
+    for (const roomName in Game.rooms) {
+      const intel = Memory.roomIntel?.[roomName];
+      if (!intel || Game.time - intel.lastVisit >= STALE_THRESHOLD) {
+        this.recordRoomIntel(Game.rooms[roomName]);
+      }
+    }
+
     for (const creep of creeps) {
       if (!creep.memory.targetRoom) {
         const target = this.findStaleRoomExcluding(homeRoom, this.getAssignedTargets());
