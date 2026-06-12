@@ -40,6 +40,11 @@ export class ScoutCorp extends Corp {
     this.spawnId = spawnId;
   }
 
+  /** The home spawn this corp requests scouts from (kind dispatch needs it). */
+  public getSpawnId(): string {
+    return this.spawnId;
+  }
+
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
