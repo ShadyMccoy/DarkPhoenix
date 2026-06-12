@@ -50,6 +50,7 @@ import {
   runConstructionCorps,
   runExtensionTenderCorps,
   runIncrementalAnalysis,
+  runLinks,
   runRealCorps,
   runReservationCorps,
   runScoutCorps,
@@ -187,6 +188,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runConstructionCorps(corps);
   runExtensionTenderCorps(corps);
   runReservationCorps(corps);
+
+  // Fire each room's source links at the core link (RCL 5+; no-op before links).
+  runLinks();
 
   // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
   // below their commissioned throughput) surface in Memory.corpVariance.

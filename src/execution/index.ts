@@ -27,6 +27,8 @@ export {
 
 export { runSpawnScheduling } from "./SpawnDirector";
 
+export { runLinks } from "./LinkRunner";
+
 export { persistState, cleanupDeadCreeps } from "./Persistence";
 
 export {

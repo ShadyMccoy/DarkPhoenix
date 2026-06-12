@@ -292,6 +292,19 @@ export class HarvestCorp extends Corp {
       travelTo(creep, source, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
+    // Link mining: a full store means the CARRY buffer is ready to ship - feed
+    // the adjacent source link so the energy teleports to the core instead of
+    // piling up. With no link (or a full one) the store just stays full and
+    // harvested energy spills to the ground/container exactly as drop mining
+    // always has. Transfer and harvest are separate intents, so both run this tick.
+    if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+      const link = creep.pos.findInRange(FIND_MY_STRUCTURES, 1, {
+        filter: s =>
+          s.structureType === STRUCTURE_LINK && (s as StructureLink).store.getFreeCapacity(RESOURCE_ENERGY) > 0
+      })[0] as StructureLink | undefined;
+      if (link) creep.transfer(link, RESOURCE_ENERGY);
+    }
+
     const result = creep.harvest(source);
 
     if (result === OK) {

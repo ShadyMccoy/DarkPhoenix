@@ -21,6 +21,7 @@ import {
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
+import { coreLink, sourceLink } from "../corps/nodeEnergy";
 import { minerOverhead, haulerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
@@ -79,10 +80,34 @@ export function detectTransientSources(): PlannerSource[] {
   return out;
 }
 
+/**
+ * Detect link-served sources across visible rooms: a source with its own link
+ * within feeding range, in a room whose core link (beside the storage) exists.
+ * Such a source's output emerges at the CORE, so the planner prices and routes
+ * its hauling from there (haulPos) while the miner keeps the real distance.
+ * Live default for buildColonyProblem; injectable for tests.
+ */
+export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position> {
+  const out = new Map<string, Position>();
+  if (typeof Game === "undefined" || !Game.rooms) return out;
+  for (const s of graph.getSources()) {
+    const room = Game.rooms[s.position.roomName];
+    if (!room) continue;
+    const core = coreLink(room);
+    if (!core) continue;
+    const pos = new RoomPosition(s.position.x, s.position.y, s.position.roomName);
+    if (sourceLink(pos, core.id)) {
+      out.set(s.id, { x: core.pos.x, y: core.pos.y, roomName: core.pos.roomName });
+    }
+  }
+  return out;
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph)
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph
     .getSinks("spawn")
@@ -93,7 +118,8 @@ export function buildColonyProblem(
     nodeId: s.nodeId,
     pos: s.position,
     rate: s.capacity,
-    maxMiners: s.maxMiners
+    maxMiners: s.maxMiners,
+    haulPos: linkHaulPos.get(s.id)
   }));
   // Ground stocks join as miner-less transient sources (scavenging).
   sources.push(...transientSources);
@@ -166,7 +192,7 @@ export function solveWithCorpPlanner(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources()
 ): FlowSolution {
-  const problem = buildColonyProblem(graph, dist, transientSources);
+  const problem = buildColonyProblem(graph, dist, transientSources, detectLinkHaulPositions(graph));
   const plan = planColony(problem);
   publishRoster(plan);
 

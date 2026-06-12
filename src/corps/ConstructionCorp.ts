@@ -62,6 +62,15 @@ const CONTAINER_MIN_RCL = 3;
 /** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
 const STORAGE_MIN_RCL = 4;
 
+/** Links allowed per RCL (game rule). The network anchors on the storage. */
+const LINK_LIMITS: { [rcl: number]: number } = { 5: 2, 6: 3, 7: 4, 8: 6 };
+
+/**
+ * Don't spend a link on a source this close to the storage: the saved haul is
+ * shorter than the link's build cost + 3% transfer fee are worth.
+ */
+const LINK_MIN_SOURCE_RANGE = 8;
+
 /**
  * Dropped energy (within range 1 of a source) that signals a source container is
  * worth its 5000 build cost: a pile this big means a miner is producing there
@@ -197,7 +206,9 @@ export class ConstructionCorp extends Corp {
         this.findMissingCoreDepot(room) !== null ||
         this.findMissingControllerContainer(room) !== null);
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
-    const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer || wantsStorage);
+    const wantsLink = this.findMissingLink(room, rcl) !== null;
+    const canBuildMore =
+      activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer || wantsStorage || wantsLink);
 
     if (canBuildMore) {
       // Whether to build at all - and how fast - is the planner's call (it
@@ -482,6 +493,15 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
+    // 2.7 Links (RCL 5): a core link beside the storage, then a source link at
+    //     the farthest source - the pair replaces that source's long haul with an
+    //     instant transfer (see execution/LinkRunner).
+    const link = this.findMissingLink(room, rcl);
+    if (link) {
+      this.placeSite(room, link.x, link.y, STRUCTURE_LINK, 0);
+      return;
+    }
+
     // 3. Controller container last: a luxury that only buffers upgrading and is
     //    expensive to feed, so it waits until the extension set is done.
     if (rcl >= CONTAINER_MIN_RCL) {
@@ -566,6 +586,47 @@ export class ConstructionCorp extends Corp {
       const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
       const spot = sourceHarvestSpot(source, spawn?.pos);
       return { x: spot.x, y: spot.y };
+    }
+    return null;
+  }
+
+  /**
+   * A still-missing LINK (RCL 5+). The network anchors on the storage: first a
+   * CORE link beside it (the receiving end - the others are useless without it),
+   * then one link per far source, farthest first (longest haul saved), adjacent
+   * to the harvest spot so the standing miner can feed it without moving.
+   */
+  private findMissingLink(room: Room, rcl: number): { x: number; y: number } | null {
+    const limit = LINK_LIMITS[rcl] ?? 0;
+    if (limit === 0) return null;
+    const storage = room.storage;
+    if (!storage) return null;
+
+    const links = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_LINK
+    }) as StructureLink[];
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_LINK });
+    const all: { pos: RoomPosition }[] = [...links, ...sites];
+    if (all.length >= limit) return null;
+
+    const linkNear = (pos: RoomPosition, range: number): boolean => all.some(l => l.pos.inRangeTo(pos, range));
+
+    // 1) Core link beside the storage.
+    if (!linkNear(storage.pos, 2)) {
+      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos);
+      return tile ? { x: tile.x, y: tile.y } : null;
+    }
+
+    // 2) Source links, farthest first; nearby sources aren't worth one.
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    const candidates = room
+      .find(FIND_SOURCES)
+      .filter(s => !linkNear(s.pos, 2) && s.pos.getRangeTo(storage.pos) > LINK_MIN_SOURCE_RANGE)
+      .sort((a, b) => b.pos.getRangeTo(storage.pos) - a.pos.getRangeTo(storage.pos));
+    for (const source of candidates) {
+      const spot = sourceHarvestSpot(source, spawn?.pos);
+      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos);
+      if (tile) return { x: tile.x, y: tile.y };
     }
     return null;
   }

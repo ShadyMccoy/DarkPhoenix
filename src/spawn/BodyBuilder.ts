@@ -46,19 +46,31 @@ const MAX_BODY_PARTS = 50;
  * Pattern: 2 WORK per 1 MOVE (miners stand still while harvesting).
  *
  * At RCL 1 (300 energy): [WORK, WORK, MOVE] = 250 cost, 2 WORK
- * At RCL 4 (800 energy): [WORK x5, MOVE x3] = 650 cost, 5 WORK
- * At RCL 7 (5600 energy): [WORK x5, MOVE x3] = 650 cost, 5 WORK (capped for full harvest)
+ * At RCL 4 (800 energy): [WORK x5, CARRY, MOVE x3] = 700 cost, 5 WORK
+ * At RCL 7 (5600 energy): same as RCL 4 (capped for full harvest)
+ *
+ * From MINER_CARRY_MIN_CAPACITY up, the body gains one CARRY part: it buffers
+ * the first 50 harvested (harmless for drop mining - once full, harvest spills
+ * to the ground/container exactly as before) and is what lets a miner feed an
+ * adjacent source LINK at RCL 5+ without a separate body shape.
  *
  * @param desiredWork - Number of WORK parts desired (typically 5 for full harvest)
  * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
  * @returns Body configuration with body array, cost, and actual work parts
  */
+export const MINER_CARRY_MIN_CAPACITY = 600;
+
 export function buildMinerBody(desiredWork: number, energyCapacity: number): BodyResult {
   // Minimum viable miner: 1 WORK + 1 MOVE = 150 energy
   const minEnergy = PART_COSTS[WORK] + PART_COSTS[MOVE];
   if (energyCapacity < minEnergy) {
     return { body: [], cost: 0, workParts: 0 };
   }
+
+  // Reserve room for the CARRY part in a rich room, so the WORK loop below
+  // can't spend the whole budget first.
+  const addCarry = energyCapacity >= MINER_CARRY_MIN_CAPACITY;
+  if (addCarry) energyCapacity -= PART_COSTS[CARRY];
 
   // Calculate how many WORK parts we can afford
   // Pattern: 2 WORK + 1 MOVE costs 250 energy
@@ -97,6 +109,10 @@ export function buildMinerBody(desiredWork: number, energyCapacity: number): Bod
   const body: BodyPartConstant[] = [];
   for (let i = 0; i < workParts; i++) {
     body.push(WORK);
+  }
+  if (addCarry && workParts + moveParts + 1 <= MAX_BODY_PARTS) {
+    body.push(CARRY);
+    cost += PART_COSTS[CARRY];
   }
   for (let i = 0; i < moveParts; i++) {
     body.push(MOVE);

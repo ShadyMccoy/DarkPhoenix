@@ -209,6 +209,26 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("link-served sources (haulPos)", () => {
+    it("prices a link-served source's hauling from its haulPos while the miner keeps the real distance", () => {
+      // The source sits 200 out, but its output emerges at the core link 2 from
+      // the sink - so the hauler is tiny while the miner still walks 200.
+      const linked: PlannerSource = { ...source("linked", 200), haulPos: at(2) };
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [linked],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.miners).to.have.length(1);
+      expect(plan.miners[0].distance, "miner walks the real distance").to.equal(200);
+      expect(plan.haulers).to.have.length(1);
+      expect(plan.haulers[0].distance, "hauling is priced from the core").to.equal(2);
+      expect(plan.haulers[0].carryParts).to.be.closeTo(carryPartsFor(10, 2), 1e-9);
+    });
+  });
+
   describe("scavenging - transient sources", () => {
     it("hauls a ground stock to a sink WITHOUT commissioning a miner", () => {
       const plan = planColony(
