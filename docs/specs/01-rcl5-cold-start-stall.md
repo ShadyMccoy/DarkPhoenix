@@ -18,8 +18,24 @@ control-point throughput at RCL2–3?**
    this branch (`7dc72c6`); the A/B below quantifies it.
 2. **The A/B harness is the instrument.** `scripts/ab-cold-start.ts`: same
    world, real economy (no free-build mod), cumulative control points after N
-   ticks; the bundle under test is the only variable. Baseline run of
-   master vs this branch at 3000 ticks: results to be recorded here.
+   ticks; the bundle under test is the only variable. Baseline, 3000 ticks,
+   ONE run each (high variance - use `sim:variance` before drawing fine
+   conclusions):
+
+   | bundle | cp@1000 | cp@1500 | cp@2000 | cp@3000 | fleet@3000 |
+   |--------|---------|---------|---------|---------|------------|
+   | master (fce0e84) | 200 | 200 | 1893 | 7743 | 4 harvest / 11 haul / 6 upgrade |
+   | branch (7dc72c6+) | 200 | 599 | 3450 | 6880 | 3 harvest / 6 haul / 6 upgrade |
+
+   Readings: (a) **both bundles spend ~1200-1700 ticks at ZERO controller
+   progress from cold start** - the single most damning, owner-thesis-
+   confirming number: not one bug, the whole bootstrap-to-flow pipeline is
+   slow; (b) the branch starts upgrading ~500 ticks earlier but this single
+   run ended ~11% lower cumulative - within plausible run-to-run noise, and
+   the branch fields half the haulers for the same upgraders (cheaper fleet);
+   (c) master's variance rows show a fully stalled mining corp (0/10) and a
+   near-dead hauler (0.2/9.93) at t=3000 - chronic zombie corps. No smoking
+   gun; a collection of drags, exactly as the owner called it.
 3. **The synthetic RCL5 stall** (1 miner + 2 haulers, no consumers, no errors;
    `scripts/diag-storage.ts --rcl5`) may share a root cause with slow prod
    progression — both smell like the spawn scheduler declining to fund
