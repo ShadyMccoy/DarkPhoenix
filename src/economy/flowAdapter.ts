@@ -23,6 +23,7 @@ import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { minerOverhead, haulerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
+import { storeFill } from "./storeFill";
 import {
   planColony,
   ColonyProblem,
@@ -30,7 +31,8 @@ import {
   PlannerSource,
   PlannerSpawn,
   SinkKind,
-  DEFAULT_SINK_VALUE
+  DEFAULT_SINK_VALUE,
+  incomeBudgetScaleForFill
 } from "./CorpPlanner";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
@@ -79,10 +81,30 @@ export function detectTransientSources(): PlannerSource[] {
   return out;
 }
 
+/**
+ * Colony stored-energy fill (0..1) for the income-budget thermostat: the fullest
+ * owned room's reservoir. Reads Game directly (live default), injectable for
+ * tests - mirrors {@link detectTransientSources}. Taking the MAX means any owned
+ * room backing up signals income is over-allocated spawn parts somewhere, so we
+ * throttle. No owned rooms / no Game → 0 (income unthrottled).
+ */
+export function colonyStoreFill(): number {
+  if (typeof Game === "undefined" || !Game.rooms) return 0;
+  let max = 0;
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+    const fill = storeFill(room);
+    if (fill > max) max = fill;
+  }
+  return max;
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  fill: number = colonyStoreFill()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph
     .getSinks("spawn")
@@ -120,7 +142,7 @@ export function buildColonyProblem(
     });
   }
 
-  return { spawns, sources, sinks, dist };
+  return { spawns, sources, sinks, dist, incomeBudgetScale: incomeBudgetScaleForFill(fill) };
 }
 
 /**
@@ -164,9 +186,10 @@ export function solveWithCorpPlanner(
   graph: FlowGraph,
   tick = 0,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  fill: number = colonyStoreFill()
 ): FlowSolution {
-  const problem = buildColonyProblem(graph, dist, transientSources);
+  const problem = buildColonyProblem(graph, dist, transientSources, fill);
   const plan = planColony(problem);
   publishRoster(plan);
 
