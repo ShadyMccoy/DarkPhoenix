@@ -60,6 +60,21 @@ export class ExtensionTenderCorp extends Corp {
     return this.getTenders().length;
   }
 
+  /** True once a flow miner is producing in the room (income before infrastructure). */
+  private roomHasMiner(room: Room): boolean {
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (
+        c.room.name === room.name &&
+        c.memory.workType === "harvest" &&
+        (c.memory.corpId ?? "").startsWith("mining-")
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The core depot: a container adjacent to one of the room's spawns. This is the
    * one structure haulers dump into and the tender draws from. Null until built.
@@ -146,10 +161,13 @@ export class ExtensionTenderCorp extends Corp {
 
   /**
    * Demand one oversized tender once a depot exists and there are extensions to
-   * keep filled. The FIRST tender is blocking: without it the extensions (which
-   * the haulers no longer fill) would never charge, leaving the room stuck at the
-   * bare spawn's 300 capacity. Sized to refill the whole extension set in ~one
-   * trip (a bit oversized, since it works in bursts).
+   * keep filled. NON-blocking: it is infrastructure (it tops the topmost
+   * consumption tier, above building/upgrading), not core income, so it must not
+   * hold the spawn ahead of the miners/haulers that produce the energy it moves -
+   * until it spawns, room.memory.extensionTenderActive stays false and the haulers
+   * keep filling the extensions themselves, so nothing is starved in the meantime.
+   * Sized to refill the whole extension set in ~one trip (a bit oversized, since it
+   * works in bursts).
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -159,6 +177,10 @@ export class ExtensionTenderCorp extends Corp {
 
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
     if (extensions.length === 0) return [];
+
+    // Infrastructure follows income: don't spawn a tender before the room has a
+    // miner, or it takes the first spawn slot and delays the economy it depends on.
+    if (!this.roomHasMiner(room)) return [];
 
     const tenders = this.getTenders();
     if (tenders.length >= 1) return []; // one (oversized) tender per room is enough
@@ -174,7 +196,7 @@ export class ExtensionTenderCorp extends Corp {
         buyerCorpId: this.id,
         role: "tanker",
         value: 96, // infrastructure: above upgrading/building, below the core mining economy
-        blocking: true, // the first tender unlocks the extensions the haulers stopped filling
+        blocking: false, // infrastructure, not core income - never hold the spawn ahead of producers
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,
