@@ -52,6 +52,10 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     Game.creeps = {};
   });
 
+  // corpFor mutates Game.getObjectById; restore the shared mock so later test files
+  // (e.g. getSpawnDemand.test.ts) don't inherit a room without .memory.
+  afterEach(() => setupGlobals());
+
   const ctx = { energyCapacity: 800, tick: 100 };
 
   function corpFor(r: any): ExtensionTenderCorp {

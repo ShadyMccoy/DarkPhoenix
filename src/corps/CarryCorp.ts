@@ -643,15 +643,19 @@ export class CarryCorp extends Corp {
         .find(FIND_MY_SPAWNS)
         .find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
       const depot = this.coreDepot(room);
+      // Fill the spawn structure first (keep it alive), then top the depot only to
+      // its small buffer. Crucially, once both are satisfied we return FALSE rather
+      // than dumping more into the (2000-cap, never-full) depot - that lets
+      // deliverEnergy spill the surplus to the controller, exactly as it did in the
+      // pre-depot model when the spawn network filled up. Without this the depot
+      // soaks up every spare load and the controller starves.
       const target: StructureSpawn | StructureContainer | undefined =
-        spawnNeedsEnergy ?? (depot && depot.store.getFreeCapacity(RESOURCE_ENERGY) > 0 ? depot : undefined);
-      if (target) {
-        const r = creep.transfer(target, RESOURCE_ENERGY);
-        if (r === ERR_NOT_IN_RANGE) travelTo(creep, target, { visualizePathStyle: { stroke: "#ffffff" } });
-        else if (r === OK) this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
-        return true;
-      }
-      // Spawn and depot both full: fall through to help the wider network this once.
+        spawnNeedsEnergy ?? (depot && depot.store[RESOURCE_ENERGY] < DEPOT_BUFFER ? depot : undefined);
+      if (!target) return false;
+      const r = creep.transfer(target, RESOURCE_ENERGY);
+      if (r === ERR_NOT_IN_RANGE) travelTo(creep, target, { visualizePathStyle: { stroke: "#ffffff" } });
+      else if (r === OK) this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+      return true;
     }
 
     const allSpawnStructures = this.getSpawnZoneStructures(room);
