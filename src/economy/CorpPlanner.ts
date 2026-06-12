@@ -86,6 +86,14 @@ export interface ColonyProblem {
   sinks: PlannerSink[];
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
+  /**
+   * Income spawn-part budget multiplier in (0, 1], from the stored-energy
+   * thermostat (see {@link incomeBudgetScaleForFill}). 1 = fund income fully
+   * (default); < 1 = stored energy is backing up, so shrink income's share of the
+   * scarce spawn-part budget and let the freed spawn ticks go to consumers.
+   * Absent → 1, so every existing caller and test is unchanged.
+   */
+  incomeBudgetScale?: number;
 }
 
 /** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
@@ -174,6 +182,38 @@ function nearestSpawn(pos: Position, spawns: PlannerSpawn[], dist: ColonyProblem
   return best;
 }
 
+/** Below this fill, fund income fully; above INCOME_THROTTLE_HIGH, hold it at the floor. */
+export const INCOME_THROTTLE_LOW = 0.5;
+/** At/above this fill the reservoir is full enough that income is clearly over-allocated. */
+export const INCOME_THROTTLE_HIGH = 0.9;
+/** Income's spawn-part budget never drops below this share - the base economy keeps mining. */
+export const INCOME_BUDGET_FLOOR = 0.5;
+
+/**
+ * Income spawn-part budget multiplier from the stored-energy fill level (0..1).
+ *
+ * We are spawn-bound: the spawn's part-budget is the scarce resource, split
+ * between income (mining/hauling) and consumption (build/upgrade). A full
+ * reservoir is the signal that income is OVER-allocated that budget - the colony
+ * collects faster than it consumes - so we shrink income's share, freeing spawn
+ * parts (and thus spawn ticks) for the consumers that drain the surplus. This
+ * sheds the MARGINAL sources first (selectProducers fills the budget
+ * highest-net-per-part first and always keeps a spawn's best source), so the base
+ * economy is never starved - only far/remote expansion stands down.
+ *
+ * A smooth ramp on the (already smooth) level signal, so no hysteresis is needed:
+ *   fill <= LOW  -> 1.0    (climbing / draining: fund income fully)
+ *   fill >= HIGH -> FLOOR  (full: income at its floor, spawn parts to consumers)
+ * linear between. FLOOR > 0, so income is throttled, never cut off. fill = 0 (a
+ * bare room with no reservoir) returns 1, so cold start is unaffected.
+ */
+export function incomeBudgetScaleForFill(fill: number): number {
+  if (fill <= INCOME_THROTTLE_LOW) return 1;
+  if (fill >= INCOME_THROTTLE_HIGH) return INCOME_BUDGET_FLOOR;
+  const t = (fill - INCOME_THROTTLE_LOW) / (INCOME_THROTTLE_HIGH - INCOME_THROTTLE_LOW);
+  return 1 - t * (1 - INCOME_BUDGET_FLOOR);
+}
+
 /**
  * Phase 1 - PRODUCER SELECTION. Assign each source to its nearest spawn, drop the
  * unprofitable ones, and per spawn keep sources by net-energy-per-build-part until
@@ -200,8 +240,12 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
     });
   }
 
-  // Per spawn, fill the mining build-time budget highest-value-first.
-  const budget = miningBudgetPerSpawn();
+  // Per spawn, fill the mining build-time budget highest-value-first. The budget
+  // shrinks when stored energy is backing up (incomeBudgetScale < 1): income is
+  // over-allocated the scarce spawn parts, so the marginal sources fall out of
+  // contention (the sort keeps the best ones, and the first source is always
+  // staffed below) and those parts free up for consumers.
+  const budget = miningBudgetPerSpawn() * (problem.incomeBudgetScale ?? 1);
   const bySpawn = new Map<string, SourceCandidate[]>();
   for (const c of candidates) {
     const list = bySpawn.get(c.spawn.id) ?? [];

@@ -4,7 +4,11 @@ import {
   ColonyProblem,
   PlannerSource,
   PlannerSink,
-  PlannerSpawn
+  PlannerSpawn,
+  incomeBudgetScaleForFill,
+  INCOME_THROTTLE_LOW,
+  INCOME_THROTTLE_HIGH,
+  INCOME_BUDGET_FLOOR
 } from "../../../src/economy/CorpPlanner";
 import { netEnergy, carryPartsFor, miningBudgetPerSpawn, spawnPartsFor } from "../../../src/economy/primitives";
 import { Position } from "../../../src/types/Position";
@@ -291,3 +295,54 @@ describe("economy/CorpPlanner", () => {
 function allocOf(plan: ReturnType<typeof planColony>, sinkId: string): number {
   return plan.sinks.find(s => s.sinkId === sinkId)?.allocated ?? 0;
 }
+
+describe("income-budget thermostat (Lever 1)", () => {
+  describe("incomeBudgetScaleForFill", () => {
+    it("funds income fully when stores are low or empty (cold start is safe)", () => {
+      expect(incomeBudgetScaleForFill(0)).to.equal(1);
+      expect(incomeBudgetScaleForFill(INCOME_THROTTLE_LOW)).to.equal(1);
+    });
+
+    it("holds income at its floor once stores are full", () => {
+      expect(incomeBudgetScaleForFill(INCOME_THROTTLE_HIGH)).to.equal(INCOME_BUDGET_FLOOR);
+      expect(incomeBudgetScaleForFill(1)).to.equal(INCOME_BUDGET_FLOOR);
+    });
+
+    it("ramps monotonically down between the setpoints, never leaving [FLOOR, 1]", () => {
+      let prev = 1 + 1e-9;
+      for (let f = 0; f <= 1.0001; f += 0.05) {
+        const s = incomeBudgetScaleForFill(f);
+        expect(s).to.be.at.most(prev + 1e-9); // non-increasing
+        expect(s).to.be.within(INCOME_BUDGET_FLOOR, 1);
+        prev = s;
+      }
+    });
+  });
+
+  describe("selectProducers honours incomeBudgetScale", () => {
+    const base = {
+      spawns: [spawn("S", 0)],
+      sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+    };
+    // Several cheap near sources: at full budget the spawn staffs them all.
+    const many = [source("a", 6), source("b", 8), source("c", 10), source("d", 12), source("e", 14)];
+    const count = (scale?: number) =>
+      planColony(problem({ ...base, sources: many, incomeBudgetScale: scale })).miners.length;
+
+    it("scale=1 reproduces the unthrottled baseline (omitted field)", () => {
+      expect(count(1)).to.equal(count(undefined));
+      expect(count(1)).to.be.greaterThan(1); // the layout actually staffs several
+    });
+
+    it("a vanishing scale sheds every marginal source but keeps the spawn's best", () => {
+      // Budget -> 0, yet selectProducers always staffs a spawn's single best source.
+      expect(count(1e-6)).to.equal(1);
+    });
+
+    it("throttling never increases the miner count (monotone shedding)", () => {
+      expect(count(1)).to.be.at.least(count(0.5));
+      expect(count(0.5)).to.be.at.least(count(0.1));
+      expect(count(0.1)).to.be.at.least(count(1e-6));
+    });
+  });
+});
