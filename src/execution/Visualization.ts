@@ -8,21 +8,32 @@
  * @module execution/Visualization
  */
 
+import "../types/Memory";
 import { MultiRoomAnalysisResult, visualizeMultiRoomAnalysis } from "../spatial";
 import { Colony } from "../colony";
+import { Position } from "../types/Position";
 
 /**
  * Renders node visualization in rooms with vision.
- * Draws nodes at their peak positions and connections for cross-room nodes.
+ *
+ * Draws each node at its "hub" position - the best spawn tile found by the
+ * fine-grained placement sweep (Memory.spawnPlacements) - which is where a base
+ * would actually sit. Falls back to the geographic peak when no placement has
+ * been computed for the node yet. Also draws connections for cross-room nodes.
  */
 export function renderNodeVisuals(colony: Colony): void {
   const nodes = colony.getNodes();
+  const placements = typeof Memory !== "undefined" ? Memory.spawnPlacements : undefined;
 
   for (const node of nodes) {
-    const roomName = node.peakPosition.roomName;
+    // Prefer the hub (best spawn tile) over the geographic peak when known.
+    const placement = placements?.[node.id];
+    const peak: Position = placement
+      ? { x: placement.x, y: placement.y, roomName: placement.roomName }
+      : node.peakPosition;
+    const roomName = peak.roomName;
     // RoomVisual works without vision - no need to check Game.rooms
     const visual = new RoomVisual(roomName);
-    const peak = node.peakPosition;
     const isOwned = node.roi?.isOwned;
 
     // Draw node circle at peak position
