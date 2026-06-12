@@ -187,13 +187,16 @@ export async function setRoomLevel(
   world: any,
   room: string,
   level: number,
-  extensions: Array<{ x: number; y: number }> = []
+  extensions: Array<{ x: number; y: number }> = [],
+  /** Start the extensions full, as an organically-grown colony's would be. */
+  filled = false
 ): Promise<void> {
   const { C, db } = await world.load();
   await db["rooms.objects"].update(
     { room, type: "controller" },
     { $set: { level, progress: 0, downgradeTime: null } }
   );
+  const capacity = C.EXTENSION_ENERGY_CAPACITY[level] ?? 50;
   for (const e of extensions) {
     await db["rooms.objects"].insert({
       room,
@@ -201,8 +204,8 @@ export async function setRoomLevel(
       x: e.x,
       y: e.y,
       user: (await db["rooms.objects"].findOne({ room, type: "controller" })).user,
-      store: { energy: 0 },
-      storeCapacityResource: { energy: C.EXTENSION_ENERGY_CAPACITY[level] ?? 50 },
+      store: { energy: filled ? capacity : 0 },
+      storeCapacityResource: { energy: capacity },
       hits: C.EXTENSION_HITS,
       hitsMax: C.EXTENSION_HITS,
       notifyWhenAttacked: true

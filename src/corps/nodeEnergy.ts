@@ -20,6 +20,30 @@ import { travelTo } from "./movement";
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension;
 
+/** The room's core depot: the one structure haulers dump into and the tender draws from. */
+export type CoreDepot = StructureContainer | StructureStorage;
+
+/**
+ * Resolve a room's core depot. Storage is the depot from the moment it exists
+ * (durable, huge, and placed beside the spawn by ConstructionCorp); before that,
+ * a container adjacent to one of the room's spawns. Null until either is built -
+ * haulers then fill the spawn network directly.
+ *
+ * Shared by CarryCorp (dump point of the source->depot bus), ExtensionTenderCorp
+ * (draw point for extension refills) and ConstructionCorp (placement), so all
+ * three always agree on which structure is "the depot".
+ */
+export function coreDepot(room: Room): CoreDepot | null {
+  if (room.storage && room.storage.my) return room.storage;
+  for (const spawn of room.find(FIND_MY_SPAWNS)) {
+    const c = spawn.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    })[0] as StructureContainer | undefined;
+    if (c) return c;
+  }
+  return null;
+}
+
 /** A concrete energy access point resolved from a node's strategy. */
 export interface EnergySpot {
   pos: RoomPosition;

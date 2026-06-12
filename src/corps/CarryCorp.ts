@@ -8,7 +8,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { controllerDeliverySpot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelTo } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "../economy/primitives";
@@ -50,6 +50,22 @@ const SPAWN_PRIORITY_FREE_CAPACITY = 50;
  * controller to keep refilling the depot (the energy split is the flow solver's job).
  */
 const DEPOT_BUFFER = 150;
+
+/**
+ * Energy the spawn-circuit haulers keep BANKED in a real storage before spilling
+ * surplus to the controller. A container depot only bridges between hauler
+ * drop-offs (DEPOT_BUFFER); storage is the colony's bank - hold a real reserve
+ * for spawn surges and downgrade insurance. Banking only redirects haulers
+ * already on the spawn circuit (deliverToSpawn), never diverts controller-bound
+ * ones (spawnNetworkHungry still uses the small bridge buffer), so the flow
+ * solver's spawn/controller split is preserved while the bank slowly fills.
+ */
+const STORAGE_BANK = 10000;
+
+/** The fill level deliverToSpawn tops the depot to before spilling surplus on. */
+function depotBankTarget(depot: CoreDepot): number {
+  return depot.structureType === STRUCTURE_STORAGE ? STORAGE_BANK : DEPOT_BUFFER;
+}
 
 /**
  * Fill fraction at which a dedicated build source's container is judged to be
@@ -561,7 +577,9 @@ export class CarryCorp extends Corp {
       // big reserve would make haulers refill the depot constantly and starve the
       // controller (the total energy is fixed and the flow solver already split it).
       // Once the buffer is met, haulers go back to feeding the controller.
-      const depot = this.coreDepot(room);
+      // (Deliberately the small BRIDGE buffer even for storage: the bank fills
+      // from the spawn circuit's own surplus, never by diverting controller flow.)
+      const depot = coreDepot(room);
       return !!depot && depot.store[RESOURCE_ENERGY] < DEPOT_BUFFER;
     }
     const free = this.getSpawnZoneStructures(room).reduce(
@@ -611,17 +629,6 @@ export class CarryCorp extends Corp {
     creep.memory.homeSink = pickSinkByAllocation(this.haulerAssignments, committed);
   }
 
-  /** The core depot: a container adjacent to one of the room's spawns, if built. */
-  private coreDepot(room: Room): StructureContainer | null {
-    for (const spawn of room.find(FIND_MY_SPAWNS)) {
-      const c = spawn.pos.findInRange(FIND_STRUCTURES, 1, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER
-      })[0] as StructureContainer | undefined;
-      if (c) return c;
-    }
-    return null;
-  }
-
   /** Attempt delivery to a specific local sink; returns true if it took action. */
   private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
     if (sink === "controller") return this.deliverToController(creep, room);
@@ -639,22 +646,22 @@ export class CarryCorp extends Corp {
     // the depot for the tender to distribute. This is what stops the schooling - the
     // haulers no longer chase a dozen half-full extensions.
     if (room.memory.extensionTenderActive) {
-      const spawnNeedsEnergy = room
-        .find(FIND_MY_SPAWNS)
-        .find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
-      const depot = this.coreDepot(room);
+      const spawnNeedsEnergy = room.find(FIND_MY_SPAWNS).find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+      const depot = coreDepot(room);
       // Fill the spawn structure first (keep it alive), then top the depot only to
-      // its small buffer. Crucially, once both are satisfied we return FALSE rather
-      // than dumping more into the (2000-cap, never-full) depot - that lets
+      // its bank target: a small bridge buffer for a container, a real banked
+      // reserve for storage. Crucially, once both are satisfied we return FALSE
+      // rather than dumping more into the never-full depot - that lets
       // deliverEnergy spill the surplus to the controller, exactly as it did in the
       // pre-depot model when the spawn network filled up. Without this the depot
       // soaks up every spare load and the controller starves.
-      const target: StructureSpawn | StructureContainer | undefined =
-        spawnNeedsEnergy ?? (depot && depot.store[RESOURCE_ENERGY] < DEPOT_BUFFER ? depot : undefined);
-      if (!target) return false;
-      const r = creep.transfer(target, RESOURCE_ENERGY);
-      if (r === ERR_NOT_IN_RANGE) travelTo(creep, target, { visualizePathStyle: { stroke: "#ffffff" } });
-      else if (r === OK) this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+      const busTarget: StructureSpawn | CoreDepot | undefined =
+        spawnNeedsEnergy ?? (depot && depot.store[RESOURCE_ENERGY] < depotBankTarget(depot) ? depot : undefined);
+      if (!busTarget) return false;
+      const r = creep.transfer(busTarget, RESOURCE_ENERGY);
+      if (r === ERR_NOT_IN_RANGE) travelTo(creep, busTarget, { visualizePathStyle: { stroke: "#ffffff" } });
+      else if (r === OK)
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], busTarget.store.getFreeCapacity(RESOURCE_ENERGY)));
       return true;
     }
 

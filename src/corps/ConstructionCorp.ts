@@ -59,6 +59,9 @@ const CONTAINER_LIMIT = 5;
  */
 const CONTAINER_MIN_RCL = 3;
 
+/** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
+const STORAGE_MIN_RCL = 4;
+
 /**
  * Dropped energy (within range 1 of a source) that signals a source container is
  * worth its 5000 build cost: a pile this big means a miner is producing there
@@ -193,7 +196,8 @@ export class ConstructionCorp extends Corp {
       (this.findMissingSourceContainer(room) !== null ||
         this.findMissingCoreDepot(room) !== null ||
         this.findMissingControllerContainer(room) !== null);
-    const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
+    const wantsStorage = this.findMissingStorage(room, rcl) !== null;
+    const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer || wantsStorage);
 
     if (canBuildMore) {
       // Whether to build at all - and how fast - is the planner's call (it
@@ -206,7 +210,11 @@ export class ConstructionCorp extends Corp {
 
     // Reserve a whole source for the builder while building, so its miner feeds
     // the tankers directly and nothing else drains it (see updateDedicatedSource).
-    this.updateDedicatedSource(room, activeSites > 0);
+    // Only once a builder is actually fielded (or spawning): reserving earlier
+    // strands the source's output - its haulers stand down, income drops, and the
+    // poorer spawn then can't fund the very builder the reservation is waiting
+    // for. Supply before demand, same as the upgrader gate.
+    this.updateDedicatedSource(room, activeSites > 0 && this.builders.count() > 0);
 
     // A reserved source feeds far more than a runt builder (spawned small under
     // early energy pressure) can use. Retire the runt so it respawns at the size
@@ -448,9 +456,29 @@ export class ConstructionCorp extends Corp {
     //    container. Building the controller container first (it sits ~20 tiles
     //    from the sources) stalls the whole build set on one slow, hard-to-feed
     //    structure while the cheap capacity-growing extensions wait.
-    const ext = this.findGridPosition(room);
-    if (ext) {
-      this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+    //    Cap-guarded here (not just in work()'s gate): when the gate opens for a
+    //    wanted container/storage with extensions already maxed, attempting an
+    //    over-cap extension would fail every cooldown and starve the later steps.
+    const maxExtensions = EXTENSION_LIMITS[rcl] || 0;
+    const builtExtensions = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_EXTENSION
+    }).length;
+    if (builtExtensions < maxExtensions) {
+      const ext = this.findGridPosition(room);
+      if (ext) {
+        this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+        return;
+      }
+    }
+
+    // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
+    //     replaces the fragile 2000-cap container depot with a structure that can
+    //     hold a real reserve (spawn-surge and downgrade insurance). After the
+    //     extension set (capacity compounds first), before the controller
+    //     container (a luxury).
+    const storage = this.findMissingStorage(room, rcl);
+    if (storage) {
+      this.placeSite(room, storage.x, storage.y, STRUCTURE_STORAGE, 0);
       return;
     }
 
@@ -483,11 +511,29 @@ export class ConstructionCorp extends Corp {
    * is at its container cap.
    */
   private findMissingCoreDepot(room: Room): { x: number; y: number } | null {
+    if (room.storage) return null; // storage IS the depot - no container needed
     if (this.containerBudgetFull(room)) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos);
+    return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
+  /**
+   * A still-missing STORAGE: the room is RCL 4+ and has neither a storage nor a
+   * storage site. Placed within 2 of the spawn so it slots straight into the
+   * depot role (haulers' dump point, tender's draw point) without changing any
+   * routes - coreDepot() prefers it over the container from the moment it's built.
+   */
+  private findMissingStorage(room: Room, rcl: number): { x: number; y: number } | null {
+    if (rcl < STORAGE_MIN_RCL || room.storage) return null;
+    const hasSite =
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_STORAGE }).length > 0;
+    if (hasSite) return null;
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (!spawn) return null;
+    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 

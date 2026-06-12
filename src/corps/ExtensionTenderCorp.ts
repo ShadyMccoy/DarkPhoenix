@@ -5,8 +5,9 @@
  * Haulers are inter-node and should run a dumb source->depot bus, not fan out
  * across a dozen extensions chasing whichever one has a sliver of free space
  * (that reactive convergence is what makes them "school" on one tile). So once a
- * room has a CORE DEPOT - a container beside the spawn the haulers dump into -
- * this local mover takes over the last leg: it withdraws from the depot and tops
+ * room has a CORE DEPOT - a container beside the spawn (the room's storage once
+ * built) the haulers dump into - this local mover takes over the last leg: it
+ * withdraws from the depot and tops
  * up the extensions (and the spawn) as a dedicated job.
  *
  * Extensions drain in a BURST (a whole creep's cost vanishes the instant it
@@ -20,6 +21,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
+import { CoreDepot, coreDepot } from "./nodeEnergy";
 import { travelTo } from "./movement";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
@@ -75,20 +77,6 @@ export class ExtensionTenderCorp extends Corp {
     return false;
   }
 
-  /**
-   * The core depot: a container adjacent to one of the room's spawns. This is the
-   * one structure haulers dump into and the tender draws from. Null until built.
-   */
-  private coreDepot(room: Room): StructureContainer | null {
-    for (const spawn of room.find(FIND_MY_SPAWNS)) {
-      const c = spawn.pos.findInRange(FIND_STRUCTURES, 1, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER
-      })[0] as StructureContainer | undefined;
-      if (c) return c;
-    }
-    return null;
-  }
-
   /** Spawn + extensions in the room with free energy capacity, nearest the tender first. */
   private fillTargets(room: Room, from: RoomPosition): FillTarget[] {
     const targets = room.find(FIND_MY_STRUCTURES, {
@@ -105,7 +93,7 @@ export class ExtensionTenderCorp extends Corp {
     if (!spawn) return;
     const room = spawn.room;
 
-    const depot = this.coreDepot(room);
+    const depot = coreDepot(room);
     const tenders = this.getTenders();
 
     // Signal the haulers: while a depot exists AND a tender is alive to drain it,
@@ -122,7 +110,7 @@ export class ExtensionTenderCorp extends Corp {
    * from the depot when empty. It only flips state on full/empty, so it makes
    * complete trips (a clean burst) rather than dithering with partial loads.
    */
-  private runTender(creep: Creep, room: Room, depot: StructureContainer | null): void {
+  private runTender(creep: Creep, room: Room, depot: CoreDepot | null): void {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
@@ -173,7 +161,7 @@ export class ExtensionTenderCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const room = spawn.room;
-    if (!this.coreDepot(room)) return []; // no depot yet -> haulers still fill the network
+    if (!coreDepot(room)) return []; // no depot yet -> haulers still fill the network
 
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
     if (extensions.length === 0) return [];

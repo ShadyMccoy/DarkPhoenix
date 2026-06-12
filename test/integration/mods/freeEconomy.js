@@ -14,10 +14,13 @@
 module.exports = function freeEconomy(config) {
   const C = config.common.constants;
 
-  // Building is free.
+  // Building is (almost) free: cost 1, NOT 0 - the engine rejects
+  // createConstructionSite for any structure whose CONSTRUCTION_COST is falsy
+  // (ERR_INVALID_ARGS), so a literal 0 makes building impossible rather than
+  // free. At cost 1 a single builder hit completes any site.
   if (C.CONSTRUCTION_COST) {
     for (const key of Object.keys(C.CONSTRUCTION_COST)) {
-      C.CONSTRUCTION_COST[key] = 0;
+      C.CONSTRUCTION_COST[key] = 1;
     }
   }
 
