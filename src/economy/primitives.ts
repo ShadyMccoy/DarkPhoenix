@@ -8,7 +8,7 @@
  * life-minus-travel, +2 vs +4 round-trip, etc.). Everything economic now derives
  * from here so the numbers cannot drift apart.
  *
- * The semantics match the LIVE path (FlowSolver.assignMiners): a creep posted
+ * The semantics match the live planner (CorpPlanner): a creep posted
  * `distance` tiles from its spawn loses ~`distance` ticks walking out, so its
  * spawn cost is amortised over `effectiveLife(distance)`, not the full lifetime.
  *

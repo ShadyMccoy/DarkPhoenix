@@ -31,8 +31,7 @@
     "watch-sim": "rollup -cw --environment DEST:sim",
     "plan:scenario": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts",
     "plan:scenario:list": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --list",
-    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose",
-    "plan:efficiency": "ts-node -P tsconfig.test.json scripts/compare-efficiency.ts"
+    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose"
   },
   "repository": {
     "type": "git",

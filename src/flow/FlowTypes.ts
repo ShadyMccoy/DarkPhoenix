@@ -33,9 +33,6 @@ export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
 /** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */
 export const MINER_PARTS = 8;
 
-/** Miner spawn overhead per tick */
-export const MINER_OVERHEAD_PER_TICK = MINER_COST / CREEP_LIFETIME; // ~0.433
-
 // =============================================================================
 // SINK TYPES
 // =============================================================================
@@ -529,33 +526,8 @@ export function createEdgeId(fromId: string, toId: string): string {
   return fromId < toId ? `${fromId}|${toId}` : `${toId}|${fromId}`;
 }
 
-/**
- * Calculate round trip time for a given distance.
- * Assumes 1:1 CARRY:MOVE ratio (full speed both ways).
- */
-export function calculateRoundTrip(distance: number, _hasRoads = false): number {
-  // With roads and 2:1 ratio, still full speed
-  // Without roads, 1:1 ratio = full speed both ways
-  return 2 * distance + 2;
-}
-
-/**
- * Calculate CARRY parts needed for a flow rate at a given distance.
- * Formula: CARRY = flowRate * roundTrip / 50
- */
-export function calculateCarryParts(flowRate: number, distance: number): number {
-  const roundTrip = calculateRoundTrip(distance);
-  return (flowRate * roundTrip) / 50;
-}
-
-/**
- * Calculate spawn cost per tick for haulers.
- * Assumes 1:1 CARRY:MOVE ratio (100 energy per CARRY).
- */
-export function calculateHaulerCostPerTick(carryParts: number): number {
-  const costPerCarry = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
-  return (carryParts * costPerCarry) / CREEP_LIFETIME;
-}
+// (Round-trip / carry-part / hauler-cost formulas live in economy/primitives -
+// the single canonical home for economic math. See docs/ONTOLOGY.md § 2.)
 
 // Re-export distance functions from shared Position module
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";

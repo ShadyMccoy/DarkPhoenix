@@ -118,6 +118,23 @@ describe("economy/CorpPlanner", () => {
       expect(plan.miners).to.have.length(1);
     });
 
+    it("with spare build-time, mines a far source - distance alone never disqualifies", () => {
+      // d=120 is well past "local" but profitable and within the mining budget;
+      // the spawn-time wall is contention, not a fixed range cutoff.
+      const d = 120;
+      expect(netEnergy(10, d)).to.be.greaterThan(0);
+      expect(spawnPartsFor(10, d)).to.be.lessThan(miningBudgetPerSpawn());
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("far", d)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.miners).to.have.length(1);
+      expect(plan.miners[0].sourceId).to.equal("far");
+    });
+
     it("assigns each source to its NEAREST spawn (N spawns)", () => {
       const plan = planColony(
         problem({

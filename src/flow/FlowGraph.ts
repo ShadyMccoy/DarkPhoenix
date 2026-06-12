@@ -18,11 +18,11 @@ import {
   PriorityContext,
   SOURCE_ENERGY_PER_TICK,
   SinkType,
-  calculateRoundTrip,
   createEdgeId,
   createFlowSink,
   createFlowSource
 } from "./FlowTypes";
+import { roundTripTicks } from "../economy/primitives";
 import { Node, getResourcesByType } from "../nodes/Node";
 import { NodeNavigator, pathDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
@@ -232,7 +232,7 @@ export class FlowGraph {
 
         // Create edge
         const edgeId = createEdgeId(source.id, sink.id);
-        const roundTrip = calculateRoundTrip(distance);
+        const roundTrip = roundTripTicks(distance);
 
         const edge: FlowEdge = {
           id: edgeId,

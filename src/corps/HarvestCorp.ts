@@ -7,7 +7,14 @@
  * @module corps/HarvestCorp
  */
 
-import { CREEP_LIFETIME, HARVEST_RATE, SOURCE_ENERGY_CAPACITY, SOURCE_REGEN_TIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
+import {
+  CREEP_LIFETIME,
+  HARVEST_RATE,
+  SOURCE_ENERGY_CAPACITY,
+  SOURCE_REGEN_TIME,
+  calculateOptimalWorkParts
+} from "../planning/EconomicConstants";
+import { effectiveLife } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -332,7 +339,7 @@ export class HarvestCorp extends Corp {
 
     const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
     const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    const usefulLife = effectiveLife(travel);
     // A static miner walks out once and dies at the source, so it both costs
     // energy and consumes spawn build-time over its (shortened) useful life.
     return {

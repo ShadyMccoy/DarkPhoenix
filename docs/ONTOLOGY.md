@@ -92,9 +92,9 @@ target is ONE planner (the GOAP `CorpPlanner`) whose operators are corps.
 | System | File(s) | Status | Disposition |
 |--------|---------|--------|-------------|
 | **CorpPlanner** | `economy/CorpPlanner.ts`, `economy/flowAdapter.ts` | ✅ LIVE — the single economy authority | — |
-| **FlowSolver** | `flow/FlowSolver.ts` | ⬇️ no longer live (CorpPlanner replaced it) | Retained for `printSolutionSummary` + its math test; delete once relocated |
+| **FlowSolver** | `flow/FlowSolver.ts` | ✅ DELETED | `printSolutionSummary` relocated to `FlowEconomy`; unique behavior pin (far-source-with-spare-budget) migrated to the CorpPlanner test |
 | **EconomyPlanner / EconomyAdapter** | `flow/EconomyPlanner.ts`, `flow/EconomyAdapter.ts` | ✅ DELETED | Absorbed by `CorpPlanner`; overlay removed from `main.ts` |
-| **Duplicate formulas** | 9 files (see analysis) | partially collapsed | `economy/primitives.ts` is the canonical home; CorpPlanner uses it. Remaining live call-sites (CarryCorp/ConstructionCorp/BodyBuilder) still to migrate |
+| **Duplicate formulas** | 9 files (see analysis) | ✅ collapsed | `economy/primitives.ts` is the canonical home. CarryCorp/ConstructionCorp/BodyBuilder/HarvestCorp/UpgradingCorp/FlowGraph now call `carryPartsFor`/`effectiveLife`/`roundTripTicks`; the FlowTypes copies (`calculateRoundTrip`/`calculateCarryParts`/`calculateHaulerCostPerTick`) are deleted |
 | **Four "value" models** | mintValue / net-energy / effectiveNet / sink.value | ✅ one model | `DEFAULT_SINK_VALUE` in the planner (spawn 100 / construction 70 / controller 50) |
 | **ChainPlanner / Chain / projections / OfferCollector** | `planning/*`, `corps/CorpState.ts` | VESTIGIAL — not driving spawns; market-era artifact | Out of scope now; isolate, then retire |
 | **EdgeVariant variant search** | `framework/EdgeVariant.ts` (`generateEdgeVariants`/`selectBestVariant`), `FlowSolver` terrain branch | DEAD — `edge.terrain` never populated | Remove functions + branch; keep `HaulerRatio`/`MiningMode` types (used by body building) |
@@ -107,11 +107,19 @@ Done: ontology + canonical `economy/primitives.ts` (15 tests); GOAP `CorpPlanner
 `FlowEconomy.solve`; shadow `EconomyPlanner`/`EconomyAdapter` **deleted** (~600
 LOC); profitability test migrated to the live planner. Validated by the fast
 fixture harness (singleSource / twoSourceRcl3 / threeChamberRcl2 all mine their
-sources). 441 unit tests pass.
+sources).
 
-Next: migrate the remaining duplicate-formula call-sites to `primitives`; delete
-the dead `framework/FlowEdge.ts` + `EdgeVariant` functions (relocating the live
-`HaulerRatio`/`MiningMode` types); then retire the vestigial chain/market layer.
+Consolidation pass two: `FlowSolver` **deleted** (with `solveIteratively`,
+`calculateEfficiency`, `estimateOverhead`; `printSolutionSummary` relocated to
+`FlowEconomy`); the duplicate formula call-sites **migrated** to `primitives`
+(CarryCorp, ConstructionCorp, BodyBuilder, HarvestCorp, UpgradingCorp,
+FlowGraph) and the FlowTypes copies deleted; dead `calculateHaulingNeeds` /
+`calculateTankerCarryNeeded` (BodyBuilder) and the broken
+`scripts/compare-efficiency.ts` removed. 394 unit tests pass.
+
+Next: retire the vestigial chain/market layer (`ChainPlanner`/`ColonyEconomy` -
+note `marginalNodeValue` is still live in `IncrementalAnalysis` and needs a new
+home first).
 
 ### Integration contract
 

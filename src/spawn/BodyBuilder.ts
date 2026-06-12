@@ -8,6 +8,8 @@
  * @module spawn/BodyBuilder
  */
 
+import { carryPartsFor } from "../economy/primitives";
+
 /**
  * Result of a body building calculation.
  */
@@ -135,9 +137,9 @@ export interface HaulerBodyResult {
  * Haulers need CARRY parts for capacity and MOVE parts for mobility.
  * The ratio is 1:1 CARRY:MOVE for full speed on roads (and plains when empty).
  *
- * The required carry capacity is calculated as:
- *   carryNeeded = energyRate * roundTripTime
- *   roundTripTime = 2 * distance (assuming 1 tile/tick movement)
+ * The required carry capacity comes from the canonical economy formula
+ * (carryPartsFor: rate * roundTrip / CARRY_CAPACITY) with a 20% buffer for
+ * path variability.
  *
  * @param energyRate - Energy per tick being produced (e.g., 10 for full harvest)
  * @param distance - One-way path distance from source to delivery
@@ -151,16 +153,9 @@ export function buildHaulerBody(energyRate: number, distance: number, energyCapa
     return { body: [], cost: 0, carryCapacity: 0 };
   }
 
-  // Calculate required carry capacity
-  // Round trip = 2 * distance ticks
-  // Energy to haul = energyRate * roundTrip
-  // Add 20% buffer for path variability and pickup time
-  const roundTrip = 2 * distance;
-  const carryNeeded = Math.ceil(energyRate * roundTrip * 1.2);
-
-  // Each CARRY part holds 50 energy
   const CARRY_CAPACITY = 50;
-  const carryPartsNeeded = Math.ceil(carryNeeded / CARRY_CAPACITY);
+  // Add 20% buffer for path variability and pickup time
+  const carryPartsNeeded = Math.ceil(carryPartsFor(energyRate, distance) * 1.2);
 
   // Build body with 1:1 CARRY:MOVE ratio
   let carryParts = 0;
@@ -201,35 +196,6 @@ export function buildHaulerBody(energyRate: number, distance: number, energyCapa
   }
 
   return { body, cost, carryCapacity: carryParts * CARRY_CAPACITY };
-}
-
-/**
- * Calculates hauling requirements for a set of sources.
- *
- * @param sources - Array of { flow, distanceToSpawn } for each source
- * @returns Total carry capacity needed per trip cycle
- */
-export function calculateHaulingNeeds(sources: { flow: number; distanceToSpawn: number }[]): {
-  totalCarryNeeded: number;
-  avgDistance: number;
-} {
-  if (sources.length === 0) {
-    return { totalCarryNeeded: 0, avgDistance: 0 };
-  }
-
-  let totalCarryNeeded = 0;
-  let totalDistance = 0;
-
-  for (const source of sources) {
-    const roundTrip = 2 * source.distanceToSpawn;
-    totalCarryNeeded += source.flow * roundTrip;
-    totalDistance += source.distanceToSpawn;
-  }
-
-  return {
-    totalCarryNeeded: Math.ceil(totalCarryNeeded * 1.2), // 20% buffer
-    avgDistance: Math.ceil(totalDistance / sources.length)
-  };
 }
 
 /**
@@ -338,43 +304,6 @@ export function buildTankerBody(requiredCarry: number, energyCapacity: number, u
   }
 
   return { body, cost, carryCapacity: carryParts * CARRY_CAPACITY };
-}
-
-/**
- * Calculate tanker requirements for a node based on structures.
- *
- * @param extensionCount - Number of extensions in the node
- * @param spawnCount - Number of spawns in the node
- * @param towerCount - Number of towers in the node
- * @param averageDistance - Average distance within the node
- * @param spawnRate - Estimated creeps spawned per tick (0.01-0.05)
- * @returns Required CARRY parts for adequate tanker capacity
- */
-export function calculateTankerCarryNeeded(
-  extensionCount: number,
-  spawnCount: number,
-  towerCount: number,
-  averageDistance: number,
-  spawnRate = 0.02
-): number {
-  // Energy consumption per tick:
-  // - Spawning: ~10 energy/tick when active (varies by creep size)
-  // - Towers: ~10 energy/tick each when actively attacking/healing/repairing
-  const baseEnergyPerTick = 10 * spawnRate * 50; // Scaled by activity
-  const towerEnergyPerTick = towerCount * 2; // Conservative estimate
-  const totalEnergyPerTick = baseEnergyPerTick + towerEnergyPerTick;
-
-  // Round trip time for local operations
-  const roundTrip = averageDistance * 2 + 4; // +4 for pickup/transfer time
-
-  // Energy that needs to be "in transit" at any time
-  const energyInTransit = totalEnergyPerTick * roundTrip;
-
-  // Convert to CARRY parts (each holds 50 energy)
-  const carryNeeded = Math.ceil(energyInTransit / 50);
-
-  // Add 20% buffer and ensure minimum of 2
-  return Math.max(2, Math.ceil(carryNeeded * 1.2));
 }
 
 /**

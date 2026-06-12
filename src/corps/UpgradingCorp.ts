@@ -13,7 +13,7 @@ import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { effectiveLife } from "../economy/primitives";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -375,7 +375,7 @@ export class UpgradingCorp extends Corp {
     if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     const travel = scene.dist(scene.spawnPos, scene.controllerPos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    const usefulLife = effectiveLife(travel);
     return { costPerTick: body.cost / usefulLife, throughput: 0, spawnPartsPerTick: body.body.length / usefulLife };
   }
 

@@ -11,7 +11,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { controllerDeliverySpot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelTo } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
@@ -186,7 +186,7 @@ export class CarryCorp extends Corp {
         if (!this.accountedCreeps.has(name)) {
           this.accountedCreeps.add(name);
           const carryCapacity = creep.store.getCapacity();
-          const expectedDeliveries = (carryCapacity * CREEP_LIFETIME) / 50; // Estimate
+          const expectedDeliveries = (carryCapacity * CREEP_LIFETIME) / CARRY_CAPACITY; // Estimate
           this.recordExpectedProduction(expectedDeliveries);
         }
       }
@@ -737,14 +737,15 @@ export class CarryCorp extends Corp {
     for (const a of this.haulerAssignments) {
       const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
       if (body.cost === 0 || body.carryCapacity === 0) continue;
-      // Energy in flight over the round trip sets the carry needed; one capped
-      // body may not cover a long/high-flow route, so run as many as it takes -
-      // this is what makes hauling cost rise properly with distance.
-      const carryEnergyNeeded = a.flowRate * 2 * a.distance * 1.2;
+      // Energy in flight over the round trip sets the carry needed (1.2x margin
+      // for path variability); one capped body may not cover a long/high-flow
+      // route, so run as many as it takes - this is what makes hauling cost rise
+      // properly with distance.
+      const carryEnergyNeeded = carryPartsFor(a.flowRate, a.distance) * CARRY_CAPACITY * 1.2;
       const haulers = Math.max(1, Math.ceil(carryEnergyNeeded / body.carryCapacity));
       const pickup = scene.resource(a.fromId);
       const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
-      const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+      const usefulLife = effectiveLife(travel);
       costPerTick += (haulers * body.cost) / usefulLife;
       // The hauler fleet is the part-hungry one: more haulers, each a bigger
       // body, the farther the route - this is the term that makes a far source

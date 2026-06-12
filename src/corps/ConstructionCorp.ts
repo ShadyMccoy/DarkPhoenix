@@ -16,6 +16,7 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { carryPartsFor } from "../economy/primitives";
 import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
@@ -992,12 +993,11 @@ export class ConstructionCorp extends Corp {
     const consumption = Math.max(5, work * 5); // energy/tick the builder eats
     const source = site.pos.findClosestByRange(FIND_SOURCES);
     const dist = source ? site.pos.getRangeTo(source) : 8;
-    const roundTrip = 2 * dist + 2;
     // CARRY needed in flight to sustain consumption over the round trip, with a
     // 1.5x margin: a tanker also spends ticks transferring at the builder and
     // withdrawing at the source, so the bare round-trip figure under-delivers and
     // a far site starves its builder. The margin scales the relay with distance.
-    const carryNeeded = Math.ceil((consumption * roundTrip * 1.5) / 50);
+    const carryNeeded = Math.ceil(carryPartsFor(consumption, dist) * 1.5);
     return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
 
