@@ -44,6 +44,14 @@ export type LocalSink = "spawn" | "controller";
 const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 
 /**
+ * Small energy buffer kept in the core depot so the extension tender always has a
+ * load on hand. Deliberately modest: it only needs to bridge between hauler drop-offs,
+ * not bankroll the whole network - a large buffer would pull haulers off the
+ * controller to keep refilling the depot (the energy split is the flow solver's job).
+ */
+const DEPOT_BUFFER = 150;
+
+/**
  * Fill fraction at which a dedicated build source's container is judged to be
  * "backing up": the builder isn't draining the source's full output (a runt
  * builder, or no active consumption), so the energy just accumulates in the
@@ -540,6 +548,22 @@ export class CarryCorp extends Corp {
 
   /** Free energy capacity across the spawn network is worth a hauler's divert. */
   private spawnNetworkHungry(room: Room): boolean {
+    // When the tender owns the extensions, haulers are responsible only for the
+    // SPAWN structure itself - so judge hunger by the spawn alone. Counting the
+    // extensions here (which the tender fills, slower than haulers used to) would
+    // keep the network looking perpetually hungry and divert EVERY controller-bound
+    // hauler to the spawn, starving the controller.
+    if (room.memory.extensionTenderActive) {
+      const spawn = room.find(FIND_MY_SPAWNS)[0];
+      if ((spawn?.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) >= SPAWN_PRIORITY_FREE_CAPACITY) return true;
+      // The depot is the tender's reserve. Keep only a SMALL buffer there: divert a
+      // hauler when it's nearly empty so the tender never starves, but no more - a
+      // big reserve would make haulers refill the depot constantly and starve the
+      // controller (the total energy is fixed and the flow solver already split it).
+      // Once the buffer is met, haulers go back to feeding the controller.
+      const depot = this.coreDepot(room);
+      return !!depot && depot.store[RESOURCE_ENERGY] < DEPOT_BUFFER;
+    }
     const free = this.getSpawnZoneStructures(room).reduce(
       (sum, s) => sum + s.store.getFreeCapacity(RESOURCE_ENERGY),
       0

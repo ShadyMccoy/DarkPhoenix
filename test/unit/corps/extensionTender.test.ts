@@ -69,19 +69,30 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
 
-  it("asks for ONE blocking, oversized tender when a depot and extensions exist", () => {
+  it("asks for NOTHING before the room has a miner (income before infrastructure)", () => {
     const corp = corpFor(room({ depot: true, extensions: 5 }));
+    Game.creeps = {}; // no miner yet
+    expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
+  });
+
+  it("asks for ONE non-blocking, oversized tender when a depot, extensions and a miner exist", () => {
+    const r = room({ depot: true, extensions: 5 });
+    const corp = corpFor(r);
+    Game.creeps = { m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false } } as any;
     const demand = corp.getSpawnDemand(ctx as any);
     expect(demand).to.have.length(1);
     expect(demand[0].role).to.equal("tanker");
-    expect(demand[0].blocking, "the first tender unlocks the extensions").to.equal(true);
+    expect(demand[0].blocking, "infrastructure, must not hold the spawn ahead of producers").to.equal(false);
     expect(demand[0].bodyParam, "sized to refill the whole extension set (+spawn)").to.equal(6);
   });
 
   it("asks for nothing once a tender is already fielded (one per room)", () => {
     const r = room({ depot: true, extensions: 5 });
     const corp = corpFor(r);
-    Game.creeps = { t1: { memory: { corpId: corp.id, workType: "tank" }, spawning: false } } as any;
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false },
+      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false }
+    } as any;
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
 });

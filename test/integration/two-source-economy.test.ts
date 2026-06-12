@@ -26,7 +26,7 @@ describe("two-source owned-room economy probe", () => {
     this.timeout(900000);
 
     const main = readFileSync(MAIN).toString();
-    const scenario = scenarios.twoSourceRcl3();
+    const scenario = scenarios.twoSourceRcl3Depot();
     const room = scenario.bot.room;
     const SRC = [
       { x: 15, y: 30 },

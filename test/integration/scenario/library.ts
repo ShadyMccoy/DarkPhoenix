@@ -209,6 +209,34 @@ export function twoSourceRcl3Containers(opts: { room?: string } = {}): Scenario 
 }
 
 /**
+ * twoSourceRcl3 with source containers AND a core depot container beside the spawn
+ * (25,25) already built, so the depot+extension-tender path is exercised from tick
+ * 1 instead of waiting ~1500 ticks for the containers to be built. Used to validate
+ * that the local-mover tender fills extensions and haulers run the source->depot bus.
+ */
+export function twoSourceRcl3Depot(opts: { room?: string } = {}): Scenario {
+  const base = twoSourceRcl3(opts);
+  const room = base.bot.room;
+  const containers = [
+    { x: 15, y: 29 }, // on source 1 (15,30)
+    { x: 35, y: 29 }, // on source 2 (35,30)
+    { x: 24, y: 25 }, // CORE DEPOT: adjacent to the spawn at (25,25)
+  ];
+  return {
+    ...base,
+    name: "two-source-rcl3-depot",
+    description: base.description + " Plus source containers and a core depot by the spawn.",
+    state: {
+      ...base.state,
+      structures: [
+        ...(base.state?.structures ?? []),
+        ...containers.map((c) => ({ room, type: "container", x: c.x, y: c.y, energy: 0 })),
+      ],
+    },
+  };
+}
+
+/**
  * The three-chamber room pre-advanced to RCL 2 with two extensions already
  * built in the source chamber, so the controller-starvation-during-construction
  * regime reproduces in ~100 ticks instead of ~600. Use for fast economy
