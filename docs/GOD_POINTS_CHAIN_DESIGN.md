@@ -1,7 +1,12 @@
-# God-Points Chain — Design
+# Surplus Thermostat — Balancing Income vs. Build/Upgrade
 
 Status: **proposal / design-only** (no code yet). Companion to
 [`ECONOMIC_FRAMEWORK.md`](./ECONOMIC_FRAMEWORK.md).
+
+> Earlier drafts of this doc chased a "god-points" terminal-value model. We
+> dropped it: it modeled a value we'd have to invent and tune. This design keys
+> off **measured state** (stored energy) instead — simpler, and the desired
+> behavior falls out of one feedback loop.
 
 ## 1. The problem, in one screenshot
 
@@ -14,188 +19,183 @@ Room W43N23, established, 24h:
 | energy on construction | **0** |
 | control points | flat / ~0 |
 
-The colony harvests plenty and pours nearly all of it back into *making more
-creeps*. The two activities that actually advance the empire — **upgrading** and
-**construction** — get essentially nothing. A source-container site sat unbuilt
-for a very long time because no builder ever spawned.
+The colony harvests plenty and pours almost all of it back into *making more
+creeps* (haulers, remote-mining crews). The two activities that actually advance
+the empire — **upgrading** and **construction** — get nothing. A source-container
+site sat unbuilt for a very long time because no builder ever spawned.
 
-## 2. Root cause: two value systems that disagree
+## 2. Root cause: the flow→corp gap, and an unregulated economy
 
-We price the economy in **two unrelated places**:
+Two concrete faults:
 
-1. **Flow solver** (`flow/`, `ECONOMIC_FRAMEWORK.md`). Thinks correctly: it has
-   sinks with priorities (`construction: 70`, `controller: 60`) and routes
-   *energy* to them.
-2. **Spawn scheduler** (`spawn/SpawnScheduler.ts` + each corp's
-   `getSpawnDemand`). Decides which *creep* to build, using a **separate,
-   hardcoded** value scale where income is in an untouchable tier:
-   - miner `100`, hauler `90+` → `+1,000,000` "income tier"
-   - builder `95`, upgrader `90` → consumption tier, **no** income bonus
+1. **Consumers ignore their allocation.** The flow solver computes a controller
+   and construction allocation, then the corps **throw it away** and use ad-hoc
+   heuristics:
+   - `UpgradingCorp.plan()` sets upgrader count from an RCL rule
+     (`rcl<=2 ? 1 : 2`, capped at 3). It holds a flow-allocation field but does
+     not size from it.
+   - `ConstructionCorp` floors the builder to a dedicated-source guess, and then
+     the spawn scheduler's income tier buries it anyway.
 
-Because the scheduler picks **one creep per spawn per tick**, and any income
-demand outranks every consumer by ~1e6, the builder/upgrader are structurally
-last in line *forever*. The flow can allocate energy to the construction sink,
-but the scheduler never spawns a builder to spend it. Worse: nothing tells the
-scheduler that the *Nth hauler* or *Mth remote mine* produces **zero** terminal
-value, so "build more income" always looks worth it → the over-spawn you see.
+   So the flow and the corps speak different languages, and the consumer side
+   never grows to use available energy.
 
-**The two systems must become one, and that one must be priced in the only thing
-that actually matters.**
+2. **Nothing regulates income.** The spawn scheduler ranks income (miner/hauler)
+   in a `+1,000,000` tier above every consumer, and nothing tells it the *Nth*
+   hauler or *Mth* remote mine produces no benefit. We are **spawn-bound, not
+   energy-bound** — there is surplus energy — yet the colony keeps spending its
+   scarce spawn time on more income instead of consuming what it already has.
 
-## 3. The principle: god points are the only terminal value
+## 3. The idea: stored energy is the thermostat
 
-> The planner maximizes **god points**. Corps are simple; the planner sticks
-> them together and judges the whole chain by the god points it yields.
-
-- **God points** = progress on the only scoreboard the game keeps: **controller
-  upgrade progress (→ RCL/GCL)**, plus **construction** (structures that unlock
-  capacity, i.e. *future* god points). Everything else — mining, hauling,
-  reserving, spawning — has **no terminal value of its own**. It is worth
-  *exactly* the god points it enables downstream, and nothing more.
-- **Only two corps emit god points**: `UpgradingCorp` (controller progress) and
-  `ConstructionCorp` (build progress, valued as the discounted future capacity
-  it unlocks). Every other corp's value is *derived*, not declared.
-- **Corps stay dumb.** A corp knows only how to (a) `project()` its own per-tick
-  cost/throughput and (b) `work()`. It does **not** assert a priority number.
-  The **planner** owns all valuation and composition. (This deletes the
-  hardcoded `90/94/95/100` values — those are the smell we're removing.)
-
-## 4. The model
-
-### 4.1 A chain
-
-A chain is the path energy takes to become god points:
+We are spawn-bound and energy-rich, so the quantity to regulate is **stored
+energy**. You already named the sensor: **container + storage levels**. One
+measured number drives the whole economy:
 
 ```
-source ──(miner)──> pile ──(hauler)──> sink ──(consumer corp)──> god points
-                                         └─ controller  → UpgradingCorp
-                                         └─ construction → ConstructionCorp
-                                         └─ spawn/ext    → (enables the creeps
-                                                            the rest of the chain
-                                                            needs — recursive)
+surplus/tick  =  rate stored energy is piling up
+              =  Δ(source containers + storage) over the planning window
 ```
 
-We already have the seed of this: `ChainEvaluator` stands up the real corps for a
-candidate spawn and sums **net energy delivered to the controller**, by calling
-each corp's `project()`. The change is to:
+- **Surplus > 0** (stores filling): we collect more than we use → grow the
+  consumers (build/upgrade) to spend it, and stop adding income.
+- **Surplus < 0** (stores draining): consumers are outrunning income → shrink
+  consumers (or add income, if spawn budget allows).
+- **Surplus ≈ 0**: balanced. This is the "optimum that evenly consumes the
+  surplus" — it falls out, it isn't computed.
 
-1. Extend the chain's terminal from "energy at controller" to **god-points/tick**
-   at the consuming endpoints (controller **and** construction), and
-2. Use that same chain valuation to drive **ongoing spawn decisions**, not just
-   spawn *placement*.
+No modeled value, no god points. Just a thermostat reading a real gauge.
 
-### 4.2 Marginal valuation (this is the whole fix)
+## 4. Three small changes (the whole design)
 
-Every spawn candidate is scored by the **marginal god points per spawn-cost** it
-adds to the chain:
+### 4.1 Measure surplus
+
+A single cheap function, run each planning cycle:
 
 ```
-value(candidate) = Δ(god points/tick of the chain, with candidate) / spawn cost
+roomSurplus(room) -> energy/tick
 ```
 
-- The **first miner** on a fresh source has enormous marginal value: it unlocks
-  the entire downstream chain (its energy can become god points). → spawns first.
-- The **first hauler** is similarly high: without it the energy strands. → next.
-- The **Nth hauler** beyond what the sink can actually consume adds **~0**
-  god points (the sink is saturated) → its marginal value collapses → it stops
-  being spawned. **This is the automatic cap on over-spawn.**
-- A **remote mine** is valued by the god points its *extra* energy unlocks
-  *after* paying its full freight (reserver + long haul + spawn build-time). Once
-  home consumption is saturated, that downstream value is ~0 and the remote stops
-  looking worth it. **This is the automatic cap on too many remote mines.**
-- A **builder/upgrader** is valued at the god points it *directly* emits. When
-  income is saturated and consumers are starved (today's W43N23), the consumer's
-  marginal value is the **highest** thing on the board → it finally spawns.
+From the stored-energy level and its short-window trend (source containers +
+storage; spawn/extension fill tells us income is "enough"). Real state, no
+estimation chain.
 
-The income tier (`1e6`) and the hardcoded consumer values both **disappear**.
-Ranking falls out of one number: marginal god points / cost.
+### 4.2 Feed surplus into the consumer sinks
 
-### 4.3 Where the numbers come from
+In the flow graph, set the **construction + controller sink demand = surplus**
+(split by a simple policy — see §6), instead of the current fixed/priority guess.
+The solver already routes energy to sinks; now it routes the *surplus* to the
+things that turn it into progress. This is the only change to the solver inputs.
 
-Nothing new for corps to learn — we already have `Corp.project() →
-{ costPerTick, throughput, spawnPartsPerTick }`. We add the terminal piece:
+### 4.3 Tighten the handoff — consumers size from their allocation
 
-- `UpgradingCorp.project()` reports god-points/tick = energy converted to
-  controller progress (1:1 today; controller-level multipliers later).
-- `ConstructionCorp.project()` reports god-points/tick = build progress, with
-  the built structure's future-capacity value discounted into a god-point-
-  equivalent (a tunable conversion, documented in one place).
-- Income corps report `throughput` (energy) as today; the **planner** turns that
-  energy into god points by following the chain to its consumer and reading the
-  consumer's conversion. Income corps never see "god points."
+Make each consumer corp size its crew **purely from its sink allocation**:
 
-## 5. How it maps onto the code we have
+```
+desired WORK  ≈  allocatedEnergy/tick  /  per-WORK consumption rate
+```
+
+- **Delete** `UpgradingCorp`'s RCL heuristic; the upgrader fleet is whatever its
+  controller allocation funds (keep a small safety cap against a stale
+  allocation, and a floor while downgrade is imminent).
+- **Delete** `ConstructionCorp`'s dedicated-source over-floor; the builder fleet
+  is whatever its construction allocation funds.
+
+Now `getSpawnDemand` is a **pure function of the allocation** — the flow and the
+corps finally speak one language. Corps stay dumb: they don't decide *how much*,
+they only execute their funded size.
+
+### 4.4 Let surplus regulate income too
+
+The same surplus number caps income: when stored energy is high, the colony
+already collects more than it uses, so **stop opening new haulers / remote
+mines**. Concretely, gate income growth (the marginal hauler, the next remote
+source) on `surplus <= 0`. One signal grows consumers *and* caps income — which
+is precisely what kills the 212K-into-creeps over-spawn.
+
+## 5. Why the behavior falls out
+
+A plain negative-feedback loop:
+
+```
+stores fill → surplus>0 → consumer allocation grows → more build/upgrade WORK
+            → energy drains → surplus→0 → settles
+```
+
+Because we're spawn-bound, the consumer WORK we can field is capped by spawn
+time, so the loop settles wherever the spawn budget balances income against
+consumption. The "right" amount of build/upgrade is an **equilibrium of the
+thermostat**, not a formula we maintain. Tuning is one or two constants (target
+store band, build/upgrade split), not a model.
+
+## 6. The one policy choice: splitting surplus
+
+How to divide the surplus between construction and upgrading. Start simple:
+
+- **Construction-first:** while construction sites exist, surplus goes to build;
+  otherwise to upgrade. (Matches "finish infrastructure, then pour into RCL.")
+- Alternative: a fixed ratio, or shift toward upgrade as RCL nears a target.
+
+Pick construction-first to start; it's the least surprising and easy to change.
+
+## 7. What maps onto existing code
 
 | concern | today | after |
 | --- | --- | --- |
-| per-corp economics | `Corp.project()` | unchanged shape; upgrade+construction also report god-points/tick |
-| chain composition | `ChainEvaluator` / `hubNet` (placement only) | same composition, terminal extended to god points, reused for **spawn ranking** |
-| energy routing | flow solver sinks + priorities | unchanged; sink priority *derived from* the same god-point conversion so routing and spawning agree |
-| spawn ranking | `SpawnScheduler` hardcoded value + 1e6 income tier | **replaced** by marginal-god-point ranking emitted by the planner |
-| corp priorities | `value: 90/94/95/100` literals | **deleted** — corps stop asserting value |
+| consumer crew size | RCL heuristic / dedicated-source floor | `WORK = allocation / rate` (pure) |
+| consumer ↔ flow | allocation field, mostly ignored | allocation is the *only* input |
+| consumer sink demand | fixed / priority constant | `= surplus` (measured) |
+| income growth | unbounded (income tier) | gated on `surplus <= 0` |
+| stored energy | unmonitored | the regulated variable (`roomSurplus`) |
 
-The spawn scheduler becomes a thin executor: the planner hands it a ranked list
-(or just the single best candidate) computed from chain marginal value; the
-scheduler only decides body size vs. available energy and whether to wait.
+The spawn scheduler does **not** need its income tier ripped out for this to
+work: once consumer demand is real and bounded *and* income growth is gated on
+surplus, the scheduler's free spawn ticks naturally flow to the consumers. We can
+revisit the tier later if needed, but it is not on the critical path here.
 
-## 6. Cold-start (the part that has bitten us)
+## 8. Migration plan (incremental, each step shippable + tested)
 
-Marginal valuation handles cold-start *without a special case*, because when
-god-point throughput is **0**, the first miner/hauler have the highest marginal
-value on the board (they unlock the only path to any god points at all). The
-existing **bootstrap corp stays** for RCL 1 (300-energy rooms, where spending on
-the flow economy starves the single jack — see `FLOW_MIN_RCL`). Above that, the
-marginal model takes over. We must verify we don't regress the "must
-over-invest in income before any god points exist" early phase — see test plan.
+1. **Add `roomSurplus(room)` + a probe.** Measure stored-energy trend and per-role
+   spawn share; establish the W43N23 baseline (construction 0, stores climbing).
+   No behavior change.
+2. **Size consumers from their allocation.** Replace `UpgradingCorp`'s RCL
+   heuristic and `ConstructionCorp`'s floor with allocation-driven sizing. With
+   current allocations this alone should let build/upgrade grow. Gate behind
+   tests + probe (construction energy > 0).
+3. **Drive consumer sink demand from surplus.** Feed `roomSurplus` into the
+   construction + controller sink demand, with the construction-first split.
+   Probe: stored energy holds a band; control-points/tick rises.
+4. **Gate income growth on surplus.** Stop opening marginal haulers / remote
+   mines while `surplus > 0`. Probe: energy-on-creeps share drops; no income
+   starvation at cold start.
 
-## 7. Migration plan (incremental, each step shippable + tested)
+## 9. Test plan
 
-1. **Instrument, don't change behavior.** Add god-points/tick to
-   `UpgradingCorp.project()` and `ConstructionCorp.project()`; add a sim probe
-   that reports chain **god-points/tick** and per-role spawn share. Establish the
-   W43N23 baseline (construction = 0) in the sim. *No economic change yet.*
-2. **One chain, end-to-end value.** Extend `ChainEvaluator` to score a chain in
-   god points (controller + construction endpoints). Keep it placement-only for
-   now; assert via unit tests that a saturated sink yields ~0 marginal value for
-   an extra hauler.
-3. **Bridge the scheduler.** Replace the consumer corps' hardcoded values with a
-   value derived from their chain marginal god points (income tier still intact).
-   This alone should let builders/upgraders break the starvation — smallest
-   user-visible win. Gate behind tests + the probe (construction > 0).
-4. **Unify ranking.** Move income corps onto the same marginal-god-point scale and
-   delete the `1e6` income tier. The planner emits the ranked spawn plan; the
-   scheduler becomes the thin executor. Heaviest step; do last, with the
-   cold-start regression suite green.
-5. **Align flow sink priorities** with the same conversion so routing and
-   spawning never disagree again.
-
-## 8. Test plan
-
-- **Probe (sim):** chain god-points/tick, energy split by role, construction
-  energy > 0, control-points/tick rising — the W43N23 symptom must invert.
-- **Unit:** marginal value of an extra hauler on a saturated sink ≈ 0; marginal
-  value of the first miner on a fresh source ≫ any consumer; remote-mine value
-  goes negative once home consumption is saturated.
-- **Cold-start regression:** RCL1→3 climb time does not regress vs. current
-  bootstrap behavior.
+- **Sim probe:** stored energy stays in a band (no overflow, no empty);
+  build + upgrade energy > 0; control-points/tick rising — the W43N23 symptom
+  inverts.
+- **Unit:** `roomSurplus` sign/magnitude from container deltas; consumer spawn
+  demand is a pure function of allocation (no hidden heuristic); income growth
+  gate fires only when `surplus > 0`.
+- **Cold-start regression:** RCL 1→3 climb time does not regress (surplus starts
+  ≤ 0, so consumers stay small and income is unblocked; bootstrap unchanged).
 - **No-regression:** existing `twoSourceRcl3` harvest/haul probes stay green.
 
-## 9. Risks & open questions
+## 10. Risks & open questions
 
-- **Construction → god-point conversion** is a judgment call (how much is a future
-  extension "worth" now?). Keep it a single tunable constant with a documented
-  rationale; don't scatter it.
-- **Saturation signal.** "The sink can't consume more" must be a clean, cheap
-  read (consumer `project()` throughput cap), or the marginal calc gets fuzzy.
-- **CPU.** Re-scoring chains every spawn tick may be too costly; likely cache the
-  chain valuation and only re-score on structural change (new source/sink/RCL).
-- **Step 4 is the historically tricky one.** Steps 1–3 deliver the visible win
-  (construction un-starves) with the income tier still in place as a safety net;
-  only collapse the tier once the marginal model is proven in-sim.
+- **Surplus window.** Container/storage deltas are noisy tick-to-tick; average
+  over a planning window (or smooth) so the thermostat doesn't oscillate.
+- **No storage yet (low RCL).** Before storage exists, "stored energy" = source
+  containers (and ground piles). Define the gauge to degrade gracefully there.
+- **Spawn-budget accounting.** "Spawn-bound" assumes we can read remaining spawn
+  capacity; sizing consumers beyond what spawn time allows just won't field — make
+  sure that's a graceful cap, not thrash.
+- **Build/upgrade split** (§6) is the one real policy knob; keep it a single
+  documented constant/function.
 
-## 10. One-line summary
+## 11. One-line summary
 
-Stop pricing the colony in energy and creep-counts. Price it in **god points**,
-let the **planner** value every creep by the marginal god points its chain
-yields, and the over-spawning, the starved builder, and the flat control-points
-curve all fix themselves — while the corps stay dumb.
+Treat **stored energy as a thermostat**: the planner sets build/upgrade
+allocations from the measured surplus and caps income when stores are full; corps
+stay dumb and size themselves to their allocation; and one feedback loop balances
+mine-vs-build-vs-upgrade without any modeled "value."
