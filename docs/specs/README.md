@@ -5,6 +5,12 @@ defines its goal, design, file-level changes, and — most importantly — the
 **acceptance tests**: a task is DONE exactly when its listed tests pass (and
 nothing previously green breaks). Write the tests first; they are the contract.
 
+**The keystone is [spec 00 — the Corp Framework](00-corp-framework.md):** corps
+as interchangeable units behind an abstract input/output interface, so the
+planner reasons over an abstracted world and new corp kinds plug in without
+touching the core. Specs 02, 03, 06 and 07 should be implemented as corp kinds
+through that framework; they double as proof that it works.
+
 Conventions used by every spec:
 
 - **Unit tests** run via `npm run test-unit` (mocha, mocked Game API, ~seconds).
@@ -21,6 +27,7 @@ Conventions used by every spec:
 
 | # | Spec | Status | Priority |
 |---|------|--------|----------|
+| 00 | [Corp Framework](00-corp-framework.md) | partially real, not enforced | P0 — the keystone |
 | 01 | [RCL5 cold-start stall](01-rcl5-cold-start-stall.md) | OPEN — blocks 02 | P0 |
 | 02 | [Link logistics (RCL5)](02-link-logistics.md) | groundwork committed, unverified | P0 (after 01) |
 | 03 | [Storage draw-down](03-storage-drawdown.md) | not started | P1 |
