@@ -117,6 +117,34 @@ export function registerCorpKind(k: CorpKind): void;
 Each port commit passes the FULL gate: unit suite + `flow-handoff` +
 `runt-economy` + `storage-depot`.
 
+## Method: the proof ladder
+
+Prod's stagnation is not one smoking gun - it is accumulated code and design
+debt. So the framework is revamped **piece by piece, each piece proven in
+isolation, then in progressively more complex isolations**. No piece touches
+the live loop until it has climbed every rung below it:
+
+| Rung | Isolation | Proof |
+|------|-----------|-------|
+| 0 | Pure data & functions (Commission envelope, registry, dispatch) | type-checked + direct unit tests, no Game, no corps |
+| 1 | One kind alone | the conformance suite (`describeCorpKindConformance`) |
+| 2 | Kind + planner | its commissions appear in `planCommissions` over a pure world |
+| 3 | Kind + dispatch | materialize/run/persist/demobilize lifecycle on a plain CorpStore |
+| 4 | Kinds composed, still pure | the golden master over the standard worlds |
+| 5 | Real engine | the integration suite (flow-handoff / runt-economy / storage-depot + kind-specific tests) |
+
+Every port commit states which rung it reaches. The strangler property -
+`materializeCommissions` skips unregistered kinds, leaving legacy plumbing in
+charge of them - is what makes rung-by-rung landing safe: a kind only takes
+over the round its registration lands, and the golden master pins that nothing
+else moved.
+
+Status: rungs 0-4 scaffolded and green (Commission, CorpKind registry +
+dispatch, commissionPlan, conformance suite, extensibility proof via the toy
+"beacon" kind, golden master over 3 worlds / 12 commissions). Next: the first
+real port (an auxiliary - ScoutCorp - smallest surface), then one kind per
+commit up the dependency order.
+
 ## Acceptance tests (the framework is DONE when all pass)
 
 ### A. Conformance suite — `test/unit/framework/corpKind.conformance.ts`
