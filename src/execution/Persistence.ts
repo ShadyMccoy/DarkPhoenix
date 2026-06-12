@@ -197,6 +197,12 @@ export function persistState(
     Memory.reservationCorps[roomName] = registry.reservationCorps[roomName].serialize();
   }
 
+  // Persist extension tender corps (local movers)
+  Memory.extensionTenderCorps = {};
+  for (const roomName in registry.extensionTenderCorps) {
+    Memory.extensionTenderCorps[roomName] = registry.extensionTenderCorps[roomName].serialize();
+  }
+
   // Persist spawning corps
   Memory.spawningCorps = {};
   for (const spawnId in registry.spawningCorps) {

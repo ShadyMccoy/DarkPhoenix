@@ -125,6 +125,10 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
     const c = registry.constructionCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
+  for (const id in registry.extensionTenderCorps) {
+    const c = registry.extensionTenderCorps[id];
+    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+  }
   for (const id in registry.reservationCorps) {
     const c = registry.reservationCorps[id];
     if (c.getSpawnId() !== spawnId) continue;

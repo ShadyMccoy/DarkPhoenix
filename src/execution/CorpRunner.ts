@@ -14,6 +14,7 @@ import {
   CarryCorp,
   ConstructionCorp,
   Corp,
+  ExtensionTenderCorp,
   HarvestCorp,
   ReservationCorp,
   ScoutCorp,
@@ -21,6 +22,7 @@ import {
   UpgradingCorp,
   createBootstrapCorp,
   createConstructionCorp,
+  createExtensionTenderCorp,
   createReservationCorp,
   createScoutCorp,
   createSpawningCorp
@@ -38,6 +40,8 @@ export interface CorpRegistry {
   constructionCorps: { [roomName: string]: ConstructionCorp };
   spawningCorps: { [spawnId: string]: SpawningCorp };
   reservationCorps: { [roomName: string]: ReservationCorp };
+  /** Extension tenders (local movers) keyed by room name */
+  extensionTenderCorps: { [roomName: string]: ExtensionTenderCorp };
 }
 
 /**
@@ -52,7 +56,8 @@ export function createCorpRegistry(): CorpRegistry {
     scoutCorps: {},
     constructionCorps: {},
     spawningCorps: {},
-    reservationCorps: {}
+    reservationCorps: {},
+    extensionTenderCorps: {}
   };
 }
 
@@ -240,6 +245,35 @@ export function runConstructionCorps(registry: CorpRegistry): void {
       constructionCorp.plan(Game.time);
     }
     constructionCorp.work(Game.time);
+  }
+}
+
+/**
+ * Run extension tender corps (local movers) for all owned rooms. The tender
+ * withdraws from the core depot and tops up the spawn + extensions, so haulers can
+ * run a dumb source->depot bus instead of fanning across extensions.
+ */
+export function runExtensionTenderCorps(registry: CorpRegistry): void {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+    if (room.find(FIND_MY_SPAWNS).length === 0) continue;
+
+    let corp = registry.extensionTenderCorps[roomName];
+    if (!corp) {
+      const saved = Memory.extensionTenderCorps?.[roomName];
+      if (saved) {
+        corp = new ExtensionTenderCorp(saved.nodeId, saved.spawnId, saved.id);
+        corp.deserialize(saved);
+      } else {
+        const created = createExtensionTenderCorp(room);
+        if (!created) continue;
+        created.createdAt = Game.time;
+        corp = created;
+      }
+      registry.extensionTenderCorps[roomName] = corp;
+    }
+    corp.work(Game.time);
   }
 }
 

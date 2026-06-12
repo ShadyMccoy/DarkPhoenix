@@ -48,6 +48,7 @@ import {
   restoreVisualizationCache,
   runBootstrapCorps,
   runConstructionCorps,
+  runExtensionTenderCorps,
   runIncrementalAnalysis,
   runRealCorps,
   runReservationCorps,
@@ -184,6 +185,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runRealCorps(corps);
   runScoutCorps(corps);
   runConstructionCorps(corps);
+  runExtensionTenderCorps(corps);
   runReservationCorps(corps);
 
   // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
