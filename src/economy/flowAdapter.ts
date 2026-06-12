@@ -32,13 +32,17 @@ import {
   PlannerSpawn,
   SinkKind,
   DEFAULT_SINK_VALUE,
-  incomeBudgetScaleForFill
+  incomeBudgetScaleForFill,
+  INCOME_THROTTLE_LOW,
+  INCOME_THROTTLE_HIGH
 } from "./CorpPlanner";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
-/** Energy/tick one active construction site can realistically absorb. */
+/** Base energy/tick construction absorbs while energy is scarce (reservoir low). */
 export const CONSTRUCTION_ABSORB_RATE = 5;
+/** Energy/tick construction can absorb when the reservoir is full (~2 full builders). */
+export const CONSTRUCTION_ABSORB_MAX = 20;
 
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
 function toSinkKind(type: SinkType): SinkKind | null {
@@ -79,6 +83,26 @@ export function detectTransientSources(): PlannerSource[] {
     }
   }
   return out;
+}
+
+/**
+ * Energy/tick the construction sink can absorb, scaled by stored-energy fill.
+ *
+ * The base rate is deliberately modest: while energy is scarce we don't
+ * over-invest in building ahead of the spawn/controller. But a full reservoir is
+ * surplus the colony is failing to spend, and construction is valued above the
+ * controller (DEFAULT_SINK_VALUE 70 > 50), so we lift the cap as stores fill -
+ * letting building (not just upgrading) soak the surplus, per the existing
+ * weight. Ramps BASE..MAX over the SAME fill band the income throttle uses, so
+ * the two levers move together: as income stands down, construction opens up. The
+ * controller's anti-downgrade reserve is filled before this absorb in any case,
+ * so a hungrier construction sink can never starve the controller below its floor.
+ */
+export function constructionAbsorbForFill(fill: number): number {
+  if (fill <= INCOME_THROTTLE_LOW) return CONSTRUCTION_ABSORB_RATE;
+  if (fill >= INCOME_THROTTLE_HIGH) return CONSTRUCTION_ABSORB_MAX;
+  const t = (fill - INCOME_THROTTLE_LOW) / (INCOME_THROTTLE_HIGH - INCOME_THROTTLE_LOW);
+  return CONSTRUCTION_ABSORB_RATE + t * (CONSTRUCTION_ABSORB_MAX - CONSTRUCTION_ABSORB_RATE);
 }
 
 /**
@@ -134,7 +158,7 @@ export function buildColonyProblem(
         kind === "spawn"
           ? Math.max(sink.demand, 1) // feed the spawn its overhead need
           : kind === "construction"
-            ? CONSTRUCTION_ABSORB_RATE
+            ? constructionAbsorbForFill(fill)
             : kind === "storage"
               ? Math.max(totalSupply, 1) // soak excess
               : Math.max(totalSupply, 1), // controller mops up the remainder

@@ -2,9 +2,14 @@ import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
+import {
+  solveWithCorpPlanner,
+  constructionAbsorbForFill,
+  CONSTRUCTION_ABSORB_RATE,
+  CONSTRUCTION_ABSORB_MAX
+} from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
-import { PlannerSource } from "../../../src/economy/CorpPlanner";
+import { PlannerSource, INCOME_THROTTLE_LOW, INCOME_THROTTLE_HIGH } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";
 
 const ROOM = "W0N0";
@@ -113,5 +118,31 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     const ctrlAlloc = sol.sinkAllocations.find(a => a.sinkType === "controller");
     expect(ctrlAlloc, "controller is present").to.not.be.undefined;
     expect(ctrlAlloc!.allocated).to.be.greaterThan(1.9); // reserve protected even vs the spawn
+  });
+});
+
+describe("constructionAbsorbForFill (Lever 2)", () => {
+  it("stays at the modest base while energy is scarce (cold start unchanged)", () => {
+    expect(constructionAbsorbForFill(0)).to.equal(CONSTRUCTION_ABSORB_RATE);
+    expect(constructionAbsorbForFill(INCOME_THROTTLE_LOW)).to.equal(CONSTRUCTION_ABSORB_RATE);
+  });
+
+  it("opens up to the max once stores are full (building soaks the surplus)", () => {
+    expect(constructionAbsorbForFill(INCOME_THROTTLE_HIGH)).to.equal(CONSTRUCTION_ABSORB_MAX);
+    expect(constructionAbsorbForFill(1)).to.equal(CONSTRUCTION_ABSORB_MAX);
+  });
+
+  it("ramps monotonically up over the same band the income throttle uses", () => {
+    let prev = CONSTRUCTION_ABSORB_RATE - 1e-9;
+    for (let f = 0; f <= 1.0001; f += 0.05) {
+      const a = constructionAbsorbForFill(f);
+      expect(a).to.be.at.least(prev - 1e-9); // non-decreasing
+      expect(a).to.be.within(CONSTRUCTION_ABSORB_RATE, CONSTRUCTION_ABSORB_MAX);
+      prev = a;
+    }
+    // The base is below a single 2-WORK builder's 10/tick - that throttle is why
+    // building stalled; the full-reservoir cap clears two builders' worth.
+    expect(CONSTRUCTION_ABSORB_RATE).to.be.lessThan(10);
+    expect(CONSTRUCTION_ABSORB_MAX).to.be.at.least(20);
   });
 });
