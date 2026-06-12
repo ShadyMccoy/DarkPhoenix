@@ -11,6 +11,7 @@ import {
   SerializedBootstrapCorp,
   SerializedCarryCorp,
   SerializedConstructionCorp,
+  SerializedExtensionTenderCorp,
   SerializedHarvestCorp,
   SerializedReservationCorp,
   SerializedScoutCorp,
@@ -164,6 +165,11 @@ declare global {
      * Serialized spawning corps by spawn ID.
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
+
+    /**
+     * Serialized extension tender corps (local movers) by room name.
+     */
+    extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }
 
   /**
@@ -186,6 +192,15 @@ declare global {
      * down). Set by ConstructionCorp, read by CarryCorp. Cleared when not building.
      */
     dedicatedBuildSourceId?: string;
+
+    /**
+     * True while a core depot exists AND a live extension tender is draining it.
+     * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
+     * source->depot bus instead of fanning across extensions; when the tender dies
+     * it clears and haulers resume filling the spawn network directly (so a dead
+     * tender can never deadlock the colony).
+     */
+    extensionTenderActive?: boolean;
   }
 
   /**

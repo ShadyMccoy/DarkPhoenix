@@ -13,7 +13,8 @@ export type CorpType =
   | "building"
   | "bootstrap"
   | "scout"
-  | "reservation";
+  | "reservation"
+  | "moving";
 
 /**
  * Serialized corp state for persistence

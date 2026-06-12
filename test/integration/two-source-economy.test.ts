@@ -62,16 +62,27 @@ describe("two-source owned-room economy probe", () => {
       );
       if (minersBySrc.every(m => m > 0) && bothMinedTick === 0) bothMinedTick = t;
 
-      let haul = 0, upg = 0;
+      let haul = 0, upg = 0, tend = 0;
       for (const o of objs.filter((x: any) => x.type === "creep")) {
         const wt = mem.creeps?.[o.name]?.workType;
         if (wt === "haul") haul++;
         else if (wt === "upgrade") upg++;
+        else if (wt === "tank" && (mem.creeps?.[o.name]?.corpId || "").includes("tender")) tend++;
       }
+      // Extension fill: how charged the extension set is (the tender's job).
+      const exts = objs.filter((o: any) => o.type === "extension");
+      const extEnergy = exts.reduce((s: number, e: any) => s + (e.store?.energy ?? e.energy ?? 0), 0);
+      const extCap = exts.length * 50;
+      const spawnObj = objs.find((o: any) => o.type === "spawn");
+      const containers = objs.filter((o: any) => o.type === "container");
+      const depot = spawnObj
+        ? containers.find((c: any) => Math.max(Math.abs(c.x - spawnObj.x), Math.abs(c.y - spawnObj.y)) <= 1)
+        : undefined;
       const variance = (mem.corpVariance || []).map((r: any) => `${r.type} ${r.actual}/${r.budget}`).join(", ");
       samples.push(
-        `tick ${t}: ${perSrc.join(" ")} | haul ${haul} upg ${upg} ctrlP ${ctrl?.progress ?? 0} ` +
-          `| harvestCorps ${Object.keys(mem.harvestCorps || {}).length} nodes ${Object.keys(mem.nodes || {}).length} | [${variance}]`
+        `tick ${t}: ${perSrc.join(" ")} | haul ${haul} tend ${tend} upg ${upg} ctrlP ${ctrl?.progress ?? 0} ` +
+          `| ext ${extEnergy}/${extCap} depot ${depot ? (depot.store?.energy ?? 0) : "none"} ` +
+          `| [${variance}]`
       );
     }
 

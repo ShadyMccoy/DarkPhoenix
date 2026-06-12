@@ -17,6 +17,7 @@ export {
   runRealCorps,
   runScoutCorps,
   runConstructionCorps,
+  runExtensionTenderCorps,
   runReservationCorps,
   runSpawningCorps,
   logCorpStats,

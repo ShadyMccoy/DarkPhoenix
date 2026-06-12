@@ -587,6 +587,17 @@ export class CarryCorp extends Corp {
     creep.memory.homeSink = pickSinkByAllocation(this.haulerAssignments, committed);
   }
 
+  /** The core depot: a container adjacent to one of the room's spawns, if built. */
+  private coreDepot(room: Room): StructureContainer | null {
+    for (const spawn of room.find(FIND_MY_SPAWNS)) {
+      const c = spawn.pos.findInRange(FIND_STRUCTURES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER
+      })[0] as StructureContainer | undefined;
+      if (c) return c;
+    }
+    return null;
+  }
+
   /** Attempt delivery to a specific local sink; returns true if it took action. */
   private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
     if (sink === "controller") return this.deliverToController(creep, room);
@@ -598,6 +609,27 @@ export class CarryCorp extends Corp {
    * Returns false when there is no spawn structure that needs energy.
    */
   private deliverToSpawn(creep: Creep, room: Room): boolean {
+    // When the extension tender is active, haulers run the dumb source->depot bus:
+    // keep the spawn STRUCTURE itself topped (one tile, no fanning across extensions)
+    // so a dead tender can never deadlock the colony, then dump everything else into
+    // the depot for the tender to distribute. This is what stops the schooling - the
+    // haulers no longer chase a dozen half-full extensions.
+    if (room.memory.extensionTenderActive) {
+      const spawnNeedsEnergy = room
+        .find(FIND_MY_SPAWNS)
+        .find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+      const depot = this.coreDepot(room);
+      const target: StructureSpawn | StructureContainer | undefined =
+        spawnNeedsEnergy ?? (depot && depot.store.getFreeCapacity(RESOURCE_ENERGY) > 0 ? depot : undefined);
+      if (target) {
+        const r = creep.transfer(target, RESOURCE_ENERGY);
+        if (r === ERR_NOT_IN_RANGE) travelTo(creep, target, { visualizePathStyle: { stroke: "#ffffff" } });
+        else if (r === OK) this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+        return true;
+      }
+      // Spawn and depot both full: fall through to help the wider network this once.
+    }
+
     const allSpawnStructures = this.getSpawnZoneStructures(room);
     if (allSpawnStructures.length === 0) return false;
 

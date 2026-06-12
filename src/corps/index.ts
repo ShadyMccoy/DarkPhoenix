@@ -26,6 +26,12 @@ export { ConstructionCorp, SerializedConstructionCorp, createConstructionCorp } 
 export { ReservationCorp, SerializedReservationCorp, createReservationCorp } from "./ReservationCorp";
 
 export {
+  ExtensionTenderCorp,
+  SerializedExtensionTenderCorp,
+  createExtensionTenderCorp
+} from "./ExtensionTenderCorp";
+
+export {
   SpawningCorp,
   SerializedSpawningCorp,
   SpawnOrder,

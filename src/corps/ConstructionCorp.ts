@@ -16,7 +16,7 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { sourceHarvestSpot } from "./nodeEnergy";
+import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -189,7 +189,9 @@ export class ConstructionCorp extends Corp {
 
     const wantsContainer =
       rcl >= CONTAINER_MIN_RCL &&
-      (this.findMissingSourceContainer(room) !== null || this.findMissingControllerContainer(room) !== null);
+      (this.findMissingSourceContainer(room) !== null ||
+        this.findMissingCoreDepot(room) !== null ||
+        this.findMissingControllerContainer(room) !== null);
     const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
 
     if (canBuildMore) {
@@ -428,6 +430,18 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // 1.5 Core depot: a container beside the spawn. Haulers dump into it and the
+    //     extension tender drains it to fill the extensions - the split that keeps
+    //     the long-range haulers off the extensions (no schooling). Comes right
+    //     after source containers so the tender has somewhere to draw from early.
+    if (rcl >= CONTAINER_MIN_RCL) {
+      const depot = this.findMissingCoreDepot(room);
+      if (depot) {
+        this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER, 0);
+        return;
+      }
+    }
+
     // 2. Extensions: cheap (3000), near the sources, and they compound spawn
     //    capacity (bigger creeps) - so they come BEFORE the far controller
     //    container. Building the controller container first (it sits ~20 tiles
@@ -459,6 +473,21 @@ export class ConstructionCorp extends Corp {
     } else {
       console.log(`[Construction] Failed to place ${type} at (${x}, ${y}): ${result}`);
     }
+  }
+
+  /**
+   * The core depot: a container tile beside the spawn (the haulers' drop-off and
+   * the extension tender's draw point). Null when one already exists adjacent to a
+   * spawn (a source container next to the spawn doubles as the depot) or the room
+   * is at its container cap.
+   */
+  private findMissingCoreDepot(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (!spawn) return null;
+    if (this.hasContainerNear(room, spawn.pos, 1)) return null;
+    const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos);
+    return tile ? { x: tile.x, y: tile.y } : null;
   }
 
   /**
