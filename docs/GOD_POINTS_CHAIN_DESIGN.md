@@ -160,19 +160,30 @@ consumers on their own.
 
 ## 8. Migration plan (incremental, each step shippable + tested)
 
-1. **`storeFill(room)` + a probe.** Report stored energy, capacity, fill, and
-   per-role spawn share; establish the W43N23 baseline (income-dominated spawn,
-   fill climbing, construction 0). No behavior change.
-2. **Lever 1 — gate income growth on `fill`.** Stop adding remote/transient and
-   marginal sources while `fill` is above the high setpoint. Probe: energy-on-creeps
-   share drops; consumers start getting spawn ticks; no income starvation at cold
-   start (`fill` starts low).
-3. **Lever 2 — scale construction absorb with `fill`.** Replace the fixed `=5`.
-   Probe: with sites present, construction energy > 0 and rises with `fill`;
-   controller still fed; `fill` holds its band.
-4. **Lever 3 — cleanup + optional `since` aging.** Drop the vestigial RCL path;
-   wire `since` as a starvation backstop. Probe: a long-waiting builder eventually
-   spawns even under (artificially) sustained income demand.
+Implemented constants (all in one fill band so the levers move together):
+`INCOME_THROTTLE_LOW = 0.5`, `INCOME_THROTTLE_HIGH = 0.9`, `INCOME_BUDGET_FLOOR =
+0.5` (income spawn-budget multiplier 1.0 → 0.5 across the band);
+`CONSTRUCTION_ABSORB_RATE = 5` → `CONSTRUCTION_ABSORB_MAX = 20` across the same
+band.
+
+1. **DONE — `storeFill(room)`** (`src/economy/storeFill.ts`). The level gauge
+   (storage + containers; 0 when no reservoir, so cold start is unaffected).
+   Rung-0 unit tests. No behavior change.
+2. **DONE — Lever 1, income throttle** (`incomeBudgetScaleForFill`, threaded via
+   `ColonyProblem.incomeBudgetScale` into `selectProducers`). Scales the mining
+   spawn-part budget down as `fill` rises, shedding marginal/remote sources first
+   (the spawn's best source is always kept). Rung-0 unit tests + an end-to-end
+   planner proof (far source shed at full fill). Integration regression guard
+   green (two-source RCL3, `fill≈0`, behavior unchanged).
+3. **DONE — Lever 2, construction absorb** (`constructionAbsorbForFill` at
+   `buildColonyProblem`). Lifts the absorb cap with `fill`. Rung-0 unit tests + an
+   end-to-end proof (surplus shifts controller→construction at full fill).
+4. **TODO — Lever 3, cleanup + optional `since` aging.** Drop the vestigial RCL
+   `targetUpgraders` path; optionally wire `since` as a starvation backstop.
+5. **TODO — full-loop demonstration.** An RCL4+storage scenario run to ~1500
+   ticks showing the *combined* loop: stored energy holds a band, construction +
+   upgrade energy > 0 and rising, income expansion stands down — the W43N23
+   symptom inverting in the live sim (not just the planner).
 
 ## 9. Test plan — a graduated ladder
 
