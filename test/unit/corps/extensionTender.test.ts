@@ -52,9 +52,13 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     Game.creeps = {};
   });
 
-  // corpFor mutates Game.getObjectById; restore the shared mock so later test files
-  // (e.g. getSpawnDemand.test.ts) don't inherit a room without .memory.
-  afterEach(() => setupGlobals());
+  // corpFor mutates the shared mock Game.getObjectById; restore it (and creeps) so
+  // later test files (e.g. getSpawnDemand.test.ts) don't inherit a room without
+  // .memory. The mock Game is a singleton, so setupGlobals alone won't reset it.
+  afterEach(() => {
+    Game.getObjectById = () => null;
+    Game.creeps = {};
+  });
 
   const ctx = { energyCapacity: 800, tick: 100 };
 
