@@ -119,6 +119,40 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(ctrlAlloc, "controller is present").to.not.be.undefined;
     expect(ctrlAlloc!.allocated).to.be.greaterThan(1.9); // reserve protected even vs the spawn
   });
+
+  // The two levers, proven end-to-end at the planner level (no sim): the same
+  // graph, solved at empty vs full reservoir, must reshape the plan.
+  it("Lever 1: at full fill, throttled income sheds the marginal far source (base kept)", () => {
+    // near (cheap) + far-but-profitable (d=200): at empty reservoir the budget
+    // affords both; at full reservoir the halved budget no longer affords the far
+    // one, so it sheds while the spawn's best (near) source is always kept.
+    const graph = graphOf([homeNode(5), sourceNode("near", 15), sourceNode("far", 205)]);
+    const low = solveWithCorpPlanner(graph, 0, manhattan, [], 0);
+    const full = solveWithCorpPlanner(graph, 0, manhattan, [], 0.95);
+
+    expect(low.miners.map(m => m.sourceId).sort()).to.deep.equal(["source-far", "source-near"]);
+    expect(full.miners.map(m => m.sourceId)).to.deep.equal(["source-near"]);
+  });
+
+  it("Lever 2: at full fill, construction absorbs the surplus instead of spilling to the controller", () => {
+    // Ample cheap supply (3 near sources, none shed) and a build site present. At
+    // empty reservoir construction is capped at the modest base and the controller
+    // mops up the surplus; at full reservoir construction opens up and claims it
+    // (value 70 > 50), per the existing weight.
+    const graph = graphOf([homeNode(5), sourceNode("a", 12), sourceNode("b", 16), sourceNode("c", 20)]);
+    graph.addConstructionSite("site-1", "home", at(8), 5000);
+    graph.buildEdges();
+
+    const low = solveWithCorpPlanner(graph, 0, manhattan, [], 0);
+    const full = solveWithCorpPlanner(graph, 0, manhattan, [], 0.95);
+    const cAlloc = (s: typeof low) => s.sinkAllocations.find(a => a.sinkType === "construction")?.allocated ?? 0;
+    const ctrlAlloc = (s: typeof low) => s.sinkAllocations.find(a => a.sinkType === "controller")?.allocated ?? 0;
+
+    expect(cAlloc(low)).to.be.closeTo(CONSTRUCTION_ABSORB_RATE, 1e-6); // capped at the base
+    expect(cAlloc(full)).to.be.greaterThan(cAlloc(low) + 1); // opens up materially
+    expect(cAlloc(full)).to.be.within(CONSTRUCTION_ABSORB_RATE, CONSTRUCTION_ABSORB_MAX);
+    expect(ctrlAlloc(full)).to.be.lessThan(ctrlAlloc(low)); // surplus shifted build-ward
+  });
 });
 
 describe("constructionAbsorbForFill (Lever 2)", () => {
