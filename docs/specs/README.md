@@ -29,7 +29,7 @@ Conventions used by every spec:
 |---|------|--------|----------|
 | 00 | [Corp Framework](00-corp-framework.md) | partially real, not enforced | P0 — the keystone |
 | 01 | [RCL5 cold-start stall](01-rcl5-cold-start-stall.md) | OPEN — blocks 02 | P0 |
-| 02 | [Link logistics (RCL5)](02-link-logistics.md) | groundwork committed, unverified | P0 (after 01) |
+| 02 | [LinkHaulerCorp: link transport as a corp](02-link-logistics.md) | groundwork committed; redesigned as a corp kind | P0 (after 01) |
 | 03 | [Storage draw-down](03-storage-drawdown.md) | not started | P1 |
 | 04 | [Retire the chain/market layer](04-retire-chain-layer.md) | not started | P1 |
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |

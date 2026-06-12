@@ -1,110 +1,115 @@
-# 02 — Link logistics (RCL5)
+# 02 — LinkHaulerCorp: link transport as a corp (RCL5)
 
-**Status:** groundwork committed (commit "Link logistics groundwork"), unit-
-tested, **not** verified end-to-end. Blocked by spec 01.
-**Priority:** P0 after 01.
+**Status:** groundwork committed (commit "Link logistics groundwork") but the
+design has MOVED: link operation must be a **corp kind** through spec 00, not
+the free-function + pickup-redirect scattering the groundwork used. Parts of
+the groundwork survive, parts get absorbed (table below). Blocked by spec 01.
+**Priority:** P0 after 01. This is the framework's first real transport kind —
+it doubles as spec 00's proof.
 
-## Goal
+## The idea
 
-At RCL5, replace the longest in-room haul with a link pair: the far source's
-miner feeds a SOURCE link; it fires to a CORE link beside the storage; haulers
-pick up at the core. The planner prices that source's hauling from the core, so
-its commissioned hauler fleet shrinks to a stub — that build-time and energy go
-to the controller instead.
+Transport is interchangeable: for a source→sink route the planner commissions
+*some* transport corp sized to the flow. Today there is one kind (CarryCorp:
+walk it). A link pair (source link → core link beside the storage) is a second
+kind with a different cost model: a 3% transfer fee and a tiny stub creep at
+the core, instead of a walking fleet sized to the full distance.
 
-## What is already implemented (the groundwork commit)
+**LinkHaulerCorp** (kind `"linkHaul"`, shape `"transport"`):
 
-| Piece | Where |
-|-------|-------|
-| Miner body gains 1 CARRY from 600 capacity | `spawn/BodyBuilder.ts` (`MINER_CARRY_MIN_CAPACITY`) |
-| Full-store miner transfers to adjacent link | `corps/HarvestCorp.ts` (runHarvester) |
-| Source links fire to the core link | `execution/LinkRunner.ts`, called from `main.ts` |
-| Placement: core link, then farthest source > 8 from storage, RCL-capped | `corps/ConstructionCorp.ts` (`findMissingLink`, `LINK_LIMITS`) |
-| `coreLink` / `sourceLink` resolvers; hauler pickup redirect that follows where energy actually is | `corps/nodeEnergy.ts` (`sourcePickupSpot`) |
-| Planner `haulPos`: hauling priced from the core, miner keeps real distance | `economy/CorpPlanner.ts`, detection in `economy/flowAdapter.ts` (`detectLinkHaulPositions`, injectable) |
+- **consumes:** energy at the source link (rate), spawn build-time for one
+  stub hauler (2–3 CARRY, core→sink walk only)
+- **produces:** energy at the sink (rate × 0.97)
+- **preconditions:** a link within feeding range of the source's harvest spot,
+  a core link within 2 of the storage, the source staffed
+- **assignment:** `{ sourceId, sourceLinkId, coreLinkId, sinkId, flowRate }`
+- **run() — the whole job, deliberately dumb:**
+  1. Fire: if the source link holds ≥ `LINK_FIRE_THRESHOLD` (100), cooldown 0,
+     and the core link has free capacity → `transferEnergy(coreLink)`.
+  2. Stub creep: withdraw from the core link, deliver to the assigned sink
+     (storage / spawn network / controller spot via the existing
+     `nodeEnergy` deposit resolvers). One creep, sized by
+     `carryPartsFor(flowRate, coreToSinkDistance)`.
 
-Design invariants to preserve:
+When a route is commissioned as `linkHaul`, **no CarryCorp is commissioned for
+it** — kind selection happens at materialization (the commission's `kind`
+field), so the two transport kinds never fight over one route.
 
-- **Degrade gracefully.** A link pair with an old CARRY-less miner (turnover
-  hasn't replaced it yet) must not strand energy: a loaded source-side
-  container/pile beats the core redirect in `sourcePickupSpot`. Never make the
-  redirect unconditional.
-- **The planner stays pure.** Link detection happens only in the adapter
-  (`detectLinkHaulPositions`), injected as data (`haulPos`). No Game calls in
-  CorpPlanner.
-- Phase-1 profitability still uses the miner's real distance (conservative:
-  a link makes a source strictly more profitable than the planner assumes).
+## Groundwork reconciliation (commit 64c318c)
 
-## Remaining work
-
-1. Resolve spec 01 (the RCL5 world must stand up an economy at all).
-2. End-to-end verification (tests below).
-3. Re-run the regression gate (the miner CARRY change is live at RCL3+
-   capacities, so `flow-handoff` and `runt-economy` must be re-run against the
-   final bundle).
-4. Update `docs/ONTOLOGY.md` § 1–2 if `haulPos` deserves a primitives-level
-   mention, and the README roadmap line ("Mineral/boost flow" stays planned;
-   links move to Implemented).
+| Groundwork piece | Fate |
+|------------------|------|
+| Miner +1 CARRY from 600 capacity (`BodyBuilder`) and full-store transfer to adjacent link (`HarvestCorp`) | **KEEP** — producer-side delivery, correctly lives in the producer |
+| Link placement: core first, farthest source > 8 from storage (`ConstructionCorp.findMissingLink`) | **KEEP** (becomes the kind's infrastructure precondition) |
+| Planner `haulPos` (hauling priced from the core) + `detectLinkHaulPositions` | **KEEP** — this *is* the abstract-world representation; the adapter additionally tags the resulting transport commission `kind: "linkHaul"` |
+| `execution/LinkRunner.ts` + the `runLinks()` call in `main.ts` | **ABSORB into `LinkHaulerCorp.run()`**, then delete both |
+| `sourcePickupSpot` core-link redirect (`nodeEnergy`) | **DELETE** — it existed only to point CarryCorp haulers at the core; with kind selection, CarryCorp never serves a linked route. Keep the degrade-gracefully behavior, but INSIDE the kind: while the source-side container/pile holds energy (old CARRY-less miner not yet turned over), the commission falls back to `carry` kind at materialization |
+| `coreLink` / `sourceLink` resolvers (`nodeEnergy`) | **KEEP** — shared by the kind, placement, and the adapter |
 
 ## Acceptance tests
 
-### Unit (exists): planner haulPos pin — `test/unit/economy/CorpPlanner.test.ts`
+### A. Framework conformance (free)
 
-Already merged and green: a source at distance 200 with `haulPos` at distance 2
-commissions a miner with `distance === 200` and a hauler with `distance === 2`
-and `carryParts === carryPartsFor(10, 2)` (±1e-9).
+`linkHaul` registers as a CorpKind, so spec 00's conformance suite
+(round-trip, deterministic propose, demand validity, empty-world safety,
+primitives-derived economics) runs against it with zero new test code. That
+suite passing for `linkHaul` is a hard requirement.
 
-### Unit (new): miner body CARRY — `test/unit/spawn/BodyBuilder.test.ts`
+### B. Unit — pure fire decision: `test/unit/corps/linkFire.test.ts`
 
-1. `buildMinerBody(5, 599).body` contains **no** CARRY; cost unchanged from
-   the pre-groundwork pin at that capacity.
-2. `buildMinerBody(5, 800).body` contains **exactly one** CARRY;
-   `workParts === 5`; `cost === 700`.
-3. For every capacity in {300, 550, 600, 800, 1800}:
-   `cost <= capacity` (the CARRY reservation can never overdraw the budget).
+Extract `shouldFire(linkEnergy, cooldown, coreFreeCapacity): boolean`:
 
-### Unit (new): pickup redirect — `test/unit/corps/sourcePickupSpot` cases
+1. `(150, 0, 800) === true`
+2. `(99, 0, 800) === false` (threshold is exact)
+3. `(400, 3, 800) === false` (cooldown)
+4. `(400, 0, 0) === false` (core full)
 
-Mocked room (pattern: `test/unit/corps/coreDepot.test.ts`). Exact expectations:
+### C. Unit — kind selection at materialization
 
-1. Storage + core link (energy 400) + source link near the source, empty source
-   tile → spot.structure **is the core link** (`structureType === "link"`).
-2. Same but core link energy 0 and a source-side container holding 200 →
-   spot.structure **is the container** (the degrade-gracefully invariant).
-3. Same but core link energy 0 and nothing at the source → spot is the core
-   link (wait where the next volley lands), NOT `waitClear` at the source.
-4. No source link → behavior byte-identical to pre-groundwork (container →
-   pile → waitClear).
+Mocked world (pattern: `coreDepot.test.ts`):
 
-### Integration (new): `test/integration/link-economy.test.ts`
+1. Route with link coverage and an EMPTY source-side container → commission
+   materializes as `linkHaul`; **no** corp of kind `carry` exists for that
+   `sourceId`.
+2. Same but the source-side container holds ≥ 200 (stale CARRY-less miner) →
+   materializes as `carry` (graceful degradation), and flips to `linkHaul`
+   on a re-materialize after the container drains to 0.
+3. Route without link coverage → `carry`, byte-identical demands to today
+   (golden master from spec 00 must not move).
 
-World: spec 01's RCL5 layout. Far source = (40,40) (cross-wall, the only
-source > 8 from storage). Run ≤ 1500 ticks, sample every 25. Pass requires ALL:
+### D. Unit — stub demand
 
-1. **Placement:** a link exists within range 2 of the storage AND a link exists
-   within range 2 of source (40,40). No link within range 2 of the near source
-   (10,10) while the RCL5 limit is 2.
-2. **Flow:** the core link's `store.energy` is observed > 0 on at least one
-   sample (the network actually fired).
-3. **Throughput:** cumulative energy arriving at the core link ≥ 1000 over the
-   run (sum of positive deltas of core link energy across samples; transfer
-   fee already netted out).
-4. **Fleet shrinks:** after the link pair exists for 300 ticks, the number of
-   live haulers assigned to the far source's CarryCorp (creep memory `corpId`
-   prefix match) is ≤ 1, while the far source's miner is still alive (its
-   energy must still be leaving via the link, not stranded).
-5. **No starvation:** controller progress at end > controller progress at
-   link-completion tick (the freed budget actually reaches the controller).
+`linkHaul.getSpawnDemand`: exactly one demand; `role` resolvable by the kind's
+`body()`; CARRY parts `=== Math.ceil(carryPartsFor(flowRate, coreToSinkDist))`
+capped at 3; `blocking === false`; no demand while a live stub creep exists.
 
-### Regression gate
+### E. Integration — `test/integration/link-economy.test.ts`
+
+World: spec 01's RCL5 layout (far source (40,40) is the only link candidate).
+Run ≤ 1500 ticks, sample every 25. ALL must hold:
+
+1. **Placement:** a link within 2 of storage AND a link within 2 of (40,40);
+   none at the near source while the RCL5 limit is 2.
+2. **Flow:** core link energy observed > 0 at least once; cumulative positive
+   deltas at the core ≥ 1000 over the run.
+3. **The corp exists and the old fleet doesn't:** after the link pair has
+   existed 300 ticks, ≥ 1 live creep whose `memory.corpId` starts with
+   `linkHaul-`, and ≤ 1 live creep of the far source's `carry` corp (the
+   walking fleet demobilized).
+4. **Source not stranded:** the far source's miner stays alive and the
+   source-side ground pile/container stays < 500 (energy is leaving via the
+   link, not rotting).
+5. **Value lands:** controller progress at end > at link-completion tick.
+
+### F. Regression gate
 
 Unit suite + `flow-handoff` + `runt-economy` + `storage-depot` green against
-the final bundle.
+the final bundle. (The miner CARRY change is live at RCL3+ capacities —
+spec 01 must be resolved first and these re-run.)
 
-## Risks / open questions
+## Sequencing
 
-- The miner CARRY change is the prime suspect for spec 01 — if confirmed, the
-  fix may reshape this groundwork (e.g. CARRY only via an explicit body
-  variant threaded through SpawnDemand instead of capacity-gated).
-- `LINK_MIN_SOURCE_RANGE = 8` and `LINK_FIRE_THRESHOLD = 100` are guesses;
-  acceptable to tune, but only with the integration test green before/after.
+1. Spec 01 (stall) — nothing here is trustworthy until the RCL5 world stands up.
+2. Spec 00 scaffolding (Commission envelope + registry + conformance suite).
+3. Port/absorb the groundwork into `LinkHaulerCorp` per the table above.
+4. Tests B–E, then the regression gate.

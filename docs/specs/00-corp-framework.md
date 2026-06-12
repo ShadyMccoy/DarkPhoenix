@@ -194,9 +194,12 @@ commissions turn into real creeps mining real sources.
 
 ## Relationship to the other specs
 
-- **02 links / 03 storage draw-down:** their planner-side pieces (haulPos,
-  bank source) are world-abstraction features and stay; their runtime pieces
-  become kind behavior.
+- **02 LinkHaulerCorp:** the framework's first real transport kind — link
+  operation is a corp (consumes energy at the source link, produces energy at
+  the sink, runs the link intents + one stub creep), NOT a free function. Its
+  planner-side piece (haulPos) is a world-abstraction feature and stays.
+- **03 storage draw-down:** the bank source is a world-abstraction feature;
+  its hauling rides whatever transport kind the commission selects.
 - **06 expansion (ClaimCorp) / 07 towers (TowerCorp):** implement these AS new
   kinds through the framework — each is then also a live test of test C.
 - **04 chain-layer retirement:** removes the last competing notion of what a
