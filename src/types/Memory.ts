@@ -180,6 +180,8 @@ declare global {
 
     /**
      * Serialized extension tender corps (local movers) by room name.
+     * @deprecated Tender corps live in commissionedCorps since the framework
+     * port; this key is no longer written and exists only in old saves.
      */
     extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }

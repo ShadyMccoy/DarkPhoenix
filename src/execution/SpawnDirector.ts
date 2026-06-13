@@ -19,6 +19,7 @@ import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from 
 import { CorpRegistry } from "./CorpRunner";
 import { commissionedCorpsOfKind } from "./CommissionHost";
 import { ReservationCorp } from "../corps/ReservationCorp";
+import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -127,8 +128,11 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
     const c = registry.constructionCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.extensionTenderCorps) {
-    const c = registry.extensionTenderCorps[id];
+  // Extension tenders live in the commission store (framework-ported); their
+  // tankers still compete here on the value-ranked path (infrastructure tier).
+  const tenderCorps = commissionedCorpsOfKind<ExtensionTenderCorp>("tender");
+  for (const id in tenderCorps) {
+    const c = tenderCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
   // Reservation corps live in the commission store (framework-ported), but

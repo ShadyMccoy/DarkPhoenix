@@ -8,9 +8,10 @@
  * their legacy run*Corps call in main.ts is deleted and they flow through
  * here instead - the host itself never changes.
  *
- * Currently registered: scout, reservation. The live ColonyProblem below is
- * therefore minimal (spawns only - all any auxiliary kind reads today); the
- * full problem builder arrives with the solver-backed kinds (harvest/carry/...).
+ * Currently registered: scout, reservation, tender. The live ColonyProblem
+ * below is therefore minimal (spawns only - all any auxiliary kind reads
+ * today); the full problem builder arrives with the solver-backed kinds
+ * (harvest/carry/...).
  *
  * @module execution/CommissionHost
  */
@@ -26,21 +27,23 @@ import {
   serializeStore
 } from "../economy/CorpKind";
 import { Commission } from "../economy/Commission";
+import { CorpKind } from "../economy/CorpKind";
 import { ColonyProblem } from "../economy/CorpPlanner";
 import { Corp } from "../corps/Corp";
 import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
 import { reservationKind } from "../corps/kinds/reservationKind";
+import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
 let store: CorpStore | null = null;
 
+/** Every ported kind. New ports add one line here - the host body never changes. */
+const KINDS: CorpKind[] = [scoutKind as never, reservationKind as never, extensionTenderKind as never];
+
 function registerKinds(): void {
-  if (!getCorpKind("scout")) {
-    registerCorpKind(scoutKind as never);
-  }
-  if (!getCorpKind("reservation")) {
-    registerCorpKind(reservationKind as never);
+  for (const kind of KINDS) {
+    if (!getCorpKind(kind.kind)) registerCorpKind(kind);
   }
 }
 
