@@ -318,15 +318,3 @@ export class ScoutCorp extends Corp {
     this.blockedRooms = new Set(data.blockedRooms || []);
   }
 }
-
-/**
- * Create a ScoutCorp for a room.
- */
-export function createScoutCorp(room: Room): ScoutCorp | null {
-  const spawns = room.find(FIND_MY_SPAWNS);
-  if (spawns.length === 0) return null;
-
-  const spawn = spawns[0];
-  const nodeId = `${room.name}-scout`;
-  return new ScoutCorp(nodeId, spawn.id);
-}

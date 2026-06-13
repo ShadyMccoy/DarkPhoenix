@@ -186,13 +186,3 @@ export class ReservationCorp extends Corp {
     this.spawnId = data.spawnId ?? this.spawnId;
   }
 }
-
-/**
- * Create a ReservationCorp for an owned room's spawn.
- */
-export function createReservationCorp(room: Room): ReservationCorp | null {
-  const spawn = room.find(FIND_MY_SPAWNS)[0];
-  if (!spawn) return null;
-  const nodeId = `${room.name}-reservation`;
-  return new ReservationCorp(nodeId, spawn.id);
-}

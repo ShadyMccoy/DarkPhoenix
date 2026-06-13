@@ -203,10 +203,3 @@ export class ExtensionTenderCorp extends Corp {
     this.spawnId = data.spawnId ?? this.spawnId;
   }
 }
-
-/** Create an ExtensionTenderCorp for an owned room's spawn. */
-export function createExtensionTenderCorp(room: Room): ExtensionTenderCorp | null {
-  const spawn = room.find(FIND_MY_SPAWNS)[0];
-  if (!spawn) return null;
-  return new ExtensionTenderCorp(`${room.name}-tender`, spawn.id);
-}
