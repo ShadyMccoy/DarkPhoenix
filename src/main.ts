@@ -33,6 +33,7 @@
 
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
+import { ScoutCorp } from "./corps/ScoutCorp";
 import {
   CorpRegistry,
   cleanupDeadCreeps,
@@ -51,9 +52,10 @@ import {
   runExtensionTenderCorps,
   runIncrementalAnalysis,
   runLinks,
+  commissionedCorpsOfKind,
+  runCommissionHost,
   runRealCorps,
   runReservationCorps,
-  runScoutCorps,
   runSpawnScheduling,
   runSpawningCorps,
   isSpawnPlacementInProgress,
@@ -181,13 +183,16 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Run spawning corps first (they process pending spawn orders)
   runSpawningCorps(corps);
 
-  // Run other corps (bootstrap, mining, hauling, upgrading, scouts, construction)
+  // Run other corps (bootstrap, mining, hauling, upgrading, construction)
   runBootstrapCorps(corps);
   runRealCorps(corps);
-  runScoutCorps(corps);
   runConstructionCorps(corps);
   runExtensionTenderCorps(corps);
   runReservationCorps(corps);
+
+  // Run all FRAMEWORK-commissioned corps (currently: scout). Kinds move here
+  // from the per-type calls above as their ports land.
+  runCommissionHost(corps, Game.time);
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
   runLinks();
@@ -623,7 +628,7 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
     activeCorps.harvestCorps,
     activeCorps.haulingCorps,
     activeCorps.upgradingCorps,
-    activeCorps.scoutCorps,
+    commissionedCorpsOfKind<ScoutCorp>("scout"),
     activeCorps.constructionCorps,
     activeCorps.spawningCorps,
     flowEconomy?.getSolution() ?? undefined
@@ -770,7 +775,7 @@ global.status = () => {
   console.log(`Upgrading: ${Object.keys(corps.upgradingCorps).length}`);
   console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
   console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
-  console.log(`Scout: ${Object.keys(corps.scoutCorps).length}`);
+  console.log(`Scout: ${Object.keys(commissionedCorpsOfKind("scout")).length}`);
   console.log(`Construction: ${Object.keys(corps.constructionCorps).length}`);
 
   if (colony) {
@@ -1190,7 +1195,7 @@ global.marketStatus = () => {
   showCorpStats("Upgrading", corps.upgradingCorps);
   showCorpStats("Spawning", corps.spawningCorps);
   showCorpStats("Construction", corps.constructionCorps);
-  showCorpStats("Scout", corps.scoutCorps);
+  showCorpStats("Scout", commissionedCorpsOfKind("scout"));
   showCorpStats("Bootstrap", corps.bootstrapCorps);
 
   // Show spawn queue status

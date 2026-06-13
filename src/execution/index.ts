@@ -15,7 +15,6 @@ export {
   createCorpRegistry,
   runBootstrapCorps,
   runRealCorps,
-  runScoutCorps,
   runConstructionCorps,
   runExtensionTenderCorps,
   runReservationCorps,
@@ -24,6 +23,8 @@ export {
   snapshotCorpVariance,
   CorpVarianceRow
 } from "./CorpRunner";
+
+export { commissionedCorpsOfKind, runCommissionHost, resetCommissionHost } from "./CommissionHost";
 
 export { runSpawnScheduling } from "./SpawnDirector";
 

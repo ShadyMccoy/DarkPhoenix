@@ -24,9 +24,10 @@ import {
   createConstructionCorp,
   createExtensionTenderCorp,
   createReservationCorp,
-  createScoutCorp,
   createSpawningCorp
 } from "../corps";
+import { commissionedCorpsOfKind } from "./CommissionHost";
+
 /**
  * Container for all active corps, organized by type.
  */
@@ -36,7 +37,6 @@ export interface CorpRegistry {
   /** Hauling corps keyed by source ID (each source has its own CarryCorp) */
   haulingCorps: { [sourceId: string]: CarryCorp };
   upgradingCorps: { [roomName: string]: UpgradingCorp };
-  scoutCorps: { [roomName: string]: ScoutCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
   spawningCorps: { [spawnId: string]: SpawningCorp };
   reservationCorps: { [roomName: string]: ReservationCorp };
@@ -53,7 +53,6 @@ export function createCorpRegistry(): CorpRegistry {
     harvestCorps: {},
     haulingCorps: {},
     upgradingCorps: {},
-    scoutCorps: {},
     constructionCorps: {},
     spawningCorps: {},
     reservationCorps: {},
@@ -148,58 +147,6 @@ export function runRealCorps(registry: CorpRegistry): void {
       upgradingCorp.plan(Game.time);
     }
     upgradingCorp.work(Game.time);
-  }
-}
-
-/**
- * Run scout corps for all owned rooms.
- *
- * Scout corps create minimal creeps (1 MOVE) that explore nearby rooms
- * to gather intel about sources, minerals, hostiles, etc.
- */
-export function runScoutCorps(registry: CorpRegistry): void {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-
-    // Only process owned rooms with spawns
-    if (!room.controller?.my) continue;
-    const spawns = room.find(FIND_MY_SPAWNS);
-    if (spawns.length === 0) continue;
-
-    // Get or create scout corp for this room
-    let scoutCorp = registry.scoutCorps[roomName];
-
-    if (!scoutCorp) {
-      // Try to restore from memory
-      const saved = Memory.scoutCorps?.[roomName];
-      if (saved) {
-        // Pass saved.id as customId to preserve the original ID
-        scoutCorp = new ScoutCorp(saved.nodeId, saved.spawnId, saved.id);
-        scoutCorp.deserialize(saved);
-        registry.scoutCorps[roomName] = scoutCorp;
-      } else {
-        // Create new
-        const newCorp = createScoutCorp(room);
-        if (newCorp) {
-          newCorp.createdAt = Game.time;
-          registry.scoutCorps[roomName] = newCorp;
-          scoutCorp = newCorp;
-          console.log(`[Scout] Created corp for ${roomName}`);
-        }
-      }
-    }
-
-    // Run the scout corp
-    if (scoutCorp) {
-      scoutCorp.work(Game.time);
-
-      // Request scout spawns if needed
-      const spawn = spawns[0];
-      const spawningCorp = registry.spawningCorps[spawn.id];
-      if (spawningCorp) {
-        scoutCorp.requestSpawnsIfNeeded(spawningCorp, Game.time);
-      }
-    }
   }
 }
 
@@ -384,7 +331,6 @@ function allCorps(registry: CorpRegistry): Corp[] {
     registry.upgradingCorps,
     registry.constructionCorps,
     registry.bootstrapCorps,
-    registry.scoutCorps,
     registry.reservationCorps,
     registry.spawningCorps
   ];
@@ -446,8 +392,8 @@ export function logCorpStats(registry: CorpRegistry): void {
   }
 
   let totalScouts = 0;
-  for (const roomName in registry.scoutCorps) {
-    totalScouts += registry.scoutCorps[roomName].getCreepCount();
+  for (const corp of Object.values(commissionedCorpsOfKind<ScoutCorp>("scout"))) {
+    totalScouts += corp.getCreepCount();
   }
 
   let totalBuilders = 0;

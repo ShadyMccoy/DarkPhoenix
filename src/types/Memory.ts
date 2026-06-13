@@ -148,8 +148,18 @@ declare global {
 
     /**
      * Serialized scout corps by room name.
+     * @deprecated Scout corps live in commissionedCorps since the framework
+     * port; this key is no longer written and exists only in old saves.
      */
     scoutCorps?: { [roomName: string]: SerializedScoutCorp };
+
+    /**
+     * The commissioned-corp store (execution/CommissionHost): every corp of a
+     * REGISTERED kind, keyed by commission corpId, with its commission and
+     * kind-serialized state. Grows kind by kind as the framework port
+     * progresses (docs/specs/00-corp-framework.md).
+     */
+    commissionedCorps?: import("../economy/CorpKind").SerializedCorpStore;
 
     /**
      * Serialized construction corps by room name.

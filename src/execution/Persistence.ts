@@ -179,12 +179,6 @@ export function persistState(
     Memory.upgradingCorps[roomName] = registry.upgradingCorps[roomName].serialize();
   }
 
-  // Persist scout corps
-  Memory.scoutCorps = {};
-  for (const roomName in registry.scoutCorps) {
-    Memory.scoutCorps[roomName] = registry.scoutCorps[roomName].serialize();
-  }
-
   // Persist construction corps
   Memory.constructionCorps = {};
   for (const roomName in registry.constructionCorps) {

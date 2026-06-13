@@ -21,7 +21,6 @@ import {
   CarryCorp,
   ConstructionCorp,
   HarvestCorp,
-  ScoutCorp,
   SpawningCorp,
   UpgradingCorp,
   createHarvestCorp,
@@ -54,7 +53,6 @@ export interface InitResult {
     upgrading: number;
     spawning: number;
     bootstrap: number;
-    scout: number;
     construction: number;
   };
 }
@@ -86,7 +84,6 @@ export function initCorps(corps: CorpRegistry): InitResult {
       upgrading: 0,
       spawning: 0,
       bootstrap: 0,
-      scout: 0,
       construction: 0
     }
   };
@@ -163,19 +160,6 @@ export function initCorps(corps: CorpRegistry): InitResult {
     }
   }
 
-  // Hydrate scout corps
-  if (Memory.scoutCorps) {
-    for (const roomName in Memory.scoutCorps) {
-      const saved = Memory.scoutCorps[roomName];
-      if (saved && !corps.scoutCorps[roomName]) {
-        const scoutCorp = new ScoutCorp(saved.nodeId, saved.spawnId);
-        scoutCorp.deserialize(saved);
-        corps.scoutCorps[roomName] = scoutCorp;
-        result.corpsHydrated.scout++;
-      }
-    }
-  }
-
   // Hydrate construction corps
   if (Memory.constructionCorps) {
     for (const roomName in Memory.constructionCorps) {
@@ -195,7 +179,6 @@ export function initCorps(corps: CorpRegistry): InitResult {
     result.corpsHydrated.upgrading +
     result.corpsHydrated.spawning +
     result.corpsHydrated.bootstrap +
-    result.corpsHydrated.scout +
     result.corpsHydrated.construction;
 
   console.log(`[Init] Hydrated ${totalHydrated} corps from Memory`);
@@ -285,7 +268,6 @@ function countCorps(corps: CorpRegistry): number {
   count += Object.keys(corps.upgradingCorps).length;
   count += Object.keys(corps.spawningCorps).length;
   count += Object.keys(corps.bootstrapCorps).length;
-  count += Object.keys(corps.scoutCorps).length;
   count += Object.keys(corps.constructionCorps).length;
   return count;
 }
@@ -433,7 +415,6 @@ export function getOrchestrationStatus(): {
     upgrading: number;
     spawning: number;
     bootstrap: number;
-    scout: number;
     construction: number;
   };
 } {
@@ -446,7 +427,6 @@ export function getOrchestrationStatus(): {
       upgrading: 0,
       spawning: 0,
       bootstrap: 0,
-      scout: 0,
       construction: 0
     }
   };

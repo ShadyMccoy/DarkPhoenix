@@ -141,9 +141,16 @@ else moved.
 
 Status: rungs 0-4 scaffolded and green (Commission, CorpKind registry +
 dispatch, commissionPlan, conformance suite, extensibility proof via the toy
-"beacon" kind, golden master over 3 worlds / 12 commissions). Next: the first
-real port (an auxiliary - ScoutCorp - smallest surface), then one kind per
-commit up the dependency order.
+"beacon" kind, golden master over 3 worlds / 12 commissions). The integration
+gate itself was the first "poor code" fix: root-level mocha hooks
+cross-corrupted suites, making the gate invocation-dependent - now scoped and
+green across all 14 tests. SCOUT is ported end to end: rungs 1-4 in
+test/unit/framework/scoutKind.test.ts, rung 5 via execution/CommissionHost
+(the thin runtime host - registers kinds, proposes over the live world,
+materializes/runs/persists the store under Memory.commissionedCorps), with
+runScoutCorps and all per-type scout plumbing deleted. Next ports, smallest
+surface first: ReservationCorp (auxiliary), then the solver-backed kinds
+(harvest -> carry -> upgrade), each one commit, each up the ladder.
 
 ## Acceptance tests (the framework is DONE when all pass)
 
