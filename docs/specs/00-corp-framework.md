@@ -153,53 +153,41 @@ EXTENSION-TENDER are ported the same way (rungs 1-5; SpawnDirector reads their
 demands through the store adapter, so the value-ranked spawn path is
 preserved). All THREE auxiliaries are now framework-driven, their legacy
 run*Corps / registry maps / Persistence blocks / per-room factories deleted,
-and the host's per-kind registration collapsed to a KINDS array. HARVEST is
-ported at rungs 1-4 (corps/kinds/harvestKind.ts): the first solver-backed kind,
-so propose() returns [] and the commission comes from the planner; materialize
-reconstructs the live flowAdapter MinerAssignment and the legacy
-`mining-${room}-harvest-${suffix}` id. CARRY is ported the same way
-(corps/kinds/carryKind.ts, transport): one commission per source aggregating
-its routes, materialize reconstructs the flowAdapter HaulerAssignment[] and the
-`hauling-${room}-hauling-${suffix}` id. Both NOT yet live (imported by nothing
-in src/, golden master unchanged).
+and the host's per-kind registration collapsed to a KINDS array.
 
-UPGRADE PORT - OPEN DESIGN POINT (the consume kinds' spawn binding): unlike
-miners/haulers, the planner does NOT bind a spawn to a sink (consumers are
-spawn-agnostic in the plan), so the consume commission's CommissionedSink
-payload has no spawnId - yet UpgradingCorp/ConstructionCorp need a serving
-spawn. The live FlowMaterializer resolves it from the sink's room at
-materialize time. DECISION: enrich consume commissions in commissionsFromPlan
-with the serving spawn, chosen purely from problem.spawns by the sink's
-roomName (the sink position's room). This keeps materialize pure and sets up
-rung 5 cleanly. It is a deliberate GOLDEN-MASTER change, so it lands as its own
-commit (regenerate plan-commissions.snapshot.json, explain the delta) BEFORE
-the upgradeKind commit. Then upgradeKind reconstructs SinkAllocation from
-CommissionedSink (+ the carried spawn) and the legacy `upgrading-${room}-upgrading`
-id. Next action: that golden-master enrichment commit, then the upgrade port.
+ALL THREE SOLVER-BACKED KINDS are now ported at rungs 1-4 (NOT yet live -
+imported by nothing in src/, golden master is the pinned baseline):
+- HARVEST (corps/kinds/harvestKind.ts, produce): propose() returns [] (the
+  planner emits the commission); materialize reconstructs the flowAdapter
+  MinerAssignment and the legacy `mining-${room}-harvest-${suffix}` id.
+- CARRY (corps/kinds/carryKind.ts, transport): one commission per source
+  aggregating its routes; reconstructs HaulerAssignment[] and the
+  `hauling-${room}-hauling-${suffix}` id.
+- UPGRADE (corps/kinds/upgradeKind.ts, consume): reconstructs SinkAllocation
+  and the `upgrading-${room}` id. Consumers are spawn-agnostic in the plan, so
+  consume commissions were enriched (its own golden-master commit) to carry the
+  serving spawn (ConsumeAssignment = { sink, spawnId }), chosen purely from
+  problem.spawns by the sink's room - matching how FlowMaterializer picks it.
 
-SOLVER-BACKED RUNG-5 SEQUENCING (decided after reading FlowMaterializer): the
-live materializeCorps() builds harvest + carry + upgrade corps TOGETHER, grouped
-per node in one loop, at planning cadence (~every 50 ticks) - while the host
-runs every tick. Extracting one kind from that interleaved loop is more
-disruptive than the spec's own rule ("delete the per-type setters when the LAST
-
-SOLVER-BACKED RUNG-5 SEQUENCING (decided after reading FlowMaterializer): the
-live materializeCorps() builds harvest + carry + upgrade corps TOGETHER, grouped
-per node in one loop, at planning cadence (~every 50 ticks) - while the host
-runs every tick. Extracting one kind from that interleaved loop is more
-disruptive than the spec's own rule ("delete the per-type setters when the LAST
-kind ports"). So: port CARRY then UPGRADE at rungs 1-4 individually (same
-isolation pattern as harvest), THEN do ONE rung-5 cutover that replaces
-materializeCorps with a commission-dispatch bridge for all three at once. That
-bridge must also resolve the cadence mismatch: solver-backed commissions are
-produced at solve time and persisted in the store (materialized once, run every
-tick), while auxiliary commissions keep being re-proposed per tick - the host
-materializes the UNION so neither set demobilizes the other. Next action: the
-carry port (rungs 1-4). Known pre-existing flake to fix en route:
-scenario-economy cases alternate failures
+REMAINING: the single combined rung-5 cutover. The live materializeCorps()
+builds harvest + carry + upgrade corps TOGETHER, grouped per node in one loop,
+at planning cadence (~every 50 ticks) - while the host runs every tick.
+Extracting one kind from that interleaved loop is more disruptive than the
+spec's own rule ("delete the per-type setters when the LAST kind ports"), which
+is why all three were ported individually at rungs 1-4 first. The cutover
+replaces materializeCorps with a commission-dispatch bridge for all three at
+once, and must resolve the cadence mismatch: solver-backed commissions are
+produced at solve time (flowAdapter already builds problem+plan; surface its
+commissions) and persisted in the store - materialized once, run every tick -
+while auxiliary commissions keep being re-proposed per tick. The host
+materializes the UNION so neither set demobilizes the other; harvest/carry/
+upgrade are then deleted from FlowMaterializer's per-node loop and from
+runRealCorps. This is a high-risk change to the live core economy and gets its
+own focused effort with a full integration run. Known pre-existing flake to fix
+en route: scenario-economy cases alternate failures
 with a zombie-miner signature (a mining corp at 0/10 actual at sample time -
 also seen in the A/B baseline on master); it is the first concrete spec-01
-target.
+target, and lives in exactly the harvest/carry code the cutover touches.
 
 ## Acceptance tests (the framework is DONE when all pass)
 
