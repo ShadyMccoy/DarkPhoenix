@@ -148,11 +148,16 @@ green across all 14 tests. SCOUT is ported end to end: rungs 1-4 in
 test/unit/framework/scoutKind.test.ts, rung 5 via execution/CommissionHost
 (the thin runtime host - registers kinds, proposes over the live world,
 materializes/runs/persists the store under Memory.commissionedCorps), with
-runScoutCorps and all per-type scout plumbing deleted. RESERVATION is ported the same way
-(rungs 1-5; SpawnDirector reads its demands through the store adapter, so
-the value-ranked spawn path is preserved). Next: the solver-backed kinds
-(harvest -> carry -> upgrade), each one commit, each up the ladder. Known
-pre-existing flake to fix en route: scenario-economy cases alternate failures
+runScoutCorps and all per-type scout plumbing deleted. RESERVATION and
+EXTENSION-TENDER are ported the same way (rungs 1-5; SpawnDirector reads their
+demands through the store adapter, so the value-ranked spawn path is
+preserved). All THREE auxiliaries are now framework-driven, their legacy
+run*Corps / registry maps / Persistence blocks / per-room factories deleted,
+and the host's per-kind registration collapsed to a KINDS array. Next: the
+solver-backed kinds (harvest -> carry -> upgrade), each one commit, each up
+the ladder - these need the live ColonyProblem builder (sources/sinks, real
+path distances) that the auxiliaries did not. Known pre-existing flake to fix
+en route: scenario-economy cases alternate failures
 with a zombie-miner signature (a mining corp at 0/10 actual at sample time -
 also seen in the A/B baseline on master); it is the first concrete spec-01
 target.
