@@ -8,9 +8,9 @@
  * their legacy run*Corps call in main.ts is deleted and they flow through
  * here instead - the host itself never changes.
  *
- * Currently registered: scout. The live ColonyProblem below is therefore
- * minimal (spawns only - all any auxiliary kind reads today); the full
- * problem builder arrives with the solver-backed kinds (harvest/carry/...).
+ * Currently registered: scout, reservation. The live ColonyProblem below is
+ * therefore minimal (spawns only - all any auxiliary kind reads today); the
+ * full problem builder arrives with the solver-backed kinds (harvest/carry/...).
  *
  * @module execution/CommissionHost
  */
@@ -29,6 +29,7 @@ import { Commission } from "../economy/Commission";
 import { ColonyProblem } from "../economy/CorpPlanner";
 import { Corp } from "../corps/Corp";
 import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
+import { reservationKind } from "../corps/kinds/reservationKind";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -37,6 +38,9 @@ let store: CorpStore | null = null;
 function registerKinds(): void {
   if (!getCorpKind("scout")) {
     registerCorpKind(scoutKind as never);
+  }
+  if (!getCorpKind("reservation")) {
+    registerCorpKind(reservationKind as never);
   }
 }
 
@@ -70,20 +74,31 @@ export function runCommissionHost(registry: CorpRegistry, tick: number): void {
   // hydration, and kinds must always see the live spawning corps.
   setSpawningCorpResolver(spawnId => registry.spawningCorps[spawnId]);
 
-  if (!store) {
-    store = Memory.commissionedCorps ? deserializeStore(Memory.commissionedCorps) : new Map();
-  }
-
+  const liveStore = ensureStore();
   const problem = liveProblem();
   const commissions: Commission[] = [];
   for (const kind of listCorpKinds()) {
     commissions.push(...kind.propose(problem, commissions));
   }
 
-  materializeCommissions(commissions, store);
-  runCommissionedCorps(store, tick);
+  materializeCommissions(commissions, liveStore);
+  runCommissionedCorps(liveStore, tick);
 
-  Memory.commissionedCorps = serializeStore(store);
+  Memory.commissionedCorps = serializeStore(liveStore);
+}
+
+/**
+ * Lazy rehydration after a global reset. Kinds must be registered first
+ * (deserializeStore drops entries of unregistered kinds), so this also
+ * registers - making the adapter below safe to call from anywhere in the
+ * tick, even before the host itself has run.
+ */
+function ensureStore(): CorpStore {
+  if (!store) {
+    registerKinds();
+    store = Memory.commissionedCorps ? deserializeStore(Memory.commissionedCorps) : new Map();
+  }
+  return store;
 }
 
 /** Tests only: drop the tick-cache so the next run rehydrates from Memory. */
@@ -98,8 +113,7 @@ export function resetCommissionHost(): void {
  */
 export function commissionedCorpsOfKind<T extends Corp>(kind: string): { [corpId: string]: T } {
   const out: { [corpId: string]: T } = {};
-  if (!store) return out;
-  for (const [corpId, entry] of store) {
+  for (const [corpId, entry] of ensureStore()) {
     if (entry.kind === kind) out[corpId] = entry.corp as T;
   }
   return out;

@@ -185,12 +185,6 @@ export function persistState(
     Memory.constructionCorps[roomName] = registry.constructionCorps[roomName].serialize();
   }
 
-  // Persist reservation corps
-  Memory.reservationCorps = {};
-  for (const roomName in registry.reservationCorps) {
-    Memory.reservationCorps[roomName] = registry.reservationCorps[roomName].serialize();
-  }
-
   // Persist extension tender corps (local movers)
   Memory.extensionTenderCorps = {};
   for (const roomName in registry.extensionTenderCorps) {

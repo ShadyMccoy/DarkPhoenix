@@ -168,6 +168,8 @@ declare global {
 
     /**
      * Serialized reservation corps by room name.
+     * @deprecated Reservation corps live in commissionedCorps since the
+     * framework port; this key is no longer written and exists only in old saves.
      */
     reservationCorps?: { [roomName: string]: SerializedReservationCorp };
 

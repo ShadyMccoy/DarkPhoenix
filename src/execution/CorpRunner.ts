@@ -16,14 +16,12 @@ import {
   Corp,
   ExtensionTenderCorp,
   HarvestCorp,
-  ReservationCorp,
   ScoutCorp,
   SpawningCorp,
   UpgradingCorp,
   createBootstrapCorp,
   createConstructionCorp,
   createExtensionTenderCorp,
-  createReservationCorp,
   createSpawningCorp
 } from "../corps";
 import { commissionedCorpsOfKind } from "./CommissionHost";
@@ -39,7 +37,6 @@ export interface CorpRegistry {
   upgradingCorps: { [roomName: string]: UpgradingCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
   spawningCorps: { [spawnId: string]: SpawningCorp };
-  reservationCorps: { [roomName: string]: ReservationCorp };
   /** Extension tenders (local movers) keyed by room name */
   extensionTenderCorps: { [roomName: string]: ExtensionTenderCorp };
 }
@@ -55,7 +52,6 @@ export function createCorpRegistry(): CorpRegistry {
     upgradingCorps: {},
     constructionCorps: {},
     spawningCorps: {},
-    reservationCorps: {},
     extensionTenderCorps: {}
   };
 }
@@ -225,47 +221,6 @@ export function runExtensionTenderCorps(registry: CorpRegistry): void {
 }
 
 /**
- * Run reservation corps for all owned rooms.
- *
- * A reservation corp keeps the controllers of remote rooms we mine reserved, so
- * their sources regenerate the full 3000 instead of the unreserved 1500. Spawn
- * demand flows through the SpawnDirector (getSpawnDemand), like construction.
- */
-export function runReservationCorps(registry: CorpRegistry): void {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-
-    // Only process owned rooms with spawns
-    if (!room.controller?.my) continue;
-    const spawns = room.find(FIND_MY_SPAWNS);
-    if (spawns.length === 0) continue;
-
-    let reservationCorp = registry.reservationCorps[roomName];
-
-    if (!reservationCorp) {
-      const saved = Memory.reservationCorps?.[roomName];
-      if (saved) {
-        reservationCorp = new ReservationCorp(saved.nodeId, saved.spawnId, saved.id);
-        reservationCorp.deserialize(saved);
-        registry.reservationCorps[roomName] = reservationCorp;
-      } else {
-        const newCorp = createReservationCorp(room);
-        if (newCorp) {
-          newCorp.createdAt = Game.time;
-          registry.reservationCorps[roomName] = newCorp;
-          reservationCorp = newCorp;
-          console.log(`[Reservation] Created corp for ${roomName}`);
-        }
-      }
-    }
-
-    if (reservationCorp) {
-      reservationCorp.work(Game.time);
-    }
-  }
-}
-
-/**
  * Run spawning corps for all owned rooms.
  *
  * Spawning corps manage spawn structures and sell spawning capacity.
@@ -331,7 +286,6 @@ function allCorps(registry: CorpRegistry): Corp[] {
     registry.upgradingCorps,
     registry.constructionCorps,
     registry.bootstrapCorps,
-    registry.reservationCorps,
     registry.spawningCorps
   ];
   for (const g of groups) for (const k in g) out.push(g[k]);

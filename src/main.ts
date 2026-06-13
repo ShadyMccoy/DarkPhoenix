@@ -55,7 +55,6 @@ import {
   commissionedCorpsOfKind,
   runCommissionHost,
   runRealCorps,
-  runReservationCorps,
   runSpawnScheduling,
   runSpawningCorps,
   isSpawnPlacementInProgress,
@@ -188,10 +187,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runRealCorps(corps);
   runConstructionCorps(corps);
   runExtensionTenderCorps(corps);
-  runReservationCorps(corps);
 
-  // Run all FRAMEWORK-commissioned corps (currently: scout). Kinds move here
-  // from the per-type calls above as their ports land.
+  // Run all FRAMEWORK-commissioned corps (currently: scout, reservation).
+  // Kinds move here from the per-type calls above as their ports land.
   runCommissionHost(corps, Game.time);
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).

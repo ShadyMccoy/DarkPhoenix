@@ -17,6 +17,8 @@
 import "../types/Memory";
 import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
 import { CorpRegistry } from "./CorpRunner";
+import { commissionedCorpsOfKind } from "./CommissionHost";
+import { ReservationCorp } from "../corps/ReservationCorp";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -129,8 +131,11 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
     const c = registry.extensionTenderCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.reservationCorps) {
-    const c = registry.reservationCorps[id];
+  // Reservation corps live in the commission store (framework-ported), but
+  // their reservers still compete here on the value-ranked path.
+  const reservationCorps = commissionedCorpsOfKind<ReservationCorp>("reservation");
+  for (const id in reservationCorps) {
+    const c = reservationCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
     for (const d of c.getSpawnDemand(ctx)) {
       // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
