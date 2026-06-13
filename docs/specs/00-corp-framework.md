@@ -157,8 +157,31 @@ and the host's per-kind registration collapsed to a KINDS array. HARVEST is
 ported at rungs 1-4 (corps/kinds/harvestKind.ts): the first solver-backed kind,
 so propose() returns [] and the commission comes from the planner; materialize
 reconstructs the live flowAdapter MinerAssignment and the legacy
-`mining-${room}-harvest-${suffix}` id. It is NOT yet live (imported by nothing
+`mining-${room}-harvest-${suffix}` id. CARRY is ported the same way
+(corps/kinds/carryKind.ts, transport): one commission per source aggregating
+its routes, materialize reconstructs the flowAdapter HaulerAssignment[] and the
+`hauling-${room}-hauling-${suffix}` id. Both NOT yet live (imported by nothing
 in src/, golden master unchanged).
+
+UPGRADE PORT - OPEN DESIGN POINT (the consume kinds' spawn binding): unlike
+miners/haulers, the planner does NOT bind a spawn to a sink (consumers are
+spawn-agnostic in the plan), so the consume commission's CommissionedSink
+payload has no spawnId - yet UpgradingCorp/ConstructionCorp need a serving
+spawn. The live FlowMaterializer resolves it from the sink's room at
+materialize time. DECISION: enrich consume commissions in commissionsFromPlan
+with the serving spawn, chosen purely from problem.spawns by the sink's
+roomName (the sink position's room). This keeps materialize pure and sets up
+rung 5 cleanly. It is a deliberate GOLDEN-MASTER change, so it lands as its own
+commit (regenerate plan-commissions.snapshot.json, explain the delta) BEFORE
+the upgradeKind commit. Then upgradeKind reconstructs SinkAllocation from
+CommissionedSink (+ the carried spawn) and the legacy `upgrading-${room}-upgrading`
+id. Next action: that golden-master enrichment commit, then the upgrade port.
+
+SOLVER-BACKED RUNG-5 SEQUENCING (decided after reading FlowMaterializer): the
+live materializeCorps() builds harvest + carry + upgrade corps TOGETHER, grouped
+per node in one loop, at planning cadence (~every 50 ticks) - while the host
+runs every tick. Extracting one kind from that interleaved loop is more
+disruptive than the spec's own rule ("delete the per-type setters when the LAST
 
 SOLVER-BACKED RUNG-5 SEQUENCING (decided after reading FlowMaterializer): the
 live materializeCorps() builds harvest + carry + upgrade corps TOGETHER, grouped
