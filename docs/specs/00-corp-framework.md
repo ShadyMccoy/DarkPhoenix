@@ -153,11 +153,27 @@ EXTENSION-TENDER are ported the same way (rungs 1-5; SpawnDirector reads their
 demands through the store adapter, so the value-ranked spawn path is
 preserved). All THREE auxiliaries are now framework-driven, their legacy
 run*Corps / registry maps / Persistence blocks / per-room factories deleted,
-and the host's per-kind registration collapsed to a KINDS array. Next: the
-solver-backed kinds (harvest -> carry -> upgrade), each one commit, each up
-the ladder - these need the live ColonyProblem builder (sources/sinks, real
-path distances) that the auxiliaries did not. Known pre-existing flake to fix
-en route: scenario-economy cases alternate failures
+and the host's per-kind registration collapsed to a KINDS array. HARVEST is
+ported at rungs 1-4 (corps/kinds/harvestKind.ts): the first solver-backed kind,
+so propose() returns [] and the commission comes from the planner; materialize
+reconstructs the live flowAdapter MinerAssignment and the legacy
+`mining-${room}-harvest-${suffix}` id. It is NOT yet live (imported by nothing
+in src/, golden master unchanged).
+
+SOLVER-BACKED RUNG-5 SEQUENCING (decided after reading FlowMaterializer): the
+live materializeCorps() builds harvest + carry + upgrade corps TOGETHER, grouped
+per node in one loop, at planning cadence (~every 50 ticks) - while the host
+runs every tick. Extracting one kind from that interleaved loop is more
+disruptive than the spec's own rule ("delete the per-type setters when the LAST
+kind ports"). So: port CARRY then UPGRADE at rungs 1-4 individually (same
+isolation pattern as harvest), THEN do ONE rung-5 cutover that replaces
+materializeCorps with a commission-dispatch bridge for all three at once. That
+bridge must also resolve the cadence mismatch: solver-backed commissions are
+produced at solve time and persisted in the store (materialized once, run every
+tick), while auxiliary commissions keep being re-proposed per tick - the host
+materializes the UNION so neither set demobilizes the other. Next action: the
+carry port (rungs 1-4). Known pre-existing flake to fix en route:
+scenario-economy cases alternate failures
 with a zombie-miner signature (a mining corp at 0/10 actual at sample time -
 also seen in the A/B baseline on master); it is the first concrete spec-01
 target.
