@@ -3,9 +3,6 @@ import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain, setRoomLevel, enableMods, FREE_ECONOMY_MOD } from "./loadLayout";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Runt -> upsize probe.
  *
@@ -20,6 +17,12 @@ afterEach(async () => helper.afterEach());
  * "Upsizing" here is the runts growing, NOT controller progress.
  */
 describe("runt economy upsizes its runts", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("starts with small miners and grows them to a larger body", async function () {
     this.timeout(1200000);
 

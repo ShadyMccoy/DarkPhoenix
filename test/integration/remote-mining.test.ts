@@ -7,9 +7,6 @@ import * as scenarios from "./scenario/library";
 
 const MAIN = "dist/main.js";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Remote reserved-mining probe + variance check.
  *
@@ -21,6 +18,12 @@ afterEach(async () => helper.afterEach());
  * surfacing any remote corp that is funded but produces nothing (a blocker).
  */
 describe("remote reserved-mining probe", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("scouts, mines and reserves the remote source; reports variance", async function () {
     this.timeout(900000);
 

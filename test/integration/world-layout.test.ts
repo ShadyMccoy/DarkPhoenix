@@ -13,9 +13,6 @@ import { E75N8_TERRAIN_PATTERN } from "../unit/spatial/fixtures/real-room-terrai
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const simpleMining = require("../fixtures/simple-mining.json") as NodeFixture;
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /** Find the first tile in an ASCII pattern matching the given character. */
 function findTile(pattern: string[], ch: string): { x: number; y: number } | undefined {
   for (let y = 0; y < pattern.length; y += 1) {
@@ -43,6 +40,12 @@ function findInteriorTile(pattern: string[], ch: string): { x: number; y: number
 }
 
 describe("world layouts", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("converts a real ASCII terrain fixture into a TerrainMatrix", () => {
     const matrix = terrainMatrixFromPattern(E75N8_TERRAIN_PATTERN);
 

@@ -3,9 +3,6 @@ import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain, setRoomLevel, enableMods, FREE_ECONOMY_MOD } from "./loadLayout";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Storage probe (RCL 4 logistics).
  *
@@ -17,6 +14,12 @@ afterEach(async () => helper.afterEach());
  * it is built).
  */
 describe("storage depot at RCL 4", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("places a storage site near the spawn once extensions are done", async function () {
     this.timeout(1200000);
 

@@ -3,9 +3,6 @@ import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain, setRoomLevel } from "./loadLayout";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Flow hand-off / budget-vs-actual probe.
  *
@@ -20,6 +17,12 @@ afterEach(async () => helper.afterEach());
  * soft-asserts that the colony stays alive, so the diagnostic always reports.
  */
 describe("flow hand-off probe", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("reports bootstrap->flow transition and corp budget vs actual over 600 ticks", async function () {
     this.timeout(300000);
 

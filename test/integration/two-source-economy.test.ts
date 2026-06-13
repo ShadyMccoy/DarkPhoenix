@@ -7,9 +7,6 @@ import * as scenarios from "./scenario/library";
 
 const MAIN = "dist/main.js";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Two-source owned-room economy probe. Reproduces the user-reported owned-room
  * stall: one source piles energy with no hauler, the other never gets a miner,
@@ -22,6 +19,12 @@ afterEach(async () => helper.afterEach());
  * the other at zero.
  */
 describe("two-source owned-room economy probe", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("mines BOTH sources, hauls them, and upgrades; reports per-source variance", async function () {
     this.timeout(900000);
 
