@@ -97,23 +97,26 @@
         "valuePerTick": 300
       },
       "assignment": {
-        "sinkId": "sink-ctrl",
-        "kind": "controller",
-        "value": 50,
-        "demand": 1000,
-        "allocated": 6,
-        "sources": [
-          {
-            "sourceId": "srcA",
-            "amount": 2,
-            "distance": 35
-          },
-          {
-            "sourceId": "srcA",
-            "amount": 4,
-            "distance": 35
-          }
-        ]
+        "sink": {
+          "sinkId": "sink-ctrl",
+          "kind": "controller",
+          "value": 50,
+          "demand": 1000,
+          "allocated": 6,
+          "sources": [
+            {
+              "sourceId": "srcA",
+              "amount": 2,
+              "distance": 35
+            },
+            {
+              "sourceId": "srcA",
+              "amount": 4,
+              "distance": 35
+            }
+          ]
+        },
+        "spawnId": "spawn1"
       }
     }
   ],
@@ -140,18 +143,21 @@
         "valuePerTick": 350
       },
       "assignment": {
-        "sinkId": "sink-build",
-        "kind": "construction",
-        "value": 70,
-        "demand": 5,
-        "allocated": 5,
-        "sources": [
-          {
-            "sourceId": "srcB",
-            "amount": 5,
-            "distance": 8
-          }
-        ]
+        "sink": {
+          "sinkId": "sink-build",
+          "kind": "construction",
+          "value": 70,
+          "demand": 5,
+          "allocated": 5,
+          "sources": [
+            {
+              "sourceId": "srcB",
+              "amount": 5,
+              "distance": 8
+            }
+          ]
+        },
+        "spawnId": "spawn1"
       }
     },
     {
@@ -317,28 +323,31 @@
         "valuePerTick": 450
       },
       "assignment": {
-        "sinkId": "sink-ctrl",
-        "kind": "controller",
-        "value": 50,
-        "demand": 1000,
-        "allocated": 9,
-        "sources": [
-          {
-            "sourceId": "srcA",
-            "amount": 2,
-            "distance": 6
-          },
-          {
-            "sourceId": "srcA",
-            "amount": 2,
-            "distance": 6
-          },
-          {
-            "sourceId": "srcB",
-            "amount": 5,
-            "distance": 30
-          }
-        ]
+        "sink": {
+          "sinkId": "sink-ctrl",
+          "kind": "controller",
+          "value": 50,
+          "demand": 1000,
+          "allocated": 9,
+          "sources": [
+            {
+              "sourceId": "srcA",
+              "amount": 2,
+              "distance": 6
+            },
+            {
+              "sourceId": "srcA",
+              "amount": 2,
+              "distance": 6
+            },
+            {
+              "sourceId": "srcB",
+              "amount": 5,
+              "distance": 30
+            }
+          ]
+        },
+        "spawnId": "spawn1"
       }
     }
   ],
@@ -440,23 +449,26 @@
         "valuePerTick": 300
       },
       "assignment": {
-        "sinkId": "sink-ctrl",
-        "kind": "controller",
-        "value": 50,
-        "demand": 1000,
-        "allocated": 6,
-        "sources": [
-          {
-            "sourceId": "srcA",
-            "amount": 2,
-            "distance": 60
-          },
-          {
-            "sourceId": "srcA",
-            "amount": 4,
-            "distance": 60
-          }
-        ]
+        "sink": {
+          "sinkId": "sink-ctrl",
+          "kind": "controller",
+          "value": 50,
+          "demand": 1000,
+          "allocated": 6,
+          "sources": [
+            {
+              "sourceId": "srcA",
+              "amount": 2,
+              "distance": 60
+            },
+            {
+              "sourceId": "srcA",
+              "amount": 4,
+              "distance": 60
+            }
+          ]
+        },
+        "spawnId": "spawn1"
       }
     }
   ]

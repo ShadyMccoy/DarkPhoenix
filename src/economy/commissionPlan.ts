@@ -12,9 +12,40 @@
  * @module economy/commissionPlan
  */
 
-import { ColonyPlan, ColonyProblem, CommissionedHauler, planColony } from "./CorpPlanner";
+import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
+import { Position } from "../types/Position";
+
+/**
+ * The binding a consume commission (upgrade/build) carries: the planner's sink
+ * allocation plus the SERVING SPAWN. The planner binds spawns to producers and
+ * transporters but not to consumers (sinks are spawn-agnostic), so the spawn is
+ * chosen here, purely, from the problem's spawns by the sink's room - matching
+ * how the live FlowMaterializer picks the room's spawn. Null only if the colony
+ * has no spawns at all.
+ */
+export interface ConsumeAssignment {
+  sink: CommissionedSink;
+  spawnId: string | null;
+}
+
+/** Spawn that should build a consumer at sinkPos: same-room if any, else nearest. */
+function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): string | null {
+  if (!sinkPos || problem.spawns.length === 0) return null;
+  const sameRoom = problem.spawns.find(s => s.pos.roomName === sinkPos.roomName);
+  if (sameRoom) return sameRoom.id;
+  let best = problem.spawns[0];
+  let bestDist = problem.dist(best.pos, sinkPos);
+  for (const s of problem.spawns) {
+    const d = problem.dist(s.pos, sinkPos);
+    if (d < bestDist) {
+      best = s;
+      bestDist = d;
+    }
+  }
+  return best.id;
+}
 
 /** Map the solver's plan onto Commission envelopes (pure, deterministic). */
 export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): Commission[] {
@@ -80,7 +111,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
         spawnPartsPerTick: 0
       },
       produces: { valuePerTick: k.allocated * k.value, at: sink?.pos },
-      assignment: k
+      assignment: { sink: k, spawnId: servingSpawnId(problem, sink?.pos) } as ConsumeAssignment
     });
   }
 
