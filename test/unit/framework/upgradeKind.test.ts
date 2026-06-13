@@ -68,7 +68,8 @@ const upgradeCommission = {
   shape: "consume" as const,
   consumes: { energyRate: 9, at: at(40), spawnPartsPerTick: 0 },
   produces: { valuePerTick: 9 * DEFAULT_SINK_VALUE.controller, at: at(40) },
-  assignment: { sink, spawnId: "spawn1" } as ConsumeAssignment
+  // spawnId is the flow sink id ("spawn-<gameId>"), as commissionsFromPlan carries it
+  assignment: { sink, spawnId: "spawn-game1" } as ConsumeAssignment
 };
 
 function resetWorld(): void {
@@ -116,7 +117,7 @@ describe("upgrade kind on the corp framework (rungs 2-4)", () => {
       priority: DEFAULT_SINK_VALUE.controller,
       sourceFlows: [{ sourceId: "source-abcd1234", amount: 9, distance: 40 }]
     });
-    expect(corp.getSpawnId()).to.equal("spawn1");
+    expect(corp.getSpawnId()).to.equal("game1"); // "spawn-" prefix stripped to the real id
   });
 
   it("rung 3 - BIND: preserves the legacy `upgrading-${room}` id", () => {

@@ -32,7 +32,8 @@ import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { solveWithCorpPlanner } from "../economy/flowAdapter";
+import { solveColony } from "../economy/flowAdapter";
+import { Commission } from "../economy/Commission";
 
 // =============================================================================
 // FLOW ECONOMY CLASS
@@ -56,6 +57,13 @@ export class FlowEconomy {
 
   /** Current solution (null if not yet solved) */
   private solution: FlowSolution | null;
+
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * `solution`, wrapped as Commission envelopes for the corp kinds to
+   * materialize. Empty until the first solve.
+   */
+  private commissions: Commission[] = [];
 
   /** Current priority context */
   private context: PriorityContext | null;
@@ -139,8 +147,12 @@ export class FlowEconomy {
     // Solve the colony economy with the GOAP CorpPlanner - the single economy
     // authority. It unifies producer selection (which sources to mine, per spawn
     // build-budget) and value routing (feed the spawn, then the controller) that
-    // FlowSolver and the shadow EconomyPlanner used to do separately.
-    this.solution = solveWithCorpPlanner(this.graph, this.context.tick);
+    // FlowSolver and the shadow EconomyPlanner used to do separately. One solve
+    // yields both the FlowSolution (live materializer/telemetry) and the
+    // commissions (the framework seam the corp kinds materialize from).
+    const result = solveColony(this.graph, this.context.tick);
+    this.solution = result.solution;
+    this.commissions = result.commissions;
   }
 
   /**
@@ -282,6 +294,14 @@ export class FlowEconomy {
    */
   public getSolution(): FlowSolution | null {
     return this.solution;
+  }
+
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * getSolution(), wrapped as Commission envelopes. Empty until the first solve.
+   */
+  public getCommissions(): Commission[] {
+    return this.commissions;
   }
 
   /**

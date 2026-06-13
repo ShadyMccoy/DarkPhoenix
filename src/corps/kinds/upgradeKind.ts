@@ -15,14 +15,14 @@
  * @module corps/kinds/upgradeKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
 import { buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
-import { UpgradingCorp, SerializedUpgradingCorp } from "../UpgradingCorp";
+import { SerializedUpgradingCorp, UpgradingCorp } from "../UpgradingCorp";
 
 /**
  * Reconstruct the flow-shaped SinkAllocation from the commission's CommissionedSink,
@@ -68,7 +68,10 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
       return existing;
     }
     const roomName = c.produces.at?.roomName ?? sink.sinkId;
-    const corp = new UpgradingCorp(legacyNodeId(roomName), spawnId ?? "");
+    // The serving spawn is the flow sink id ("spawn-<gameId>"); strip the prefix
+    // to the real game id the scheduler matches on (UpgradingCorp does not strip
+    // it itself, and FlowMaterializer passes the already-real spawn.id).
+    const corp = new UpgradingCorp(legacyNodeId(roomName), (spawnId ?? "").replace("spawn-", ""));
     corp.setSinkAllocation(allocation);
     return corp;
   },
