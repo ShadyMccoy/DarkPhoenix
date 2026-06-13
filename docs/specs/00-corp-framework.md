@@ -169,22 +169,42 @@ imported by nothing in src/, golden master is the pinned baseline):
   serving spawn (ConsumeAssignment = { sink, spawnId }), chosen purely from
   problem.spawns by the sink's room - matching how FlowMaterializer picks it.
 
-REMAINING: the single combined rung-5 cutover. The live materializeCorps()
-builds harvest + carry + upgrade corps TOGETHER, grouped per node in one loop,
-at planning cadence (~every 50 ticks) - while the host runs every tick.
-Extracting one kind from that interleaved loop is more disruptive than the
-spec's own rule ("delete the per-type setters when the LAST kind ports"), which
-is why all three were ported individually at rungs 1-4 first. The cutover
-replaces materializeCorps with a commission-dispatch bridge for all three at
-once, and must resolve the cadence mismatch: solver-backed commissions are
-produced at solve time (flowAdapter already builds problem+plan; surface its
-commissions) and persisted in the store - materialized once, run every tick -
-while auxiliary commissions keep being re-proposed per tick. The host
-materializes the UNION so neither set demobilizes the other; harvest/carry/
-upgrade are then deleted from FlowMaterializer's per-node loop and from
-runRealCorps. This is a high-risk change to the live core economy and gets its
-own focused effort with a full integration run. Known pre-existing flake to fix
-en route: scenario-economy cases alternate failures
+BRIDGE DONE (the rung-5 enabler): the live pipeline produced a FlowSolution,
+not commissions, so the host had nothing to drive the economy kinds from.
+flowAdapter.solveColony() now yields BOTH from one solve, FlowEconomy exposes
+getCommissions(), and solverBridge.test.ts pins the equivalence - every
+harvest/carry/upgrade commission reconstructs the EXACT assignment the live
+FlowMaterializer sets (this caught + fixed a real bug: upgradeKind wasn't
+stripping the "spawn-" prefix). Nothing consumes getCommissions() yet, so it is
+non-behavioral. The blast-radius survey (registry.harvestCorps/haulingCorps/
+upgradingCorps) is ~10 files / ~30 sites, including the SpawnDirector
+spawn-demand critical path.
+
+REMAINING: the single combined flip. Concrete plan, now that the bridge and
+blast radius are mapped:
+1. Register harvest/carry/upgrade in CommissionHost's KINDS. The host takes the
+   solver commissions (main.ts passes flowEconomy.getCommissions(), stable
+   between solves) and materializes the UNION with the per-tick auxiliary
+   propose() set, so neither demobilizes the other.
+2. The three kinds' run() must replicate runRealCorps' plan cadence
+   (if shouldPlan(tick) plan(tick); then work(tick)) - the auxiliaries never
+   needed plan(), these do.
+3. Migrate every READER from registry maps to commissionedCorpsOfKind():
+   SpawnDirector (CRITICAL - the spawn-demand loops + sourceHasMiner), Telemetry
+   args (main.ts), Colony.updateStats, CorpRunner snapshotCorpVariance /
+   logCorpStats, main.ts status/resetCorp, Phases counting/isStarted.
+4. Delete harvest/carry/upgrade from FlowMaterializer's per-node loop, from
+   runRealCorps, the registry maps, Persistence, and Phases hydration.
+5. OPEN QUESTION to resolve first: Phases SURVEY provisionally creates
+   HarvestCorp/UpgradingCorp ("create if absent", keyed like the flow corps) so
+   they exist before the first solve; CarryCorp already comes only from
+   FlowMaterializer. With the flip, economy corps appear only after the first
+   solve (which runs at init anyway). Likely safe to drop the survey provisioning
+   and rely on the initial solve - but this is behavior-sensitive and must be
+   confirmed by the integration suite (bootstrap timing), not assumed.
+This is a high-risk change to the live core economy; it gets its own focused
+effort gated on the FULL integration run (expect 2-3 iterations). Known
+pre-existing flake to fix en route: scenario-economy cases alternate failures
 with a zombie-miner signature (a mining corp at 0/10 actual at sample time -
 also seen in the A/B baseline on master); it is the first concrete spec-01
 target, and lives in exactly the harvest/carry code the cutover touches.
