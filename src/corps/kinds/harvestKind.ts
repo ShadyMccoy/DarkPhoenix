@@ -76,6 +76,8 @@ export const harvestKind: CorpKind<HarvestCorp> = {
   },
 
   run(corp: HarvestCorp, tick: number): void {
+    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
+    if (corp.shouldPlan(tick)) corp.plan(tick);
     corp.work(tick);
   },
 

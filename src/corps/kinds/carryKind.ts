@@ -77,6 +77,8 @@ export const carryKind: CorpKind<CarryCorp> = {
   },
 
   run(corp: CarryCorp, tick: number): void {
+    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
+    if (corp.shouldPlan(tick)) corp.plan(tick);
     corp.work(tick);
   },
 

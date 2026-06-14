@@ -77,6 +77,8 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
   },
 
   run(corp: UpgradingCorp, tick: number): void {
+    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
+    if (corp.shouldPlan(tick)) corp.plan(tick);
     corp.work(tick);
   },
 
