@@ -186,9 +186,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
   runRealCorps(corps);
   runConstructionCorps(corps);
 
-  // Run all FRAMEWORK-commissioned corps (currently: scout, reservation,
-  // tender). Kinds move here from the per-type calls above as their ports land.
-  runCommissionHost(corps, Game.time);
+  // Run all FRAMEWORK-commissioned corps (auxiliaries: scout, reservation,
+  // tender). The solver's commissions (harvest/carry/upgrade) are passed in so
+  // the host can drive them once those kinds register; until then they are
+  // skipped (unregistered) and the legacy runRealCorps path above handles them.
+  runCommissionHost(corps, flowEconomy?.getCommissions() ?? [], Game.time);
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
   runLinks();

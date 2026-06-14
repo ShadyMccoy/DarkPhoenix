@@ -70,8 +70,20 @@ function liveProblem(): ColonyProblem {
 /**
  * Drive all registered corp kinds for one tick. Called from the main loop in
  * place of the legacy per-kind run*Corps calls as each kind ports over.
+ *
+ * `solverCommissions` are the central planner's output (FlowEconomy.getCommissions
+ * - harvest/carry/upgrade), stable between solves. They seed the draft so
+ * auxiliary kinds can react to them, and are materialized together with the
+ * auxiliaries' per-tick propose() output as ONE union, so neither set
+ * demobilizes the other. Commissions whose kind is not registered are skipped
+ * (materializeCommissions), so passing solver commissions before harvest/carry/
+ * upgrade register is a no-op.
  */
-export function runCommissionHost(registry: CorpRegistry, tick: number): void {
+export function runCommissionHost(
+  registry: CorpRegistry,
+  solverCommissions: readonly Commission[],
+  tick: number
+): void {
   registerKinds();
   // Fresh closure every tick: the legacy registry object can be rebuilt on
   // hydration, and kinds must always see the live spawning corps.
@@ -79,7 +91,9 @@ export function runCommissionHost(registry: CorpRegistry, tick: number): void {
 
   const liveStore = ensureStore();
   const problem = liveProblem();
-  const commissions: Commission[] = [];
+  // Seed the draft with the solver commissions so auxiliaries' propose() can
+  // read them (e.g. "a miner works here"), then append each kind's proposals.
+  const commissions: Commission[] = [...solverCommissions];
   for (const kind of listCorpKinds()) {
     commissions.push(...kind.propose(problem, commissions));
   }
