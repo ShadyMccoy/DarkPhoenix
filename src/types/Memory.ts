@@ -131,19 +131,14 @@ declare global {
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
 
     /**
-     * Serialized harvest corps by source ID.
+     * @deprecated Harvest/carry/upgrade corps live in commissionedCorps since
+     * the framework cutover; these keys are no longer written and exist only in
+     * old saves.
      */
     harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
-
-    /**
-     * Serialized hauling corps by source ID (legacy CarryCorp).
-     * Each source has its own CarryCorp for independent hauler scaling.
-     */
+    /** @deprecated see harvestCorps. */
     haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-
-    /**
-     * Serialized upgrading corps by room name.
-     */
+    /** @deprecated see harvestCorps. */
     upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
 
     /**

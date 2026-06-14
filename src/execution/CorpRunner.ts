@@ -29,12 +29,10 @@ import { commissionedCorpsOfKind } from "./CommissionHost";
  */
 export interface CorpRegistry {
   bootstrapCorps: { [roomName: string]: BootstrapCorp };
-  harvestCorps: { [sourceId: string]: HarvestCorp };
-  /** Hauling corps keyed by source ID (each source has its own CarryCorp) */
-  haulingCorps: { [sourceId: string]: CarryCorp };
-  upgradingCorps: { [roomName: string]: UpgradingCorp };
   constructionCorps: { [roomName: string]: ConstructionCorp };
   spawningCorps: { [spawnId: string]: SpawningCorp };
+  // harvest/carry/upgrade corps live in the commission store (CommissionHost),
+  // reached via commissionedCorpsOfKind(), not the registry.
 }
 
 /**
@@ -43,9 +41,6 @@ export interface CorpRegistry {
 export function createCorpRegistry(): CorpRegistry {
   return {
     bootstrapCorps: {},
-    harvestCorps: {},
-    haulingCorps: {},
-    upgradingCorps: {},
     constructionCorps: {},
     spawningCorps: {}
   };

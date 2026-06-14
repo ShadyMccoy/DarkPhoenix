@@ -161,23 +161,8 @@ export function persistState(
     Memory.bootstrapCorps[roomName] = registry.bootstrapCorps[roomName].serialize();
   }
 
-  // Persist mining corps
-  Memory.harvestCorps = {};
-  for (const sourceId in registry.harvestCorps) {
-    Memory.harvestCorps[sourceId] = registry.harvestCorps[sourceId].serialize();
-  }
-
-  // Persist hauling corps
-  Memory.haulingCorps = {};
-  for (const roomName in registry.haulingCorps) {
-    Memory.haulingCorps[roomName] = registry.haulingCorps[roomName].serialize();
-  }
-
-  // Persist upgrading corps
-  Memory.upgradingCorps = {};
-  for (const roomName in registry.upgradingCorps) {
-    Memory.upgradingCorps[roomName] = registry.upgradingCorps[roomName].serialize();
-  }
+  // Mining/hauling/upgrading corps persist in Memory.commissionedCorps via
+  // CommissionHost; only the registry corps are persisted here.
 
   // Persist construction corps
   Memory.constructionCorps = {};
