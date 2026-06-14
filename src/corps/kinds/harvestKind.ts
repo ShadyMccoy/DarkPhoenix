@@ -70,7 +70,10 @@ export const harvestKind: CorpKind<HarvestCorp> = {
       return existing;
     }
     const roomName = c.produces.at?.roomName ?? m.sourceId;
-    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, m.sourceId);
+    // HarvestCorp.work() resolves the source via Game.getObjectById(this.sourceId),
+    // so the corp's sourceId must be the REAL game id - strip the flow "source-"
+    // prefix (FlowMaterializer did the same). The assignment keeps the flow id.
+    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, m.sourceId.replace("source-", ""));
     corp.setMinerAssignment(assignment);
     return corp;
   },

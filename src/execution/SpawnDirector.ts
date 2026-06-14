@@ -110,15 +110,18 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   const upgradeCorps = commissionedCorpsOfKind<UpgradingCorp>("upgrade");
 
   // Sources with a miner actually in the field (their income unit is "started").
+  // Keyed by the real game source id (flow "source-" prefix stripped) so harvest
+  // and carry agree regardless of id format.
+  const sourceKey = (s: string): string => s.replace("source-", "");
   const minedSources = new Set<string>();
   for (const id in harvestCorps) {
-    if (harvestCorps[id].getCreepCount() > 0) minedSources.add(harvestCorps[id].getSourceId());
+    if (harvestCorps[id].getCreepCount() > 0) minedSources.add(sourceKey(harvestCorps[id].getSourceId()));
   }
 
   for (const id in harvestCorps) {
     const c = harvestCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
-    const sourceId = c.getSourceId();
+    const sourceId = sourceKey(c.getSourceId());
     const started = minedSources.has(sourceId);
     for (const d of c.getSpawnDemand(ctx)) {
       d.groupId = sourceId;
@@ -129,7 +132,12 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   for (const id in carryCorps) {
     const c = carryCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
-    const sourceId = id.replace(/^carry-/, "");
+    // Shared source key, matching harvest's getSourceId() (the real game id). Take
+    // it from the route's fromId (stripped of the flow "source-" prefix) so a
+    // source's miner and haulers land in the same group regardless of id format;
+    // fall back to the commission corpId when there are no routes yet.
+    const fromId = c.getHaulerAssignments()[0]?.fromId;
+    const sourceId = sourceKey(fromId ?? id.replace(/^carry-/, ""));
     // A scavenger's energy is already on the ground (no miner to wait for), so its
     // income unit is always "started" - otherwise withMinerPrecedence would drop it
     // for having no miner and the scavenger could never spawn.
