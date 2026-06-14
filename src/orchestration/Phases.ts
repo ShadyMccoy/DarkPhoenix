@@ -16,19 +16,10 @@
  * @module orchestration/Phases
  */
 
-import {
-  BootstrapCorp,
-  CarryCorp,
-  ConstructionCorp,
-  HarvestCorp,
-  SpawningCorp,
-  UpgradingCorp,
-  createHarvestCorp,
-  createSpawningCorp,
-  createUpgradingCorp
-} from "../corps";
+import { BootstrapCorp, ConstructionCorp, SpawningCorp, createSpawningCorp } from "../corps";
 import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
+import { commissionedCorpsOfKind } from "../execution/CommissionHost";
 
 /** Planning interval in ticks */
 export const PLANNING_INTERVAL = 5000;
@@ -62,12 +53,9 @@ export interface InitResult {
  * Returns true if the global cache is empty (after code push).
  */
 export function needsInit(corps: CorpRegistry): boolean {
-  const hasCorps =
-    Object.keys(corps.harvestCorps).length > 0 ||
-    Object.keys(corps.haulingCorps).length > 0 ||
-    Object.keys(corps.upgradingCorps).length > 0 ||
-    Object.keys(corps.spawningCorps).length > 0 ||
-    Object.keys(corps.bootstrapCorps).length > 0;
+  // Economy corps (harvest/carry/upgrade) live in the commission store and are
+  // hydrated by CommissionHost; this gates only the registry corps.
+  const hasCorps = Object.keys(corps.spawningCorps).length > 0 || Object.keys(corps.bootstrapCorps).length > 0;
 
   return !hasCorps;
 }
@@ -95,44 +83,8 @@ export function initCorps(corps: CorpRegistry): InitResult {
   result.wasNeeded = true;
   console.log(`[Init] Hydrating corps from Memory (cache was empty)`);
 
-  // Hydrate harvest corps
-  if (Memory.harvestCorps) {
-    for (const sourceId in Memory.harvestCorps) {
-      const saved = Memory.harvestCorps[sourceId];
-      if (saved && !corps.harvestCorps[sourceId]) {
-        const harvestCorp = new HarvestCorp(saved.nodeId, saved.spawnId, saved.sourceId);
-        harvestCorp.deserialize(saved);
-        corps.harvestCorps[sourceId] = harvestCorp;
-        result.corpsHydrated.harvest++;
-      }
-    }
-  }
-
-  // Hydrate hauling corps (keyed by source ID)
-  if (Memory.haulingCorps) {
-    for (const sourceId in Memory.haulingCorps) {
-      const saved = Memory.haulingCorps[sourceId];
-      if (saved && !corps.haulingCorps[sourceId]) {
-        const haulingCorp = new CarryCorp(saved.nodeId, saved.spawnId);
-        haulingCorp.deserialize(saved);
-        corps.haulingCorps[sourceId] = haulingCorp;
-        result.corpsHydrated.hauling++;
-      }
-    }
-  }
-
-  // Hydrate upgrading corps
-  if (Memory.upgradingCorps) {
-    for (const roomName in Memory.upgradingCorps) {
-      const saved = Memory.upgradingCorps[roomName];
-      if (saved && !corps.upgradingCorps[roomName]) {
-        const upgradingCorp = new UpgradingCorp(saved.nodeId, saved.spawnId);
-        upgradingCorp.deserialize(saved);
-        corps.upgradingCorps[roomName] = upgradingCorp;
-        result.corpsHydrated.upgrading++;
-      }
-    }
-  }
+  // Harvest/carry/upgrade corps live in the commission store and are hydrated
+  // by CommissionHost (from Memory.commissionedCorps), not here.
 
   // Hydrate spawning corps
   if (Memory.spawningCorps) {
@@ -213,16 +165,9 @@ export function shouldRunPlanning(tick: number): boolean {
 export function runPlanningPhase(corps: CorpRegistry, colony: Colony, tick: number): PlanningResult {
   console.log(`[Planning] Running planning phase at tick ${tick}`);
 
-  // Run planning on all corps
-  for (const sourceId in corps.harvestCorps) {
-    corps.harvestCorps[sourceId].plan(tick);
-  }
-  for (const sourceId in corps.haulingCorps) {
-    corps.haulingCorps[sourceId].plan(tick);
-  }
-  for (const roomName in corps.upgradingCorps) {
-    corps.upgradingCorps[roomName].plan(tick);
-  }
+  // Run planning on registry corps. Harvest/carry/upgrade plan on their own
+  // cadence inside CommissionHost (their kind run() calls plan()), so they are
+  // not planned here.
   for (const roomName in corps.constructionCorps) {
     corps.constructionCorps[roomName].plan(tick);
   }
@@ -262,10 +207,11 @@ export function runExecutionPhase(corps: CorpRegistry, _tick: number): Execution
  * Count total corps in registry.
  */
 function countCorps(corps: CorpRegistry): number {
+  // Harvest/carry/upgrade live in the commission store; this counts registry corps.
   let count = 0;
-  count += Object.keys(corps.harvestCorps).length;
-  count += Object.keys(corps.haulingCorps).length;
-  count += Object.keys(corps.upgradingCorps).length;
+  count += Object.keys(commissionedCorpsOfKind("harvest")).length;
+  count += Object.keys(commissionedCorpsOfKind("carry")).length;
+  count += Object.keys(commissionedCorpsOfKind("upgrade")).length;
   count += Object.keys(corps.spawningCorps).length;
   count += Object.keys(corps.bootstrapCorps).length;
   count += Object.keys(corps.constructionCorps).length;
@@ -328,17 +274,9 @@ export function runSurveyPhase(colony: Colony, corps: CorpRegistry, tick: number
     for (const resource of node.resources) {
       switch (resource.type) {
         case "source":
+          // HarvestCorps are framework-commissioned now (created by CommissionHost
+          // from the planner's commissions), not provisioned here during survey.
           result.resourcesFound.sources++;
-          if (!corps.harvestCorps[resource.id]) {
-            const source = Game.getObjectById(resource.id as Id<Source>);
-            if (source) {
-              const harvestCorp = createHarvestCorp(room, spawn, source);
-              harvestCorp.createdAt = tick;
-              corps.harvestCorps[resource.id] = harvestCorp;
-              result.corpsCreated.harvest++;
-              console.log(`[Survey] Created HarvestCorp for source ${resource.id.slice(-4)}`);
-            }
-          }
           break;
 
         case "controller":
@@ -364,16 +302,8 @@ export function runSurveyPhase(colony: Colony, corps: CorpRegistry, tick: number
     if (!processedRooms.has(node.roomName)) {
       processedRooms.add(node.roomName);
 
-      // Note: CarryCorps are now created per-source by FlowMaterializer,
-      // not per-room during survey. This ensures each source has dedicated haulers.
-
-      if (!corps.upgradingCorps[node.roomName]) {
-        const upgradingCorp = createUpgradingCorp(room, spawn);
-        upgradingCorp.createdAt = tick;
-        corps.upgradingCorps[node.roomName] = upgradingCorp;
-        result.corpsCreated.upgrading++;
-        console.log(`[Survey] Created UpgradingCorp for room ${node.roomName}`);
-      }
+      // CarryCorps and UpgradingCorps are framework-commissioned now (created by
+      // CommissionHost from the planner's commissions), not provisioned here.
     }
   }
 

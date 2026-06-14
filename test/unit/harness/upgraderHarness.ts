@@ -20,6 +20,7 @@ import { SpawningCorp } from "../../../src/corps/SpawningCorp";
 import { SinkAllocation } from "../../../src/flow/FlowTypes";
 import { createCorpRegistry } from "../../../src/execution/CorpRunner";
 import { collectDemands } from "../../../src/execution/SpawnDirector";
+import { seedCommissionStoreForTest, resetCommissionHost } from "../../../src/execution/CommissionHost";
 import { scheduleSpawn } from "../../../src/spawn/SpawnScheduler";
 
 const SPAWN_ID = "spawn1";
@@ -123,13 +124,15 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
   };
   game.getObjectById = (id: string) => (id === SPAWN_ID ? fakeSpawn : null);
 
+  resetCommissionHost();
   try {
     const registry = createCorpRegistry();
     const corp = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID, `upgrading-${ROOM}`);
     corp.setSinkAllocation({
       sinkId: "controller-x", sinkType: "controller", allocated, demand: allocated, unmet: 0, priority: 65
     } as SinkAllocation);
-    registry.upgradingCorps[ROOM] = corp;
+    // Upgrade corps live in the commission store; collectDemands reads them there.
+    seedCommissionStoreForTest(`upgrade-${ROOM}`, "upgrade", corp);
 
     const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID, energyCapacity);
 
@@ -170,6 +173,7 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
     game.creeps = savedCreeps;
     game.getObjectById = savedGetObjectById;
     console.log = savedLog;
+    resetCommissionHost();
   }
 }
 

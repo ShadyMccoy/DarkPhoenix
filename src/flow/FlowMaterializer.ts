@@ -189,51 +189,22 @@ function materializeNodeFlow(
   const roomName = nodeFlow.roomName;
   const room = Game.rooms[roomName];
 
-  // Materialize HarvestCorps from miner assignments (works for remote rooms too)
-  // Each miner assignment has its own spawnId
-  // Note: Profitability filtering is done in the flow solver, not here
-  for (const miner of nodeFlow.miners) {
-    materializeHarvestCorp(miner, corps, tick, result);
-  }
-
-  // Materialize one CarryCorp per source, carrying ALL of that source's routes
-  // (e.g. source->spawn AND source->controller). The CarryCorp is the node's
-  // local "mover": it distributes the source's energy across the local sinks in
-  // proportion to the flow solver's allocations, rather than dumping everything
-  // into the spawn.
-  // Only field haulers for a source we actually mine. A remote source we
-  // currently have no vision of has its HarvestCorp skipped (the live source
-  // object isn't found), so without this gate we would create a CarryCorp with
-  // no miner - haulers with nothing to pick up, burning spawn capacity.
-  const { bySource: haulersBySource, orphaned } = groupHaulersByMinedSource(
-    nodeFlow.haulers,
-    src => corps.harvestCorps[src] !== undefined
-  );
-  for (const src of orphaned) {
-    result.warnings.push(`No miner for source ${src.slice(-4)}; skipping its haulers`);
-  }
-  for (const haulers of haulersBySource.values()) {
-    materializeCarryCorpForSource(haulers, corps, tick, result);
-  }
-
-  // Upgrading and construction only in rooms we own
+  // Harvest, carry, and upgrade corps are framework-commissioned now:
+  // CommissionHost drives them from the planner's commissions
+  // (FlowEconomy.getCommissions), so FlowMaterializer no longer creates them.
+  // Construction stays here until it ports.
   if (room && room.controller?.my) {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (spawn) {
-      // Materialize UpgradingCorp from controller sink
-      const controllerSink = nodeFlow.sinks.find(s => s.sinkType === "controller");
-      if (controllerSink) {
-        materializeUpgradingCorp(controllerSink, room, spawn, corps, tick, result);
-      }
-
       // Materialize the ConstructionCorp when there is something to build, OR keep
       // one alive to MAINTAIN containers: containers decay and need periodic repair
       // even in a fully-built room with no construction sinks, so the corp must
       // exist there too (it self-recycles its builder once all containers are full).
       const constructionSinks = nodeFlow.sinks.filter(s => s.sinkType === "construction");
-      const decayingContainer = room.find(FIND_STRUCTURES, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER && s.hits < s.hitsMax * REPAIR_TO
-      }).length > 0;
+      const decayingContainer =
+        room.find(FIND_STRUCTURES, {
+          filter: s => s.structureType === STRUCTURE_CONTAINER && s.hits < s.hitsMax * REPAIR_TO
+        }).length > 0;
       if (constructionSinks.length > 0 || decayingContainer) {
         materializeConstructionCorp(constructionSinks, room, spawn, corps, tick, result);
       }

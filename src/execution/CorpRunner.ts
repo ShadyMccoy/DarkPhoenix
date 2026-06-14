@@ -102,46 +102,6 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
 }
 
 /**
- * Run real corps (mining, hauling, upgrading).
- *
- * This function is room-agnostic - it runs all corps in the registry.
- * Corps are created by FlowMaterializer based on the flow solution.
- *
- * These corps work together:
- * - Mining: Harvests energy and drops it
- * - Hauling: Picks up energy and delivers to spawn/controller
- * - Upgrading: Picks up energy near controller and upgrades
- */
-export function runRealCorps(registry: CorpRegistry): void {
-  // Run all HarvestCorps (both local and remote)
-  for (const sourceId in registry.harvestCorps) {
-    const harvestCorp = registry.harvestCorps[sourceId];
-    if (harvestCorp.shouldPlan(Game.time)) {
-      harvestCorp.plan(Game.time);
-    }
-    harvestCorp.work(Game.time);
-  }
-
-  // Run all HaulingCorps
-  for (const roomName in registry.haulingCorps) {
-    const haulingCorp = registry.haulingCorps[roomName];
-    if (haulingCorp.shouldPlan(Game.time)) {
-      haulingCorp.plan(Game.time);
-    }
-    haulingCorp.work(Game.time);
-  }
-
-  // Run all UpgradingCorps
-  for (const roomName in registry.upgradingCorps) {
-    const upgradingCorp = registry.upgradingCorps[roomName];
-    if (upgradingCorp.shouldPlan(Game.time)) {
-      upgradingCorp.plan(Game.time);
-    }
-    upgradingCorp.work(Game.time);
-  }
-}
-
-/**
  * Run construction corps for all owned rooms.
  *
  * Construction corps build extensions when there's profit available.
@@ -243,13 +203,14 @@ export interface CorpVarianceRow {
   variance: number;
 }
 
-/** Every budgeted corp in the registry (off-budget corps return null variance). */
+/** Every budgeted corp (off-budget corps return null variance). Economy corps
+ * (harvest/carry/upgrade) live in the commission store; the rest in the registry. */
 function allCorps(registry: CorpRegistry): Corp[] {
   const out: Corp[] = [];
-  const groups = [
-    registry.harvestCorps,
-    registry.haulingCorps,
-    registry.upgradingCorps,
+  const groups: { [id: string]: Corp }[] = [
+    commissionedCorpsOfKind("harvest"),
+    commissionedCorpsOfKind("carry"),
+    commissionedCorpsOfKind("upgrade"),
     registry.constructionCorps,
     registry.bootstrapCorps,
     registry.spawningCorps
@@ -301,14 +262,14 @@ export function logCorpStats(registry: CorpRegistry): void {
   let totalHaulers = 0;
   let totalUpgraders = 0;
 
-  for (const sourceId in registry.harvestCorps) {
-    totalHarvesters += registry.harvestCorps[sourceId].getCreepCount();
+  for (const corp of Object.values(commissionedCorpsOfKind<HarvestCorp>("harvest"))) {
+    totalHarvesters += corp.getCreepCount();
   }
-  for (const roomName in registry.haulingCorps) {
-    totalHaulers += registry.haulingCorps[roomName].getCreepCount();
+  for (const corp of Object.values(commissionedCorpsOfKind<CarryCorp>("carry"))) {
+    totalHaulers += corp.getCreepCount();
   }
-  for (const roomName in registry.upgradingCorps) {
-    totalUpgraders += registry.upgradingCorps[roomName].getCreepCount();
+  for (const corp of Object.values(commissionedCorpsOfKind<UpgradingCorp>("upgrade"))) {
+    totalUpgraders += corp.getCreepCount();
   }
 
   let totalScouts = 0;

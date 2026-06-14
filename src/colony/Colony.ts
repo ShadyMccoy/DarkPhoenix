@@ -2,6 +2,9 @@ import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { commissionedCorpsOfKind } from "../execution/CommissionHost";
 import { ScoutCorp } from "../corps/ScoutCorp";
+import { HarvestCorp } from "../corps/HarvestCorp";
+import { CarryCorp } from "../corps/CarryCorp";
+import { UpgradingCorp } from "../corps/UpgradingCorp";
 import { Node } from "../nodes/Node";
 
 /**
@@ -172,9 +175,9 @@ export class Colony {
     // Count corps from registry
     const totalCorps =
       Object.keys(corpRegistry.bootstrapCorps).length +
-      Object.keys(corpRegistry.harvestCorps).length +
-      Object.keys(corpRegistry.haulingCorps).length +
-      Object.keys(corpRegistry.upgradingCorps).length +
+      Object.keys(commissionedCorpsOfKind("harvest")).length +
+      Object.keys(commissionedCorpsOfKind("carry")).length +
+      Object.keys(commissionedCorpsOfKind("upgrade")).length +
       Object.keys(commissionedCorpsOfKind("scout")).length +
       Object.keys(corpRegistry.constructionCorps).length +
       Object.keys(corpRegistry.spawningCorps).length;
@@ -184,13 +187,13 @@ export class Colony {
     for (const corp of Object.values(corpRegistry.bootstrapCorps)) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.harvestCorps)) {
+    for (const corp of Object.values(commissionedCorpsOfKind<HarvestCorp>("harvest"))) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.haulingCorps)) {
+    for (const corp of Object.values(commissionedCorpsOfKind<CarryCorp>("carry"))) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.upgradingCorps)) {
+    for (const corp of Object.values(commissionedCorpsOfKind<UpgradingCorp>("upgrade"))) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
     for (const corp of Object.values(commissionedCorpsOfKind<ScoutCorp>("scout"))) {

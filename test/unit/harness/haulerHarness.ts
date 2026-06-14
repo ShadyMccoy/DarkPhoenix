@@ -27,6 +27,7 @@ import { SpawningCorp } from "../../../src/corps/SpawningCorp";
 import { MinerAssignment, HaulerAssignment } from "../../../src/flow/FlowTypes";
 import { createCorpRegistry } from "../../../src/execution/CorpRunner";
 import { collectDemands } from "../../../src/execution/SpawnDirector";
+import { seedCommissionStoreForTest, resetCommissionHost } from "../../../src/execution/CommissionHost";
 import { scheduleSpawn } from "../../../src/spawn/SpawnScheduler";
 
 const SPAWN_ID = "spawn1";
@@ -111,16 +112,19 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
   };
   game.getObjectById = (id: string) => (id === SPAWN_ID ? fakeSpawn : null);
 
+  resetCommissionHost();
   try {
     const registry = createCorpRegistry();
 
     // Source's miner: already in the field (so the source is "started"), and the
-    // HarvestCorp is satisfied (target met) so it emits no miner demand.
+    // HarvestCorp is satisfied (target met) so it emits no miner demand. Harvest
+    // and carry live in the commission store (collectDemands reads them there),
+    // keyed by their production corpId.
     const harvest = new HarvestCorp(`${ROOM}-harvest-${SOURCE}`, SPAWN_ID, SOURCE, 5, `mining-${SOURCE}`);
     harvest.setMinerAssignment({
       sourceId: SOURCE, spawnId: `spawn-${SPAWN_ID}`, harvestRate: 10, maxMiners: 1, efficiency: 80
     } as MinerAssignment);
-    registry.harvestCorps[SOURCE] = harvest;
+    seedCommissionStoreForTest(`harvest-${SOURCE}`, "harvest", harvest);
     game.creeps["miner-0"] = {
       name: "miner-0", spawning: false,
       memory: { corpId: `mining-${SOURCE}`, workType: "harvest" },
@@ -133,7 +137,7 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
     carry.setHaulerAssignments([
       { fromId: SOURCE, toId: "controller-x", carryParts, spawnId: `spawn-${SPAWN_ID}`, haulerRatio } as HaulerAssignment
     ]);
-    registry.haulingCorps[SOURCE] = carry;
+    seedCommissionStoreForTest(`carry-${SOURCE}`, "carry", carry);
 
     const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID, energyCapacity);
 
@@ -175,6 +179,7 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
     game.creeps = savedCreeps;
     game.getObjectById = savedGetObjectById;
     console.log = savedLog;
+    resetCommissionHost();
   }
 }
 

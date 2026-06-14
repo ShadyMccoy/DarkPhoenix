@@ -34,12 +34,17 @@
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
 import { ScoutCorp } from "./corps/ScoutCorp";
+import { HarvestCorp } from "./corps/HarvestCorp";
+import { CarryCorp } from "./corps/CarryCorp";
+import { UpgradingCorp } from "./corps/UpgradingCorp";
 import {
   CorpRegistry,
   cleanupDeadCreeps,
+  commissionedCorpsOfKind,
   createCorpRegistry,
   getAnalysisCache,
   isAnalysisInProgress,
+  isSpawnPlacementInProgress,
   logCorpStats,
   persistState,
   refreshNodeResourcesFromCache,
@@ -48,18 +53,15 @@ import {
   resetAnalysis,
   restoreVisualizationCache,
   runBootstrapCorps,
+  runCommissionHost,
   runConstructionCorps,
   runIncrementalAnalysis,
   runLinks,
-  commissionedCorpsOfKind,
-  runCommissionHost,
-  runRealCorps,
+  runSpawnPlacementStep,
   runSpawnScheduling,
   runSpawningCorps,
-  isSpawnPlacementInProgress,
-  startSpawnPlacement,
-  runSpawnPlacementStep,
-  snapshotCorpVariance
+  snapshotCorpVariance,
+  startSpawnPlacement
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
 import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
@@ -181,15 +183,14 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Run spawning corps first (they process pending spawn orders)
   runSpawningCorps(corps);
 
-  // Run other corps (bootstrap, mining, hauling, upgrading, construction)
+  // Run other corps (bootstrap, construction). Mining/hauling/upgrading now run
+  // through the commission host below.
   runBootstrapCorps(corps);
-  runRealCorps(corps);
   runConstructionCorps(corps);
 
-  // Run all FRAMEWORK-commissioned corps (auxiliaries: scout, reservation,
-  // tender). The solver's commissions (harvest/carry/upgrade) are passed in so
-  // the host can drive them once those kinds register; until then they are
-  // skipped (unregistered) and the legacy runRealCorps path above handles them.
+  // Run all FRAMEWORK-commissioned corps: the solver-backed economy
+  // (harvest/carry/upgrade, from the planner's commissions) plus the
+  // auxiliaries (scout, reservation, tender).
   runCommissionHost(corps, flowEconomy?.getCommissions() ?? [], Game.time);
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
@@ -267,7 +268,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   const economyNeedsBootstrap =
     colony.getNodes().length > 0 &&
-    Object.keys(corps.harvestCorps).length === 0 &&
+    Object.keys(commissionedCorpsOfKind("harvest")).length === 0 &&
     !isAnalysisInProgress() &&
     Game.time % 10 === 0;
 
@@ -623,9 +624,9 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
   telemetry.update(
     activeColony,
     activeCorps.bootstrapCorps,
-    activeCorps.harvestCorps,
-    activeCorps.haulingCorps,
-    activeCorps.upgradingCorps,
+    commissionedCorpsOfKind<HarvestCorp>("harvest"),
+    commissionedCorpsOfKind<CarryCorp>("carry"),
+    commissionedCorpsOfKind<UpgradingCorp>("upgrade"),
     commissionedCorpsOfKind<ScoutCorp>("scout"),
     activeCorps.constructionCorps,
     activeCorps.spawningCorps,
@@ -768,9 +769,9 @@ global.status = () => {
   console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
 
   console.log("\n=== Corps ===");
-  console.log(`Mining: ${Object.keys(corps.harvestCorps).length}`);
-  console.log(`Hauling: ${Object.keys(corps.haulingCorps).length}`);
-  console.log(`Upgrading: ${Object.keys(corps.upgradingCorps).length}`);
+  console.log(`Mining: ${Object.keys(commissionedCorpsOfKind("harvest")).length}`);
+  console.log(`Hauling: ${Object.keys(commissionedCorpsOfKind("carry")).length}`);
+  console.log(`Upgrading: ${Object.keys(commissionedCorpsOfKind("upgrade")).length}`);
   console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
   console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
   console.log(`Scout: ${Object.keys(commissionedCorpsOfKind("scout")).length}`);
@@ -1033,15 +1034,15 @@ global.forgiveDebt = (amount = 1000) => {
     corpsReset++;
   };
 
-  // Reset all corp types
-  for (const id in corps.harvestCorps) {
-    resetCorp(corps.harvestCorps[id]);
+  // Reset all corp types (harvest/carry/upgrade live in the commission store)
+  for (const id in commissionedCorpsOfKind("harvest")) {
+    resetCorp(commissionedCorpsOfKind("harvest")[id]);
   }
-  for (const id in corps.haulingCorps) {
-    resetCorp(corps.haulingCorps[id]);
+  for (const id in commissionedCorpsOfKind("carry")) {
+    resetCorp(commissionedCorpsOfKind("carry")[id]);
   }
-  for (const id in corps.upgradingCorps) {
-    resetCorp(corps.upgradingCorps[id]);
+  for (const id in commissionedCorpsOfKind("upgrade")) {
+    resetCorp(commissionedCorpsOfKind("upgrade")[id]);
   }
   for (const id in corps.constructionCorps) {
     resetCorp(corps.constructionCorps[id]);
@@ -1188,9 +1189,9 @@ global.marketStatus = () => {
     console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps, ${totalBalance.toFixed(0)} balance`);
   };
 
-  showCorpStats("Mining", corps.harvestCorps);
-  showCorpStats("Hauling", corps.haulingCorps);
-  showCorpStats("Upgrading", corps.upgradingCorps);
+  showCorpStats("Mining", commissionedCorpsOfKind("harvest"));
+  showCorpStats("Hauling", commissionedCorpsOfKind("carry"));
+  showCorpStats("Upgrading", commissionedCorpsOfKind("upgrade"));
   showCorpStats("Spawning", corps.spawningCorps);
   showCorpStats("Construction", corps.constructionCorps);
   showCorpStats("Scout", commissionedCorpsOfKind("scout"));

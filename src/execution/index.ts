@@ -14,7 +14,6 @@ export {
   CorpRegistry,
   createCorpRegistry,
   runBootstrapCorps,
-  runRealCorps,
   runConstructionCorps,
   runSpawningCorps,
   logCorpStats,
