@@ -144,7 +144,27 @@ dispatch, commissionPlan, conformance suite, extensibility proof via the toy
 "beacon" kind, golden master over 3 worlds / 12 commissions). The integration
 gate itself was the first "poor code" fix: root-level mocha hooks
 cross-corrupted suites, making the gate invocation-dependent - now scoped and
-green across all 14 tests. SCOUT is ported end to end: rungs 1-4 in
+green across all 14 tests.
+
+**RUNG-5 CUTOVER COMPLETE.** All six corp kinds run through CommissionHost off
+the live loop: the auxiliaries (scout, reservation, tender - self-proposing)
+and the solver-backed economy (harvest, carry, upgrade - commissioned from
+FlowEconomy.getCommissions()). The cutover landed in staged, individually-
+verified commits: (A) host union-sources solver + auxiliary commissions; (B)
+the solver-backed kinds replicate the runRealCorps plan() cadence; (C1) the
+behavioral flip - register the kinds, stop the legacy create/run paths
+(FlowMaterializer/runRealCorps/Phases survey), and migrate every reader
+(SpawnDirector's spawn-demand critical path, telemetry, variance, stats) to
+commissionedCorpsOfKind(); (C2) delete the dead registry fields, Persistence
+writes, and FlowMaterializer functions. Two flip regressions were caught by
+flow-handoff and fixed: harvest must strip the flow "source-" prefix so
+HarvestCorp.work() resolves the real source, and the miner/hauler grouping must
+key off the real game source id so withMinerPrecedence couples them. Gate: 486
+unit tests + 14/14 integration (incl. the formerly-flaky asymmetricTwoSource /
+twoSourceRcl3). FlowMaterializer now owns only construction - the last legacy
+per-type creation path, and the next port.
+
+History: SCOUT was ported end to end: rungs 1-4 in
 test/unit/framework/scoutKind.test.ts, rung 5 via execution/CommissionHost
 (the thin runtime host - registers kinds, proposes over the live world,
 materializes/runs/persists the store under Memory.commissionedCorps), with
