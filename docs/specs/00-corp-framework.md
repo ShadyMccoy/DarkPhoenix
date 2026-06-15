@@ -161,8 +161,28 @@ flow-handoff and fixed: harvest must strip the flow "source-" prefix so
 HarvestCorp.work() resolves the real source, and the miner/hauler grouping must
 key off the real game source id so withMinerPrecedence couples them. Gate: 486
 unit tests + 14/14 integration (incl. the formerly-flaky asymmetricTwoSource /
-twoSourceRcl3). FlowMaterializer now owns only construction - the last legacy
-per-type creation path, and the next port.
+twoSourceRcl3).
+
+**CONSTRUCTION PORTED; FLOWMATERIALIZER RETIRED.** ConstructionCorp is a HYBRID
+kind (corps/kinds/constructionKind.ts): it proposes one commission per owned
+room - so the corp always exists for container maintenance, as the legacy
+per-room runConstructionCorps did - but reads the solver's "build" commissions
+from the propose() DRAFT to carry that room's construction-energy allocations
+(which size its builders). With it ported, FlowMaterializer had nothing left to
+create and was DELETED outright (the file, its test, the flow/index export, and
+the three main.ts materializeCorps calls). CorpRegistry now holds only bootstrap
++ spawning; everything else lives in the commission store. THE FRAMEWORK
+MIGRATION IS COMPLETE - all corp kinds run through CommissionHost, and the
+abstract-world planner -> commission -> materialize -> run pipeline is the one
+and only path. Gate: 493 unit tests + 14/14 integration green (incl.
+storage-depot, which exercises construction).
+
+Remaining polish (not migration): SpawningCorp and BootstrapCorp still live in
+the registry - SpawningCorp is infrastructure (it processes the spawn queue, not
+really a commission) and BootstrapCorp is the cold-start fallback; both may stay
+special, though SpawningCorp's body-switch could still dissolve into
+CorpKind.body. The build-commission emission in commissionsFromPlan is now only
+consumed by construction's propose(); it could be simplified later.
 
 History: SCOUT was ported end to end: rungs 1-4 in
 test/unit/framework/scoutKind.test.ts, rung 5 via execution/CommissionHost
