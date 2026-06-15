@@ -37,6 +37,7 @@ import { ScoutCorp } from "./corps/ScoutCorp";
 import { HarvestCorp } from "./corps/HarvestCorp";
 import { CarryCorp } from "./corps/CarryCorp";
 import { UpgradingCorp } from "./corps/UpgradingCorp";
+import { ConstructionCorp } from "./corps/ConstructionCorp";
 import {
   CorpRegistry,
   cleanupDeadCreeps,
@@ -54,7 +55,6 @@ import {
   restoreVisualizationCache,
   runBootstrapCorps,
   runCommissionHost,
-  runConstructionCorps,
   runIncrementalAnalysis,
   runLinks,
   runSpawnPlacementStep,
@@ -64,7 +64,7 @@ import {
   startSpawnPlacement
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager, materializeCorps } from "./flow";
+import { FlowEconomy, PriorityContext, PriorityManager } from "./flow";
 import {
   PLANNING_INTERVAL,
   initCorps,
@@ -183,10 +183,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Run spawning corps first (they process pending spawn orders)
   runSpawningCorps(corps);
 
-  // Run other corps (bootstrap, construction). Mining/hauling/upgrading now run
-  // through the commission host below.
+  // Run bootstrap corps. Everything else (mining, hauling, upgrading,
+  // construction, scout, reservation, tender) runs through the commission host.
   runBootstrapCorps(corps);
-  runConstructionCorps(corps);
 
   // Run all FRAMEWORK-commissioned corps: the solver-backed economy
   // (harvest/carry/upgrade, from the planner's commissions) plus the
@@ -328,12 +327,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
           console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
         }
 
-        // Materialize flow solution into corps
-        // This replaces corps querying FlowEconomy - corps ARE the flow now
-        const graph = flowEconomy.getFlowGraph();
-        const result = materializeCorps(solution, graph, corps, Game.time);
+        // Corps are materialized from the solve's commissions by CommissionHost
+        // (every tick), so no separate materialize step is needed here.
         console.log(
-          `[FlowEconomy] Materialized: ${result.harvestCorpsUpdated} harvest, ${result.carryCorpsUpdated} carry, ${result.upgradingCorpsUpdated} upgrading corps`
+          `[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers, ${
+            flowEconomy.getCommissions().length
+          } commissions`
         );
       }
     }
@@ -533,11 +532,10 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
       const context = buildPriorityContext(corps);
       economy.update(context, true);
 
-      // Materialize solution to corps
+      // Corps come from the solve's commissions via CommissionHost; no separate
+      // materialize step.
       const solution = economy.getSolution();
       if (solution) {
-        const graph = economy.getFlowGraph();
-        materializeCorps(solution, graph, corps, Game.time);
         console.log(
           `[FlowEconomy] Initial solve: ${solution.miners.length} miners, ${solution.haulers.length} haulers`
         );
@@ -628,7 +626,7 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
     commissionedCorpsOfKind<CarryCorp>("carry"),
     commissionedCorpsOfKind<UpgradingCorp>("upgrade"),
     commissionedCorpsOfKind<ScoutCorp>("scout"),
-    activeCorps.constructionCorps,
+    commissionedCorpsOfKind<ConstructionCorp>("construction"),
     activeCorps.spawningCorps,
     flowEconomy?.getSolution() ?? undefined
   );
@@ -734,12 +732,8 @@ global.plan = () => {
         console.log(`Warnings: ${solution.warnings.join(", ")}`);
       }
 
-      // Materialize flow solution into corps
-      const graph = flowEconomy.getFlowGraph();
-      const matResult = materializeCorps(solution, graph, corps, Game.time);
-      console.log(
-        `\nMaterialized: ${matResult.harvestCorpsUpdated} harvest, ${matResult.carryCorpsUpdated} carry, ${matResult.upgradingCorpsUpdated} upgrading corps`
-      );
+      // Corps are materialized from the commissions by CommissionHost.
+      console.log(`\nCommissions: ${flowEconomy.getCommissions().length}`);
     } else {
       console.log(`[FlowEconomy] No solution computed`);
     }
@@ -775,7 +769,7 @@ global.status = () => {
   console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
   console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
   console.log(`Scout: ${Object.keys(commissionedCorpsOfKind("scout")).length}`);
-  console.log(`Construction: ${Object.keys(corps.constructionCorps).length}`);
+  console.log(`Construction: ${Object.keys(commissionedCorpsOfKind("construction")).length}`);
 
   if (colony) {
     console.log("\n=== Colony ===");
@@ -1044,8 +1038,8 @@ global.forgiveDebt = (amount = 1000) => {
   for (const id in commissionedCorpsOfKind("upgrade")) {
     resetCorp(commissionedCorpsOfKind("upgrade")[id]);
   }
-  for (const id in corps.constructionCorps) {
-    resetCorp(corps.constructionCorps[id]);
+  for (const id in commissionedCorpsOfKind("construction")) {
+    resetCorp(commissionedCorpsOfKind("construction")[id]);
   }
   for (const id in corps.spawningCorps) {
     resetCorp(corps.spawningCorps[id]);
@@ -1193,7 +1187,7 @@ global.marketStatus = () => {
   showCorpStats("Hauling", commissionedCorpsOfKind("carry"));
   showCorpStats("Upgrading", commissionedCorpsOfKind("upgrade"));
   showCorpStats("Spawning", corps.spawningCorps);
-  showCorpStats("Construction", corps.constructionCorps);
+  showCorpStats("Construction", commissionedCorpsOfKind("construction"));
   showCorpStats("Scout", commissionedCorpsOfKind("scout"));
   showCorpStats("Bootstrap", corps.bootstrapCorps);
 

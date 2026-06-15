@@ -111,5 +111,3 @@ export {
 // =============================================================================
 // FLOW MATERIALIZER (Flow Solution → Corps)
 // =============================================================================
-
-export { MaterializationResult, materializeCorps } from "./FlowMaterializer";

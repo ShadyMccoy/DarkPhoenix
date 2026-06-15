@@ -5,6 +5,7 @@ import { ScoutCorp } from "../corps/ScoutCorp";
 import { HarvestCorp } from "../corps/HarvestCorp";
 import { CarryCorp } from "../corps/CarryCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { ConstructionCorp } from "../corps/ConstructionCorp";
 import { Node } from "../nodes/Node";
 
 /**
@@ -179,7 +180,7 @@ export class Colony {
       Object.keys(commissionedCorpsOfKind("carry")).length +
       Object.keys(commissionedCorpsOfKind("upgrade")).length +
       Object.keys(commissionedCorpsOfKind("scout")).length +
-      Object.keys(corpRegistry.constructionCorps).length +
+      Object.keys(commissionedCorpsOfKind("construction")).length +
       Object.keys(corpRegistry.spawningCorps).length;
 
     // Count active corps (those with creeps)
@@ -199,7 +200,7 @@ export class Colony {
     for (const corp of Object.values(commissionedCorpsOfKind<ScoutCorp>("scout"))) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.constructionCorps)) {
+    for (const corp of Object.values(commissionedCorpsOfKind<ConstructionCorp>("construction"))) {
       if (corp.getCreepCount() > 0) activeCorps++;
     }
     // Spawning corps are active if they exist

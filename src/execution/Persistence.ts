@@ -161,14 +161,9 @@ export function persistState(
     Memory.bootstrapCorps[roomName] = registry.bootstrapCorps[roomName].serialize();
   }
 
-  // Mining/hauling/upgrading corps persist in Memory.commissionedCorps via
-  // CommissionHost; only the registry corps are persisted here.
-
-  // Persist construction corps
-  Memory.constructionCorps = {};
-  for (const roomName in registry.constructionCorps) {
-    Memory.constructionCorps[roomName] = registry.constructionCorps[roomName].serialize();
-  }
+  // Mining/hauling/upgrading/construction corps persist in
+  // Memory.commissionedCorps via CommissionHost; only the registry corps
+  // (bootstrap, spawning) are persisted here.
 
   // Persist spawning corps
   Memory.spawningCorps = {};

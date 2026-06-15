@@ -23,6 +23,7 @@ import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
 import { HarvestCorp } from "../corps/HarvestCorp";
 import { CarryCorp } from "../corps/CarryCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { ConstructionCorp } from "../corps/ConstructionCorp";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -152,8 +153,9 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
     const c = upgradeCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.constructionCorps) {
-    const c = registry.constructionCorps[id];
+  const constructionCorps = commissionedCorpsOfKind<ConstructionCorp>("construction");
+  for (const id in constructionCorps) {
+    const c = constructionCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
   // Extension tenders live in the commission store (framework-ported); their

@@ -36,6 +36,7 @@ import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
+import { constructionKind } from "../corps/kinds/constructionKind";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -47,10 +48,11 @@ const KINDS: CorpKind[] = [
   harvestKind as never,
   carryKind as never,
   upgradeKind as never,
-  // Auxiliary (self-proposing):
+  // Self-proposing (auxiliary, or hybrid like construction which reads the draft):
   scoutKind as never,
   reservationKind as never,
-  extensionTenderKind as never
+  extensionTenderKind as never,
+  constructionKind as never
 ];
 
 function registerKinds(): void {

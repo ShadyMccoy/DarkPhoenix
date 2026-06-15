@@ -19,7 +19,6 @@ import {
   SpawningCorp,
   UpgradingCorp,
   createBootstrapCorp,
-  createConstructionCorp,
   createSpawningCorp
 } from "../corps";
 import { commissionedCorpsOfKind } from "./CommissionHost";
@@ -29,10 +28,9 @@ import { commissionedCorpsOfKind } from "./CommissionHost";
  */
 export interface CorpRegistry {
   bootstrapCorps: { [roomName: string]: BootstrapCorp };
-  constructionCorps: { [roomName: string]: ConstructionCorp };
   spawningCorps: { [spawnId: string]: SpawningCorp };
-  // harvest/carry/upgrade corps live in the commission store (CommissionHost),
-  // reached via commissionedCorpsOfKind(), not the registry.
+  // harvest/carry/upgrade/construction corps live in the commission store
+  // (CommissionHost), reached via commissionedCorpsOfKind(), not the registry.
 }
 
 /**
@@ -41,7 +39,6 @@ export interface CorpRegistry {
 export function createCorpRegistry(): CorpRegistry {
   return {
     bootstrapCorps: {},
-    constructionCorps: {},
     spawningCorps: {}
   };
 }
@@ -93,51 +90,6 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
     if (bootstrapCorp) {
       bootstrapCorp.work(Game.time);
     }
-  }
-}
-
-/**
- * Run construction corps for all owned rooms.
- *
- * Construction corps build extensions when there's profit available.
- * They place extensions along walls to stay out of the way.
- */
-export function runConstructionCorps(registry: CorpRegistry): void {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-
-    // Only process owned rooms with spawns
-    if (!room.controller?.my) continue;
-    const spawns = room.find(FIND_MY_SPAWNS);
-    if (spawns.length === 0) continue;
-
-    const spawn = spawns[0];
-
-    // Get or create construction corp for this room
-    let constructionCorp = registry.constructionCorps[roomName];
-
-    if (!constructionCorp) {
-      // Try to restore from memory
-      const saved = Memory.constructionCorps?.[roomName];
-      if (saved) {
-        // Pass saved.id as customId to preserve the original ID
-        constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId, saved.id);
-        constructionCorp.deserialize(saved);
-        registry.constructionCorps[roomName] = constructionCorp;
-      } else {
-        // Create new
-        constructionCorp = createConstructionCorp(room, spawn);
-        constructionCorp.createdAt = Game.time;
-        registry.constructionCorps[roomName] = constructionCorp;
-        console.log(`[Construction] Created corp for ${roomName}`);
-      }
-    }
-
-    // Run periodic planning if needed
-    if (constructionCorp.shouldPlan(Game.time)) {
-      constructionCorp.plan(Game.time);
-    }
-    constructionCorp.work(Game.time);
   }
 }
 
@@ -206,7 +158,7 @@ function allCorps(registry: CorpRegistry): Corp[] {
     commissionedCorpsOfKind("harvest"),
     commissionedCorpsOfKind("carry"),
     commissionedCorpsOfKind("upgrade"),
-    registry.constructionCorps,
+    commissionedCorpsOfKind("construction"),
     registry.bootstrapCorps,
     registry.spawningCorps
   ];
@@ -273,8 +225,8 @@ export function logCorpStats(registry: CorpRegistry): void {
   }
 
   let totalBuilders = 0;
-  for (const roomName in registry.constructionCorps) {
-    totalBuilders += registry.constructionCorps[roomName].getCreepCount();
+  for (const corp of Object.values(commissionedCorpsOfKind<ConstructionCorp>("construction"))) {
+    totalBuilders += corp.getCreepCount();
   }
 
   console.log(

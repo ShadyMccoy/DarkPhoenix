@@ -16,7 +16,7 @@
  * @module orchestration/Phases
  */
 
-import { BootstrapCorp, ConstructionCorp, SpawningCorp, createSpawningCorp } from "../corps";
+import { BootstrapCorp, SpawningCorp, createSpawningCorp } from "../corps";
 import { Colony } from "../colony/Colony";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { commissionedCorpsOfKind } from "../execution/CommissionHost";
@@ -112,18 +112,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
     }
   }
 
-  // Hydrate construction corps
-  if (Memory.constructionCorps) {
-    for (const roomName in Memory.constructionCorps) {
-      const saved = Memory.constructionCorps[roomName];
-      if (saved && !corps.constructionCorps[roomName]) {
-        const constructionCorp = new ConstructionCorp(saved.nodeId, saved.spawnId);
-        constructionCorp.deserialize(saved);
-        corps.constructionCorps[roomName] = constructionCorp;
-        result.corpsHydrated.construction++;
-      }
-    }
-  }
+  // Construction corps live in the commission store (CommissionHost hydrates them).
 
   const totalHydrated =
     result.corpsHydrated.harvest +
@@ -168,9 +157,6 @@ export function runPlanningPhase(corps: CorpRegistry, colony: Colony, tick: numb
   // Run planning on registry corps. Harvest/carry/upgrade plan on their own
   // cadence inside CommissionHost (their kind run() calls plan()), so they are
   // not planned here.
-  for (const roomName in corps.constructionCorps) {
-    corps.constructionCorps[roomName].plan(tick);
-  }
 
   console.log(`[Planning] Planning phase complete`);
 
@@ -214,7 +200,7 @@ function countCorps(corps: CorpRegistry): number {
   count += Object.keys(commissionedCorpsOfKind("upgrade")).length;
   count += Object.keys(corps.spawningCorps).length;
   count += Object.keys(corps.bootstrapCorps).length;
-  count += Object.keys(corps.constructionCorps).length;
+  count += Object.keys(commissionedCorpsOfKind("construction")).length;
   return count;
 }
 

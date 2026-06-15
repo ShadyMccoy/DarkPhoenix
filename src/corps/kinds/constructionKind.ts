@@ -1,0 +1,130 @@
+/**
+ * @fileoverview constructionKind - ConstructionCorp as a registered CorpKind:
+ * the last legacy creation path leaves FlowMaterializer (docs/specs/00-corp-
+ * framework.md). Construction is a HYBRID:
+ *
+ * - It must exist per OWNED ROOM regardless of construction work, because it
+ *   also maintains decaying containers (the legacy runConstructionCorps created
+ *   one for every owned room). So propose() emits one commission per spawn room,
+ *   like an auxiliary.
+ * - It self-drives its building from live construction sites, BUT sizes its
+ *   builders from the flow's construction-energy allocation (getTotalAllocatedEnergy).
+ *   So the commission must carry that allocation. propose() reads it from the
+ *   solver's "build" commissions already in the DRAFT (the first kind to use the
+ *   draft for preconditions), grouped by room.
+ *
+ * The raw "build" commissions themselves stay unregistered and are skipped by
+ * materializeCommissions; this kind subsumes them into per-room corps.
+ *
+ * @module corps/kinds/constructionKind
+ */
+
+import { Commission, corpIdFor } from "../../economy/Commission";
+import { CorpKind } from "../../economy/CorpKind";
+import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
+import { ConsumeAssignment } from "../../economy/commissionPlan";
+import { SinkAllocation } from "../../flow/FlowTypes";
+import { buildUpgraderBody } from "../../spawn/BodyBuilder";
+import { SerializedCorp } from "../Corp";
+import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
+
+/** The construction commission's binding: the room, its spawn, and the flow's
+ * construction-energy allocations for that room (for builder sizing). */
+export interface ConstructionAssignment {
+  roomName: string;
+  spawnId: string;
+  allocations: SinkAllocation[];
+}
+
+/** Reconstruct a construction SinkAllocation from a build commission's sink. */
+function constructionAllocation(k: CommissionedSink): SinkAllocation {
+  return {
+    sinkId: k.sinkId,
+    sinkType: "construction",
+    allocated: k.allocated,
+    demand: k.demand,
+    unmet: Math.max(0, k.demand - k.allocated),
+    priority: k.value,
+    sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
+  };
+}
+
+export const constructionKind: CorpKind<ConstructionCorp> = {
+  kind: "construction",
+  runOrder: 30, // consume tier, alongside upgrade
+
+  /**
+   * One commission per owned room with a spawn (so the corp always exists for
+   * container maintenance), carrying that room's construction allocations read
+   * from the solver's "build" commissions in the draft.
+   */
+  propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
+    // Group the draft's build allocations by the sink's room.
+    const allocByRoom = new Map<string, SinkAllocation[]>();
+    for (const c of draft) {
+      if (c.kind !== "build") continue;
+      const roomName = c.produces.at?.roomName;
+      if (!roomName) continue;
+      const { sink } = c.assignment as ConsumeAssignment;
+      const list = allocByRoom.get(roomName) ?? [];
+      list.push(constructionAllocation(sink));
+      allocByRoom.set(roomName, list);
+    }
+
+    const homeSpawnByRoom = new Map<string, string>();
+    for (const s of problem.spawns) {
+      if (!homeSpawnByRoom.has(s.pos.roomName)) homeSpawnByRoom.set(s.pos.roomName, s.id);
+    }
+    return [...homeSpawnByRoom].map(([roomName, spawnId]) => {
+      const allocations = allocByRoom.get(roomName) ?? [];
+      return {
+        corpId: corpIdFor("construction", roomName),
+        kind: "construction",
+        shape: "consume",
+        consumes: {
+          energyRate: allocations.reduce((s, a) => s + a.allocated, 0),
+          spawnPartsPerTick: 0
+        },
+        produces: { valuePerTick: 0 },
+        assignment: { roomName, spawnId, allocations } as ConstructionAssignment
+      };
+    });
+  },
+
+  materialize(c: Commission, existing: ConstructionCorp | undefined): ConstructionCorp {
+    const a = c.assignment as ConstructionAssignment;
+    if (existing) {
+      existing.setConstructionAllocations(a.allocations);
+      return existing;
+    }
+    // liveProblem (the host's auxiliary world) carries REAL game spawn ids, so no
+    // "spawn-" stripping is needed here. Legacy nodeId preserves the runtime id
+    // (`building-${room}-construction`) so live builders' memory.corpId resolves.
+    const corp = new ConstructionCorp(`${a.roomName}-construction`, a.spawnId);
+    corp.setConstructionAllocations(a.allocations);
+    return corp;
+  },
+
+  run(corp: ConstructionCorp, tick: number): void {
+    // Replicate the legacy runConstructionCorps cadence: plan periodically, work
+    // every tick.
+    if (corp.shouldPlan(tick)) corp.plan(tick);
+    corp.work(tick);
+  },
+
+  serializeCorp(corp: ConstructionCorp): SerializedConstructionCorp {
+    return corp.serialize();
+  },
+
+  deserializeCorp(data: SerializedCorp): ConstructionCorp {
+    const d = data as SerializedConstructionCorp;
+    const corp = new ConstructionCorp(d.nodeId, d.spawnId, d.id);
+    corp.deserialize(d);
+    return corp;
+  },
+
+  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+    // Builders are WORK creeps; bodyParam caps the WORK parts.
+    return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
+  }
+};
