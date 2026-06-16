@@ -66,7 +66,14 @@ async function main(): Promise<void> {
     if (t % sample === 0) {
       const o = await server.world.roomObjects("W0N0");
       const c = o.find((x: any) => x.type === "controller");
-      console.log(`  t=${String(t).padStart(4)} cp=${controlPoints(c?.level ?? 0, c?.progress ?? 0)}`);
+      let m: any = {};
+      try { m = JSON.parse((await player.memory) || "{}"); } catch { /* ignore */ }
+      const bt: Record<string, number> = {};
+      for (const n in m.creeps || {}) { const w = m.creeps[n].workType || "bootstrap"; bt[w] = (bt[w] || 0) + 1; }
+      const v = (m.corpVariance || []).map((r: any) => `${r.type} ${r.actual}/${r.budget}`).join(", ");
+      console.log(
+        `  t=${String(t).padStart(4)} cp=${controlPoints(c?.level ?? 0, c?.progress ?? 0)} creeps=${JSON.stringify(bt)} var=[${v}]`
+      );
     }
   }
 

@@ -60,6 +60,36 @@ control-point throughput at RCL2–3?**
    consuming the surplus that should become control points (check
    `Memory.economyPlan` allocations vs realized variance).
 
+## Post-cutover measurement (2026-06-16, framework migration complete)
+
+Re-ran `sim:ab` (3000 ticks) on the framework-complete branch, with a per-200-
+tick creep+variance trace (ab-cold-start now prints these):
+
+| t | cp | creeps | upgrade variance |
+|---|----|--------|------------------|
+| 200-1000 | 200 | building miners+haulers, no upgraders | mining 0-6, upgrading 0 |
+| 1000 | 200 | +6 upgraders appear | **upgrading 0/17.67** |
+| 1200-1800 | 200 | 6 upgraders, miners 6-12, haulers 6-12 | **upgrading 0/10 (idle!)** |
+| 2000 | 466 | same fleet | upgrading 2.35/16.56 (starts) |
+| 3000 | **9072** | 4 harvest / 8 haul / 6 upgrade | mining 12/10, healthy |
+
+Two headline results: (1) **the branch now beats master** - cp@3000 9072 vs
+master's 7743 and the early-branch 6880; the cutover is a net economic win, and
+the zombie-miner signature is GONE (both miners 12/10). (2) **The cold-start
+zero-progress window is fully explained and is the remaining prize.** Diagnosis:
+from t=0 the colony builds its income fleet; the spawn sink (value 100) consumes
+ALL hauled energy while the fleet is built/upsized, so the controller (lower
+value) gets nothing. Yet ~6 upgraders are fielded by t=1000 because
+UpgradingCorp sizes targetCount from the OPTIMISTIC flow allocation (the full
+steady-state surplus, ~12-18 e/tick -> 6 small upgraders), not realized
+delivery. Those 6 upgraders sit at `upgrading 0/10` for ~800-1000 ticks until
+the fleet stops upsizing, the spawn finally fills, and surplus reaches the
+controller (~t=2000). Each idle upgrader also burned a spawn cycle that could
+have completed the income fleet sooner. Theory to test: bound the upgrader fleet
+GROWTH by realized controller delivery (ramp from 1, add more only once the
+existing upgraders are actually fed) so the colony fills the spawn / completes
+income first and surplus reaches the controller earlier.
+
 ## Acceptance tests
 
 ### A. Throughput pin — `test/integration/cold-start-throughput.test.ts`
