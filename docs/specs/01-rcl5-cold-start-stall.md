@@ -90,6 +90,32 @@ GROWTH by realized controller delivery (ramp from 1, add more only once the
 existing upgraders are actually fed) so the colony fills the spawn / completes
 income first and surplus reaches the controller earlier.
 
+### Experiment (2026-06-16): ramp upgraders by realized delivery — REFUTED
+
+Tested the theory two ways via `sim:ab` (3000 ticks), both reverted:
+
+1. **Gate growth on spawn-network near-full** (a surplus proxy): start was
+   ~600 ticks faster (cp 2178@t2000 vs 466) but cp@3000 collapsed to **4118**
+   (vs 9072 baseline) - the spawn is essentially never 90% full during active
+   spawning, so upgraders stayed pinned at 1-2 and the controller chronically
+   under-consumed.
+2. **Gate growth on "an upgrader upgraded within 60 ticks"** (realized
+   delivery): even worse, cp@3000 **1295**. Held at one small (~2-WORK)
+   upgrader almost the whole run; the controller could not absorb the supply,
+   so energy piled up and the colony fielded 10-11 haulers instead, whose spawn
+   cycles then crowded out upgrader growth.
+
+**Conclusion - the premature-upgrader hypothesis is WRONG.** The "idle" 6
+upgraders are not waste; they are READY CAPACITY that consumes controller energy
+the instant it arrives. Throttling the upgrader count starves the controller far
+more than the idle spawn cycles ever cost - the baseline (size to the optimistic
+allocation) is strictly better (9072). The cold-start zero-progress window is
+dominated by INCOME-FLEET BUILD-OUT (miners+haulers being built and runt-upsized
+while the spawn consumes all hauled energy), not by consumer over-fielding.
+Future effort should target the income fleet's time-to-complete (e.g. fewer
+runt-recycle upsizing cycles, or larger first bodies) rather than consumer
+gating - but note master is already beaten, so this is optimization, not a bug.
+
 ## Acceptance tests
 
 ### A. Throughput pin — `test/integration/cold-start-throughput.test.ts`
