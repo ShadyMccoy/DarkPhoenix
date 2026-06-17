@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   require("fs").mkdirSync(path.join(serverPath, "logs"), { recursive: true });
   const server = new ScreepsServer({ port, path: serverPath, logdir: path.join(serverPath, "logs") });
   await server.world.reset();
-  await loadScenario(server, snapshot, readFileSync("dist/main.js").toString());
+  const { bot } = await loadScenario(server, snapshot, readFileSync("dist/main.js").toString());
   await server.start();
   for (let t = 0; t < settle; t += 1) await server.tick();
 
@@ -54,6 +54,33 @@ async function main(): Promise<void> {
   const conts = objs.filter((o: any) => o.type === "container" || o.type === "link");
   console.log(`\ncontainers/links near controller:`);
   for (const k of conts) if (cheb(k.x, k.y) <= 4) console.log(`  ${k.type} (${k.x},${k.y}) d=${cheb(k.x, k.y)} e=${k.store?.energy ?? 0}`);
+
+  // Hauler routing + spawn fill: distinguishes "no hauler routes to controller"
+  // from "routes there but can't deposit".
+  let mem: any = {};
+  try { mem = JSON.parse((await bot.memory) || "{}"); } catch { /* ignore */ }
+  const memByName: Record<string, any> = mem.creeps || {};
+  const sinks: Record<string, number> = {};
+  for (const c of objs.filter((o: any) => o.type === "creep")) {
+    const m = memByName[c.name];
+    if (m?.workType !== "haul") continue;
+    const key = `home=${m.homeSink ?? "?"}/deliver=${m.deliverSinkId ?? "?"}`;
+    sinks[key] = (sinks[key] ?? 0) + 1;
+  }
+  console.log(`\nhauler sinks: ${JSON.stringify(sinks)}`);
+  console.log("haulers:");
+  for (const c of objs.filter((o: any) => o.type === "creep")) {
+    const m = memByName[c.name];
+    if (m?.workType !== "haul") continue;
+    console.log(`  (${c.x},${c.y}) e=${c.store?.energy ?? 0} working=${m.working} home=${m.homeSink} deliver=${m.deliverSinkId} src=${m.assignedSourceId?.slice(-4)}`);
+  }
+  const spawnObj = objs.find((o: any) => o.type === "spawn");
+  console.log(`spawn @ (${spawnObj?.x},${spawnObj?.y}) e=${spawnObj?.store?.energy ?? 0} spawning=${JSON.stringify(spawnObj?.spawning ?? null)}`);
+  const spawns = objs.filter((o: any) => o.type === "spawn" || o.type === "extension");
+  let used = 0;
+  let cap = 0;
+  for (const s of spawns) { used += s.store?.energy ?? 0; cap += (s.type === "spawn" ? 300 : 50); }
+  console.log(`spawn network fill: ${used}/${cap} (${cap ? Math.round((100 * used) / cap) : 0}%)`);
 
   await server.stop();
   process.exit(0);
