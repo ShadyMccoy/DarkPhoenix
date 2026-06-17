@@ -22,6 +22,37 @@ import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 const UPGRADER_COUNT_CAP = 8;
 
 /**
+ * Tighter ceiling at RCL <= 2: the tiny spawn network can't both staff a big
+ * upgrader camp AND keep full-size haulers running, so a swarm of upgraders
+ * starves the supply chain into a runt death-spiral. A handful ramps to RCL3
+ * fastest, after which the full UPGRADER_COUNT_CAP applies. See getSpawnDemand.
+ */
+const RCL2_UPGRADER_CAP = 3;
+
+/**
+ * How many upgraders to field (pure, unit-tested). Sized to consume the controller
+ * allocation (1 WORK ~ 1 e/tick) at the affordable body size, but bounded by:
+ *  - UPGRADER_COUNT_CAP   - hard safety bound against a stale/huge allocation;
+ *  - the RCL ceiling      - RCL2_UPGRADER_CAP while the spawn network is tiny
+ *                           (controllerLevel <= 2), the full cap above that. An
+ *                           unknown level (no controller in view) imposes no RCL
+ *                           ceiling, so allocation alone drives the count;
+ *  - parkingTiles         - never field more upgraders than can ring the input
+ *                           spot and actually work (0 is treated as "unknown").
+ * Always at least 1 so the controller is never wholly abandoned.
+ */
+export function upgraderTargetCount(
+  allocated: number,
+  affordableWork: number,
+  parkingTiles: number,
+  controllerLevel: number | undefined
+): number {
+  const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
+  const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
+  return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
+}
+
+/**
  * Serialized state specific to UpgradingCorp
  */
 export interface SerializedUpgradingCorp extends SerializedCorp {
@@ -356,10 +387,7 @@ export class UpgradingCorp extends Corp {
     const parking = controller
       ? controllerParkingTiles(controller, controllerInputSpot(controller).pos).length
       : UPGRADER_COUNT_CAP;
-    const targetCount = Math.max(
-      1,
-      Math.min(UPGRADER_COUNT_CAP, parking || UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork))
-    );
+    const targetCount = upgraderTargetCount(allocated, affordableWork, parking, controller?.level);
     const current = this.getCreepCount();
     if (current >= targetCount) return [];
 
