@@ -9,7 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
-import { travelTo } from "./movement";
+import { travelTo, travelToBypass } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
@@ -693,11 +693,38 @@ export class CarryCorp extends Corp {
     const controller = room.controller;
     if (!controller) return false;
 
-    // The controller node resolves its own input spot (upgrader container, else a
-    // drop beside the controller for the camping upgraders - see nodeEnergy). The
-    // hauler just routes there and deposits; no chasing whichever upgrader has the
-    // most room (that pick flips every tick and turns the route into a shuffle).
-    this.recordProduction(workSpot(creep, controllerDeliverySpot(controller), "deposit"));
+    // The controller node resolves its own input spot (upgrader container, else the
+    // shared drop tile the camping upgraders ring - see nodeEnergy). The hauler just
+    // routes there and deposits; no chasing whichever upgrader has the most room
+    // (that pick flips every tick and turns the route into a shuffle).
+    const spot = controllerDeliverySpot(controller);
+    if (spot.structure) {
+      // Container/link: transfer from range 1, no need to stand on it. travelToBypass
+      // so a ring of parked upgraders can't wall the hauler out of range-1 access.
+      if (creep.pos.getRangeTo(spot.pos) > 1) {
+        travelToBypass(creep, spot.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+        return true;
+      }
+      const moved = Math.min(
+        creep.store[RESOURCE_ENERGY],
+        spot.structure.store.getFreeCapacity(RESOURCE_ENERGY) ?? creep.store[RESOURCE_ENERGY]
+      );
+      creep.transfer(spot.structure, RESOURCE_ENERGY);
+      this.recordProduction(moved);
+      return true;
+    }
+    // Bare drop tile (no container yet): the pile must land EXACTLY on the input
+    // tile so every parked upgrader ringing it (range 1) can withdraw from one
+    // shared pile. A range-2 drop lands on the hauler's own tile, scattered out of
+    // the ring's reach - the RCL2 starve. So stand ON the input tile and drop there;
+    // travelToBypass swaps through a parked upgrader if the ring has no open gap.
+    if (!creep.pos.isEqualTo(spot.pos)) {
+      travelToBypass(creep, spot.pos, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
+      return true;
+    }
+    const carried = creep.store[RESOURCE_ENERGY];
+    creep.drop(RESOURCE_ENERGY);
+    this.recordProduction(carried);
     return true;
   }
 

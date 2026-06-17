@@ -83,9 +83,10 @@ describe("controllerInputSpot / controllerParkingTiles", () => {
     const tiles = controllerParkingTiles(c, input);
     expect(tiles.length).to.be.greaterThan(0);
     for (const t of tiles) {
-      expect(cheb(t, input)).to.be.at.most(1); // adjacent to (or on) the input
+      expect(cheb(t, input)).to.equal(1); // strictly adjacent to the input (never on it)
       expect(cheb(t, { x: 25, y: 10 })).to.be.at.most(3); // can upgrade from here
       expect(t.x === 25 && t.y === 10).to.equal(false); // never the controller tile
+      expect(t.x === input.x && t.y === input.y).to.equal(false); // never the reserved input tile
     }
     // deterministic order
     const again = controllerParkingTiles(c, input).map(t => `${t.x},${t.y}`);

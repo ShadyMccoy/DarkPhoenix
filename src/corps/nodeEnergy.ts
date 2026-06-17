@@ -276,12 +276,18 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
 }
 
 /**
- * Walkable upgrader PARKING tiles around the input spot: tiles within range 1 of
+ * Walkable upgrader PARKING tiles RINGING the input spot: tiles within range 1 of
  * the input (so an upgrader withdraws without moving) AND within upgrade range (3)
  * of the controller (so it upgrades from there), excluding the controller's own
- * tile. Sorted deterministically so each upgrader keeps a stable slot across ticks.
- * This is the "analyse the controller-adjacent layout" strategy: the parked
- * upgraders ring the one shared pile/container and never move or block each other.
+ * tile AND the input tile itself. Sorted deterministically so each upgrader keeps a
+ * stable slot across ticks. This is the "analyse the controller-adjacent layout"
+ * strategy: the parked upgraders ring the one shared pile/container and never move
+ * or block each other.
+ *
+ * The input tile is deliberately EXCLUDED: it is the dedicated drop/withdraw point
+ * that the hauler must reach to deposit. An upgrader squatting it would wall the
+ * hauler out, so the shared pile (which lands on the input tile) never grows and
+ * the ring starves - the RCL2 deadlock. Reserving it keeps the pile reachable.
  */
 export function controllerParkingTiles(controller: StructureController, input: RoomPosition): RoomPosition[] {
   const room = controller.room as Room;
@@ -296,6 +302,7 @@ export function controllerParkingTiles(controller: StructureController, input: R
       if (x < 1 || x > 48 || y < 1 || y > 48) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (x === cx && y === cy) continue; // can't stand on the controller
+      if (x === input.x && y === input.y) continue; // reserved drop/withdraw tile
       if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) > 3) continue;
       tiles.push(new RoomPosition(x, y, room.name));
     }

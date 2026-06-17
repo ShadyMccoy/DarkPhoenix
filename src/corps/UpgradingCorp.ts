@@ -8,6 +8,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { controllerInputSpot, controllerParkingTiles } from "./nodeEnergy";
+import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -155,7 +156,9 @@ export class UpgradingCorp extends Corp {
     // energy without blocking each other or idling on a fetch cycle.
     const park = this.parkingTileFor(creep, controller);
     if (park && !creep.pos.isEqualTo(park)) {
-      creep.moveTo(park, { visualizePathStyle: { stroke: "#ffffff" } });
+      // travelToBypass so an upgrader can swap through an already-parked sibling on
+      // the way to its own tile instead of stalling in the cramped controller ring.
+      travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
       // Upgrade en route if already in range - no idle ticks while repositioning.
       if (creep.memory.working && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
       return;
@@ -186,7 +189,13 @@ export class UpgradingCorp extends Corp {
   /**
    * Draw from the SINGLE dedicated input spot (container/link, else the shared
    * drop pile at that tile). The upgrader is parked within range 1 of it, so this
-   * never moves it. Falls back to the old nearby-scan only if the input is dry.
+   * never moves it.
+   *
+   * If the input is dry the upgrader simply WAITS on its tile - it does NOT chase
+   * scattered drops. Chasing was the RCL2 oscillation: the creep would leave its
+   * park tile for a stray pile, then parkingTileFor would march it back next tick,
+   * and it never settled long enough to actually upgrade. Standing put keeps it in
+   * upgrade range and on its withdraw tile for the moment energy lands.
    */
   private drawFromInput(creep: Creep, controller: StructureController): void {
     const input = controllerInputSpot(controller);
@@ -194,12 +203,12 @@ export class UpgradingCorp extends Corp {
       creep.withdraw(input.structure, RESOURCE_ENERGY);
       return;
     }
-    const pile = input.pos.lookFor(LOOK_RESOURCES).find(r => r.resourceType === RESOURCE_ENERGY && r.amount > 0);
-    if (pile) {
-      creep.pickup(pile);
-      return;
-    }
-    this.doPickupEnergy(creep, controller);
+    // The pile lands on the input tile but a parked upgrader stands range 1 from it;
+    // scan range 1 so it can pick up the shared pile (and any of its own slop).
+    const pile = creep.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
+      .sort((a, b) => b.amount - a.amount)[0];
+    if (pile) creep.pickup(pile);
   }
 
   /**
@@ -226,140 +235,6 @@ export class UpgradingCorp extends Corp {
     const free = tiles.find(t => !taken.has(key(t))) ?? tiles[0];
     creep.memory.upgradeSpot = { x: free.x, y: free.y };
     return free;
-  }
-
-  /**
-   * Pick up energy from nearby sources only (stationary - don't travel for energy).
-   * Haulers are responsible for delivering energy to upgraders.
-   */
-  private doPickupEnergy(creep: Creep, controller: StructureController): void {
-    const PICKUP_RANGE = 4; // Only grab energy within this range
-
-    // Check for dropped energy within range
-    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
-    });
-    if (dropped.length > 0) {
-      const target = dropped[0];
-      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for tombstones with energy within range
-    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: t => t.store[RESOURCE_ENERGY] > 0
-    });
-    if (tombstones.length > 0) {
-      const target = tombstones[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for ruins with energy within range
-    const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
-      filter: r => r.store[RESOURCE_ENERGY] > 0
-    });
-    if (ruins.length > 0) {
-      const target = ruins[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check containers within range
-    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (containers.length > 0) {
-      const target = containers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check links within range (for higher RCL)
-    const links = creep.pos.findInRange(FIND_MY_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_LINK && (s as StructureLink).store[RESOURCE_ENERGY] > 0
-    }) as StructureLink[];
-    if (links.length > 0) {
-      const target = links[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for containers near the controller (even if not near creep)
-    const controllerContainers = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (controllerContainers.length > 0) {
-      const target = controllerContainers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // No energy nearby - stay near controller and wait for delivery
-    if (creep.pos.getRangeTo(controller) > 3) {
-      creep.moveTo(controller);
-    }
-  }
-
-  /**
-   * Pick up energy near a position (stationary - don't travel for energy).
-   * Used when building at construction sites.
-   */
-  private doPickupEnergyNearPosition(creep: Creep, pos: RoomPosition): void {
-    const PICKUP_RANGE = 4;
-
-    // Check for dropped energy within range
-    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
-    });
-    if (dropped.length > 0) {
-      const target = dropped[0];
-      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for tombstones with energy within range
-    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: t => t.store[RESOURCE_ENERGY] > 0
-    });
-    if (tombstones.length > 0) {
-      const target = tombstones[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check containers within range
-    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (containers.length > 0) {
-      const target = containers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // No energy nearby - stay near target position and wait for delivery
-    if (creep.pos.getRangeTo(pos) > 3) {
-      creep.moveTo(pos);
-    }
   }
 
   /**

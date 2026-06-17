@@ -59,3 +59,61 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
 
   return creep.moveTo(target as RoomPosition, opts);
 }
+
+/**
+ * Is this friendly creep YIELDING - a parked upgrader sitting on its assigned
+ * upgrade tile? Such a creep has no travel intent of its own this tick (it camps
+ * and upgrades in place) and walks straight back next tick, so it is safe to swap
+ * through. We deliberately do NOT treat other stationary creeps as yielding: we
+ * don't want to yank a hauler off its route or a miner off its source. Pure
+ * predicate so the swap rule is unit-testable.
+ */
+export function isYielding(creep: {
+  my?: boolean;
+  pos: { x: number; y: number };
+  memory: { workType?: string; upgradeSpot?: { x: number; y: number } };
+}): boolean {
+  const spot = creep.memory.upgradeSpot;
+  return (
+    creep.my === true &&
+    creep.memory.workType === "upgrade" &&
+    !!spot &&
+    creep.pos.x === spot.x &&
+    creep.pos.y === spot.y
+  );
+}
+
+/**
+ * Move toward a target like {@link travelTo}, but if the immediate step is blocked
+ * by a YIELDING creep (a parked upgrader on its tile), SWAP through it: both
+ * creeps step onto each other's tile the same tick. The engine permits this -
+ * two creeps each moving onto the other's tile pass through, while a lone mover
+ * onto a standing creep is blocked (the "bypass" rule). The displaced upgrader
+ * returns to its post next tick.
+ *
+ * This is what lets a hauler thread in to the shared controller pile/container
+ * even when parked upgraders fully ring it (the dense-camp case): without the
+ * swap the ring walls the input off and the whole camp starves. We path with
+ * `ignoreCreeps` so the route heads straight at the target (revealing the swap)
+ * instead of detouring around a ring that has no gap; if the next tile is NOT a
+ * yielding creep we fall back to normal creep-aware pathing.
+ */
+export function travelToBypass(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const pos = targetPos(target);
+  const range = opts?.range ?? 0;
+  if (creep.pos.roomName === pos.roomName && creep.pos.getRangeTo(pos) <= range) return OK;
+
+  if (creep.pos.roomName === pos.roomName) {
+    const path = creep.room.findPath(creep.pos, pos, { range, ignoreCreeps: true, maxRooms: 1 });
+    if (path.length > 0) {
+      const step = path[0];
+      const next = new RoomPosition(step.x, step.y, creep.pos.roomName);
+      const blocker = next.lookFor(LOOK_CREEPS).find(c => c.name !== creep.name);
+      if (blocker && isYielding(blocker)) {
+        blocker.move(blocker.pos.getDirectionTo(creep.pos)); // step onto our tile
+        return creep.move(step.direction); // we take its tile - mutual swap
+      }
+    }
+  }
+  return travelTo(creep, target, opts);
+}
