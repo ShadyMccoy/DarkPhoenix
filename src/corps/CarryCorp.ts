@@ -44,6 +44,16 @@ export type LocalSink = "spawn" | "controller";
 const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 
 /**
+ * Fill fraction below which a controller-bound hauler abandons its route to
+ * refill the spawn network. The spawn keeps priority when it is seriously
+ * depleted (would soon block spawning), but once it is at least this full the
+ * controller gets its allocated share. Without this gate the controller hauler
+ * diverted on a single empty extension (free >= 50, i.e. anything short of 100%
+ * full) every trip, so the controller never received energy and RCL2 stalled.
+ */
+const SPAWN_DIVERT_FILL = 0.5;
+
+/**
  * Small energy buffer kept in the core depot so the extension tender always has a
  * load on hand. Deliberately modest: it only needs to bridge between hauler drop-offs,
  * not bankroll the whole network - a large buffer would pull haulers off the
@@ -303,7 +313,7 @@ export class CarryCorp extends Corp {
       // (the critical bottleneck, under-weighted by its tiny flow share), else run
       // the home circuit. Fixed for the whole trip, so no mid-route thrash.
       const homeSink = creep.memory.homeSink as LocalSink;
-      creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkHungry(room) ? "spawn" : homeSink;
+      creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkCritical(room) ? "spawn" : homeSink;
       creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
     }
 
@@ -560,6 +570,26 @@ export class CarryCorp extends Corp {
       if (sink === target) continue;
       if (this.tryDeliverTo(creep, room, sink)) return;
     }
+  }
+
+  /**
+   * Should a controller-bound hauler abandon its route to refill the spawn? Only
+   * when the spawn network is CRITICALLY low - less than {@link SPAWN_DIVERT_FILL}
+   * full - so a nearly-full network never steals the controller's allocated share.
+   * Under the extension tender the depot-bridge regime (spawnNetworkHungry) governs
+   * instead. This is the fix for the RCL2 stall: the old test diverted on any free
+   * capacity, so the lone controller hauler fed the spawn every trip and the
+   * controller got nothing.
+   */
+  private spawnNetworkCritical(room: Room): boolean {
+    if (room.memory.extensionTenderActive) return this.spawnNetworkHungry(room);
+    let used = 0;
+    let cap = 0;
+    for (const s of this.getSpawnZoneStructures(room)) {
+      used += s.store[RESOURCE_ENERGY];
+      cap += s.store.getCapacity(RESOURCE_ENERGY) ?? 0;
+    }
+    return cap > 0 && used / cap < SPAWN_DIVERT_FILL;
   }
 
   /** Free energy capacity across the spawn network is worth a hauler's divert. */
