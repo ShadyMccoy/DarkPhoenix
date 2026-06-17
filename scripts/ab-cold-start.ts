@@ -93,6 +93,15 @@ async function main(): Promise<void> {
   console.log(`ticks=${ticks} RCL=${ctrl?.level} controlPoints=${cp}`);
   console.log(`creeps=${JSON.stringify(byType)}`);
   console.log(`variance=[${variance}]`);
+  const ep = mem.economyPlan;
+  if (ep) {
+    const totalAlloc = (ep.corps || [])
+      .filter((c: any) => c.kind === "upgrade" || c.kind === "build")
+      .reduce((s: number, c: any) => s + (c.work || 0), 0);
+    console.log(
+      `economyPlan: overhead=${ep.overhead} unrouted=${ep.unrouted} consumerWork=${totalAlloc} corps=${(ep.corps || []).length}`
+    );
+  }
 
   await server.stop();
   process.exit(0);
