@@ -103,6 +103,32 @@ async function main(): Promise<void> {
     );
   }
 
+  // Controller-area dump: WHY is upgrading stalled? Show the controller fringe -
+  // parked upgraders (pos + carried energy), dropped piles, and each hauler's
+  // committed sink. Distinguishes "no hauler routes to the controller" from
+  // "haulers route there but can't deposit / upgraders can't withdraw".
+  const cx = ctrl?.x ?? 0;
+  const cy = ctrl?.y ?? 0;
+  const cheb = (x: number, y: number) => Math.max(Math.abs(x - cx), Math.abs(y - cy));
+  console.log(`controller @ (${cx},${cy})`);
+  const creeps = objs.filter((o: any) => o.type === "creep");
+  const memByName: Record<string, any> = mem.creeps || {};
+  console.log("upgraders:");
+  for (const c of creeps) {
+    if (memByName[c.name]?.workType !== "upgrade") continue;
+    console.log(`  (${c.x},${c.y}) d=${cheb(c.x, c.y)} e=${c.store?.energy ?? 0} spot=${JSON.stringify(memByName[c.name]?.upgradeSpot)}`);
+  }
+  const drops = objs.filter((o: any) => o.type === "energy" && cheb(o.x, o.y) <= 5);
+  console.log(`piles near ctrl: ${drops.map((d: any) => `(${d.x},${d.y})d=${cheb(d.x, d.y)}=${d.energy}`).join(" ") || "none"}`);
+  const sinks: Record<string, number> = {};
+  for (const c of creeps) {
+    const m = memByName[c.name];
+    if (m?.workType !== "haul") continue;
+    const key = `home=${m.homeSink ?? "?"}/deliver=${m.deliverSinkId ?? "?"}`;
+    sinks[key] = (sinks[key] ?? 0) + 1;
+  }
+  console.log(`hauler sinks: ${JSON.stringify(sinks)}`);
+
   await server.stop();
   process.exit(0);
 }
