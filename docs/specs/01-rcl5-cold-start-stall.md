@@ -116,6 +116,40 @@ Future effort should target the income fleet's time-to-complete (e.g. fewer
 runt-recycle upsizing cycles, or larger first bodies) rather than consumer
 gating - but note master is already beaten, so this is optimization, not a bug.
 
+## Warm steady-state throughput (2026-06-16): the ceiling is CONSUMPTION, not hauling
+
+Built a fast warm-start harness (sim:warm captures a warm colony once; sim:carry
+replays it and measures steady-state delivery in ~500 ticks ≈ 1 min) to isolate
+the steady-state ceiling from the cold-start. Standard two-source RCL2 room,
+instrumented per-sink energy fate:
+
+| quantity | e/tick |
+|---|---|
+| mined (2 sources) | ~20 (22 with burst drain) |
+| delivered to controller | **~15** |
+| delivered to spawn network | ~1 |
+| decayed at source (not hauled) | ~6 (the far/walled source) |
+| **upgraded (actual cp/tick)** | **~7** |
+
+The surprise: **hauling is NOT the bottleneck - 15 e/tick reaches the
+controller, but only ~7 becomes cp.** The other ~8 piles up at the controller
+and decays. The binding constraint is CONTROLLER-SIDE CONSUMPTION: ~6 small RCL2
+upgraders (≈2 WORK each) fetch dropped energy then upgrade, idling ~40% of ticks
+on the fetch cycle, with no upgrader container at RCL2 so the surplus decays on
+the ground. Raising UPGRADER_COUNT_CAP 6->12 did NOT help (cp/tick stayed ~7;
+the extra upgraders crowd the controller's limited tiles and even *reduce*
+delivery). Removing the spawn diversion (pure "bus route") was slightly worse
+(6.19 vs 6.88) - the diversion usefully rescues spawn-overflow to the controller.
+
+So the realized ceiling at warm RCL2 is **~7 cp/tick (~31% of the ~20-25 e/tick
+income)**, gated by controller consumption. Levers, in likely-impact order:
+(1) an upgrader CONTAINER/link at the controller (upgraders withdraw in place
+instead of chasing decaying drops - cuts the fetch idle and the decay loss);
+(2) bigger upgrader bodies (more WORK/creep, which RCL-up provides);
+(3) the far source's ~6 e/tick haul shortfall (scenario-specific to the wall).
+Income, the spawn split, and hauler "thrash" are all NOT the limiter at warm
+steady state. New harness: scripts/snapshot-warm.ts + scripts/carry-efficiency.ts.
+
 ## Acceptance tests
 
 ### A. Throughput pin — `test/integration/cold-start-throughput.test.ts`
