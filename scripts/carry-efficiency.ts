@@ -14,7 +14,9 @@
  *
  * Change CarryCorp, `npm run build`, re-run; compare cp/tick. ~500 ticks ≈ 1 min.
  *
- *   npm run build && npx ts-node -P tsconfig.test.json scripts/carry-efficiency.ts [measureTicks] [settleTicks]
+ *   npm run build && npm run sim:carry -- [measureTicks] [settleTicks] [snapshotName]
+ *     snapshotName: warm-<name>.json fixture (default "two-source"; e.g.
+ *                   "twoSourceRcl3Full" for the fully-built RCL3 steady-state bed).
  */
 import { readFileSync, existsSync } from "fs";
 import * as path from "path";
@@ -22,12 +24,21 @@ import { loadScenario } from "../test/integration/scenario";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ScreepsServer } = require("screeps-server-mockup");
 
-const SNAP = path.resolve("test/integration/scenario/fixtures/warm-two-source.json");
+// Cumulative control points across RCL levels, so a level-up mid-run doesn't
+// break the progress delta.
+const RCL_TOTALS = [0, 200, 45200, 180200, 585200, 1395200, 3405200, 10405200];
+const controlPoints = (level: number, progress: number): number => (RCL_TOTALS[level - 1] ?? 0) + progress;
+
+function snapPath(): string {
+  const name = process.argv[4] ?? "two-source";
+  return path.resolve(`test/integration/scenario/fixtures/warm-${name}.json`);
+}
+const SNAP = snapPath();
 
 async function readState(server: any, bot: any): Promise<{ cp: number; mined: number; upgraders: number; haulers: number }> {
   const objs = await server.world.roomObjects("W0N0");
   const ctrl = objs.find((o: any) => o.type === "controller");
-  const cp = (ctrl?.level === 2 ? 0 : 0) + (ctrl?.progress ?? 0); // RCL fixed at 2 here; progress is the signal
+  const cp = controlPoints(ctrl?.level ?? 0, ctrl?.progress ?? 0);
   let mem: any = {};
   try { mem = JSON.parse((await bot.memory) || "{}"); } catch { /* ignore */ }
   const rows = (mem.corpVariance || []) as Array<{ type: string; actual: number }>;
@@ -44,9 +55,10 @@ async function readState(server: any, bot: any): Promise<{ cp: number; mined: nu
 
 async function main(): Promise<void> {
   if (!existsSync(SNAP)) {
-    console.error(`No warm snapshot at ${SNAP}. Run: npx ts-node -P tsconfig.test.json scripts/snapshot-warm.ts`);
+    console.error(`No warm snapshot at ${SNAP}. Generate it with: npm run sim:warm -- <scenario>`);
     process.exit(1);
   }
+  console.log(`snapshot: ${path.basename(SNAP)}`);
   const measure = Number(process.argv[2] ?? 500);
   const settle = Number(process.argv[3] ?? 50);
   const snapshot = JSON.parse(readFileSync(SNAP, "utf8"));

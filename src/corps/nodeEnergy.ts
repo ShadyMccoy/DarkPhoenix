@@ -225,13 +225,83 @@ export function scavengeSpot(pos: RoomPosition): EnergySpot | null {
  * the camping upgraders to draw from (a pile).
  */
 export function controllerDeliverySpot(controller: StructureController): EnergySpot {
-  const container = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-    filter: s =>
-      s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0
-  })[0] as StructureContainer | undefined;
-  if (container) return { pos: container.pos, structure: container };
+  return controllerInputSpot(controller);
+}
 
-  return { pos: controller.pos };
+/**
+ * The single DEDICATED controller input spot: the one tile haulers always drop
+ * at and upgraders always draw from (where the upgrader container is, or will be
+ * built). Deterministic so haulers, upgraders, and the future container all
+ * agree on it:
+ *   - an existing container/link within range 3 of the controller, else
+ *   - the walkable tile (within range 2 of the controller) with the MOST walkable
+ *     neighbours that are themselves within upgrade range - i.e. the spot that can
+ *     host the most parked upgraders. Ties broken by (x,y) for stability.
+ * No container yet (RCL 2) => a bare drop tile, so every load lands on ONE pile
+ * the parked upgraders share, instead of scattering across the controller fringe.
+ */
+export function controllerInputSpot(controller: StructureController): EnergySpot {
+  const room = controller.room as Room;
+  const buffer = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
+  })[0] as StructureContainer | StructureLink | undefined;
+  if (buffer) return { pos: buffer.pos, structure: buffer };
+
+  const terrain = room.getTerrain();
+  const cx = controller.pos.x;
+  const cy = controller.pos.y;
+  const walkable = (x: number, y: number): boolean =>
+    x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
+  const inUpgradeRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
+
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if ((dx === 0 && dy === 0) || !walkable(x, y) || !inUpgradeRange(x, y)) continue;
+      let score = 0;
+      for (let ex = -1; ex <= 1; ex++) {
+        for (let ey = -1; ey <= 1; ey++) {
+          if (ex === 0 && ey === 0) continue;
+          if (walkable(x + ex, y + ey) && inUpgradeRange(x + ex, y + ey)) score++;
+        }
+      }
+      const better =
+        !best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)));
+      if (better) best = { x, y, score };
+    }
+  }
+  return { pos: best ? new RoomPosition(best.x, best.y, room.name) : controller.pos };
+}
+
+/**
+ * Walkable upgrader PARKING tiles around the input spot: tiles within range 1 of
+ * the input (so an upgrader withdraws without moving) AND within upgrade range (3)
+ * of the controller (so it upgrades from there), excluding the controller's own
+ * tile. Sorted deterministically so each upgrader keeps a stable slot across ticks.
+ * This is the "analyse the controller-adjacent layout" strategy: the parked
+ * upgraders ring the one shared pile/container and never move or block each other.
+ */
+export function controllerParkingTiles(controller: StructureController, input: RoomPosition): RoomPosition[] {
+  const room = controller.room as Room;
+  const terrain = room.getTerrain();
+  const cx = controller.pos.x;
+  const cy = controller.pos.y;
+  const tiles: RoomPosition[] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const x = input.x + dx;
+      const y = input.y + dy;
+      if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      if (x === cx && y === cy) continue; // can't stand on the controller
+      if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) > 3) continue;
+      tiles.push(new RoomPosition(x, y, room.name));
+    }
+  }
+  tiles.sort((a, b) => a.x - b.x || a.y - b.y);
+  return tiles;
 }
 
 /**

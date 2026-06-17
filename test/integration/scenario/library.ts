@@ -209,6 +209,33 @@ export function twoSourceRcl3Containers(opts: { room?: string } = {}): Scenario 
 }
 
 /**
+ * twoSourceRcl3Containers with ALL 10 RCL-3 extensions already built (no
+ * construction left to do) and the controller container pre-filled. With nothing
+ * to build, the full mined surplus routes to the controller - so this isolates
+ * the steady-state UPGRADE-throughput ceiling and the upgrader-positioning
+ * strategy from construction competition. Used by sim:carry.
+ */
+export function twoSourceRcl3Full(opts: { room?: string } = {}): Scenario {
+  const base = twoSourceRcl3Containers(opts);
+  const room = base.bot.room;
+  // 5 more extensions (the base RCL3 scenario builds only 5 of the 10 allowed).
+  const moreExts = [
+    { x: 26, y: 22 }, { x: 23, y: 23 }, { x: 27, y: 23 }, { x: 22, y: 28 }, { x: 28, y: 28 },
+  ];
+  return {
+    ...base,
+    name: "two-source-rcl3-full",
+    description: base.description + " ALL 10 extensions built (no construction); controller container filled.",
+    state: {
+      ...base.state,
+      structures: (base.state?.structures ?? [])
+        .map(s => (s.type === "container" && s.x === 25 && s.y === 12 ? { ...s, energy: 2000 } : s))
+        .concat(moreExts.map(e => ({ room, type: "extension", x: e.x, y: e.y, energy: 50 }))),
+    },
+  };
+}
+
+/**
  * twoSourceRcl3 with source containers AND a core depot container beside the spawn
  * (25,25) already built, so the depot+extension-tender path is exercised from tick
  * 1 instead of waiting ~1500 ticks for the containers to be built. Used to validate

@@ -7,6 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { controllerInputSpot, controllerParkingTiles } from "./nodeEnergy";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -17,7 +18,7 @@ import { effectiveLife } from "../economy/primitives";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
-const UPGRADER_COUNT_CAP = 6;
+const UPGRADER_COUNT_CAP = 8;
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -146,26 +147,85 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
-    // Upgraders only upgrade - they camp at the controller and convert the
-    // energy the CarryCorp (local mover) delivers there. Construction is the
-    // ConstructionCorp's job; diverting the upgrader to build sites just pulls
-    // it away from the controller and stalls RCL progress.
-    if (creep.pos.getRangeTo(controller) > 3) {
+    // PARKED MODEL: each upgrader owns a fixed tile ringing the one dedicated
+    // input spot (the controller container, or the shared drop pile before it is
+    // built). It walks there ONCE, then withdraws from that single input and
+    // upgrades in place - never chasing scattered drops, never shuffling into
+    // another upgrader. This is what lets many upgraders consume the delivered
+    // energy without blocking each other or idling on a fetch cycle.
+    const park = this.parkingTileFor(creep, controller);
+    if (park && !creep.pos.isEqualTo(park)) {
+      creep.moveTo(park, { visualizePathStyle: { stroke: "#ffffff" } });
+      // Upgrade en route if already in range - no idle ticks while repositioning.
+      if (creep.memory.working && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
+      return;
+    }
+    // No parking computed (degenerate layout): fall back to camping within range.
+    if (!park && creep.pos.getRangeTo(controller) > 3) {
       creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
       return;
     }
 
     if (creep.memory.working) {
-      const result = creep.upgradeController(controller);
-      if (result === OK) {
-        const workParts = creep.getActiveBodyparts(WORK);
-        this.recordConsumption(workParts);
-        this.recordProduction(workParts);
-      }
+      this.tryUpgrade(creep, controller);
     } else {
-      // Stationary pickup near controller
-      this.doPickupEnergy(creep, controller);
+      this.drawFromInput(creep, controller);
     }
+  }
+
+  /** Upgrade the controller in place, recording the WORK consumed. */
+  private tryUpgrade(creep: Creep, controller: StructureController): void {
+    if (creep.pos.getRangeTo(controller) > 3) return;
+    if (creep.upgradeController(controller) === OK) {
+      const workParts = creep.getActiveBodyparts(WORK);
+      this.recordConsumption(workParts);
+      this.recordProduction(workParts);
+    }
+  }
+
+  /**
+   * Draw from the SINGLE dedicated input spot (container/link, else the shared
+   * drop pile at that tile). The upgrader is parked within range 1 of it, so this
+   * never moves it. Falls back to the old nearby-scan only if the input is dry.
+   */
+  private drawFromInput(creep: Creep, controller: StructureController): void {
+    const input = controllerInputSpot(controller);
+    if (input.structure && (input.structure as StructureContainer).store[RESOURCE_ENERGY] > 0) {
+      creep.withdraw(input.structure, RESOURCE_ENERGY);
+      return;
+    }
+    const pile = input.pos.lookFor(LOOK_RESOURCES).find(r => r.resourceType === RESOURCE_ENERGY && r.amount > 0);
+    if (pile) {
+      creep.pickup(pile);
+      return;
+    }
+    this.doPickupEnergy(creep, controller);
+  }
+
+  /**
+   * Assign (and cache) this upgrader a stable parking tile ringing the input
+   * spot. New upgraders take the first free slot; existing ones keep theirs as
+   * long as it is still a valid parking tile.
+   */
+  private parkingTileFor(creep: Creep, controller: StructureController): RoomPosition | null {
+    const input = controllerInputSpot(controller);
+    const tiles = controllerParkingTiles(controller, input.pos);
+    if (tiles.length === 0) return null;
+
+    const key = (p: { x: number; y: number }): string => `${p.x},${p.y}`;
+    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
+    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
+      return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
+    }
+    const taken = new Set<string>();
+    for (const other of this.getActiveCreeps()) {
+      if (other.name === creep.name) continue;
+      const s = other.memory.upgradeSpot as { x: number; y: number } | undefined;
+      if (s) taken.add(key(s));
+    }
+    const free = tiles.find(t => !taken.has(key(t))) ?? tiles[0];
+    creep.memory.upgradeSpot = { x: free.x, y: free.y };
+    return free;
   }
 
   /**
@@ -415,8 +475,16 @@ export class UpgradingCorp extends Corp {
     const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, strategy).workParts);
     // Cap the count as a safety bound: should a stale/over-large allocation slip
     // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
-    // bounded by real supply in normal operation.
-    const targetCount = Math.max(1, Math.min(UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork)));
+    // bounded by real supply in normal operation. ALSO bounded by the parking
+    // tiles around the controller's input spot: an upgrader with nowhere to park
+    // would just block another, so never field more than can stand and work.
+    const parking = controller
+      ? controllerParkingTiles(controller, controllerInputSpot(controller).pos).length
+      : UPGRADER_COUNT_CAP;
+    const targetCount = Math.max(
+      1,
+      Math.min(UPGRADER_COUNT_CAP, parking || UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork))
+    );
     const current = this.getCreepCount();
     if (current >= targetCount) return [];
 

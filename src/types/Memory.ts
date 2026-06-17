@@ -332,6 +332,10 @@ declare global {
      * destination every trip (overridden only to top up a hungry spawn).
      */
     homeSink?: "spawn" | "controller";
+
+    /** An upgrader's assigned parking tile (ringing the controller input spot);
+     * it camps here, withdraws from the single input, and upgrades in place. */
+    upgradeSpot?: { x: number; y: number };
   }
 }
 
