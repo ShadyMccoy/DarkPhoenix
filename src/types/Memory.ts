@@ -336,6 +336,17 @@ declare global {
     /** An upgrader's assigned parking tile (ringing the controller input spot);
      * it camps here, withdraws from the single input, and upgrades in place. */
     upgradeSpot?: { x: number; y: number };
+
+    /**
+     * Tick this creep was first seen ORPHANED - alive but with a corpId that
+     * matches no live corp, so nothing runs it. The orphan-rescue pass
+     * (execution/OrphanRescue) sets it on the first orphaned tick, clears it the
+     * moment the creep is re-adopted or its corp reappears, and recycles the
+     * creep once it has been orphaned past the grace window. The grace window
+     * tolerates the brief commission churn around a flow re-solve so a creep is
+     * never recycled for a one-tick gap.
+     */
+    orphanedSince?: number;
   }
 }
 

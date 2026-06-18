@@ -51,6 +51,7 @@ import {
   refreshNodeResourcesFromCache,
   renderNodeVisuals,
   renderSpatialVisuals,
+  rescueOrphans,
   resetAnalysis,
   restoreVisualizationCache,
   runBootstrapCorps,
@@ -191,6 +192,13 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // (harvest/carry/upgrade, from the planner's commissions) plus the
   // auxiliaries (scout, reservation, tender).
   runCommissionHost(corps, flowEconomy?.getCommissions() ?? [], Game.time);
+
+  // Safety net: re-adopt or recycle any creep no live corp claimed this tick.
+  // A creep only acts if a corp scans it in by corpId; corps are demobilized
+  // routinely (a re-solve dropping a source's commission deletes the corp while
+  // its creeps live on), so without this an orphaned creep just freezes on its
+  // tile until it dies. Runs AFTER every corp so it sees this tick's live set.
+  rescueOrphans(corps);
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
   runLinks();
