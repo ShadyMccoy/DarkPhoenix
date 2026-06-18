@@ -29,11 +29,11 @@ import {
   SinkType
 } from "./FlowTypes";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
-import { printSolutionSummary } from "./FlowSolver";
 import { PRIORITY_PRESETS, PriorityManager } from "./PriorityManager";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { solveWithCorpPlanner } from "../economy/flowAdapter";
+import { solveColony } from "../economy/flowAdapter";
+import { Commission } from "../economy/Commission";
 
 // =============================================================================
 // FLOW ECONOMY CLASS
@@ -52,13 +52,18 @@ export class FlowEconomy {
   /** Flow graph built from nodes */
   private graph: FlowGraph;
 
-
   /** Priority manager instance */
   private priorityManager: PriorityManager;
 
   /** Current solution (null if not yet solved) */
   private solution: FlowSolution | null;
 
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * `solution`, wrapped as Commission envelopes for the corp kinds to
+   * materialize. Empty until the first solve.
+   */
+  private commissions: Commission[] = [];
 
   /** Current priority context */
   private context: PriorityContext | null;
@@ -142,8 +147,12 @@ export class FlowEconomy {
     // Solve the colony economy with the GOAP CorpPlanner - the single economy
     // authority. It unifies producer selection (which sources to mine, per spawn
     // build-budget) and value routing (feed the spawn, then the controller) that
-    // FlowSolver and the shadow EconomyPlanner used to do separately.
-    this.solution = solveWithCorpPlanner(this.graph, this.context.tick);
+    // FlowSolver and the shadow EconomyPlanner used to do separately. One solve
+    // yields both the FlowSolution (live materializer/telemetry) and the
+    // commissions (the framework seam the corp kinds materialize from).
+    const result = solveColony(this.graph, this.context.tick);
+    this.solution = result.solution;
+    this.commissions = result.commissions;
   }
 
   /**
@@ -285,6 +294,14 @@ export class FlowEconomy {
    */
   public getSolution(): FlowSolution | null {
     return this.solution;
+  }
+
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * getSolution(), wrapped as Commission envelopes. Empty until the first solve.
+   */
+  public getCommissions(): Commission[] {
+    return this.commissions;
   }
 
   /**
@@ -439,6 +456,42 @@ export class FlowEconomy {
     }
 
     this.graph.debugPrint();
+  }
+}
+
+/**
+ * Debug: print a solution summary to the console.
+ * (Relocated from the retired FlowSolver - see docs/ONTOLOGY.md § 6.)
+ */
+export function printSolutionSummary(solution: FlowSolution): void {
+  console.log("\n=== Flow Solution ===");
+  console.log(`Computed at tick: ${solution.computedAt}`);
+  console.log(`Sustainable: ${String(solution.isSustainable)}`);
+  console.log("");
+  console.log("Energy Flow:");
+  console.log(`  Total Harvest:    ${solution.totalHarvest.toFixed(2)}/tick`);
+  console.log(`  Mining Overhead:  ${solution.miningOverhead.toFixed(2)}/tick`);
+  console.log(`  Hauling Overhead: ${solution.haulingOverhead.toFixed(2)}/tick`);
+  console.log(`  Total Overhead:   ${solution.totalOverhead.toFixed(2)}/tick`);
+  console.log(`  Net Energy:       ${solution.netEnergy.toFixed(2)}/tick`);
+  console.log(`  Efficiency:       ${solution.efficiency.toFixed(1)}%`);
+  console.log("");
+  console.log(`Miners: ${solution.miners.length}`);
+  console.log(`Haulers: ${solution.haulers.length} assignments`);
+  console.log(`Sink Allocations: ${solution.sinkAllocations.length}`);
+
+  if (solution.unmetDemand.size > 0) {
+    console.log("\nUnmet Demand:");
+    for (const [sinkId, unmet] of solution.unmetDemand) {
+      console.log(`  ${sinkId}: ${unmet.toFixed(2)}/tick`);
+    }
+  }
+
+  if (solution.warnings.length > 0) {
+    console.log("\nWarnings:");
+    for (const warning of solution.warnings) {
+      console.log(`  ⚠ ${warning}`);
+    }
   }
 }
 

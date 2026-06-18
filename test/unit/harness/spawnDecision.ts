@@ -30,6 +30,7 @@ import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { MinerAssignment, HaulerAssignment, SinkAllocation } from "../../../src/flow/FlowTypes";
 import { createCorpRegistry } from "../../../src/execution/CorpRunner";
 import { collectDemands } from "../../../src/execution/SpawnDirector";
+import { seedCommissionStoreForTest, resetCommissionHost } from "../../../src/execution/CommissionHost";
 import { scheduleSpawn } from "../../../src/spawn/SpawnScheduler";
 
 /** The one spawn every corp in a situation spawns from. */
@@ -145,9 +146,12 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
   };
   game.getObjectById = (id: string) => (id === SPAWN_ID ? fakeSpawn : null);
 
+  resetCommissionHost();
   try {
     const registry = createCorpRegistry();
 
+    // Harvest/carry/upgrade now live in the commission store, keyed by their
+    // production corpId (`<kind>-<sourceId>`); collectDemands reads them there.
     for (const src of situation.sources ?? []) {
       const harvest = new HarvestCorp(`${ROOM}-harvest-${src.id}`, SPAWN_ID, src.id, 5, `mining-${src.id}`);
       harvest.setMinerAssignment({
@@ -157,14 +161,14 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
         maxMiners: src.maxMiners ?? 1,
         efficiency: src.efficiency ?? 80
       } as MinerAssignment);
-      registry.harvestCorps[src.id] = harvest;
+      seedCommissionStoreForTest(`harvest-${src.id}`, "harvest", harvest);
 
       if (src.haulCarry !== undefined) {
         const carry = new CarryCorp(`${ROOM}-hauling-${src.id}`, SPAWN_ID, `hauling-${src.id}`);
         carry.setHaulerAssignments([
           { fromId: src.id, carryParts: src.haulCarry, spawnId: `spawn-${SPAWN_ID}`, haulerRatio: "1:1" } as HaulerAssignment
         ]);
-        registry.haulingCorps[src.id] = carry;
+        seedCommissionStoreForTest(`carry-${src.id}`, "carry", carry);
       }
     }
 
@@ -173,7 +177,7 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
       up.setSinkAllocation({
         sinkId: "controller-x", sinkType: "controller", allocated: 5, demand: 5, unmet: 0, priority: 65
       } as SinkAllocation);
-      registry.upgradingCorps[ROOM] = up;
+      seedCommissionStoreForTest(`upgrade-${ROOM}`, "upgrade", up);
     }
 
     const demands = collectDemands(registry, SPAWN_ID, { energyCapacity, tick });
@@ -189,5 +193,6 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
   } finally {
     game.creeps = savedCreeps;
     game.getObjectById = savedGetObjectById;
+    resetCommissionHost();
   }
 }

@@ -6,9 +6,8 @@
  * Main components:
  * - FlowTypes: Core interfaces and constants
  * - FlowGraph: Flow network construction from nodes
- * - FlowSolver: Priority-weighted allocation algorithm
  * - PriorityManager: Dynamic priority calculation
- * - FlowEconomy: Main coordinator (replaces Market)
+ * - FlowEconomy: Main coordinator (solves via economy/CorpPlanner)
  *
  * Usage:
  * ```typescript
@@ -40,7 +39,6 @@ export {
   CREEP_LIFETIME,
   BODY_COSTS,
   MINER_COST,
-  MINER_OVERHEAD_PER_TICK,
   DEFAULT_SINK_PRIORITIES,
   DEFAULT_CONSTRAINTS,
 
@@ -71,9 +69,6 @@ export {
   createEdgeId,
 
   // Utility functions
-  calculateRoundTrip,
-  calculateCarryParts,
-  calculateHaulerCostPerTick,
   chebyshevDistance,
   estimateRoomDistance
 } from "./FlowTypes";
@@ -85,18 +80,6 @@ export {
 export { FlowGraph, createFlowGraph } from "./FlowGraph";
 
 // =============================================================================
-// FLOW SOLVER
-// =============================================================================
-
-export {
-  FlowSolver,
-  solveIteratively,
-  calculateEfficiency,
-  estimateOverhead,
-  printSolutionSummary
-} from "./FlowSolver";
-
-// =============================================================================
 // PRIORITY MANAGER
 // =============================================================================
 
@@ -106,7 +89,7 @@ export { PriorityManager, PRIORITY_PRESETS, describePriority, comparePriorities 
 // FLOW ECONOMY (Main Entry Point)
 // =============================================================================
 
-export { FlowEconomy, createFlowEconomy, createFlowEconomyWithPreset } from "./FlowEconomy";
+export { FlowEconomy, createFlowEconomy, createFlowEconomyWithPreset, printSolutionSummary } from "./FlowEconomy";
 
 // =============================================================================
 // NODE FLOW (Flow Solution → Node Grouping)
@@ -128,5 +111,3 @@ export {
 // =============================================================================
 // FLOW MATERIALIZER (Flow Solution → Corps)
 // =============================================================================
-
-export { MaterializationResult, materializeCorps, cleanupStaleCorps } from "./FlowMaterializer";

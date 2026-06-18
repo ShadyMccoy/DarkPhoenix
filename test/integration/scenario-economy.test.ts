@@ -8,9 +8,6 @@ import * as scenarios from "./scenario/library";
 
 const MAIN = "dist/main.js";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Scenario economy-health regression suite (per-geometry coverage).
  *
@@ -56,6 +53,12 @@ const CASES: EconomyCase[] = [
 ];
 
 describe("scenario economy health", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   for (const c of CASES) {
     it(`${c.name}: every source mined, energy hauled home`, async function () {
       this.timeout(600000);

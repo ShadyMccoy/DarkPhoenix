@@ -7,17 +7,50 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { controllerInputSpot, controllerParkingTiles } from "./nodeEnergy";
+import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { effectiveLife } from "../economy/primitives";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
-const UPGRADER_COUNT_CAP = 6;
+const UPGRADER_COUNT_CAP = 8;
+
+/**
+ * Tighter ceiling at RCL <= 2: the tiny spawn network can't both staff a big
+ * upgrader camp AND keep full-size haulers running, so a swarm of upgraders
+ * starves the supply chain into a runt death-spiral. A handful ramps to RCL3
+ * fastest, after which the full UPGRADER_COUNT_CAP applies. See getSpawnDemand.
+ */
+const RCL2_UPGRADER_CAP = 3;
+
+/**
+ * How many upgraders to field (pure, unit-tested). Sized to consume the controller
+ * allocation (1 WORK ~ 1 e/tick) at the affordable body size, but bounded by:
+ *  - UPGRADER_COUNT_CAP   - hard safety bound against a stale/huge allocation;
+ *  - the RCL ceiling      - RCL2_UPGRADER_CAP while the spawn network is tiny
+ *                           (controllerLevel <= 2), the full cap above that. An
+ *                           unknown level (no controller in view) imposes no RCL
+ *                           ceiling, so allocation alone drives the count;
+ *  - parkingTiles         - never field more upgraders than can ring the input
+ *                           spot and actually work (0 is treated as "unknown").
+ * Always at least 1 so the controller is never wholly abandoned.
+ */
+export function upgraderTargetCount(
+  allocated: number,
+  affordableWork: number,
+  parkingTiles: number,
+  controllerLevel: number | undefined
+): number {
+  const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
+  const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
+  return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
+}
 
 /**
  * Serialized state specific to UpgradingCorp
@@ -146,160 +179,93 @@ export class UpgradingCorp extends Corp {
       creep.memory.working = true;
     }
 
-    // Upgraders only upgrade - they camp at the controller and convert the
-    // energy the CarryCorp (local mover) delivers there. Construction is the
-    // ConstructionCorp's job; diverting the upgrader to build sites just pulls
-    // it away from the controller and stalls RCL progress.
-    if (creep.pos.getRangeTo(controller) > 3) {
+    // PARKED MODEL: each upgrader owns a fixed tile ringing the one dedicated
+    // input spot (the controller container, or the shared drop pile before it is
+    // built). It walks there ONCE, then withdraws from that single input and
+    // upgrades in place - never chasing scattered drops, never shuffling into
+    // another upgrader. This is what lets many upgraders consume the delivered
+    // energy without blocking each other or idling on a fetch cycle.
+    const park = this.parkingTileFor(creep, controller);
+    if (park && !creep.pos.isEqualTo(park)) {
+      // travelToBypass so an upgrader can swap through an already-parked sibling on
+      // the way to its own tile instead of stalling in the cramped controller ring.
+      travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
+      // Upgrade en route if already in range - no idle ticks while repositioning.
+      if (creep.memory.working && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
+      return;
+    }
+    // No parking computed (degenerate layout): fall back to camping within range.
+    if (!park && creep.pos.getRangeTo(controller) > 3) {
       creep.moveTo(controller, { visualizePathStyle: { stroke: "#ffffff" } });
       return;
     }
 
     if (creep.memory.working) {
-      const result = creep.upgradeController(controller);
-      if (result === OK) {
-        const workParts = creep.getActiveBodyparts(WORK);
-        this.recordConsumption(workParts);
-        this.recordProduction(workParts);
-      }
+      this.tryUpgrade(creep, controller);
     } else {
-      // Stationary pickup near controller
-      this.doPickupEnergy(creep, controller);
+      this.drawFromInput(creep, controller);
+    }
+  }
+
+  /** Upgrade the controller in place, recording the WORK consumed. */
+  private tryUpgrade(creep: Creep, controller: StructureController): void {
+    if (creep.pos.getRangeTo(controller) > 3) return;
+    if (creep.upgradeController(controller) === OK) {
+      const workParts = creep.getActiveBodyparts(WORK);
+      this.recordConsumption(workParts);
+      this.recordProduction(workParts);
     }
   }
 
   /**
-   * Pick up energy from nearby sources only (stationary - don't travel for energy).
-   * Haulers are responsible for delivering energy to upgraders.
+   * Draw from the SINGLE dedicated input spot (container/link, else the shared
+   * drop pile at that tile). The upgrader is parked within range 1 of it, so this
+   * never moves it.
+   *
+   * If the input is dry the upgrader simply WAITS on its tile - it does NOT chase
+   * scattered drops. Chasing was the RCL2 oscillation: the creep would leave its
+   * park tile for a stray pile, then parkingTileFor would march it back next tick,
+   * and it never settled long enough to actually upgrade. Standing put keeps it in
+   * upgrade range and on its withdraw tile for the moment energy lands.
    */
-  private doPickupEnergy(creep: Creep, controller: StructureController): void {
-    const PICKUP_RANGE = 4; // Only grab energy within this range
-
-    // Check for dropped energy within range
-    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
-    });
-    if (dropped.length > 0) {
-      const target = dropped[0];
-      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
+  private drawFromInput(creep: Creep, controller: StructureController): void {
+    const input = controllerInputSpot(controller);
+    if (input.structure && (input.structure as StructureContainer).store[RESOURCE_ENERGY] > 0) {
+      creep.withdraw(input.structure, RESOURCE_ENERGY);
       return;
     }
-
-    // Check for tombstones with energy within range
-    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: t => t.store[RESOURCE_ENERGY] > 0
-    });
-    if (tombstones.length > 0) {
-      const target = tombstones[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for ruins with energy within range
-    const ruins = creep.pos.findInRange(FIND_RUINS, PICKUP_RANGE, {
-      filter: r => r.store[RESOURCE_ENERGY] > 0
-    });
-    if (ruins.length > 0) {
-      const target = ruins[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check containers within range
-    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (containers.length > 0) {
-      const target = containers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check links within range (for higher RCL)
-    const links = creep.pos.findInRange(FIND_MY_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_LINK && (s as StructureLink).store[RESOURCE_ENERGY] > 0
-    }) as StructureLink[];
-    if (links.length > 0) {
-      const target = links[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // Check for containers near the controller (even if not near creep)
-    const controllerContainers = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (controllerContainers.length > 0) {
-      const target = controllerContainers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // No energy nearby - stay near controller and wait for delivery
-    if (creep.pos.getRangeTo(controller) > 3) {
-      creep.moveTo(controller);
-    }
+    // The pile lands on the input tile but a parked upgrader stands range 1 from it;
+    // scan range 1 so it can pick up the shared pile (and any of its own slop).
+    const pile = creep.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
+      .sort((a, b) => b.amount - a.amount)[0];
+    if (pile) creep.pickup(pile);
   }
 
   /**
-   * Pick up energy near a position (stationary - don't travel for energy).
-   * Used when building at construction sites.
+   * Assign (and cache) this upgrader a stable parking tile ringing the input
+   * spot. New upgraders take the first free slot; existing ones keep theirs as
+   * long as it is still a valid parking tile.
    */
-  private doPickupEnergyNearPosition(creep: Creep, pos: RoomPosition): void {
-    const PICKUP_RANGE = 4;
+  private parkingTileFor(creep: Creep, controller: StructureController): RoomPosition | null {
+    const input = controllerInputSpot(controller);
+    const tiles = controllerParkingTiles(controller, input.pos);
+    if (tiles.length === 0) return null;
 
-    // Check for dropped energy within range
-    const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
-    });
-    if (dropped.length > 0) {
-      const target = dropped[0];
-      if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
+    const key = (p: { x: number; y: number }): string => `${p.x},${p.y}`;
+    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
+    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
+      return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
     }
-
-    // Check for tombstones with energy within range
-    const tombstones = creep.pos.findInRange(FIND_TOMBSTONES, PICKUP_RANGE, {
-      filter: t => t.store[RESOURCE_ENERGY] > 0
-    });
-    if (tombstones.length > 0) {
-      const target = tombstones[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
+    const taken = new Set<string>();
+    for (const other of this.getActiveCreeps()) {
+      if (other.name === creep.name) continue;
+      const s = other.memory.upgradeSpot as { x: number; y: number } | undefined;
+      if (s) taken.add(key(s));
     }
-
-    // Check containers within range
-    const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
-    }) as StructureContainer[];
-    if (containers.length > 0) {
-      const target = containers[0];
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target);
-      }
-      return;
-    }
-
-    // No energy nearby - stay near target position and wait for delivery
-    if (creep.pos.getRangeTo(pos) > 3) {
-      creep.moveTo(pos);
-    }
+    const free = tiles.find(t => !taken.has(key(t))) ?? tiles[0];
+    creep.memory.upgradeSpot = { x: free.x, y: free.y };
+    return free;
   }
 
   /**
@@ -375,7 +341,7 @@ export class UpgradingCorp extends Corp {
     if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
     const travel = scene.dist(scene.spawnPos, scene.controllerPos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    const usefulLife = effectiveLife(travel);
     return { costPerTick: body.cost / usefulLife, throughput: 0, spawnPartsPerTick: body.body.length / usefulLife };
   }
 
@@ -415,8 +381,13 @@ export class UpgradingCorp extends Corp {
     const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, strategy).workParts);
     // Cap the count as a safety bound: should a stale/over-large allocation slip
     // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
-    // bounded by real supply in normal operation.
-    const targetCount = Math.max(1, Math.min(UPGRADER_COUNT_CAP, Math.ceil(allocated / affordableWork)));
+    // bounded by real supply in normal operation. ALSO bounded by the parking
+    // tiles around the controller's input spot: an upgrader with nowhere to park
+    // would just block another, so never field more than can stand and work.
+    const parking = controller
+      ? controllerParkingTiles(controller, controllerInputSpot(controller).pos).length
+      : UPGRADER_COUNT_CAP;
+    const targetCount = upgraderTargetCount(allocated, affordableWork, parking, controller?.level);
     const current = this.getCreepCount();
     if (current >= targetCount) return [];
 

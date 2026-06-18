@@ -14,18 +14,17 @@ export {
   CorpRegistry,
   createCorpRegistry,
   runBootstrapCorps,
-  runRealCorps,
-  runScoutCorps,
-  runConstructionCorps,
-  runExtensionTenderCorps,
-  runReservationCorps,
   runSpawningCorps,
   logCorpStats,
   snapshotCorpVariance,
   CorpVarianceRow
 } from "./CorpRunner";
 
+export { commissionedCorpsOfKind, runCommissionHost, resetCommissionHost } from "./CommissionHost";
+
 export { runSpawnScheduling } from "./SpawnDirector";
+
+export { runLinks } from "./LinkRunner";
 
 export { persistState, cleanupDeadCreeps } from "./Persistence";
 

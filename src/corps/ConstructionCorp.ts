@@ -16,6 +16,7 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
+import { carryPartsFor } from "../economy/primitives";
 import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
@@ -57,6 +58,18 @@ const CONTAINER_LIMIT = 5;
  * (3000, compounding capacity) come first.
  */
 const CONTAINER_MIN_RCL = 3;
+
+/** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
+const STORAGE_MIN_RCL = 4;
+
+/** Links allowed per RCL (game rule). The network anchors on the storage. */
+const LINK_LIMITS: { [rcl: number]: number } = { 5: 2, 6: 3, 7: 4, 8: 6 };
+
+/**
+ * Don't spend a link on a source this close to the storage: the saved haul is
+ * shorter than the link's build cost + 3% transfer fee are worth.
+ */
+const LINK_MIN_SOURCE_RANGE = 8;
 
 /**
  * Dropped energy (within range 1 of a source) that signals a source container is
@@ -192,7 +205,10 @@ export class ConstructionCorp extends Corp {
       (this.findMissingSourceContainer(room) !== null ||
         this.findMissingCoreDepot(room) !== null ||
         this.findMissingControllerContainer(room) !== null);
-    const canBuildMore = activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer);
+    const wantsStorage = this.findMissingStorage(room, rcl) !== null;
+    const wantsLink = this.findMissingLink(room, rcl) !== null;
+    const canBuildMore =
+      activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer || wantsStorage || wantsLink);
 
     if (canBuildMore) {
       // Whether to build at all - and how fast - is the planner's call (it
@@ -205,7 +221,11 @@ export class ConstructionCorp extends Corp {
 
     // Reserve a whole source for the builder while building, so its miner feeds
     // the tankers directly and nothing else drains it (see updateDedicatedSource).
-    this.updateDedicatedSource(room, activeSites > 0);
+    // Only once a builder is actually fielded (or spawning): reserving earlier
+    // strands the source's output - its haulers stand down, income drops, and the
+    // poorer spawn then can't fund the very builder the reservation is waiting
+    // for. Supply before demand, same as the upgrader gate.
+    this.updateDedicatedSource(room, activeSites > 0 && this.builders.count() > 0);
 
     // A reserved source feeds far more than a runt builder (spawned small under
     // early energy pressure) can use. Retire the runt so it respawns at the size
@@ -447,9 +467,38 @@ export class ConstructionCorp extends Corp {
     //    container. Building the controller container first (it sits ~20 tiles
     //    from the sources) stalls the whole build set on one slow, hard-to-feed
     //    structure while the cheap capacity-growing extensions wait.
-    const ext = this.findGridPosition(room);
-    if (ext) {
-      this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+    //    Cap-guarded here (not just in work()'s gate): when the gate opens for a
+    //    wanted container/storage with extensions already maxed, attempting an
+    //    over-cap extension would fail every cooldown and starve the later steps.
+    const maxExtensions = EXTENSION_LIMITS[rcl] || 0;
+    const builtExtensions = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_EXTENSION
+    }).length;
+    if (builtExtensions < maxExtensions) {
+      const ext = this.findGridPosition(room);
+      if (ext) {
+        this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+        return;
+      }
+    }
+
+    // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
+    //     replaces the fragile 2000-cap container depot with a structure that can
+    //     hold a real reserve (spawn-surge and downgrade insurance). After the
+    //     extension set (capacity compounds first), before the controller
+    //     container (a luxury).
+    const storage = this.findMissingStorage(room, rcl);
+    if (storage) {
+      this.placeSite(room, storage.x, storage.y, STRUCTURE_STORAGE, 0);
+      return;
+    }
+
+    // 2.7 Links (RCL 5): a core link beside the storage, then a source link at
+    //     the farthest source - the pair replaces that source's long haul with an
+    //     instant transfer (see execution/LinkRunner).
+    const link = this.findMissingLink(room, rcl);
+    if (link) {
+      this.placeSite(room, link.x, link.y, STRUCTURE_LINK, 0);
       return;
     }
 
@@ -482,11 +531,29 @@ export class ConstructionCorp extends Corp {
    * is at its container cap.
    */
   private findMissingCoreDepot(room: Room): { x: number; y: number } | null {
+    if (room.storage) return null; // storage IS the depot - no container needed
     if (this.containerBudgetFull(room)) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos);
+    return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
+  /**
+   * A still-missing STORAGE: the room is RCL 4+ and has neither a storage nor a
+   * storage site. Placed within 2 of the spawn so it slots straight into the
+   * depot role (haulers' dump point, tender's draw point) without changing any
+   * routes - coreDepot() prefers it over the container from the moment it's built.
+   */
+  private findMissingStorage(room: Room, rcl: number): { x: number; y: number } | null {
+    if (rcl < STORAGE_MIN_RCL || room.storage) return null;
+    const hasSite =
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_STORAGE }).length > 0;
+    if (hasSite) return null;
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (!spawn) return null;
+    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -519,6 +586,47 @@ export class ConstructionCorp extends Corp {
       const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
       const spot = sourceHarvestSpot(source, spawn?.pos);
       return { x: spot.x, y: spot.y };
+    }
+    return null;
+  }
+
+  /**
+   * A still-missing LINK (RCL 5+). The network anchors on the storage: first a
+   * CORE link beside it (the receiving end - the others are useless without it),
+   * then one link per far source, farthest first (longest haul saved), adjacent
+   * to the harvest spot so the standing miner can feed it without moving.
+   */
+  private findMissingLink(room: Room, rcl: number): { x: number; y: number } | null {
+    const limit = LINK_LIMITS[rcl] ?? 0;
+    if (limit === 0) return null;
+    const storage = room.storage;
+    if (!storage) return null;
+
+    const links = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_LINK
+    }) as StructureLink[];
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_LINK });
+    const all: { pos: RoomPosition }[] = [...links, ...sites];
+    if (all.length >= limit) return null;
+
+    const linkNear = (pos: RoomPosition, range: number): boolean => all.some(l => l.pos.inRangeTo(pos, range));
+
+    // 1) Core link beside the storage.
+    if (!linkNear(storage.pos, 2)) {
+      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos);
+      return tile ? { x: tile.x, y: tile.y } : null;
+    }
+
+    // 2) Source links, farthest first; nearby sources aren't worth one.
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    const candidates = room
+      .find(FIND_SOURCES)
+      .filter(s => !linkNear(s.pos, 2) && s.pos.getRangeTo(storage.pos) > LINK_MIN_SOURCE_RANGE)
+      .sort((a, b) => b.pos.getRangeTo(storage.pos) - a.pos.getRangeTo(storage.pos));
+    for (const source of candidates) {
+      const spot = sourceHarvestSpot(source, spawn?.pos);
+      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos);
+      if (tile) return { x: tile.x, y: tile.y };
     }
     return null;
   }
@@ -992,12 +1100,11 @@ export class ConstructionCorp extends Corp {
     const consumption = Math.max(5, work * 5); // energy/tick the builder eats
     const source = site.pos.findClosestByRange(FIND_SOURCES);
     const dist = source ? site.pos.getRangeTo(source) : 8;
-    const roundTrip = 2 * dist + 2;
     // CARRY needed in flight to sustain consumption over the round trip, with a
     // 1.5x margin: a tanker also spends ticks transferring at the builder and
     // withdrawing at the source, so the bare round-trip figure under-delivers and
     // a far site starves its builder. The margin scales the relay with distance.
-    const carryNeeded = Math.ceil((consumption * roundTrip * 1.5) / 50);
+    const carryNeeded = Math.ceil(carryPartsFor(consumption, dist) * 1.5);
     return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
 

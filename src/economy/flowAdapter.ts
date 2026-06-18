@@ -13,25 +13,28 @@
 import { FlowGraph } from "../flow/FlowGraph";
 import {
   FlowSolution,
-  MinerAssignment,
   HaulerAssignment,
+  MinerAssignment,
   SinkAllocation,
   SinkType,
   createEdgeId
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { minerOverhead, haulerOverhead } from "./primitives";
+import { coreLink, sourceLink } from "../corps/nodeEnergy";
+import { haulerOverhead, minerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
-  planColony,
   ColonyProblem,
+  DEFAULT_SINK_VALUE,
   PlannerSink,
   PlannerSource,
   PlannerSpawn,
   SinkKind,
-  DEFAULT_SINK_VALUE
+  planColony
 } from "./CorpPlanner";
+import { Commission } from "./Commission";
+import { commissionsFromPlan } from "./commissionPlan";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
@@ -79,21 +82,44 @@ export function detectTransientSources(): PlannerSource[] {
   return out;
 }
 
+/**
+ * Detect link-served sources across visible rooms: a source with its own link
+ * within feeding range, in a room whose core link (beside the storage) exists.
+ * Such a source's output emerges at the CORE, so the planner prices and routes
+ * its hauling from there (haulPos) while the miner keeps the real distance.
+ * Live default for buildColonyProblem; injectable for tests.
+ */
+export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position> {
+  const out = new Map<string, Position>();
+  if (typeof Game === "undefined" || !Game.rooms) return out;
+  for (const s of graph.getSources()) {
+    const room = Game.rooms[s.position.roomName];
+    if (!room) continue;
+    const core = coreLink(room);
+    if (!core) continue;
+    const pos = new RoomPosition(s.position.x, s.position.y, s.position.roomName);
+    if (sourceLink(pos, core.id)) {
+      out.set(s.id, { x: core.pos.x, y: core.pos.y, roomName: core.pos.roomName });
+    }
+  }
+  return out;
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph)
 ): ColonyProblem {
-  const spawns: PlannerSpawn[] = graph
-    .getSinks("spawn")
-    .map(s => ({ id: s.id, pos: s.position }));
+  const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
   const sources: PlannerSource[] = graph.getSources().map(s => ({
     id: s.id,
     nodeId: s.nodeId,
     pos: s.position,
     rate: s.capacity,
-    maxMiners: s.maxMiners
+    maxMiners: s.maxMiners,
+    haulPos: linkHaulPos.get(s.id)
   }));
   // Ground stocks join as miner-less transient sources (scavenging).
   sources.push(...transientSources);
@@ -112,10 +138,10 @@ export function buildColonyProblem(
         kind === "spawn"
           ? Math.max(sink.demand, 1) // feed the spawn its overhead need
           : kind === "construction"
-            ? CONSTRUCTION_ABSORB_RATE
-            : kind === "storage"
-              ? Math.max(totalSupply, 1) // soak excess
-              : Math.max(totalSupply, 1), // controller mops up the remainder
+          ? CONSTRUCTION_ABSORB_RATE
+          : kind === "storage"
+          ? Math.max(totalSupply, 1) // soak excess
+          : Math.max(totalSupply, 1), // controller mops up the remainder
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
   }
@@ -143,14 +169,28 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     corps.push({ kind: "mine", work: Math.max(1, Math.ceil(m.rate / 2)), sourceId: m.sourceId, spawnId: m.spawnId });
   }
   for (const h of plan.haulers) {
-    corps.push({ kind: "haul", carry: Math.max(1, Math.ceil(h.carryParts)), fromId: h.sourceId, toId: h.sinkId, spawnId: h.spawnId });
+    corps.push({
+      kind: "haul",
+      carry: Math.max(1, Math.ceil(h.carryParts)),
+      fromId: h.sourceId,
+      toId: h.sinkId,
+      spawnId: h.spawnId
+    });
   }
   for (const k of plan.sinks) {
     if (k.allocated <= 1e-9) continue;
     if (k.kind === "controller") {
-      corps.push({ kind: "upgrade", work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.upgrade)), sinkId: k.sinkId });
+      corps.push({
+        kind: "upgrade",
+        work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.upgrade)),
+        sinkId: k.sinkId
+      });
     } else if (k.kind === "construction") {
-      corps.push({ kind: "build", work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.build)), sinkId: k.sinkId });
+      corps.push({
+        kind: "build",
+        work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.build)),
+        sinkId: k.sinkId
+      });
     }
   }
   (Memory as { economyPlan?: unknown }).economyPlan = {
@@ -166,9 +206,29 @@ export function solveWithCorpPlanner(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources()
 ): FlowSolution {
-  const problem = buildColonyProblem(graph, dist, transientSources);
+  return solveColony(graph, tick, dist, transientSources).solution;
+}
+
+/**
+ * Solve the colony ONCE and return both representations of the result:
+ *  - solution: the FlowSolution the live materializer/telemetry consume today;
+ *  - commissions: the same plan wrapped as Commission envelopes (the framework
+ *    seam - what the corp kinds materialize from).
+ * Both come from a single planColony() call, so surfacing commissions for the
+ * rung-5 cutover costs no extra solve. commissionsFromPlan is used (not
+ * planCommissions) so the adapter stays free of kind-registry side effects -
+ * auxiliary kinds propose() in the host, not here.
+ */
+export function solveColony(
+  graph: FlowGraph,
+  tick = 0,
+  dist: ColonyProblem["dist"] = pathDistance,
+  transientSources: PlannerSource[] = detectTransientSources()
+): { solution: FlowSolution; commissions: Commission[] } {
+  const problem = buildColonyProblem(graph, dist, transientSources, detectLinkHaulPositions(graph));
   const plan = planColony(problem);
   publishRoster(plan);
+  const commissions = commissionsFromPlan(problem, plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({
     sourceId: m.sourceId,
@@ -212,7 +272,7 @@ export function solveWithCorpPlanner(
   const unmetDemand = new Map<string, number>();
   for (const a of sinkAllocations) if (a.unmet > 0) unmetDemand.set(a.sinkId, a.unmet);
 
-  return {
+  const solution: FlowSolution = {
     miners,
     haulers,
     sinkAllocations,
@@ -227,6 +287,7 @@ export function solveWithCorpPlanner(
     warnings: [],
     computedAt: tick
   };
+  return { solution, commissions };
 }
 
 /** Re-export for the integration site. */

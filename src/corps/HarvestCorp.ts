@@ -7,7 +7,14 @@
  * @module corps/HarvestCorp
  */
 
-import { CREEP_LIFETIME, HARVEST_RATE, SOURCE_ENERGY_CAPACITY, SOURCE_REGEN_TIME, calculateOptimalWorkParts } from "../planning/EconomicConstants";
+import {
+  CREEP_LIFETIME,
+  HARVEST_RATE,
+  SOURCE_ENERGY_CAPACITY,
+  SOURCE_REGEN_TIME,
+  calculateOptimalWorkParts
+} from "../planning/EconomicConstants";
+import { effectiveLife } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -285,6 +292,19 @@ export class HarvestCorp extends Corp {
       travelTo(creep, source, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
     }
 
+    // Link mining: a full store means the CARRY buffer is ready to ship - feed
+    // the adjacent source link so the energy teleports to the core instead of
+    // piling up. With no link (or a full one) the store just stays full and
+    // harvested energy spills to the ground/container exactly as drop mining
+    // always has. Transfer and harvest are separate intents, so both run this tick.
+    if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+      const link = creep.pos.findInRange(FIND_MY_STRUCTURES, 1, {
+        filter: s =>
+          s.structureType === STRUCTURE_LINK && (s as StructureLink).store.getFreeCapacity(RESOURCE_ENERGY) > 0
+      })[0] as StructureLink | undefined;
+      if (link) creep.transfer(link, RESOURCE_ENERGY);
+    }
+
     const result = creep.harvest(source);
 
     if (result === OK) {
@@ -332,7 +352,7 @@ export class HarvestCorp extends Corp {
 
     const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
     const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = Math.max(1, CREEP_LIFETIME - travel);
+    const usefulLife = effectiveLife(travel);
     // A static miner walks out once and dies at the source, so it both costs
     // energy and consumes spawn build-time over its (shortened) useful life.
     return {

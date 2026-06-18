@@ -40,6 +40,11 @@ export class ScoutCorp extends Corp {
     this.spawnId = spawnId;
   }
 
+  /** The home spawn this corp requests scouts from (kind dispatch needs it). */
+  public getSpawnId(): string {
+    return this.spawnId;
+  }
+
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
     for (const name in Game.creeps) {
@@ -312,16 +317,4 @@ export class ScoutCorp extends Corp {
     this.lastPurchaseTick = data.lastPurchaseTick || 0;
     this.blockedRooms = new Set(data.blockedRooms || []);
   }
-}
-
-/**
- * Create a ScoutCorp for a room.
- */
-export function createScoutCorp(room: Room): ScoutCorp | null {
-  const spawns = room.find(FIND_MY_SPAWNS);
-  if (spawns.length === 0) return null;
-
-  const spawn = spawns[0];
-  const nodeId = `${room.name}-scout`;
-  return new ScoutCorp(nodeId, spawn.id);
 }

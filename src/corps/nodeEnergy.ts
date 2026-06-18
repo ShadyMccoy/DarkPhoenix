@@ -18,7 +18,59 @@
 import { travelTo } from "./movement";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
-type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension;
+type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension | StructureLink;
+
+/** The room's core depot: the one structure haulers dump into and the tender draws from. */
+export type CoreDepot = StructureContainer | StructureStorage;
+
+/**
+ * Resolve a room's core depot. Storage is the depot from the moment it exists
+ * (durable, huge, and placed beside the spawn by ConstructionCorp); before that,
+ * a container adjacent to one of the room's spawns. Null until either is built -
+ * haulers then fill the spawn network directly.
+ *
+ * Shared by CarryCorp (dump point of the source->depot bus), ExtensionTenderCorp
+ * (draw point for extension refills) and ConstructionCorp (placement), so all
+ * three always agree on which structure is "the depot".
+ */
+export function coreDepot(room: Room): CoreDepot | null {
+  if (room.storage && room.storage.my) return room.storage;
+  for (const spawn of room.find(FIND_MY_SPAWNS)) {
+    const c = spawn.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    })[0] as StructureContainer | undefined;
+    if (c) return c;
+  }
+  return null;
+}
+
+/**
+ * The room's CORE link: the link beside the storage, the receiving end of the
+ * link network (source links fire their energy here; haulers withdraw from it).
+ * Null until the room has both a storage and a link next to it.
+ */
+export function coreLink(room: Room): StructureLink | null {
+  const storage = room.storage;
+  if (!storage || !storage.my) return null;
+  return (
+    (storage.pos.findInRange(FIND_MY_STRUCTURES, 2, {
+      filter: s => s.structureType === STRUCTURE_LINK
+    })[0] as StructureLink | undefined) ?? null
+  );
+}
+
+/**
+ * A source's link: a link within 2 of the source (close enough that the miner
+ * standing on its harvest tile can feed it), excluding the core link itself
+ * (a source right beside the storage needs no link at all).
+ */
+export function sourceLink(sourcePos: RoomPosition, coreLinkId?: string): StructureLink | null {
+  return (
+    (sourcePos.findInRange(FIND_MY_STRUCTURES, 2, {
+      filter: s => s.structureType === STRUCTURE_LINK && s.id !== coreLinkId
+    })[0] as StructureLink | undefined) ?? null
+  );
+}
 
 /** A concrete energy access point resolved from a node's strategy. */
 export interface EnergySpot {
@@ -108,6 +160,24 @@ export function sourceHarvestSpot(source: Source, spawnPos?: RoomPosition): Room
  * Position-based so it serves live and remote (intel) sources alike.
  */
 export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
+  // Link-served source: the miner feeds its source link and the network fires
+  // the energy across the room to the core link - so the hauler's pickup stop
+  // is the CORE link beside the storage, not the far source tile. This is the
+  // node-strategy change the resolver exists for: the haulers don't change.
+  //
+  // The redirect follows where energy ACTUALLY is, not just where structures
+  // stand: a fresh link pair with a CARRY-less old miner (it can't feed the
+  // link until natural turnover replaces it) still drops at the source, so a
+  // loaded source-side container/pile below still wins. Only when nothing sits
+  // at the source does a link-served hauler wait at the core - where the next
+  // volley lands - instead of trekking to the empty source.
+  const room = Game.rooms[sourcePos.roomName];
+  const core = room ? coreLink(room) : null;
+  const linkServed = core !== null && sourceLink(sourcePos, core.id) !== null;
+  if (linkServed && core!.store[RESOURCE_ENERGY] > 0) {
+    return { pos: core!.pos, structure: core! };
+  }
+
   const container = sourcePos.findInRange(FIND_STRUCTURES, 1, {
     filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
   })[0] as StructureContainer | undefined;
@@ -117,6 +187,8 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
     .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
     .sort((a, b) => b.amount - a.amount)[0];
   if (pile) return { pos: pile.pos };
+
+  if (linkServed) return { pos: core!.pos, structure: core! };
 
   // No pile yet: stand clear of the source so we don't block the miner's tile.
   return { pos: sourcePos, waitClear: true };
@@ -153,13 +225,90 @@ export function scavengeSpot(pos: RoomPosition): EnergySpot | null {
  * the camping upgraders to draw from (a pile).
  */
 export function controllerDeliverySpot(controller: StructureController): EnergySpot {
-  const container = controller.pos.findInRange(FIND_STRUCTURES, 4, {
-    filter: s =>
-      s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store.getFreeCapacity(RESOURCE_ENERGY) > 0
-  })[0] as StructureContainer | undefined;
-  if (container) return { pos: container.pos, structure: container };
+  return controllerInputSpot(controller);
+}
 
-  return { pos: controller.pos };
+/**
+ * The single DEDICATED controller input spot: the one tile haulers always drop
+ * at and upgraders always draw from (where the upgrader container is, or will be
+ * built). Deterministic so haulers, upgraders, and the future container all
+ * agree on it:
+ *   - an existing container/link within range 3 of the controller, else
+ *   - the walkable tile (within range 2 of the controller) with the MOST walkable
+ *     neighbours that are themselves within upgrade range - i.e. the spot that can
+ *     host the most parked upgraders. Ties broken by (x,y) for stability.
+ * No container yet (RCL 2) => a bare drop tile, so every load lands on ONE pile
+ * the parked upgraders share, instead of scattering across the controller fringe.
+ */
+export function controllerInputSpot(controller: StructureController): EnergySpot {
+  const room = controller.room as Room;
+  const buffer = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
+  })[0] as StructureContainer | StructureLink | undefined;
+  if (buffer) return { pos: buffer.pos, structure: buffer };
+
+  const terrain = room.getTerrain();
+  const cx = controller.pos.x;
+  const cy = controller.pos.y;
+  const walkable = (x: number, y: number): boolean =>
+    x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
+  const inUpgradeRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
+
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if ((dx === 0 && dy === 0) || !walkable(x, y) || !inUpgradeRange(x, y)) continue;
+      let score = 0;
+      for (let ex = -1; ex <= 1; ex++) {
+        for (let ey = -1; ey <= 1; ey++) {
+          if (ex === 0 && ey === 0) continue;
+          if (walkable(x + ex, y + ey) && inUpgradeRange(x + ex, y + ey)) score++;
+        }
+      }
+      const better =
+        !best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)));
+      if (better) best = { x, y, score };
+    }
+  }
+  return { pos: best ? new RoomPosition(best.x, best.y, room.name) : controller.pos };
+}
+
+/**
+ * Walkable upgrader PARKING tiles RINGING the input spot: tiles within range 1 of
+ * the input (so an upgrader withdraws without moving) AND within upgrade range (3)
+ * of the controller (so it upgrades from there), excluding the controller's own
+ * tile AND the input tile itself. Sorted deterministically so each upgrader keeps a
+ * stable slot across ticks. This is the "analyse the controller-adjacent layout"
+ * strategy: the parked upgraders ring the one shared pile/container and never move
+ * or block each other.
+ *
+ * The input tile is deliberately EXCLUDED: it is the dedicated drop/withdraw point
+ * that the hauler must reach to deposit. An upgrader squatting it would wall the
+ * hauler out, so the shared pile (which lands on the input tile) never grows and
+ * the ring starves - the RCL2 deadlock. Reserving it keeps the pile reachable.
+ */
+export function controllerParkingTiles(controller: StructureController, input: RoomPosition): RoomPosition[] {
+  const room = controller.room as Room;
+  const terrain = room.getTerrain();
+  const cx = controller.pos.x;
+  const cy = controller.pos.y;
+  const tiles: RoomPosition[] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const x = input.x + dx;
+      const y = input.y + dy;
+      if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      if (x === cx && y === cy) continue; // can't stand on the controller
+      if (x === input.x && y === input.y) continue; // reserved drop/withdraw tile
+      if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) > 3) continue;
+      tiles.push(new RoomPosition(x, y, room.name));
+    }
+  }
+  tiles.sort((a, b) => a.x - b.x || a.y - b.y);
+  return tiles;
 }
 
 /**

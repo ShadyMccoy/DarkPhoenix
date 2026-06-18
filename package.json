@@ -21,6 +21,8 @@
     "sim:multiroom": "ts-node -P tsconfig.test.json scripts/sim-multiroom.ts",
     "sim:variance": "ts-node -P tsconfig.test.json scripts/sim-variance.ts",
     "sim:ab": "ts-node -P tsconfig.test.json scripts/ab-cold-start.ts",
+    "sim:warm": "ts-node -P tsconfig.test.json scripts/snapshot-warm.ts",
+    "sim:carry": "ts-node -P tsconfig.test.json scripts/carry-efficiency.ts",
     "sim:energy": "ts-node -P tsconfig.test.json scripts/effective-energy.ts",
     "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
     "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
@@ -31,8 +33,7 @@
     "watch-sim": "rollup -cw --environment DEST:sim",
     "plan:scenario": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts",
     "plan:scenario:list": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --list",
-    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose",
-    "plan:efficiency": "ts-node -P tsconfig.test.json scripts/compare-efficiency.ts"
+    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose"
   },
   "repository": {
     "type": "git",

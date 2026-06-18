@@ -1,8 +1,14 @@
 import { assert } from "chai";
 import { loop } from "../../src/main";
 import { Game, Memory, setupGlobals } from "./mock";
+import { resetCommissionHost } from "../../src/execution/CommissionHost";
 
 describe("main", () => {
+  afterEach(() => {
+    // The loop drives the commission host, which keeps a module-global store;
+    // reset it so corps fielded here don't leak into later test files.
+    resetCommissionHost();
+  });
   beforeEach(() => {
     // Stand up a minimal Screeps global environment for the loop.
     setupGlobals();

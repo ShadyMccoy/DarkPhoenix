@@ -161,47 +161,9 @@ export function persistState(
     Memory.bootstrapCorps[roomName] = registry.bootstrapCorps[roomName].serialize();
   }
 
-  // Persist mining corps
-  Memory.harvestCorps = {};
-  for (const sourceId in registry.harvestCorps) {
-    Memory.harvestCorps[sourceId] = registry.harvestCorps[sourceId].serialize();
-  }
-
-  // Persist hauling corps
-  Memory.haulingCorps = {};
-  for (const roomName in registry.haulingCorps) {
-    Memory.haulingCorps[roomName] = registry.haulingCorps[roomName].serialize();
-  }
-
-  // Persist upgrading corps
-  Memory.upgradingCorps = {};
-  for (const roomName in registry.upgradingCorps) {
-    Memory.upgradingCorps[roomName] = registry.upgradingCorps[roomName].serialize();
-  }
-
-  // Persist scout corps
-  Memory.scoutCorps = {};
-  for (const roomName in registry.scoutCorps) {
-    Memory.scoutCorps[roomName] = registry.scoutCorps[roomName].serialize();
-  }
-
-  // Persist construction corps
-  Memory.constructionCorps = {};
-  for (const roomName in registry.constructionCorps) {
-    Memory.constructionCorps[roomName] = registry.constructionCorps[roomName].serialize();
-  }
-
-  // Persist reservation corps
-  Memory.reservationCorps = {};
-  for (const roomName in registry.reservationCorps) {
-    Memory.reservationCorps[roomName] = registry.reservationCorps[roomName].serialize();
-  }
-
-  // Persist extension tender corps (local movers)
-  Memory.extensionTenderCorps = {};
-  for (const roomName in registry.extensionTenderCorps) {
-    Memory.extensionTenderCorps[roomName] = registry.extensionTenderCorps[roomName].serialize();
-  }
+  // Mining/hauling/upgrading/construction corps persist in
+  // Memory.commissionedCorps via CommissionHost; only the registry corps
+  // (bootstrap, spawning) are persisted here.
 
   // Persist spawning corps
   Memory.spawningCorps = {};

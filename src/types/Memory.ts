@@ -131,25 +131,30 @@ declare global {
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
 
     /**
-     * Serialized harvest corps by source ID.
+     * @deprecated Harvest/carry/upgrade corps live in commissionedCorps since
+     * the framework cutover; these keys are no longer written and exist only in
+     * old saves.
      */
     harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
-
-    /**
-     * Serialized hauling corps by source ID (legacy CarryCorp).
-     * Each source has its own CarryCorp for independent hauler scaling.
-     */
+    /** @deprecated see harvestCorps. */
     haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-
-    /**
-     * Serialized upgrading corps by room name.
-     */
+    /** @deprecated see harvestCorps. */
     upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
 
     /**
      * Serialized scout corps by room name.
+     * @deprecated Scout corps live in commissionedCorps since the framework
+     * port; this key is no longer written and exists only in old saves.
      */
     scoutCorps?: { [roomName: string]: SerializedScoutCorp };
+
+    /**
+     * The commissioned-corp store (execution/CommissionHost): every corp of a
+     * REGISTERED kind, keyed by commission corpId, with its commission and
+     * kind-serialized state. Grows kind by kind as the framework port
+     * progresses (docs/specs/00-corp-framework.md).
+     */
+    commissionedCorps?: import("../economy/CorpKind").SerializedCorpStore;
 
     /**
      * Serialized construction corps by room name.
@@ -158,6 +163,8 @@ declare global {
 
     /**
      * Serialized reservation corps by room name.
+     * @deprecated Reservation corps live in commissionedCorps since the
+     * framework port; this key is no longer written and exists only in old saves.
      */
     reservationCorps?: { [roomName: string]: SerializedReservationCorp };
 
@@ -168,6 +175,8 @@ declare global {
 
     /**
      * Serialized extension tender corps (local movers) by room name.
+     * @deprecated Tender corps live in commissionedCorps since the framework
+     * port; this key is no longer written and exists only in old saves.
      */
     extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }
@@ -323,6 +332,10 @@ declare global {
      * destination every trip (overridden only to top up a hungry spawn).
      */
     homeSink?: "spawn" | "controller";
+
+    /** An upgrader's assigned parking tile (ringing the controller input spot);
+     * it camps here, withdraws from the single input, and upgrades in place. */
+    upgradeSpot?: { x: number; y: number };
   }
 }
 

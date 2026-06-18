@@ -3,9 +3,6 @@ import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain } from "./loadLayout";
 
-before(() => hookConsole());
-afterEach(async () => helper.afterEach());
-
 /**
  * Quality gate for the colony's early game: starting from a bare room with a
  * spawn, two sources and a controller, the bot must bootstrap a working economy
@@ -15,6 +12,12 @@ afterEach(async () => helper.afterEach());
  * the colony spawned a single scout and made zero controller progress forever.
  */
 describe("colony bootstrap", () => {
+  // Scoped to THIS suite: root-level hooks would run around every test in
+  // every loaded file (mocha hoists them to the root suite) and cross-corrupt
+  // the shared server helper between files.
+  before(() => hookConsole());
+  afterEach(async () => helper.afterEach());
+
   it("harvests and upgrades the controller within 400 ticks", async function () {
     this.timeout(180000);
 

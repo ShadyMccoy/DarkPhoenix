@@ -19,17 +19,13 @@ export { CarryCorp, SerializedCarryCorp, createCarryCorp } from "./CarryCorp";
 
 export { UpgradingCorp, SerializedUpgradingCorp, createUpgradingCorp } from "./UpgradingCorp";
 
-export { ScoutCorp, SerializedScoutCorp, createScoutCorp } from "./ScoutCorp";
+export { ScoutCorp, SerializedScoutCorp } from "./ScoutCorp";
 
 export { ConstructionCorp, SerializedConstructionCorp, createConstructionCorp } from "./ConstructionCorp";
 
-export { ReservationCorp, SerializedReservationCorp, createReservationCorp } from "./ReservationCorp";
+export { ReservationCorp, SerializedReservationCorp } from "./ReservationCorp";
 
-export {
-  ExtensionTenderCorp,
-  SerializedExtensionTenderCorp,
-  createExtensionTenderCorp
-} from "./ExtensionTenderCorp";
+export { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "./ExtensionTenderCorp";
 
 export {
   SpawningCorp,

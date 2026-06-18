@@ -640,6 +640,18 @@ function populateNodeResources(
           });
         }
       }
+
+      // Add storage within territory (the room's bank; FlowGraph emits it as the
+      // lowest-priority sink so the flow accounting sees the buffer)
+      const storage = room.storage;
+      if (storage && storage.my && shouldClaimResource(storage.pos.x, storage.pos.y, roomName)) {
+        node.resources.push({
+          type: "storage",
+          id: storage.id,
+          position: { x: storage.pos.x, y: storage.pos.y, roomName },
+          capacity: storage.store.getCapacity(RESOURCE_ENERGY) ?? undefined
+        });
+      }
     } else {
       // Fall back to room intel
       const intel = Memory.roomIntel?.[roomName];

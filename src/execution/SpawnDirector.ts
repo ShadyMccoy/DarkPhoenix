@@ -17,6 +17,13 @@
 import "../types/Memory";
 import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
 import { CorpRegistry } from "./CorpRunner";
+import { commissionedCorpsOfKind } from "./CommissionHost";
+import { ReservationCorp } from "../corps/ReservationCorp";
+import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
+import { HarvestCorp } from "../corps/HarvestCorp";
+import { CarryCorp } from "../corps/CarryCorp";
+import { UpgradingCorp } from "../corps/UpgradingCorp";
+import { ConstructionCorp } from "../corps/ConstructionCorp";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -94,43 +101,75 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
 export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
 
-  for (const id in registry.harvestCorps) {
-    const c = registry.harvestCorps[id];
+  // Harvest/carry/upgrade are framework-commissioned (the commission store).
+  // A source's miner and haulers must share a groupId so withMinerPrecedence
+  // couples them; their commission ids (harvest-<src> / carry-<src>) differ, so
+  // the shared key is the source id (harvest's getSourceId, == carry's id minus
+  // the "carry-" prefix).
+  const harvestCorps = commissionedCorpsOfKind<HarvestCorp>("harvest");
+  const carryCorps = commissionedCorpsOfKind<CarryCorp>("carry");
+  const upgradeCorps = commissionedCorpsOfKind<UpgradingCorp>("upgrade");
+
+  // Sources with a miner actually in the field (their income unit is "started").
+  // Keyed by the real game source id (flow "source-" prefix stripped) so harvest
+  // and carry agree regardless of id format.
+  const sourceKey = (s: string): string => s.replace("source-", "");
+  const minedSources = new Set<string>();
+  for (const id in harvestCorps) {
+    if (harvestCorps[id].getCreepCount() > 0) minedSources.add(sourceKey(harvestCorps[id].getSourceId()));
+  }
+
+  for (const id in harvestCorps) {
+    const c = harvestCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
-    const started = sourceHasMiner(registry, id);
+    const sourceId = sourceKey(c.getSourceId());
+    const started = minedSources.has(sourceId);
     for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = id;
+      d.groupId = sourceId;
       d.groupStarted = started;
       demands.push(d);
     }
   }
-  for (const id in registry.haulingCorps) {
-    const c = registry.haulingCorps[id];
+  for (const id in carryCorps) {
+    const c = carryCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
+    // Shared source key, matching harvest's getSourceId() (the real game id). Take
+    // it from the route's fromId (stripped of the flow "source-" prefix) so a
+    // source's miner and haulers land in the same group regardless of id format;
+    // fall back to the commission corpId when there are no routes yet.
+    const fromId = c.getHaulerAssignments()[0]?.fromId;
+    const sourceId = sourceKey(fromId ?? id.replace(/^carry-/, ""));
     // A scavenger's energy is already on the ground (no miner to wait for), so its
     // income unit is always "started" - otherwise withMinerPrecedence would drop it
     // for having no miner and the scavenger could never spawn.
-    const started = id.startsWith("scavenge-") || sourceHasMiner(registry, id);
+    const started = sourceId.startsWith("scavenge-") || minedSources.has(sourceId);
     for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = id;
+      d.groupId = sourceId;
       d.groupStarted = started;
       demands.push(d);
     }
   }
-  for (const id in registry.upgradingCorps) {
-    const c = registry.upgradingCorps[id];
+  for (const id in upgradeCorps) {
+    const c = upgradeCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.constructionCorps) {
-    const c = registry.constructionCorps[id];
+  const constructionCorps = commissionedCorpsOfKind<ConstructionCorp>("construction");
+  for (const id in constructionCorps) {
+    const c = constructionCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.extensionTenderCorps) {
-    const c = registry.extensionTenderCorps[id];
+  // Extension tenders live in the commission store (framework-ported); their
+  // tankers still compete here on the value-ranked path (infrastructure tier).
+  const tenderCorps = commissionedCorpsOfKind<ExtensionTenderCorp>("tender");
+  for (const id in tenderCorps) {
+    const c = tenderCorps[id];
     if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
   }
-  for (const id in registry.reservationCorps) {
-    const c = registry.reservationCorps[id];
+  // Reservation corps live in the commission store (framework-ported), but
+  // their reservers still compete here on the value-ranked path.
+  const reservationCorps = commissionedCorpsOfKind<ReservationCorp>("reservation");
+  for (const id in reservationCorps) {
+    const c = reservationCorps[id];
     if (c.getSpawnId() !== spawnId) continue;
     for (const d of c.getSpawnDemand(ctx)) {
       // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
@@ -156,17 +195,6 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   }
 
   return demands;
-}
-
-/**
- * True once a source's income unit is underway: it already has a miner in the
- * field, so the energy is being produced and what remains is to finish hauling
- * it home. Keyed by source id (the registry key shared by the source's harvest
- * and hauling corps).
- */
-function sourceHasMiner(registry: CorpRegistry, sourceId: string): boolean {
-  const harvest = registry.harvestCorps[sourceId];
-  return !!harvest && harvest.getCreepCount() > 0;
 }
 
 /**

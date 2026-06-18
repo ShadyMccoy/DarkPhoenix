@@ -118,6 +118,23 @@ describe("economy/CorpPlanner", () => {
       expect(plan.miners).to.have.length(1);
     });
 
+    it("with spare build-time, mines a far source - distance alone never disqualifies", () => {
+      // d=120 is well past "local" but profitable and within the mining budget;
+      // the spawn-time wall is contention, not a fixed range cutoff.
+      const d = 120;
+      expect(netEnergy(10, d)).to.be.greaterThan(0);
+      expect(spawnPartsFor(10, d)).to.be.lessThan(miningBudgetPerSpawn());
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("far", d)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.miners).to.have.length(1);
+      expect(plan.miners[0].sourceId).to.equal("far");
+    });
+
     it("assigns each source to its NEAREST spawn (N spawns)", () => {
       const plan = planColony(
         problem({
@@ -189,6 +206,26 @@ describe("economy/CorpPlanner", () => {
       expect(ctrl.sources).to.have.length(1);
       expect(ctrl.sources[0].sourceId).to.equal("near");
       expect(ctrl.sources[0].amount).to.be.closeTo(10, 1e-9);
+    });
+  });
+
+  describe("link-served sources (haulPos)", () => {
+    it("prices a link-served source's hauling from its haulPos while the miner keeps the real distance", () => {
+      // The source sits 200 out, but its output emerges at the core link 2 from
+      // the sink - so the hauler is tiny while the miner still walks 200.
+      const linked: PlannerSource = { ...source("linked", 200), haulPos: at(2) };
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [linked],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+        })
+      );
+      expect(plan.miners).to.have.length(1);
+      expect(plan.miners[0].distance, "miner walks the real distance").to.equal(200);
+      expect(plan.haulers).to.have.length(1);
+      expect(plan.haulers[0].distance, "hauling is priced from the core").to.equal(2);
+      expect(plan.haulers[0].carryParts).to.be.closeTo(carryPartsFor(10, 2), 1e-9);
     });
   });
 

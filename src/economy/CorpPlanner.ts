@@ -58,6 +58,13 @@ export interface PlannerSource {
   /** Walkable mining spots adjacent to the source. */
   maxMiners: number;
   /**
+   * Where the source's OUTPUT is picked up, when not at the source itself: a
+   * link-served source's energy emerges at the core link beside the storage, so
+   * its hauling is priced (and routed) from there while the miner's own distance
+   * stays the real walk to the source. Defaults to `pos`.
+   */
+  haulPos?: Position;
+  /**
    * A transient source - a ground energy stock (dropped pile / tombstone / ruin)
    * that is ALREADY harvested. It needs no miner: only a scavenger hauls it home.
    * Its `rate` is a bounded drain rate; it lasts only until the stock is gone, at
@@ -295,10 +302,15 @@ function routeToSinks(
     };
     out.set(sink.id, acc);
 
-    // Sources with energy left, nearest to this sink first (ties by id).
+    // Sources with energy left, nearest to this sink first (ties by id). A
+    // source's output is hauled from its haulPos (the core link for a
+    // link-served source), not necessarily the source tile itself.
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
-      .map(id => ({ id, d: dist(sourceById.get(id)!.pos, sink.pos) }))
+      .map(id => {
+        const s = sourceById.get(id)!;
+        return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
+      })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
     for (const { id, d } of order) {
