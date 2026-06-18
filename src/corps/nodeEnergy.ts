@@ -15,7 +15,7 @@
  * @module corps/nodeEnergy
  */
 
-import { travelTo } from "./movement";
+import { travelToBypass } from "./movement";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension | StructureLink;
@@ -328,8 +328,12 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
   // tile short, common in remote mining where there is no container).
   const range = mode === "collect" && !spot.waitClear ? 1 : spot.structure ? 1 : 2;
   if (creep.pos.getRangeTo(spot.pos) > range) {
-    // travelTo so a hauler crossing into a remote room doesn't bounce on the border.
-    travelTo(creep, spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
+    // travelToBypass so a hauler that just dropped on the controller pile and is now
+    // ringed by parked upgraders can SWAP through one to escape on its way back to
+    // pick up - without it the ring walls the hauler in on the input tile and it
+    // never leaves (the trapped-on-the-pile symptom). Away from the ring there is no
+    // yielding creep to swap, so this falls back to the border-bounce-safe travelTo.
+    travelToBypass(creep, spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
     return 0;
   }
 

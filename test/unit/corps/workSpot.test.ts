@@ -19,11 +19,13 @@ function makeCreep(x: number, y: number, piles: Pile[]) {
   const calls = { moveTo: 0, pickup: 0, lastMoveRange: undefined as number | undefined };
   const self = { x, y };
   const pos = {
+    roomName: "W0N0",
     getRangeTo: (t: { x: number; y: number }) => cheby(self, t),
     findInRange: (_type: number, range: number, opts?: { filter?: (p: Pile) => boolean }) =>
       piles.filter(p => cheby(self, p.pos) <= range && (!opts?.filter || opts.filter(p)))
   };
   const creep = {
+    name: "hauler",
     pos,
     store: { energy: 0 } as Record<string, number>,
     moveTo: (_t: unknown, o?: { range?: number }) => {
