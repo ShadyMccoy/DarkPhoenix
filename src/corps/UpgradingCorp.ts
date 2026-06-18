@@ -11,7 +11,7 @@ import { controllerInputSpot, controllerParkingTiles } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { UpgraderStrategy, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -82,9 +82,6 @@ export class UpgradingCorp extends Corp {
    * Specifies the energy rate allocated to this controller.
    */
   private sinkAllocation: SinkAllocation | null = null;
-
-  /** Last chosen supply strategy, so a switch is logged once rather than every tick. */
-  private lastStrategy: UpgraderStrategy | null = null;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("upgrading", nodeId, customId);
@@ -297,35 +294,6 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Declare this corp's spawn demand for the scheduler.
-   *
-   * The upgrader is what drives RCL progress, so its demand is blocking when no
-   * upgrader exists. Its value comes from the flow solution's controller-sink
-   * priority, and it is sized to the allocated energy rate (but can be spawned
-   * small and scaled up). It does not produce income - the scheduler's
-   * wait-for-blocking logic is what lets it accumulate energy against a steady
-   * trickle of mining demand.
-   */
-  /**
-   * Decide how upgraders are fed, EXPLICITLY: "containerFed" when a container or
-   * link sits at the controller (a per-tick buffer), otherwise "mobile". This one
-   * choice drives both the body shape (WORK-heavy vs CARRY-heavy) and the runt
-   * policy, so the corp commits to a single coherent strategy instead of mixing
-   * conflicting signals. Logged on change so the active strategy is visible.
-   */
-  private getUpgraderStrategy(controller: StructureController): UpgraderStrategy {
-    const buffers = controller.pos.findInRange(FIND_STRUCTURES, 3, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
-    });
-    const strategy: UpgraderStrategy = buffers.length > 0 ? "containerFed" : "mobile";
-    if (strategy !== this.lastStrategy) {
-      console.log(`[Upgrading] ${this.id} strategy=${strategy} (controller buffers: ${buffers.length})`);
-      this.lastStrategy = strategy;
-    }
-    return strategy;
-  }
-
-  /**
    * Project the economics of upgrading the scene's controller with the energy
    * allocated to this corp: an upgrader sized to that energy, costed over the
    * life left after walking out to the controller. It is a pure consumer, so it
@@ -335,8 +303,10 @@ export class UpgradingCorp extends Corp {
     const allocated = this.sinkAllocation?.allocated ?? 0;
     if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
-    // Virtual mode has no vision of buffers, so assume the mobile (no-container)
-    // strategy - the conservative, CARRY-heavier body.
+    // Virtual planning estimate: the upgrader is a pure consumer (throughput 0),
+    // so this only sizes its cost/part footprint for the planner. Keep the
+    // conservative CARRY-heavier estimate here - the realized body (built WORK-heavy
+    // in getSpawnDemand) is cheaper per WORK, so this never UNDER-budgets a source.
     const body = buildUpgraderBody(scene.energyCapacity, Math.max(1, Math.ceil(allocated)), "mobile");
     if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
 
@@ -345,11 +315,19 @@ export class UpgradingCorp extends Corp {
     return { costPerTick: body.cost / usefulLife, throughput: 0, spawnPartsPerTick: body.body.length / usefulLife };
   }
 
+  /**
+   * Declare this corp's spawn demand for the scheduler.
+   *
+   * The upgrader is what drives RCL progress, so its demand is blocking when no
+   * upgrader exists. Its value comes from the flow solution's controller-sink
+   * priority, and it is sized to the allocated energy rate (but can be spawned
+   * small and scaled up). It does not produce income - the scheduler's
+   * wait-for-blocking logic is what lets it accumulate energy against a steady
+   * trickle of mining demand.
+   */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
-    // Commit to a supply strategy up front; body shape and runt policy follow it.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const controller = spawn?.room.controller;
-    const strategy: UpgraderStrategy = controller ? this.getUpgraderStrategy(controller) : "mobile";
 
     // SUPPLY BEFORE DEMAND: don't fund flow upgraders until the room's delivery
     // loop exists (a real hauler in the field). At cold start the first miner
@@ -378,7 +356,7 @@ export class UpgradingCorp extends Corp {
     // a single small upgrader cannot consume a whole source. Size the COUNT to
     // the allocation, so consumption scales with supply (this is what lets a
     // second source actually help instead of being wasted).
-    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, strategy).workParts);
+    const affordableWork = Math.max(1, buildUpgraderBody(ctx.energyCapacity, 99, "containerFed").workParts);
     // Cap the count as a safety bound: should a stale/over-large allocation slip
     // through, we never spawn a swarm of upgraders. The plan keeps `allocated`
     // bounded by real supply in normal operation. ALSO bounded by the parking
@@ -393,17 +371,16 @@ export class UpgradingCorp extends Corp {
 
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
-    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, strategy);
-    // Runt policy follows the strategy. targetCount is sized assuming each
-    // upgrader is the full affordableWork; a runt permanently occupies one of the
-    // few slots and the controller under-consumes its allocation for that creep's
-    // whole 1500-tick life. In containerFed mode the buffer feeds the controller
-    // while the spawn fills, so EVERY upgrader (including the first) holds out for
-    // a full-size body - waiting tens of ticks for a 4-WORK creep beats fielding a
-    // 1-WORK one forever. In mobile mode there is no buffer, so the first upgrader
-    // still spawns small to keep the controller alive immediately.
-    const minWork = strategy === "containerFed" ? affordableWork : 1;
-    const min = buildUpgraderBody(ctx.energyCapacity, minWork, strategy);
+    const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, "containerFed");
+    // Runt policy: a runt permanently occupies one of the few parking slots and the
+    // controller under-consumes its allocation for that creep's whole 1500-tick life.
+    // A SCALING upgrader (current > 0) therefore holds out for its full intended
+    // share - there is always energy at the input tile to feed it, so waiting for a
+    // proper body beats fielding a runt forever. Only the FIRST upgrader may spawn
+    // small (down to 1 WORK) so the controller starts upgrading immediately at cold
+    // start instead of waiting for the spawn to fill a full body.
+    const minWork = current === 0 ? 1 : desiredWork;
+    const min = buildUpgraderBody(ctx.energyCapacity, minWork, "containerFed");
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
 
     return [
@@ -425,7 +402,7 @@ export class UpgradingCorp extends Corp {
         minCost: min.cost,
         since: 0,
         bodyParam: desiredWork,
-        bodyStrategy: strategy
+        bodyStrategy: "containerFed"
       }
     ];
   }
