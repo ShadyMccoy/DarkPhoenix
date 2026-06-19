@@ -33,7 +33,8 @@
     "watch-sim": "rollup -cw --environment DEST:sim",
     "plan:scenario": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts",
     "plan:scenario:list": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --list",
-    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose"
+    "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose",
+    "sim:cop": "ts-node -P tsconfig.test.json scripts/corp-cop.ts"
   },
   "repository": {
     "type": "git",
