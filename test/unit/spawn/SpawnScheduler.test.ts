@@ -2,6 +2,7 @@ import { expect } from "chai";
 import {
   scheduleSpawn,
   spawnPriority,
+  starvationBoost,
   SpawnDemand,
   ScheduleContext,
 } from "../../../src/spawn/SpawnScheduler";
@@ -263,6 +264,41 @@ describe("SpawnScheduler", () => {
       const urgent = demand({ role: "hauler", value: 90, blocking: true, producesIncome: true, groupId: "A", groupStarted: true });
       const scaling = demand({ role: "miner", value: 90, blocking: false, producesIncome: true, groupId: "A", groupStarted: true });
       expect(spawnPriority(urgent)).to.be.greaterThan(spawnPriority(scaling));
+    });
+  });
+
+  describe("anti-starvation aging", () => {
+    it("does not boost an unstamped demand (since=0) or one within the threshold", () => {
+      const fresh = demand({ role: "builder", value: 95 }); // since defaults to 0
+      expect(starvationBoost(fresh, 100_000)).to.equal(0);
+      const stampedRecent = demand({ role: "builder", value: 95, since: 1000 });
+      expect(starvationBoost(stampedRecent, 1200)).to.equal(0); // 200 < 300 threshold
+    });
+
+    it("a long-starved builder is lifted above the income tier after the threshold", () => {
+      const starvedBuilder = demand({ role: "builder", value: 95, since: 1000 });
+      const income = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "A" });
+      const tick = 1000 + 300; // exactly the threshold
+      const eff = (d: SpawnDemand): number => spawnPriority(d) + starvationBoost(d, tick);
+      expect(eff(starvedBuilder)).to.be.greaterThan(eff(income));
+    });
+
+    it("scheduleSpawn picks a long-starved consumer over an affordable blocking income demand", () => {
+      // Reproduces the stuck-construction bug: a value-95 builder that the income
+      // tier has out-ranked for >300 ticks finally wins its one spawn slot.
+      const tick = 5000;
+      const builder = demand({ role: "builder", value: 95, minCost: 200, desiredCost: 300, since: tick - 300 });
+      const miner = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "A", minCost: 200, desiredCost: 300, since: tick });
+      const result = scheduleSpawn([miner, builder], ctx({ energyAvailable: 300, energyCapacity: 300, tick }));
+      expect(result?.demand.role).to.equal("builder");
+    });
+
+    it("without starvation the income demand still wins (no regression)", () => {
+      const tick = 5000;
+      const builder = demand({ role: "builder", value: 95, minCost: 200, desiredCost: 300, since: tick - 10 });
+      const miner = demand({ role: "miner", value: 100, blocking: true, producesIncome: true, groupId: "A", minCost: 200, desiredCost: 300, since: tick });
+      const result = scheduleSpawn([builder, miner], ctx({ energyAvailable: 300, energyCapacity: 300, tick }));
+      expect(result?.demand.role).to.equal("miner");
     });
   });
 });
