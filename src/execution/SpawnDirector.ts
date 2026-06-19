@@ -121,7 +121,7 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
 
   for (const id in harvestCorps) {
     const c = harvestCorps[id];
-    if (c.getSpawnId() !== spawnId) continue;
+    if (c.getSpawnId() !== spawnId || c.retiring) continue;
     const sourceId = sourceKey(c.getSourceId());
     const started = minedSources.has(sourceId);
     for (const d of c.getSpawnDemand(ctx)) {
@@ -132,7 +132,7 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   }
   for (const id in carryCorps) {
     const c = carryCorps[id];
-    if (c.getSpawnId() !== spawnId) continue;
+    if (c.getSpawnId() !== spawnId || c.retiring) continue;
     // Shared source key, matching harvest's getSourceId() (the real game id). Take
     // it from the route's fromId (stripped of the flow "source-" prefix) so a
     // source's miner and haulers land in the same group regardless of id format;
@@ -151,26 +151,26 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   }
   for (const id in upgradeCorps) {
     const c = upgradeCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
   const constructionCorps = commissionedCorpsOfKind<ConstructionCorp>("construction");
   for (const id in constructionCorps) {
     const c = constructionCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
   // Extension tenders live in the commission store (framework-ported); their
   // tankers still compete here on the value-ranked path (infrastructure tier).
   const tenderCorps = commissionedCorpsOfKind<ExtensionTenderCorp>("tender");
   for (const id in tenderCorps) {
     const c = tenderCorps[id];
-    if (c.getSpawnId() === spawnId) demands.push(...c.getSpawnDemand(ctx));
+    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
   // Reservation corps live in the commission store (framework-ported), but
   // their reservers still compete here on the value-ranked path.
   const reservationCorps = commissionedCorpsOfKind<ReservationCorp>("reservation");
   for (const id in reservationCorps) {
     const c = reservationCorps[id];
-    if (c.getSpawnId() !== spawnId) continue;
+    if (c.getSpawnId() !== spawnId || c.retiring) continue;
     for (const d of c.getSpawnDemand(ctx)) {
       // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
       // remote room it holds. Give it a groupId so spawnPriority places it in the

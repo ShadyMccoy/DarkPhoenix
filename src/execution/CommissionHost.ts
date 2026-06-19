@@ -112,10 +112,23 @@ export function runCommissionHost(
     commissions.push(...kind.propose(problem, commissions));
   }
 
-  materializeCommissions(commissions, liveStore);
+  // Hysteresis: don't drop a corp whose commission vanished while it still has
+  // living creeps. Keeping it (flagged retiring) lets it run those creeps to
+  // their natural death/recycle instead of stranding them as orphans the instant
+  // a re-solve churns the commission set; it requests no new spawns, so the
+  // planner's wind-down still takes effect as the fleet drains.
+  materializeCommissions(commissions, liveStore, (_corpId, entry) => !hasLiveCreeps(entry.corp.id));
   runCommissionedCorps(liveStore, tick);
 
   Memory.commissionedCorps = serializeStore(liveStore);
+}
+
+/** True if any creep (alive or still spawning) is assigned to this corp id. */
+function hasLiveCreeps(corpId: string): boolean {
+  for (const name in Game.creeps) {
+    if (Game.creeps[name].memory.corpId === corpId) return true;
+  }
+  return false;
 }
 
 /**
