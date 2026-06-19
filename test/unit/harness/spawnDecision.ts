@@ -129,8 +129,8 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
   // room-aware logic - notably the upgrader's "no flow upgrader until a hauler is
   // delivering" gate (roomHasHauler scans room.find(FIND_MY_CREEPS)) and the
   // hauler's yieldsToBuild (reads room.memory). Without it those paths were
-  // silently skipped and the gate never exercised. No controller is provided, so
-  // the upgrader uses its mobile strategy.
+  // silently skipped and the gate never exercised. No controller is provided; the
+  // upgrader always gets the WORK-heavy fed-in-place body regardless.
   const fakeSpawn = {
     id: SPAWN_ID,
     spawning: false,

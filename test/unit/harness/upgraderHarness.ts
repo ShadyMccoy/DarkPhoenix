@@ -106,7 +106,8 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
       name: ROOM,
       energyAvailable,
       energyCapacityAvailable: energyCapacity,
-      // No controller -> the corp uses its mobile (no-buffer) strategy.
+      // No controller object in this harness; upgraders always get the WORK-heavy
+      // fed-in-place body regardless, so the count/sizing is what is under test.
       controller: undefined,
       memory: dedicatedBuild ? { dedicatedBuildSourceId: "src-build" } : {},
       find: (type: number) => {

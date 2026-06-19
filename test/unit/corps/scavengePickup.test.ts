@@ -74,7 +74,9 @@ describe("workSpot scavenging (withdraw from a tombstone/ruin)", () => {
     const calls = { moveTo: 0, withdraw: 0, lastMoveRange: undefined as number | undefined };
     const self = { x, y };
     return {
+      name: "scav",
       pos: {
+        roomName: "W0N0",
         getRangeTo: (t: { x: number; y: number }) => cheby(self, t),
         findInRange: () => []
       },

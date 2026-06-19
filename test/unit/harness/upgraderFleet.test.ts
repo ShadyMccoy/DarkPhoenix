@@ -23,11 +23,12 @@ describe("upgrader fleet (spawn harness)", () => {
   });
 
   it("fields fewer, bigger upgraders as capacity rises (same allocation)", () => {
-    // A bigger room builds bigger bodies, so the same 10 e/tick allocation is
-    // covered by fewer upgraders - 5 x 2 WORK at 550, but 3 (4+4+2) at 800.
+    // An upgrader is fed in place from its input tile, so it gets the WORK-heavy
+    // body. The same 10 e/tick allocation is covered by 3 (4+4+2 WORK) at 550 and
+    // fewer still (bigger bodies) at 800.
     const small = simulateUpgraderFleet({ energyCapacity: 550, allocated: 10 });
     const big = simulateUpgraderFleet({ energyCapacity: 800, allocated: 10 });
-    expect(small.workParts).to.deep.equal([2, 2, 2, 2, 2]);
+    expect(small.workParts).to.deep.equal([4, 4, 2]);
     expect(big.count).to.be.lessThan(small.count);
     expect(big.totalWork, "still consumes the whole allocation").to.equal(10);
   });
