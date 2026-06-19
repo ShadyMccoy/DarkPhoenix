@@ -97,6 +97,16 @@ declare global {
     lastPlanningTick?: number;
 
     /**
+     * First tick each still-unmet spawn demand was observed, keyed by
+     * "spawnId:buyerCorpId:role". The SpawnDirector stamps it so the scheduler
+     * can age a demand: a consumption creep (e.g. a builder) that is continuously
+     * outranked by the income tier eventually clears it via anti-starvation. An
+     * entry is dropped once its demand stops appearing (the creep was spawned, or
+     * the work is gone), resetting the timer.
+     */
+    spawnDemandFirstSeen?: { [key: string]: number };
+
+    /**
      * Tick when last survey phase was run.
      */
     lastSurveyTick?: number;

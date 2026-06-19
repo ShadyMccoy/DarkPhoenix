@@ -173,6 +173,42 @@ export function spawnPriority(demand: SpawnDemand): number {
 }
 
 /**
+ * Ticks a demand may go unmet before anti-starvation lifts it above the income
+ * tier for one spawn. Long enough that it never disturbs the normal income-first
+ * ordering during a healthy ramp (income demands clear in far fewer ticks), short
+ * enough that a chronically-outranked consumer (a builder whose room is busy
+ * spawning remote income every tick) is not stranded forever - the bug this fixes:
+ * the bot places a construction site, but the value-95 builder never wins a spawn
+ * slot against the +1e6 income tier, so the site sits unbuilt indefinitely.
+ */
+const STARVATION_THRESHOLD = 300;
+
+/**
+ * Priority a starved demand is lifted to: strictly ABOVE the income tiers (1e6 +
+ * blocking 1e4), so a demand ignored past the threshold gets exactly ONE
+ * guaranteed spawn. It is a one-shot: once the creep exists the demand stops
+ * reappearing and its age resets, so this preempts a critical income creep for at
+ * most a single tick after a long starvation - the whole point of the backstop.
+ */
+const STARVED_TIER = 3_000_000;
+
+/**
+ * Anti-starvation boost for a demand the director has been seeing for too long.
+ * `since` is the first tick the demand was observed (0 when unstamped - the pure
+ * unit/harness paths leave it 0, so they are unaffected). Returns 0 until the
+ * demand has waited {@link STARVATION_THRESHOLD} ticks, then {@link STARVED_TIER}.
+ */
+export function starvationBoost(demand: SpawnDemand, tick: number): number {
+  if (demand.since <= 0) return 0;
+  return tick - demand.since >= STARVATION_THRESHOLD ? STARVED_TIER : 0;
+}
+
+/** Spawn priority including the anti-starvation age boost - the value the scheduler ranks on. */
+function effectivePriority(demand: SpawnDemand, tick: number): number {
+  return spawnPriority(demand) + starvationBoost(demand, tick);
+}
+
+/**
  * Choose the single best creep to spawn now, or return null to spawn nothing
  * this tick (either there is no demand, or it is worth waiting for the spawn to
  * fill).
@@ -206,7 +242,11 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
 
-  const ranked = [...eligible].sort((a, b) => spawnPriority(b) - spawnPriority(a));
+  // Rank on EFFECTIVE priority (base tier + anti-starvation age boost). A demand
+  // that has waited past the threshold is lifted above the income tier, so the
+  // walk below reaches it - affordable and on top - before any blocking income
+  // demand can hold the spawn, giving the long-starved creep its one guaranteed slot.
+  const ranked = [...eligible].sort((a, b) => effectivePriority(b, ctx.tick) - effectivePriority(a, ctx.tick));
 
   // Set once we pass a blocking demand we cannot afford yet but the room can
   // eventually build. From then on we decline to spend the dribble on

@@ -37,6 +37,13 @@ const FLOW_MIN_RCL = 2;
  * Run the demand-driven spawn scheduler for all owned spawns.
  */
 export function runSpawnScheduling(registry: CorpRegistry): void {
+  // First tick each still-unmet demand was seen, persisted across ticks so the
+  // scheduler can age a chronically-outranked demand (see scheduleSpawn's
+  // anti-starvation backstop). Pruned below for the spawns we actually evaluate.
+  const firstSeen = Memory.spawnDemandFirstSeen ?? (Memory.spawnDemandFirstSeen = {});
+  const seenThisTick = new Set<string>();
+  const evaluatedSpawns = new Set<string>();
+
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
@@ -51,7 +58,11 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     for (const spawn of spawns) {
       const spawningCorp = registry.spawningCorps[spawn.id];
       if (!spawningCorp) continue;
+      // Skip a busy spawn WITHOUT touching its demand timers: a room whose spawn
+      // is forever occupied with income is exactly where a starved builder must
+      // keep ageing, so don't reset its clock just because we can't act this tick.
       if (spawn.spawning) continue;
+      evaluatedSpawns.add(spawn.id);
 
       const demandCtx: SpawnDemandContext = {
         energyCapacity: room.energyCapacityAvailable,
@@ -59,6 +70,14 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
+      // Stamp each demand's first-seen tick (carrying forward a prior one) so the
+      // scheduler sees how long it has been waiting.
+      for (const d of demands) {
+        const key = `${spawn.id}:${d.buyerCorpId}:${d.role}`;
+        seenThisTick.add(key);
+        const first = firstSeen[key] ?? (firstSeen[key] = Game.time);
+        d.since = first;
+      }
       if (demands.length === 0) continue;
 
       const ctx: ScheduleContext = {
@@ -82,6 +101,14 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         d.bodyStrategy
       );
     }
+  }
+
+  // Drop timers for demands that no longer appear at a spawn we evaluated this
+  // tick (the creep was spawned, or the work went away), resetting their age.
+  // Only for evaluated spawns, so a skipped (busy) spawn keeps its timers intact.
+  for (const key in firstSeen) {
+    const spawnId = key.slice(0, key.indexOf(":"));
+    if (evaluatedSpawns.has(spawnId) && !seenThisTick.has(key)) delete firstSeen[key];
   }
 }
 
