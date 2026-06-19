@@ -154,6 +154,32 @@ describe("framework extensibility: a new corp kind via the public API only", () 
     expect(result.removed).to.equal(1);
     expect(store.size).to.equal(0);
   });
+
+  it("HYSTERESIS: a vanished corp is KEPT (retiring) while canDemobilize forbids dropping", () => {
+    const { commissions } = planCommissions(world);
+    const store: CorpStore = new Map();
+    materializeCommissions(commissions, store);
+    expect(store.get("beacon-spawn1")!.corp.retiring).to.equal(false);
+
+    const without = commissions.filter(c => c.kind !== "beacon");
+
+    // canDemobilize forbids dropping (e.g. the corp still has living creeps):
+    // kept in the store and flagged retiring, not removed.
+    const kept = materializeCommissions(without, store, () => false);
+    expect(kept.removed).to.equal(0);
+    expect(kept.retained).to.equal(1);
+    expect(store.size).to.equal(1);
+    expect(store.get("beacon-spawn1")!.corp.retiring).to.equal(true);
+
+    // Re-commissioning clears the retiring flag (it's back in the plan).
+    materializeCommissions(commissions, store, () => false);
+    expect(store.get("beacon-spawn1")!.corp.retiring).to.equal(false);
+
+    // Once canDemobilize allows it (the fleet has drained), the corp drops.
+    const dropped = materializeCommissions(without, store, () => true);
+    expect(dropped.removed).to.equal(1);
+    expect(store.size).to.equal(0);
+  });
 });
 
 // Rung 1 for the toy kind itself - proves the conformance harness runs.

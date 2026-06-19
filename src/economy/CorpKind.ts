@@ -102,19 +102,43 @@ export interface MaterializeResult {
   updated: number;
   /** Corps whose commission vanished this round (demobilized and dropped). */
   removed: number;
+  /**
+   * Corps whose commission vanished but which were KEPT (flagged retiring)
+   * because canDemobilize said no - typically because they still have living
+   * creeps to run out. They drop on the round canDemobilize finally allows it.
+   */
+  retained: number;
   /** Commissions whose kind has no registration (left for legacy plumbing). */
   skipped: number;
 }
 
 /**
+ * Whether a corp whose commission vanished may be dropped NOW. Returning false
+ * keeps the corp in the store (flagged retiring) for another round - the seam the
+ * live host uses to hold a corp alive while it still has living creeps, so a brief
+ * commission gap around a re-solve never strands a fleet. Pure default: always
+ * drop (the original behaviour), so callers and tests that don't care are
+ * unaffected.
+ */
+export type DemobilizePredicate = (corpId: string, entry: CommissionedCorp) => boolean;
+
+/**
  * Bind a round of commissions to runtime corps: create the missing, update the
  * existing, and demobilize store entries (of REGISTERED kinds) that no longer
- * have a commission. Commissions for unregistered kinds are skipped untouched,
- * which is what lets the legacy per-type plumbing coexist during the strangler
- * migration - each kind moves over the round its registration lands.
+ * have a commission AND that `canDemobilize` permits dropping. A vanished corp
+ * `canDemobilize` declines to drop is KEPT and flagged `retiring` (it runs its
+ * remaining creeps but requests no new spawns) - the hysteresis that stops a
+ * one-solve commission flicker from deleting a corp out from under its live
+ * creeps. Commissions for unregistered kinds are skipped untouched, which is what
+ * lets the legacy per-type plumbing coexist during the strangler migration - each
+ * kind moves over the round its registration lands.
  */
-export function materializeCommissions(commissions: readonly Commission[], store: CorpStore): MaterializeResult {
-  const result: MaterializeResult = { created: 0, updated: 0, removed: 0, skipped: 0 };
+export function materializeCommissions(
+  commissions: readonly Commission[],
+  store: CorpStore,
+  canDemobilize: DemobilizePredicate = () => true
+): MaterializeResult {
+  const result: MaterializeResult = { created: 0, updated: 0, removed: 0, retained: 0, skipped: 0 };
   const seen = new Set<string>();
 
   for (const c of commissions) {
@@ -126,15 +150,20 @@ export function materializeCommissions(commissions: readonly Commission[], store
     seen.add(c.corpId);
     const existing = store.get(c.corpId);
     const corp = kind.materialize(c, existing?.corp);
+    corp.retiring = false; // freshly commissioned: not winding down
     store.set(c.corpId, { kind: c.kind, corp, commission: c });
     if (existing) result.updated += 1;
     else result.created += 1;
   }
 
   for (const [corpId, entry] of store) {
-    if (!seen.has(corpId) && registry.has(entry.kind)) {
+    if (seen.has(corpId) || !registry.has(entry.kind)) continue;
+    if (canDemobilize(corpId, entry)) {
       store.delete(corpId);
       result.removed += 1;
+    } else {
+      entry.corp.retiring = true; // keep running its creeps, but spawn no more
+      result.retained += 1;
     }
   }
 

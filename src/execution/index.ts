@@ -22,6 +22,8 @@ export {
 
 export { commissionedCorpsOfKind, runCommissionHost, resetCommissionHost } from "./CommissionHost";
 
+export { rescueOrphans, orphanAction, ORPHAN_GRACE_TICKS } from "./OrphanRescue";
+
 export { runSpawnScheduling } from "./SpawnDirector";
 
 export { runLinks } from "./LinkRunner";

@@ -78,6 +78,16 @@ export abstract class Corp {
   /** Last tick this corp performed work */
   public lastActivityTick = 0;
 
+  /**
+   * RETIRING: the planner has stopped commissioning this corp, but it is kept in
+   * the store while it still has living creeps so they finish their work and are
+   * never orphaned (see materializeCommissions' hysteresis). A retiring corp runs
+   * its existing creeps to natural death/recycle but requests NO new spawns - so
+   * the planner's decision to wind the corp down is honoured while its fleet
+   * drains. Transient (recomputed each materialize); never serialized.
+   */
+  public retiring = false;
+
   /** Units produced (energy harvested, carried, etc.) for marginal cost calculation */
   public unitsProduced = 0;
 
