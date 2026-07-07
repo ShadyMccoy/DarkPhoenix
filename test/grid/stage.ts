@@ -98,6 +98,9 @@ export async function stageCell(
   }
 
   for (const s of cell.structures ?? []) {
+    // Storage stays OWNED: the neutral schema broke link-haul pricing
+    // (detectLinkHaulPositions needs the owned storage) without fixing the
+    // bank cell, whose real confound was the tender withdraw race.
     const neutral = s.type === "container" || s.type === "road" || s.type === "wall";
     const fullHits = structureHits(s.type);
     const doc: any = {

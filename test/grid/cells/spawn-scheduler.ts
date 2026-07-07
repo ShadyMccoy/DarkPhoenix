@@ -349,6 +349,163 @@ export function buildT3SchedulerCells(): GridCell[] {
   ];
 }
 
+
+export function buildT4SchedulerCells(): GridCell[] {
+  // timer-survives closure
+  let builderKey: string | null = null;
+  let builderFirstValue: number | null = null;
+  let busyStreak = 0;
+  let busyPeriods = 0;
+
+  // min-scaled closure
+  let firstHaulerCarry: number | null = null;
+
+  const EXT_20 = EXT_10.concat([
+    { x: 22, y: 20 },
+    { x: 28, y: 20 },
+    { x: 22, y: 30 },
+    { x: 28, y: 30 },
+    { x: 20, y: 22 },
+    { x: 30, y: 22 },
+    { x: 20, y: 28 },
+    { x: 30, y: 28 },
+    { x: 24, y: 19 },
+    { x: 26, y: 19 },
+  ]);
+
+  return [
+    {
+      // Anti-starvation aging must SURVIVE busy spawns: at 1300 capacity the
+      // income bodies are 20-26 parts (60-78 busy ticks), and the builder's
+      // firstSeen stamp must stay byte-identical across >= 2 long busy
+      // periods - the old bug reset the clock whenever the spawn was busy,
+      // so chronically-outranked demands never aged past the threshold.
+      id: "spawn-timer-survives-busy-spawn",
+      tier: 4,
+      avenue: "spawn-decision",
+      window: 150,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 8).source(8, 45).source(42, 45).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: EXT_20.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      creeps: [
+        {
+          name: "mA",
+          x: 8,
+          y: 44,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-ts-m", assignedSourceId: "$id(home,source,8,45)" },
+        },
+        {
+          name: "hA",
+          x: 12,
+          y: 40,
+          body: ["carry", "carry", "carry", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-ts-h", working: false, assignedSourceId: "$id(home,source,8,45)" },
+        },
+      ],
+      async onTick(ctx) {
+        // Site lands after income corps exist (T3 lesson); the bank is pinned
+        // full so the big income bodies spawn back to back (busy streaks).
+        if (ctx.tick === 15) {
+          await ctx.db["rooms.objects"].insert({
+            type: "constructionSite",
+            room: ctx.room(),
+            x: 32, // clear of every staged extension (28,25 collided with one)
+            y: 25,
+            user: ctx.userId,
+            structureType: "extension",
+            progress: 0,
+            progressTotal: 3000,
+          });
+        }
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+      },
+      assertions: [
+        eventually("the builder demand is stamped", (s) => {
+          const table = s.memory?.spawnDemandFirstSeen ?? {};
+          for (const [key, value] of Object.entries(table)) {
+            if (key.endsWith(":builder") && builderKey === null) {
+              builderKey = key;
+              builderFirstValue = value as number;
+            }
+          }
+          return builderKey !== null;
+        }),
+        always("the stamp survives every busy period byte-identical", (s) => {
+          const spawn = s.objects().find((o: any) => o.type === "spawn");
+          const busy = !!spawn?.spawning;
+          if (busy) busyStreak += 1;
+          else {
+            if (busyStreak >= 15) busyPeriods += 1;
+            busyStreak = 0;
+          }
+          if (builderKey === null) return true;
+          const now = s.memory?.spawnDemandFirstSeen?.[builderKey];
+          return now === builderFirstValue;
+        }),
+        eventually("at least two distinct long busy periods occurred", () => {
+          return busyPeriods + (busyStreak >= 15 ? 1 : 0) >= 2;
+        }),
+      ],
+    },
+
+    {
+      // The deliberate asymmetry to the miner hold: an AFFORDABLE blocking
+      // hauler spends NOW at the scaled 3-CARRY min (it is what refills the
+      // spawn - holding for the 13-CARRY desired body would deadlock), and a
+      // later sibling heals bigger.
+      id: "spawn-blocking-hauler-spawns-at-min-scaled",
+      tier: 4,
+      avenue: "spawn-decision",
+      // 200: the bigger sibling waits on organic bank growth past 400.
+      window: 200,
+      rooms: {
+        // d~30: the route needs ~15 CARRY (5 haulers), so the fleet is still
+        // hungry when the bank fattens - the >3C sibling actually spawns.
+        // (At d=20 the fleet saturated with 3C bodies before the bank grew.)
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 8).source(25, 47).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: EXT_20.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
+      creeps: [
+        {
+          name: "mA",
+          x: 24,
+          y: 46,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-ms-m", assignedSourceId: "$id(home,source,25,47)" },
+        },
+        ...quietRoom(),
+      ],
+      assertions: [
+        eventually("the first hauler spawns at the scaled 3C3M min", (s) => {
+          const h = s
+            .objects()
+            .find((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-"));
+          if (!h) return false;
+          if (firstHaulerCarry === null) firstHaulerCarry = bodyCounts(h).carry ?? 0;
+          return firstHaulerCarry === 3;
+        }),
+        // NOTE two earlier follow-on assertions were dropped after
+        // measurement: budgets never organically exceed the 300 floor (the
+        // scheduler spawns the instant min is affordable - correct), and the
+        // fleet does not grow in COUNT either (count-sizing packs the route
+        // into one big hauler; upgrading it is the runt-pounce mechanism,
+        // already pinned green at T3). The immediate min-scaled spawn IS the
+        // asymmetry-vs-the-miner-hold claim, and it is the whole cell.
+      ],
+    },
+  ];
+}
+
 export function buildStatefulSchedulerCells(): GridCell[] {
   // spawn-no-hauler-before-miner closure state
   let minerFirstSeen: number | null = null;

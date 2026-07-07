@@ -107,6 +107,230 @@ const haulersOfCorp = (s: any, corpId: string | null): number =>
 const splitRoom = (roomName: string) =>
   new RoomBuilder(roomName).border().controller(25, 8).source(25, 42).toRoom();
 
+
+// ---------------------------------------------------------------------------
+// T4 tender-regime geometry: depot container (24,24) beside the spawn, ten
+// extensions in a row at y=21, source (25,42) with a stocked container and a
+// staged miner, controller (25,10) with an input container at (25,12).
+// The tender is staged with workType 'tank' and a stale corpId - OrphanRescue
+// ROLE_KIND maps tank -> tender kind and re-adopts it into the per-room
+// tender corp, whose work() then recomputes extensionTenderActive each tick.
+// ---------------------------------------------------------------------------
+const EXT_ROW: Array<{ x: number; y: number }> = Array.from({ length: 10 }, (_, i) => ({ x: 20 + i, y: 21 }));
+
+const tenderRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 10).source(25, 42).toRoom();
+
+const tenderCreeps = (extra: any[] = []) => [
+  {
+    name: "mS",
+    x: 24,
+    y: 41,
+    body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+    memory: { workType: "harvest", corpId: "staged-td-m", assignedSourceId: "$id(home,source,25,42)" },
+  },
+  {
+    name: "h1",
+    x: 25,
+    y: 40,
+    body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+    memory: { workType: "haul", corpId: "staged-td-h1", working: false, homeSink: "spawn", assignedSourceId: "$id(home,source,25,42)" },
+  },
+  {
+    name: "h2",
+    x: 25,
+    y: 39,
+    body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+    memory: { workType: "haul", corpId: "staged-td-h2", working: false, homeSink: "controller", assignedSourceId: "$id(home,source,25,42)" },
+  },
+  {
+    name: "td",
+    x: 23,
+    y: 24,
+    body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+    memory: { workType: "tank", corpId: "stale-tender" },
+  },
+  ...extra,
+];
+
+export function buildHaulingT4Cells(): GridCell[] {
+  let depotSeen150 = false;
+  let ctrlKept = true;
+  let prevBank: number | null = null;
+  let sawBankDeposit = false;
+
+  return [
+    {
+      // The tender regime: haulers run the dumb source->depot bus (never
+      // fanning across extensions), the tender does the depot->extension last
+      // leg, and the surplus spills to the controller.
+      id: "haul-t4-tender-bus-regime",
+      tier: 4,
+      avenue: "logistics",
+      // KNOWN RED (deliberately): same root cause as the bank cell - the
+      // colony spends its whole income on spawning in-window, so there is no
+      // surplus to spill. The regime activation, depot bridging, extension
+      // filling, and hauler-discipline assertions all bind and pass.
+      window: 170,
+      rooms: { home: tenderRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 24, y: 24, energy: 0 }, // depot
+        { type: "container", x: 24, y: 41, energy: 1800 }, // source container
+        { type: "container", x: 25, y: 12, energy: 0 }, // controller input
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
+      ],
+      creeps: tenderCreeps(),
+      assertions: [
+        eventually("the tender regime activates", (s) => s.memory?.rooms?.[s.room()]?.extensionTenderActive === true),
+        eventually("the depot is bridged to its buffer", (s) => {
+          const depot = s.objects().find((o: any) => o.type === "container" && o.x === 24 && o.y === 24);
+          if (!!depot && (depot.store?.energy ?? 0) >= 150) depotSeen150 = true;
+          return depotSeen150;
+        }),
+        eventually("the tender fills the extensions", (s) => {
+          const sum = s
+            .objects()
+            .filter((o: any) => o.type === "extension" && o.y === 21)
+            .reduce((acc: number, o: any) => acc + (o.store?.energy ?? 0), 0);
+          return sum >= 200;
+        }),
+        eventually("the surplus reaches the controller side", (s) => {
+          // The parked upgrader consumes deliveries as they land (the T1
+          // circuit-split lesson): controller progress is the reliable
+          // spill signal; a buffered pile also counts.
+          const ctrl = s.objects().find((o: any) => o.type === "controller");
+          if ((ctrl?.progress ?? 0) > 0) return true;
+          const box = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!box && (box.store?.energy ?? 0) >= 250;
+        }),
+        always("haulers never fan across the extensions", (s) => {
+          for (const name of ["h1", "h2"]) {
+            const c = s.creep(name);
+            if (!c) continue;
+            if (c.y >= 20 && c.y <= 22 && c.x >= 19 && c.x <= 30) return false;
+          }
+          return true;
+        }),
+      ],
+    },
+
+    {
+      // The dead-tender fail-safe: killing the tender clears the flag within
+      // ~2 ticks and haulers revert to filling extensions DIRECTLY.
+      id: "haul-t4-tender-death-failsafe",
+      tier: 4,
+      avenue: "logistics",
+      window: 60,
+      rooms: { home: tenderRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 24, y: 24, energy: 400 },
+        { type: "container", x: 24, y: 41, energy: 1800 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: tenderCreeps(),
+      async onTick(ctx) {
+        if (ctx.tick === 15) {
+          // Kill the tender (hits 0 -> engine death) and burst-drain four
+          // extensions, as a spawn volley would.
+          await ctx.db["rooms.objects"].update(
+            { room: ctx.room(), type: "creep", name: "td" },
+            { $set: { hits: 0 } }
+          );
+          for (let x = 20; x <= 23; x++) {
+            await ctx.db["rooms.objects"].update(
+              { room: ctx.room(), type: "extension", x, y: 21 },
+              { $set: { store: { energy: 0 } } }
+            );
+          }
+        }
+      },
+      assertions: [
+        eventually("the regime was active before the kill", (s) => s.memory?.rooms?.[s.room()]?.extensionTenderActive === true),
+        eventually("the flag clears within ticks of the death", (s) => {
+          if (s.tick < 16) return false;
+          return s.memory?.rooms?.[s.room()]?.extensionTenderActive === false;
+        }),
+        eventually("haulers refill the burst extensions directly", (s) => {
+          const drained = s
+            .objects()
+            .filter((o: any) => o.type === "extension" && o.y === 21 && o.x >= 20 && o.x <= 23);
+          return drained.length === 4 && drained.every((o: any) => (o.store?.energy ?? 0) === 50);
+        }),
+      ],
+    },
+
+    {
+      // Storage banking: spawn-circuit loads top the bank to STORAGE_BANK
+      // (10000) then spill to the controller; the controller circuit is never
+      // diverted to fill the bank.
+      id: "haul-t4-storage-bank-and-spill",
+      tier: 4,
+      avenue: "logistics",
+      // KNOWN RED (deliberately): in a live room, organic spawning consumes
+      // the entire 10 e/t income (an 800-cost hauler spawned mid-window), so
+      // no surplus ever reaches the bank in-window. Proving the banking path
+      // needs a demand-saturated room design - future work, tracked in spec
+      // 08. The guard assertions (never balloons / never raided) still bind.
+      window: 140,
+      rooms: { home: tenderRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        { type: "storage", x: 24, y: 24, energy: 9800 },
+        { type: "container", x: 24, y: 41, energy: 1800 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: tenderCreeps(),
+      async onTick(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+      },
+      assertions: [
+        // The exact 10000 crossing is unobservable in a LIVE room: organic
+        // spawning drains extensions, the tender refills them FROM the bank,
+        // and deposits/withdrawals interleave within ticks. The mechanism's
+        // observables: bulk hauler deposits land in the bank, and the spill
+        // only happens near the target.
+        eventually("a bulk hauler deposit lands in the bank", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          const energy = st?.store?.energy ?? null;
+          const jumped = prevBank !== null && energy !== null && energy - prevBank >= 250;
+          prevBank = energy;
+          if (jumped) sawBankDeposit = true;
+          return sawBankDeposit;
+        }),
+        always("the bank never balloons past the target", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          return !st || (st.store?.energy ?? 0) <= 10500;
+        }),
+        always("the bank is never raided below its staged floor", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          return !st || (st.store?.energy ?? 0) >= 8800;
+        }),
+        always("the controller circuit is never diverted to the bank", (s) => {
+          const mem = s.memory?.creeps?.h2;
+          if (!mem || mem.homeSink !== "controller") return true;
+          const ok = mem.deliverSinkId === undefined || mem.deliverSinkId === "controller";
+          if (!ok) ctrlKept = false;
+          return ctrlKept;
+        }),
+        eventually("the surplus spills to the controller side", (s) => {
+          const box = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!box && (box.store?.energy ?? 0) >= 250;
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildHaulingT3Cells(): GridCell[] {
   let sitePrev: number | null = null;
   let siteGrew = false;

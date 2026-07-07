@@ -9,25 +9,27 @@
  */
 
 import { GridCell } from "../GridCell";
-import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells, buildArrivalT3Cells } from "./arrival";
+import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells, buildArrivalT3Cells, buildArrivalT4Cells } from "./arrival";
 import {
   buildConstructionT1Cells,
   buildConstructionT2Cells,
   buildConstructionT3Cells,
+  buildConstructionT4Cells,
   constructionCells,
 } from "./construction";
 import { buildChurnT2Cells, buildChurnT3Cells, churnCells } from "./churn";
-import { buildHaulingCells, buildHaulingT3Cells } from "./hauling";
-import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, plannerCells } from "./planner";
+import { buildHaulingCells, buildHaulingT3Cells, buildHaulingT4Cells } from "./hauling";
+import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, buildPlannerT4Cells, plannerCells } from "./planner";
 import { buildStatefulMovementCells, buildT2MovementCells, buildT3MovementCells, movementCells } from "./movement";
 import {
   buildStatefulSchedulerCells,
   buildT2SchedulerCells,
   buildT3SchedulerCells,
+  buildT4SchedulerCells,
   spawnSchedulerCells,
 } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
-import { buildSpawnExecT3Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
+import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 
 export const ALL_CELLS: GridCell[] = [
   ...calibrationCells,
@@ -59,6 +61,12 @@ export const ALL_CELLS: GridCell[] = [
   ...buildConstructionT3Cells(),
   ...buildChurnT3Cells(),
   ...buildPlannerT3Cells(),
+  ...buildT4SchedulerCells(),
+  ...buildSpawnExecT4Cells(),
+  ...buildArrivalT4Cells(),
+  ...buildHaulingT4Cells(),
+  ...buildConstructionT4Cells(),
+  ...buildPlannerT4Cells(),
 ];
 
 const seen = new Set<string>();

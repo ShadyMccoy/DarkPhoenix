@@ -40,6 +40,62 @@ const quiet = (): Array<{ name: string; x: number; y: number; body: string[]; me
 //    tile (22,7). Replicated from nodeEnergy.ts:243-312.
 // ---------------------------------------------------------------------------
 
+
+export function buildArrivalT4Cells(): GridCell[] {
+  let linkAdopted: number | null = null;
+
+  return [
+    {
+      // Link mining handoff: a full-store miner beside its source link must
+      // transfer AND harvest the same tick (separate intent groups) - a
+      // sustained ~10/tick pump into the link. Links are injectable via the
+      // grid's stage layer (structureCapacity link:800 - errata #2 fixed).
+      id: "arrive-miner-feeds-source-link",
+      tier: 4,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(18, 20).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 5 },
+      structures: [{ type: "link", x: 24, y: 32, energy: 0 }],
+      creeps: [
+        {
+          name: "m1",
+          x: 24,
+          y: 31, // the harvest spot; link at (24,32) is range 1 of it
+          body: ["work", "work", "work", "work", "work", "carry", "move", "move", "move"],
+          energy: 50,
+          memory: { workType: "harvest", corpId: "stale-mining", assignedSourceId: "$id(home,source,25,32)" },
+        },
+        ...quiet(),
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.m1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("mining-") && linkAdopted === null) {
+            linkAdopted = s.tick;
+          }
+          return linkAdopted !== null;
+        }),
+        eventually("first volley lands in the link", (s) => {
+          const link = s.objects().find((o) => o.type === "link" && o.x === 24 && o.y === 32);
+          return !!link && (link.store?.energy ?? 0) >= 50;
+        }),
+        eventually("the refill loop sustains the pump (>= 130)", (s) => {
+          const link = s.objects().find((o) => o.type === "link" && o.x === 24 && o.y === 32);
+          return !!link && (link.store?.energy ?? 0) >= 130;
+        }),
+        always("the miner never leaves its spot to do it", (s) => {
+          const c = s.creep("m1");
+          return !!c && c.x === 24 && c.y === 31;
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildArrivalT3Cells(): GridCell[] {
   let threadAdopted: number | null = null;
 

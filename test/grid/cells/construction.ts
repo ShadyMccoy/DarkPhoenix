@@ -440,6 +440,130 @@ export function buildConstructionT3Cells(): GridCell[] {
   ];
 }
 
+
+export function buildConstructionT4Cells(): GridCell[] {
+  const EXT_20: Array<{ x: number; y: number }> = [];
+  for (const y of [19, 21]) for (let x = 18; x <= 32; x += 2) EXT_20.push({ x, y });
+  for (const x of [20, 22, 24, 26]) EXT_20.push({ x, y: 17 });
+
+  const EXT_30: Array<{ x: number; y: number }> = [];
+  for (const y of [30, 32, 34, 36, 38]) for (const x of [31, 33, 35, 37, 39, 41]) EXT_30.push({ x, y });
+
+  return [
+    {
+      // The in-ladder cap guard: with extensions AT the RCL4 cap, the corp
+      // falls through to the storage rung instead of retrying an over-cap
+      // extension every cooldown forever.
+      id: "cons-capguard-storage-rcl4",
+      tier: 4,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 25, energy: 0 },
+        ...EXT_20.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("the storage site lands beside the spawn", (s) =>
+          sites(s).some(
+            (o: any) =>
+              o.structureType === "storage" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 25)) <= 2
+          )
+        ),
+        always("never an over-cap extension site", (s) =>
+          !sites(s).some((o: any) => o.structureType === "extension")
+        ),
+      ],
+    },
+
+    {
+      // Link anchoring: at RCL5 with zero links, the CORE link beside the
+      // storage wins - even though both sources are >8 range and eligible.
+      id: "cons-link-core-first",
+      tier: 4,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 5 },
+      structures: [
+        { type: "storage", x: 24, y: 25, energy: 10000 },
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        ...EXT_30.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("the core link site lands beside the storage", (s) =>
+          sites(s).some(
+            (o: any) => o.structureType === "link" && Math.max(Math.abs(o.x - 24), Math.abs(o.y - 25)) <= 1
+          )
+        ),
+        always("no source link before the core", (s) =>
+          !sites(s).some(
+            (o: any) =>
+              o.structureType === "link" &&
+              (Math.max(Math.abs(o.x - 15), Math.abs(o.y - 30)) <= 2 ||
+                Math.max(Math.abs(o.x - 35), Math.abs(o.y - 30)) <= 2)
+          )
+        ),
+      ],
+    },
+
+    {
+      // Source-link selection: with the core built, the next link goes to the
+      // FARTHEST >8-range source; the <=8-range source never gets one, and
+      // LINK_LIMITS[5]=2 blocks a third.
+      id: "cons-link-farthest-source",
+      tier: 4,
+      avenue: "construction",
+      window: 60,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName)
+            .border()
+            .controller(10, 10)
+            .source(30, 27)
+            .source(25, 42)
+            .source(45, 44)
+            .toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 5 },
+      structures: [
+        { type: "storage", x: 24, y: 25, energy: 10000 },
+        { type: "link", x: 23, y: 24, energy: 0 }, // core link, prebuilt
+        { type: "container", x: 30, y: 26, energy: 0 },
+        { type: "container", x: 25, y: 41, energy: 0 },
+        { type: "container", x: 44, y: 44, energy: 0 },
+        ...EXT_30.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("the link site goes to the FARTHEST eligible source", (s) =>
+          sites(s).some(
+            (o: any) => o.structureType === "link" && Math.max(Math.abs(o.x - 45), Math.abs(o.y - 44)) <= 2
+          )
+        ),
+        always("never near the mid or in-range sources, never a third", (s) => {
+          const links = sites(s).filter((o: any) => o.structureType === "link");
+          if (links.length > 1) return false;
+          return links.every(
+            (o: any) =>
+              Math.max(Math.abs(o.x - 25), Math.abs(o.y - 42)) > 2 &&
+              Math.max(Math.abs(o.x - 30), Math.abs(o.y - 27)) > 2
+          );
+        }),
+      ],
+    },
+  ];
+}
+
 export const constructionCells: GridCell[] = [
   {
     id: "cons-ext-first-site-checkerboard",

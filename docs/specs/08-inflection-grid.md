@@ -105,6 +105,41 @@ and bootstrap parks in its yield branch entirely (the "quiet room" kit).
   full serialize() shape (creepNames intact) rehydrates through CorpRunner's
   get-or-restore, and the staged jacks are driven normally. $room()/$id()
   tokens resolve in keys as well as values.
+
+**T4 ROW (2026-07-07)** - lessons:
+- STORAGE must be staged with the OWNED schema (user +
+  storeCapacityResource): the neutral schema broke detectLinkHaulPositions'
+  core-link resolution (link-haul pricing went red) while room.storage
+  detection worked either way.
+- Two cells are DELIBERATELY RED pending a demand-saturated room design:
+  haul-t4-storage-bank-and-spill and haul-t4-tender-bus-regime. Root cause
+  measured, not assumed: in a live tender-regime room, organic spawning
+  consumes the ENTIRE 10 e/t income in-window (an 800-cost hauler spawned
+  mid-window), so no surplus exists to bank or spill. Their guard assertions
+  (regime activation, depot bridging, extension filling, hauler discipline,
+  bank never raided/ballooned) all pass.
+- Two designed follow-on assertions were measured WRONG and dropped: organic
+  hauler budgets never exceed the 300 floor (the scheduler correctly spawns
+  the instant min is affordable), and fleets do not grow in COUNT (count-
+  sizing packs a route into one big hauler; upgrading it is the runt-pounce
+  mechanism, pinned at T3).
+- Two-spawn worlds work: a second spawn inserts cleanly per addOwnedRoom's
+  schema (name field required) and the planner assigns nearest-spawn per
+  source (plan-t4-two-spawn-nearest green on the first authoritative run).
+- Watch for STAGED-OBJECT COLLISIONS: a construction site inserted onto a
+  staged extension's tile destabilized the demand table (the timer cell's
+  stamp "changed" - actually the site flickering in and out of validity).
+- Background-job hygiene: an A/B that swaps src and rebuilds dist RACES any
+  concurrently launched grid run - sequence them.
+
+**A/B STATUS (open investigation)**: same-era isolated baselines on the
+two-source cold world: pre-fix cp@3000 = 7711; both-fixes = 3942 / 3050 (two
+draws). The correctness fixes (controller starvation was real, deterministic,
+and is now pinned by 70+ green cells) cost long-run throughput on this world
+- most plausibly fix #2's total-holds idling the spawn, possibly fix #1's
+tempo trade. Next step: bisect draws (fix1-only / fix2-only), then tune the
+losing mechanism (bounded holds / capacity-relative gating) under the double
+constraint: grid stays green AND cp recovers toward 7700+.
 **Thesis**: optimize *feedback per second*. Long sims are mostly dead time
 (spawning at 3 ticks/part, travel at ~1 tile/tick); the information lives at
 inflection points — creep SHOULD spawn, creep freshly spawned, creep arrived

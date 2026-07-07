@@ -387,6 +387,81 @@ export function buildSpawnExecT3Cells(): GridCell[] {
   ];
 }
 
+
+export function buildSpawnExecT4Cells(): GridCell[] {
+  return [
+    {
+      // At 1300 the miner body CAPS at its design point 5W1C3M (700) rather
+      // than growing monstrous, and the follow-on hauler keeps 1:1 pairs
+      // sized to the route (carryPartsFor(10,12)*1.2 ~ 6-7C).
+      id: "spawnexec-bodies-at-1300-rcl4",
+      tier: 4,
+      avenue: "spawn-execution",
+      window: 80,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(35, 18);
+          for (const [x, y] of [
+            [12, 24],
+            [14, 24],
+            [12, 25],
+            [14, 25],
+            [12, 26],
+            [13, 26],
+            [14, 26],
+          ]) {
+            b.tile(x, y, "wall");
+          }
+          return b.source(13, 25).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        ...EXT_5,
+        { x: 28, y: 25 },
+        { x: 23, y: 21 },
+        { x: 27, y: 21 },
+        { x: 23, y: 29 },
+        { x: 27, y: 29 },
+        { x: 21, y: 23 },
+        { x: 29, y: 23 },
+        { x: 21, y: 27 },
+        { x: 29, y: 27 },
+        { x: 25, y: 21 },
+        { x: 25, y: 29 },
+        { x: 21, y: 25 },
+        { x: 29, y: 25 },
+        { x: 23, y: 19 },
+        { x: 27, y: 19 },
+      ].map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      creeps: quiet(),
+      assertions: [
+        eventually("miner caps at exactly 5W1C3M", (s) => {
+          const m = firstMinerDoc(s);
+          if (!m) return false;
+          const c = bodyCounts(m);
+          return c.work === 5 && c.carry === 1 && c.move === 3;
+        }),
+        eventually("the route hauler keeps 1:1 pairs in the [5,8] band", (s) => {
+          const h = s
+            .objects()
+            .find((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-"));
+          if (!h) return false;
+          const c = bodyCounts(h);
+          return (c.carry ?? 0) >= 5 && (c.carry ?? 0) <= 8 && c.carry === c.move;
+        }),
+        always("no monstrous miner ever spawns", (s) =>
+          s
+            .objects()
+            .filter((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("miner-"))
+            .every((o: any) => (o.body ?? []).length <= 9)
+        ),
+      ],
+    },
+  ];
+}
+
 export const spawnExecCells: GridCell[] = [
   {
     id: "spawnexec-first-miner-stamp-300",

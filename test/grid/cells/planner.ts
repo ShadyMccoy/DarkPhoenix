@@ -380,6 +380,149 @@ export function buildPlannerT3Cells(): GridCell[] {
   ];
 }
 
+
+export function buildPlannerT4Cells(): GridCell[] {
+  return [
+    {
+      // Two spawns: every source is assigned to its NEAREST spawn, exactly
+      // one mine entry per source, and at most one harvester ever works one.
+      id: "plan-t4-two-spawn-nearest",
+      tier: 4,
+      avenue: "planning-economy",
+      window: 250,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName)
+            .border()
+            .controller(25, 10)
+            .source(5, 25)
+            .source(45, 25)
+            .source(23, 30)
+            .toRoom(),
+      },
+      bot: { x: 10, y: 25 },
+      controller: { level: 7 },
+      structures: EXT_10_NEAR(10, 25).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      async stage(ctx) {
+        // Second spawn, per addOwnedRoom's schema.
+        await ctx.db["rooms.objects"].insert({
+          room: ctx.room(),
+          type: "spawn",
+          x: 40,
+          y: 25,
+          user: ctx.userId,
+          name: "Spawn2",
+          store: { energy: 300 },
+          storeCapacityResource: { energy: 300 },
+          hits: 5000,
+          hitsMax: 5000,
+          spawning: null,
+          notifyWhenAttacked: true,
+        });
+      },
+      assertions: [
+        eventually("each source is planned at its nearest spawn", (s) => {
+          const spawnA = s.objects().find((o) => o.type === "spawn" && o.x === 10 && o.y === 25);
+          const spawnB = s.objects().find((o) => o.type === "spawn" && o.x === 40 && o.y === 25);
+          const srcs = {
+            a: s.objects().find((o) => o.type === "source" && o.x === 5 && o.y === 25),
+            b: s.objects().find((o) => o.type === "source" && o.x === 45 && o.y === 25),
+            c: s.objects().find((o) => o.type === "source" && o.x === 23 && o.y === 30),
+          };
+          if (!spawnA || !spawnB || !srcs.a || !srcs.b || !srcs.c) return false;
+          const mines = planCorps(s).filter((c) => c.kind === "mine");
+          if (mines.length !== 3) return false;
+          const of = (src: any) => mines.find((m) => m.sourceId === `source-${src._id}`);
+          return (
+            of(srcs.a)?.spawnId === `spawn-${spawnA._id}` &&
+            of(srcs.b)?.spawnId === `spawn-${spawnB._id}` &&
+            of(srcs.c)?.spawnId === `spawn-${spawnA._id}`
+          );
+        }),
+        always("never two mine entries for one source", (s) => {
+          const mines = planCorps(s).filter((c) => c.kind === "mine");
+          const ids = mines.map((m) => m.sourceId);
+          return new Set(ids).size === ids.length;
+        }),
+        always("at most one fielded miner per source (settled)", (s) => {
+          if (s.tick < 200) return true;
+          for (const src of s.objects().filter((o) => o.type === "source")) {
+            const adjacent = s
+              .objects()
+              .filter(
+                (o) =>
+                  o.type === "creep" &&
+                  typeof o.name === "string" &&
+                  o.name.startsWith("miner-") &&
+                  Math.max(Math.abs(o.x - src.x), Math.abs(o.y - src.y)) <= 1
+              );
+            if (adjacent.length > 1) return false;
+          }
+          return true;
+        }),
+      ],
+    },
+
+    {
+      // Link-aware haul pricing: the linked source's hauls are priced from
+      // the CORE link (tiny carry), the unlinked twin pays full distance -
+      // and the physical link pump eventually reaches the core.
+      id: "plan-t4-link-haul-pricing",
+      tier: 4,
+      avenue: "planning-economy",
+      // 220: the physical pump needs miner fielding (~40) + a 26-tile walk +
+      // two 50-volleys before runLinks fires at the 100 threshold.
+      window: 220,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 10).source(44, 44).source(6, 44).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 5 },
+      structures: [
+        { type: "storage", x: 21, y: 25, energy: 0 }, // clear of the EXT_10_NEAR tiles
+        { type: "link", x: 22, y: 24, energy: 0 }, // core link, within 2 of storage
+        { type: "link", x: 43, y: 43, energy: 0 }, // source link, within 2 of (44,44)
+        ...EXT_10_NEAR(25, 25).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: [
+        // The linked source's miner is staged (organic serial 700-cost
+        // banking put the second miner past the window): the pump is live
+        // from adoption, the planning claims are untouched.
+        {
+          name: "mL",
+          x: 43,
+          y: 44, // bestAdjacentTile of (44,44): (43,43) holds the link, so (43,44)
+          body: ["work", "work", "work", "work", "work", "carry", "move", "move", "move"],
+          energy: 0,
+          memory: { workType: "harvest", corpId: "staged-lp-m", assignedSourceId: "$id(home,source,44,44)" },
+        },
+      ],
+      assertions: [
+        eventually("both sources planned; linked hauls priced from the core", (s) => {
+          const linked = s.objects().find((o) => o.type === "source" && o.x === 44 && o.y === 44);
+          const unlinked = s.objects().find((o) => o.type === "source" && o.x === 6 && o.y === 44);
+          if (!linked || !unlinked) return false;
+          const corps = planCorps(s);
+          const mines = corps.filter((c) => c.kind === "mine");
+          if (mines.length !== 2) return false;
+          const linkedHauls = corps.filter((c) => c.kind === "haul" && c.fromId === `source-${linked._id}`);
+          const unlinkedHauls = corps.filter((c) => c.kind === "haul" && c.fromId === `source-${unlinked._id}`);
+          if (linkedHauls.length === 0 || unlinkedHauls.length === 0) return false;
+          const coreSide = linkedHauls.filter(
+            (c) => String(c.toId).startsWith("spawn-") || String(c.toId).startsWith("storage-")
+          );
+          return coreSide.every((c) => (c.carry ?? 99) <= 3) && unlinkedHauls.some((c) => (c.carry ?? 0) >= 6);
+        }),
+        eventually("the physical pump reaches the core link", (s) => {
+          const core = s.objects().find((o) => o.type === "link" && o.x === 22 && o.y === 24);
+          return !!core && (core.store?.energy ?? 0) > 0;
+        }),
+      ],
+    },
+  ];
+}
+
 export const plannerCells: GridCell[] = [
   {
     id: "plan-t0-single-source-commissioned",
