@@ -95,6 +95,41 @@ export const churnCells: GridCell[] = [
   },
 
   {
+    // T0 existence proof of the disaster layer: zero creeps -> noHaulers ->
+    // BootstrapCorp bypasses the starvation timer and spawns a jack at once.
+    // Cold RCL1 (no controller bump): bootstrap owns the room by design.
+    id: "churn-jack-immediate-no-haulers",
+    tier: 0,
+    avenue: "churn-recovery",
+    window: 20,
+    rooms: { home: homeRoom },
+    bot: { x: 25, y: 25 },
+    assertions: [
+      // Immediacy is proven by ARRIVAL time: the mockup surfaces neither
+      // spawn.spawning nor the in-progress creep, but a 3-part jack takes 9
+      // spawn ticks, so fielded-by-12 means the spawn STARTED by tick 3 (the
+      // zero-haulers immediate path). The starvation-timer path starts at
+      // tick 6+ and cannot field before ~15. Measured: fielded @ tick 10.
+      eventually("jack fielded fast enough to prove an immediate start", (s) => {
+        if (s.tick > 12) return false;
+        return s
+          .objects()
+          .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"));
+      }),
+      eventually("jack fielded with the bootstrap corp stamp", (s) => {
+        const jack = s
+          .objects()
+          .find((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"));
+        if (!jack) return false;
+        const mem = s.memory?.creeps?.[jack.name];
+        return (
+          typeof mem?.corpId === "string" && mem.corpId.startsWith("bootstrap-") && mem.workType === "harvest"
+        );
+      }),
+    ],
+  },
+
+  {
     id: "churn-canary-untouched",
     tier: 1,
     avenue: "churn-recovery",

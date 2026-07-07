@@ -25,6 +25,9 @@ recalibrate designer windows against these, not the guesses:
 | adopted miner on post beside source | 12 |
 | unadoptable orphan recycled (25 grace + 5 walk) | 30 |
 | first FLOW miner spawned | **138** |
+| first FLOW hauler fielded (haul-t0 geometry) | 187 |
+| first bulk hauler delivery reaches the spawn | **202** |
+| first extension site placed / economyPlan published | 10 |
 
 Implications: (a) adoption T0 ~= 11 well inside the 25-tick grace - the
 staging mechanism ~30 cells depend on is PROVEN; use always-assertion
@@ -35,9 +38,21 @@ itself a spec-01 measurement (part of the cold-start dead window). Two runs
 were tick-identical, so treat verdict flips as signal until proven otherwise.
 
 **Runner performance**: 4-bot 150-tick world = ~58s wall clock including
-setup. Pad-room setup uses test/grid/bulkPad.ts (single env rebuild) - the
-naive padNeighborTerrain path at radius 3 re-deflates the whole terrain blob
-per room and takes MINUTES for a batch (architect risk #1, confirmed).
+setup; 12-bot 300-tick world = ~4min (retirement shrinks the active set as
+cells decide); a single 20-tick cell = **3.3s**. Pad-room setup uses
+test/grid/bulkPad.ts (single env rebuild) - the naive padNeighborTerrain path
+at radius 3 re-deflates the whole terrain blob per room and takes MINUTES for
+a batch (architect risk #1, confirmed).
+
+**T0 ROW COMPLETE (2026-07-07)**: all 8 T0 cells + canary trio green, BOT
+LEVEL 1 ratcheted. Observability lessons for future cells: (a) the mockup
+does NOT surface `spawn.spawning` on the db doc, and in-progress creeps only
+appear in roomObjects at spawn COMPLETION - assert immediacy via arrival time
+(body parts x 3 ticks back-derives the start tick); (b) prefer "bulk
+single-tick store jump >= 40" over absolute store thresholds for delivery
+assertions (spawns self-regen +1/tick below 300); (c) the no-corpId
+workType:'haul' decoy is the proven jack suppressor for cells needing an
+untouched spawn bank (canary-verified never adopted/recycled).
 **Thesis**: optimize *feedback per second*. Long sims are mostly dead time
 (spawning at 3 ticks/part, travel at ~1 tile/tick); the information lives at
 inflection points — creep SHOULD spawn, creep freshly spawned, creep arrived

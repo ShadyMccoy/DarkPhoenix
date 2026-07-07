@@ -1,9 +1,17 @@
 {
   "botLevel": 1,
   "cells": {
+    "churn-jack-immediate-no-haulers": "pass",
     "churn-canary-recycle": "pass",
     "churn-canary-untouched": "pass",
+    "spawnexec-first-miner-stamp-300": "pass",
+    "arrive-miner-on-spot-harvests": "pass",
+    "move-reach-harvest-spot": "pass",
     "churn-canary-readopt": "pass",
-    "calib-adoption-timing": "pass"
+    "plan-t0-single-source-commissioned": "pass",
+    "cons-ext-first-site-checkerboard": "pass",
+    "calib-adoption-timing": "pass",
+    "spawn-first-miner-outranks-all": "pass",
+    "haul-t0-first-delivery": "pass"
   }
 }
