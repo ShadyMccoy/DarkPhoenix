@@ -34,6 +34,32 @@ convergence still leans on the 300-tick starvation threshold (the d=22 grid
 cell converges at tick ~726) — candidate next lever: shorter threshold or
 income-aware demand pricing, to be A/B'd separately.
 
+### 2026-07-07 bisect: the fixes trade spawn TEMPO for convergence
+
+Same-era isolated 3000-tick draws on the ab-cold-start world:
+
+| bundle | cp@3000 |
+|--------|---------|
+| pre-fix (4e4c97f~1) | 7711 |
+| fix 1 only (inbound-aware divert) | 2901 |
+| fix 2 only (starved-hold) | 2805 |
+| both | 3942 / 3050 (two draws) |
+
+Reading: EACH fix alone halves cp on this friendly world - both throttle
+spawn tempo (fix 1 keeps controller loads out of the spawn engine; fix 2
+idles the spawn on holds), and the pre-fix bot's aggressive spawn-first
+behavior compounds fleet -> income -> late upgrading. BUT the pre-fix bot
+scores ZERO FOREVER on the adversarial worlds (single-source d=22:
+controller progress 0 for 700+ measured ticks; the deadlock is pinned by
+grid cells plan-t1-single-source-loop / haul-t1-circuit-split, which the
+ratchet keeps green). The open engineering problem is a PRESSURE-AWARE
+version of both mechanisms: divert/hold only when the colony is actually
+starving on the relevant axis, so friendly worlds keep pre-fix tempo and
+adversarial worlds keep the convergence guarantee. Next session: instrument
+spawn-idle ticks + spawn events per 100 ticks in fixed-vs-prefix A/B runs to
+locate exactly where the tempo goes, then tune under the double constraint
+(grid green AND cp@3000 recovered toward 7700).
+
 ## What we know
 
 1. **Prod (master) is missing fixes that this branch already has.** The
