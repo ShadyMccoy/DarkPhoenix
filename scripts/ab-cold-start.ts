@@ -61,10 +61,31 @@ async function main(): Promise<void> {
   await server.start();
 
   const sample = Number(process.argv[3] ?? 250);
+  // ENERGY instrumentation (owner directive: energy, not cp, is the leading
+  // cold-start metric). mined = cumulative source drains (regen jumps
+  // ignored); invested = cumulative spawn-network drops (spawn costs);
+  // ground = standing dropped energy (strand gauge).
+  let mined = 0;
+  let invested = 0;
+  const prevSource = new Map<string, number>();
+  let prevBank: number | null = null;
   for (let t = 1; t <= ticks; t += 1) {
     await server.tick();
+    const o = await server.world.roomObjects("W0N0");
+    for (const src of o.filter((x: any) => x.type === "source")) {
+      const prev = prevSource.get(String(src._id));
+      if (prev !== undefined && src.energy < prev) mined += prev - src.energy;
+      prevSource.set(String(src._id), src.energy);
+    }
+    const bank = o
+      .filter((x: any) => x.type === "spawn" || x.type === "extension")
+      .reduce((s: number, x: any) => s + (x.store?.energy ?? 0), 0);
+    if (prevBank !== null && bank < prevBank) invested += prevBank - bank;
+    prevBank = bank;
     if (t % sample === 0) {
-      const o = await server.world.roomObjects("W0N0");
+      const ground = o
+        .filter((x: any) => x.type === "energy")
+        .reduce((s: number, x: any) => s + (x.energy ?? 0), 0);
       const c = o.find((x: any) => x.type === "controller");
       let m: any = {};
       try { m = JSON.parse((await player.memory) || "{}"); } catch { /* ignore */ }
@@ -72,7 +93,7 @@ async function main(): Promise<void> {
       for (const n in m.creeps || {}) { const w = m.creeps[n].workType || "bootstrap"; bt[w] = (bt[w] || 0) + 1; }
       const v = (m.corpVariance || []).map((r: any) => `${r.type} ${r.actual}/${r.budget}`).join(", ");
       console.log(
-        `  t=${String(t).padStart(4)} cp=${controlPoints(c?.level ?? 0, c?.progress ?? 0)} creeps=${JSON.stringify(bt)} var=[${v}]`
+        `  t=${String(t).padStart(4)} mined=${mined} invested=${invested} ground=${ground} cp=${controlPoints(c?.level ?? 0, c?.progress ?? 0)} creeps=${JSON.stringify(bt)} var=[${v}]`
       );
     }
   }
@@ -91,6 +112,7 @@ async function main(): Promise<void> {
   const variance = (mem.corpVariance || []).map((r: any) => `${r.type} ${r.actual}/${r.budget}`).join(", ");
 
   console.log(`ticks=${ticks} RCL=${ctrl?.level} controlPoints=${cp}`);
+  console.log(`ENERGY: mined=${mined} invested=${invested} minedRate=${(mined / ticks).toFixed(2)}/t`);
   console.log(`creeps=${JSON.stringify(byType)}`);
   console.log(`variance=[${variance}]`);
   const ep = mem.economyPlan;

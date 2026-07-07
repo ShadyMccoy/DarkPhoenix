@@ -376,3 +376,66 @@ describe("starved demands hold the spawn (controller-starve guard)", () => {
     expect(result?.demand.buyerCorpId).to.equal("mine");
   });
 });
+
+/**
+ * Energy-led refinement (owner directive): starved holds protect INCOME
+ * throughput only. A starved consumer keeps its rank lift - one guaranteed
+ * slot when affordable - but never idles the spawn, because holding for
+ * consumers stalls the fleet-first investment strategy (measured: ~2x cp
+ * cost and a smaller fleet at every sample).
+ *
+ * Mutation check: drop `demand.producesIncome` from the starved-hold gate and
+ * the consumer case below fails.
+ */
+describe("starved consumers lift but never hold (energy-led refinement)", () => {
+  it("a starved unaffordable BUILDER does not hold - the cheaper income demand spawns", () => {
+    const starvedBuilder = demand({
+      buyerCorpId: "cons",
+      role: "builder",
+      producesIncome: false,
+      minCost: 300,
+      desiredCost: 600,
+      since: 1, // far past threshold at tick 1000
+    });
+    const cheapMiner = demand({ buyerCorpId: "mine", role: "miner", producesIncome: true, minCost: 250 });
+    const result = scheduleSpawn(
+      [cheapMiner, starvedBuilder],
+      ctx({ energyAvailable: 260, energyCapacity: 300, energyIncome: 10, tick: 1000 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("mine");
+  });
+
+  it("the same starved builder wins its one-shot the moment it is affordable", () => {
+    const starvedBuilder = demand({
+      buyerCorpId: "cons",
+      role: "builder",
+      producesIncome: false,
+      minCost: 300,
+      desiredCost: 600,
+      since: 1,
+    });
+    const cheapMiner = demand({ buyerCorpId: "mine", role: "miner", producesIncome: true, minCost: 250 });
+    const result = scheduleSpawn(
+      [cheapMiner, starvedBuilder],
+      ctx({ energyAvailable: 300, energyCapacity: 300, energyIncome: 10, tick: 1000 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("cons");
+  });
+
+  it("a starved unaffordable HAULER still holds (income protection intact)", () => {
+    const starvedHauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      minCost: 300,
+      desiredCost: 800,
+      since: 1,
+    });
+    const cheapMiner = demand({ buyerCorpId: "mine", role: "miner", producesIncome: true, minCost: 250 });
+    const result = scheduleSpawn(
+      [cheapMiner, starvedHauler],
+      ctx({ energyAvailable: 260, energyCapacity: 300, energyIncome: 10, tick: 1000 })
+    );
+    expect(result).to.equal(null);
+  });
+});

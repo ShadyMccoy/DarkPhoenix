@@ -53,11 +53,18 @@ const PLACEMENT_COOLDOWN = 10;
 const CONTAINER_LIMIT = 5;
 
 /**
- * Don't invest in containers (5000 build cost each) until RCL 3+. At RCL 2 the
- * economy is too small to afford one without stalling the climb; extensions
- * (3000, compounding capacity) come first.
+ * Don't invest in containers (5000 build cost each) before the extension set
+ * exists. At RCL 3+ they come first (static mining lifts everything). At RCL 2
+ * the owner build order applies: be greedy to RCL2, then EXTENSIONS (3000,
+ * compounding capacity), THEN containers - so static-mining efficiency feeds
+ * the RCL3 push - and containers only unlock once the extension set is BUILT.
  */
 const CONTAINER_MIN_RCL = 3;
+
+/** Container rungs open at RCL3+, or at RCL2 once the extension set is built. */
+function containersUnlocked(rcl: number, extensionsAtCap: boolean): boolean {
+  return rcl >= CONTAINER_MIN_RCL || (rcl === 2 && extensionsAtCap);
+}
 
 /** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
 const STORAGE_MIN_RCL = 4;
@@ -201,7 +208,7 @@ export class ConstructionCorp extends Corp {
     const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
 
     const wantsContainer =
-      rcl >= CONTAINER_MIN_RCL &&
+      containersUnlocked(rcl, currentExtensions >= maxExtensions) &&
       (this.findMissingSourceContainer(room) !== null ||
         this.findMissingCoreDepot(room) !== null ||
         this.findMissingControllerContainer(room) !== null);
@@ -439,10 +446,18 @@ export class ConstructionCorp extends Corp {
     }
     this.lastPlacementAttempt = tick;
 
-    // 1. Source containers first (RCL 3+): they sit on the source, are cheap to
-    //    build, and turn roaming drop-mining into static mining - efficiency that
-    //    lifts the whole economy.
-    if (rcl >= CONTAINER_MIN_RCL) {
+    // Owner build order: at RCL2 the container rungs open only once the
+    // extension SET IS BUILT (sites don't count) - extensions, then
+    // containers, then the RCL3 push.
+    const builtExtensions = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_EXTENSION
+    }).length;
+    const containersOpen = containersUnlocked(rcl, builtExtensions >= (EXTENSION_LIMITS[rcl] || 0));
+
+    // 1. Source containers first (when the rung is open): they sit on the
+    //    source, are cheap to build, and turn roaming drop-mining into static
+    //    mining - efficiency that lifts the whole economy.
+    if (containersOpen) {
       const srcContainer = this.findMissingSourceContainer(room);
       if (srcContainer) {
         this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER, 0);
@@ -454,7 +469,7 @@ export class ConstructionCorp extends Corp {
     //     extension tender drains it to fill the extensions - the split that keeps
     //     the long-range haulers off the extensions (no schooling). Comes right
     //     after source containers so the tender has somewhere to draw from early.
-    if (rcl >= CONTAINER_MIN_RCL) {
+    if (containersOpen) {
       const depot = this.findMissingCoreDepot(room);
       if (depot) {
         this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER, 0);
@@ -470,11 +485,7 @@ export class ConstructionCorp extends Corp {
     //    Cap-guarded here (not just in work()'s gate): when the gate opens for a
     //    wanted container/storage with extensions already maxed, attempting an
     //    over-cap extension would fail every cooldown and starve the later steps.
-    const maxExtensions = EXTENSION_LIMITS[rcl] || 0;
-    const builtExtensions = room.find(FIND_MY_STRUCTURES, {
-      filter: s => s.structureType === STRUCTURE_EXTENSION
-    }).length;
-    if (builtExtensions < maxExtensions) {
+    if (builtExtensions < (EXTENSION_LIMITS[rcl] || 0)) {
       const ext = this.findGridPosition(room);
       if (ext) {
         this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
@@ -502,9 +513,11 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // 3. Controller container last: a luxury that only buffers upgrading and is
-    //    expensive to feed, so it waits until the extension set is done.
-    if (rcl >= CONTAINER_MIN_RCL) {
+    // 3. Controller container last: it buffers the upgrade push (containerFed
+    //    upgraders draw from it), so under the owner build order it lands at
+    //    RCL2 right before the RCL3 push - after extensions and the mining
+    //    containers.
+    if (containersOpen) {
       const ctrlContainer = this.findMissingControllerContainer(room);
       if (ctrlContainer) {
         this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER, 0);
