@@ -102,3 +102,6 @@ $RECYCLE.BIN/
 
 # Generated scenario snapshots (regenerate via scripts/scenario-roundtrip.ts)
 test/fixtures/snapshots/
+
+# Grid run artifact (the committed ratchet is test/grid/baseline.json)
+test/grid/last-run.json

@@ -218,7 +218,7 @@ export async function setRoomLevel(
 // ---------------------------------------------------------------------------
 
 /** Parse a room name like "W0N0" / "E3S12" into signed grid coordinates. */
-function parseRoomName(name: string): { x: number; y: number } | null {
+export function parseRoomName(name: string): { x: number; y: number } | null {
   const m = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
   if (!m) return null;
   const horiz = Number(m[2]);
@@ -229,7 +229,7 @@ function parseRoomName(name: string): { x: number; y: number } | null {
 }
 
 /** Inverse of {@link parseRoomName}. */
-function formatRoomName(x: number, y: number): string {
+export function formatRoomName(x: number, y: number): string {
   const h = x < 0 ? `W${-x - 1}` : `E${x}`;
   const v = y < 0 ? `N${-y - 1}` : `S${y}`;
   return `${h}${v}`;

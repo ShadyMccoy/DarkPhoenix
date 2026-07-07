@@ -1,0 +1,9 @@
+{
+  "botLevel": 1,
+  "cells": {
+    "churn-canary-recycle": "pass",
+    "churn-canary-untouched": "pass",
+    "churn-canary-readopt": "pass",
+    "calib-adoption-timing": "pass"
+  }
+}
