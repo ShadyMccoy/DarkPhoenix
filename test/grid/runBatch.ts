@@ -125,7 +125,29 @@ export async function runBatch(batch: PackedBatch, opts: RunBatchOptions): Promi
         return roomCache.get(room) as any[];
       };
 
+      // Per-tick harness interventions (energy pins, one-shot triggers).
       for (const c of undecided) {
+        if (!c.packed.cell.onTick) continue;
+        try {
+          await c.packed.cell.onTick({
+            tick,
+            db,
+            userId: c.userId,
+            room: (handle?: string) => {
+              const name = c.packed.rooms[handle ?? "home"];
+              if (!name) throw new Error(`no room handle "${handle}"`);
+              return name;
+            },
+          });
+        } catch (e) {
+          c.errorMessage = `onTick: ${e instanceof Error ? e.message : String(e)}`;
+          c.judge.error(tick);
+          await retire(c);
+        }
+      }
+
+      for (const c of undecided) {
+        if (c.judge.isDecided) continue; // onTick may have errored the cell
         // Pre-fetch this cell's rooms so the sample's accessors are sync.
         const fetched: Record<string, any[]> = {};
         for (const [handle, room] of Object.entries(c.packed.rooms)) {

@@ -26,7 +26,40 @@ const homeRoom = (roomName: string) =>
 
 const SOURCE_ID = "$id(home,source,30,25)";
 
+// churn-canary-recycle stand-still tracking (position frozen through grace).
+let cx1Anchor: { x: number; y: number } | null = null;
+
 export const churnCells: GridCell[] = [
+  {
+    // T1: the OTHER readopt path - a hauler is matched to the carry corp that
+    // routes its assignedSourceId (OrphanRescue.ts:117-125), not by standing
+    // position. Complements churn-canary-readopt's miner path.
+    id: "churn-readopt-hauler-route",
+    tier: 1,
+    avenue: "churn-recovery",
+    window: 40,
+    rooms: { home: homeRoom },
+    bot: { x: 25, y: 25 },
+    controller: { level: 2 },
+    creeps: [
+      {
+        name: "hx",
+        x: 22,
+        y: 25,
+        body: ["carry", "carry", "move"],
+        memory: { workType: "haul", corpId: "hauling-DEAD-hauling-0000", assignedSourceId: SOURCE_ID },
+      },
+    ],
+    assertions: [
+      eventually("re-adopted into the live carry corp by route", (s) => {
+        const corpId = s.memory?.creeps?.hx?.corpId;
+        return typeof corpId === "string" && corpId.startsWith("hauling-") && !corpId.includes("DEAD");
+      }),
+      always("never recycled while its route exists", (s) => !!s.creep("hx")),
+      atWindow("no orphan stamp survives", (s) => s.memory?.creeps?.hx?.orphanedSince === undefined),
+    ],
+  },
+
   {
     id: "churn-canary-readopt",
     tier: 1,
@@ -84,6 +117,15 @@ export const churnCells: GridCell[] = [
     assertions: [
       // Grace respected: still alive at tick 20 (< ORPHAN_GRACE_TICKS + walk).
       always("not recycled inside the grace window", (s) => s.tick >= 20 || !!s.creep("cx1")),
+      // 'wait' means WAIT: OrphanRescue issues no moves during grace, and
+      // nothing else may drive an orphan - the position stays frozen.
+      always("stands still through the grace window", (s) => {
+        if (s.tick < 3 || s.tick > 22) return true;
+        const c = s.creep("cx1");
+        if (!c) return false;
+        if (cx1Anchor === null) cx1Anchor = { x: c.x, y: c.y };
+        return c.x === cx1Anchor.x && c.y === cx1Anchor.y;
+      }),
       // Never mis-adopted while alive: its corpId must stay the ghost id.
       always("never adopted by an unrelated corp", (s) => {
         const corpId = s.memory?.creeps?.cx1?.corpId;
@@ -101,20 +143,25 @@ export const churnCells: GridCell[] = [
     id: "churn-jack-immediate-no-haulers",
     tier: 0,
     avenue: "churn-recovery",
-    window: 20,
+    window: 30,
     rooms: { home: homeRoom },
     bot: { x: 25, y: 25 },
     assertions: [
-      // Immediacy is proven by ARRIVAL time: the mockup surfaces neither
-      // spawn.spawning nor the in-progress creep, but a 3-part jack takes 9
-      // spawn ticks, so fielded-by-12 means the spawn STARTED by tick 3 (the
-      // zero-haulers immediate path). The starvation-timer path starts at
-      // tick 6+ and cannot field before ~15. Measured: fielded @ tick 10.
-      eventually("jack fielded fast enough to prove an immediate start", (s) => {
-        if (s.tick > 12) return false;
+      // Prompt existence proof of the disaster layer. Exact start tick is NOT
+      // asserted: BootstrapCorp's SPAWN_COOLDOWN=10 gates on absolute
+      // Game.time (lastSpawnAttempt inits to 0), so a world whose clock starts
+      // near 0 spawns the jack at tick ~10, one starting later spawns at ~1 -
+      // fielded anywhere in [10, 22] is the immediate path (3 parts = 9 spawn
+      // ticks). What must hold: the jack comes promptly and comes FIRST.
+      eventually("jack fielded promptly", (s) => {
+        if (s.tick > 22) return false;
         return s
           .objects()
           .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"));
+      }),
+      always("the jack is the room's first creep", (s) => {
+        const creeps = s.objects().filter((o) => o.type === "creep" && typeof o.name === "string");
+        return creeps.length === 0 || creeps.some((o) => o.name.startsWith("jack-"));
       }),
       eventually("jack fielded with the bootstrap corp stamp", (s) => {
         const jack = s

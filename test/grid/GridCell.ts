@@ -104,6 +104,14 @@ export interface StageCtx {
   room(handle?: string): string;
 }
 
+/** Context for per-tick harness interventions (see GridCell.onTick). */
+export interface TickCtx {
+  tick: number;
+  db: any;
+  userId: string;
+  room(handle?: string): string;
+}
+
 export interface GridCell {
   /** Unique kebab-case id, prefixed by avenue (e.g. "churn-canary-readopt"). */
   id: string;
@@ -132,6 +140,13 @@ export interface GridCell {
   memory?: Record<string, unknown>;
   /** Raw-db staging escape hatch, run after declarative staging. */
   stage?(ctx: StageCtx): Promise<void>;
+  /**
+   * Per-tick harness intervention, run AFTER each server tick while the cell
+   * is undecided (e.g. pin the spawn's energy so no decision is energy-gated,
+   * or fire a one-shot db tweak when a condition is met). Keep it cheap - it
+   * runs every tick.
+   */
+  onTick?(ctx: TickCtx): Promise<void>;
   /** Engine mod paths; cells only batch with identical mod signatures. */
   mods?: string[];
   assertions: CellAssertion[];

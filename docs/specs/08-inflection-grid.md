@@ -46,13 +46,39 @@ a batch (architect risk #1, confirmed).
 
 **T0 ROW COMPLETE (2026-07-07)**: all 8 T0 cells + canary trio green, BOT
 LEVEL 1 ratcheted. Observability lessons for future cells: (a) the mockup
-does NOT surface `spawn.spawning` on the db doc, and in-progress creeps only
-appear in roomObjects at spawn COMPLETION - assert immediacy via arrival time
-(body parts x 3 ticks back-derives the start tick); (b) prefer "bulk
-single-tick store jump >= 40" over absolute store thresholds for delivery
-assertions (spawns self-regen +1/tick below 300); (c) the no-corpId
-workType:'haul' decoy is the proven jack suppressor for cells needing an
-untouched spawn bank (canary-verified never adopted/recycled).
+DOES surface `spawning` on the spawn's db doc ({name, needTime, spawnTime}),
+but in-progress creeps only appear in roomObjects at spawn COMPLETION -
+assert immediacy via arrival time (body parts x 3 ticks back-derives the
+start tick); (b) prefer "bulk single-tick store jump >= 40" over absolute
+store thresholds for delivery assertions (spawns self-regen +1/tick below
+300); (c) the no-corpId workType:'haul' decoy is the proven jack suppressor
+for cells needing an untouched spawn bank (canary-verified never
+adopted/recycled) - add two no-memory [MOVE] fillers to push otherCreeps >= 3
+and bootstrap parks in its yield branch entirely (the "quiet room" kit).
+
+**T1 ROW (2026-07-07)** - harness capabilities added and lessons:
+- `GridCell.onTick(ctx)`: per-tick db interventions (pin a spawn's bank,
+  one-shot triggers). CRITICAL: this db layer's `$set` with dotted paths
+  (`"store.energy"`) silently NO-OPS - write whole objects
+  (`store: {energy: N}`). Verified: the engine reads such writes (+1
+  self-regen on top proves it).
+- BootstrapCorp's SPAWN_COOLDOWN=10 gates on absolute Game.time
+  (lastSpawnAttempt inits 0), so jack start ticks vary with the world clock -
+  never assert exact jack timing, assert "prompt and first".
+- Designed-cell dedupes: `churn-readopt-miner-hauler-live-corps` split into
+  the existing canary (miner path) + `churn-readopt-hauler-route` (route
+  match path); `churn-orphan-waits-then-recycles` folded into the recycle
+  canary as a stand-still-through-grace assertion.
+- `spawnexec-miner-carry-600-boundary` built as `-700-boundary` per errata
+  wrong-behavior #1 (at exactly 600 the executor's rebuild drops the CARRY;
+  700 is the true boundary-crossing observable: 5W1C3M, confirmed live).
+- Window recalibrations from first runs: circuit-split 60->110 (the
+  controller-circuit hauler's ~35-tick loaded walk), planner loop 400->500
+  (cold d=22 loop: miner ~150, hauler ~250, first upgrader ~350+ - the
+  spec-01 dead window re-measured at realistic distance).
+- Assertion-scope lesson: "never moves while empty" must bind only BEFORE the
+  first load - an empty hauler walking back to reload is correct circuit
+  behavior, and the first run false-failed on it.
 **Thesis**: optimize *feedback per second*. Long sims are mostly dead time
 (spawning at 3 ticks/part, travel at ~1 tile/tick); the information lives at
 inflection points — creep SHOULD spawn, creep freshly spawned, creep arrived

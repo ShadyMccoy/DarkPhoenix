@@ -9,26 +9,32 @@
  */
 
 import { GridCell } from "../GridCell";
-import { arrivalCells } from "./arrival";
+import { arrivalCells, buildArrivalT1Cells } from "./arrival";
+import { buildConstructionT1Cells, constructionCells } from "./construction";
 import { buildHaulingCells } from "./hauling";
+import { buildPlannerT1Cells, plannerCells } from "./planner";
+import { buildStatefulMovementCells, movementCells } from "./movement";
+import { buildStatefulSchedulerCells, spawnSchedulerCells } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
 import { churnCells } from "./churn";
-import { constructionCells } from "./construction";
-import { movementCells } from "./movement";
-import { plannerCells } from "./planner";
-import { spawnExecCells } from "./spawn-exec";
-import { spawnSchedulerCells } from "./spawn-scheduler";
+import { spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 
 export const ALL_CELLS: GridCell[] = [
   ...calibrationCells,
   ...churnCells,
   ...movementCells,
+  ...buildStatefulMovementCells(),
   ...spawnSchedulerCells,
+  ...buildStatefulSchedulerCells(),
   ...spawnExecCells,
+  ...spawnExecT1Cells,
   ...arrivalCells,
+  ...buildArrivalT1Cells(),
   ...buildHaulingCells(),
+  ...buildConstructionT1Cells(),
   ...constructionCells,
   ...plannerCells,
+  ...buildPlannerT1Cells(),
 ];
 
 const seen = new Set<string>();
