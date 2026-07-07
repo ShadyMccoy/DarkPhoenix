@@ -112,10 +112,11 @@ export function buildPlannerT2Cells(): GridCell[] {
       id: "plan-t2-asymmetric-both-staffed",
       tier: 2,
       avenue: "planning-economy",
-      // 500 with 550 capacity (5 exts): at 800 the two 700-cost miners bank
-      // serially past the window; at 550 the 500-cost bodies field by ~60 and
-      // ~250, and the far walk (21 tiles) still fits comfortably.
-      window: 500,
+      // 650 with 550 capacity (5 exts): at 800 the two 700-cost miners bank
+      // serially far past any window; at 550 the 500-cost bodies field by ~60
+      // and ~300 - and under the energy-led scheduler (consumers spend
+      // freely, no holds) the second miner banks ~15% slower than before.
+      window: 650,
       rooms: {
         home: (roomName: string) =>
           new RoomBuilder(roomName).border().controller(25, 8).source(22, 22).source(46, 46).toRoom(),

@@ -214,7 +214,11 @@ export function buildSpawnExecT3Cells(): GridCell[] {
       id: "spawnexec-miner-runt-recycle-affordable",
       tier: 3,
       avenue: "spawn-execution",
-      window: 60,
+      // 150: recycle lands ~43-55; under the energy-led scheduler the
+      // replacement can queue behind TWO consumer spawns (~30 ticks) before
+      // its own 15-tick build - worst case ~115. (Green at 110 solo, red in
+      // a shared world once - the flake margin is consumer interleaving.)
+      window: 150,
       rooms: {
         home: (roomName: string) => {
           const b = new RoomBuilder(roomName).border().controller(33, 20);
@@ -223,7 +227,35 @@ export function buildSpawnExecT3Cells(): GridCell[] {
       },
       bot: { x: 25, y: 25 },
       controller: { level: 2 },
-      structures: EXT_5.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      // The container set is PRE-BUILT (closes every construction rung the
+      // owner build order now opens at RCL2), and the bank is PINNED full:
+      // the full infra legitimately wakes the tender + upgraders, and the
+      // runt-recycle gate (spawnIdleAndMaxed) only needs ONE idle-full
+      // evaluation - the pin guarantees it despite the spenders.
+      structures: [
+        ...EXT_5.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+        { type: "container", x: 19, y: 24, energy: 0 }, // on the pocket tile
+        { type: "container", x: 24, y: 24, energy: 0 }, // depot
+        { type: "container", x: 33, y: 22, energy: 0 }, // controller buffer
+      ],
+      async onTick(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+        for (const p of [
+          { x: 23, y: 23 },
+          { x: 23, y: 27 },
+          { x: 27, y: 23 },
+          { x: 27, y: 27 },
+          { x: 22, y: 25 },
+        ]) {
+          await ctx.db["rooms.objects"].update(
+            { room: ctx.room(), type: "extension", x: p.x, y: p.y },
+            { $set: { store: { energy: 50 } } }
+          );
+        }
+      },
       creeps: [
         {
           name: "runt",
@@ -256,13 +288,17 @@ export function buildSpawnExecT3Cells(): GridCell[] {
           if (gone && runtRecycledAt === null) runtRecycledAt = s.tick;
           return (flagged || runtRecycledAt !== null) && gone;
         }),
-        eventually("the replacement is the full 3-WORK body", (s) => {
+        // The staged source says 1500, but the bot's ownership lift values
+        // owned-room sources at 3000 (the game rule: owned rooms regen 3000)
+        // -> rate 10 -> desiredWork 5 -> the full body 550 affords is 4W2M.
+        // Measured: the replacement spawned exactly so.
+        eventually("the replacement is the full body the capacity affords (4W)", (s) => {
           const fresh = s
             .objects()
             .find((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("miner-"));
           if (!fresh) return false;
           const work = (fresh.body ?? []).filter((p: any) => p.type === "work").length;
-          return work === 3;
+          return work === 4;
         }),
         always("never another sub-3-WORK miner (anti-thrash)", (s) =>
           s

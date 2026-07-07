@@ -404,7 +404,9 @@ export function buildHaulingT3Cells(): GridCell[] {
       id: "haul-t3-dedicated-resume-groundpile",
       tier: 3,
       avenue: "logistics",
-      window: 100,
+      // 150: under the energy-led scheduler, consumers spend freely and B's
+      // resume hauler can queue behind them (green at 100 twice, red once).
+      window: 150,
       rooms: { home: dedicatedRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 2 },

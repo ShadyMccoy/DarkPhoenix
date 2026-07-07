@@ -45,6 +45,20 @@ Same-era isolated 3000-tick draws on the ab-cold-start world:
 | fix 2 only (starved-hold) | 2805 |
 | both | 3942 / 3050 (two draws) |
 
+**RESOLVED 2026-07-07 (energy-led retuning, commit fcc8adc):** the owner set
+the metric - ENERGY is the leading cold-start indicator, cp trails; the
+fleet-first invest-early strategy is desired; sequence greedy->RCL2 ->
+extensions -> containers -> RCL3 push. Refinements: starved holds now protect
+INCOME demands only (consumers keep the one-shot rank lift, never idle the
+spawn), and containers unlock at RCL2 once the extension set is built.
+Same-condition instrumented A/B @3000 (identical build order, only
+scheduler/carry deltas): refined mined 38,036 (12.7/t) / invested 33,092 /
+cp 6,493 vs pre-fix mined 33,106 (11.0/t) / invested 37,945 / cp 4,852 -
+the refined bundle mines +15% MORE energy, spends -13% LESS on spawning, and
+still leads cp, while keeping the no-stranding convergence guarantee (grid:
+82/84, BOT LEVEL 3, both known-reds documented). The earlier reading below
+is retained for history:
+
 Reading: EACH fix alone halves cp on this friendly world - both throttle
 spawn tempo (fix 1 keeps controller loads out of the spawn engine; fix 2
 idles the spawn on holds), and the pre-fix bot's aggressive spawn-first
