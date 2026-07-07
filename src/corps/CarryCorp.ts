@@ -118,6 +118,25 @@ export function shouldDrainDedicatedSource(
 }
 
 /**
+ * Is the spawn network critically low ENOUGH to steal a controller-bound
+ * hauler's trip, given the energy already aboard fleet-mates committed to the
+ * spawn this trip? "Critical" must mean "and help is not already on the way":
+ * during buildout the bank sits below the raw {@link SPAWN_DIVERT_FILL} gate
+ * almost continuously (every spawn drains 200-500 from a 300-550 pool), so a
+ * store-only test diverts the controller hauler on EVERY flip and the flow
+ * solver's controller allocation - including the anti-downgrade reserve - is
+ * never physically delivered (controller progress measured at zero for 700+
+ * ticks; grid cells haul-t1-circuit-split / plan-t1-single-source-loop).
+ * Counting inbound committed cargo keeps the true emergency behavior (nothing
+ * inbound -> divert) while letting the controller keep its share whenever the
+ * deficit is already covered. Pure so it can be unit tested directly.
+ */
+export function isSpawnNetworkCritical(used: number, capacity: number, inboundCommitted: number): boolean {
+  if (capacity <= 0) return false;
+  return (used + inboundCommitted) / capacity < SPAWN_DIVERT_FILL;
+}
+
+/**
  * Choose which local sink to commit a load to. The spawn network has strict
  * priority: whenever it has real free capacity, fill it first regardless of the
  * proportional allocation (the spawn is critical but small, so it tops up fast
@@ -589,7 +608,15 @@ export class CarryCorp extends Corp {
       used += s.store[RESOURCE_ENERGY];
       cap += s.store.getCapacity(RESOURCE_ENERGY) ?? 0;
     }
-    return cap > 0 && used / cap < SPAWN_DIVERT_FILL;
+    // Energy already aboard fleet-mates committed to the spawn this trip: the
+    // deficit they cover is not an emergency (see isSpawnNetworkCritical).
+    // Per-corp only - other sources' fleets are invisible here, which errs on
+    // the side of diverting slightly too often, never too rarely.
+    const inbound = this.getAssignedCreeps().reduce((sum, h) => {
+      if (!h.memory.working || h.memory.deliverSinkId !== "spawn") return sum;
+      return sum + h.store[RESOURCE_ENERGY];
+    }, 0);
+    return isSpawnNetworkCritical(used, cap, inbound);
   }
 
   /** Free energy capacity across the spawn network is worth a hauler's divert. */

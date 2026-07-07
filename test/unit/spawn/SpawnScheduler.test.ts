@@ -302,3 +302,77 @@ describe("SpawnScheduler", () => {
     });
   });
 });
+
+/**
+ * The starved-hold fix (grid cell plan-t1-single-source-loop): a demand past
+ * the starvation threshold gains HOLD semantics, not just the rank lift.
+ * Without it, an unaffordable non-blocking demand is skipped no matter its
+ * rank, and every cheaper demand keeps eating the 200-299 energy band first -
+ * measured: at 300 capacity a scaling hauler (min 300) lost the band to
+ * miners/tankers/upgraders for 700+ ticks while the controller starved at
+ * progress 0.
+ *
+ * Mutation check: revert `mustFund` to `demand.blocking` and exactly these
+ * cases fail.
+ */
+describe("starved demands hold the spawn (controller-starve guard)", () => {
+  const STARVED_SINCE = 1; // with tick 1000, far past the 300-tick threshold
+
+  it("holds outright (income > 0) instead of funding a cheaper demand", () => {
+    const starvedHauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      minCost: 300,
+      desiredCost: 800,
+      since: STARVED_SINCE,
+    });
+    const cheapMiner = demand({ buyerCorpId: "mine", role: "miner", producesIncome: true, minCost: 250 });
+    const result = scheduleSpawn(
+      [cheapMiner, starvedHauler],
+      ctx({ energyAvailable: 260, energyCapacity: 300, energyIncome: 10, tick: 1000 })
+    );
+    expect(result).to.equal(null); // the bank accumulates for the starved body
+  });
+
+  it("without starvation the same demand is skipped and the cheaper one spawns", () => {
+    const freshHauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      minCost: 300,
+      desiredCost: 800,
+      since: 900, // seen recently: 100 ticks < threshold
+    });
+    const cheapMiner = demand({ buyerCorpId: "mine", role: "miner", producesIncome: true, minCost: 250 });
+    const result = scheduleSpawn(
+      [cheapMiner, freshHauler],
+      ctx({ energyAvailable: 260, energyCapacity: 300, energyIncome: 10, tick: 1000 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("mine");
+  });
+
+  it("spawns the starved demand itself the moment it is affordable", () => {
+    const starvedHauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      minCost: 300,
+      desiredCost: 800,
+      since: STARVED_SINCE,
+    });
+    const result = scheduleSpawn([starvedHauler], ctx({ energyAvailable: 300, energyCapacity: 300, tick: 1000 }));
+    expect(result?.demand.buyerCorpId).to.equal("carry");
+    expect(result?.energyBudget).to.equal(300);
+  });
+
+  it("never holds for a starved demand the room cannot ever afford", () => {
+    const impossible = demand({ buyerCorpId: "dream", minCost: 900, desiredCost: 900, since: STARVED_SINCE });
+    const affordable = demand({ buyerCorpId: "mine", minCost: 250 });
+    const result = scheduleSpawn(
+      [affordable, impossible],
+      ctx({ energyAvailable: 260, energyCapacity: 300, tick: 1000 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("mine");
+  });
+});

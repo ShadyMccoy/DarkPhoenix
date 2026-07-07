@@ -277,7 +277,15 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
 
     // Cannot afford even the minimum body for this demand.
     const canEverAfford = ctx.energyCapacity >= demand.minCost;
-    if (demand.blocking && canEverAfford) {
+    // A STARVED demand gains hold semantics: the one-guaranteed-spawn promise
+    // is empty for a demand whose minCost exceeds the current dribble - the
+    // rank lift alone just gets it skipped here, and every cheaper demand
+    // keeps eating the bank first (measured: at 300 capacity a scaling
+    // hauler, min 300, lost the 200-299 band to miners/tankers/upgraders
+    // for 700+ ticks while the controller starved; grid cell
+    // plan-t1-single-source-loop). Holding makes the backstop real.
+    const mustFund = demand.blocking || starvationBoost(demand, ctx.tick) > 0;
+    if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand
         // instead of spending on something less important.
