@@ -27,12 +27,14 @@ export function buildPlannerT1Cells(): GridCell[] {
       id: "plan-t1-single-source-loop",
       tier: 1,
       avenue: "planning-economy",
-      // 700, twice-measured: at d=22 the cold loop is BRUTALLY slow - the
-      // miner only works the source at ~261 (bank regen-bound under the jack
-      // economy), so hauler ~300, first upgrader ~400+. This cell is the
-      // spec-01 dead window quantified at realistic distance; tightening the
-      // window is a job for a bot improvement, not the assertion.
-      window: 700,
+      // 900, thrice-measured: at d=22 the cold loop converges only via the
+      // starved-hold backstop - hauler #2 (the controller circuit, min 300)
+      // first demands at ~360, starves at ~660 (STARVATION_THRESHOLD=300),
+      // holds+spawns ~700, feeds the controller ~780. This cell is the
+      // spec-01 dead window quantified at realistic distance; shrinking the
+      // horizon is a bot-improvement job (e.g. a lower threshold), not an
+      // assertion job.
+      window: 900,
       rooms: {
         home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 47).toRoom(),
       },

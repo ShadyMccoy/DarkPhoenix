@@ -2,16 +2,32 @@
   "botLevel": 1,
   "cells": {
     "churn-jack-immediate-no-haulers": "pass",
+    "arrive-hauler-withdraws-stocked-container": "pass",
+    "churn-readopt-hauler-route": "pass",
+    "arrive-upgrader-parked-upgrades-every-tick": "pass",
+    "spawnexec-miner-body-550": "pass",
+    "haul-t1-spawn-full-spill": "pass",
+    "spawnexec-miner-carry-700-boundary": "pass",
     "churn-canary-recycle": "pass",
     "churn-canary-untouched": "pass",
     "spawnexec-first-miner-stamp-300": "pass",
     "arrive-miner-on-spot-harvests": "pass",
+    "arrive-miner-converges-to-container": "pass",
+    "cons-src-container-on-pile": "pass",
+    "cons-depot-when-pile-thin": "pass",
     "move-reach-harvest-spot": "pass",
+    "spawnexec-first-hauler-group-prefix": "pass",
+    "move-upgrader-park-settle": "pass",
     "churn-canary-readopt": "pass",
+    "spawn-no-hauler-before-miner": "pass",
     "plan-t0-single-source-commissioned": "pass",
+    "move-pickup-range-close": "pass",
     "cons-ext-first-site-checkerboard": "pass",
+    "spawn-hold-strict-first-hauler": "pass",
+    "haul-t1-circuit-split": "pass",
     "calib-adoption-timing": "pass",
     "spawn-first-miner-outranks-all": "pass",
-    "haul-t0-first-delivery": "pass"
+    "haul-t0-first-delivery": "pass",
+    "plan-t1-single-source-loop": "pass"
   }
 }

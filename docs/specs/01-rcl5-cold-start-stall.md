@@ -6,6 +6,34 @@ stall in the test harness) is demoted to a secondary repro — prod never enters
 that state. The primary question is: **what caps or stalls the colony's
 control-point throughput at RCL2–3?**
 
+## BREAKTHROUGH 2026-07-07 — two compounding starve mechanisms found and fixed
+
+The inflection grid (spec 08) isolated, reproduced deterministically, and
+fixed two mechanisms that together produce exactly the "~1200-1700 ticks at
+ZERO controller progress" signature (commit `4e4c97f`; diag traces in
+`scripts/diag-circuit.ts` / `scripts/diag-d22.ts`):
+
+1. **The critical-divert steal** (`CarryCorp.spawnNetworkCritical`): during
+   buildout the bank sits below the 50% divert gate almost continuously, so
+   the controller-homed hauler's trip was overridden to 'spawn' on EVERY
+   flip — the solver's controller allocation, anti-downgrade reserve
+   included, was never physically delivered (controller progress 0 for 700+
+   observed ticks). Fixed by counting fleet-mates' inbound committed cargo:
+   a covered deficit is not an emergency.
+2. **The empty starvation backstop** (`SpawnScheduler`): the STARVED_TIER
+   lift only reorders the walk; an unaffordable NON-BLOCKING demand was
+   skipped regardless of rank, so every cheaper demand kept eating the
+   200-299 band and (e.g.) a scaling hauler at min 300 never spawned at 300
+   capacity. Starved demands now gain hold semantics — the one-guaranteed-
+   spawn promise is real.
+
+Measured (sim:ab, same two-source cold world as the table below): cp@1500
+was **200 flat** before and with fix 1 alone; with both fixes **252 and
+climbing**, 2 upgraders live, both hauler circuits staffed. Remaining drag:
+convergence still leans on the 300-tick starvation threshold (the d=22 grid
+cell converges at tick ~726) — candidate next lever: shorter threshold or
+income-aware demand pricing, to be A/B'd separately.
+
 ## What we know
 
 1. **Prod (master) is missing fixes that this branch already has.** The
