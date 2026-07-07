@@ -236,6 +236,119 @@ export function buildT2SchedulerCells(): GridCell[] {
   ];
 }
 
+export function buildT3SchedulerCells(): GridCell[] {
+  let builderSeen: number | null = null;
+  let haulersAfterBuilder = 0;
+  let backdated = false;
+
+  return [
+    {
+      // The starved one-shot end to end (#93's companion): with the bank
+      // pinned so an income hauler is affordable EVERY tick, the builder
+      // demand can never win on rank alone. Backdating its firstSeen stamp
+      // 300 ticks (env-level Memory rewrite, re-read by the bot next tick)
+      // must produce exactly one builder spawn, then income resumes.
+      id: "spawn-starved-builder-one-shot",
+      tier: 3,
+      avenue: "spawn-decision",
+      window: 130,
+      rooms: {
+        // TWO far open sources: ~10 CARRY of route need each keeps income
+        // demands unsatisfied for 140+ ticks of serial spawning - the builder
+        // can NEVER win on rank in-window without the starvation lift
+        // (a single source's fleet saturated by ~tick 35 and let the builder
+        // win organically, which false-failed the first build).
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 8).source(25, 45).source(45, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 24,
+          y: 44,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-sb-m", assignedSourceId: "$id(home,source,25,45)" },
+        },
+        {
+          name: "m2",
+          x: 44,
+          y: 24,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-sb-m2", assignedSourceId: "$id(home,source,45,25)" },
+        },
+        {
+          name: "h1",
+          x: 25,
+          y: 30,
+          body: ["carry", "carry", "carry", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-sb-h", working: false, assignedSourceId: "$id(home,source,25,45)" },
+        },
+      ],
+      async onTick(ctx) {
+        // The site lands at tick 15, AFTER the income corps exist: staged at
+        // tick 0 it made the builder the only demand at tick 1 and it won the
+        // pinned bank legitimately (observed) - the cell needs the builder
+        // demand born INTO an income-dominated queue.
+        if (ctx.tick === 15) {
+          await ctx.db["rooms.objects"].insert({
+            type: "constructionSite",
+            room: ctx.room(),
+            x: 28,
+            y: 25,
+            user: ctx.userId,
+            structureType: "extension",
+            progress: 0,
+            progressTotal: 3000,
+          });
+        }
+        // Income always affordable: pin the bank to 300 every tick.
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+        // At tick 40 (demands stamped, income spawning underway), backdate
+        // the builder's firstSeen by the full starvation threshold.
+        if (ctx.tick === 40) {
+          const raw = (await ctx.env.get(ctx.env.keys.MEMORY + ctx.userId)) || "{}";
+          const mem = JSON.parse(raw);
+          const table = mem.spawnDemandFirstSeen ?? {};
+          for (const key of Object.keys(table)) {
+            if (key.endsWith(":builder")) table[key] = ctx.gameTime - 301;
+          }
+          mem.spawnDemandFirstSeen = table;
+          await ctx.env.set(ctx.env.keys.MEMORY + ctx.userId, JSON.stringify(mem));
+        }
+      },
+      assertions: [
+        eventually("the starved builder gets its one-shot spawn", (s) => {
+          if (s.tick === 40) backdated = true;
+          const builder = s
+            .objects()
+            .find((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("builder-"));
+          if (builder && builderSeen === null) builderSeen = s.tick;
+          return backdated && builderSeen !== null;
+        }),
+        always("no builder wins before the backdate", (s) => {
+          if (s.tick >= 40) return true;
+          return !s
+            .objects()
+            .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("builder-"));
+        }),
+        eventually("income spawning resumes after the one-shot", (s) => {
+          if (builderSeen === null) return false;
+          const haulers = s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-")).length;
+          haulersAfterBuilder = Math.max(haulersAfterBuilder, haulers);
+          return haulersAfterBuilder >= 1 && s.tick > builderSeen;
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildStatefulSchedulerCells(): GridCell[] {
   // spawn-no-hauler-before-miner closure state
   let minerFirstSeen: number | null = null;

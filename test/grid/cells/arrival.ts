@@ -40,6 +40,78 @@ const quiet = (): Array<{ name: string; x: number; y: number; body: string[]; me
 //    tile (22,7). Replicated from nodeEnergy.ts:243-312.
 // ---------------------------------------------------------------------------
 
+export function buildArrivalT3Cells(): GridCell[] {
+  let threadAdopted: number | null = null;
+
+  return [
+    {
+      // Pocketed source: the spot resolves to the single opening tile; the
+      // miner threads the mouth and mines - any mis-resolution or approach
+      // deadlock shows immediately. (arrive-hauler-escapes-upgrader-ring is
+      // deliberately NOT built: same mechanism as move-bypass-ring-escape.)
+      id: "arrive-miner-threads-pocket-opening",
+      tier: 3,
+      avenue: "work-transition",
+      window: 40,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(20, 12);
+          for (const [x, y] of [
+            [9, 24],
+            [11, 24],
+            [9, 25],
+            [11, 25],
+            [9, 26],
+            [10, 26],
+            [11, 26],
+          ]) {
+            b.tile(x, y, "wall");
+          }
+          return b.source(10, 25).toRoom();
+        },
+      },
+      bot: { x: 14, y: 20 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 12,
+          y: 22,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "stale-mining", assignedSourceId: "$id(home,source,10,25)" },
+        },
+        { name: "decoy", x: 18, y: 18, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 18, y: 19, body: ["move"] },
+        { name: "filler2", x: 18, y: 20, body: ["move"] },
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.m1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("mining-") && threadAdopted === null) {
+            threadAdopted = s.tick;
+          }
+          return threadAdopted !== null;
+        }),
+        eventually("threads the mouth onto the only harvest tile", (s) => {
+          const m = s.creep("m1");
+          return !!m && m.x === 10 && m.y === 24;
+        }),
+        eventually("mines at full rate once seated", (s) => {
+          const src = s.objects().find((o) => o.type === "source" && o.x === 10 && o.y === 25);
+          return !!src && src.energy <= 2900;
+        }),
+        always("never oscillates back out once seated", (s) => {
+          const m = s.creep("m1");
+          if (!m) return false;
+          const src = s.objects().find((o) => o.type === "source" && o.x === 10 && o.y === 25);
+          const seatedOnce = !!src && src.energy < 3000;
+          return !seatedOnce || (m.x === 10 && m.y === 24);
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildArrivalT2Cells(): GridCell[] {
   // stays-when-spot-held closure
   let stayAdopted: number | null = null;

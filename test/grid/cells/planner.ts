@@ -253,6 +253,133 @@ export function buildPlannerT2Cells(): GridCell[] {
   ];
 }
 
+/** Serpentine maze rows: full-width walls with 2-wide gaps alternating ends. */
+const serpentine = (b: RoomBuilder, rows: number[], firstGapWest: boolean): RoomBuilder => {
+  rows.forEach((y, i) => {
+    const west = firstGapWest ? i % 2 === 0 : i % 2 === 1;
+    b.hWall(y, { gap: west ? [2, 3] : [46, 47] });
+  });
+  return b;
+};
+
+export function buildPlannerT3Cells(): GridCell[] {
+  let netzeroChecked = false;
+  let subsetChecked = false;
+
+  return [
+    {
+      // netEnergy exclusion on REAL path distance: a maze source ~33 tiles
+      // as the crow flies but 300+ through the serpentine has negative net
+      // and must never be staffed - the 'lots of miners out, little energy
+      // back' failure this gate exists for.
+      id: "plan-t3-netzero-maze-excluded",
+      tier: 3,
+      avenue: "planning-economy",
+      window: 250,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(25, 8).source(30, 15);
+          serpentine(b, [26, 29, 32, 35, 38, 41, 44, 47], true);
+          return b.source(44, 48).toRoom();
+        },
+      },
+      bot: { x: 25, y: 15 },
+      controller: { level: 2 },
+      assertions: [
+        eventually("only the near source is ever planned", (s) => {
+          if (s.tick < 60) return false;
+          const near = s.objects().find((o) => o.type === "source" && o.x === 30 && o.y === 15);
+          if (!near) return false;
+          const mines = planCorps(s).filter((c) => c.kind === "mine");
+          const ok = mines.length === 1 && mines[0].sourceId === `source-${near._id}`;
+          if (ok) netzeroChecked = true;
+          return netzeroChecked;
+        }),
+        always("the maze source is excluded at every resolve", (s) => {
+          if (s.tick < 60) return true;
+          const maze = s.objects().find((o) => o.type === "source" && o.x === 44 && o.y === 48);
+          if (!maze) return true;
+          return !planCorps(s).some((c) => c.kind === "mine" && c.sourceId === `source-${maze._id}`);
+        }),
+        always("no harvester ever walks the maze", (s) =>
+          !s
+            .objects()
+            .some(
+              (o) =>
+                o.type === "creep" &&
+                typeof o.name === "string" &&
+                (o.name.startsWith("miner-") || o.name.startsWith("jack-")) &&
+                o.y > 26
+            )
+        ),
+      ],
+    },
+
+    {
+      // The 0.2 parts/tick mining budget: near + exactly ONE of two
+      // profitable-but-expensive maze sources fits; the planner must pick
+      // the same one at every resolve and never touch the third.
+      id: "plan-t3-budget-subset",
+      tier: 3,
+      avenue: "planning-economy",
+      window: 250,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(25, 8).source(28, 15);
+          serpentine(b, [26, 30, 34, 38, 42], true);
+          return b.source(40, 46).source(46, 46).toRoom();
+        },
+      },
+      bot: { x: 25, y: 15 },
+      controller: { level: 3 },
+      structures: [
+        { type: "extension", x: 23, y: 13, energy: 50 },
+        { type: "extension", x: 27, y: 13, energy: 50 },
+        { type: "extension", x: 23, y: 17, energy: 50 },
+        { type: "extension", x: 27, y: 17, energy: 50 },
+        { type: "extension", x: 21, y: 15, energy: 50 },
+        { type: "extension", x: 29, y: 15, energy: 50 },
+        { type: "extension", x: 22, y: 12, energy: 50 },
+        { type: "extension", x: 28, y: 12, energy: 50 },
+        { type: "extension", x: 22, y: 18, energy: 50 },
+        { type: "extension", x: 28, y: 18, energy: 50 },
+      ],
+      assertions: [
+        eventually("near + exactly one far source planned", (s) => {
+          if (s.tick < 60) return false;
+          const near = s.objects().find((o) => o.type === "source" && o.x === 28 && o.y === 15);
+          const far40 = s.objects().find((o) => o.type === "source" && o.x === 40 && o.y === 46);
+          if (!near || !far40) return false;
+          const mines = planCorps(s).filter((c) => c.kind === "mine");
+          const ok =
+            mines.length === 2 &&
+            mines.some((m) => m.sourceId === `source-${near._id}`) &&
+            mines.some((m) => m.sourceId === `source-${far40._id}`);
+          if (ok) subsetChecked = true;
+          return subsetChecked;
+        }),
+        always("the over-budget third source is never planned", (s) => {
+          if (s.tick < 60) return true;
+          const far46 = s.objects().find((o) => o.type === "source" && o.x === 46 && o.y === 46);
+          if (!far46) return true;
+          return !planCorps(s).some((c) => c.kind === "mine" && c.sourceId === `source-${far46._id}`);
+        }),
+        always("no harvester ever visits the skipped source", (s) =>
+          !s
+            .objects()
+            .some(
+              (o) =>
+                o.type === "creep" &&
+                typeof o.name === "string" &&
+                o.name.startsWith("miner-") &&
+                Math.max(Math.abs(o.x - 46), Math.abs(o.y - 46)) <= 2
+            )
+        ),
+      ],
+    },
+  ];
+}
+
 export const plannerCells: GridCell[] = [
   {
     id: "plan-t0-single-source-commissioned",

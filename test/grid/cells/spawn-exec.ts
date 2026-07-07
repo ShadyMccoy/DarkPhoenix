@@ -187,6 +187,206 @@ export const spawnExecT1Cells: GridCell[] = [
   },
 ];
 
+/** Pocket a source at (px,py), opening to the north. */
+const pocketWalls = (b: RoomBuilder, px: number, py: number): RoomBuilder => {
+  for (const [x, y] of [
+    [px - 1, py - 1],
+    [px + 1, py - 1],
+    [px - 1, py],
+    [px + 1, py],
+    [px - 1, py + 1],
+    [px, py + 1],
+    [px + 1, py + 1],
+  ]) {
+    b.tile(x, y, "wall");
+  }
+  return b;
+};
+
+export function buildSpawnExecT3Cells(): GridCell[] {
+  let runtRecycledAt: number | null = null;
+
+  return [
+    {
+      // The runt catch-22 fix: a 2W miner on a rate-5 source (totalWork 3) at
+      // 550 capacity is recycled the moment the 3W replacement is affordable
+      // RIGHT NOW - and the replacement is full-size, never another runt.
+      id: "spawnexec-miner-runt-recycle-affordable",
+      tier: 3,
+      avenue: "spawn-execution",
+      window: 60,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(33, 20);
+          return pocketWalls(b, 19, 25).source(19, 25, { energy: 1500, energyCapacity: 1500 }).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      structures: EXT_5.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      creeps: [
+        {
+          name: "runt",
+          x: 19,
+          y: 24,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-rr", assignedSourceId: "$id(home,source,19,25)" },
+        },
+        {
+          name: "hx",
+          x: 22,
+          y: 23,
+          body: ["carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-rr-h", working: false, assignedSourceId: "$id(home,source,19,25)" },
+        },
+        {
+          name: "u1",
+          x: 32,
+          y: 19,
+          body: ["work", "work", "work", "work", "carry", "move", "move"],
+          energy: 50,
+          memory: { workType: "upgrade", corpId: "staged-rr-u1", working: true },
+        },
+        { name: "filler1", x: 20, y: 20, body: ["move"] },
+      ],
+      assertions: [
+        eventually("the runt is flagged and recycled", (s) => {
+          const flagged = s.memory?.creeps?.runt?.recycling === true;
+          const gone = !s.creep("runt");
+          if (gone && runtRecycledAt === null) runtRecycledAt = s.tick;
+          return (flagged || runtRecycledAt !== null) && gone;
+        }),
+        eventually("the replacement is the full 3-WORK body", (s) => {
+          const fresh = s
+            .objects()
+            .find((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("miner-"));
+          if (!fresh) return false;
+          const work = (fresh.body ?? []).filter((p: any) => p.type === "work").length;
+          return work === 3;
+        }),
+        always("never another sub-3-WORK miner (anti-thrash)", (s) =>
+          s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("miner-"))
+            .every((o) => (o.body ?? []).filter((p: any) => p.type === "work").length >= 3)
+        ),
+      ],
+    },
+
+    {
+      // The inverse guard: at 300 capacity a 2W miner IS the max body -
+      // recycling must never fire; it mines undisturbed all window.
+      id: "spawnexec-miner-runt-immortal-at-cap",
+      tier: 3,
+      avenue: "spawn-execution",
+      window: 40,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(33, 20);
+          return pocketWalls(b, 19, 25).source(19, 25).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "runt",
+          x: 19,
+          y: 24,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-ri", assignedSourceId: "$id(home,source,19,25)" },
+        },
+        {
+          name: "hx",
+          x: 22,
+          y: 23,
+          body: ["carry", "carry", "carry", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-ri-h", working: false, assignedSourceId: "$id(home,source,19,25)" },
+        },
+        { name: "filler1", x: 20, y: 20, body: ["move"] },
+        { name: "filler2", x: 20, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        always("never flagged for recycling", (s) => s.memory?.creeps?.runt?.recycling !== true),
+        always("never leaves its harvest tile", (s) => {
+          const c = s.creep("runt");
+          return !!c && c.x === 19 && c.y === 24;
+        }),
+        eventually("keeps mining", (s) => {
+          const src = s.objects().find((o) => o.type === "source" && o.x === 19 && o.y === 25);
+          return !!src && src.energy <= 2920;
+        }),
+      ],
+    },
+
+    {
+      // The hauler pounce: with the spawn momentarily flush (550), the
+      // 1-CARRY runt is swapped out and every later hauler is >= 3 CARRY.
+      id: "spawnexec-hauler-runt-recycle-pounce",
+      tier: 3,
+      avenue: "spawn-execution",
+      window: 55,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(33, 22);
+          return pocketWalls(b, 18, 25).source(18, 25).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      structures: EXT_5.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      creeps: [
+        {
+          name: "mA",
+          x: 18,
+          y: 24,
+          body: ["work", "work", "work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-hp-m", assignedSourceId: "$id(home,source,18,25)" },
+        },
+        {
+          name: "runt",
+          x: 21,
+          y: 24,
+          body: ["carry", "move"],
+          memory: { workType: "haul", corpId: "staged-hp-r", working: false, assignedSourceId: "$id(home,source,18,25)" },
+        },
+        {
+          name: "big",
+          x: 21,
+          y: 26,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-hp-b", working: false, assignedSourceId: "$id(home,source,18,25)" },
+        },
+        {
+          name: "u1",
+          x: 32,
+          y: 21,
+          body: ["work", "work", "work", "work", "carry", "move", "move"],
+          energy: 50,
+          memory: { workType: "upgrade", corpId: "staged-hp-u", working: true },
+        },
+      ],
+      assertions: [
+        eventually("the 1-CARRY runt is flagged and recycled", (s) => {
+          const flagged = s.memory?.creeps?.runt?.recycling === true;
+          return flagged || !s.creep("runt");
+        }),
+        eventually("the runt is gone", (s) => !s.creep("runt")),
+        always("every fresh hauler is a real body (>= 3 CARRY, 1:1)", (s) =>
+          s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-"))
+            .every((o) => {
+              const carry = (o.body ?? []).filter((p: any) => p.type === "carry").length;
+              const move = (o.body ?? []).filter((p: any) => p.type === "move").length;
+              return carry >= 3 && carry === move;
+            })
+        ),
+      ],
+    },
+  ];
+}
+
 export const spawnExecCells: GridCell[] = [
   {
     id: "spawnexec-first-miner-stamp-300",

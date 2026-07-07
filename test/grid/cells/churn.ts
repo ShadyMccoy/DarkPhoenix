@@ -71,6 +71,203 @@ const stagedJacks = () => [
   },
 ];
 
+export function buildChurnT3Cells(): GridCell[] {
+  let baseGameTime: number | null = null;
+  let crossedSafe = false;
+  let sawTwoJacks = false;
+  let drainSeen = false;
+
+  return [
+    {
+      // Retiring hysteresis, staged ORGANICALLY via scavenge transience: the
+      // staged hauler is adopted by the 900-pile's scavenge corp; its first
+      // pickup drops the stock below the 750 threshold, so the next rebuild
+      // drops the commission - but the corp has a live creep, so it RETIRES:
+      // stays in the store, keeps driving the hauler, spawns nothing new.
+      id: "churn-retiring-scavenge-corp",
+      tier: 3,
+      avenue: "churn-recovery",
+      window: 120,
+      rooms: { home: standdownRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        // A decoy + fillers keep jacks out; the scavenger spawns ORGANICALLY
+        // (its blocking income demand wins at 300), drains the stock below
+        // 750, and the next rebuild drops the commission - retiring begins.
+        { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 20, y: 21, body: ["move"] },
+        { name: "filler2", x: 20, y: 22, body: ["move"] },
+      ],
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "energy",
+          room: ctx.room(),
+          x: 40,
+          y: 40,
+          energy: 900,
+          resourceType: "energy",
+        });
+      },
+      assertions: [
+        eventually("an organic scavenger is fielded", (s) =>
+          Object.entries(s.memory?.creeps ?? {}).some(
+            ([, mem]: [string, any]) =>
+              mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
+          )
+        ),
+        eventually("the stock is drained below the threshold", (s) => {
+          const pile = s.objects().find((o) => o.type === "energy" && o.x === 40 && o.y === 40);
+          if (!pile || (pile.energy ?? 0) < 750) drainSeen = true;
+          return drainSeen;
+        }),
+        // Past the drain and at least one 50-tick rebuild, the corp must
+        // survive as retiring: its scavenger stays claimed (no orphan stamp,
+        // never recycled) and no second creep is ever spawned for it.
+        always("the retiring corp keeps its creep claimed", (s) => {
+          if (!drainSeen || s.tick < 80) return true;
+          const entries = Object.entries(s.memory?.creeps ?? {}).filter(
+            ([, mem]: [string, any]) =>
+              mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
+          );
+          return entries.length >= 1 && entries.every(([, mem]: [string, any]) => mem.orphanedSince === undefined);
+        }),
+        always("never a second creep for the retiring corp", (s) => {
+          const entries = Object.entries(s.memory?.creeps ?? {}).filter(
+            ([, mem]: [string, any]) =>
+              mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
+          );
+          return entries.length <= 1;
+        }),
+      ],
+    },
+
+    {
+      // BOOTSTRAP_MAX_JACKS=2 under sustained starvation: adversity terrain
+      // keeps the flow from establishing, jacks cycle - the cap holds at
+      // every single tick.
+      id: "churn-jack-cap-two",
+      tier: 3,
+      avenue: "churn-recovery",
+      window: 100,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(40, 40);
+          // swamp moat between spawn (40,25) and the pocketed source (10,25)
+          for (let y = 20; y <= 30; y++) {
+            for (let x = 15; x <= 30; x++) b.tile(x, y, "swamp");
+          }
+          for (const [x, y] of [
+            [9, 24],
+            [11, 24],
+            [9, 25],
+            [11, 25],
+            [9, 26],
+            [10, 26],
+            [11, 26],
+          ]) {
+            b.tile(x, y, "wall");
+          }
+          return b.source(10, 25).toRoom();
+        },
+      },
+      bot: { x: 40, y: 25 },
+      controller: { level: 2 },
+      // Pin 250 EVERY tick: bootstrap runs BEFORE the scheduler in the loop,
+      // so with jack money always on hand the jacks win the spawn (a one-shot
+      // 250 was measurably stolen by a 250 flow miner); 250 < 300 also keeps
+      // isStarving armed, and the 300-min flow hauler can never spawn, so
+      // flowEstablished stays false and the jacks never stand down.
+      async onTick(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 250 } } }
+        );
+      },
+      assertions: [
+        always("never more than two jacks", (s) => {
+          const jacks = s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-")).length;
+          if (jacks >= 2) sawTwoJacks = true;
+          return jacks <= 2;
+        }),
+        eventually("the first jack comes promptly", (s) => {
+          if (s.tick > 25) return sawTwoJacks; // don't time out the cell on this
+          return s
+            .objects()
+            .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"));
+        }),
+        eventually("the cap is actually exercised (two jacks at once)", () => sawTwoJacks),
+      ],
+    },
+
+    {
+      // The full anti-downgrade arc: the staged rescue jack upgrades the
+      // controller past the 7000-tick safe line, then recycles itself; the
+      // nonempty emergencyJackNames blocks a second dispatch throughout.
+      id: "churn-antidowngrade-recover-recycle",
+      tier: 3,
+      avenue: "churn-recovery",
+      window: 100,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(15, 25).source(35, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "antidowngrade-stage",
+          x: 17,
+          y: 25,
+          body: ["work", "carry", "move"],
+          energy: 50,
+          memory: { workType: "upgrade", corpId: "bootstrap-$room()-bootstrap", working: true },
+        },
+        { name: "decoy", x: 28, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 28, y: 21, body: ["move"] },
+        { name: "filler2", x: 28, y: 22, body: ["move"] },
+      ],
+      memory: {
+        bootstrapCorps: {
+          "$room()": {
+            ...bootstrapCorpMemory([], { x: 35, y: 25 }),
+            emergencyJackNames: ["antidowngrade-stage"],
+          },
+        },
+      },
+      async stage(ctx) {
+        baseGameTime = ctx.gameTime;
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "controller" },
+          { $set: { downgradeTime: ctx.gameTime + 2600 } }
+        );
+      },
+      assertions: [
+        eventually("the timer is pushed past the 7000 safe line", (s) => {
+          const ctrl = s.objects().find((o) => o.type === "controller");
+          if (!ctrl || baseGameTime === null) return false;
+          const ticksToDowngrade = (ctrl.downgradeTime ?? 0) - (baseGameTime + s.tick);
+          if (ticksToDowngrade >= 7000) crossedSafe = true;
+          return crossedSafe;
+        }),
+        always("the controller never downgrades", (s) => {
+          const ctrl = s.objects().find((o) => o.type === "controller");
+          return !!ctrl && ctrl.level === 2;
+        }),
+        eventually("the rescue jack recycles itself once safe", (s) => crossedSafe && !s.creep("antidowngrade-stage")),
+        always("never a second rescue jack", (s) => {
+          const count = s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("antidowngrade-"))
+            .length;
+          return count <= 1;
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildChurnT2Cells(): GridCell[] {
   let stampSeen = false;
 

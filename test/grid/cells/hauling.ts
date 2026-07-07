@@ -24,6 +24,79 @@ const flowHaulerExists = (s: { memory: any }) =>
   );
 
 // ---------------------------------------------------------------------------
+// T3 dedicated-source geometry: two sources - A (10,25) fully staffed keeps
+// the economy sane; B (40,25) is the dedicated build source (its id injected
+// into Memory.rooms.$room().dedicatedBuildSourceId), with a staged extension
+// site at (38,25) plus a staged builder+tanker on the construction corp's
+// deterministic id so building actually consumes B's output. B's carry corp
+// commissions organically with zero creeps; whether it fields a hauler is
+// exactly what the three cells discriminate.
+// Harvest spots: A -> (11,24); B -> (39,24) (Chebyshev-to-spawn tie-break).
+// ---------------------------------------------------------------------------
+const dedicatedRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 8).source(10, 25).source(40, 25).toRoom();
+
+const dedicatedCommon = () => ({
+  structures: [{ type: "container", x: 11, y: 24, energy: 800 }] as any[],
+  creeps: [
+    {
+      name: "mA",
+      x: 11,
+      y: 24,
+      body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+      memory: { workType: "harvest", corpId: "staged-dd-ma", assignedSourceId: "$id(home,source,10,25)" },
+    },
+    {
+      name: "hA",
+      x: 15,
+      y: 24,
+      body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+      memory: { workType: "haul", corpId: "staged-dd-ha", working: false, assignedSourceId: "$id(home,source,10,25)" },
+    },
+    {
+      name: "mB",
+      x: 39,
+      y: 24,
+      body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+      memory: { workType: "harvest", corpId: "staged-dd-mb", assignedSourceId: "$id(home,source,40,25)" },
+    },
+    { name: "bB", x: 38, y: 24, body: ["work", "work", "carry", "carry", "move", "move"], energy: 100 },
+    { name: "tB", x: 38, y: 26, body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"] },
+  ] as any[],
+  memory: {
+    rooms: { "$room()": { dedicatedBuildSourceId: "$id(home,source,40,25)" } },
+    creeps: {
+      bB: { workType: "build", corpId: "building-$room()-construction", working: true },
+      tB: { workType: "tank", corpId: "building-$room()-construction", working: false },
+    },
+  } as any,
+  stage: async (ctx: any) => {
+    await ctx.db["rooms.objects"].insert({
+      type: "constructionSite",
+      room: ctx.room(),
+      x: 38,
+      y: 25,
+      user: ctx.userId,
+      structureType: "extension",
+      progress: 0,
+      progressTotal: 3000,
+    });
+  },
+});
+
+const bCarryCorpId = (s: any): string | null => {
+  const srcB = s.objects().find((o: any) => o.type === "source" && o.x === 40 && o.y === 25);
+  return srcB ? `hauling-${s.room()}-hauling-${String(srcB._id).slice(-4)}` : null;
+};
+
+const haulersOfCorp = (s: any, corpId: string | null): number =>
+  corpId === null
+    ? 0
+    : Object.entries(s.memory?.creeps ?? {}).filter(
+        ([, mem]: [string, any]) => mem?.workType === "haul" && mem?.corpId === corpId
+      ).length;
+
+// ---------------------------------------------------------------------------
 // T1 circuit-split geometry: source (25,42) with its container staged on the
 // harvest spot (24,41) holding 1500; controller (25,8). Solver flows for a
 // 10 e/t source: controller reserve 2, spawn (demand 10, value 100) takes the
@@ -33,6 +106,130 @@ const flowHaulerExists = (s: { memory: any }) =>
 // ---------------------------------------------------------------------------
 const splitRoom = (roomName: string) =>
   new RoomBuilder(roomName).border().controller(25, 8).source(25, 42).toRoom();
+
+export function buildHaulingT3Cells(): GridCell[] {
+  let sitePrev: number | null = null;
+  let siteGrew = false;
+  let prevPile: number | null = null;
+  let sawPickup = false;
+
+  return [
+    {
+      // Stand-down: B's container under 50% and no pile - B's corp yields to
+      // the build and fields NO hauler across two flow resolves, while A's
+      // circuit keeps running and the site actually progresses.
+      id: "haul-t3-dedicated-standdown",
+      tier: 3,
+      avenue: "logistics",
+      window: 110,
+      rooms: { home: dedicatedRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      ...((): any => {
+        const c = dedicatedCommon();
+        c.structures.push({ type: "container", x: 39, y: 24, energy: 400 }); // B: 20%
+        return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
+      })(),
+      assertions: [
+        always("B's corp never fields a hauler", (s) => haulersOfCorp(s, bCarryCorpId(s)) === 0),
+        eventually("A's circuit keeps running", (s) => {
+          const srcA = s.objects().find((o: any) => o.type === "source" && o.x === 10 && o.y === 25);
+          return !!srcA && haulersOfCorp(s, `hauling-${s.room()}-hauling-${String(srcA._id).slice(-4)}`) >= 1;
+        }),
+        eventually("the build consumes B's output (site progresses)", (s) => {
+          const site = s.objects().find((o: any) => o.type === "constructionSite" && o.x === 38 && o.y === 25);
+          const p = site?.progress ?? null;
+          if (p !== null && sitePrev !== null && p > sitePrev) siteGrew = true;
+          if (p !== null) sitePrev = p;
+          return siteGrew;
+        }),
+      ],
+    },
+
+    {
+      // Resume via container: B's container at 70% (>= the 50% drain gate) -
+      // the builder is not keeping pace, so B un-yields and fields a hauler
+      // that drains the surplus home.
+      id: "haul-t3-dedicated-resume-container",
+      tier: 3,
+      avenue: "logistics",
+      window: 100,
+      rooms: { home: dedicatedRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      ...((): any => {
+        const c = dedicatedCommon();
+        c.structures.push({ type: "container", x: 39, y: 24, energy: 1400 }); // B: 70%
+        return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
+      })(),
+      assertions: [
+        eventually("B's corp fields a hauler (contrast with stand-down)", (s) =>
+          haulersOfCorp(s, bCarryCorpId(s)) >= 1
+        ),
+        eventually("the surplus is drained below the gate", (s) => {
+          const box = s.objects().find((o: any) => o.type === "container" && o.x === 39 && o.y === 24);
+          return !!box && (box.store?.energy ?? 2000) < 1000;
+        }),
+      ],
+    },
+
+    {
+      // Resume via ground pile: B has NO container, just a 400 pile on the
+      // miner's tile - the pile analogue of the drain gate un-freezes B's
+      // haulers; a single-tick drop >= 100 is the decisive pickup signature.
+      id: "haul-t3-dedicated-resume-groundpile",
+      tier: 3,
+      avenue: "logistics",
+      window: 100,
+      rooms: { home: dedicatedRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      ...((): any => {
+        const c = dedicatedCommon();
+        // A 1-WORK builder consumes 5/t against 10/t mined: the surplus
+        // genuinely backs up (the 2W builder + tanker consumed EXACTLY the
+        // mining rate, so yielding stayed correct and the cell timed out).
+        c.creeps = c.creeps.map((cr: any) =>
+          cr.name === "bB" ? { ...cr, body: ["work", "carry", "carry", "move"] } : cr
+        );
+        c.stage = async (ctx: any) => {
+          await ctx.db["rooms.objects"].insert({
+            type: "constructionSite",
+            room: ctx.room(),
+            x: 38,
+            y: 25,
+            user: ctx.userId,
+            structureType: "extension",
+            progress: 0,
+            progressTotal: 3000,
+          });
+          await ctx.db["rooms.objects"].insert({
+            type: "energy",
+            room: ctx.room(),
+            x: 39,
+            y: 24,
+            energy: 400,
+            resourceType: "energy",
+          });
+        };
+        return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
+      })(),
+      assertions: [
+        eventually("B's corp fields a hauler", (s) => haulersOfCorp(s, bCarryCorpId(s)) >= 1),
+        eventually("a HAULER pickup hits the pile (single-tick drop >= 100)", (s) => {
+          // Gated on B's hauler existing: the staged tanker also picks up
+          // (observed at tick 2) - only post-hauler drops are the signal.
+          const pile = s.objects().find((o: any) => o.type === "energy" && o.x === 39 && o.y === 24);
+          const amount = pile?.energy ?? 0;
+          const haulerExists = haulersOfCorp(s, bCarryCorpId(s)) >= 1;
+          if (haulerExists && prevPile !== null && prevPile - amount >= 100) sawPickup = true;
+          prevPile = amount;
+          return sawPickup;
+        }),
+      ],
+    },
+  ];
+}
 
 export function buildHaulingCells(): GridCell[] {
   let prevSpawnEnergy: number | null = null;

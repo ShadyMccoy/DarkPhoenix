@@ -104,8 +104,10 @@ export async function runBatch(batch: PackedBatch, opts: RunBatchOptions): Promi
 
     if (batch.mods.length > 0) enableMods(serverPath, batch.mods);
 
+    const baseGameTime = await server.world.gameTime;
     await server.start();
     const { db } = await server.world.load();
+    const { env } = server.common.storage;
 
     const retire = (c: LiveCell) => db.users.update({ _id: c.userId }, { $set: { active: 0 } });
     for (const c of live) {
@@ -133,6 +135,8 @@ export async function runBatch(batch: PackedBatch, opts: RunBatchOptions): Promi
             tick,
             db,
             userId: c.userId,
+            env,
+            gameTime: baseGameTime + tick,
             room: (handle?: string) => {
               const name = c.packed.rooms[handle ?? "home"];
               if (!name) throw new Error(`no room handle "${handle}"`);

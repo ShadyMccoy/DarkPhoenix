@@ -375,6 +375,71 @@ export function buildConstructionT2Cells(): GridCell[] {
   ];
 }
 
+export function buildConstructionT3Cells(): GridCell[] {
+  return [
+    {
+      // Pocket convergence: with one walkable adjacent tile, the container
+      // site MUST land exactly there - any other tile is a wall and would
+      // orphan the miner's drop pile forever.
+      id: "cons-pocket-container-exact-tile",
+      tier: 3,
+      avenue: "construction",
+      window: 60,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(25, 10);
+          for (const [x, y] of [
+            [9, 24],
+            [11, 24],
+            [9, 25],
+            [11, 25],
+            [9, 26],
+            [10, 26],
+            [11, 26],
+          ]) {
+            b.tile(x, y, "wall");
+          }
+          return b.source(10, 25).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      creeps: quiet(),
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "energy",
+          room: ctx.room(),
+          x: 10,
+          y: 24,
+          energy: 400,
+          resourceType: "energy",
+        });
+      },
+      assertions: [
+        eventually("container site lands exactly on the pocket tile", (s) =>
+          s
+            .objects()
+            .some(
+              (o: any) =>
+                o.type === "constructionSite" && o.structureType === "container" && o.x === 10 && o.y === 24
+            )
+        ),
+        always("no container site anywhere else near the source", (s) =>
+          s
+            .objects()
+            .filter(
+              (o: any) =>
+                o.type === "constructionSite" &&
+                o.structureType === "container" &&
+                Math.max(Math.abs(o.x - 10), Math.abs(o.y - 25)) <= 2
+            )
+            .every((o: any) => o.x === 10 && o.y === 24)
+        ),
+      ],
+    },
+  ];
+}
+
 export const constructionCells: GridCell[] = [
   {
     id: "cons-ext-first-site-checkerboard",

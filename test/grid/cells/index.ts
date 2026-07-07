@@ -9,15 +9,25 @@
  */
 
 import { GridCell } from "../GridCell";
-import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells } from "./arrival";
-import { buildConstructionT1Cells, buildConstructionT2Cells, constructionCells } from "./construction";
-import { buildChurnT2Cells, churnCells } from "./churn";
-import { buildHaulingCells } from "./hauling";
-import { buildPlannerT1Cells, buildPlannerT2Cells, plannerCells } from "./planner";
-import { buildStatefulMovementCells, buildT2MovementCells, movementCells } from "./movement";
-import { buildStatefulSchedulerCells, buildT2SchedulerCells, spawnSchedulerCells } from "./spawn-scheduler";
+import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells, buildArrivalT3Cells } from "./arrival";
+import {
+  buildConstructionT1Cells,
+  buildConstructionT2Cells,
+  buildConstructionT3Cells,
+  constructionCells,
+} from "./construction";
+import { buildChurnT2Cells, buildChurnT3Cells, churnCells } from "./churn";
+import { buildHaulingCells, buildHaulingT3Cells } from "./hauling";
+import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, plannerCells } from "./planner";
+import { buildStatefulMovementCells, buildT2MovementCells, buildT3MovementCells, movementCells } from "./movement";
+import {
+  buildStatefulSchedulerCells,
+  buildT2SchedulerCells,
+  buildT3SchedulerCells,
+  spawnSchedulerCells,
+} from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
-import { spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
+import { buildSpawnExecT3Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 
 export const ALL_CELLS: GridCell[] = [
   ...calibrationCells,
@@ -41,6 +51,14 @@ export const ALL_CELLS: GridCell[] = [
   ...buildArrivalT2Cells(),
   ...buildConstructionT2Cells(),
   ...buildChurnT2Cells(),
+  ...buildT3MovementCells(),
+  ...buildT3SchedulerCells(),
+  ...buildSpawnExecT3Cells(),
+  ...buildArrivalT3Cells(),
+  ...buildHaulingT3Cells(),
+  ...buildConstructionT3Cells(),
+  ...buildChurnT3Cells(),
+  ...buildPlannerT3Cells(),
 ];
 
 const seen = new Set<string>();

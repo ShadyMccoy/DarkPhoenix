@@ -285,6 +285,297 @@ export function buildT2MovementCells(): GridCell[] {
   ];
 }
 
+/** Pocket a source: wall all 8 neighbours except the tile north of it. */
+const pocketAt = (b: RoomBuilder, x: number, y: number): RoomBuilder => {
+  for (const [wx, wy] of [
+    [x - 1, y - 1],
+    [x + 1, y - 1],
+    [x - 1, y],
+    [x + 1, y],
+    [x - 1, y + 1],
+    [x, y + 1],
+    [x + 1, y + 1],
+  ]) {
+    b.tile(wx, wy, "wall");
+  }
+  return b;
+};
+
+export function buildT3MovementCells(): GridCell[] {
+  // pocket-holdoff closure
+  let holdoffTicks = 0;
+
+  // swamp-detour closure
+  let sawLoaded = false;
+  let sawCycle = false;
+  let prevSpawnStore: number | null = null;
+
+  // choke closure
+  const stillCounters: Record<string, { pos: string | null; n: number }> = {
+    m1: { pos: null, n: 0 },
+    h1: { pos: null, n: 0 },
+  };
+
+  // border closure
+  let borderAdopted = false;
+  let firstInwardDone = false;
+  let wasOnExit = false;
+
+  return [
+    {
+      // A 1-spot pocket: the seated miner is never displaced; the second
+      // miner holds off outside instead of wedging the mouth.
+      id: "move-miner-pocket-holdoff",
+      tier: 3,
+      avenue: "movement",
+      window: 75,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(40, 10);
+          return pocketAt(b, 10, 25).source(10, 25).toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 10,
+          y: 24,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-ph1", assignedSourceId: "$id(home,source,10,25)" },
+        },
+        {
+          name: "m2",
+          x: 14,
+          y: 25,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-ph2", assignedSourceId: "$id(home,source,10,25)" },
+        },
+        { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 19, y: 20, body: ["move"] },
+        { name: "filler2", x: 19, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        always("the seated miner is never displaced", (s) => {
+          const m1 = s.creep("m1");
+          return !!m1 && m1.x === 10 && m1.y === 24;
+        }),
+        always("the second miner never wedges the mouth", (s) => {
+          const m2 = s.creep("m2");
+          return !m2 || !(m2.x === 10 && m2.y === 24);
+        }),
+        eventually("the holder harvests uninterrupted for 20 ticks", (s) => {
+          const src = s.objects().find((o) => o.type === "source" && o.x === 10 && o.y === 25);
+          const m1 = s.creep("m1");
+          const ok = !!src && !!m1 && m1.x === 10 && m1.y === 24 && src.energy < 3000;
+          holdoffTicks = ok ? holdoffTicks + 1 : 0;
+          return holdoffTicks >= 20;
+        }),
+      ],
+    },
+
+    {
+      // Swamp band (5 rows, one 2-wide plains gap): the hauler's round trip
+      // threads the gap - it never wades - and still completes a delivery.
+      id: "move-swamp-detour",
+      tier: 3,
+      avenue: "movement",
+      window: 130,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(25, 8).source(25, 42);
+          // 5 swamp rows y=31..35 across the room, plains gap at x=18..19.
+          for (let y = 31; y <= 35; y++) {
+            for (let x = 1; x <= 48; x++) {
+              if (x === 18 || x === 19) continue;
+              b.tile(x, y, "swamp");
+            }
+          }
+          return b.toRoom();
+        },
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 24,
+          y: 41,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-sw-m", assignedSourceId: "$id(home,source,25,42)" },
+        },
+        {
+          name: "h1",
+          x: 25,
+          y: 28,
+          body: ["carry", "carry", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-sw-h", working: false, assignedSourceId: "$id(home,source,25,42)" },
+        },
+        { name: "filler1", x: 19, y: 20, body: ["move"] },
+        { name: "filler2", x: 19, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        always("the hauler never stands on a swamp tile", (s) => {
+          const h = s.creep("h1");
+          if (!h) return true;
+          // Swamp rows are y=31..35 except the x=18..19 gap.
+          return !(h.y >= 31 && h.y <= 35 && h.x !== 18 && h.x !== 19);
+        }),
+        eventually("completes a full detoured delivery cycle", (s) => {
+          const h = s.creep("h1");
+          const spawn = s.objects().find((o) => o.type === "spawn");
+          if (!h || !spawn) return false;
+          if ((h.store?.energy ?? 0) >= 100) sawLoaded = true;
+          const store = spawn.store?.energy ?? 0;
+          if (sawLoaded && prevSpawnStore !== null && store - prevSpawnStore >= 40) sawCycle = true;
+          prevSpawnStore = store;
+          return sawCycle;
+        }),
+      ],
+    },
+
+    {
+      // Opposing traffic through a 1-wide choke: miner west, hauler follows
+      // and re-crosses east loaded - no head-on standoff freezes them.
+      id: "move-choke-corridor",
+      tier: 3,
+      avenue: "movement",
+      window: 115,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().vWall(15, { gap: [25, 25] }).controller(35, 10).source(8, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 20,
+          y: 25,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-ck-m", assignedSourceId: "$id(home,source,8,25)" },
+        },
+        {
+          name: "h1",
+          x: 22,
+          y: 25,
+          body: ["carry", "carry", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-ck-h", working: false, assignedSourceId: "$id(home,source,8,25)" },
+        },
+        { name: "filler1", x: 30, y: 20, body: ["move"] },
+        { name: "filler2", x: 30, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        // Harvest spot for source (8,25) vs spawn (25,25): ties at Chebyshev
+        // 16 resolve to the first candidate (9,24) (errata wrong-behavior #3).
+        eventually("the miner crosses and seats at (9,24)", (s) => {
+          const m = s.creep("m1");
+          return !!m && m.x === 9 && m.y === 24;
+        }),
+        eventually("the hauler re-crosses east loaded", (s) => {
+          const h = s.creep("h1");
+          return !!h && h.x > 15 && (h.store?.energy ?? 0) > 0;
+        }),
+        // No frozen standoff: nobody holds one tile > 10 consecutive ticks
+        // unless legitimately stationary (miner on spot; hauler filling at
+        // the pile - errata wrong-behavior #7).
+        always(
+          "no head-on standoff freezes the corridor",
+          (s) => {
+            for (const name of ["m1", "h1"] as const) {
+              const c = s.creep(name);
+              if (!c) return false;
+              const pos = `${c.x},${c.y}`;
+              const st = stillCounters[name];
+              if (st.pos === pos) st.n += 1;
+              else {
+                st.pos = pos;
+                st.n = 0;
+              }
+              const minerSeated = name === "m1" && c.x === 9 && c.y === 24;
+              const haulerAtPile = name === "h1" && Math.max(Math.abs(c.x - 9), Math.abs(c.y - 24)) <= 1;
+              if (st.n > 10 && !minerSeated && !haulerAtPile) return false;
+            }
+            return true;
+          },
+          15
+        ),
+      ],
+    },
+
+    {
+      // The border inward-step: a creep on its target room's exit tile takes
+      // the raw step IN, never oscillating across. First true two-room cell.
+      id: "move-border-inward-step",
+      tier: 3,
+      avenue: "movement",
+      window: 75,
+      rooms: {
+        home: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border().controller(25, 10).source(44, 25);
+          for (let y = 24; y <= 26; y++) b.tile(49, y, "plain"); // east exit slot
+          return b.toRoom();
+        },
+        east: (roomName: string) => {
+          const b = new RoomBuilder(roomName).border();
+          for (let y = 24; y <= 26; y++) b.tile(0, y, "plain"); // matching west gap
+          return b.toRoom();
+        },
+      },
+      adjacency: { east: "E" },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 49,
+          y: 25,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-bd", assignedSourceId: "$id(home,source,44,25)" },
+        },
+        { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 19, y: 20, body: ["move"] },
+        { name: "filler2", x: 19, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.m1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("mining-")) borderAdopted = true;
+          return borderAdopted;
+        }),
+        // Post-adoption: the first stand on a home exit tile is followed by
+        // the inward step, and it NEVER flips across again.
+        always("steps inward off the exit tile, never oscillates", (s) => {
+          if (!borderAdopted) return true;
+          const home = s.creep("m1");
+          const east = s
+            .objects("east")
+            .find((o) => o.type === "creep" && o.name === "m1");
+          if (firstInwardDone) {
+            // After the inward step: never on a home edge, never back east.
+            return !!home && home.x < 49 && !east;
+          }
+          if (east) return true; // pre-fix drift east is tolerated until adoption settles
+          if (!home) return false;
+          if (home.x === 49) {
+            wasOnExit = true;
+            return true;
+          }
+          if (wasOnExit && home.x === 48) firstInwardDone = true;
+          return true;
+        }),
+        // Seats on the harvest spot (43,24) and works the source.
+        eventually("seats and harvests", (s) => {
+          const m = s.creep("m1");
+          const src = s.objects().find((o) => o.type === "source" && o.x === 44 && o.y === 25);
+          return !!m && m.x === 43 && m.y === 24 && !!src && src.energy < 3000;
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildStatefulMovementCells(): GridCell[] {
   // move-pickup-range-close closure state
   let prevStore: number | null = null;

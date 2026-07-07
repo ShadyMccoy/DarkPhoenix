@@ -114,6 +114,11 @@ export interface TickCtx {
   db: any;
   userId: string;
   room(handle?: string): string;
+  /** Storage env handle - the bot re-reads Memory from env each tick, so
+   * env-level Memory rewrites (e.g. backdating spawnDemandFirstSeen) land. */
+  env: any;
+  /** Current game time (staging gameTime + tick). */
+  gameTime: number;
 }
 
 export interface GridCell {
