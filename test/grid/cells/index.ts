@@ -9,14 +9,14 @@
  */
 
 import { GridCell } from "../GridCell";
-import { arrivalCells, buildArrivalT1Cells } from "./arrival";
-import { buildConstructionT1Cells, constructionCells } from "./construction";
+import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells } from "./arrival";
+import { buildConstructionT1Cells, buildConstructionT2Cells, constructionCells } from "./construction";
+import { buildChurnT2Cells, churnCells } from "./churn";
 import { buildHaulingCells } from "./hauling";
-import { buildPlannerT1Cells, plannerCells } from "./planner";
-import { buildStatefulMovementCells, movementCells } from "./movement";
-import { buildStatefulSchedulerCells, spawnSchedulerCells } from "./spawn-scheduler";
+import { buildPlannerT1Cells, buildPlannerT2Cells, plannerCells } from "./planner";
+import { buildStatefulMovementCells, buildT2MovementCells, movementCells } from "./movement";
+import { buildStatefulSchedulerCells, buildT2SchedulerCells, spawnSchedulerCells } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
-import { churnCells } from "./churn";
 import { spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 
 export const ALL_CELLS: GridCell[] = [
@@ -35,6 +35,12 @@ export const ALL_CELLS: GridCell[] = [
   ...constructionCells,
   ...plannerCells,
   ...buildPlannerT1Cells(),
+  ...buildT2SchedulerCells(),
+  ...buildPlannerT2Cells(),
+  ...buildT2MovementCells(),
+  ...buildArrivalT2Cells(),
+  ...buildConstructionT2Cells(),
+  ...buildChurnT2Cells(),
 ];
 
 const seen = new Set<string>();

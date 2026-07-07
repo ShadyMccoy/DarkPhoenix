@@ -24,6 +24,254 @@ import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 const homeRoom = (roomName: string) =>
   new RoomBuilder(roomName).border().controller(25, 10).source(30, 25).toRoom();
 
+/** A serialized bootstrap corp with the deterministic per-room id, for
+ * injection into Memory.bootstrapCorps["$room()"] - CorpRunner's get-or-
+ * restore path rehydrates it, creepNames intact, so staged jacks are DRIVEN
+ * by the corp rather than orphan-frozen. */
+const bootstrapCorpMemory = (creepNames: string[], sourcePos: { x: number; y: number }) => ({
+  id: "bootstrap-$room()-bootstrap",
+  type: "bootstrap",
+  nodeId: "$room()-bootstrap",
+  balance: 1000,
+  totalRevenue: 0,
+  totalCost: 0,
+  createdAt: 0,
+  isActive: true,
+  lastActivityTick: 0,
+  unitsProduced: 0,
+  expectedUnitsProduced: 0,
+  unitsConsumed: 0,
+  lastPlannedTick: 0,
+  spawnId: "$id(home,spawn,25,25)",
+  sourceId: `$id(home,source,${sourcePos.x},${sourcePos.y})`,
+  creepNames,
+  emergencyJackNames: [],
+  lastSpawnAttempt: 0,
+  lastEmergencyAttempt: 0,
+  starvationStartTick: 0,
+});
+
+const standdownRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(15, 30).source(33, 25).toRoom();
+
+const stagedJacks = () => [
+  {
+    name: "jack-a",
+    x: 27,
+    y: 25,
+    body: ["work", "carry", "move"],
+    memory: { workType: "harvest", corpId: "bootstrap-$room()-bootstrap" },
+  },
+  {
+    name: "jack-b",
+    x: 27,
+    y: 26,
+    body: ["work", "carry", "move"],
+    memory: { workType: "harvest", corpId: "bootstrap-$room()-bootstrap" },
+  },
+];
+
+export function buildChurnT2Cells(): GridCell[] {
+  let stampSeen = false;
+
+  return [
+    {
+      // The full churn arc, observed in phases: the orphan is STAMPED
+      // (orphanedSince, the wait), then re-adopted the tick the ~10-tick
+      // bootstrap solve commissions its source - readopt beats the 25-tick
+      // grace with margin, and recycle never fires.
+      id: "churn-readopt-after-resolve-churn",
+      tier: 2,
+      avenue: "churn-recovery",
+      window: 40,
+      rooms: { home: homeRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "om",
+          x: 29,
+          y: 25,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "mining-DEAD-harvest-0000", assignedSourceId: "$id(home,source,30,25)" },
+        },
+      ],
+      assertions: [
+        eventually("the wait phase is observed (orphanedSince stamped)", (s) => {
+          if (s.memory?.creeps?.om?.orphanedSince !== undefined) stampSeen = true;
+          return stampSeen;
+        }),
+        eventually("re-adopted before grace expires", (s) => {
+          const corpId = s.memory?.creeps?.om?.corpId;
+          return (
+            stampSeen &&
+            typeof corpId === "string" &&
+            corpId.startsWith("mining-") &&
+            !corpId.includes("DEAD") &&
+            s.memory?.creeps?.om?.orphanedSince === undefined
+          );
+        }),
+        always("never recycled", (s) => !!s.creep("om")),
+      ],
+    },
+
+    {
+      // The timed starvation path (distinct from the noHaulers bypass): a
+      // scenery hauler suppresses the bypass, the bank is one-shot to 250,
+      // and the starvation stopwatch must be recorded before the jack comes.
+      id: "churn-jack-starvation-timer",
+      tier: 2,
+      avenue: "churn-recovery",
+      window: 45,
+      rooms: { home: standdownRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [{ name: "hauler-scenery", x: 45, y: 45, body: ["move", "carry"], memory: { workType: "haul" } }],
+      async onTick(ctx) {
+        if (ctx.tick === 1) {
+          await ctx.db["rooms.objects"].update(
+            { room: ctx.room(), type: "spawn" },
+            { $set: { store: { energy: 250 } } }
+          );
+        }
+      },
+      assertions: [
+        eventually("the starvation stopwatch is armed", (s) => {
+          const corp = s.memory?.bootstrapCorps?.[s.room()];
+          return (corp?.starvationStartTick ?? 0) > 0;
+        }),
+        eventually("a jack is fielded via the timed path", (s) =>
+          s.objects().some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"))
+        ),
+      ],
+    },
+
+    {
+      // Stand-down gate: with >=1 flow miner AND >=1 flow hauler visible,
+      // existing jacks recycle and nothing respawns.
+      id: "churn-jack-standdown-flow-established",
+      tier: 2,
+      avenue: "churn-recovery",
+      window: 40,
+      rooms: { home: standdownRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        ...stagedJacks(),
+        { name: "miner-scenery", x: 43, y: 43, body: ["move"], memory: { workType: "harvest" } },
+        { name: "hauler-scenery-1", x: 44, y: 44, body: ["move"], memory: { workType: "haul" } },
+        { name: "hauler-scenery-2", x: 44, y: 45, body: ["move"], memory: { workType: "haul" } },
+      ],
+      memory: {
+        bootstrapCorps: { "$room()": bootstrapCorpMemory(["jack-a", "jack-b"], { x: 33, y: 25 }) },
+      },
+      assertions: [
+        eventually("both jacks recycled", (s) => !s.creep("jack-a") && !s.creep("jack-b")),
+        always("no jack ever respawns", (s) => {
+          if (s.tick < 30) return true;
+          return !s
+            .objects()
+            .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("jack-"));
+        }),
+      ],
+    },
+
+    {
+      // The collapse regression: haulers alone (no flow miner) must NOT
+      // stand the jacks down - they keep working the source.
+      id: "churn-jack-no-standdown-haulers-only",
+      tier: 2,
+      avenue: "churn-recovery",
+      window: 40,
+      rooms: { home: standdownRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      // Pin the bank at 100: an ORGANIC flow miner (observed at tick 11)
+      // would legitimately establish the flow and recycle the jacks - the
+      // cell needs the flow to stay miner-less for its whole window.
+      async onTick(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 100 } } }
+        );
+      },
+      creeps: [
+        ...stagedJacks(),
+        { name: "hauler-scenery-1", x: 43, y: 43, body: ["move"], memory: { workType: "haul" } },
+        { name: "hauler-scenery-2", x: 44, y: 44, body: ["move"], memory: { workType: "haul" } },
+        { name: "hauler-scenery-3", x: 44, y: 45, body: ["move"], memory: { workType: "haul" } },
+      ],
+      memory: {
+        bootstrapCorps: { "$room()": bootstrapCorpMemory(["jack-a", "jack-b"], { x: 33, y: 25 }) },
+      },
+      assertions: [
+        always("jacks stay alive through the window", (s) => !!s.creep("jack-a") && !!s.creep("jack-b")),
+        eventually("jacks are driven, not stranded", (s) => {
+          const a = s.creep("jack-a");
+          const b = s.creep("jack-b");
+          return (!!a && !(a.x === 27 && a.y === 25)) || (!!b && !(b.x === 27 && b.y === 26));
+        }),
+        eventually("the source is being worked", (s) => {
+          const src = s.objects().find((o) => o.type === "source" && o.x === 33 && o.y === 25);
+          return !!src && src.energy < 3000;
+        }),
+      ],
+    },
+
+    {
+      // Anti-downgrade dispatch: a controller under 3000 ticks-to-downgrade
+      // gets exactly ONE antidowngrade jack, ahead of the ordinary jack.
+      id: "churn-antidowngrade-dispatch",
+      tier: 2,
+      avenue: "churn-recovery",
+      window: 30,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(18, 25).source(32, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      // Quiet kit: WITHOUT it a regular jack spawns, upgrades surplus, and
+      // pushes downgradeTime past the 3000 trigger before the rescue path
+      // fires (observed live). Job 2 runs before the yield branch, so the
+      // rescue still dispatches in a yielded room.
+      creeps: [
+        { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 19, y: 20, body: ["move"] },
+        { name: "filler2", x: 19, y: 21, body: ["move"] },
+      ],
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "controller" },
+          { $set: { downgradeTime: ctx.gameTime + 2500 } }
+        );
+      },
+      assertions: [
+        eventually("the rescue jack is dispatched", (s) =>
+          s
+            .objects()
+            .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("antidowngrade-"))
+        ),
+        eventually("stamped as a bootstrap upgrader", (s) =>
+          Object.entries(s.memory?.creeps ?? {}).some(
+            ([name, mem]: [string, any]) =>
+              name.startsWith("antidowngrade-") &&
+              mem?.workType === "upgrade" &&
+              typeof mem?.corpId === "string" &&
+              mem.corpId.startsWith("bootstrap-")
+          )
+        ),
+        always("never more than one rescue jack", (s) => {
+          const count = s
+            .objects()
+            .filter((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("antidowngrade-"))
+            .length;
+          return count <= 1;
+        }),
+      ],
+    },
+  ];
+}
+
 const SOURCE_ID = "$id(home,source,30,25)";
 
 // churn-canary-recycle stand-still tracking (position frozen through grace).

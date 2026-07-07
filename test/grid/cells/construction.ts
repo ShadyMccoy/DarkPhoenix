@@ -139,6 +139,242 @@ export function buildConstructionT1Cells(): GridCell[] {
   ];
 }
 
+const twoSourceRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 10).source(15, 30).source(35, 30).toRoom();
+
+const EXT_POS: Array<{ x: number; y: number }> = [
+  { x: 22, y: 24 },
+  { x: 28, y: 24 },
+  { x: 22, y: 26 },
+  { x: 28, y: 26 },
+  { x: 24, y: 22 },
+  { x: 26, y: 22 },
+  { x: 22, y: 28 },
+  { x: 28, y: 28 },
+  { x: 20, y: 24 },
+  { x: 30, y: 24 },
+];
+
+const CONTAINER_FULL = 250000;
+
+export function buildConstructionT2Cells(): GridCell[] {
+  let oneSiteContainerSeen = false;
+  let prevBHits: number | null = null;
+  let maxAHits = 0;
+
+  return [
+    {
+      // The activeSites===0 gate: with BOTH sources signalling for rung-1
+      // containers simultaneously, only one site may ever exist.
+      id: "cons-one-site-at-a-time",
+      tier: 2,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      creeps: quiet(),
+      async stage(ctx) {
+        for (const p of [
+          { x: 16, y: 29 },
+          { x: 34, y: 29 },
+        ]) {
+          await ctx.db["rooms.objects"].insert({
+            type: "energy",
+            room: ctx.room(),
+            x: p.x,
+            y: p.y,
+            energy: 400,
+            resourceType: "energy",
+          });
+        }
+      },
+      assertions: [
+        eventually("a rung-1 container site appears at one source", (s) => {
+          const hit = sites(s).some(
+            (o: any) =>
+              o.structureType === "container" &&
+              (Math.max(Math.abs(o.x - 15), Math.abs(o.y - 30)) <= 1 ||
+                Math.max(Math.abs(o.x - 35), Math.abs(o.y - 30)) <= 1)
+          );
+          if (hit) oneSiteContainerSeen = true;
+          return oneSiteContainerSeen;
+        }),
+        always("never more than one site exists", (s) => sites(s).length <= 1),
+      ],
+    },
+
+    {
+      // Rung order: source containers + depot satisfied, extensions
+      // unfinished -> the next site is an extension, never the controller
+      // container (the far-hard-to-feed-structure-first stall).
+      id: "cons-ext-before-ctrl-container",
+      tier: 2,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 24, energy: 0 }, // depot beside spawn
+        ...EXT_POS.slice(0, 5).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("an extension site is placed", (s) =>
+          sites(s).some((o: any) => o.structureType === "extension")
+        ),
+        always("the controller container waits its turn", (s) =>
+          !sites(s).some(
+            (o: any) =>
+              o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
+          )
+        ),
+      ],
+    },
+
+    {
+      // The last rung: containers + depot + ALL 10 RCL3 extensions built ->
+      // the controller container fires, within 2 of the controller.
+      id: "cons-ctrl-container-last",
+      tier: 2,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 24, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("the controller container site appears", (s) =>
+          sites(s).some(
+            (o: any) =>
+              o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
+          )
+        ),
+        always("nothing else is placed", (s) =>
+          sites(s).every(
+            (o: any) =>
+              o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
+          )
+        ),
+      ],
+    },
+
+    {
+      // REPAIR_SPAWN_BELOW hysteresis: only the 55% container triggers a
+      // maintenance builder, and it repairs the MOST decayed first - the
+      // healthier 75% container is untouched meanwhile.
+      id: "cons-repair-starts-below-60",
+      tier: 2,
+      avenue: "construction",
+      window: 400,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 1000, hits: 137500 }, // A: 55%
+        { type: "container", x: 35, y: 29, energy: 0, hits: 187500 }, // B: 75%
+        { type: "container", x: 24, y: 24, energy: 0 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      assertions: [
+        eventually("a maintenance builder is fielded", (s) =>
+          Object.entries(s.memory?.creeps ?? {}).some(
+            ([, mem]: [string, any]) =>
+              mem?.workType === "build" && typeof mem?.corpId === "string" && mem.corpId.endsWith("-construction")
+          )
+        ),
+        eventually("the 55% container is repaired", (s) => {
+          const a = s.objects().find((o) => o.type === "container" && o.x === 15 && o.y === 29);
+          return !!a && (a.hits ?? 0) > 140000;
+        }),
+        // Most-decayed-first: B may decay but must never RISE while A is worse.
+        always("the healthier container is untouched", (s) => {
+          const b = s.objects().find((o) => o.type === "container" && o.x === 35 && o.y === 29);
+          if (!b) return false;
+          const rose = prevBHits !== null && (b.hits ?? 0) > prevBHits;
+          prevBHits = b.hits ?? 0;
+          return !rose;
+        }),
+      ],
+    },
+
+    {
+      // REPAIR_TO=0.99: repair only STARTS below the 60% hysteresis gate
+      // (staging at 96% never engages - observed live), so A is staged at
+      // 55% and a 10-WORK builder (1000 hits/tick, self-fuelling from A's
+      // store) drives the full climb to the 247500 ceiling in-window, where
+      // it must STOP - hits plateau below hitsMax.
+      id: "cons-repair-stops-at-99",
+      tier: 2,
+      avenue: "construction",
+      // 230, measured: repair reached 245500/247500 at 170 - refuel pauses
+      // and the organic miner's arrival eat ~40 ticks beyond the raw
+      // 110-tick repair time.
+      window: 230,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 1500, hits: 137500 }, // A: 55%
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 24, energy: 0 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: [
+        {
+          name: "b1",
+          x: 15,
+          y: 28,
+          body: ["work", "work", "work", "work", "work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "carry", "move", "move"],
+          energy: 200,
+        },
+        ...quiet(),
+      ],
+      memory: {
+        creeps: {
+          b1: { workType: "build", corpId: "building-$room()-construction", working: true },
+        },
+      },
+      assertions: [
+        // NOTE: pickRepairTarget is most-decayed-first, so in a decaying room
+        // the builder ROTATES targets at parity and the fleet equilibrates
+        // just under the ceiling - "reaches exactly 99%" is unattainable by
+        // design (measured: all four containers hover 245-246k). The honest
+        // ceiling observables: the staged wreck is massively repaired, and NO
+        // container ever exceeds REPAIR_TO (+ one 10-WORK tick of slack).
+        eventually("the 55% container is repaired toward the ceiling", (s) => {
+          const a = s.objects().find((o) => o.type === "container" && o.x === 15 && o.y === 29);
+          if (a) maxAHits = Math.max(maxAHits, a.hits ?? 0);
+          return maxAHits >= 240000;
+        }),
+        always("no container ever exceeds the 99% ceiling", (s) =>
+          s
+            .objects()
+            .filter((o) => o.type === "container")
+            .every((o) => (o.hits ?? 0) <= 247500 + 1100)
+        ),
+        always("never tops out to full", (s) =>
+          s
+            .objects()
+            .filter((o) => o.type === "container")
+            .every((o) => (o.hits ?? 0) < CONTAINER_FULL)
+        ),
+      ],
+    },
+  ];
+}
+
 export const constructionCells: GridCell[] = [
   {
     id: "cons-ext-first-site-checkerboard",

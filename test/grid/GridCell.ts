@@ -92,6 +92,8 @@ export interface StagedStructure {
   x: number;
   y: number;
   energy?: number;
+  /** Override hits (default: full for the type) - e.g. a decayed container. */
+  hits?: number;
   /** Room handle (default "home"). */
   room?: string;
 }
@@ -102,6 +104,8 @@ export interface StageCtx {
   C: any;
   userId: string;
   room(handle?: string): string;
+  /** World game time at staging (for relative timers like downgradeTime). */
+  gameTime: number;
 }
 
 /** Context for per-tick harness interventions (see GridCell.onTick). */

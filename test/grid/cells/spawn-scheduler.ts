@@ -44,6 +44,198 @@ const quietRoom = (dx = 0): StagedCreep[] => [
   { name: "filler2", x: 19 + dx, y: 21, body: ["move"] },
 ];
 
+/** Two-source rooms for the T2 ordering cells. */
+const twoSourceRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 10).source(15, 30).source(35, 30).toRoom();
+
+const EXT_5: Array<{ x: number; y: number }> = [
+  { x: 23, y: 23 },
+  { x: 23, y: 27 },
+  { x: 27, y: 23 },
+  { x: 27, y: 27 },
+  { x: 22, y: 25 },
+];
+const EXT_10: Array<{ x: number; y: number }> = [
+  ...EXT_5,
+  { x: 28, y: 25 },
+  { x: 23, y: 21 },
+  { x: 27, y: 21 },
+  { x: 23, y: 29 },
+  { x: 27, y: 29 },
+];
+
+export function buildT2SchedulerCells(): GridCell[] {
+  // spawn-93 closure state
+  let namesAtStart: Set<string> | null = null;
+  let firstFresh: { name: string; corpId?: string } | null = null;
+
+  // hold-full-miner-regrow closure state
+  let prevTotal: number | null = null;
+  let regrowHoldEnded = false;
+  let regrowNamesAtStart: Set<string> | null = null;
+  let regrowFirstFresh: any = null;
+
+  const freshTracker = (s: any, names: Set<string> | null): string | null => {
+    const creeps = s
+      .objects()
+      .filter((o: any) => o.type === "creep" && typeof o.name === "string")
+      .map((o: any) => o.name as string);
+    if (!names) return null;
+    return creeps.find((n: string) => !names.has(n)) ?? null;
+  };
+
+  return [
+    {
+      // #93 regression, staged at the exact decision: source A is started
+      // (staged miner + one hauler, fleet under target -> a persistent
+      // income+STARTED scaling-hauler demand), source B is fresh. The
+      // blocking bonus (1e4) must beat the started bonus (1e3): the first
+      // new creep is B's miner, never A's next hauler.
+      id: "spawn-93-fresh-miner-beats-scaling-hauler",
+      tier: 2,
+      avenue: "spawn-decision",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      structures: EXT_5.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      creeps: [
+        {
+          name: "mA",
+          x: 14, // bestAdjacentTile(source(15,30), spawn(25,25)) = (14,29)? ties resolve dx-1,dy-1 -> (14,29)
+          y: 29,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-93m", assignedSourceId: "$id(home,source,15,30)" },
+        },
+        {
+          name: "hA",
+          x: 20,
+          y: 27,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-93h", working: false, assignedSourceId: "$id(home,source,15,30)" },
+        },
+      ],
+      assertions: [
+        eventually("the first fresh creep is B's first miner", (s) => {
+          if (namesAtStart === null) {
+            namesAtStart = new Set(
+              s
+                .objects()
+                .filter((o: any) => o.type === "creep" && typeof o.name === "string")
+                .map((o: any) => o.name as string)
+            );
+            return false;
+          }
+          if (!firstFresh) {
+            const fresh = freshTracker(s, namesAtStart);
+            if (fresh) firstFresh = { name: fresh, corpId: s.memory?.creeps?.[fresh]?.corpId };
+            else return false;
+          }
+          if (!firstFresh.corpId) firstFresh.corpId = s.memory?.creeps?.[firstFresh.name]?.corpId;
+          const srcB = s.objects().find((o: any) => o.type === "source" && o.x === 35 && o.y === 30);
+          if (!srcB || !firstFresh.corpId) return false;
+          return (
+            firstFresh.name.startsWith("miner-") &&
+            firstFresh.corpId === `mining-${s.room()}-harvest-${String(srcB._id).slice(-4)}`
+          );
+        }),
+        always("no fresh hauler before B's miner exists", (s) => {
+          const creeps = s.objects().filter((o: any) => o.type === "creep" && typeof o.name === "string");
+          const freshHauler = creeps.some(
+            (o: any) => o.name.startsWith("hauler-") && namesAtStart !== null && !namesAtStart.has(o.name)
+          );
+          const freshMiner = creeps.some((o: any) => o.name.startsWith("miner-"));
+          return !freshHauler || freshMiner;
+        }),
+      ],
+    },
+
+    {
+      // The full-body regrow hold: with colonyHasMiner true (B's staged
+      // miner), source A's replacement demand has NO runt floor - min ==
+      // desired == 700 at 800 capacity. The bank (spawn + 10 EMPTY
+      // extensions) starts at 300; only hauler deliveries can reach 700, and
+      // the strict hold must refuse every cheaper demand meanwhile. Watched
+      // on the total-energy trajectory (drop below 700 = illegal spawn).
+      id: "spawn-hold-full-miner-regrow",
+      tier: 2,
+      avenue: "spawn-decision",
+      window: 160,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        ...EXT_10.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
+        { type: "container", x: 34, y: 29, energy: 1800 }, // B's source container, stocked
+      ],
+      creeps: [
+        {
+          name: "mB",
+          x: 34,
+          y: 29,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-rgm", assignedSourceId: "$id(home,source,35,30)" },
+        },
+        {
+          name: "hB",
+          x: 30,
+          y: 27,
+          body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+          memory: {
+            workType: "haul",
+            corpId: "staged-rgh",
+            working: false,
+            homeSink: "spawn",
+            assignedSourceId: "$id(home,source,35,30)",
+          },
+        },
+      ],
+      assertions: [
+        always("bank only climbs until the 700 full-miner start", (s) => {
+          const stores = s
+            .objects()
+            .filter((o: any) => o.type === "spawn" || o.type === "extension")
+            .reduce((sum: number, o: any) => sum + (o.store?.energy ?? 0), 0);
+          const prev = prevTotal;
+          prevTotal = stores;
+          if (s.tick <= 15 || regrowHoldEnded || prev === null) return true;
+          if (stores >= prev) return true;
+          if (prev >= 700) {
+            regrowHoldEnded = true;
+            return true;
+          }
+          // Deliveries only ADD; the sole legal subtraction is the 700 spawn.
+          return false;
+        }),
+        eventually("the first fresh creep is A's FULL 5W1C3M miner", (s) => {
+          if (regrowNamesAtStart === null) {
+            regrowNamesAtStart = new Set(
+              s
+                .objects()
+                .filter((o: any) => o.type === "creep" && typeof o.name === "string")
+                .map((o: any) => o.name as string)
+            );
+            return false;
+          }
+          if (!regrowFirstFresh) {
+            const fresh = freshTracker(s, regrowNamesAtStart);
+            if (fresh) regrowFirstFresh = s.objects().find((o: any) => o.type === "creep" && o.name === fresh);
+            else return false;
+          }
+          const parts: Record<string, number> = {};
+          for (const p of regrowFirstFresh.body ?? []) parts[p.type] = (parts[p.type] ?? 0) + 1;
+          return (
+            String(regrowFirstFresh.name).startsWith("miner-") &&
+            parts.work === 5 &&
+            parts.carry === 1 &&
+            parts.move === 3
+          );
+        }),
+      ],
+    },
+  ];
+}
+
 export function buildStatefulSchedulerCells(): GridCell[] {
   // spawn-no-hauler-before-miner closure state
   let minerFirstSeen: number | null = null;

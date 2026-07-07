@@ -100,6 +100,13 @@ async function main(): Promise<void> {
     console.log("\nbaseline updated (commit test/grid/baseline.json with the change that earned it)");
     return;
   }
+  // The ratchet's missing-cell check only means something on FULL runs; a
+  // --cell/--tier/--avenue subset legitimately omits baseline cells.
+  const filtered = Boolean(cellFilter || tierFilter !== undefined || avenueFilter);
+  if (filtered) {
+    console.log("\n(filtered run: baseline ratchet skipped)");
+    return;
+  }
   const regressions = checkBaseline(result);
   if (regressions.length > 0) {
     console.error("\nRATCHET FAILURE:");

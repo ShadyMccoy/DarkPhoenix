@@ -40,6 +40,336 @@ const quiet = (): Array<{ name: string; x: number; y: number; body: string[]; me
 //    tile (22,7). Replicated from nodeEnergy.ts:243-312.
 // ---------------------------------------------------------------------------
 
+export function buildArrivalT2Cells(): GridCell[] {
+  // stays-when-spot-held closure
+  let stayAdopted: number | null = null;
+
+  // dry-withdraw closure
+  let dryAdopted: number | null = null;
+  let dryBaseProgress: number | null = null;
+
+  // pile-pickup closure
+  let prevPileStore: number | null = null;
+  let pileStall = 0;
+
+  // builder closure
+  let buildStart: number | null = null;
+  let buildBase: number | null = null;
+  let flatRun = 0;
+  let prevProgress: number | null = null;
+
+  return [
+    {
+      // minerApproach 'stay': adjacent to the source with the spot held by a
+      // permanent blocker, the miner harvests from where it stands - it never
+      // shuffles at the occupied tile.
+      id: "arrive-miner-stays-when-spot-held",
+      tier: 2,
+      avenue: "work-transition",
+      window: 40,
+      rooms: { home: homeRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        // Inert blocker ON the spot (24,29): no memory entry at all, so
+        // OrphanRescue skips it forever (canary-proven untouchable).
+        { name: "b1", x: SPOT.x, y: SPOT.y, body: ["move"] },
+        {
+          name: "m1",
+          x: 26,
+          y: 30,
+          body: ["work", "work", "work", "work", "work", "move"],
+          memory: { workType: "harvest", corpId: "stale-mining", assignedSourceId: "$id(home,source,25,30)" },
+        },
+        ...quiet(),
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.m1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("mining-") && stayAdopted === null) {
+            stayAdopted = s.tick;
+          }
+          return stayAdopted !== null;
+        }),
+        always("never leaves its adjacent tile", (s) => {
+          const c = s.creep("m1");
+          return !!c && c.x === 26 && c.y === 30;
+        }),
+        eventually("harvests from where it stands", (s) => {
+          const src = s.objects().find((o) => o.type === "source" && o.x === 25 && o.y === 30);
+          return !!src && src.energy <= 2880 && s.tick <= (stayAdopted ?? 0) + 25;
+        }),
+      ],
+    },
+
+    {
+      // drawFromInput: an empty parked upgrader refills from the adjacent
+      // input container WITHOUT moving, then resumes upgrading.
+      id: "arrive-upgrader-dry-withdraws-in-place",
+      tier: 2,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      // The container within 3 of the controller becomes the input spot's
+      // buffer branch; parking tiles ring IT - first is (24,11).
+      structures: [{ type: "container", x: 25, y: 12, energy: 800 }],
+      creeps: [
+        {
+          name: "u1",
+          x: 24,
+          y: 11,
+          body: ["work", "work", "work", "work", "carry", "carry", "carry", "carry", "move", "move"],
+          memory: {
+            workType: "upgrade",
+            corpId: "stale-upgrading",
+            working: false,
+            upgradeSpot: { x: 24, y: 11 },
+          },
+        },
+        ...quiet(),
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.u1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("upgrading-") && dryAdopted === null) {
+            dryAdopted = s.tick;
+          }
+          return dryAdopted !== null;
+        }),
+        always("never leaves its parking tile", (s) => {
+          const c = s.creep("u1");
+          return !!c && c.x === 24 && c.y === 11;
+        }),
+        eventually("withdraws in place", (s) => {
+          const c = s.creep("u1");
+          const box = s.objects().find((o) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!c && !!box && (c.store?.energy ?? 0) >= 200 && (box.store?.energy ?? 0) <= 600;
+        }),
+        eventually("resumes upgrading at full rate", (s) => {
+          if (dryAdopted === null) return false;
+          const ctrl = s.objects().find((o) => o.type === "controller");
+          if (!ctrl || s.tick < dryAdopted + 4) return false;
+          if (dryBaseProgress === null) {
+            dryBaseProgress = ctrl.progress ?? 0;
+            return false;
+          }
+          if (s.tick > dryAdopted + 16) return false;
+          return (ctrl.progress ?? 0) - dryBaseProgress >= 36;
+        }),
+      ],
+    },
+
+    {
+      // A bare ground pile (no container anywhere) is collected at range 1 -
+      // the 'stopped a tile short' regression, staged directly.
+      id: "arrive-hauler-pile-pickup-range1",
+      tier: 2,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(18, 20).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "h1",
+          x: 25,
+          y: 26,
+          body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "stale-hauling", working: false, assignedSourceId: "$id(home,source,25,32)" },
+        },
+        { name: "filler1", x: 19, y: 22, body: ["move"] },
+        { name: "filler2", x: 19, y: 23, body: ["move"] },
+      ],
+      // 400 energy on the harvest-spot tile (24,31), injected raw.
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "energy",
+          room: ctx.room(),
+          x: 24,
+          y: 31,
+          energy: 400,
+          resourceType: "energy",
+        });
+      },
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.h1?.corpId;
+          return typeof corpId === "string" && corpId.startsWith("hauling-");
+        }),
+        eventually("collects the pile", (s) => {
+          const c = s.creep("h1");
+          const pile = s.objects().find((o) => o.type === "energy" && o.x === 24 && o.y === 31);
+          return !!c && (c.store?.energy ?? 0) >= 250 && (!pile || pile.energy <= 150);
+        }),
+        always("never gains cargo beyond pickup range", (s) => {
+          const c = s.creep("h1");
+          if (!c) return true;
+          const store = c.store?.energy ?? 0;
+          const gained = prevPileStore !== null && store > prevPileStore;
+          prevPileStore = store;
+          return !gained || Math.max(Math.abs(c.x - 24), Math.abs(c.y - 31)) <= 1;
+        }),
+        always(
+          "never stalls a tile short of a standing pile",
+          (s) => {
+            const c = s.creep("h1");
+            const pile = s.objects().find((o) => o.type === "energy" && o.x === 24 && o.y === 31 && o.energy > 50);
+            if (c && pile && (c.store?.energy ?? 0) === 0 && Math.max(Math.abs(c.x - 24), Math.abs(c.y - 31)) === 2) {
+              pileStall += 1;
+            } else pileStall = 0;
+            return pileStall < 5;
+          },
+          20
+        ),
+      ],
+    },
+
+    {
+      // refuelInPlace: a builder at a site with a container at its feet
+      // builds EVERY tick past its unrefueled fuel horizon - the build/fetch
+      // toggle never appears. Claimed instantly: its corpId is the
+      // deterministic per-room construction corp id.
+      id: "arrive-builder-builds-and-refuels-in-place",
+      tier: 2,
+      avenue: "work-transition",
+      window: 60,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      structures: [{ type: "container", x: 30, y: 25, energy: 1000 }],
+      creeps: [
+        // b1's memory lives in cell.memory (below) so the $room() token can
+        // name the deterministic per-room construction corp id.
+        {
+          name: "b1",
+          x: 29,
+          y: 25,
+          body: ["work", "work", "carry", "carry", "move", "move"],
+          energy: 100,
+        },
+        ...quiet(),
+      ],
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "constructionSite",
+          room: ctx.room(),
+          x: 28,
+          y: 25,
+          user: ctx.userId,
+          structureType: "extension",
+          progress: 0,
+          progressTotal: 3000,
+        });
+      },
+      memory: {
+        creeps: {
+          b1: { workType: "build", corpId: "building-$room()-construction", working: true },
+        },
+      },
+      assertions: [
+        eventually("builds continuously past the fuel horizon", (s) => {
+          const site = s
+            .objects()
+            .find((o) => o.type === "constructionSite" && o.x === 28 && o.y === 25);
+          if (!site) return false;
+          const progress = site.progress ?? 0;
+          if (buildStart === null && progress > 0) {
+            buildStart = s.tick;
+            buildBase = progress;
+            return false;
+          }
+          if (buildStart === null || buildBase === null) return false;
+          if (s.tick < buildStart + 20) return false;
+          return progress - buildBase >= 180;
+        }),
+        always("no 3-tick flat window once building", (s) => {
+          const site = s
+            .objects()
+            .find((o) => o.type === "constructionSite" && o.x === 28 && o.y === 25);
+          const progress = site?.progress ?? null;
+          if (buildStart === null || progress === null) return true;
+          if (prevProgress !== null && progress === prevProgress) flatRun += 1;
+          else flatRun = 0;
+          prevProgress = progress;
+          return flatRun < 3;
+        }),
+        always("builder never leaves its tile", (s) => {
+          const c = s.creep("b1");
+          return !!c && c.x === 29 && c.y === 25;
+        }),
+        eventually("refuels from the container at its feet", (s) => {
+          const box = s.objects().find((o) => o.type === "container" && o.x === 30 && o.y === 25);
+          return !!box && (box.store?.energy ?? 0) <= 850;
+        }),
+      ],
+    },
+
+    {
+      // Range-0 drop discipline: with no controller container, the loaded
+      // controller hauler stands ON the input tile (23,8) and drops there -
+      // a range-2 drop scatters the pile outside the upgrader ring's reach.
+      id: "arrive-hauler-drops-on-input-tile",
+      tier: 2,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "h1",
+          x: 25,
+          y: 18,
+          body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+          energy: 300,
+          memory: {
+            workType: "haul",
+            corpId: "stale-hauling",
+            working: true,
+            homeSink: "controller",
+            deliverSinkId: "controller",
+            assignedSourceId: "$id(home,source,25,32)",
+          },
+        },
+        { name: "filler1", x: 19, y: 22, body: ["move"] },
+        { name: "filler2", x: 19, y: 23, body: ["move"] },
+      ],
+      assertions: [
+        eventually("adopted", (s) => {
+          const corpId = s.memory?.creeps?.h1?.corpId;
+          return typeof corpId === "string" && corpId.startsWith("hauling-");
+        }),
+        eventually("drops exactly on the input tile (23,8)", (s) =>
+          s.objects().some((o) => o.type === "energy" && o.x === 23 && o.y === 8 && o.energy >= 250)
+        ),
+        eventually("stood on the input tile to do it", (s) => {
+          const c = s.creep("h1");
+          return !!c && c.x === 23 && c.y === 8;
+        }),
+        always("no scattered pile off the input tile near the controller", (s) =>
+          s
+            .objects()
+            .filter((o) => o.type === "energy" && (o.energy ?? 0) >= 50)
+            .every(
+              (o) =>
+                (o.x === 23 && o.y === 8) || Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) > 3
+            )
+        ),
+      ],
+    },
+  ];
+}
+
 export function buildArrivalT1Cells(): GridCell[] {
   // withdraws-stocked-container closure state
   let prevH1Store: number | null = null;

@@ -79,6 +79,32 @@ and bootstrap parks in its yield branch entirely (the "quiet room" kit).
 - Assertion-scope lesson: "never moves while empty" must bind only BEFORE the
   first load - an empty hauler walking back to reload is correct circuit
   behavior, and the first run false-failed on it.
+
+**T2 ROW (2026-07-07)** - lessons that will shape T3+:
+- Ring-bypass cells must use the bug's TRUE shape: 8 parked upgraders fully
+  encircling the input in an OPEN room. A walled 1-wide corridor is unfair -
+  the yield-swap only fires on an ADJACENT blocker, and the creep-aware
+  pathfinder treats a fully-blocked corridor as "no path", so the hauler
+  livelocks outside without ever touching the ring (observed; not a bot bug).
+- The input-spot scan reaches dx=+-2: nook geometries must wall the +-2
+  columns too or a higher-scoring candidate flips the input tile.
+- A healthy jack UPGRADES surplus and pushes downgradeTime past the 3000
+  trigger before the anti-downgrade path fires - rescue-dispatch cells need
+  the quiet kit (job 2 runs before the yield branch, so it still dispatches).
+- Repair semantics: the start gate is 60%, the KEEP gate is 99%, and
+  pickRepairTarget is most-decayed-first - in a decaying multi-container room
+  the fleet EQUILIBRATES just under the ceiling, rotating targets at parity.
+  "Reaches exactly 99%" is unattainable by design; assert "never exceeds the
+  ceiling" instead.
+- Organic interference is the top false-fail source: a real flow miner
+  spawning at tick 11 legitimately stood the jacks down in the no-standdown
+  cell (pin the bank at 100 to keep a room inert), and full-capacity worlds
+  bank 700-cost bodies serially (use 550-capacity staging when the cell needs
+  two miners fielded fast).
+- Serialized-corp injection works: Memory.bootstrapCorps["$room()"] with the
+  full serialize() shape (creepNames intact) rehydrates through CorpRunner's
+  get-or-restore, and the staged jacks are driven normally. $room()/$id()
+  tokens resolve in keys as well as values.
 **Thesis**: optimize *feedback per second*. Long sims are mostly dead time
 (spawning at 3 ticks/part, travel at ~1 tile/tick); the information lives at
 inflection points — creep SHOULD spawn, creep freshly spawned, creep arrived

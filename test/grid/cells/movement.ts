@@ -53,6 +53,238 @@ const PARKING: Array<{ x: number; y: number }> = [
 const parkRoom = (roomName: string) =>
   new RoomBuilder(roomName).border().controller(25, 10).source(25, 40).toRoom();
 
+// ---------------------------------------------------------------------------
+// T2 ring-bypass geometry: the REAL ring-starve shape - an OPEN room where
+// all 8 parking tiles around the input are occupied by parked upgraders.
+// (A walled 1-wide corridor was tried first and is UNFAIR: the yield-swap
+// only fires when the blocker is the immediate next step, and the
+// creep-aware pathfinder sees a fully-blocked corridor as "no path", so the
+// hauler livelocks outside without ever touching the ring. In the open ring
+// any approach tile puts a yielding upgrader adjacent - the bug's shape.)
+// Controller (25,10) in plain interior -> input (23,8); the ring is its 8
+// neighbours, all within upgrade range 3.
+// ---------------------------------------------------------------------------
+const RING_INPUT = { x: 23, y: 8 };
+const RING_PARK = [
+  { x: 22, y: 7 },
+  { x: 23, y: 7 },
+  { x: 24, y: 7 },
+  { x: 22, y: 8 },
+  { x: 24, y: 8 },
+  { x: 22, y: 9 },
+  { x: 23, y: 9 },
+  { x: 24, y: 9 },
+];
+const ringRoom = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 10).source(25, 40).toRoom();
+
+const ringUpgraders = () =>
+  RING_PARK.map((p, i) => ({
+    name: `u${i + 1}`,
+    x: p.x,
+    y: p.y,
+    body: ["work", "carry", "move"],
+    energy: 50,
+    memory: {
+      workType: "upgrade",
+      corpId: `staged-ring-u${i + 1}`,
+      working: true,
+      upgradeSpot: { x: p.x, y: p.y },
+    },
+  }));
+
+export function buildT2MovementCells(): GridCell[] {
+  // congestion closure state
+  let settledTicks = 0;
+
+  // ring closure state: consecutive off-spot ticks per upgrader, per cell
+  const depositOffSpot = RING_PARK.map(() => 0);
+  const escapeOffSpot = RING_PARK.map(() => 0);
+
+  const upgradersReturn = (counters: number[]) => (s: any): boolean => {
+    for (let i = 0; i < RING_PARK.length; i++) {
+      const c = s.creep(`u${i + 1}`);
+      if (!c) return false;
+      const onSpot = c.x === RING_PARK[i].x && c.y === RING_PARK[i].y;
+      counters[i] = onSpot ? 0 : counters[i] + 1;
+      // A swap displaces for 1 tick and the walk back takes 1 more; a third
+      // consecutive off-spot tick means the upgrader lost its slot.
+      if (counters[i] >= 3) return false;
+    }
+    return true;
+  };
+
+  return [
+    {
+      // Two miners, one open source: exactly one takes the static spot, the
+      // other spreads to an adjacent tile - both harvest, nobody queues.
+      id: "move-miner-congestion-open",
+      tier: 2,
+      avenue: "movement",
+      window: 75,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(10, 10).source(25, 40).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        {
+          name: "m1",
+          x: 24,
+          y: 36,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-cg1", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          name: "m2",
+          x: 26,
+          y: 36,
+          body: ["work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-cg2", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+        { name: "filler1", x: 19, y: 20, body: ["move"] },
+        { name: "filler2", x: 19, y: 21, body: ["move"] },
+      ],
+      assertions: [
+        eventually("both adopted by the mining corp", (s) => {
+          const c1 = s.memory?.creeps?.m1?.corpId;
+          const c2 = s.memory?.creeps?.m2?.corpId;
+          return (
+            typeof c1 === "string" && c1.startsWith("mining-") && typeof c2 === "string" && c2.startsWith("mining-")
+          );
+        }),
+        // The arbitration outcome, held for 5 consecutive ticks: one ON the
+        // spot (24,39), the other adjacent on a different tile, source
+        // draining at both miners' combined rate.
+        eventually("one seats the spot, the other spreads - both harvest", (s) => {
+          const m1 = s.creep("m1");
+          const m2 = s.creep("m2");
+          const src = s.objects().find((o) => o.type === "source" && o.x === 25 && o.y === 40);
+          if (!m1 || !m2 || !src) return false;
+          const onSpot = (c: any) => c.x === 24 && c.y === 39;
+          const adjacent = (c: any) => Math.max(Math.abs(c.x - 25), Math.abs(c.y - 40)) === 1;
+          const ok =
+            (onSpot(m1) ? adjacent(m2) && !onSpot(m2) : onSpot(m2) && adjacent(m1)) &&
+            src.energy <= 2900;
+          settledTicks = ok ? settledTicks + 1 : 0;
+          return settledTicks >= 5;
+        }),
+        // The gridlock signature: a miner idling two tiles out, insisting on
+        // the occupied static tile. Grace covers adoption + the short walk.
+        always(
+          "neither miner idles at range >= 2",
+          (s) => {
+            for (const name of ["m1", "m2"]) {
+              const c = s.creep(name);
+              if (!c) return false;
+              if (Math.max(Math.abs(c.x - 25), Math.abs(c.y - 40)) >= 2) return false;
+            }
+            return true;
+          },
+          25
+        ),
+      ],
+    },
+
+    {
+      // A loaded hauler penetrates the FULL upgrader ring by mutual-swapping
+      // through a yielding parked upgrader, and drops on the input tile.
+      id: "move-bypass-ring-deposit",
+      tier: 2,
+      avenue: "movement",
+      window: 85,
+      rooms: { home: ringRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        ...ringUpgraders(),
+        {
+          name: "h1",
+          x: 25,
+          y: 20,
+          body: ["carry", "carry", "move", "move"],
+          energy: 100,
+          memory: {
+            workType: "haul",
+            corpId: "staged-ring-h",
+            working: true,
+            homeSink: "controller",
+            deliverSinkId: "controller",
+            assignedSourceId: "$id(home,source,25,40)",
+          },
+        },
+      ],
+      assertions: [
+        eventually("hauler adopted", (s) => {
+          const corpId = s.memory?.creeps?.h1?.corpId;
+          return typeof corpId === "string" && corpId.startsWith("hauling-");
+        }),
+        eventually("h1 reaches the enclosed input tile", (s) => {
+          const c = s.creep("h1");
+          return !!c && c.x === RING_INPUT.x && c.y === RING_INPUT.y;
+        }),
+        eventually("the load lands ON the input tile", (s) =>
+          s
+            .objects()
+            .some((o) => o.type === "energy" && o.x === RING_INPUT.x && o.y === RING_INPUT.y && o.energy >= 80)
+        ),
+        always("displaced upgraders re-seat within 2 ticks", upgradersReturn(depositOffSpot), 15),
+      ],
+    },
+
+    {
+      // The reverse: an EMPTY hauler walled in on the input tile swaps OUT
+      // through a yielding upgrader and heads for its pickup.
+      id: "move-bypass-ring-escape",
+      tier: 2,
+      avenue: "movement",
+      window: 70,
+      rooms: { home: ringRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      creeps: [
+        ...ringUpgraders(),
+        // A seated miner makes a pile at the source, so h1 has a pickup target.
+        {
+          name: "m1",
+          x: 24,
+          y: 39,
+          body: ["work", "work", "work", "work", "work", "move"],
+          memory: { workType: "harvest", corpId: "staged-ring-m", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          name: "h1",
+          x: RING_INPUT.x,
+          y: RING_INPUT.y,
+          body: ["carry", "carry", "move", "move"],
+          memory: {
+            workType: "haul",
+            corpId: "staged-ring-h",
+            working: false,
+            assignedSourceId: "$id(home,source,25,40)",
+          },
+        },
+      ],
+      assertions: [
+        eventually("hauler adopted", (s) => {
+          const corpId = s.memory?.creeps?.h1?.corpId;
+          return typeof corpId === "string" && corpId.startsWith("hauling-");
+        }),
+        eventually("escapes the enclosed input tile", (s) => {
+          const c = s.creep("h1");
+          return !!c && !(c.x === RING_INPUT.x && c.y === RING_INPUT.y);
+        }),
+        eventually("closes on the pickup at the source", (s) => {
+          const c = s.creep("h1");
+          return !!c && Math.max(Math.abs(c.x - 24), Math.abs(c.y - 39)) <= 3;
+        }),
+        always("displaced upgraders re-seat within 2 ticks", upgradersReturn(escapeOffSpot), 15),
+      ],
+    },
+  ];
+}
+
 export function buildStatefulMovementCells(): GridCell[] {
   // move-pickup-range-close closure state
   let prevStore: number | null = null;

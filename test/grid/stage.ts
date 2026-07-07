@@ -99,14 +99,14 @@ export async function stageCell(
 
   for (const s of cell.structures ?? []) {
     const neutral = s.type === "container" || s.type === "road" || s.type === "wall";
-    const hits = structureHits(s.type);
+    const fullHits = structureHits(s.type);
     const doc: any = {
       room: room(s.room),
       type: s.type,
       x: s.x,
       y: s.y,
-      hits,
-      hitsMax: hits,
+      hits: s.hits ?? fullHits,
+      hitsMax: fullHits,
       notifyWhenAttacked: true,
     };
     if (!neutral) doc.user = userId;
@@ -147,19 +147,22 @@ export async function stageCell(
   }
 
   // Compose + inject Memory: per-creep entries plus cell extras, with
-  // "$id(handle,type,x,y)" tokens resolved against the freshly built db.
+  // "$id(handle,type,x,y)" and "$room(handle)" tokens (in values AND keys)
+  // resolved against the freshly built world.
   const memory: Record<string, unknown> = { ...(cell.memory ?? {}) };
   if (Object.keys(creepMemories).length > 0) {
     memory.creeps = { ...(memory.creeps as object | undefined), ...creepMemories };
   }
   if (Object.keys(memory).length > 0) {
-    const json = await resolveIdTokens(JSON.stringify(memory), db, room);
+    let json = JSON.stringify(memory);
+    json = json.replace(/\$room\(([^)]*)\)/g, (_, h) => room(h.trim() || undefined));
+    json = await resolveIdTokens(json, db, room);
     const { env } = server.common.storage;
     await env.set(env.keys.MEMORY + userId, json);
   }
 
   if (cell.stage) {
-    await cell.stage({ db, C, userId, room });
+    await cell.stage({ db, C, userId, room, gameTime });
   }
 }
 
