@@ -136,6 +136,12 @@ export interface GridCell {
   rooms: Record<string, (roomName: string) => ScenarioRoom>;
   /** Where non-home handles sit relative to home (compass from home). */
   adjacency?: Record<string, "E" | "W" | "N" | "S">;
+  /**
+   * Absolute room names per handle, for cells whose semantics depend on
+   * room-name arithmetic (e.g. Source-Keeper classification). The packer
+   * verifies they sit >= 4 rooms from every other cell.
+   */
+  pinnedRooms?: Record<string, string>;
   /** Bot spawn placement; room is a handle (default "home"). */
   bot: { x: number; y: number; room?: string; gcl?: number };
   /** Controller state staged after addBot (level 2+ enables the flow economy). */

@@ -58,6 +58,15 @@ const DIR: Record<"E" | "W" | "N" | "S", { dx: number; dy: number }> = {
 
 /** Resolve one cell's handles to concrete room names from its home column. */
 function resolveRooms(cell: GridCell, column: number): Record<string, string> {
+  // Pinned cells use their absolute names verbatim (SK-classification cells);
+  // the isolation audit below still applies to them.
+  if (cell.pinnedRooms) {
+    const rooms: Record<string, string> = { ...cell.pinnedRooms };
+    for (const handle of Object.keys(cell.rooms)) {
+      if (!rooms[handle]) throw new Error(`grid pack: cell ${cell.id} pins rooms but omits handle "${handle}"`);
+    }
+    return rooms;
+  }
   // Column c -> room name W{c}N0 via signed grid coords (W{n} is x = -n-1).
   const home = formatRoomName(-column - 1, -1);
   const homeCoord = parseRoomName(home);
@@ -114,8 +123,10 @@ export function packBatch(cells: GridCell[]): PackedBatch {
     rooms: resolveRooms(cell, i * STRIDE),
   }));
 
-  // Screen + audit: SK-safe names, and >= 4 rooms between any two cells.
+  // Screen + audit: SK-safe names (deliberately pinned SK rooms exempt),
+  // and >= 4 rooms between any two cells.
   for (const p of packed) {
+    if (p.cell.pinnedRooms) continue;
     for (const name of Object.values(p.rooms)) {
       if (isSkRoomName(name)) {
         throw new Error(`grid pack: cell ${p.cell.id} allocated SK room ${name}`);

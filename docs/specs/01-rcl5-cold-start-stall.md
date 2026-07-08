@@ -74,6 +74,43 @@ spawn-idle ticks + spawn events per 100 ticks in fixed-vs-prefix A/B runs to
 locate exactly where the tempo goes, then tune under the double constraint
 (grid green AND cp@3000 recovered toward 7700).
 
+### 2026-07-08 T5 findings: what actually caps a colony under remote load
+
+The grid's organic remote-pipeline world (one home source, one remote room,
+everything unstaged) surfaced the deepest colony-cap evidence yet
+(diag-reserver traces, 1200 ticks):
+
+1. **Runt-miner equilibrium.** The home miner respawns at the 250 floor,
+   gets runt-recycled the moment an upgrade LOOKS affordable, but the bank
+   drains before the replacement spawns - so the replacement is another 2W
+   runt. The home source is mined at ~40% rate indefinitely and the colony
+   boom-busts between flow and jack-fallback. The recycle check is not a
+   respawn guarantee: affordability at decision time != budget at spawn
+   time. Candidate fix: earmark the upgrade budget at recycle time, or gate
+   recycling on sustained (not instantaneous) bank.
+2. **Cross-room breadth tax.** Early vision (scout at ~70) let the planner
+   open a 50-tile remote source at t~200, long before the home source was
+   saturated - the expansion's spawn costs then taxed the home economy it
+   depended on. Breadth-first across SOURCES is proven right; breadth-first
+   across ROOMS before home saturation is energy-negative. Candidate lever:
+   gate remote openings on home-room saturation (all home sources at full
+   desiredWork with haulers).
+3. **Starvation timers age while unspawnable.** withMinerPrecedence filters
+   a dead source's hauler demand from the walk, but its first-seen stamp
+   keeps aging - the instant the miner returns, the hauler fires
+   starved-lifted. Timers should probably freeze while a demand is
+   precedence-filtered.
+4. **Reserver economics fixed** (commits this session): value 92 -> 115
+   (above the scaling-hauler band - doubling a worked remote beats a
+   marginal hauler) and holdToFund banking (its CLAIM body is indivisible;
+   without a hold every cheaper hauler ate the bank first - measured via
+   diag: starved 330+ ticks with the ranking moot). A blanket income hold
+   was tried and REJECTED: it cost ~12% mined energy in the two-source A/B.
+5. **Room-scoped miner floor** (same session): colonyHasMiner counted a
+   REMOTE miner, denying the home replacement its 250 floor - with jacks
+   refilling only the spawn's 300, the 700-min demand deadlocked the room
+   permanently. The floor gate is now scoped to the spawn's own room.
+
 ## What we know
 
 1. **Prod (master) is missing fixes that this branch already has.** The

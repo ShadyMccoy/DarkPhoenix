@@ -74,6 +74,12 @@ export interface SpawnDemand {
   /** Tick the demand was first observed, for anti-starvation aging. */
   since: number;
   /**
+   * Bank toward this demand whenever it is top-ranked and unaffordable, no
+   * starvation wait - for indivisible income bodies (e.g. the reserver's
+   * CLAIM pair) that cheaper demands would otherwise starve forever.
+   */
+  holdToFund?: boolean;
+  /**
    * Opaque body-sizing hint passed through to the executor (e.g. desired WORK
    * for a miner, desired CARRY for a hauler). The scheduler does not interpret
    * it.
@@ -290,8 +296,17 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     // investment strategy (owner directive: energy is the leading cold-start
     // metric; measured cost of consumer holds was ~2x cp@3000 and a smaller
     // fleet at every sample).
-    const starvedIncome = demand.producesIncome && starvationBoost(demand, ctx.tick) > 0;
-    const mustFund = demand.blocking || starvedIncome;
+    //
+    // INCOME demands hold when starved (the no-stranding backstop) or when
+    // they declare holdToFund (indivisible bodies like the reserver's CLAIM
+    // pair, where without a hold every cheaper hauler eats the bank first
+    // and the ranking is moot - measured, diag-reserver). A BLANKET income
+    // hold was tried and measurably cost ~12% mined energy in the two-source
+    // A/B: it parks the spawn for 700-cost miner top-ups that fleet-first
+    // tempo should not wait on.
+    const fundableIncome =
+      demand.producesIncome && (demand.holdToFund === true || starvationBoost(demand, ctx.tick) > 0);
+    const mustFund = demand.blocking || fundableIncome;
     if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand

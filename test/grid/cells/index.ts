@@ -29,6 +29,7 @@ import {
   spawnSchedulerCells,
 } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
+import { buildMultiroomT5Cells } from "./multiroom";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 
 export const ALL_CELLS: GridCell[] = [
@@ -67,6 +68,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildHaulingT4Cells(),
   ...buildConstructionT4Cells(),
   ...buildPlannerT4Cells(),
+  ...buildMultiroomT5Cells(),
 ];
 
 const seen = new Set<string>();

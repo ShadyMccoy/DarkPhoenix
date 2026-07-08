@@ -439,3 +439,75 @@ describe("starved consumers lift but never hold (energy-led refinement)", () => 
     expect(result).to.equal(null);
   });
 });
+
+/**
+ * holdToFund: an unaffordable top-ranked income demand that declares
+ * holdToFund banks immediately (no 300-tick starvation wait) - for
+ * indivisible bodies like the reserver's CLAIM pair, which cheaper hauler
+ * demands otherwise starve forever (measured, diag-reserver). A blanket
+ * income hold was tried and cost ~12% mined energy in the A/B.
+ *
+ * Mutation check: drop `demand.holdToFund === true` from the gate and the
+ * first case picks the hauler.
+ */
+describe("top-ranked unaffordable income holds without starvation", () => {
+  it("a fresh holdToFund income demand (reserver) holds over a cheaper hauler", () => {
+    const reserver = demand({
+      buyerCorpId: "resv",
+      role: "reserver",
+      producesIncome: true,
+      groupId: "r1",
+      groupStarted: true,
+      value: 115,
+      minCost: 650,
+      desiredCost: 650,
+      holdToFund: true,
+      since: 995, // seen 5 ticks ago - nowhere near starved
+    });
+    const hauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      groupId: "s1",
+      groupStarted: true,
+      value: 110,
+      minCost: 300,
+      desiredCost: 800,
+    });
+    const result = scheduleSpawn(
+      [hauler, reserver],
+      ctx({ energyAvailable: 300, energyCapacity: 700, energyIncome: 10, tick: 1000 })
+    );
+    expect(result).to.equal(null);
+  });
+
+  it("the hold releases into the income spawn once the bank arrives", () => {
+    const reserver = demand({
+      buyerCorpId: "resv",
+      role: "reserver",
+      producesIncome: true,
+      groupId: "r1",
+      groupStarted: true,
+      value: 115,
+      minCost: 650,
+      desiredCost: 650,
+      holdToFund: true,
+      since: 995,
+    });
+    const hauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      groupId: "s1",
+      groupStarted: true,
+      value: 110,
+      minCost: 300,
+      desiredCost: 800,
+    });
+    const result = scheduleSpawn(
+      [hauler, reserver],
+      ctx({ energyAvailable: 650, energyCapacity: 700, energyIncome: 10, tick: 1000 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("resv");
+  });
+});

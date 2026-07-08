@@ -67,6 +67,7 @@ async function main(): Promise<void> {
   // ground = standing dropped energy (strand gauge).
   let mined = 0;
   let invested = 0;
+  let ticksToRCL3: number | null = null;
   const prevSource = new Map<string, number>();
   let prevBank: number | null = null;
   for (let t = 1; t <= ticks; t += 1) {
@@ -82,6 +83,10 @@ async function main(): Promise<void> {
       .reduce((s: number, x: any) => s + (x.store?.energy ?? 0), 0);
     if (prevBank !== null && bank < prevBank) invested += prevBank - bank;
     prevBank = bank;
+    if (ticksToRCL3 === null) {
+      const c3 = o.find((x: any) => x.type === "controller");
+      if ((c3?.level ?? 0) >= 3) ticksToRCL3 = t;
+    }
     if (t % sample === 0) {
       const ground = o
         .filter((x: any) => x.type === "energy")
@@ -113,6 +118,7 @@ async function main(): Promise<void> {
 
   console.log(`ticks=${ticks} RCL=${ctrl?.level} controlPoints=${cp}`);
   console.log(`ENERGY: mined=${mined} invested=${invested} minedRate=${(mined / ticks).toFixed(2)}/t`);
+  console.log(`ticksToRCL3=${ticksToRCL3 ?? "not reached"}`);
   console.log(`creeps=${JSON.stringify(byType)}`);
   console.log(`variance=[${variance}]`);
   const ep = mem.economyPlan;

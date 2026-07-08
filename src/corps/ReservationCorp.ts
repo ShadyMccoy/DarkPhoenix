@@ -156,12 +156,23 @@ export class ReservationCorp extends Corp {
         buyerCorpId: this.id,
         role: "reserver",
         // Reservation doubles a remote source (+~5 e/tick for a 650 claimer that
-        // lasts 600 ticks - an enormous ROI), so it ranks as income work: above
-        // discretionary upgrading (90), below the core miners (100+) and the
-        // haulers (90-110) that actually move the energy it unlocks.
-        value: 92,
+        // lasts 600 ticks), the best marginal energy investment on the board:
+        // above the scaling haulers' band (90-110) - the Nth hauler moves a
+        // sliver of throughput, the reserver doubles the source itself. It
+        // still sits below every BLOCKING demand (first miners/haulers,
+        // 1e4 tier), so income units open before their remote gets doubled.
+        // Measured (grid T5 + diag-reserver): at 92 the reserver starved
+        // FOREVER behind hauler churn - even inside the starved tier the
+        // 110-value haulers out-ranked it and re-armed after every spawn.
+        value: 115,
         blocking: false,
         producesIncome: true, // a reserved source delivers twice the energy
+        // Bank for the reserver when it tops the ranking: its body is
+        // indivisible (CLAIM 600 floor), so without a hold every cheaper
+        // hauler eats the bank first and the ranking is moot (measured,
+        // diag-reserver). Scoped to this demand - a blanket income hold
+        // measurably cost ~12% mined energy in the two-source A/B.
+        holdToFund: true,
         desiredCost: body.cost,
         minCost: body.cost,
         since: 0,

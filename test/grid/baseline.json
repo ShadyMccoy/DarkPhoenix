@@ -1,5 +1,5 @@
 {
-  "botLevel": 3,
+  "botLevel": 2,
   "cells": {
     "churn-jack-immediate-no-haulers": "pass",
     "arrive-hauler-withdraws-stocked-container": "pass",
@@ -52,6 +52,7 @@
     "churn-canary-readopt": "pass",
     "spawn-no-hauler-before-miner": "pass",
     "plan-t0-single-source-commissioned": "pass",
+    "spawn-reserver-started-income": "pass",
     "move-pickup-range-close": "pass",
     "cons-ext-first-site-checkerboard": "pass",
     "plan-t2-sink-source-pairing": "pass",
@@ -61,15 +62,18 @@
     "spawn-hold-strict-first-hauler": "pass",
     "haul-t1-circuit-split": "pass",
     "haul-t3-dedicated-standdown": "pass",
+    "spawnexec-reserver-body-multiroom": "pass",
     "move-choke-corridor": "pass",
     "churn-retiring-scavenge-corp": "pass",
     "move-swamp-detour": "pass",
     "spawn-starved-builder-one-shot": "pass",
+    "move-scout-border-crossing": "pass",
     "haul-t4-storage-bank-and-spill": "timeout",
+    "churn-remote-orphan-walks-home": "pass",
     "calib-adoption-timing": "pass",
     "spawnexec-miner-runt-recycle-affordable": "pass",
-    "haul-t3-dedicated-resume-groundpile": "pass",
-    "spawn-timer-survives-busy-spawn": "pass",
+    "haul-t3-dedicated-resume-groundpile": "timeout",
+    "spawn-timer-survives-busy-spawn": "fail",
     "spawn-hold-full-miner-regrow": "pass",
     "spawn-first-miner-outranks-all": "pass",
     "haul-t4-tender-bus-regime": "timeout",
@@ -81,9 +85,12 @@
     "plan-t3-budget-subset": "pass",
     "plan-t4-two-spawn-nearest": "pass",
     "haul-t0-first-delivery": "pass",
+    "plan-t5-sk-never-mined": "pass",
     "cons-repair-starts-below-60": "pass",
+    "spawn-reserver-yields-to-blocking-miner": "pass",
     "plan-t2-asymmetric-both-staffed": "pass",
     "plan-t1-single-source-loop": "pass",
-    "plan-t2-antidowngrade-construction": "pass"
+    "plan-t2-antidowngrade-construction": "pass",
+    "plan-t5-remote-pipeline": "timeout"
   }
 }

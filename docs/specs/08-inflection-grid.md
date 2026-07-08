@@ -132,6 +132,42 @@ and bootstrap parks in its yield branch entirely (the "quiet room" kit).
 - Background-job hygiene: an A/B that swaps src and rebuilds dist RACES any
   concurrently launched grid run - sequence them.
 
+**T5 ROW (2026-07-08)** - lessons:
+- The reserver trio needed three iterations of world design: with a full
+  bank the reserver won an EMPTY tick-1 queue (reservation self-proposes
+  before the first solve creates competing demands) - stage extensions
+  empty to make orderings actually contested.
+- Remote-room staging works: creeps inject into any handle's room; a
+  corpless workType-harvest creep arms ReservationCorp's trigger and is
+  canary-proven untouchable.
+- pinnedRooms landed for SK-name-arithmetic cells (home W3N4, keeper W4N4);
+  the packer audits pinned cells' distances and exempts them from the SK
+  screen.
+- The organic pipeline cell found three real bot pathologies (runt-miner
+  equilibrium, cross-room breadth tax, timers aging while
+  precedence-filtered - see spec 01); its dispatch assertion is parked at
+  the frontier until home-stability work lands.
+- Two bot fixes came straight out of T5 red cells: reserver value 92->115 +
+  holdToFund, and the room-scoped miner floor.
+
+**FLAKY WATCH (2026-07-08)**: two cells flip across identical-code full
+runs as scheduler dynamics shift spawn interleavings:
+haul-t3-dedicated-resume-groundpile (pass@100 x2, timeout@100, pass@150,
+timeout@150) and spawn-timer-survives-busy-spawn (pass, fail@140 x2,
+pass, fail@140). The timer cell's flip MAY be a real intermittent
+demand-flicker (the #93 stamp changes byte-identity under specific spawn
+sequences) - a diag lead, not just noise. A rerun-once policy for
+eventually-only cells is designed but unbuilt.
+
+**A/B VARIANCE (2026-07-08, epistemic correction)**: identical-code
+3000-tick draws produced mined=38,036 and mined=31,188 (+/-20%), and the
+earlier both-fixes pair drew cp 3,942/3,050 (25% spread). Cold-start
+dynamics are chaotic; ONLY multi-draw comparisons count for deltas under
+~30%. Findings that survive: the ~2x pre-fix-vs-fixes cp gap, and every
+grid-pinned deterministic behavior. Findings demoted to
+directional-pending-variance-study: the +15% refined-energy edge and the
+-12% blanket-hold cost.
+
 **A/B STATUS (open investigation)**: same-era isolated baselines on the
 two-source cold world: pre-fix cp@3000 = 7711; both-fixes = 3942 / 3050 (two
 draws). The correctness fixes (controller starvation was real, deterministic,

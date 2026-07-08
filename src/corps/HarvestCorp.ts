@@ -389,15 +389,18 @@ export class HarvestCorp extends Corp {
     // the source stays under-mined, the spawn it feeds stays starved, and every
     // OTHER corp then runts out too - the whole economy collapses to one-useful-
     // part creeps. Even a bare spawn (300) affords a 2-WORK miner (250). The runt
-    // floor is ONLY for the colony's very first miner, which is the bootstrap
-    // income and must spawn fast even if tiny. Once income flows (this colony
-    // already has a miner elsewhere - e.g. a second source, or a regrow after a
-    // runt was recycled), hold out for the full desired body: the income already
-    // covers the wait, and a source has only so many spots so each should be as
-    // large as the room can build. This also prevents a single-source regrow from
-    // respawning as a runt again (thrash).
+    // floor applies when the SPAWN'S OWN ROOM has no flow miner - the engine
+    // that fills this spawn network is dead and must restart fast even if
+    // tiny. It is room-scoped, NOT colony-scoped: a remote miner in another
+    // room cannot refill this room's extensions, so counting it denied the
+    // floor and deadlocked the colony on jack drip (measured, grid T5
+    // remote-pipeline: home miner died, replacement demanded the full 700,
+    // jacks refill only the spawn's 300, blocking remote haulers ate every
+    // 300 - permanent stall). With home income alive, hold out for the full
+    // desired body: the income covers the wait, and a source has only so
+    // many spots so each should be as large as the room can build.
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
-    const colonyColdStart = current === 0 && !this.colonyHasMiner();
+    const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
     const minWork = colonyColdStart ? Math.min(desiredWork, 2) : desiredWork;
     const min = buildMinerBody(minWork, ctx.energyCapacity);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
@@ -426,10 +429,13 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * True if the colony already has a miner producing income anywhere, so an
-   * additional source's miner is expansion rather than a blocking bootstrap need.
+   * True if the SPAWN'S ROOM has a flow miner producing income in it, so an
+   * additional source's miner is expansion rather than a bootstrap-restart
+   * need. Room-scoped (see the floor comment in getSpawnDemand).
    */
-  private colonyHasMiner(): boolean {
+  private spawnRoomHasMiner(): boolean {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const spawnRoom = spawn?.room.name;
     // Count only real FLOW miners (a HarvestCorp's creep, corpId "mining-..."),
     // NOT bootstrap jacks - which also carry workType "harvest" but corpId
     // "bootstrap-...". Counting jacks here made every flow miner non-blocking
@@ -437,8 +443,12 @@ export class HarvestCorp extends Corp {
     // it and no flow miner ever spawned: the colony could never hand off from
     // bootstrap to the flow economy.
     for (const name in Game.creeps) {
-      const memory = Game.creeps[name].memory;
-      if (memory.workType === "harvest" && memory.corpId?.startsWith("mining-")) return true;
+      const creep = Game.creeps[name];
+      const memory = creep.memory;
+      if (memory.workType !== "harvest" || !memory.corpId?.startsWith("mining-")) continue;
+      // Unknown rooms (unit-harness mocks) count as local - the old colony-wide
+      // behavior - so only a KNOWN remote miner is excluded from the floor gate.
+      if (!spawnRoom || creep.room?.name === undefined || creep.room.name === spawnRoom) return true;
     }
     return false;
   }
