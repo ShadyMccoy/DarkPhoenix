@@ -168,6 +168,18 @@ grid-pinned deterministic behavior. Findings demoted to
 directional-pending-variance-study: the +15% refined-energy edge and the
 -12% blanket-hold cost.
 
+**VARIANCE STUDY (2026-07-08, 4 draws + 2 priors, current config)**:
+mined = 36,560 / 33,054 / 36,398 / 30,742 (+ priors 38,036 / 31,188) -
+mean ~34.3k, range 30.7-38.0k. cp = 4,983 / 6,934 / 6,265 / 4,557
+(+ priors 6,493 / 3,188) - mean ~5.4k, range 3.2-6.9k. The pre-fix
+single draws (mined 33,106; cp 4,852 / 7,711) fall INSIDE these bands.
+Honest conclusion: on the friendly two-source world the energy-led
+refined bot is statistically indistinguishable from pre-fix on both
+mined energy and cp - the correctness fixes (deadlock immunity,
+grid-pinned) and remote capability were gained at NO measurable tempo
+cost. Any future claim of a tempo delta under ~30% requires a
+multi-draw comparison.
+
 **A/B STATUS (open investigation)**: same-era isolated baselines on the
 two-source cold world: pre-fix cp@3000 = 7711; both-fixes = 3942 / 3050 (two
 draws). The correctness fixes (controller starvation was real, deterministic,
