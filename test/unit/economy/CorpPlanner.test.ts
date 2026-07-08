@@ -328,3 +328,100 @@ describe("economy/CorpPlanner", () => {
 function allocOf(plan: ReturnType<typeof planColony>, sinkId: string): number {
   return plan.sinks.find(s => s.sinkId === sinkId)?.allocated ?? 0;
 }
+
+/**
+ * OVER-ABUNDANCE: more profitable sources than a spawn's build-time can
+ * sustain. The planner must fill the budget by VALUE DENSITY (net energy per
+ * spawn build-part), not raw net energy or discovery order - the recurring
+ * spawn cost (miner + haulers, amortized over effective life) IS the scarce
+ * resource once sources are plentiful.
+ *
+ * Mutation checks: sort candidates by raw net (drop the /parts) and the
+ * density case fails; drop the `spent + parts > budget` guard and the
+ * budget-cap case fails.
+ */
+describe("Phase 1 - over-abundance sizing (value density under the parts budget)", () => {
+  it("staffs by value DENSITY, not raw net, when the budget cannot fit everything", () => {
+    // a: rate 4 at d=12 - small raw net but extremely cheap to serve (dense).
+    // b, c: rate 10 at d=190/200 - each out-nets a in absolute terms, but
+    // their hauler fleets are budget hogs. All three together overflow the
+    // budget; density order (a, b, c) keeps a+b and drops c. A raw-net sort
+    // (the mutation) would pick b first instead.
+    const dA = 12;
+    const dB = 190;
+    const dC = 200;
+    const netA = netEnergy(4, dA);
+    expect(netEnergy(10, dB)).to.be.greaterThan(netA); // raw net prefers b...
+    expect(netA / spawnPartsFor(4, dA)).to.be.greaterThan(netEnergy(10, dB) / spawnPartsFor(10, dB)); // ...density prefers a
+    const total = spawnPartsFor(4, dA) + spawnPartsFor(10, dB) + spawnPartsFor(10, dC);
+    expect(total).to.be.greaterThan(miningBudgetPerSpawn()); // real contention
+
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("b", dB, 10), source("c", dC, 10), source("a", dA, 4)],
+        sinks: [sink("ctrl", "controller", 0, 50, 1000)]
+      })
+    );
+    const mined = plan.miners.map(m => m.sourceId);
+    expect(mined[0]).to.equal("a"); // density winner staffed first
+    expect(mined).to.include("b");
+    expect(mined).to.not.include("c"); // the lowest-density candidate is the one dropped
+  });
+
+  it("fills the budget with the best subset and never exceeds it (beyond the first pick)", () => {
+    // Five profitable sources; the budget affords only some. The planner must
+    // take a prefix of the density ordering that fits, skipping any candidate
+    // that would overflow but still trying later smaller ones.
+    const ds = [20, 60, 100, 150, 200];
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: ds.map((d, i) => source(`s${d}`, d, 10)),
+        sinks: [sink("ctrl", "controller", 0, 50, 5000)]
+      })
+    );
+    expect(plan.miners.length).to.be.greaterThan(0);
+    expect(plan.miners.length).to.be.lessThan(ds.length); // over-abundance: not all staffed
+    // near sources in, farthest out
+    const mined = new Set(plan.miners.map(m => m.sourceId));
+    expect(mined.has("s20")).to.equal(true);
+    expect(mined.has("s200")).to.equal(false);
+    // the recurring parts total respects the budget
+    let parts = 0;
+    for (const m of plan.miners) parts += spawnPartsFor(m.rate, m.distance);
+    expect(parts).to.be.at.most(miningBudgetPerSpawn() + 1e-9);
+  });
+
+  it("each spawn gets its OWN budget - two spawns staff twice as much", () => {
+    const ds = [80, 120, 160, 200];
+    const single = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: ds.map(d => source(`p${d}`, d, 10)),
+        sinks: [sink("ctrl", "controller", 0, 50, 5000)]
+      })
+    );
+    const double = planColony(
+      problem({
+        spawns: [spawn("S", 0), spawn("S2", 400)],
+        sources: [
+          ...ds.map(d => source(`p${d}`, d, 10)),
+          ...ds.map(d => source(`q${d}`, 400 - d, 10)) // mirrored cluster near S2
+        ],
+        sinks: [sink("ctrl", "controller", 0, 50, 5000)]
+      })
+    );
+    expect(double.miners.length).to.be.greaterThan(single.miners.length);
+    // and no spawn's MINING selection individually blows its budget (the
+    // spawnPartsUsed ledger also carries sink-side hauling, which is
+    // budgeted downstream - only the Phase-1 mining fill is capped here)
+    const miningPartsBySpawn = new Map<string, number>();
+    for (const m of double.miners) {
+      miningPartsBySpawn.set(m.spawnId, (miningPartsBySpawn.get(m.spawnId) ?? 0) + spawnPartsFor(m.rate, m.distance));
+    }
+    for (const [, used] of miningPartsBySpawn) {
+      expect(used).to.be.at.most(miningBudgetPerSpawn() + 1e-9);
+    }
+  });
+});
