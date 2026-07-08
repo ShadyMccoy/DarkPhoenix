@@ -442,15 +442,27 @@ export function buildHaulingT3Cells(): GridCell[] {
       })(),
       assertions: [
         eventually("B's corp fields a hauler", (s) => haulersOfCorp(s, bCarryCorpId(s)) >= 1),
-        eventually("a HAULER pickup hits the pile (single-tick drop >= 100)", (s) => {
-          // Gated on B's hauler existing: the staged tanker also picks up
-          // (observed at tick 2) - only post-hauler drops are the signal.
+        eventually("a hauler visits the pile and it drains", (s) => {
+          // FLAKE HISTORY (5 flips at drop-size thresholds): the bite-size
+          // signal races consumer timing - small haulers and jack nibbles
+          // blur the single-tick drop. The mechanism-true, timing-robust
+          // signal: one of B's haulers stands at the pile AND the pile
+          // meaningfully drains afterward.
           const pile = s.objects().find((o: any) => o.type === "energy" && o.x === 39 && o.y === 24);
           const amount = pile?.energy ?? 0;
-          const haulerExists = haulersOfCorp(s, bCarryCorpId(s)) >= 1;
-          if (haulerExists && prevPile !== null && prevPile - amount >= 100) sawPickup = true;
+          const bId = bCarryCorpId(s);
+          const visiting = s
+            .objects()
+            .some(
+              (o: any) =>
+                o.type === "creep" &&
+                s.memory?.creeps?.[o.name]?.corpId === bId &&
+                s.memory?.creeps?.[o.name]?.workType === "haul" &&
+                Math.max(Math.abs(o.x - 39), Math.abs(o.y - 24)) <= 1
+            );
+          if (visiting) sawPickup = true; // visit recorded...
           prevPile = amount;
-          return sawPickup;
+          return sawPickup && amount <= 600; // ...and the pile drained below its staged level
         }),
       ],
     },

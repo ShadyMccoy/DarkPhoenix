@@ -314,21 +314,17 @@ export function buildMultiroomT5Cells(): GridCell[] {
     },
 
     {
-      // The full organic remote pipeline: scout -> intel -> node refresh ->
-      // the planner mines the remote source -> a miner walks over and works
-      // it. The reserver DISPATCH was measured out of this cell (diag): in
-      // this world the home economy never stabilizes under remote load - a
-      // runt-miner equilibrium (respawn at the 250 floor, recycle, bank
-      // drains before the bigger replacement, repeat at ~40% mining rate)
-      // plus the cross-room breadth tax of opening a 50-tile remote before
-      // home saturation. That is a spec-01 colony-cap finding, not a cell
-      // problem; dispatch mechanics are pinned green by the three staged
-      // reserver cells. Frontier: re-add the dispatch assertion when the
-      // home-stability work lands.
+      // The full organic remote pipeline: scout -> intel -> home economy
+      // saturates -> the remote unlocks -> the planner mines it -> a miner
+      // walks over and works it -> the reserver is dispatched. The
+      // home-saturation gate + spawn-then-recycle (this cell's findings,
+      // spec 01) made the timeline LATER but stable: home saturates ~500,
+      // remote opens at the next refresh+replan, mining ~1100, dispatch
+      // after. 1500 covers it with margin.
       id: "plan-t5-remote-pipeline",
       tier: 5,
       avenue: "planning-economy",
-      window: 800,
+      window: 1500,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
@@ -361,6 +357,12 @@ export function buildMultiroomT5Cells(): GridCell[] {
               )
           );
         }),
+        eventually("the reserver is dispatched to the worked remote", (s) =>
+          s.objects().some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("reserver-")) ||
+          s
+            .objects("east")
+            .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("reserver-"))
+        ),
 
       ],
     },

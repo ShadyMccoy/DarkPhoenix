@@ -74,6 +74,37 @@ spawn-idle ticks + spawn events per 100 ticks in fixed-vs-prefix A/B runs to
 locate exactly where the tempo goes, then tune under the double constraint
 (grid green AND cp@3000 recovered toward 7700).
 
+### 2026-07-08 MAX-EFFICIENCY ARC: all three colony caps FIXED
+
+Every finding below was closed the same day, each validated by the grid +
+diag traces (commits on master):
+
+1. **Runt-miner equilibrium -> SPAWN-THEN-RECYCLE.** Two kill-first designs
+   measurably failed (affordability races, then a promise deadlock in a
+   miner-less room); the shipped design overlaps: a runt fleet emits ONE
+   extra miner demand priced at the strictly-bigger body (affordability
+   enforced at the spawn instant - no race), and the smallest miner is
+   released only when the fleet exceeds its target count (WORK ties release
+   the creep FARTHEST from the source, never the seated holder). Grid: the
+   runt cell recycles @39 with a 4W replacement and zero mining gap; the
+   pipeline world holds two stable miners for 1200 ticks, bank at full 700.
+2. **Cross-room breadth tax -> home-saturation gate.** Remote sources enter
+   the node pool only once every owned-room source has a live flow miner
+   AND hauler (500-tick hysteresis against assignment flicker). Required
+   fixing a latent bug: organic miners never carried assignedSourceId (only
+   staged test creeps did) - HarvestCorp now stamps it.
+3. **Timer freeze while precedence-filtered -> tried and REVERTED.** The
+   "aging while unspawnable" wart is load-bearing: it encodes the real
+   starvation of a route's grounded energy, and freezing it delayed the
+   d=22 loop's first hauler by ~300 ticks (the convergence cell went red).
+   The T5 pathology it targeted was already cured by holdToFund + the
+   reserver's value fix.
+
+Result: the FULL organic remote pipeline is green end to end - home
+saturates, the remote unlocks, a miner walks over, haulers staff the route,
+and the reserver is dispatched (@631 and @862 across draws). The d=22 loop
+still converges at its exact historical tick 726.
+
 ### 2026-07-08 T5 findings: what actually caps a colony under remote load
 
 The grid's organic remote-pipeline world (one home source, one remote room,

@@ -180,6 +180,19 @@ export class HarvestCorp extends Corp {
   public work(tick: number): void {
     this.lastActivityTick = tick;
 
+    // Stamp the assignment on every creep: adoption (OrphanRescue) and the
+    // home-saturation gate (IncrementalAnalysis) both key on
+    // memory.assignedSourceId, but spawned creeps arrive with only
+    // {corpId, workType} - only STAGED test creeps carried it, which made
+    // the saturation gate read every organic home source as unmined and
+    // remotes never unlocked (measured via SATDIAG probe).
+    const realSourceId = this.sourceId.replace("source-", "");
+    for (const creep of this.getActiveCreeps()) {
+      if (creep.memory.assignedSourceId !== realSourceId) {
+        creep.memory.assignedSourceId = realSourceId;
+      }
+    }
+
     // Try to get the source object directly
     let source = Game.getObjectById(this.sourceId as Id<Source>);
 
@@ -242,23 +255,83 @@ export class HarvestCorp extends Corp {
    */
   private flagMinerRuntForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
     if (!this.minerAssignment) return;
-    if (spawn.spawning) return; // don't compete with an in-progress spawn
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
 
-    const room = spawn.room;
+    // SPAWN-THEN-RECYCLE: the runt keeps mining until its replacement is
+    // ALIVE. Two kill-first designs measurably failed here (grid T5
+    // pipeline world): recycling on instantaneous affordability lost the
+    // money during the runt's walk (the replacement respawned the same
+    // size, forever - the runt-miner equilibrium at ~40% source output),
+    // and pricing the replacement via a recycle-time promise deadlocked a
+    // miner-less room whose bank ceiling (spawn regen 300) sat below the
+    // promise. With the overlap there is no race and no mining gap: the
+    // upgrade demand (see runtUpgradeDemand) only spawns when the bigger
+    // body is affordable AT THAT INSTANT, and the smallest miner is
+    // released only once the fleet OVERSHOOTS its target count - which
+    // covers both overlap completion and a plan shrink.
+    const target = this.minerTargetCount(spawn.room.energyCapacityAvailable);
+    if (creeps.length <= target) return;
+
+    // Release the smallest; on WORK ties, the one FARTHEST from the source -
+    // never the seated holder (grid cell move-miner-pocket-holdoff: an
+    // index-order tie-break recycled the seated miner and displaced it).
+    const source = Game.getObjectById(this.sourceId.replace("source-", "") as Id<Source>);
+    let releaseIdx = 0;
+    creeps.forEach((c, i) => {
+      if (i === 0) return;
+      const cur = creeps[releaseIdx];
+      const work = c.getActiveBodyparts(WORK);
+      const curWork = cur.getActiveBodyparts(WORK);
+      if (work < curWork) {
+        releaseIdx = i;
+      } else if (work === curWork && source) {
+        if (c.pos.getRangeTo(source.pos) > cur.pos.getRangeTo(source.pos)) releaseIdx = i;
+      }
+    });
+    creeps[releaseIdx].memory.recycling = true;
+  }
+
+  /** Miner count the plan wants - same math as getSpawnDemand's target. */
+  private minerTargetCount(energyCapacity: number): number {
+    if (!this.minerAssignment) return 1;
     const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
-    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, room.energyCapacityAvailable).workParts);
+    const affordableWork = Math.max(1, buildMinerBody(totalWork, energyCapacity).workParts);
+    const needed = Math.ceil(totalWork / affordableWork);
+    return Math.max(1, Math.min(this.minerAssignment.maxMiners || 1, needed));
+  }
+
+  /**
+   * The overlap half of spawn-then-recycle: when a runt is upgradeable and
+   * the bigger body is affordable right now, demand ONE extra miner. The
+   * scheduler's min-cost check at the spawn instant is the affordability
+   * guarantee (no decision-time/spawn-time race), and the runt keeps mining
+   * until flagMinerRuntForRecycling sees the bigger sibling arrive.
+   */
+  private runtUpgradeDemand(ctx: SpawnDemandContext, creeps: Creep[]): SpawnDemand | null {
+    if (!this.minerAssignment) return null;
+    if (creeps.some(c => c.memory.recycling)) return null;
+
+    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
     const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
-    const idx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
-    if (idx === null) return;
+    const runtIdx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
+    if (runtIdx === null) return null;
+    if (creeps.some((c, i) => i !== runtIdx && workCounts[i] > workCounts[runtIdx])) return null; // upgrade already fielded
 
-    // Only recycle once we can afford to rebuild this runt at least one WORK
-    // larger right now - guarantees a real upgrade and no long unmined gap.
-    const upgradeWork = Math.min(maxWorkPerMiner, workCounts[idx] + 1);
-    const upgradeCost = buildMinerBody(upgradeWork, room.energyCapacityAvailable).cost;
-    if (room.energyAvailable < upgradeCost) return;
-
-    creeps[idx].memory.recycling = true;
+    const upgradeWork = Math.min(maxWorkPerMiner, workCounts[runtIdx] + 1);
+    const upgradeCost = buildMinerBody(upgradeWork, ctx.energyCapacity).cost;
+    const desired = buildMinerBody(maxWorkPerMiner, ctx.energyCapacity);
+    return {
+      buyerCorpId: this.id,
+      role: "miner",
+      value: 100 + (this.minerAssignment.efficiency ?? 0) * 0.5,
+      blocking: false, // an optimization, never worth deadlocking the spawn over
+      producesIncome: true,
+      desiredCost: desired.cost,
+      minCost: upgradeCost, // strictly-bigger enforced at the spawn instant
+      since: 0,
+      bodyParam: maxWorkPerMiner
+    };
   }
 
   /**
@@ -379,7 +452,12 @@ export class HarvestCorp extends Corp {
     const target = Math.max(1, Math.min(assignment.maxMiners || 1, needed));
 
     const current = this.getTotalCreepCount();
-    if (current >= target) return [];
+    if (current >= target) {
+      // Fully staffed by count - but a runt fleet still wants its overlap
+      // upgrade (spawn-then-recycle; see runtUpgradeDemand).
+      const upgrade = this.runtUpgradeDemand(ctx, this.getActiveCreeps());
+      return upgrade ? [upgrade] : [];
+    }
 
     // Desired WORK per miner to cover the source's harvest rate across miners.
     const desiredWork = Math.max(1, Math.ceil(totalWork / target));

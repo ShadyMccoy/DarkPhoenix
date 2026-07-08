@@ -70,8 +70,15 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
-      // Stamp each demand's first-seen tick (carrying forward a prior one) so the
-      // scheduler sees how long it has been waiting.
+      // Stamp each demand's first-seen tick (carrying forward a prior one) so
+      // the scheduler sees how long it has been waiting. Deliberately stamps
+      // precedence-FILTERED demands too: a route's clock starts when its
+      // demand appears, not when its miner lands, so a hauler whose source
+      // sat unhauled fires starved-lifted soon after the miner arrives. A
+      // freeze-while-filtered variant was tried and REVERTED: it delayed the
+      // d=22 loop's first hauler by ~300 ticks (grid cell
+      // plan-t1-single-source-loop went red) - the "aging while unspawnable"
+      // encodes the real starvation of the route's energy on the ground.
       for (const d of demands) {
         const key = `${spawn.id}:${d.buyerCorpId}:${d.role}`;
         seenThisTick.add(key);

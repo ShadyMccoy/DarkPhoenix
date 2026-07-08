@@ -89,8 +89,8 @@
     "cons-repair-starts-below-60": "pass",
     "spawn-reserver-yields-to-blocking-miner": "pass",
     "plan-t2-asymmetric-both-staffed": "pass",
-    "plan-t5-remote-pipeline": "pass",
     "plan-t1-single-source-loop": "pass",
-    "plan-t2-antidowngrade-construction": "pass"
+    "plan-t2-antidowngrade-construction": "pass",
+    "plan-t5-remote-pipeline": "pass"
   }
 }
