@@ -122,9 +122,16 @@ describe("SpawnScheduler", () => {
         expect(result).to.equal(null);
       });
 
-      it("still spawns a lower-ranked blocking demand while holding for an unaffordable one", () => {
-        // Holding for one blocking producer must not block ANOTHER source's
-        // affordable first miner - that makes real progress (more income).
+      it("declines even a lower-ranked BLOCKING demand while holding for a producer", () => {
+        // SEMANTIC CHANGE (2026-07-09, measured on W2N6): the old rule let any
+        // lower blocking demand spend during a hold, assuming blocking demands
+        // are few. The tender/construction era made them a stream (0-WORK
+        // feeder tankers, cheap first haulers of churning routes) that drained
+        // the bank every time it approached the held miner's body - the second
+        // home source's miner never fielded in 3000 ticks. Under a STRICT hold
+        // (held demand is a producer) nothing lower spends: the lower blocking
+        // demand waits the bounded ~100 ticks the held body needs to bank,
+        // which beats the unbounded starvation the passthrough allowed.
         const hauler = demand({
           buyerCorpId: "hauler", role: "hauler", value: 100, blocking: true,
           producesIncome: true, minCost: 300, desiredCost: 500,
@@ -136,7 +143,7 @@ describe("SpawnScheduler", () => {
         const result = scheduleSpawn([hauler, firstMiner], ctx({
           energyAvailable: 200, energyCapacity: 550, energyIncome: 0,
         }));
-        expect(result?.demand.buyerCorpId).to.equal("minerB");
+        expect(result).to.equal(null);
       });
 
       it("does NOT wait for a blocking demand the room can never afford", () => {

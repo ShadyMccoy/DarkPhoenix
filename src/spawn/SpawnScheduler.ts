@@ -259,20 +259,31 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // lower-priority creeps, letting the spawn fill for the blocking demand.
   let holdForBlocking = false;
   // Strict hold: the blocking demand we are waiting on is itself an income
-  // PRODUCER (a hauler), which means energy is already being mined and just
-  // needs moving - spawning more producers would not help, so even an affordable
-  // income producer must wait. When the blocking demand is a consumer (upgrader)
-  // we are NOT strict: an affordable income producer still spawns, because we
-  // need income flowing before the consumer can ever be afforded (cold start).
+  // PRODUCER, so energy is already being mined/moved by incumbents - nothing
+  // lower may spend, the bank must reach the held body. A held CONSUMER
+  // (upgrader) is not strict: a lower affordable income producer still
+  // spawns, because at income 0 the consumer can never be afforded without
+  // it (the cold-start deadlock).
   let holdStrict = false;
 
   for (const demand of ranked) {
     if (ctx.energyAvailable >= demand.minCost) {
-      // While holding for an unaffordable blocking demand, decline lower-priority
-      // creeps that would bleed the spawn back below the body we are accumulating
-      // for. A blocking demand always spends; a non-blocking income producer
-      // spends only when the hold is not strict (see holdStrict).
-      if (holdForBlocking && !demand.blocking && (holdStrict || !demand.producesIncome)) continue;
+      // While holding for an unaffordable blocking demand, decline EVERY
+      // lower-priority spend - blocking ones included. The old rule let any
+      // blocking demand through, assuming blocking demands are few and
+      // precious; the tender/construction era made them a STREAM (0-WORK
+      // feeder tankers at 100-150 with blockingWhenEmpty, cheap first
+      // haulers at 200) that drained the bank every time it approached the
+      // held miner's 700 body - measured on W2N6: the second home source's
+      // miner never fielded in 3000 ticks while cheap blocking spawns fired
+      // continuously. Lower demands wait the bounded ~100 ticks the held
+      // body needs to bank ("fund one corp fully", applied consistently);
+      // income keeps flowing because the incumbents that earn it are already
+      // fielded, and anything that outranks the held demand already had its
+      // chance earlier in this walk. The one exception: under a NON-strict
+      // hold (held demand is a consumer), a lower income PRODUCER still
+      // spawns - see holdStrict above.
+      if (holdForBlocking && (holdStrict || !demand.producesIncome)) continue;
       const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
       return {
         demand,
@@ -313,10 +324,8 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
         // instead of spending on something less important.
         return null;
       }
-      // No income yet: don't spend the dribble on lower-priority creeps. Keep
-      // scanning in case a lower-ranked demand we DO allow is affordable (a
-      // blocking demand always; an income producer when the hold is not strict),
-      // which still makes progress; otherwise we fall through to the final hold.
+      // No income measured this tick: hold anyway. The dribble accumulates
+      // toward this body; lower demands wait (see the decline above).
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
     }
