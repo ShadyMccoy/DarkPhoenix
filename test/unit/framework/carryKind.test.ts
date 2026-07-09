@@ -118,6 +118,13 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
     expect(got[1].spawnCostPerTick).to.be.closeTo(haulerOverhead(10, 40), 1e-9);
   });
 
+  it("rung 3 - BIND: a paved route's assignment carries the 2:1 road ratio", () => {
+    const paved = haulerAssignmentFromCommissioned({ ...routes[0], paved: true });
+    expect(paved.haulerRatio).to.equal("2:1");
+    // unpaved routes carry no ratio at all (the spawn path defaults to 1:1)
+    expect(haulerAssignmentFromCommissioned(routes[0]).haulerRatio).to.equal(undefined);
+  });
+
   it("rung 3 - BIND: preserves the legacy id and strips the spawn prefix", () => {
     const store: CorpStore = new Map();
     materializeCommissions([carryCommission], store);

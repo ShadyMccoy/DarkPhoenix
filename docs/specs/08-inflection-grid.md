@@ -150,6 +150,31 @@ and bootstrap parks in its yield branch entirely (the "quiet room" kit).
 - Two bot fixes came straight out of T5 red cells: reserver value 92->115 +
   holdToFund, and the room-scoped miner floor.
 
+**ROAD CELLS (2026-07-09)** - three cells landed with the road stack
+(roadEconomics wired into ConstructionCorp placement/repair and the
+2:1 hauler-ratio spawn path):
+- `cons-road-route-paved` (T2): with the ladder fully satisfied, the corp's
+  first placement is the source->depot route's road sites (batched), and the
+  route gets physically paved (~tick 315).
+- `cons-repair-road-fraction` (T2): pins pickRepairTarget's FRACTION ordering
+  in the discriminating direction - a 90% road (4,500 hits, the lowest
+  absolute) must NOT rise before a 55% container (137,500 hits) crosses 60%.
+  Design lesson: the fraction sort rotates targets at fraction parity, so a
+  low road + big decayed container never both reach the ceiling in-window -
+  stage the road HIGH and the container LOW, with the container holding its
+  own repair energy (the stops-at-99 kit).
+- `spawnexec-road-hauler-2to1` (T2): the group-prefix world plus a staged
+  `roadRoutes[sourceId].paved` receipt in room memory; the spawned hauler is
+  2 CARRY per MOVE (the sibling cell pins the unpaved 1:1).
+Bot fixes the cells forced: (a) NEW paving projects yield to wantsMaintenance
+(the 60% start gate alone yanked the builder off a half-repaired container
+the moment it crossed 60% - broke cons-repair-stops-at-99); (b) road sites do
+not trigger the dedicated-source reservation (reserving a source for a cheap
+linear paving job stood down its haulers and broke the tender-bus guards -
+the builder scavenges locally instead). NOTE: grid measures dist/main.js -
+`npm run build` first, or the run measures the previous bot (cost one full
+false-red run on 07-09).
+
 **FLAKY WATCH (2026-07-08)**: two cells flip across identical-code full
 runs as scheduler dynamics shift spawn interleavings:
 haul-t3-dedicated-resume-groundpile (pass@100 x2, timeout@100, pass@150,

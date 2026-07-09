@@ -161,6 +161,7 @@ export function buildConstructionT2Cells(): GridCell[] {
   let oneSiteContainerSeen = false;
   let prevBHits: number | null = null;
   let maxAHits = 0;
+  let prevRoadHits: number | null = null;
 
   return [
     {
@@ -370,6 +371,104 @@ export function buildConstructionT2Cells(): GridCell[] {
             .filter((o) => o.type === "container")
             .every((o) => (o.hits ?? 0) < CONTAINER_FULL)
         ),
+      ],
+    },
+
+    {
+      // The roads rung fires ONLY when the ladder is otherwise complete: with
+      // source/depot/controller containers and the full RCL3 extension set
+      // staged, the corp's first placement is the source->spawn route's road
+      // sites (batched - roads are not one-per-cooldown), and the builders
+      // then actually pave.
+      id: "cons-road-route-paved",
+      tier: 2,
+      avenue: "construction",
+      // 700: the surplus gate (full spawn bank) defers the route start until
+      // the organic economy stabilizes (~250-350), then partial paving needs
+      // another ~150.
+      window: 700,
+      rooms: { home: rungRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: HARVEST_SPOT.x, y: HARVEST_SPOT.y, energy: 2000 },
+        { type: "container", x: DEPOT_TILE.x, y: DEPOT_TILE.y, energy: 1500 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      assertions: [
+        eventually("road sites are batch-placed along the haul route", (s) =>
+          sites(s).filter((o: any) => o.structureType === "road").length >= 8
+        ),
+        always("only road sites are ever placed (the ladder is satisfied)", (s) =>
+          sites(s).every((o: any) => o.structureType === "road")
+        ),
+        eventually("at least part of the route is actually paved", (s) =>
+          s.objects().filter((o: any) => o.type === "road").length >= 3
+        ),
+      ],
+    },
+
+    {
+      // Road repair with the FRACTION ordering pinned in the discriminating
+      // direction: a 90% road (4500/5000 hits) has by far the LOWEST absolute
+      // hits in the room, so the absolute-hits sort would repair it first -
+      // the fraction sort must instead drive the 55% container (137500/250000)
+      // up, touching the road only after the container passes it. The staged
+      // 10-WORK builder (the stops-at-99 kit) makes the container climb fit
+      // the window, and the road - which holds no energy - is then topped up
+      // via the new fuel-from-elsewhere path.
+      id: "cons-repair-road-fraction",
+      tier: 2,
+      avenue: "construction",
+      window: 400,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "road", x: 25, y: 20, hits: 4500 }, // 90% - lowest ABSOLUTE hits
+        // 55% - worst FRACTION; holds its own repair energy (the ~875 the
+        // climb burns) so the 2-MOVE builder never leaves the tile mid-climb.
+        { type: "container", x: 25, y: 12, energy: 1200, hits: 137500 },
+        { type: "container", x: 15, y: 29, energy: 1500 },
+        { type: "container", x: 35, y: 29, energy: 1000 },
+        { type: "container", x: 24, y: 24, energy: 1500 }, // the builder's fuel
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: [
+        {
+          name: "rb1",
+          x: 25,
+          y: 13,
+          body: ["work", "work", "work", "work", "work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "carry", "move", "move"],
+          energy: 200,
+        },
+        ...quiet(),
+      ],
+      memory: {
+        creeps: {
+          rb1: { workType: "build", corpId: "building-$room()-construction", working: true },
+        },
+      },
+      assertions: [
+        eventually("the 55% container is repaired past 60% (fraction outranks absolute)", (s) => {
+          const ctrl = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!ctrl && (ctrl.hits ?? 0) >= 155000;
+        }),
+        // The absolute-hits sort would top the 4500-hit road up FIRST. Under
+        // fraction order it must not rise until the container passes 60%.
+        always("the 90% road never rises before the container crosses 60%", (s) => {
+          const ctrl = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          const road = s.objects().find((o: any) => o.type === "road" && o.x === 25 && o.y === 20);
+          const rose = prevRoadHits !== null && !!road && (road.hits ?? 0) > prevRoadHits;
+          prevRoadHits = road ? road.hits ?? 0 : prevRoadHits;
+          if (!rose) return true;
+          return !!ctrl && (ctrl.hits ?? 0) >= 150000;
+        }),
+        eventually("the road is eventually topped up too (fueling from elsewhere works)", (s) => {
+          const road = s.objects().find((o: any) => o.type === "road" && o.x === 25 && o.y === 20);
+          return !!road && (road.hits ?? 0) >= 4900;
+        }),
       ],
     },
   ];

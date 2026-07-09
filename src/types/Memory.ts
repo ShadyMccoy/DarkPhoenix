@@ -213,6 +213,17 @@ declare global {
     dedicatedBuildSourceId?: string;
 
     /**
+     * Road paving state per source (game id), owned by ConstructionCorp. `tiles`
+     * is the planned route as flat [x0,y0,x1,y1,...]. `paved` is the receipt that
+     * every tile has a built road - read by flowAdapter.detectPavedSources to
+     * stamp the route's haulers with the 2:1 road body ratio. `declined` caches a
+     * not-worth-paving verdict so the route is not re-evaluated every cooldown.
+     */
+    roadRoutes?: {
+      [sourceId: string]: { tiles: number[]; paved?: boolean; declined?: boolean };
+    };
+
+    /**
      * True while a core depot exists AND a live extension tender is draining it.
      * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
      * source->depot bus instead of fanning across extensions; when the tender dies

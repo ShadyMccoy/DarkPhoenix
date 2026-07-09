@@ -425,3 +425,22 @@ describe("Phase 1 - over-abundance sizing (value density under the parts budget)
     }
   });
 });
+
+describe("Phase 2 - paved routes (roads)", () => {
+  it("stamps a paved source's haulers and prices them at 1.5 spawn parts per CARRY", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("a", 10), paved: true }, source("b", 12)],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    const pavedHauler = plan.haulers.find(h => h.sourceId === "a")!;
+    const plainHauler = plan.haulers.find(h => h.sourceId === "b")!;
+    expect(pavedHauler.paved).to.equal(true);
+    expect(plainHauler.paved).to.equal(undefined);
+    // 2:1 road hauler: 1.5 parts per CARRY instead of 2 - the spawn-budget payoff
+    expect(pavedHauler.spawnParts).to.be.closeTo((1.5 * pavedHauler.carryParts) / (1500 - pavedHauler.distance), 1e-9);
+    expect(plainHauler.spawnParts).to.be.closeTo((2 * plainHauler.carryParts) / (1500 - plainHauler.distance), 1e-9);
+  });
+});

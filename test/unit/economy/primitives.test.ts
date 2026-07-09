@@ -7,6 +7,7 @@ import {
   haulerOverhead,
   netEnergy,
   spawnPartsFor,
+  energyPerSpawnPart,
   miningBudgetPerSpawn,
   CREEP_LIFETIME,
   MINER_COST,
@@ -101,6 +102,18 @@ describe("economy/primitives", () => {
   describe("miningBudgetPerSpawn", () => {
     it("is one third of a part/tick times the mining fraction", () => {
       expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * 0.6, 1e-9);
+    });
+  });
+
+  describe("energyPerSpawnPart", () => {
+    it("is netEnergy/spawnPartsFor: ~537 e/part at d=20, ~153 at d=75", () => {
+      expect(energyPerSpawnPart(10, 20)).to.be.closeTo(537, 1);
+      expect(energyPerSpawnPart(10, 75)).to.be.closeTo(153, 1);
+      expect(energyPerSpawnPart(10, 120)).to.be.closeTo(79, 1);
+    });
+    it("falls with distance: the marginal source sets a falling shadow price", () => {
+      expect(energyPerSpawnPart(10, 75)).to.be.lessThan(energyPerSpawnPart(10, 20));
+      expect(energyPerSpawnPart(10, 120)).to.be.lessThan(energyPerSpawnPart(10, 75));
     });
   });
 });

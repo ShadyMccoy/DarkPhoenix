@@ -185,6 +185,58 @@ export const spawnExecT1Cells: GridCell[] = [
       }),
     ],
   },
+
+  {
+    // The paved-route body pipeline end to end: the same world as
+    // spawnexec-first-hauler-group-prefix but with the ConstructionCorp's
+    // paved receipt staged in room memory. detectPavedSources must pick it up
+    // (game-id key vs the graph's 'source-' prefix), the planner stamps the
+    // route paved, carryKind sets haulerRatio '2:1', and the spawned hauler
+    // body is 2 CARRY per MOVE instead of the 1:1 the sibling cell pins.
+    id: "spawnexec-road-hauler-2to1",
+    tier: 2,
+    avenue: "spawn-execution",
+    window: 70,
+    rooms: { home: pocketRoom() },
+    bot: { x: 25, y: 25 },
+    controller: { level: 2 },
+    structures: fullExtensions(EXT_5),
+    creeps: [
+      {
+        name: "m1",
+        x: 15,
+        y: 24,
+        body: ["work", "work", "work", "work", "move"],
+        memory: { workType: "harvest", corpId: "stale-x", assignedSourceId: "$id(home,source,15,25)" },
+      },
+    ],
+    memory: {
+      rooms: {
+        "$room()": {
+          roadRoutes: { "$id(home,source,15,25)": { tiles: [], paved: true } },
+        },
+      },
+    },
+    assertions: [
+      eventually("hauler body is 2:1 CARRY:MOVE (the road ratio)", (s) => {
+        const h = s
+          .objects()
+          .find((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-"));
+        if (!h) return false;
+        const c = bodyCounts(h);
+        return (c.carry ?? 0) >= 2 && c.carry === 2 * (c.move ?? 0);
+      }),
+      always("no 1:1 hauler is ever fielded for the paved route", (s) =>
+        s
+          .objects()
+          .filter((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("hauler-"))
+          .every((o: any) => {
+            const c = bodyCounts(o);
+            return c.carry === 2 * (c.move ?? 0);
+          })
+      ),
+    ],
+  },
 ];
 
 /** Pocket a source at (px,py), opening to the north. */

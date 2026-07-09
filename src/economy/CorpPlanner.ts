@@ -71,6 +71,12 @@ export interface PlannerSource {
    * which point re-detection drops it from the world and scavenging demobilises.
    */
   transient?: boolean;
+  /**
+   * The source's haul route is fully paved (ConstructionCorp's receipt in room
+   * memory). Its haulers run the 2:1 road body - 1.5 spawn parts per CARRY
+   * instead of 2 - which the routing pass prices in.
+   */
+  paved?: boolean;
 }
 
 export type SinkKind = "spawn" | "controller" | "construction" | "storage";
@@ -127,6 +133,8 @@ export interface CommissionedHauler {
   flowRate: number;
   carryParts: number;
   spawnParts: number;
+  /** Route is paved: spawn the haulers at the 2:1 road CARRY:MOVE ratio. */
+  paved?: boolean;
 }
 
 export interface CommissionedSink {
@@ -321,6 +329,9 @@ function routeToSinks(
       pool.set(id, avail - take);
       acc.allocated += take;
       acc.sources.push({ sourceId: id, amount: take, distance: d });
+      // A paved route's 2:1 hauler needs 1.5 parts per CARRY, not 2 - the
+      // spawn-budget payoff that makes roads worth building at all.
+      const paved = sourceById.get(id)?.paved === true;
       haulers.push({
         sourceId: id,
         sinkId: sink.id,
@@ -328,7 +339,8 @@ function routeToSinks(
         distance: d,
         flowRate: take,
         carryParts: carryPartsFor(take, d),
-        spawnParts: (2 * carryPartsFor(take, d)) / Math.max(1, 1500 - d)
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / Math.max(1, 1500 - d),
+        ...(paved ? { paved } : {})
       });
     }
   };

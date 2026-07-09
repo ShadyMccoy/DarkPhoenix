@@ -115,3 +115,23 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(ctrlAlloc!.allocated).to.be.greaterThan(1.9); // reserve protected even vs the spawn
   });
 });
+
+describe("economy/flowAdapter - paved-source detection", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  it("marks sources paved from the receipt by GAME id (graph 'source-' prefix stripped)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set(["s1"]));
+    expect(problem.sources.find(s => s.id === "source-s1")!.paved).to.equal(true);
+    expect(problem.sources.find(s => s.id === "source-s2")!.paved).to.equal(undefined);
+  });
+});

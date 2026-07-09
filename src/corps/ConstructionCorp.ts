@@ -16,7 +16,8 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { carryPartsFor } from "../economy/primitives";
+import { carryPartsFor, SOURCE_RATE } from "../economy/primitives";
+import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
@@ -86,6 +87,22 @@ const LINK_MIN_SOURCE_RANGE = 8;
  * eagerly, higher waits for clearer evidence of sustained over-production.
  */
 const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
+
+/**
+ * Energy value assumed for a freed spawn build-part when judging a road route
+ * (see primitives.energyPerSpawnPart: ~537 for a home source, ~153 for a d=75
+ * remote, ~0 when the spawn is slack). A conservative mid-range constant until
+ * the corp can read the planner's actual marginal un-staffed source.
+ */
+const ROAD_SPAWN_PART_VALUE = 100;
+
+/**
+ * Horizon a road route must repay its build cost within: the wall-clock life
+ * of an unmaintained road (50k ticks). A home room lives far longer, but a
+ * route that cannot repay before its own pavement would have fully decayed is
+ * not worth the maintenance commitment.
+ */
+const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
@@ -215,7 +232,12 @@ export class ConstructionCorp extends Corp {
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
     const canBuildMore =
-      activeSites === 0 && (currentExtensions < maxExtensions || wantsContainer || wantsStorage || wantsLink);
+      activeSites === 0 &&
+      (currentExtensions < maxExtensions ||
+        wantsContainer ||
+        wantsStorage ||
+        wantsLink ||
+        this.wantsRoadWork(room));
 
     if (canBuildMore) {
       // Whether to build at all - and how fast - is the planner's call (it
@@ -232,7 +254,15 @@ export class ConstructionCorp extends Corp {
     // strands the source's output - its haulers stand down, income drops, and the
     // poorer spawn then can't fund the very builder the reservation is waiting
     // for. Supply before demand, same as the upgrader gate.
-    this.updateDedicatedSource(room, activeSites > 0 && this.builders.count() > 0);
+    // ROAD sites don't count: a paving project is cheap, linear, and lies along
+    // an existing haul route, so the builder scavenges locally (doPickup /
+    // refuelInPlace) instead of commandeering a source - reserving one stands
+    // down that route's haulers and starves the room's delivery (measured: the
+    // tender-bus T4 world, where the reservation broke the extension bus).
+    const structureSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType !== STRUCTURE_ROAD
+    }).length;
+    this.updateDedicatedSource(room, structureSites > 0 && this.builders.count() > 0);
 
     // A reserved source feeds far more than a runt builder (spawned small under
     // early energy pressure) can use. Retire the runt so it respawns at the size
@@ -524,6 +554,171 @@ export class ConstructionCorp extends Corp {
         return;
       }
     }
+
+    // 4. Roads dead last: they are efficiency, not capacity, and they pay only
+    //    over long horizons - so every capacity structure the RCL allows comes
+    //    first. Each source->depot haul route is judged by roadEconomics and
+    //    paved as a batch (roads are 300/tile; dribbling them one per cooldown
+    //    through the one-site-at-a-time gate would take forever).
+    if (containersOpen) {
+      this.tryPlaceRoadRoute(room);
+    }
+  }
+
+  /**
+   * Cheap gate for work(): is there road work outstanding - a source with a
+   * container (a stable route endpoint) whose route has no paving verdict yet,
+   * or a planned route whose tiles are not all built?
+   */
+  private wantsRoadWork(room: Room): boolean {
+    for (const source of room.find(FIND_SOURCES)) {
+      const entry = room.memory.roadRoutes?.[source.id];
+      if (entry?.paved || entry?.declined) continue;
+      if (this.hasContainerNear(room, source.pos, 1)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Pave the best un-verdicted source->depot route, one route at a time. A
+   * route only becomes a candidate once its source has a container (static
+   * mining established - the endpoints won't move), and only paves when
+   * roadEconomics says the build cost repays within ROAD_PAYBACK_HORIZON,
+   * with freed spawn parts monetized at ROAD_SPAWN_PART_VALUE. Verdicts are
+   * cached in room memory: `paved` once every tile has a built road (the
+   * receipt the 2:1 hauler-ratio wiring reads), `declined` when not worth it.
+   */
+  private tryPlaceRoadRoute(room: Room): void {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return;
+    const depotPos = room.storage?.pos ?? spawn.pos;
+    const routes = (room.memory.roadRoutes = room.memory.roadRoutes ?? {});
+
+    for (const source of room.find(FIND_SOURCES)) {
+      if (!this.hasContainerNear(room, source.pos, 1)) continue;
+      const entry = routes[source.id];
+      if (entry?.paved || entry?.declined) continue;
+
+      if (entry) {
+        // Route already planned: finish it (re-place any missing sites) or
+        // stamp the paved receipt once every tile has a built road. This is
+        // the current project's bookkeeping, so it is NOT repair-gated.
+        if (this.roadTilesBuilt(room, entry.tiles)) {
+          entry.paved = true;
+          console.log(`[Construction] Route to source ${source.id} fully paved`);
+          continue;
+        }
+        this.placeMissingRoadSites(room, entry.tiles);
+        return;
+      }
+
+      // Starting a NEW paving project yields to repair: placing sites pulls
+      // the builder off maintenance (repair only runs with zero sites), so
+      // wait until nothing wants a repairer - wantsMaintenance carries the
+      // hysteresis (a fielded builder keeps repairing to the 99% ceiling; a
+      // mid-repair room must not have its builder yanked onto roadworks the
+      // moment the worst structure crosses the 60% start gate).
+      if (this.wantsMaintenance(room)) return;
+
+      // Paving is a SURPLUS investment: in a demand-saturated room (organic
+      // spawning consuming the whole income) a paving project tips the spawn
+      // network into the critical failsafe and disrupts delivery (measured:
+      // the tender-bus T4 world). A full spawn bank is the cheap observable
+      // that income currently exceeds spawn demand; the placement cooldown
+      // retries every 10 ticks, so a healthy room catches a full-bank tick
+      // between spawns soon enough.
+      if (room.energyAvailable < room.energyCapacityAvailable) return;
+
+      const tiles = this.planRoadPath(room, source, depotPos, spawn.pos);
+      if (!tiles) continue;
+      const verdict = evaluateRoadRoute(this.roadRouteSpec(room, tiles), ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+      if (!verdict.worthPaving) {
+        routes[source.id] = { tiles: [], declined: true };
+        continue;
+      }
+      const flat: number[] = [];
+      for (const t of tiles) flat.push(t.x, t.y);
+      routes[source.id] = { tiles: flat };
+      const placed = this.placeMissingRoadSites(room, flat);
+      console.log(
+        `[Construction] Paving route to source ${source.id}: ${tiles.length} tiles ` +
+          `(${placed} sites), payback ~${Math.round(verdict.paybackTicks)}t`
+      );
+      return; // one route at a time - the builders finish this before the next
+    }
+  }
+
+  /**
+   * The hauler path from the source's harvest spot (exclusive - the container
+   * tile needs no road, the miner is static) to range 1 of the depot. Costs
+   * mirror an unpaved hauler's terrain weights, with existing roads at 1 so new
+   * pavement reuses old, and blocking structures/sites impassable.
+   */
+  private planRoadPath(
+    room: Room,
+    source: Source,
+    depotPos: RoomPosition,
+    spawnPos: RoomPosition
+  ): { x: number; y: number }[] | null {
+    const spot = sourceHarvestSpot(source, spawnPos);
+    const origin = new RoomPosition(spot.x, spot.y, room.name);
+    const result = PathFinder.search(
+      origin,
+      { pos: depotPos, range: 1 },
+      { plainCost: 2, swampCost: 10, maxRooms: 1, roomCallback: () => this.roadPlanningCosts(room) }
+    );
+    if (result.incomplete || result.path.length === 0) return null;
+    return result.path.map(p => ({ x: p.x, y: p.y }));
+  }
+
+  /** Cost matrix for road planning: existing roads 1, blocking structures 255. */
+  private roadPlanningCosts(room: Room): CostMatrix {
+    const costs = new PathFinder.CostMatrix();
+    const walkable = (type: StructureConstant): boolean =>
+      type === STRUCTURE_ROAD || type === STRUCTURE_CONTAINER || type === STRUCTURE_RAMPART;
+    for (const s of room.find(FIND_STRUCTURES)) {
+      if (s.structureType === STRUCTURE_ROAD) costs.set(s.pos.x, s.pos.y, 1);
+      else if (!walkable(s.structureType)) costs.set(s.pos.x, s.pos.y, 0xff);
+    }
+    for (const s of room.find(FIND_MY_CONSTRUCTION_SITES)) {
+      if (!walkable(s.structureType)) costs.set(s.pos.x, s.pos.y, 0xff);
+    }
+    return costs;
+  }
+
+  /** RoadRouteSpec for a planned path: swamp counted from terrain, flow = source rate. */
+  private roadRouteSpec(room: Room, tiles: { x: number; y: number }[]): RoadRouteSpec {
+    const terrain = room.getTerrain();
+    let swampTiles = 0;
+    for (const t of tiles) {
+      if (terrain.get(t.x, t.y) & TERRAIN_MASK_SWAMP) swampTiles++;
+    }
+    return { plainTiles: tiles.length - swampTiles, swampTiles, flow: SOURCE_RATE };
+  }
+
+  /** Place road sites on planned tiles lacking both a road and a site. Returns count placed. */
+  private placeMissingRoadSites(room: Room, flat: number[]): number {
+    let placed = 0;
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      const x = flat[i];
+      const y = flat[i + 1];
+      const covered =
+        room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD) ||
+        room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD);
+      if (covered) continue;
+      if (room.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) placed++;
+    }
+    return placed;
+  }
+
+  /** True when every planned tile has a BUILT road. */
+  private roadTilesBuilt(room: Room, flat: number[]): boolean {
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      if (!room.lookForAt(LOOK_STRUCTURES, flat[i], flat[i + 1]).some(s => s.structureType === STRUCTURE_ROAD)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Create a construction site and record its cost. */
@@ -858,39 +1053,37 @@ export class ConstructionCorp extends Corp {
   /**
    * Run behavior for a builder creep.
    */
-  /** Every container in the room (source + controller), for maintenance scanning. */
-  private roomContainers(room: Room): StructureContainer[] {
+  /** Everything the corp maintains: containers plus roads (both decay). */
+  private roomRepairables(room: Room): (StructureContainer | StructureRoad)[] {
     return room.find(FIND_STRUCTURES, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER
-    }) as StructureContainer[];
+      filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_ROAD
+    }) as (StructureContainer | StructureRoad)[];
   }
 
-  /** The container most in need of repair (below the ceiling), or null. */
-  private findRepairTarget(room: Room): StructureContainer | null {
-    return pickRepairTarget(this.roomContainers(room), REPAIR_TO);
+  /** The structure most in need of repair (below the ceiling, by fraction), or null. */
+  private findRepairTarget(room: Room): StructureContainer | StructureRoad | null {
+    return pickRepairTarget(this.roomRepairables(room), REPAIR_TO);
   }
 
-  /** Whether to field/keep a maintenance builder for decaying containers (hysteresis). */
+  /** Whether to field/keep a maintenance builder for decaying structures (hysteresis). */
   private wantsMaintenance(room: Room): boolean {
-    return wantsMaintenanceBuilder(this.roomContainers(room), this.builders.count() > 0);
+    return wantsMaintenanceBuilder(this.roomRepairables(room), this.builders.count() > 0);
   }
 
   /**
-   * Maintain decaying containers when there is nothing to build. Self-contained: the
-   * builder fuels from the very container it repairs (source containers hold energy;
-   * the controller container is fed by haulers), so maintenance needs no tanker. It
-   * tops up the most-decayed container, then the next, until all reach the ceiling -
-   * at which point findRepairTarget returns null and the builder idles to be recycled.
+   * Maintain decaying structures when there is nothing to build. Containers fuel
+   * the builder themselves (they hold energy), so maintenance needs no tanker;
+   * roads hold nothing, so a road target sends the builder to the nearest energy
+   * instead. It tops up the most-decayed structure, then the next, until all reach
+   * the ceiling - at which point findRepairTarget returns null and the builder
+   * idles to be recycled.
    */
   private doMaintenance(creep: Creep, room: Room): void {
     const target = this.findRepairTarget(room);
     if (!target) return; // all healthy: idle until plan() retires this builder
 
     if (creep.store[RESOURCE_ENERGY] === 0) {
-      // Refuel from the container we maintain (or move to it).
-      if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
-      }
+      this.refuelForMaintenance(creep, target);
       return;
     }
 
@@ -899,6 +1092,42 @@ export class ConstructionCorp extends Corp {
       creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
     } else if (result === OK) {
       this.recordConsumption(creep.getActiveBodyparts(WORK)); // repair: 1 energy/WORK/tick
+    }
+  }
+
+  /**
+   * Fuel for a repair job: the target itself when it holds energy (containers),
+   * otherwise - roads, or a drained container - the nearest drop, container, or
+   * storage. Roads pave haul routes, so there is energy at both ends by design.
+   */
+  private refuelForMaintenance(creep: Creep, target: StructureContainer | StructureRoad): void {
+    const targetStore = (target as StructureContainer).store;
+    if (targetStore && targetStore[RESOURCE_ENERGY] > 0) {
+      if (creep.withdraw(target as StructureContainer, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      }
+      return;
+    }
+
+    const drop = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
+    });
+    if (drop) {
+      if (creep.pickup(drop) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(drop, { visualizePathStyle: { stroke: "#00ff88" } });
+      }
+      return;
+    }
+
+    const store = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+      filter: s =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+    }) as StructureContainer | StructureStorage | null;
+    if (store) {
+      if (creep.withdraw(store, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(store, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      }
     }
   }
 

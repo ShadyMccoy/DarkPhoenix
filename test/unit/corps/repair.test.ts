@@ -18,6 +18,18 @@ describe("corps/repair", () => {
       expect(pickRepairTarget([c(165000)], 0.66)).to.equal(null);
       expect(pickRepairTarget([c(164999)], 0.66)).to.not.equal(null);
     });
+    it("ranks by fraction, not absolute hits, across mixed hitsMax scales", () => {
+      // A 55% container has far MORE absolute hits than a 60% plain road -
+      // fraction ordering picks the container; absolute ordering would not.
+      const container = c(137500); // 55% of 250k
+      const road = { hits: 3000, hitsMax: 5000 }; // 60%
+      expect(pickRepairTarget([road, container], REPAIR_TO)).to.equal(container);
+      // A tunnel road at a critical 60% outranks a plain road at 90% even
+      // though the tunnel holds 450k hits and the plain road only 4.5k.
+      const tunnel = { hits: 450000, hitsMax: 750000 }; // 60%
+      const plainRoad = { hits: 4500, hitsMax: 5000 }; // 90%
+      expect(pickRepairTarget([plainRoad, tunnel], REPAIR_TO)).to.equal(tunnel);
+    });
   });
 
   describe("wantsMaintenanceBuilder (hysteresis)", () => {

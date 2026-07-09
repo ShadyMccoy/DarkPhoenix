@@ -35,7 +35,10 @@ export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerA
     carryParts: h.carryParts,
     flowRate: h.flowRate,
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
-    spawnId: h.spawnId
+    spawnId: h.spawnId,
+    // A paved route spawns road haulers: CarryCorp forwards this to the spawn
+    // demand and SpawningCorp.getPartRatios packs 2 CARRY per MOVE.
+    ...(h.paved ? { haulerRatio: "2:1" as const } : {})
   };
 }
 

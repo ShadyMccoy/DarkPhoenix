@@ -85,6 +85,19 @@ export function spawnPartsFor(rate: number, distance: number): number {
 }
 
 /**
+ * Shadow price of spawn build-time: energy/tick gained per build-part/tick
+ * spent staffing a source at `distance`. netEnergy / spawnPartsFor - the
+ * exchange rate between the colony's two currencies. Evaluated AT THE MARGIN
+ * (the best un-staffed source), it prices anything that frees spawn parts:
+ * ~537 e/part for a home source (d=20), ~150 at d=75, ~79 at d=120. When the
+ * spawn budget is slack (no source waiting), freed parts are worth ~0 - the
+ * caller owns that regime check.
+ */
+export function energyPerSpawnPart(rate: number, distance: number): number {
+  return netEnergy(rate, distance) / spawnPartsFor(rate, distance);
+}
+
+/**
  * Fraction of a spawn's build-rate that mining + hauling may claim. The spawn
  * also builds upgraders, builders, reservers and scouts, so income creeps get
  * only part of its 1/3 parts-per-tick. This sets how hard the spawn-time budget

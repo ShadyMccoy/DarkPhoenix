@@ -10,6 +10,7 @@
  * @module economy/flowAdapter
  */
 
+import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
 import { FlowGraph } from "../flow/FlowGraph";
 import {
   FlowSolution,
@@ -105,11 +106,30 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
   return out;
 }
 
+/**
+ * Sources whose haul route ConstructionCorp has fully paved, by GAME id (the
+ * `paved` receipt in room memory - see RoomMemory.roadRoutes). Graph source ids
+ * carry a "source-" prefix, so callers match with stripFlowId. Live default for
+ * buildColonyProblem; injectable for tests.
+ */
+export function detectPavedSources(): Set<string> {
+  const paved = new Set<string>();
+  if (typeof Game === "undefined" || !Game.rooms) return paved;
+  for (const roomName in Game.rooms) {
+    const routes = Game.rooms[roomName].memory?.roadRoutes;
+    for (const sourceId in routes ?? {}) {
+      if (routes![sourceId].paved) paved.add(sourceId);
+    }
+  }
+  return paved;
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
-  linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph)
+  linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
+  pavedSources: Set<string> = detectPavedSources()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -119,7 +139,8 @@ export function buildColonyProblem(
     pos: s.position,
     rate: s.capacity,
     maxMiners: s.maxMiners,
-    haulPos: linkHaulPos.get(s.id)
+    haulPos: linkHaulPos.get(s.id),
+    ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {})
   }));
   // Ground stocks join as miner-less transient sources (scavenging).
   sources.push(...transientSources);
