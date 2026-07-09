@@ -16,8 +16,17 @@
  * Exit code: 1 on baseline regression (bot level drop, or any baseline-green
  * cell now red), else 0. `--update-baseline` skips the check and rewrites
  * test/grid/baseline.json - commit it with the bot change that earned it.
+ *
+ * FULL RUNS use per-world process isolation (npm run grid:full): a single
+ * process running every world sequentially accumulates mockup engine/storage
+ * memory (measured: one child at 8.7GB by world 11 of 14, then "Storage
+ * connection lost"). `--count` prints the batch count, `--batch i` runs ONE
+ * world and stores its verdicts under test/grid/.batch-verdicts/, `--merge`
+ * combines them into the normal report + ratchet.
  */
 
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from "fs";
+import * as path from "path";
 import { ALL_CELLS } from "../test/grid/cells";
 import { CellVerdict } from "../test/grid/GridCell";
 import { packBatch, partition } from "../test/grid/pack";
@@ -63,6 +72,39 @@ async function main(): Promise<void> {
   }
 
   const batches = partition(cells);
+
+  // Per-world process isolation (see file header). --count/--batch/--merge
+  // only make sense on FULL cell sets: a filter changes batch indexing.
+  const VERDICT_DIR = path.resolve("test", "grid", ".batch-verdicts");
+  if (flag("count")) {
+    console.log(String(batches.length));
+    return;
+  }
+  const batchIdx = opt("batch");
+  if (batchIdx !== undefined) {
+    const i = Number(batchIdx);
+    if (!batches[i]) throw new Error(`no batch ${i} (have ${batches.length})`);
+    const batch = packBatch(batches[i]);
+    console.log(
+      `world ${i + 1}/${batches.length}: ${batch.cells.length} bot(s), window ${batch.window}t`
+    );
+    const batchVerdicts = await runBatch(batch, { port: PORT_BASE + i, debug: flag("debug") });
+    mkdirSync(VERDICT_DIR, { recursive: true });
+    writeFileSync(path.join(VERDICT_DIR, `batch-${i}.json`), JSON.stringify(batchVerdicts));
+    return;
+  }
+  if (flag("merge")) {
+    const verdicts: CellVerdict[] = [];
+    for (const f of readdirSync(VERDICT_DIR).filter((f) => f.endsWith(".json"))) {
+      verdicts.push(...(JSON.parse(readFileSync(path.join(VERDICT_DIR, f)).toString()) as CellVerdict[]));
+    }
+    if (verdicts.length === 0) throw new Error("no batch verdicts to merge");
+    removeVerdictDir(VERDICT_DIR);
+    finishRun(verdicts, false);
+    return;
+  }
+  removeVerdictDir(VERDICT_DIR);
+
   console.log(`grid: ${cells.length} cell(s) in ${batches.length} world(s)`);
 
   const verdicts: CellVerdict[] = [];
@@ -89,6 +131,20 @@ async function main(): Promise<void> {
     verdicts.push(...batchVerdicts);
   }
 
+  // The ratchet's missing-cell check only means something on FULL runs; a
+  // --cell/--tier/--avenue subset legitimately omits baseline cells.
+  finishRun(verdicts, Boolean(cellFilter || tierFilter !== undefined || avenueFilter));
+}
+
+/** rmSync isn't in this repo's @types/node vintage; unlink + rmdir suffice. */
+function removeVerdictDir(dir: string): void {
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir)) unlinkSync(path.join(dir, f));
+  rmdirSync(dir);
+}
+
+/** Report + ratchet, shared by the sequential path and --merge. */
+function finishRun(verdicts: CellVerdict[], filtered: boolean): void {
   const result = buildResult(verdicts);
   console.log("");
   console.log(renderTable(result));
@@ -100,9 +156,6 @@ async function main(): Promise<void> {
     console.log("\nbaseline updated (commit test/grid/baseline.json with the change that earned it)");
     return;
   }
-  // The ratchet's missing-cell check only means something on FULL runs; a
-  // --cell/--tier/--avenue subset legitimately omits baseline cells.
-  const filtered = Boolean(cellFilter || tierFilter !== undefined || avenueFilter);
   if (filtered) {
     console.log("\n(filtered run: baseline ratchet skipped)");
     return;

@@ -268,7 +268,12 @@ export function buildFidelityCells(): GridCell[] {
     // Measured 42/39% gross, 38/36% controller, 107/109% carry across two
     // calibration runs - carry actually REACHES plan on the RCL2-staged path
     // (unlike the organic W1N6 ramp the accounting measured), so it floors
-    // high; gross/controller floor below the observed band.
+    // high; gross floors below the observed band. The controller floor is
+    // LOWER still (0.1): the build-out funneling policy deliberately pauses
+    // upgrading at the reserve while sites exist, and when the ladder
+    // completes mid-window the plan's controller budget jumps ahead of the
+    // still-small upgrader fleet - delivered/planned legitimately dips during
+    // that transition (measured 1400t run under funneling).
     fidelityCell({
       id: "fid-t5-real-maze-steady-state",
       tier: 5,
@@ -276,7 +281,11 @@ export function buildFidelityCells(): GridCell[] {
       measureFrom: 1100,
       rooms: { home: fixtureRoom("shard3-W1N6") },
       bot: { x: 28, y: 30 },
-      thresholds: { gross: 0.3, controller: 0.25, carry: 0.85 },
+      // Carry floored at 0.55: pre-funneling the fleet REACHED plan (107%),
+      // but funneling adds construction routes the fleet is still ramping
+      // toward inside the window (measured 65%). Organic-ramp floors stay
+      // loose by design; the tight ratchets are the pre-ramped cells.
+      thresholds: { gross: 0.3, controller: 0.1, carry: 0.55 },
     }),
   ];
 }

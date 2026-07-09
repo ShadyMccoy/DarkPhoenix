@@ -190,6 +190,15 @@ export class Squad {
     if (!spawnIdleAndMaxed(room, spawn)) return;
 
     const members = this.members();
+    // NEVER strand the job: a lone member is not a runt to heal, it IS the
+    // squad (parity with CarryCorp's flagger and the miners' spawn-then-recycle
+    // rule). Without this guard a volatile plan size - the uncapped
+    // construction allocation swings with every re-solve - repeatedly judged
+    // the SOLE builder sub-plan and recycled it mid-fuel: measured live as
+    // spawn -> walk to site -> grab energy -> walk home -> recycle, forever.
+    // With >= 2 required, a flag can only land after a bigger sibling already
+    // exists - spawn-then-recycle by construction.
+    if (members.length < 2) return;
     if (members.some(c => c.memory.recycling)) return; // one at a time
 
     const idx = pickRuntToRecycle(

@@ -301,7 +301,9 @@ export class ConstructionCorp extends Corp {
   private recycleUndersizedBuilder(room: Room): void {
     if (!room.memory.dedicatedBuildSourceId) return;
     const builders = this.builders.members();
-    if (builders.length === 0 || builders.some(b => b.memory.recycling)) return;
+    // Never strand the site: only heal a runt once a sibling exists (see
+    // Squad.flagRuntForRecycling - the lone-builder recycle loop measured live).
+    if (builders.length < 2 || builders.some(b => b.memory.recycling)) return;
 
     const plan = this.builderPlan(room.energyCapacityAvailable, room);
     if (room.energyAvailable < plan.desiredCost) return;
