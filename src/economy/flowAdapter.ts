@@ -140,6 +140,12 @@ export function buildColonyProblem(
     haulPos: linkHaulPos.get(s.id),
     ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {})
   }));
+  // Sustained income only: what mined sources yield per tick. Transient
+  // stocks are real energy but ONE-OFF - sizing standing fleets or the
+  // construction absorb rate to them publishes fantasy plans (measured on
+  // the shard1 stress fixture: unhauled piles grew, inflating supply until
+  // the plan wanted build 140 e/t / 316 CARRY against 20 e/t of mining).
+  const minedSupply = sources.reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging).
   sources.push(...transientSources);
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
@@ -167,7 +173,10 @@ export function buildColonyProblem(
             // flat 5 e/t cap was the measured RCL2->3 bottleneck: a 1-WORK
             // builder against 15k of extensions kept rooms at 300 capacity for
             // thousands of ticks (spec 10 G6, owner directive 2026-07-09).
-            Math.max(totalSupply, 1)
+            // Bounded by MINED supply ("within reason"): transient stocks may
+            // still be routed here by the fill pass, but the standing builder
+            // fleet is never sized to one-off piles.
+            Math.max(minedSupply, 1)
           : kind === "storage"
           ? Math.max(totalSupply, 1) // soak excess
           : Math.max(totalSupply, 1), // controller mops up the remainder

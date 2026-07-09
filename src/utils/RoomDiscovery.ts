@@ -268,3 +268,20 @@ export function categorizeRoomsByDistance(maxDistance = 2): Map<number, string[]
 
   return result;
 }
+
+/**
+ * Source-Keeper room classification by name: both room-grid coordinates mod 10
+ * in [4,6], excluding the center (5,5) crossroads room. SK rooms' sources are
+ * already excluded from mining (SourceAnalysis keeper check; grid cell
+ * plan-t5-sk-never-mined), but nothing kept CREEPS out: scouts wandered in and
+ * died to keepers (measured: 4 creeps parked in W44N24 on the shard1 stress
+ * fixture). Mirrors test/grid/pack.ts's isSkRoomName - keep in sync.
+ */
+export function isSourceKeeperRoom(name: string): boolean {
+  const m = /^[WE](\d+)[NS](\d+)$/.exec(name);
+  if (!m) return false;
+  const h = Number(m[1]) % 10;
+  const v = Number(m[2]) % 10;
+  const inBand = (n: number) => n >= 4 && n <= 6;
+  return inBand(h) && inBand(v) && !(h === 5 && v === 5);
+}

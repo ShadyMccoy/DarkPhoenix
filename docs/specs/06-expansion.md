@@ -38,15 +38,79 @@ Three small pieces, all riding existing rails:
    claimer (CLAIM+MOVE, 650), walks to `Memory.expansion.roomName`, claims the
    controller. Off-budget, non-blocking, value below income corps. Demobilizes
    (recycles) once the controller is owned.
-3. **Founding:** once the room is owned, place the spawn site at
-   `Memory.expansion.spawnPos` (from spawnPlacements). Seed it: the existing
-   BootstrapCorp activates on any owned room with a spawn... but there is no
-   spawn yet — so the home room sends `EXPAND_SEED_BUILDERS` (2 jacks,
-   WORK/CARRY/MOVE, role reuses BootstrapCorp's jack behavior with a target
-   room) to build the spawn site, self-feeding from the new room's sources.
-   When the spawn completes, the normal machinery (survey → corps → flow)
-   takes over with zero new code — that's the design's whole bet, and the
-   integration test below proves it.
+3. **Founding — an ECONOMIC SINK, not a scripted campaign** (owner directive
+   2026-07-09: "the colony prioritizes investing in the new rooms/spawns for
+   long-term growth... an abstract economy/flow planner energy flow, and the
+   behavior falls out of it, not narrowly programmed as a flag"). Once the
+   room is owned, place the spawn site at `Memory.expansion.spawnPos` and let
+   the COLONY PLANNER see it as a construction sink with the expansion value:
+
+       DEFAULT_SINK_VALUE: spawn 100 > NEW-SPAWN SITE ~85 > construction 70
+                           > controller 50 > storage 1
+
+   Refinement (owner, same directive): the controller value is a function of
+   PROGRESS REMAINING TO THE NEXT LEVEL, not of the level itself. Remaining
+   is what prices the marginal energy: a fresh L1 needs 200 (huge value per
+   energy), an L7 needs up to 10.4M (tiny) - AND a controller at 99% of ANY
+   level has a small remainder again, so closing out a nearly-done level is
+   correctly treated as valuable. One curve captures both:
+
+       controllerValue(remaining) = clamp(40..90, 90 - k * ln(remaining))
+       (k such that remaining=200 -> ~90, remaining=10.4M -> ~40; L8 idle
+        floor below storage-adjacent work)
+
+   So a freshly claimed room's controller outvalues every mid-level
+   controller in the colony, and once its spawn stands, upgraders and
+   haulers "from all around all stream in" - zero coordination code, just
+   the value ordering. (A small-remainder controller above ordinary
+   construction at 70 is correct: the cheap hop unlocks the next rung of
+   the room's own ladder.)
+
+## Prerequisite audit (2026-07-09) - the rails mostly exist
+
+- Construction sinks are discovered in ALL OWNED rooms (main.ts
+  addConstructionSitesToFlow gates on controller.my, NOT on having a spawn) -
+  a claimed room's spawn site is visible to the solver as-is.
+- Haul routes already cross room borders with no room filter:
+  CorpPlanner.routeToSinks ranks every supply against every sink by real
+  pathDistance, and the hauler's spawn comes from the SOURCE's nearest spawn
+  (spawnBySource) - so home-source -> new-room-site routes and parent-spawn
+  attribution both work structurally today.
+- The ONE missing piece: per-INSTANCE sink values. flowAdapter sets
+  `value: DEFAULT_SINK_VALUE[kind]` uniformly; the expansion site value
+  (~85) and controllerValue(remaining) both need the adapter to price each
+  sink individually (PlannerSink.value already exists per sink - only the
+  adapter needs to differentiate; PriorityManager's 0-100 machinery is
+  vestigial w.r.t. the solver and should not be revived for this).
+
+   Everything the owner described then falls out of the existing machinery,
+   the same way the build-out funneling (spec 10 G6 fix) already works
+   in-room:
+   - The parent room finishes its own sites (value 70 beats controller 50),
+     then - having no better sink than the new-spawn site (85) - funnels its
+     surplus THERE instead of upgrading. "New spawns just have a higher
+     priority than upgrading."
+   - Every owned room in range routes to the same sink, because the solver
+     pairs supply with the highest-value unmet sink by net energy - multiple
+     rooms all funnel to the new spawn with zero coordination code.
+   - A mining op opened in/near the claimed room hauls STRAIGHT to the site:
+     nearest-supply pairing (grid cell plan-t2-sink-source-pairing proves the
+     mechanism in-room) makes the local source the site's cheapest supplier.
+   - "Within reason" is already priced in: the live spawn network (100) and
+     the anti-downgrade reserve pre-pass stay ahead of expansion, and
+     netEnergy pricing refuses routes whose haul overhead exceeds the energy
+     delivered.
+   When the spawn completes, the sink vanishes, the room surveys, and the
+   normal machinery (bootstrap → corps → flow) takes over with zero new
+   code — that's the design's whole bet, and the integration test below
+   proves it.
+
+   Audit list for the sink to be visible to the solver (task list): the flow
+   graph must admit construction sinks in rooms whose sites the colony can
+   see (owned room, no spawn yet); haul routes must be allowed to cross room
+   borders to a sink room with no spawn of its own; commissionsFromPlan must
+   attribute the new room's corps to the PARENT spawn until the new spawn
+   stands.
 
 ## Acceptance tests
 
@@ -82,6 +146,10 @@ sample every 50. ALL must hold:
 4. Throughout: W0N0's controller never downgrades (home economy not gutted
    by the campaign) — assert `controller.level` stays 4+ every sample.
 5. `Memory.expansion` is cleared by the end (campaign closed out).
+6. The economic signature of sink-based founding: while the new-spawn site
+   exists and home has no sites of its own, the published plan's controller
+   allocation sits at the anti-downgrade reserve (upgrading paused, surplus
+   funneled to the site) - and recovers once the spawn stands.
 
 ### Regression gate
 

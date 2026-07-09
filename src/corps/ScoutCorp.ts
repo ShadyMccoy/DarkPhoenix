@@ -16,6 +16,7 @@ import {
 } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SpawningCorp } from "./SpawningCorp";
+import { isSourceKeeperRoom } from "../utils/RoomDiscovery";
 import { travelTo } from "./movement";
 
 /**
@@ -157,6 +158,10 @@ export class ScoutCorp extends Corp {
 
         const status = Game.map.getRoomStatus(adjacentRoom);
         if (status.status === "closed") continue;
+        // Keepers kill scouts and SK sources are never mined anyway - neither
+        // target SK rooms nor route the BFS through them (the lattice is
+        // sparse; going around costs one hop).
+        if (isSourceKeeperRoom(adjacentRoom)) continue;
 
         visited.add(adjacentRoom);
         queue.push({ roomName: adjacentRoom, distance: distance + 1 });
