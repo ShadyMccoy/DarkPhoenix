@@ -52,8 +52,11 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   },
 
   materialize(c: Commission, existing: ExtensionTenderCorp | undefined): ExtensionTenderCorp {
-    if (existing) return existing;
     const a = c.assignment as ExtensionTenderAssignment;
+    if (existing) {
+      existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      return existing;
+    }
     // Legacy nodeId convention preserves the pre-port runtime corp id, so live
     // tenders' memory.corpId still resolves across the migration.
     return new ExtensionTenderCorp(`${a.roomName}-tender`, a.spawnId);

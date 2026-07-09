@@ -95,6 +95,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     const a = c.assignment as ConstructionAssignment;
     if (existing) {
       existing.setConstructionAllocations(a.allocations);
+      existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
       return existing;
     }
     // liveProblem (the host's auxiliary world) carries REAL game spawn ids, so no

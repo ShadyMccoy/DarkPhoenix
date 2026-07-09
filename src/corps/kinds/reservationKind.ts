@@ -53,8 +53,11 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   },
 
   materialize(c: Commission, existing: ReservationCorp | undefined): ReservationCorp {
-    if (existing) return existing;
     const a = c.assignment as ReservationAssignment;
+    if (existing) {
+      existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      return existing;
+    }
     // Legacy nodeId convention preserves the pre-port runtime corp id, so live
     // reservers' memory.corpId still resolves across the migration.
     return new ReservationCorp(`${a.roomName}-reservation`, a.spawnId);

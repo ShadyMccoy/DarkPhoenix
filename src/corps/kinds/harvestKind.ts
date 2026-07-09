@@ -66,7 +66,11 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     const m = c.assignment as CommissionedMiner;
     const assignment = minerAssignmentFromCommissioned(m);
     if (existing) {
+      // setMinerAssignment refreshes the spawn binding itself (with the
+      // "spawn-" stripping) - the reason miners never went stale live while
+      // the setter-less consumer kinds did.
       existing.setMinerAssignment(assignment);
+      existing.setPostHint(c.produces.at);
       return existing;
     }
     const roomName = c.produces.at?.roomName ?? m.sourceId;
@@ -75,6 +79,7 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     // prefix (FlowMaterializer did the same). The assignment keeps the flow id.
     const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, m.sourceId.replace("source-", ""));
     corp.setMinerAssignment(assignment);
+    corp.setPostHint(c.produces.at);
     return corp;
   },
 

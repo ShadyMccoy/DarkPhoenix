@@ -39,8 +39,6 @@ import { commissionsFromPlan } from "./commissionPlan";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
-/** Energy/tick one active construction site can realistically absorb. */
-export const CONSTRUCTION_ABSORB_RATE = 5;
 
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
 function toSinkKind(type: SinkType): SinkKind | null {
@@ -159,7 +157,17 @@ export function buildColonyProblem(
         kind === "spawn"
           ? Math.max(sink.demand, 1) // feed the spawn its overhead need
           : kind === "construction"
-          ? CONSTRUCTION_ABSORB_RATE
+          ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
+            // raises every body size and the whole colony's energy-per-spawn-part
+            // shadow price - worth more than the upgrade it displaces. While
+            // sites exist, construction (value 70 > controller 50) may absorb the
+            // full surplus and upgrading pauses at its anti-downgrade reserve
+            // (the reserve pre-pass guarantees the floor); with no sites there is
+            // no construction sink and the controller resumes mopping up. The old
+            // flat 5 e/t cap was the measured RCL2->3 bottleneck: a 1-WORK
+            // builder against 15k of extensions kept rooms at 300 capacity for
+            // thousands of ticks (spec 10 G6, owner directive 2026-07-09).
+            Math.max(totalSupply, 1)
           : kind === "storage"
           ? Math.max(totalSupply, 1) // soak excess
           : Math.max(totalSupply, 1), // controller mops up the remainder

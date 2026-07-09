@@ -67,6 +67,8 @@ export const carryKind: CorpKind<CarryCorp> = {
     const assignments = routes.map(haulerAssignmentFromCommissioned);
     if (existing) {
       existing.setHaulerAssignments(assignments);
+      // Commission-owned, same stripping as creation below: never let it go stale.
+      existing.setSpawnId(routes[0].spawnId.replace("spawn-", ""));
       return existing;
     }
     // The flow spawn id is prefixed ("spawn-<gameId>"); strip it so the corp's

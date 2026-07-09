@@ -64,8 +64,11 @@ export const scoutKind: CorpKind<ScoutCorp> = {
   },
 
   materialize(c: Commission, existing: ScoutCorp | undefined): ScoutCorp {
-    if (existing) return existing;
     const a = c.assignment as ScoutAssignment;
+    if (existing) {
+      existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      return existing;
+    }
     // Legacy nodeId convention (`${roomName}-scout`) gives the same runtime
     // corp id the old plumbing generated, so live creeps' memory.corpId still
     // resolves across the migration.

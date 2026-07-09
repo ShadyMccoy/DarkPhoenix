@@ -51,6 +51,26 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
       expect(second.id).to.equal(first.id);
     });
 
+    it("materialize refreshes the spawn binding on an existing corp (stale-spawnId regression)", () => {
+      // A persisted corp outlives spawns; the commission carries the CURRENT
+      // spawn id every solve, and materialize must adopt it. Measured live: the
+      // immortal upgrade/construction corps kept a dead spawn's id, so
+      // collectDemands dropped their demands forever (0 upgraders/builders
+      // while the plan asked for 117 WORK). The check rewrites every embedded
+      // occurrence of the corp's spawn id in the commission to a fresh value -
+      // covering both raw and "spawn-"-prefixed conventions - and asserts the
+      // re-materialized corp follows.
+      const corp = kind.materialize(fx.commission, undefined);
+      const oldId = (corp as { getSpawnId?: () => string }).getSpawnId?.();
+      if (!oldId) return; // kind has no spawn binding
+      const json = JSON.stringify(fx.commission);
+      if (!json.includes(oldId)) return; // commission does not embed the id
+      const freshId = `${oldId}-fresh`;
+      const rebound = JSON.parse(json.split(oldId).join(freshId)) as Commission;
+      const updated = kind.materialize(rebound, corp);
+      expect((updated as { getSpawnId?: () => string }).getSpawnId?.()).to.equal(freshId);
+    });
+
     it("run() never throws on an empty world (ErrorMapper contract)", () => {
       const corp = kind.materialize(fx.commission, undefined);
       expect(() => kind.run(corp, 1)).to.not.throw();

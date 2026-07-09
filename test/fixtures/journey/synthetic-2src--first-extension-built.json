@@ -1,11 +1,11 @@
 {
  "version": 1,
  "scenario": "synthetic-2src",
- "trip": "first-upgrader",
- "description": "the first flow upgrader is fielded (supply-before-demand gate passed)",
- "trippedAt": 770,
- "tick": 765,
- "gameTime": 766,
+ "trip": "first-extension-built",
+ "description": "the first extension STRUCTURE stands (capacity ladder begins)",
+ "trippedAt": 1371,
+ "tick": 1366,
+ "gameTime": 1367,
  "botUserId": "89a07b3a838d4d5",
  "rooms": {
   "W0N0": {
@@ -70,8 +70,8 @@
      "level": 2,
      "_id": "0d957b3a83653e3",
      "user": "89a07b3a838d4d5",
-     "progress": 1,
-     "downgradeTime": 5755,
+     "progress": 347,
+     "downgradeTime": 11367,
      "safeMode": 20000,
      "safeModeAvailable": 1
     },
@@ -80,24 +80,24 @@
      "x": 10,
      "y": 40,
      "type": "source",
-     "energy": 2876,
+     "energy": 2616,
      "energyCapacity": 3000,
      "ticksToRegeneration": 300,
      "_id": "f4997b3a836d6bf",
-     "invaderHarvested": 760,
-     "nextRegenerationTime": 1035
+     "invaderHarvested": 6052,
+     "nextRegenerationTime": 1635
     },
     {
      "room": "W0N0",
      "x": 40,
      "y": 40,
      "type": "source",
-     "energy": 2304,
+     "energy": 900,
      "energyCapacity": 3000,
      "ticksToRegeneration": 300,
      "_id": "73697b3a8376f9c",
-     "invaderHarvested": 696,
-     "nextRegenerationTime": 892
+     "invaderHarvested": 6496,
+     "nextRegenerationTime": 1492
     },
     {
      "room": "W0N0",
@@ -107,7 +107,7 @@
      "user": "89a07b3a838d4d5",
      "name": "Spawn1",
      "store": {
-      "energy": 59
+      "energy": 300
      },
      "storeCapacityResource": {
       "energy": 300
@@ -126,7 +126,7 @@
      "type": "constructionSite",
      "room": "W0N0",
      "user": "89a07b3a838d4d5",
-     "progress": 0,
+     "progress": 2959,
      "progressTotal": 3000,
      "_id": "1ae07b5899cfb00"
     },
@@ -183,8 +183,8 @@
     },
     {
      "name": "hauler-g-6f9c-650",
-     "x": 29,
-     "y": 29,
+     "x": 24,
+     "y": 15,
      "body": [
       {
        "type": "carry",
@@ -212,7 +212,7 @@
       }
      ],
      "store": {
-      "energy": 150
+      "energy": 99
      },
      "storeCapacity": 150,
      "type": "creep",
@@ -294,8 +294,8 @@
     },
     {
      "name": "hauler-g-d6bf-723",
-     "x": 11,
-     "y": 38,
+     "x": 12,
+     "y": 28,
      "body": [
       {
        "type": "carry",
@@ -315,7 +315,7 @@
       }
      ],
      "store": {
-      "energy": 100
+      "energy": 0
      },
      "storeCapacity": 100,
      "type": "creep",
@@ -345,40 +345,628 @@
      }
     },
     {
-     "type": "energy",
-     "x": 24,
-     "y": 26,
+     "name": "upgrader-rading-770",
+     "x": 22,
+     "y": 7,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 4
+     },
+     "storeCapacity": 50,
+     "type": "creep",
      "room": "W0N0",
-     "energy": 88,
-     "resourceType": "energy",
-     "_id": "965f7b629a3d0e3"
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "0ba77b649ca5d79",
+     "ageTime": 2278,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": {
+       "x": 25,
+       "y": 10
+      },
+      "reserveController": null
+     }
+    },
+    {
+     "name": "miner-t-6f9c-812",
+     "x": 40,
+     "y": 39,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 0,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "0eb77b66f1c4c84",
+     "ageTime": 2320,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": {
+       "x": 40,
+       "y": 40
+      },
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "miner-t-6f9c-844",
+     "x": 39,
+     "y": 40,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 0,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "14657b68c352838",
+     "ageTime": 2352,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": {
+       "x": 40,
+       "y": 40
+      },
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "miner-t-d6bf-876",
+     "x": 10,
+     "y": 39,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 0,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "9a817b6a92a2452",
+     "ageTime": 2384,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": {
+       "x": 10,
+       "y": 40
+      },
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "miner-t-d6bf-908",
+     "x": 11,
+     "y": 40,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 0,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "84357b6c5828e86",
+     "ageTime": 2416,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": {
+       "x": 10,
+       "y": 40
+      },
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "hauler-g-6f9c-939",
+     "x": 24,
+     "y": 22,
+     "body": [
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 150
+     },
+     "storeCapacity": 150,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 600,
+     "hitsMax": 600,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "f3127b6e0988672",
+     "ageTime": 2456,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "builder-uction-978",
+     "x": 11,
+     "y": 38,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 42
+     },
+     "storeCapacity": 50,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 400,
+     "hitsMax": 400,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "2e9c7b7045414e3",
+     "ageTime": 2489,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": {
+       "x": 8,
+       "y": 38
+      },
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "tanker-uction-995",
+     "x": 10,
+     "y": 41,
+     "body": [
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 26
+     },
+     "storeCapacity": 50,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 200,
+     "hitsMax": 200,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "e1887b714d76691",
+     "ageTime": 2500,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "tanker-uction-1009",
+     "x": 12,
+     "y": 39,
+     "body": [
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 50
+     },
+     "storeCapacity": 100,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 300,
+     "hitsMax": 300,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "f2de7b72168da69",
+     "ageTime": 2517,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
     },
     {
      "type": "energy",
-     "x": 25,
-     "y": 26,
+     "x": 39,
+     "y": 40,
      "room": "W0N0",
-     "energy": 135,
+     "energy": 331,
      "resourceType": "energy",
-     "_id": "a83c7b62da320be"
+     "_id": "f6c27b72eeaa911"
+    },
+    {
+     "type": "energy",
+     "x": 23,
+     "y": 8,
+     "room": "W0N0",
+     "energy": 802,
+     "resourceType": "energy",
+     "_id": "943f7b755c333db"
+    },
+    {
+     "type": "energy",
+     "x": 40,
+     "y": 39,
+     "room": "W0N0",
+     "energy": 244,
+     "resourceType": "energy",
+     "_id": "25487b789b748dc"
     },
     {
      "type": "energy",
      "x": 39,
      "y": 39,
      "room": "W0N0",
-     "energy": 31,
+     "energy": 432,
      "resourceType": "energy",
-     "_id": "902b7b63cb527a6"
+     "_id": "7dd77b7eb136eae"
+    },
+    {
+     "name": "hauler-g-23-8-1301",
+     "x": 23,
+     "y": 8,
+     "body": [
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 50,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 200,
+     "hitsMax": 200,
+     "spawning": false,
+     "fatigue": 0,
+     "notifyWhenAttacked": true,
+     "_id": "4d0c7b8338ddd2f",
+     "ageTime": 2806,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": {
+       "message": "→ctrl",
+       "isPublic": false
+      },
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "name": "builder-uction-1307",
+     "x": 12,
+     "y": 38,
+     "body": [
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "work",
+       "hits": 100
+      },
+      {
+       "type": "carry",
+       "hits": 100
+      },
+      {
+       "type": "move",
+       "hits": 100
+      }
+     ],
+     "store": {
+      "energy": 0
+     },
+     "storeCapacity": 50,
+     "type": "creep",
+     "room": "W0N0",
+     "user": "89a07b3a838d4d5",
+     "hits": 400,
+     "hitsMax": 400,
+     "spawning": false,
+     "fatigue": 2,
+     "notifyWhenAttacked": true,
+     "_id": "8bbe7b83892f8b5",
+     "ageTime": 2818,
+     "actionLog": {
+      "attacked": null,
+      "healed": null,
+      "attack": null,
+      "rangedAttack": null,
+      "rangedMassAttack": null,
+      "rangedHeal": null,
+      "harvest": null,
+      "heal": null,
+      "repair": null,
+      "build": null,
+      "say": null,
+      "upgradeController": null,
+      "reserveController": null
+     }
+    },
+    {
+     "type": "energy",
+     "x": 26,
+     "y": 25,
+     "room": "W0N0",
+     "energy": 77,
+     "resourceType": "energy",
+     "_id": "03be7b84bf3e2b2"
+    },
+    {
+     "type": "energy",
+     "x": 10,
+     "y": 39,
+     "room": "W0N0",
+     "energy": 4,
+     "resourceType": "energy",
+     "_id": "5ae07b86f83c09b"
     },
     {
      "type": "energy",
      "x": 11,
      "y": 39,
      "room": "W0N0",
-     "energy": 1,
+     "energy": 3,
      "resourceType": "energy",
-     "_id": "c5117b6447c36f9"
+     "_id": "29aa7b8703eaea6"
     }
    ]
   }
@@ -386,7 +974,8 @@
  "memory": {
   "rooms": {
    "W0N0": {
-    "extensionTenderActive": false
+    "extensionTenderActive": false,
+    "dedicatedBuildSourceId": "f4997b3a836d6bf"
    }
   },
   "roomIntel": {
@@ -425,7 +1014,7 @@
      "kind": "construction",
      "shape": "consume",
      "consumes": {
-      "energyRate": 8,
+      "energyRate": 13.46,
       "spawnPartsPerTick": 0
      },
      "produces": {
@@ -438,15 +1027,20 @@
        {
         "sinkId": "construction-1ae07b5899cfb00",
         "sinkType": "construction",
-        "allocated": 8,
-        "demand": 20,
+        "allocated": 13.46,
+        "demand": 25.46,
         "unmet": 12,
         "priority": 70,
         "sourceFlows": [
          {
           "sourceId": "source-f4997b3a836d6bf",
-          "amount": 8,
+          "amount": 10,
           "distance": 1
+         },
+         {
+          "sourceId": "scavenge-W0N0-23-8",
+          "amount": 3.46,
+          "distance": 29
          }
         ]
        }
@@ -462,27 +1056,32 @@
      "totalCost": 100,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 0,
+     "lastActivityTick": 1366,
+     "unitsProduced": 2960,
      "expectedUnitsProduced": 0,
-     "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "unitsConsumed": 2960,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "lastPlacementAttempt": 554,
-     "targetBuilders": 1,
+     "targetBuilders": 2,
      "constructionAllocations": [
       {
        "sinkId": "construction-1ae07b5899cfb00",
        "sinkType": "construction",
-       "allocated": 8,
-       "demand": 20,
+       "allocated": 13.46,
+       "demand": 25.46,
        "unmet": 12,
        "priority": 70,
        "sourceFlows": [
         {
          "sourceId": "source-f4997b3a836d6bf",
-         "amount": 8,
+         "amount": 10,
          "distance": 1
+        },
+        {
+         "sourceId": "scavenge-W0N0-23-8",
+         "amount": 3.46,
+         "distance": 29
         }
        ]
       }
@@ -515,7 +1114,7 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
+     "lastActivityTick": 1366,
      "unitsProduced": 0,
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
@@ -549,7 +1148,7 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
+     "lastActivityTick": 1366,
      "unitsProduced": 0,
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
@@ -585,7 +1184,7 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
+     "lastActivityTick": 1366,
      "unitsProduced": 0,
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
@@ -631,11 +1230,11 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 696,
-     "expectedUnitsProduced": 6000,
+     "lastActivityTick": 1366,
+     "unitsProduced": 6496,
+     "expectedUnitsProduced": 18000,
      "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "sourceId": "73697b3a8376f9c",
      "creepNames": [],
@@ -692,11 +1291,11 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 124,
-     "expectedUnitsProduced": 6000,
+     "lastActivityTick": 1366,
+     "unitsProduced": 5416,
+     "expectedUnitsProduced": 18000,
      "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "sourceId": "f4997b3a836d6bf",
      "creepNames": [],
@@ -728,7 +1327,7 @@
        "y": 40,
        "roomName": "W0N0"
       },
-      "spawnPartsPerTick": 0.00972338243273041
+      "spawnPartsPerTick": 0.008075370121130552
      },
      "produces": {
       "energyRate": 10
@@ -736,21 +1335,12 @@
      "assignment": [
       {
        "sourceId": "source-73697b3a8376f9c",
-       "sinkId": "controller-0d957b3a83653e3",
-       "spawnId": "spawn-ac247b3a83b904b",
-       "distance": 29,
-       "flowRate": 2,
-       "carryParts": 2.4,
-       "spawnParts": 0.0032630863358259687
-      },
-      {
-       "sourceId": "source-73697b3a8376f9c",
        "sinkId": "spawn-ac247b3a83b904b",
        "spawnId": "spawn-ac247b3a83b904b",
        "distance": 14,
-       "flowRate": 8,
-       "carryParts": 4.8,
-       "spawnParts": 0.006460296096904441
+       "flowRate": 10,
+       "carryParts": 6,
+       "spawnParts": 0.008075370121130552
       }
      ]
     },
@@ -763,31 +1353,21 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 150,
-     "expectedUnitsProduced": 4500,
+     "lastActivityTick": 1366,
+     "unitsProduced": 3201,
+     "expectedUnitsProduced": 15000,
      "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "haulerAssignments": [
-      {
-       "edgeId": "controller-0d957b3a83653e3|source-73697b3a8376f9c",
-       "fromId": "source-73697b3a8376f9c",
-       "toId": "controller-0d957b3a83653e3",
-       "distance": 29,
-       "carryParts": 2.4,
-       "flowRate": 2,
-       "spawnCostPerTick": 0.16315431679129844,
-       "spawnId": "spawn-ac247b3a83b904b"
-      },
       {
        "edgeId": "source-73697b3a8376f9c|spawn-ac247b3a83b904b",
        "fromId": "source-73697b3a8376f9c",
        "toId": "spawn-ac247b3a83b904b",
        "distance": 14,
-       "carryParts": 4.8,
-       "flowRate": 8,
-       "spawnCostPerTick": 0.32301480484522205,
+       "carryParts": 6,
+       "flowRate": 10,
+       "spawnCostPerTick": 0.4037685060565276,
        "spawnId": "spawn-ac247b3a83b904b"
       }
      ]
@@ -806,7 +1386,7 @@
        "y": 40,
        "roomName": "W0N0"
       },
-      "spawnPartsPerTick": 0.0024689766259605997
+      "spawnPartsPerTick": 0.001067378252168112
      },
      "produces": {
       "energyRate": 10
@@ -814,21 +1394,12 @@
      "assignment": [
       {
        "sourceId": "source-f4997b3a836d6bf",
-       "sinkId": "spawn-ac247b3a83b904b",
-       "spawnId": "spawn-ac247b3a83b904b",
-       "distance": 14,
-       "flowRate": 2,
-       "carryParts": 1.2,
-       "spawnParts": 0.0016150740242261102
-      },
-      {
-       "sourceId": "source-f4997b3a836d6bf",
        "sinkId": "construction-1ae07b5899cfb00",
        "spawnId": "spawn-ac247b3a83b904b",
        "distance": 1,
-       "flowRate": 8,
-       "carryParts": 0.64,
-       "spawnParts": 0.0008539026017344896
+       "flowRate": 10,
+       "carryParts": 0.8,
+       "spawnParts": 0.001067378252168112
       }
      ]
     },
@@ -841,31 +1412,21 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 0,
+     "lastActivityTick": 1366,
+     "unitsProduced": 1100,
      "expectedUnitsProduced": 3000,
      "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "haulerAssignments": [
-      {
-       "edgeId": "source-f4997b3a836d6bf|spawn-ac247b3a83b904b",
-       "fromId": "source-f4997b3a836d6bf",
-       "toId": "spawn-ac247b3a83b904b",
-       "distance": 14,
-       "carryParts": 1.2,
-       "flowRate": 2,
-       "spawnCostPerTick": 0.08075370121130551,
-       "spawnId": "spawn-ac247b3a83b904b"
-      },
       {
        "edgeId": "construction-1ae07b5899cfb00|source-f4997b3a836d6bf",
        "fromId": "source-f4997b3a836d6bf",
        "toId": "construction-1ae07b5899cfb00",
        "distance": 1,
-       "carryParts": 0.64,
-       "flowRate": 8,
-       "spawnCostPerTick": 0.04269513008672448,
+       "carryParts": 0.8,
+       "flowRate": 10,
+       "spawnCostPerTick": 0.0533689126084056,
        "spawnId": "spawn-ac247b3a83b904b"
       }
      ]
@@ -899,13 +1460,13 @@
        "sinkId": "controller-0d957b3a83653e3",
        "kind": "controller",
        "value": 50,
-       "demand": 20,
+       "demand": 25.46,
        "allocated": 2,
        "sources": [
         {
-         "sourceId": "source-73697b3a8376f9c",
+         "sourceId": "scavenge-W0N0-23-8",
          "amount": 2,
-         "distance": 29
+         "distance": 1
         }
        ]
       },
@@ -921,41 +1482,113 @@
      "totalCost": 0,
      "createdAt": 0,
      "isActive": false,
-     "lastActivityTick": 765,
-     "unitsProduced": 0,
+     "lastActivityTick": 1366,
+     "unitsProduced": 346,
      "expectedUnitsProduced": 0,
-     "unitsConsumed": 0,
-     "lastPlannedTick": 700,
+     "unitsConsumed": 346,
+     "lastPlannedTick": 1300,
      "spawnId": "ac247b3a83b904b",
      "targetUpgraders": 1,
      "sinkAllocation": {
       "sinkId": "controller-0d957b3a83653e3",
       "sinkType": "controller",
       "allocated": 2,
-      "demand": 20,
-      "unmet": 18,
+      "demand": 25.46,
+      "unmet": 23.46,
       "priority": 50,
       "sourceFlows": [
        {
-        "sourceId": "source-73697b3a8376f9c",
+        "sourceId": "scavenge-W0N0-23-8",
         "amount": 2,
-        "distance": 29
+        "distance": 1
        }
       ]
      }
     }
+   },
+   "carry-scavenge-W0N0-23-8": {
+    "kind": "carry",
+    "commission": {
+     "corpId": "carry-scavenge-W0N0-23-8",
+     "kind": "carry",
+     "shape": "transport",
+     "consumes": {
+      "energyRate": 5.46,
+      "at": {
+       "x": 23,
+       "y": 8,
+       "roomName": "W0N0"
+      },
+      "spawnPartsPerTick": 0.005858615011412548
+     },
+     "produces": {
+      "energyRate": 5.46
+     },
+     "assignment": [
+      {
+       "sourceId": "scavenge-W0N0-23-8",
+       "sinkId": "controller-0d957b3a83653e3",
+       "spawnId": "spawn-ac247b3a83b904b",
+       "distance": 1,
+       "flowRate": 2,
+       "carryParts": 0.16,
+       "spawnParts": 0.0002134756504336224
+      },
+      {
+       "sourceId": "scavenge-W0N0-23-8",
+       "sinkId": "construction-1ae07b5899cfb00",
+       "spawnId": "spawn-ac247b3a83b904b",
+       "distance": 29,
+       "flowRate": 3.46,
+       "carryParts": 4.152,
+       "spawnParts": 0.005645139360978926
+      }
+     ]
+    },
+    "corp": {
+     "id": "hauling-W0N0-hauling-23-8",
+     "type": "hauling",
+     "nodeId": "W0N0-hauling-23-8",
+     "balance": 0,
+     "totalRevenue": 0,
+     "totalCost": 0,
+     "createdAt": 0,
+     "isActive": false,
+     "lastActivityTick": 1366,
+     "unitsProduced": 300,
+     "expectedUnitsProduced": 1500,
+     "unitsConsumed": 0,
+     "lastPlannedTick": 1301,
+     "spawnId": "ac247b3a83b904b",
+     "haulerAssignments": [
+      {
+       "edgeId": "controller-0d957b3a83653e3|scavenge-W0N0-23-8",
+       "fromId": "scavenge-W0N0-23-8",
+       "toId": "controller-0d957b3a83653e3",
+       "distance": 1,
+       "carryParts": 0.16,
+       "flowRate": 2,
+       "spawnCostPerTick": 0.01067378252168112,
+       "spawnId": "spawn-ac247b3a83b904b"
+      },
+      {
+       "edgeId": "construction-1ae07b5899cfb00|scavenge-W0N0-23-8",
+       "fromId": "scavenge-W0N0-23-8",
+       "toId": "construction-1ae07b5899cfb00",
+       "distance": 29,
+       "carryParts": 4.152,
+       "flowRate": 3.46,
+       "spawnCostPerTick": 0.2822569680489463,
+       "spawnId": "spawn-ac247b3a83b904b"
+      }
+     ]
+    }
    }
   },
-  "spawnDemandFirstSeen": {
-   "ac247b3a83b904b:mining-W0N0-harvest-6f9c:miner": 554,
-   "ac247b3a83b904b:mining-W0N0-harvest-d6bf:miner": 554,
-   "ac247b3a83b904b:hauling-W0N0-hauling-6f9c:hauler": 554,
-   "ac247b3a83b904b:building-W0N0-construction:builder": 563,
-   "ac247b3a83b904b:upgrading-W0N0-upgrading:upgrader": 668
-  },
+  "spawnDemandFirstSeen": {},
   "colony": {
    "bootstrapped": true,
-   "currentTick": 750,
+   "currentTick": 1350,
    "config": {
     "taxRate": 0.001,
     "corpGracePeriod": 1500,
@@ -1070,7 +1703,7 @@
     "totalCost": 500,
     "createdAt": 1,
     "isActive": false,
-    "lastActivityTick": 765,
+    "lastActivityTick": 1366,
     "unitsProduced": 0,
     "expectedUnitsProduced": 0,
     "unitsConsumed": 0,
@@ -1089,13 +1722,13 @@
     "id": "spawning-W0N0-spawn-904b",
     "type": "spawning",
     "nodeId": "W0N0-spawn-904b",
-    "balance": 2000,
+    "balance": -850,
     "totalRevenue": 0,
-    "totalCost": 1000,
+    "totalCost": 3850,
     "createdAt": 1,
     "isActive": false,
-    "lastActivityTick": 765,
-    "unitsProduced": 6000,
+    "lastActivityTick": 1366,
+    "unitsProduced": 25500,
     "expectedUnitsProduced": 0,
     "unitsConsumed": 0,
     "lastPlannedTick": 0,
@@ -1134,15 +1767,14 @@
     "deliverSinkId": "spawn",
     "haulerSlot": 0,
     "deliveryRotation": 0,
-    "deliveryTargetId": "ac247b3a83b904b",
     "_move": {
      "dest": {
-      "x": 25,
-      "y": 25,
+      "x": 23,
+      "y": 8,
       "room": "W0N0"
      },
-     "time": 763,
-     "path": "292988888",
+     "time": 1362,
+     "path": "241511111118",
      "room": "W0N0"
     }
    },
@@ -1167,14 +1799,215 @@
     "workType": "haul",
     "spawnedBy": "spawning-W0N0-spawn-904b",
     "assignedSourceId": "f4997b3a836d6bf",
+    "working": false,
+    "homeSink": "spawn",
+    "deliverSinkId": "spawn",
+    "haulerSlot": 0,
+    "deliveryRotation": 0,
     "_move": {
      "dest": {
       "x": 11,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 1152,
+     "path": "1228555555555555",
+     "room": "W0N0"
+    }
+   },
+   "upgrader-rading-770": {
+    "corpId": "upgrading-W0N0-upgrading",
+    "workType": "upgrade",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "upgradeSpot": {
+     "x": 22,
+     "y": 7
+    },
+    "_move": {
+     "dest": {
+      "x": 22,
+      "y": 7,
+      "room": "W0N0"
+     },
+     "time": 791,
+     "path": "22072",
+     "room": "W0N0"
+    },
+    "working": true
+   },
+   "miner-t-6f9c-812": {
+    "corpId": "mining-W0N0-harvest-6f9c",
+    "workType": "harvest",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "73697b3a8376f9c",
+    "_move": {
+     "dest": {
+      "x": 40,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 848,
+     "path": "40394",
+     "room": "W0N0"
+    }
+   },
+   "miner-t-6f9c-844": {
+    "corpId": "mining-W0N0-harvest-6f9c",
+    "workType": "harvest",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "73697b3a8376f9c",
+    "_move": {
+     "dest": {
+      "x": 40,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 883,
+     "path": "39404",
+     "room": "W0N0"
+    }
+   },
+   "miner-t-d6bf-876": {
+    "corpId": "mining-W0N0-harvest-d6bf",
+    "workType": "harvest",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "f4997b3a836d6bf",
+    "_move": {
+     "dest": {
+      "x": 10,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 912,
+     "path": "10396",
+     "room": "W0N0"
+    }
+   },
+   "miner-t-d6bf-908": {
+    "corpId": "mining-W0N0-harvest-d6bf",
+    "workType": "harvest",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "f4997b3a836d6bf",
+    "_move": {
+     "dest": {
+      "x": 10,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 946,
+     "path": "11406",
+     "room": "W0N0"
+    }
+   },
+   "hauler-g-6f9c-939": {
+    "corpId": "hauling-W0N0-hauling-6f9c",
+    "workType": "haul",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "73697b3a8376f9c",
+    "working": true,
+    "homeSink": "spawn",
+    "deliverSinkId": "spawn",
+    "haulerSlot": 1,
+    "deliveryRotation": 0,
+    "_move": {
+     "dest": {
+      "x": 23,
+      "y": 8,
+      "room": "W0N0"
+     },
+     "time": 1362,
+     "path": "2422811111111111118",
+     "room": "W0N0"
+    }
+   },
+   "builder-uction-978": {
+    "corpId": "building-W0N0-construction",
+    "workType": "build",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "working": true,
+    "_move": {
+     "dest": {
+      "x": 10,
       "y": 39,
       "room": "W0N0"
      },
-     "time": 748,
-     "path": "11386",
+     "time": 1344,
+     "path": "113856",
+     "room": "W0N0"
+    }
+   },
+   "tanker-uction-995": {
+    "corpId": "building-W0N0-construction",
+    "workType": "tank",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "f4997b3a836d6bf",
+    "working": false,
+    "_move": {
+     "dest": {
+      "x": 11,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 1361,
+     "path": "104142",
+     "room": "W0N0"
+    }
+   },
+   "tanker-uction-1009": {
+    "corpId": "building-W0N0-construction",
+    "workType": "tank",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "f4997b3a836d6bf",
+    "working": true,
+    "_move": {
+     "dest": {
+      "x": 11,
+      "y": 38,
+      "room": "W0N0"
+     },
+     "time": 1363,
+     "path": "12391",
+     "room": "W0N0"
+    }
+   },
+   "hauler-g-23-8-1301": {
+    "corpId": "hauling-W0N0-hauling-23-8",
+    "workType": "haul",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourcePos": {
+     "x": 23,
+     "y": 8,
+     "roomName": "W0N0"
+    },
+    "working": true,
+    "homeSink": "controller",
+    "deliverSinkId": "controller",
+    "haulerSlot": 0,
+    "deliveryRotation": 0,
+    "_move": {
+     "dest": {
+      "x": 23,
+      "y": 8,
+      "room": "W0N0"
+     },
+     "time": 1357,
+     "path": "23088",
+     "room": "W0N0"
+    }
+   },
+   "builder-uction-1307": {
+    "corpId": "building-W0N0-construction",
+    "workType": "build",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "working": false,
+    "_move": {
+     "dest": {
+      "x": 11,
+      "y": 40,
+      "room": "W0N0"
+     },
+     "time": 1366,
+     "path": "12384467",
      "room": "W0N0"
     }
    }
@@ -1195,22 +2028,15 @@
     },
     {
      "kind": "haul",
-     "carry": 3,
-     "fromId": "source-73697b3a8376f9c",
+     "carry": 1,
+     "fromId": "scavenge-W0N0-23-8",
      "toId": "controller-0d957b3a83653e3",
      "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "haul",
-     "carry": 5,
+     "carry": 6,
      "fromId": "source-73697b3a8376f9c",
-     "toId": "spawn-ac247b3a83b904b",
-     "spawnId": "spawn-ac247b3a83b904b"
-    },
-    {
-     "kind": "haul",
-     "carry": 2,
-     "fromId": "source-f4997b3a836d6bf",
      "toId": "spawn-ac247b3a83b904b",
      "spawnId": "spawn-ac247b3a83b904b"
     },
@@ -1222,20 +2048,27 @@
      "spawnId": "spawn-ac247b3a83b904b"
     },
     {
+     "kind": "haul",
+     "carry": 5,
+     "fromId": "scavenge-W0N0-23-8",
+     "toId": "construction-1ae07b5899cfb00",
+     "spawnId": "spawn-ac247b3a83b904b"
+    },
+    {
      "kind": "upgrade",
      "work": 2,
      "sinkId": "controller-0d957b3a83653e3"
     },
     {
      "kind": "build",
-     "work": 2,
+     "work": 3,
      "sinkId": "construction-1ae07b5899cfb00"
     }
    ],
-   "overhead": 1.48,
+   "overhead": 1.62,
    "unrouted": 0
   },
-  "lastPlanningTick": 750,
+  "lastPlanningTick": 1350,
   "corpVariance": [
    {
     "id": "hauling-W0N0-hauling-6f9c",
@@ -1252,32 +2085,39 @@
     "variance": -1
    },
    {
+    "id": "building-W0N0-construction",
+    "type": "building",
+    "budget": 13.46,
+    "actual": 2,
+    "variance": -0.85
+   },
+   {
+    "id": "hauling-W0N0-hauling-23-8",
+    "type": "hauling",
+    "budget": 5.46,
+    "actual": 2,
+    "variance": -0.63
+   },
+   {
     "id": "upgrading-W0N0-upgrading",
     "type": "upgrading",
     "budget": 2,
-    "actual": 0,
-    "variance": -1
-   },
-   {
-    "id": "building-W0N0-construction",
-    "type": "building",
-    "budget": 8,
-    "actual": 0,
-    "variance": -1
+    "actual": 1,
+    "variance": -0.5
    },
    {
     "id": "mining-W0N0-harvest-d6bf",
     "type": "mining",
     "budget": 10,
-    "actual": 2.56,
-    "variance": -0.74
+    "actual": 7.68,
+    "variance": -0.23
    },
    {
     "id": "mining-W0N0-harvest-6f9c",
     "type": "mining",
     "budget": 10,
-    "actual": 4,
-    "variance": -0.6
+    "actual": 12,
+    "variance": 0.2
    }
   ]
  }

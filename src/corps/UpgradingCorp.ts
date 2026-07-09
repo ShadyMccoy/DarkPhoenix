@@ -295,6 +295,17 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
+   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
+   * state: a persisted corp outlives spawns (measured live: an immortal
+   * upgrade/construction corp carried a dead spawn's id for good, so
+   * collectDemands dropped its demands forever - 0 upgraders/builders while
+   * the plan begged for them). Every kind's materialize() refreshes this.
+   */
+  public setSpawnId(spawnId: string): void {
+    this.spawnId = spawnId;
+  }
+
+  /**
    * True if the room already has a real flow hauler in the field (corpId
    * "hauling-..."), i.e. the mining->spawn delivery loop is closed. Bootstrap
    * jacks (which also move energy) are deliberately excluded - see the

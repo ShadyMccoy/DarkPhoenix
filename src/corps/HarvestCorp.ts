@@ -61,6 +61,10 @@ export interface SerializedHarvestCorp extends SerializedCorp {
   targetMiners: number;
   /** Flow-based miner assignment (from FlowEconomy) */
   minerAssignment?: MinerAssignment;
+  /** The corp's POST - where its miners work (see post field). */
+  postPos?: Position;
+  /** True once postPos is the exact harvest spot (computed with vision). */
+  postExact?: boolean;
 }
 
 /**
@@ -102,6 +106,18 @@ export class HarvestCorp extends Corp {
    * of its own hardcoded values.
    */
   private minerAssignment: MinerAssignment | null = null;
+
+  /**
+   * The corp's POST: the tile its miners work at. Seeded from the
+   * commission's source position (a hint good enough to walk in on), refined
+   * to the exact harvest spot the first tick the corp has vision, and
+   * persisted - so a no-vision remote corp always directs creeps to the
+   * post itself rather than a room-center guess or a frozen no-op.
+   */
+  private post: Position | null = null;
+
+  /** True once `post` is the exact harvest spot (needs vision to compute). */
+  private postExact = false;
 
   /**
    * Get active creeps assigned to this corp.
@@ -217,8 +233,21 @@ export class HarvestCorp extends Corp {
     }
 
     if (!source && !targetPos) {
-      console.log(`[Harvest] ${this.id}: source ${this.sourceId} not found`);
-      return;
+      // A REAL-id remote source with no vision (intel captured the game id,
+      // then every creep left the room): getObjectById is null until someone
+      // walks back in. Returning here froze the corp's miners mid-map (they
+      // are claimed, so OrphanRescue never rescues them) while its demand
+      // kept churning income-tier replacements - measured live as the spawn
+      // monopolized by phantom mining while upgraders/builders never won a
+      // slot. Walk the miners to the corp's POST instead: approaching it
+      // crosses the border, vision returns, and the source resolves next tick.
+      const pos = this.post ?? this.getPosition();
+      try {
+        targetPos = new RoomPosition(pos.x, pos.y, pos.roomName);
+      } catch {
+        console.log(`[Harvest] ${this.id}: source ${this.sourceId} not found (no walkable post)`);
+        return;
+      }
     }
 
     // Run all assigned creeps
@@ -356,6 +385,10 @@ export class HarvestCorp extends Corp {
     // transient second miner can't claim the exact tile.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const spot = sourceHarvestSpot(source, spawn?.pos);
+    // Record the POST while we can see it: this is the tile a no-vision tick
+    // (or a pre-positioning successor) sends creeps to.
+    this.post = { x: spot.x, y: spot.y, roomName: spot.roomName };
+    this.postExact = true;
     const spotHeldByOther = spot.lookFor(LOOK_CREEPS).some(c => c.name !== creep.name);
     const approach = minerApproach(creep.pos.isEqualTo(spot), creep.pos.isNearTo(source), spotHeldByOther);
     if (approach === "spot") {
@@ -591,6 +624,27 @@ export class HarvestCorp extends Corp {
   }
 
   /**
+   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
+   * state: a persisted corp outlives spawns (measured live: an immortal
+   * upgrade/construction corp carried a dead spawn's id for good, so
+   * collectDemands dropped its demands forever - 0 upgraders/builders while
+   * the plan begged for them). Every kind's materialize() refreshes this.
+   */
+  public setSpawnId(spawnId: string): void {
+    this.spawnId = spawnId;
+  }
+
+  /**
+   * Seed the POST from the commission's source position. A hint only: the
+   * exact harvest spot replaces it the first tick the corp has vision, and a
+   * hint never overwrites an exact post.
+   */
+  public setPostHint(pos: Position | undefined): void {
+    if (!pos || this.postExact) return;
+    this.post = pos;
+  }
+
+  /**
    * Get desired work parts for this source.
    */
   public getDesiredWorkParts(): number {
@@ -663,7 +717,9 @@ export class HarvestCorp extends Corp {
       lastSpawnAttempt: this.lastSpawnAttempt,
       desiredWorkParts: this.desiredWorkParts,
       targetMiners: this.targetMiners,
-      minerAssignment: this.minerAssignment ?? undefined
+      minerAssignment: this.minerAssignment ?? undefined,
+      postPos: this.post ?? undefined,
+      postExact: this.postExact || undefined
     };
   }
 
@@ -676,6 +732,8 @@ export class HarvestCorp extends Corp {
     this.desiredWorkParts = data.desiredWorkParts || DEFAULT_DESIRED_WORK;
     this.targetMiners = data.targetMiners || 1;
     this.minerAssignment = data.minerAssignment ?? null;
+    this.post = data.postPos ?? null;
+    this.postExact = data.postExact ?? false;
   }
 }
 

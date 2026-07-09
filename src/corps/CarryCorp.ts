@@ -832,6 +832,17 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
+   * state: a persisted corp outlives spawns (measured live: an immortal
+   * upgrade/construction corp carried a dead spawn's id for good, so
+   * collectDemands dropped its demands forever - 0 upgraders/builders while
+   * the plan begged for them). Every kind's materialize() refreshes this.
+   */
+  public setSpawnId(spawnId: string): void {
+    this.spawnId = spawnId;
+  }
+
+  /**
    * Declare this corp's spawn demand for the scheduler.
    *
    * A source's hauler carries its harvested energy to the spawn/controller. The

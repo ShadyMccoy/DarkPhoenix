@@ -65,6 +65,12 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
     const allocation = sinkAllocationFromCommissioned(sink);
     if (existing) {
       existing.setSinkAllocation(allocation);
+      // Commission-owned, same stripping as creation below. THE live
+      // 0-upgraders incident: the controller sink never churns, so this corp
+      // is immortal - a stale spawnId (spawn rebuilt sometime in 72M ticks)
+      // made collectDemands drop its demands forever while the plan begged
+      // for 117 WORK of upgrading.
+      existing.setSpawnId((spawnId ?? "").replace("spawn-", ""));
       return existing;
     }
     const roomName = c.produces.at?.roomName ?? sink.sinkId;

@@ -6,7 +6,7 @@
  "trippedAt": 650,
  "tick": 645,
  "gameTime": 646,
- "botUserId": "a3b459835a1e178",
+ "botUserId": "89a07b3a838d4d5",
  "rooms": {
   "W0N0": {
    "terrain": [
@@ -68,8 +68,8 @@
      "y": 10,
      "type": "controller",
      "level": 2,
-     "_id": "2d36598359f0e14",
-     "user": "a3b459835a1e178",
+     "_id": "0d957b3a83653e3",
+     "user": "89a07b3a838d4d5",
      "progress": 1,
      "downgradeTime": 5755,
      "safeMode": 20000,
@@ -83,7 +83,7 @@
      "energy": 2764,
      "energyCapacity": 3000,
      "ticksToRegeneration": 300,
-     "_id": "7d8b59835a05172",
+     "_id": "f4997b3a836d6bf",
      "invaderHarvested": 636,
      "nextRegenerationTime": 660
     },
@@ -95,7 +95,7 @@
      "energy": 2784,
      "energyCapacity": 3000,
      "ticksToRegeneration": 300,
-     "_id": "1d3059835a077a3",
+     "_id": "73697b3a8376f9c",
      "invaderHarvested": 216,
      "nextRegenerationTime": 892
     },
@@ -104,7 +104,7 @@
      "type": "spawn",
      "x": 25,
      "y": 25,
-     "user": "a3b459835a1e178",
+     "user": "89a07b3a838d4d5",
      "name": "Spawn1",
      "store": {
       "energy": 290
@@ -116,7 +116,7 @@
      "hitsMax": 5000,
      "spawning": null,
      "notifyWhenAttacked": true,
-     "_id": "896f59835a4b5be",
+     "_id": "ac247b3a83b904b",
      "off": false
     },
     {
@@ -151,13 +151,13 @@
      "storeCapacity": 100,
      "type": "creep",
      "room": "W0N0",
-     "user": "a3b459835a1e178",
+     "user": "89a07b3a838d4d5",
      "hits": 500,
      "hitsMax": 500,
      "spawning": false,
      "fatigue": 0,
      "notifyWhenAttacked": true,
-     "_id": "d5ac59840b3d523",
+     "_id": "9d937b3b355e7b5",
      "ageTime": 1524,
      "actionLog": {
       "attacked": null,
@@ -199,13 +199,13 @@
      "storeCapacity": 50,
      "type": "creep",
      "room": "W0N0",
-     "user": "a3b459835a1e178",
+     "user": "89a07b3a838d4d5",
      "hits": 300,
      "hitsMax": 300,
      "spawning": false,
      "fatigue": 2,
      "notifyWhenAttacked": true,
-     "_id": "23ad598a23d4008",
+     "_id": "ef2b7b41248c5cf",
      "ageTime": 1626,
      "actionLog": {
       "attacked": null,
@@ -229,13 +229,13 @@
      "y": 38,
      "type": "constructionSite",
      "room": "W0N0",
-     "user": "a3b459835a1e178",
+     "user": "89a07b3a838d4d5",
      "progress": 0,
      "progressTotal": 3000,
-     "_id": "2e1659a1ccd8c59"
+     "_id": "1ae07b5899cfb00"
     },
     {
-     "name": "miner-t-77a3-554",
+     "name": "miner-t-6f9c-554",
      "x": 39,
      "y": 39,
      "body": [
@@ -258,13 +258,13 @@
      "storeCapacity": 0,
      "type": "creep",
      "room": "W0N0",
-     "user": "a3b459835a1e178",
+     "user": "89a07b3a838d4d5",
      "hits": 300,
      "hitsMax": 300,
      "spawning": false,
      "fatigue": 0,
      "notifyWhenAttacked": true,
-     "_id": "b84159a1ccdafe5",
+     "_id": "2b0c7b5899cda4d",
      "ageTime": 2062,
      "actionLog": {
       "attacked": null,
@@ -292,7 +292,7 @@
      "room": "W0N0",
      "energy": 64,
      "resourceType": "energy",
-     "_id": "089a59a5c080488"
+     "_id": "20597b5c70d4ad3"
     }
    ]
   }
@@ -339,7 +339,7 @@
      "kind": "construction",
      "shape": "consume",
      "consumes": {
-      "energyRate": 5,
+      "energyRate": 8,
       "spawnPartsPerTick": 0
      },
      "produces": {
@@ -347,19 +347,19 @@
      },
      "assignment": {
       "roomName": "W0N0",
-      "spawnId": "896f59835a4b5be",
+      "spawnId": "ac247b3a83b904b",
       "allocations": [
        {
-        "sinkId": "construction-2e1659a1ccd8c59",
+        "sinkId": "construction-1ae07b5899cfb00",
         "sinkType": "construction",
-        "allocated": 5,
-        "demand": 5,
-        "unmet": 0,
+        "allocated": 8,
+        "demand": 20,
+        "unmet": 12,
         "priority": 70,
         "sourceFlows": [
          {
-          "sourceId": "source-7d8b59835a05172",
-          "amount": 5,
+          "sourceId": "source-f4997b3a836d6bf",
+          "amount": 8,
           "distance": 1
          }
         ]
@@ -381,21 +381,21 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
+     "spawnId": "ac247b3a83b904b",
      "lastPlacementAttempt": 554,
      "targetBuilders": 1,
      "constructionAllocations": [
       {
-       "sinkId": "construction-2e1659a1ccd8c59",
+       "sinkId": "construction-1ae07b5899cfb00",
        "sinkType": "construction",
-       "allocated": 5,
-       "demand": 5,
-       "unmet": 0,
+       "allocated": 8,
+       "demand": 20,
+       "unmet": 12,
        "priority": 70,
        "sourceFlows": [
         {
-         "sourceId": "source-7d8b59835a05172",
-         "amount": 5,
+         "sourceId": "source-f4997b3a836d6bf",
+         "amount": 8,
          "distance": 1
         }
        ]
@@ -417,7 +417,7 @@
      },
      "assignment": {
       "roomName": "W0N0",
-      "spawnId": "896f59835a4b5be"
+      "spawnId": "ac247b3a83b904b"
      }
     },
     "corp": {
@@ -434,7 +434,7 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 0,
-     "spawnId": "896f59835a4b5be"
+     "spawnId": "ac247b3a83b904b"
     }
    },
    "scout-W0N0": {
@@ -451,7 +451,7 @@
      },
      "assignment": {
       "roomName": "W0N0",
-      "spawnId": "896f59835a4b5be"
+      "spawnId": "ac247b3a83b904b"
      }
     },
     "corp": {
@@ -468,7 +468,7 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 0,
-     "spawnId": "896f59835a4b5be",
+     "spawnId": "ac247b3a83b904b",
      "lastPurchaseTick": 0,
      "blockedRooms": []
     }
@@ -487,7 +487,7 @@
      },
      "assignment": {
       "roomName": "W0N0",
-      "spawnId": "896f59835a4b5be"
+      "spawnId": "ac247b3a83b904b"
      }
     },
     "corp": {
@@ -504,13 +504,13 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 0,
-     "spawnId": "896f59835a4b5be"
+     "spawnId": "ac247b3a83b904b"
     }
    },
-   "harvest-source-1d3059835a077a3": {
+   "harvest-source-73697b3a8376f9c": {
     "kind": "harvest",
     "commission": {
-     "corpId": "harvest-source-1d3059835a077a3",
+     "corpId": "harvest-source-73697b3a8376f9c",
      "kind": "harvest",
      "shape": "produce",
      "consumes": {
@@ -525,9 +525,9 @@
       }
      },
      "assignment": {
-      "sourceId": "source-1d3059835a077a3",
+      "sourceId": "source-73697b3a8376f9c",
       "nodeId": "W0N0-25-25",
-      "spawnId": "spawn-896f59835a4b5be",
+      "spawnId": "spawn-ac247b3a83b904b",
       "distance": 14,
       "rate": 10,
       "spawnParts": 0.013458950201884253,
@@ -537,9 +537,9 @@
      }
     },
     "corp": {
-     "id": "mining-W0N0-harvest-77a3",
+     "id": "mining-W0N0-harvest-6f9c",
      "type": "mining",
-     "nodeId": "W0N0-harvest-77a3",
+     "nodeId": "W0N0-harvest-6f9c",
      "balance": 0,
      "totalRevenue": 0,
      "totalCost": 0,
@@ -550,16 +550,16 @@
      "expectedUnitsProduced": 6000,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
-     "sourceId": "1d3059835a077a3",
+     "spawnId": "ac247b3a83b904b",
+     "sourceId": "73697b3a8376f9c",
      "creepNames": [],
      "lastSpawnAttempt": 0,
      "desiredWorkParts": 5,
      "targetMiners": 1,
      "minerAssignment": {
-      "sourceId": "source-1d3059835a077a3",
+      "sourceId": "source-73697b3a8376f9c",
       "nodeId": "W0N0-25-25",
-      "spawnId": "spawn-896f59835a4b5be",
+      "spawnId": "spawn-ac247b3a83b904b",
       "spawnDistance": 14,
       "harvestRate": 10,
       "spawnCostPerTick": 0.43741588156123823,
@@ -568,10 +568,10 @@
      }
     }
    },
-   "harvest-source-7d8b59835a05172": {
+   "harvest-source-f4997b3a836d6bf": {
     "kind": "harvest",
     "commission": {
-     "corpId": "harvest-source-7d8b59835a05172",
+     "corpId": "harvest-source-f4997b3a836d6bf",
      "kind": "harvest",
      "shape": "produce",
      "consumes": {
@@ -586,9 +586,9 @@
       }
      },
      "assignment": {
-      "sourceId": "source-7d8b59835a05172",
+      "sourceId": "source-f4997b3a836d6bf",
       "nodeId": "W0N0-25-25",
-      "spawnId": "spawn-896f59835a4b5be",
+      "spawnId": "spawn-ac247b3a83b904b",
       "distance": 14,
       "rate": 10,
       "spawnParts": 0.013458950201884253,
@@ -598,9 +598,9 @@
      }
     },
     "corp": {
-     "id": "mining-W0N0-harvest-5172",
+     "id": "mining-W0N0-harvest-d6bf",
      "type": "mining",
-     "nodeId": "W0N0-harvest-5172",
+     "nodeId": "W0N0-harvest-d6bf",
      "balance": 0,
      "totalRevenue": 0,
      "totalCost": 0,
@@ -611,16 +611,16 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
-     "sourceId": "7d8b59835a05172",
+     "spawnId": "ac247b3a83b904b",
+     "sourceId": "f4997b3a836d6bf",
      "creepNames": [],
      "lastSpawnAttempt": 0,
      "desiredWorkParts": 5,
      "targetMiners": 1,
      "minerAssignment": {
-      "sourceId": "source-7d8b59835a05172",
+      "sourceId": "source-f4997b3a836d6bf",
       "nodeId": "W0N0-25-25",
-      "spawnId": "spawn-896f59835a4b5be",
+      "spawnId": "spawn-ac247b3a83b904b",
       "spawnDistance": 14,
       "harvestRate": 10,
       "spawnCostPerTick": 0.43741588156123823,
@@ -629,10 +629,10 @@
      }
     }
    },
-   "carry-source-1d3059835a077a3": {
+   "carry-source-73697b3a8376f9c": {
     "kind": "carry",
     "commission": {
-     "corpId": "carry-source-1d3059835a077a3",
+     "corpId": "carry-source-73697b3a8376f9c",
      "kind": "carry",
      "shape": "transport",
      "consumes": {
@@ -649,18 +649,18 @@
      },
      "assignment": [
       {
-       "sourceId": "source-1d3059835a077a3",
-       "sinkId": "controller-2d36598359f0e14",
-       "spawnId": "spawn-896f59835a4b5be",
+       "sourceId": "source-73697b3a8376f9c",
+       "sinkId": "controller-0d957b3a83653e3",
+       "spawnId": "spawn-ac247b3a83b904b",
        "distance": 29,
        "flowRate": 2,
        "carryParts": 2.4,
        "spawnParts": 0.0032630863358259687
       },
       {
-       "sourceId": "source-1d3059835a077a3",
-       "sinkId": "spawn-896f59835a4b5be",
-       "spawnId": "spawn-896f59835a4b5be",
+       "sourceId": "source-73697b3a8376f9c",
+       "sinkId": "spawn-ac247b3a83b904b",
+       "spawnId": "spawn-ac247b3a83b904b",
        "distance": 14,
        "flowRate": 8,
        "carryParts": 4.8,
@@ -669,9 +669,9 @@
      ]
     },
     "corp": {
-     "id": "hauling-W0N0-hauling-77a3",
+     "id": "hauling-W0N0-hauling-6f9c",
      "type": "hauling",
-     "nodeId": "W0N0-hauling-77a3",
+     "nodeId": "W0N0-hauling-6f9c",
      "balance": 0,
      "totalRevenue": 0,
      "totalCost": 0,
@@ -682,35 +682,35 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
+     "spawnId": "ac247b3a83b904b",
      "haulerAssignments": [
       {
-       "edgeId": "controller-2d36598359f0e14|source-1d3059835a077a3",
-       "fromId": "source-1d3059835a077a3",
-       "toId": "controller-2d36598359f0e14",
+       "edgeId": "controller-0d957b3a83653e3|source-73697b3a8376f9c",
+       "fromId": "source-73697b3a8376f9c",
+       "toId": "controller-0d957b3a83653e3",
        "distance": 29,
        "carryParts": 2.4,
        "flowRate": 2,
        "spawnCostPerTick": 0.16315431679129844,
-       "spawnId": "spawn-896f59835a4b5be"
+       "spawnId": "spawn-ac247b3a83b904b"
       },
       {
-       "edgeId": "source-1d3059835a077a3|spawn-896f59835a4b5be",
-       "fromId": "source-1d3059835a077a3",
-       "toId": "spawn-896f59835a4b5be",
+       "edgeId": "source-73697b3a8376f9c|spawn-ac247b3a83b904b",
+       "fromId": "source-73697b3a8376f9c",
+       "toId": "spawn-ac247b3a83b904b",
        "distance": 14,
        "carryParts": 4.8,
        "flowRate": 8,
        "spawnCostPerTick": 0.32301480484522205,
-       "spawnId": "spawn-896f59835a4b5be"
+       "spawnId": "spawn-ac247b3a83b904b"
       }
      ]
     }
    },
-   "carry-source-7d8b59835a05172": {
+   "carry-source-f4997b3a836d6bf": {
     "kind": "carry",
     "commission": {
-     "corpId": "carry-source-7d8b59835a05172",
+     "corpId": "carry-source-f4997b3a836d6bf",
      "kind": "carry",
      "shape": "transport",
      "consumes": {
@@ -720,45 +720,36 @@
        "y": 40,
        "roomName": "W0N0"
       },
-      "spawnPartsPerTick": 0.007043392654049119
+      "spawnPartsPerTick": 0.0024689766259605997
      },
      "produces": {
       "energyRate": 10
      },
      "assignment": [
       {
-       "sourceId": "source-7d8b59835a05172",
-       "sinkId": "spawn-896f59835a4b5be",
-       "spawnId": "spawn-896f59835a4b5be",
+       "sourceId": "source-f4997b3a836d6bf",
+       "sinkId": "spawn-ac247b3a83b904b",
+       "spawnId": "spawn-ac247b3a83b904b",
        "distance": 14,
        "flowRate": 2,
        "carryParts": 1.2,
        "spawnParts": 0.0016150740242261102
       },
       {
-       "sourceId": "source-7d8b59835a05172",
-       "sinkId": "construction-2e1659a1ccd8c59",
-       "spawnId": "spawn-896f59835a4b5be",
+       "sourceId": "source-f4997b3a836d6bf",
+       "sinkId": "construction-1ae07b5899cfb00",
+       "spawnId": "spawn-ac247b3a83b904b",
        "distance": 1,
-       "flowRate": 5,
-       "carryParts": 0.4,
-       "spawnParts": 0.000533689126084056
-      },
-      {
-       "sourceId": "source-7d8b59835a05172",
-       "sinkId": "controller-2d36598359f0e14",
-       "spawnId": "spawn-896f59835a4b5be",
-       "distance": 29,
-       "flowRate": 3,
-       "carryParts": 3.6,
-       "spawnParts": 0.0048946295037389535
+       "flowRate": 8,
+       "carryParts": 0.64,
+       "spawnParts": 0.0008539026017344896
       }
      ]
     },
     "corp": {
-     "id": "hauling-W0N0-hauling-5172",
+     "id": "hauling-W0N0-hauling-d6bf",
      "type": "hauling",
-     "nodeId": "W0N0-hauling-5172",
+     "nodeId": "W0N0-hauling-d6bf",
      "balance": 0,
      "totalRevenue": 0,
      "totalCost": 0,
@@ -769,49 +760,39 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
+     "spawnId": "ac247b3a83b904b",
      "haulerAssignments": [
       {
-       "edgeId": "source-7d8b59835a05172|spawn-896f59835a4b5be",
-       "fromId": "source-7d8b59835a05172",
-       "toId": "spawn-896f59835a4b5be",
+       "edgeId": "source-f4997b3a836d6bf|spawn-ac247b3a83b904b",
+       "fromId": "source-f4997b3a836d6bf",
+       "toId": "spawn-ac247b3a83b904b",
        "distance": 14,
        "carryParts": 1.2,
        "flowRate": 2,
        "spawnCostPerTick": 0.08075370121130551,
-       "spawnId": "spawn-896f59835a4b5be"
+       "spawnId": "spawn-ac247b3a83b904b"
       },
       {
-       "edgeId": "construction-2e1659a1ccd8c59|source-7d8b59835a05172",
-       "fromId": "source-7d8b59835a05172",
-       "toId": "construction-2e1659a1ccd8c59",
+       "edgeId": "construction-1ae07b5899cfb00|source-f4997b3a836d6bf",
+       "fromId": "source-f4997b3a836d6bf",
+       "toId": "construction-1ae07b5899cfb00",
        "distance": 1,
-       "carryParts": 0.4,
-       "flowRate": 5,
-       "spawnCostPerTick": 0.0266844563042028,
-       "spawnId": "spawn-896f59835a4b5be"
-      },
-      {
-       "edgeId": "controller-2d36598359f0e14|source-7d8b59835a05172",
-       "fromId": "source-7d8b59835a05172",
-       "toId": "controller-2d36598359f0e14",
-       "distance": 29,
-       "carryParts": 3.6,
-       "flowRate": 3,
-       "spawnCostPerTick": 0.24473147518694766,
-       "spawnId": "spawn-896f59835a4b5be"
+       "carryParts": 0.64,
+       "flowRate": 8,
+       "spawnCostPerTick": 0.04269513008672448,
+       "spawnId": "spawn-ac247b3a83b904b"
       }
      ]
     }
    },
-   "upgrade-controller-2d36598359f0e14": {
+   "upgrade-controller-0d957b3a83653e3": {
     "kind": "upgrade",
     "commission": {
-     "corpId": "upgrade-controller-2d36598359f0e14",
+     "corpId": "upgrade-controller-0d957b3a83653e3",
      "kind": "upgrade",
      "shape": "consume",
      "consumes": {
-      "energyRate": 5,
+      "energyRate": 2,
       "at": {
        "x": 25,
        "y": 10,
@@ -820,7 +801,7 @@
       "spawnPartsPerTick": 0
      },
      "produces": {
-      "valuePerTick": 250,
+      "valuePerTick": 100,
       "at": {
        "x": 25,
        "y": 10,
@@ -829,25 +810,20 @@
      },
      "assignment": {
       "sink": {
-       "sinkId": "controller-2d36598359f0e14",
+       "sinkId": "controller-0d957b3a83653e3",
        "kind": "controller",
        "value": 50,
        "demand": 20,
-       "allocated": 5,
+       "allocated": 2,
        "sources": [
         {
-         "sourceId": "source-1d3059835a077a3",
+         "sourceId": "source-73697b3a8376f9c",
          "amount": 2,
-         "distance": 29
-        },
-        {
-         "sourceId": "source-7d8b59835a05172",
-         "amount": 3,
          "distance": 29
         }
        ]
       },
-      "spawnId": "spawn-896f59835a4b5be"
+      "spawnId": "spawn-ac247b3a83b904b"
      }
     },
     "corp": {
@@ -864,24 +840,19 @@
      "expectedUnitsProduced": 0,
      "unitsConsumed": 0,
      "lastPlannedTick": 600,
-     "spawnId": "896f59835a4b5be",
-     "targetUpgraders": 2,
+     "spawnId": "ac247b3a83b904b",
+     "targetUpgraders": 1,
      "sinkAllocation": {
-      "sinkId": "controller-2d36598359f0e14",
+      "sinkId": "controller-0d957b3a83653e3",
       "sinkType": "controller",
-      "allocated": 5,
+      "allocated": 2,
       "demand": 20,
-      "unmet": 15,
+      "unmet": 18,
       "priority": 50,
       "sourceFlows": [
        {
-        "sourceId": "source-1d3059835a077a3",
+        "sourceId": "source-73697b3a8376f9c",
         "amount": 2,
-        "distance": 29
-       },
-       {
-        "sourceId": "source-7d8b59835a05172",
-        "amount": 3,
         "distance": 29
        }
       ]
@@ -890,11 +861,11 @@
    }
   },
   "spawnDemandFirstSeen": {
-   "896f59835a4b5be:mining-W0N0-harvest-77a3:miner": 554,
-   "896f59835a4b5be:mining-W0N0-harvest-5172:miner": 554,
-   "896f59835a4b5be:hauling-W0N0-hauling-77a3:hauler": 554,
-   "896f59835a4b5be:hauling-W0N0-hauling-5172:hauler": 554,
-   "896f59835a4b5be:building-W0N0-construction:builder": 563
+   "ac247b3a83b904b:mining-W0N0-harvest-6f9c:miner": 554,
+   "ac247b3a83b904b:mining-W0N0-harvest-d6bf:miner": 554,
+   "ac247b3a83b904b:hauling-W0N0-hauling-6f9c:hauler": 554,
+   "ac247b3a83b904b:hauling-W0N0-hauling-d6bf:hauler": 554,
+   "ac247b3a83b904b:building-W0N0-construction:builder": 563
   },
   "colony": {
    "bootstrapped": true,
@@ -924,7 +895,7 @@
     "resources": [
      {
       "type": "source",
-      "id": "7d8b59835a05172",
+      "id": "f4997b3a836d6bf",
       "position": {
        "x": 10,
        "y": 40,
@@ -934,7 +905,7 @@
      },
      {
       "type": "source",
-      "id": "1d3059835a077a3",
+      "id": "73697b3a8376f9c",
       "position": {
        "x": 40,
        "y": 40,
@@ -944,7 +915,7 @@
      },
      {
       "type": "controller",
-      "id": "2d36598359f0e14",
+      "id": "0d957b3a83653e3",
       "position": {
        "x": 25,
        "y": 10,
@@ -955,7 +926,7 @@
      },
      {
       "type": "spawn",
-      "id": "896f59835a4b5be",
+      "id": "ac247b3a83b904b",
       "position": {
        "x": 25,
        "y": 25,
@@ -975,22 +946,22 @@
       {
        "type": "upgrading",
        "estimatedROI": 49,
-       "resourceId": "2d36598359f0e14"
+       "resourceId": "0d957b3a83653e3"
       },
       {
        "type": "spawning",
        "estimatedROI": 6.225429553264605,
-       "resourceId": "896f59835a4b5be"
+       "resourceId": "ac247b3a83b904b"
       },
       {
        "type": "mining",
        "estimatedROI": 1,
-       "resourceId": "7d8b59835a05172"
+       "resourceId": "f4997b3a836d6bf"
       },
       {
        "type": "mining",
        "estimatedROI": 1,
-       "resourceId": "1d3059835a077a3"
+       "resourceId": "73697b3a8376f9c"
       }
      ],
      "openness": 24,
@@ -1018,8 +989,8 @@
     "expectedUnitsProduced": 0,
     "unitsConsumed": 0,
     "lastPlannedTick": 0,
-    "spawnId": "896f59835a4b5be",
-    "sourceId": "7d8b59835a05172",
+    "spawnId": "ac247b3a83b904b",
+    "sourceId": "f4997b3a836d6bf",
     "creepNames": [
      "jack-tstrap-10",
      "jack-tstrap-118"
@@ -1031,10 +1002,10 @@
    }
   },
   "spawningCorps": {
-   "896f59835a4b5be": {
-    "id": "spawning-W0N0-spawn-b5be",
+   "ac247b3a83b904b": {
+    "id": "spawning-W0N0-spawn-904b",
     "type": "spawning",
-    "nodeId": "W0N0-spawn-b5be",
+    "nodeId": "W0N0-spawn-904b",
     "balance": 2750,
     "totalRevenue": 0,
     "totalCost": 250,
@@ -1045,7 +1016,7 @@
     "expectedUnitsProduced": 0,
     "unitsConsumed": 0,
     "lastPlannedTick": 0,
-    "spawnId": "896f59835a4b5be",
+    "spawnId": "ac247b3a83b904b",
     "pendingOrders": [],
     "energyCapacity": 300,
     "stuckSince": 0,
@@ -1084,11 +1055,11 @@
      "room": "W0N0"
     }
    },
-   "miner-t-77a3-554": {
-    "corpId": "mining-W0N0-harvest-77a3",
+   "miner-t-6f9c-554": {
+    "corpId": "mining-W0N0-harvest-6f9c",
     "workType": "harvest",
-    "spawnedBy": "spawning-W0N0-spawn-b5be",
-    "assignedSourceId": "1d3059835a077a3",
+    "spawnedBy": "spawning-W0N0-spawn-904b",
+    "assignedSourceId": "73697b3a8376f9c",
     "_move": {
      "dest": {
       "x": 39,
@@ -1106,82 +1077,75 @@
     {
      "kind": "mine",
      "work": 5,
-     "sourceId": "source-1d3059835a077a3",
-     "spawnId": "spawn-896f59835a4b5be"
+     "sourceId": "source-73697b3a8376f9c",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "mine",
      "work": 5,
-     "sourceId": "source-7d8b59835a05172",
-     "spawnId": "spawn-896f59835a4b5be"
+     "sourceId": "source-f4997b3a836d6bf",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "haul",
      "carry": 3,
-     "fromId": "source-1d3059835a077a3",
-     "toId": "controller-2d36598359f0e14",
-     "spawnId": "spawn-896f59835a4b5be"
+     "fromId": "source-73697b3a8376f9c",
+     "toId": "controller-0d957b3a83653e3",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "haul",
      "carry": 5,
-     "fromId": "source-1d3059835a077a3",
-     "toId": "spawn-896f59835a4b5be",
-     "spawnId": "spawn-896f59835a4b5be"
+     "fromId": "source-73697b3a8376f9c",
+     "toId": "spawn-ac247b3a83b904b",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "haul",
      "carry": 2,
-     "fromId": "source-7d8b59835a05172",
-     "toId": "spawn-896f59835a4b5be",
-     "spawnId": "spawn-896f59835a4b5be"
+     "fromId": "source-f4997b3a836d6bf",
+     "toId": "spawn-ac247b3a83b904b",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "haul",
      "carry": 1,
-     "fromId": "source-7d8b59835a05172",
-     "toId": "construction-2e1659a1ccd8c59",
-     "spawnId": "spawn-896f59835a4b5be"
-    },
-    {
-     "kind": "haul",
-     "carry": 4,
-     "fromId": "source-7d8b59835a05172",
-     "toId": "controller-2d36598359f0e14",
-     "spawnId": "spawn-896f59835a4b5be"
+     "fromId": "source-f4997b3a836d6bf",
+     "toId": "construction-1ae07b5899cfb00",
+     "spawnId": "spawn-ac247b3a83b904b"
     },
     {
      "kind": "upgrade",
-     "work": 5,
-     "sinkId": "controller-2d36598359f0e14"
+     "work": 2,
+     "sinkId": "controller-0d957b3a83653e3"
     },
     {
      "kind": "build",
-     "work": 1,
-     "sinkId": "construction-2e1659a1ccd8c59"
+     "work": 2,
+     "sinkId": "construction-1ae07b5899cfb00"
     }
    ],
-   "overhead": 1.71,
+   "overhead": 1.48,
    "unrouted": 0
   },
   "lastPlanningTick": 600,
   "corpVariance": [
    {
-    "id": "mining-W0N0-harvest-5172",
+    "id": "mining-W0N0-harvest-d6bf",
     "type": "mining",
     "budget": 10,
     "actual": 0,
     "variance": -1
    },
    {
-    "id": "hauling-W0N0-hauling-77a3",
+    "id": "hauling-W0N0-hauling-6f9c",
     "type": "hauling",
     "budget": 10,
     "actual": 0,
     "variance": -1
    },
    {
-    "id": "hauling-W0N0-hauling-5172",
+    "id": "hauling-W0N0-hauling-d6bf",
     "type": "hauling",
     "budget": 10,
     "actual": 0,
@@ -1190,19 +1154,19 @@
    {
     "id": "upgrading-W0N0-upgrading",
     "type": "upgrading",
-    "budget": 5,
+    "budget": 2,
     "actual": 0,
     "variance": -1
    },
    {
     "id": "building-W0N0-construction",
     "type": "building",
-    "budget": 5,
+    "budget": 8,
     "actual": 0,
     "variance": -1
    },
    {
-    "id": "mining-W0N0-harvest-77a3",
+    "id": "mining-W0N0-harvest-6f9c",
     "type": "mining",
     "budget": 10,
     "actual": 0,
