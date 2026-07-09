@@ -11,13 +11,14 @@
 import { GridCell } from "../GridCell";
 import { arrivalCells, buildArrivalT1Cells, buildArrivalT2Cells, buildArrivalT3Cells, buildArrivalT4Cells } from "./arrival";
 import {
+  buildConstructionCompletionCells,
   buildConstructionT1Cells,
   buildConstructionT2Cells,
   buildConstructionT3Cells,
   buildConstructionT4Cells,
   constructionCells,
 } from "./construction";
-import { buildChurnT2Cells, buildChurnT3Cells, churnCells } from "./churn";
+import { buildChurnReplacementCells, buildChurnT2Cells, buildChurnT3Cells, churnCells } from "./churn";
 import { buildHaulingCells, buildHaulingT3Cells, buildHaulingT4Cells } from "./hauling";
 import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, buildPlannerT4Cells, plannerCells } from "./planner";
 import { buildStatefulMovementCells, buildT2MovementCells, buildT3MovementCells, movementCells } from "./movement";
@@ -29,6 +30,8 @@ import {
   spawnSchedulerCells,
 } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
+import { buildFidelityCells } from "./fidelity";
+import { buildJourneyCells } from "./journey";
 import { buildMultiroomT5Cells } from "./multiroom";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 import { buildResilienceCells } from "./resilience";
@@ -62,6 +65,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildHaulingT3Cells(),
   ...buildConstructionT3Cells(),
   ...buildChurnT3Cells(),
+  ...buildChurnReplacementCells(),
   ...buildPlannerT3Cells(),
   ...buildResilienceCells(),
   ...buildT4SchedulerCells(),
@@ -69,7 +73,10 @@ export const ALL_CELLS: GridCell[] = [
   ...buildArrivalT4Cells(),
   ...buildHaulingT4Cells(),
   ...buildConstructionT4Cells(),
+  ...buildConstructionCompletionCells(),
   ...buildPlannerT4Cells(),
+  ...buildFidelityCells(),
+  ...buildJourneyCells(),
   ...buildMultiroomT5Cells(),
 ];
 

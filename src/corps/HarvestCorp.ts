@@ -14,7 +14,7 @@ import {
   SOURCE_REGEN_TIME,
   calculateOptimalWorkParts
 } from "../planning/EconomicConstants";
-import { effectiveLife } from "../economy/primitives";
+import { effectiveLife, staffsPost } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -451,7 +451,14 @@ export class HarvestCorp extends Corp {
     const needed = Math.ceil(totalWork / affordableWork);
     const target = Math.max(1, Math.min(assignment.maxMiners || 1, needed));
 
-    const current = this.getTotalCreepCount();
+    // Delivery-aware staffing: an incumbent inside its replacement lead time
+    // (build + walk, staffsPost) keeps mining but no longer counts as holding
+    // its post, so the successor's demand surfaces exactly early enough to
+    // arrive as the incumbent dies. The planner's effectiveLife amortization
+    // already prices this gapless handoff; without it every miner generation
+    // leaves the source dark for spawnTime + walk ticks.
+    const walkTicks = (assignment.spawnDistance ?? 0) * travelTicksPerTile(ctx.energyCapacity);
+    const current = this.countStaffing(walkTicks);
     if (current >= target) {
       // Fully staffed by count - but a runt fleet still wants its overlap
       // upgrade (spawn-then-recycle; see runtUpgradeDemand).
@@ -496,7 +503,10 @@ export class HarvestCorp extends Corp {
         // an already-started source, so the spawn fields miner after miner while
         // energy strands unhauled - is prevented by spawnPriority's tiers (a started
         // income corp outranks opening a fresh one), not by withholding the block here.
-        blocking: current === 0,
+        // PHYSICAL count, not the delivery-aware one: a lead-time replacement's
+        // incumbent is still mining, so the source is not dark and the demand
+        // must not trigger the scheduler's blocking energy hold every generation.
+        blocking: this.getTotalCreepCount() === 0,
         producesIncome: true,
         desiredCost: desired.cost,
         minCost: min.cost,
@@ -542,6 +552,26 @@ export class HarvestCorp extends Corp {
       if (creep.memory.corpId === this.id) {
         count++;
       }
+    }
+    return count;
+  }
+
+  /**
+   * Creeps (including spawning ones) that still staff their post for demand
+   * purposes: incumbents inside their replacement lead time are excluded
+   * (see staffsPost), which is what makes replacement spawning start
+   * spawnTime + walk ticks before the incumbent dies.
+   */
+  private countStaffing(distance: number): number {
+    let count = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId !== this.id) continue;
+      // Recycling creeps still count: the pounce-recycle path orders its own
+      // successor (runtUpgradeDemand), so excluding them here double-orders
+      // and churns spawn energy into runt loops (measured: the synthetic
+      // fidelity world stuck at 300 capacity with a 7-runt fleet).
+      if (staffsPost(creep.ticksToLive, creep.body?.length ?? 0, distance)) count++;
     }
     return count;
   }

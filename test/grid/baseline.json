@@ -1,6 +1,9 @@
 {
   "botLevel": 3,
   "cells": {
+    "journey-synthetic-2src--first-flow-hauler": "pass",
+    "journey-synthetic-2src--first-flow-miner": "pass",
+    "journey-synthetic-2src--first-upgrader": "pass",
     "churn-jack-immediate-no-haulers": "pass",
     "arrive-hauler-withdraws-stocked-container": "pass",
     "churn-antidowngrade-dispatch": "pass",
@@ -49,6 +52,8 @@
     "move-border-inward-step": "pass",
     "move-upgrader-park-settle": "pass",
     "spawnexec-bodies-at-1300-rcl4": "pass",
+    "cons-t2-container-completes": "pass",
+    "cons-t4-link-completes": "pass",
     "move-bypass-ring-deposit": "pass",
     "churn-canary-readopt": "pass",
     "spawn-no-hauler-before-miner": "pass",
@@ -60,6 +65,7 @@
     "haul-t3-dedicated-resume-container": "pass",
     "churn-jack-cap-two": "pass",
     "churn-antidowngrade-recover-recycle": "pass",
+    "cons-t4-storage-completes": "pass",
     "spawn-hold-strict-first-hauler": "pass",
     "haul-t1-circuit-split": "pass",
     "haul-t3-dedicated-standdown": "pass",
@@ -87,6 +93,7 @@
     "plan-t4-two-spawn-nearest": "pass",
     "haul-t0-first-delivery": "pass",
     "plan-t5-sk-never-mined": "pass",
+    "churn-t3-gapless-replacement": "pass",
     "cons-repair-starts-below-60": "pass",
     "cons-repair-road-fraction": "pass",
     "spawn-reserver-yields-to-blocking-miner": "pass",
@@ -97,6 +104,8 @@
     "plan-t2-antidowngrade-construction": "pass",
     "boot-real-plain-w2n6": "pass",
     "boot-real-maze-w1n6": "pass",
+    "fid-t4-synthetic-steady-state": "pass",
+    "fid-t5-real-maze-steady-state": "pass",
     "plan-t5-remote-pipeline": "pass"
   }
 }

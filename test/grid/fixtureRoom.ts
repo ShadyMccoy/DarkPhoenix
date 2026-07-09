@@ -35,7 +35,7 @@ export function loadFixture(name: string): RealRoomFixture {
 }
 
 /** Overwrite the border ring with wall so nothing can leave the room. */
-function sealBorders(terrain: string[]): string[] {
+export function sealBorders(terrain: string[]): string[] {
   const wallRow = "#".repeat(50);
   return terrain.map((row, y) => (y === 0 || y === 49 ? wallRow : `#${row.slice(1, 49)}#`));
 }

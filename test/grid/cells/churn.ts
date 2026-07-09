@@ -647,3 +647,145 @@ export const churnCells: GridCell[] = [
     ],
   },
 ];
+
+/** 10 extension positions clear of the spawn's neighbourhood (grid pattern). */
+const REPLACEMENT_EXTS: Array<{ x: number; y: number }> = [
+  { x: 23, y: 23 }, { x: 23, y: 25 }, { x: 23, y: 27 },
+  { x: 27, y: 23 }, { x: 27, y: 27 },
+  { x: 24, y: 22 }, { x: 26, y: 22 },
+  { x: 24, y: 28 }, { x: 26, y: 28 },
+  { x: 25, y: 21 },
+];
+
+/** Ratchet point for the delivery gap (see the assertion comment). */
+const MAX_POST_GAP_TICKS = 45;
+
+export function buildChurnReplacementCells(): GridCell[] {
+  let incumbentDied: number | null = null;
+  let postGapTicks = 0;
+  let firstStaffedAfter: number | null = null;
+  let succSpawnedAt: number | null = null;
+  let gapLogged = false;
+
+  /** Live creeps claimed by the source's mining corp (jacks are bootstrap-*). */
+  const miningCreeps = (s: { memory: any; objects(): any[] }): any[] => {
+    const claimed = new Set(
+      Object.entries(s.memory?.creeps ?? {})
+        .filter(([, mem]: [string, any]) => typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-"))
+        .map(([name]) => name)
+    );
+    return s.objects().filter((o) => o.type === "creep" && claimed.has(o.name));
+  };
+
+  return [
+    {
+      // The delivery contract end to end (staffsPost): a full-size miner with
+      // a shortened life must be REPLACED IN ADVANCE - its successor starts
+      // spawning ~leadTime (3/part build + walk ticks) before death, so the
+      // post never sits empty for more than the small scheduling slack.
+      // Reactive replacement (the old behavior) leaves the source dark for
+      // build(27) + walk(~30) = ~60 ticks - the fielded-CARRY / mined-energy
+      // dips the W1N6 accounting measured every creep generation.
+      id: "churn-t3-gapless-replacement",
+      tier: 3,
+      avenue: "churn-recovery",
+      window: 320,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 10).source(40, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: REPLACEMENT_EXTS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
+      creeps: [
+        {
+          // The incumbent: the exact body buildMinerBody(5, 800) produces, so
+          // the successor is its equal (no runt-recycle interference).
+          name: "m0",
+          x: 39,
+          y: 25,
+          body: ["work", "work", "work", "work", "work", "carry", "move", "move", "move"],
+          memory: {
+            workType: "harvest",
+            corpId: "staged-replacement-m0",
+            assignedSourceId: "$id(home,source,40,25)",
+          },
+        },
+      ],
+      async stage(ctx) {
+        // Shorten the incumbent's life: death at ~tick 220, well inside the
+        // window but far past adoption + the ~57-tick replacement lead.
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "creep", name: "m0" },
+          { $set: { ageTime: ctx.gameTime + 220 } }
+        );
+      },
+      async onTick(ctx) {
+        // Keep energy at zero through the adoption window so the corp cannot
+        // field an organic miner before it claims m0 (that would make the
+        // "successor while incumbent lives" claim vacuous); then pin the room
+        // full so the replacement decision is about TIMING, never affordability.
+        const energy = ctx.tick < 30 ? 0 : 50;
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "extension" },
+          { $set: { store: { energy } } }
+        );
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: ctx.tick < 30 ? 0 : 300 } } }
+        );
+      },
+      assertions: [
+        eventually("the staged miner is adopted by the mining corp", (s) => {
+          const mem = s.memory?.creeps?.m0;
+          return typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-");
+        }),
+        // THE lead-time claim: a second mining-corp creep exists (spawning or
+        // walking out) while the incumbent is still alive. Reactive
+        // replacement cannot satisfy this - it only orders after death.
+        eventually("the successor exists while the incumbent still lives", (s) => {
+          if (!s.creep("m0")) return false;
+          const mine = Object.entries(s.memory?.creeps ?? {}).filter(
+            ([, mem]: [string, any]) => typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-")
+          );
+          return mine.length >= 2;
+        }),
+        // Replacement, not swarm: the corp never fields a third body.
+        always("never more than two mining-corp creeps", (s) => miningCreeps(s).length <= 2, 40),
+        // The post itself: after the incumbent dies, ticks with no mining-corp
+        // creep within range 1 of the source are the delivery gap. Measured
+        // decomposition (twice): demand leads correctly (succ spawn @142-166
+        // vs death @220), but the successor HOLDS OFF at distance while the
+        // incumbent occupies the spot and only walks in after the death -
+        // gap 28-37 = roughly the walk-in. Reactive replacement measures
+        // 80-110 here, so 45 pins the advance-delivery win; shrinking toward
+        // <= 10 is a bot-improvement job (successor pre-positioning at range
+        // 1-2 while waiting), not an assertion job.
+        atWindow(`post gap after death is at most ${MAX_POST_GAP_TICKS} ticks`, (s) => {
+          if (s.tick >= 320 && !gapLogged) {
+            gapLogged = true;
+            console.log(
+              `  [gapless] died=${incumbentDied} postGap=${postGapTicks} ` +
+                `firstStaffedAfter=${firstStaffedAfter} succSpawnedAt=${succSpawnedAt}`
+            );
+          }
+          return incumbentDied !== null && postGapTicks <= MAX_POST_GAP_TICKS;
+        }),
+        // Collector for the gap metric (always true; runs every sample).
+        always("(gap accounting)", (s) => {
+          const alive = !!s.creep("m0");
+          if (alive && succSpawnedAt === null && miningCreeps(s).length >= 2) succSpawnedAt = s.tick;
+          if (!alive && incumbentDied === null && s.tick > 100) incumbentDied = s.tick;
+          if (incumbentDied !== null) {
+            const staffed = miningCreeps(s).some(
+              (o) => Math.max(Math.abs(o.x - 40), Math.abs(o.y - 25)) <= 1
+            );
+            if (!staffed) postGapTicks += 1;
+            else if (firstStaffedAfter === null) firstStaffedAfter = s.tick;
+          }
+          return true;
+        }),
+      ],
+    },
+  ];
+}

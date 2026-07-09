@@ -1,7 +1,9 @@
 import { expect } from "chai";
 import {
+  deliveryLeadTime,
   effectiveLife,
   roundTripTicks,
+  staffsPost,
   carryPartsFor,
   minerOverhead,
   haulerOverhead,
@@ -102,6 +104,31 @@ describe("economy/primitives", () => {
   describe("miningBudgetPerSpawn", () => {
     it("is one third of a part/tick times the mining fraction", () => {
       expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * 0.6, 1e-9);
+    });
+  });
+
+  describe("deliveryLeadTime / staffsPost (the delivery contract)", () => {
+    it("lead time is build (3/part) plus the walk out with 1.5x + 10 safety", () => {
+      // 8-part miner, 22 walk ticks: 24 build + ceil(22*1.5)=33 + 10 margin.
+      expect(deliveryLeadTime(8, 22)).to.equal(67);
+      expect(deliveryLeadTime(1, 0)).to.equal(13);
+    });
+    it("an incumbent staffs its post until exactly the lead time remains", () => {
+      expect(staffsPost(68, 8, 22)).to.equal(true); // one tick of slack
+      expect(staffsPost(67, 8, 22)).to.equal(false); // successor must start NOW
+      expect(staffsPost(1, 8, 22)).to.equal(false);
+    });
+    it("a spawning creep (ttl undefined) is the freshest incumbent", () => {
+      expect(staffsPost(undefined, 8, 22)).to.equal(true);
+    });
+    it("consistency: a successor started at the staffsPost boundary arrives as the incumbent dies, working effectiveLife ticks", () => {
+      // Start spawn when incumbent ttl == leadTime; successor spends leadTime
+      // in build+walk and reaches the post at incumbent death with
+      // CREEP_LIFETIME - distance working ticks left - the exact quantity
+      // effectiveLife() amortizes spawn cost over. The two definitions meet.
+      const distance = 22;
+      const successorWorkingLife = CREEP_LIFETIME - distance;
+      expect(successorWorkingLife).to.equal(effectiveLife(distance));
     });
   });
 

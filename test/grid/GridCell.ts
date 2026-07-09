@@ -164,6 +164,13 @@ export interface GridCell {
   onTick?(ctx: TickCtx): Promise<void>;
   /** Engine mod paths; cells only batch with identical mod signatures. */
   mods?: string[];
+  /**
+   * Run this cell alone in its own world. Needed when staged state cannot
+   * share a db with siblings - e.g. journey snapshots, which restore objects
+   * with their ORIGINAL ids and room names (two snapshots of one capture run
+   * would collide on both).
+   */
+  soloWorld?: boolean;
   assertions: CellAssertion[];
 }
 

@@ -684,3 +684,145 @@ export const constructionCells: GridCell[] = [
     ],
   },
 ];
+
+/**
+ * Completion cells (spec 10, gap G1): every earlier construction cell asserts
+ * SITE PLACEMENT; these assert the site becomes the STRUCTURE. Core moment:
+ * the site is staged ~90% done with a claimed builder and fuel at its feet,
+ * so the verdict is about the last mile (builder staffed on the site, energy
+ * flowing, engine swap to structure) inside a short window - not about paying
+ * the full 5k/30k build cost through a long sim.
+ */
+export function buildConstructionCompletionCells(): GridCell[] {
+  const EXT_20: Array<{ x: number; y: number }> = [];
+  for (const y of [19, 21]) for (let x = 18; x <= 32; x += 2) EXT_20.push({ x, y });
+  for (const x of [20, 22, 24, 26]) EXT_20.push({ x, y: 17 });
+
+  const EXT_30: Array<{ x: number; y: number }> = [];
+  for (const y of [30, 32, 34, 36, 38]) for (const x of [31, 33, 35, 37, 39, 41]) EXT_30.push({ x, y });
+
+  /** A claimed builder parked at the site with a stocked container at its feet. */
+  const builderKit = (bx: number, by: number, fuelX: number, fuelY: number) => ({
+    structures: [{ type: "container", x: fuelX, y: fuelY, energy: 1500 }],
+    creeps: [
+      {
+        name: "b1",
+        x: bx,
+        y: by,
+        body: ["work", "work", "work", "work", "carry", "carry", "move", "move", "move"],
+        energy: 100, // exactly the 2-CARRY capacity; more would overstuff the store
+      },
+      ...quiet(),
+    ],
+    memory: {
+      creeps: {
+        b1: { workType: "build", corpId: "building-$room()-construction", working: true },
+      },
+    },
+  });
+
+  const structureAt = (s: { objects(h?: string): any[] }, type: string, x: number, y: number): boolean =>
+    s.objects().some((o: any) => o.type === type && o.x === x && o.y === y);
+
+  const stageSite = (structureType: string, x: number, y: number, progress: number, progressTotal: number) =>
+    async function stage(ctx: { db: any; userId: string; room(h?: string): string }) {
+      await ctx.db["rooms.objects"].insert({
+        type: "constructionSite",
+        room: ctx.room(),
+        x,
+        y,
+        user: ctx.userId,
+        structureType,
+        progress,
+        progressTotal,
+      });
+    };
+
+  return [
+    {
+      // The source container's last mile: 400 progress left, a 4W builder
+      // (20/tick) finishes in ~20 ticks; the swap to a real container is the
+      // claim - this is the structure the whole pile->container->pickup
+      // convergence stands on.
+      id: "cons-t2-container-completes",
+      tier: 2,
+      avenue: "construction",
+      window: 80,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      ...(() => {
+        const kit = builderKit(16, 29, 16, 28);
+        return { structures: kit.structures, creeps: kit.creeps, memory: kit.memory };
+      })(),
+      stage: stageSite("container", 15, 29, 4600, 5000),
+      assertions: [
+        eventually("the container structure stands on the site tile", (s) =>
+          structureAt(s, "container", 15, 29)
+        ),
+      ],
+    },
+
+    {
+      // Storage (the container's RCL4 successor) actually completes beside
+      // the spawn: extensions at the RCL4 cap so the ladder's active rung IS
+      // the storage - same world as cons-capguard-storage-rcl4, plus the
+      // staged last-mile site.
+      id: "cons-t4-storage-completes",
+      tier: 4,
+      avenue: "construction",
+      window: 100,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      ...(() => {
+        const kit = builderKit(23, 26, 22, 26);
+        return {
+          structures: [
+            ...kit.structures,
+            ...EXT_20.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+          ],
+          creeps: kit.creeps,
+          memory: kit.memory,
+        };
+      })(),
+      stage: stageSite("storage", 24, 26, 29200, 30000),
+      assertions: [
+        eventually("the storage structure stands beside the spawn", (s) =>
+          structureAt(s, "storage", 24, 26)
+        ),
+      ],
+    },
+
+    {
+      // The core link (the logistics backbone at RCL5) completes beside the
+      // storage - same world as cons-link-core-first, plus the staged
+      // last-mile site.
+      id: "cons-t4-link-completes",
+      tier: 4,
+      avenue: "construction",
+      window: 80,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 5 },
+      ...(() => {
+        const kit = builderKit(23, 23, 22, 23);
+        return {
+          structures: [
+            ...kit.structures,
+            { type: "storage", x: 24, y: 25, energy: 10000 },
+            ...EXT_30.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+          ],
+          creeps: kit.creeps,
+          memory: kit.memory,
+        };
+      })(),
+      stage: stageSite("link", 23, 24, 4600, 5000),
+      assertions: [
+        eventually("the link structure stands beside the storage", (s) =>
+          structureAt(s, "link", 23, 24)
+        ),
+      ],
+    },
+  ];
+}

@@ -15,7 +15,7 @@ import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { effectiveLife } from "../economy/primitives";
+import { effectiveLife, staffsPost } from "../economy/primitives";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -273,6 +273,21 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
+   * Creeps (including spawning ones) that still staff the controller post for
+   * demand purposes: incumbents inside their replacement lead time are
+   * excluded (see staffsPost) so successors spawn build + walk ticks early.
+   */
+  private countStaffing(walkTicks: number): number {
+    let count = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId !== this.id || creep.memory.workType !== "upgrade") continue;
+      if (staffsPost(creep.ticksToLive, creep.body?.length ?? 0, walkTicks)) count++;
+    }
+    return count;
+  }
+
+  /**
    * Get the spawn ID this corp spawns from.
    */
   public getSpawnId(): string {
@@ -366,8 +381,20 @@ export class UpgradingCorp extends Corp {
       ? controllerParkingTiles(controller, controllerInputSpot(controller).pos).length
       : UPGRADER_COUNT_CAP;
     const targetCount = upgraderTargetCount(allocated, affordableWork, parking, controller?.level);
-    const current = this.getCreepCount();
+    // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
+    // lead time (build + walk to the controller) keeps working but no longer
+    // counts, so its successor spawns early enough for the controller's
+    // allocation to be consumed without a per-generation gap. getRangeTo is a
+    // straight-line UNDERestimate of the real walk on wall-heavy maps; the
+    // lead's 1.5x + 10 pad absorbs modest detours, and a path-true distance
+    // is a known sharpening once one is cheaply available here.
+    const ctrlWalkTicks =
+      spawn && controller ? spawn.pos.getRangeTo(controller.pos) * travelTicksPerTile(ctx.energyCapacity) : 0;
+    const current = this.countStaffing(ctrlWalkTicks);
     if (current >= targetCount) return [];
+    // Physical swarm cap (mirrors CarryCorp): replacement overlap may field one
+    // extra body per expiring incumbent, never more - parking tiles are few.
+    if (this.getCreepCount() >= targetCount * 2) return [];
 
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
@@ -378,8 +405,13 @@ export class UpgradingCorp extends Corp {
     // share - there is always energy at the input tile to feed it, so waiting for a
     // proper body beats fielding a runt forever. Only the FIRST upgrader may spawn
     // small (down to 1 WORK) so the controller starts upgrading immediately at cold
-    // start instead of waiting for the spawn to fill a full body.
-    const minWork = current === 0 ? 1 : desiredWork;
+    // start instead of waiting for the spawn to fill a full body. "None exists"
+    // means none in ANY form: getCreepCount() misses a mid-spawn first upgrader
+    // (getActiveCreeps excludes spawning), and countStaffing misses an expiring
+    // incumbent - either alone would let a runt sneak in while the controller
+    // is in fact covered.
+    const anyUpgrader = current > 0 || this.getCreepCount() > 0;
+    const minWork = anyUpgrader ? desiredWork : 1;
     const min = buildUpgraderBody(ctx.energyCapacity, minWork, "containerFed");
     if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
 
@@ -395,8 +427,9 @@ export class UpgradingCorp extends Corp {
         // is mined and wasted. Rank them alongside haulers.
         value: 90,
         // The first upgrader is blocking (controller would otherwise stall);
-        // additional upgraders are scaling capacity (non-blocking).
-        blocking: current === 0,
+        // additional upgraders are scaling capacity (non-blocking). Any-form
+        // count: a lead-time replacement is not "the controller stalled".
+        blocking: !anyUpgrader,
         producesIncome: false,
         desiredCost: desired.cost,
         minCost: min.cost,

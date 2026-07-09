@@ -11,7 +11,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "../economy/primitives";
+import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
@@ -802,6 +802,29 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Delivery-aware fleet strength for spawn planning: creeps (INCLUDING ones
+   * still spawning - the successor already in the pipe) that will still staff
+   * the route past their replacement lead time (see staffsPost). Excludes
+   * expiring incumbents so their successors spawn spawnTime + walk early, and
+   * recycling runts (already retiring by choice).
+   */
+  private staffing(distance: number): { count: number; carry: number } {
+    let count = 0;
+    let carry = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId !== this.id && creep.memory.corpId !== this.nodeId) continue;
+      if (creep.memory.workType !== "haul") continue;
+      // Recycling creeps still count (parity with getAssignedCreeps): the
+      // pounce swap manages its own replacement; excluding them double-orders.
+      if (!staffsPost(creep.ticksToLive, creep.body?.length ?? 0, distance)) continue;
+      count += 1;
+      carry += creep.getActiveBodyparts(CARRY);
+    }
+    return { count, carry };
+  }
+
+  /**
    * Get the spawn ID this corp spawns from.
    */
   public getSpawnId(): string {
@@ -862,8 +885,15 @@ export class CarryCorp extends Corp {
     const maxCarryPerHauler = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR_COST), 25));
     const targetHaulers = Math.max(1, Math.ceil(carryNeeded / maxCarryPerHauler));
 
-    const current = this.getCreepCount();
-    const fieldedCarry = this.fieldedCarry();
+    // Delivery-aware staffing (staffsPost): a hauler inside its replacement
+    // lead time keeps driving its circuit but stops counting toward the fleet,
+    // so its successor spawns early enough to take over without a carry dip.
+    // The LONGEST route's one-way distance approximates the walk to the
+    // pickup post (max, not assignments[0]: route order is not meaningful,
+    // and over-leading costs a few overlap ticks while under-leading
+    // reintroduces the carry dip on the long route).
+    const routeWalkTicks = Math.max(...assignments.map(a => a.distance)) * travelTicksPerTile(ctx.energyCapacity);
+    const { count: current, carry: fieldedCarry } = this.staffing(routeWalkTicks);
 
     // Stop once the fleet has BOTH the planned count and enough total CARRY. The
     // count alone is not enough: under energy pressure haulers spawn at the runt
@@ -874,7 +904,9 @@ export class CarryCorp extends Corp {
     // covered, capped at twice the planned count so a pathologically starved room
     // can't spawn an unbounded swarm.
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
-    if (current >= targetHaulers * 2) return [];
+    // The swarm cap stays on the PHYSICAL count: replacement overlap may field
+    // one extra body per expiring hauler, but never an unbounded swarm.
+    if (this.getCreepCount() >= targetHaulers * 2) return [];
 
     // Size while FILLING the planned fleet by an EVEN share of the route's carry -
     // not a greedy "max out each body and leave whatever is left for the last one",
@@ -919,7 +951,10 @@ export class CarryCorp extends Corp {
         value: 90 + Math.min(carryNeeded, 20),
         // The first hauler is blocking (the source's energy is stranded without
         // any carrier); additional haulers are scaling capacity (non-blocking).
-        blocking: current === 0,
+        // PHYSICAL count: a lead-time replacement's incumbent is still driving
+        // its circuit, so nothing is stranded and the demand must not trigger
+        // the scheduler's strict blocking hold every hauler generation.
+        blocking: this.getCreepCount() === 0,
         producesIncome: true,
         desiredCost,
         minCost,

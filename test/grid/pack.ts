@@ -179,7 +179,12 @@ export function partition(cells: GridCell[]): GridCell[][] {
 
   const batches: GridCell[][] = [];
   for (const group of bySig.values()) {
-    const sorted = [...group].sort((a, b) => a.window - b.window);
+    // soloWorld cells (journey snapshots) each get a private world: they
+    // restore objects with original ids/room names, which cannot share a db.
+    const solo = group.filter((c) => c.soloWorld);
+    for (const c of solo) batches.push([c]);
+    const shared = group.filter((c) => !c.soloWorld);
+    const sorted = [...shared].sort((a, b) => a.window - b.window);
     for (let i = 0; i < sorted.length; i += MAX_BOTS_PER_WORLD) {
       batches.push(sorted.slice(i, i + MAX_BOTS_PER_WORLD));
     }

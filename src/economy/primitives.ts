@@ -54,6 +54,39 @@ export function carryPartsFor(rate: number, distance: number): number {
   return (rate * roundTripTicks(distance)) / CARRY_CAPACITY;
 }
 
+export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
+import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
+
+/**
+ * Ticks between STARTING a creep's spawn and it standing at its post:
+ * build time (3/part) plus the walk out. `travelTicks` is the walk in TICKS,
+ * not tiles - callers convert (e.g. distance * travelTicksPerTile) so slow
+ * early bodies get the longer lead they actually need. This is the delivery
+ * contract's lead time - the planner's effectiveLife amortization already
+ * assumes a successor arrives the tick its predecessor dies, and that only
+ * happens if the replacement STARTS this many ticks early.
+ */
+export function deliveryLeadTime(bodyParts: number, travelTicks: number): number {
+  // 1.5x + 10 safety on the walk: measured (grid churn-t3-gapless-replacement)
+  // real walks run ~1.75x the fatigue model once pathing noise, spawn-exit
+  // delay and assignment lag are paid, and the cost asymmetry favors early
+  // (a few ticks of double-staffing) over late (a dark post).
+  return SPAWN_TIME_PER_PART * bodyParts + Math.ceil(travelTicks * 1.5) + 10;
+}
+
+/**
+ * Whether an incumbent still counts as staffing its post for SPAWN PLANNING.
+ * A creep inside its replacement lead time keeps working until it dies, but
+ * its successor must start spawning NOW for the post to stay continuously
+ * staffed - so for demand purposes it no longer holds the post. `ttl` is
+ * undefined while a creep is still spawning: that is the freshest possible
+ * incumbent (a successor already in the pipe), so it staffs.
+ */
+export function staffsPost(ttl: number | undefined, bodyParts: number, travelTicks: number): boolean {
+  if (ttl === undefined) return true;
+  return ttl > deliveryLeadTime(bodyParts, travelTicks);
+}
+
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */
 export function minerOverhead(distance: number): number {
   return MINER_COST / effectiveLife(distance);
