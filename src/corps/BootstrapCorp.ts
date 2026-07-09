@@ -21,6 +21,7 @@ import {
   ANTI_DOWNGRADE_TRIGGER_TICKS,
   JACK_BODY,
   JACK_COST,
+  jackBodyForCommute,
   SPAWN_COOLDOWN
 } from "./CorpConstants";
 import { Corp, SerializedCorp } from "./Corp";
@@ -337,8 +338,19 @@ export class BootstrapCorp extends Corp {
       return;
     }
 
+    // Size the jack to the commute: long real-map routes want the 1W2C2M
+    // body (~2.6x throughput). Fall back to the standard jack when the bank
+    // can't cover the long body yet - a small jack now beats a big jack later
+    // when the room has zero income.
+    const commute = this.commuteDistance(spawn);
+    let { body, cost } = jackBodyForCommute(commute);
+    if (spawn.room.energyAvailable < cost && spawn.room.energyAvailable >= JACK_COST) {
+      body = JACK_BODY;
+      cost = JACK_COST;
+    }
+
     // Check energy (use room energy to include extensions)
-    if (spawn.room.energyAvailable < JACK_COST) {
+    if (spawn.room.energyAvailable < cost) {
       return;
     }
 
@@ -346,7 +358,7 @@ export class BootstrapCorp extends Corp {
     const name = `jack-${this.id.slice(-6)}-${tick}`;
 
     // Attempt spawn
-    const result = spawn.spawnCreep(JACK_BODY, name, {
+    const result = spawn.spawnCreep(body, name, {
       memory: {
         corpId: this.id,
         workType: "harvest" as const,
@@ -358,9 +370,32 @@ export class BootstrapCorp extends Corp {
 
     if (result === OK) {
       this.creepNames.push(name);
-      this.recordCost(JACK_COST);
-      console.log(`[Bootstrap] Spawned ${name}`);
+      this.recordCost(cost);
+      console.log(`[Bootstrap] Spawned ${name} (${body.length} parts, commute ${commute})`);
     }
+  }
+
+  /** Cached one-way path distance spawn -> this corp's source (tiles). */
+  private commuteCache: number | null = null;
+
+  /**
+   * Real path distance from the spawn to the corp's source, computed once.
+   * Falls back to chebyshev when PathFinder is unavailable (unit tests) or
+   * the search fails (sealed source) - a conservative under-estimate that
+   * just yields the standard jack.
+   */
+  private commuteDistance(spawn: StructureSpawn): number {
+    if (this.commuteCache !== null) return this.commuteCache;
+    const source = Game.getObjectById(this.sourceId as Id<Source>);
+    if (!source) return 0;
+    const cheb = Math.max(Math.abs(spawn.pos.x - source.pos.x), Math.abs(spawn.pos.y - source.pos.y));
+    let dist = cheb;
+    if (typeof PathFinder !== "undefined" && PathFinder.search) {
+      const result = PathFinder.search(spawn.pos, { pos: source.pos, range: 1 }, { plainCost: 2, swampCost: 10, maxRooms: 1 });
+      if (!result.incomplete && result.path.length > 0) dist = result.path.length;
+    }
+    this.commuteCache = dist;
+    return dist;
   }
 
   /**

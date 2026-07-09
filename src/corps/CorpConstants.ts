@@ -35,6 +35,30 @@ export const SCOUT_SPAWN_COOLDOWN = 50;
 export const JACK_BODY: BodyPartConstant[] = [WORK, CARRY, MOVE];
 export const JACK_COST = 200;
 
+/**
+ * Long-commute jack for real-map distances. The 1W1C1M jack was tuned on
+ * synthetic 5-tile rooms; on a captured live room (sources at path ~15-25) it
+ * moves 50 energy per ~2t/tile round trip - ~0.6 e/t - and RCL1->2 takes
+ * ~550 ticks (measured, sim:real shard3 W1N6). The 1W2C2M jack carries double
+ * at 1.5 t/tile loaded (~2.6x throughput) for 1.5x cost, still within the
+ * bare spawn's 300.
+ */
+export const LONG_JACK_BODY: BodyPartConstant[] = [WORK, CARRY, CARRY, MOVE, MOVE];
+export const LONG_JACK_COST = 300;
+
+/** Path distance (spawn -> source) beyond which the long jack pays. */
+export const JACK_LONG_COMMUTE = 10;
+
+/**
+ * Jack body for a given spawn->source path distance. Pure - the distance
+ * comes from the caller (PathFinder in production, a number in tests).
+ */
+export function jackBodyForCommute(pathDistance: number): { body: BodyPartConstant[]; cost: number } {
+  return pathDistance > JACK_LONG_COMMUTE
+    ? { body: LONG_JACK_BODY, cost: LONG_JACK_COST }
+    : { body: JACK_BODY, cost: JACK_COST };
+}
+
 // Note: Miner bodies are now dynamically built by BodyBuilder based on
 // room.energyCapacityAvailable. See spawn/BodyBuilder.ts
 

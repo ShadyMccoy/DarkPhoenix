@@ -247,8 +247,23 @@ export function formatRoomName(x: number, y: number): string {
  * in the same loop. Padding the eight neighbours with empty terrain gives the
  * PathFinder something to read; creeps still have no targets out there, so they
  * never actually leave their room.
+ *
+ * `fill` picks the pad tile. Rooms with border()-sealed layouts can use the
+ * default plain pads (nothing can reach them). Worlds whose real rooms have
+ * OPEN borders - e.g. captured live-map terrain - MUST use "wall" pads:
+ * a plain pad is enterable and has 200 open border tiles of its own, so a
+ * scout walks pad-to-pad until it steps toward a room with NO terrain
+ * registered, and the engine processor dies with "Cannot read properties of
+ * undefined (reading 'terrain')" - freezing the whole bot mid-run (measured:
+ * sim-real-rooms on shard3 W1N6, scout escaped at ~t650 via W0N5 pads).
+ * An all-wall pad satisfies the PathFinder but cannot be entered.
  */
-export async function padNeighborTerrain(world: any, rooms: string[], radius = 1): Promise<void> {
+export async function padNeighborTerrain(
+  world: any,
+  rooms: string[],
+  radius = 1,
+  fill: "plain" | "wall" = "plain"
+): Promise<void> {
   const real = new Set(rooms);
   const needed = new Set<string>();
   for (const name of rooms) {
@@ -262,9 +277,9 @@ export async function padNeighborTerrain(world: any, rooms: string[], radius = 1
       }
     }
   }
-  const empty = Array.from({ length: 50 }, () => ".".repeat(50));
+  const pad = Array.from({ length: 50 }, () => (fill === "wall" ? "#" : ".").repeat(50));
   for (const name of needed) {
-    await applyRoomLayout(world, { room: name, terrain: empty });
+    await applyRoomLayout(world, { room: name, terrain: pad });
   }
 }
 

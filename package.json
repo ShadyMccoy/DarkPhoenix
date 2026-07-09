@@ -35,6 +35,9 @@
     "plan:scenario": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts",
     "plan:scenario:list": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --list",
     "plan:scenario:verbose": "ts-node -P tsconfig.test.json scripts/run-plan-scenarios.ts --verbose",
+    "capture:rooms": "ts-node -P tsconfig.test.json scripts/capture-rooms.ts",
+    "fixtures:index": "ts-node -P tsconfig.test.json scripts/fixture-index.ts",
+    "sim:real": "ts-node -P tsconfig.test.json scripts/sim-real-rooms.ts",
     "sim:cop": "ts-node -P tsconfig.test.json scripts/corp-cop.ts"
   },
   "repository": {

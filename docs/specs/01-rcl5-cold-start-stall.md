@@ -1,5 +1,30 @@
 # 01 — Early-game progression: prod has never reached RCL4
 
+**REAL-TERRAIN COLD START (2026-07-09, measured; diagnosis CORRECTED same
+day)**: on captured live-map terrain (`npm run capture:rooms` + `npm run
+sim:real -- --home W1N6`, shard3 W1N6: 55% walls, source walks 25/38) a fresh
+RCL1 colony appeared to wedge in bootstrap forever. The indefinite freeze was
+a HARNESS bug, not a bot bug: real rooms have open borders, the sim padded
+neighbours with all-plain rooms, and an escaping scout walked pad-to-pad
+until it touched a terrain-less room - killing the engine processor ("Cannot
+read properties of undefined (reading 'terrain')") and freezing the bot from
+~t650. With wall pads (padNeighborTerrain fill="wall") the SAME binary runs
+clean: RCL2 at ~552, first flow miner at 552, and by t2000 the colony has 24
+home creeps + 11 in the neighbour room (organic remote mining on real
+terrain), all 4 sources worked, RCL2+3048.
+
+The surviving bot-side finding: bootstrap takes ~550-600 ticks to RCL2 on
+real distances (vs ~30 on 5-tile synthetic rooms). Distance-aware jack sizing
+landed (jackBodyForCommute: 1W2C2M past a 10-tile commute) and the long jack
+verifiably fields first (commute 26 measured), but RCL2 time barely moved
+(567 vs 552) - at 1 WORK the doubled carry doubles harvest dwell, so the
+commute physics dominates and ~600 ticks IS the honest RCL1 floor for maze
+rooms under the 300-energy body cap. The spec-09 resilience cells
+(boot-real-{open,plain,maze}) pin the whole cold-start pipeline at measured
+windows: RCL2@342/600/567, flow miner +1 tick, hauler +50..130. The earlier
+hypothesis that jacks starve the first flow miner's 250 floor was WRONG -
+the miner spawns the tick RCL2 lands.
+
 **Status:** OPEN — P0. Reframed 2026-06-12: production has never organically
 reached RCL4, so the original subject of this spec (a synthetic RCL5 cold-start
 stall in the test harness) is demoted to a secondary repro — prod never enters

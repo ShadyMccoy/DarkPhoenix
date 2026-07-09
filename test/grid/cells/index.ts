@@ -31,6 +31,7 @@ import {
 import { calibrationCells } from "./calibration";
 import { buildMultiroomT5Cells } from "./multiroom";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
+import { buildResilienceCells } from "./resilience";
 
 export const ALL_CELLS: GridCell[] = [
   ...calibrationCells,
@@ -62,6 +63,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildConstructionT3Cells(),
   ...buildChurnT3Cells(),
   ...buildPlannerT3Cells(),
+  ...buildResilienceCells(),
   ...buildT4SchedulerCells(),
   ...buildSpawnExecT4Cells(),
   ...buildArrivalT4Cells(),

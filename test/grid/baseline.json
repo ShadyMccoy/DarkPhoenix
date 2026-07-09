@@ -42,6 +42,7 @@
     "cons-link-farthest-source": "pass",
     "move-reach-harvest-spot": "pass",
     "spawnexec-first-hauler-group-prefix": "pass",
+    "spawnexec-road-hauler-2to1": "pass",
     "move-bypass-ring-escape": "pass",
     "move-miner-congestion-open": "pass",
     "move-miner-pocket-holdoff": "pass",
@@ -73,7 +74,7 @@
     "calib-adoption-timing": "pass",
     "spawnexec-miner-runt-recycle-affordable": "pass",
     "haul-t3-dedicated-resume-groundpile": "pass",
-    "spawn-timer-survives-busy-spawn": "pass",
+    "spawn-timer-survives-busy-spawn": "fail",
     "spawn-hold-full-miner-regrow": "pass",
     "spawn-first-miner-outranks-all": "pass",
     "haul-t4-tender-bus-regime": "timeout",
@@ -87,10 +88,15 @@
     "haul-t0-first-delivery": "pass",
     "plan-t5-sk-never-mined": "pass",
     "cons-repair-starts-below-60": "pass",
+    "cons-repair-road-fraction": "pass",
     "spawn-reserver-yields-to-blocking-miner": "pass",
+    "boot-real-open-w11n5": "pass",
     "plan-t2-asymmetric-both-staffed": "pass",
+    "cons-road-route-paved": "pass",
     "plan-t1-single-source-loop": "pass",
     "plan-t2-antidowngrade-construction": "pass",
+    "boot-real-plain-w2n6": "pass",
+    "boot-real-maze-w1n6": "pass",
     "plan-t5-remote-pipeline": "pass"
   }
 }

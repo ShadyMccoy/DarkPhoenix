@@ -35,6 +35,8 @@ Conventions used by every spec:
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |
 | 06 | [Expansion: claim the next room](06-expansion.md) | not started | P2 |
 | 07 | [Tower defense (minimal)](07-tower-defense.md) | deferred by owner | P3 |
+| 08 | [Inflection-point grid](08-inflection-grid.md) | runner built; BOT LEVEL 3 ratcheted | ongoing — the success metric |
+| 09 | [Robustness program](09-robustness-program.md) | proposed | P0 (phases 1-2) |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
