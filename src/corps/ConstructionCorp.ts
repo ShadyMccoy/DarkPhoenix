@@ -952,71 +952,75 @@ export class ConstructionCorp extends Corp {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
     }
 
-    // Search in a grid pattern near sources
-    // Extensions near sources = short haul distance for haulers
-    // Checkerboard: only consider tiles where (x + y) % 2 === 0
-    for (const source of sources) {
-      const center = { x: source.pos.x, y: source.pos.y };
-      // Search in area from 2 to 6 tiles away from center
-      for (let dx = -6; dx <= 6; dx++) {
-        for (let dy = -6; dy <= 6; dy++) {
-          // Skip positions too close (< 2 tiles)
-          const dist = Math.max(Math.abs(dx), Math.abs(dy));
-          if (dist < 2) continue;
+    // CLUSTER placement (owner directive 2026-07-09: "proximity to OTHER
+    // extensions and spawns should be a big factor - all in one area so we
+    // can refill them efficiently"). The refill chain is haulers -> core
+    // depot (beside the spawn) -> tender -> extensions, so the refill cost
+    // is the tender's depot<->extension round trip: spawn proximity and
+    // cluster tightness are the whole price, and SOURCE distance is
+    // irrelevant (haulers deliver to the depot wherever extensions sit).
+    // The old source-centered scorer scattered extensions into per-source
+    // patches the tender had to tour.
+    const spawnPos = spawns[0]?.pos;
+    if (!spawnPos) return null;
+    const clusterPoints: Array<{ x: number; y: number }> = [];
+    for (const s of structures) {
+      if (s.structureType === STRUCTURE_EXTENSION) clusterPoints.push({ x: s.pos.x, y: s.pos.y });
+    }
+    for (const s of sites) {
+      if (s.structureType === STRUCTURE_EXTENSION) clusterPoints.push({ x: s.pos.x, y: s.pos.y });
+    }
 
-          const x = center.x + dx;
-          const y = center.y + dy;
+    // Checkerboard tiles within tender range of the spawn.
+    for (let dx = -8; dx <= 8; dx++) {
+      for (let dy = -8; dy <= 8; dy++) {
+        const distToSpawn = Math.max(Math.abs(dx), Math.abs(dy));
+        if (distToSpawn < 2) continue; // keep the spawn ring clear
 
-          // Bounds check
-          if (x < 2 || x > 47 || y < 2 || y > 47) continue;
+        const x = spawnPos.x + dx;
+        const y = spawnPos.y + dy;
+        if (x < 2 || x > 47 || y < 2 || y > 47) continue;
+        if ((x + y) % 2 !== 0) continue; // checkerboard for walkability
+        const terrainType = terrain.get(x, y);
+        if (terrainType === TERRAIN_MASK_WALL) continue;
+        if (avoidPositions.has(`${x},${y}`)) continue;
 
-          // Checkerboard pattern for walkability
-          if ((x + y) % 2 !== 0) continue;
-
-          // Skip walls and swamps (prefer plains)
-          const terrainType = terrain.get(x, y);
-          if (terrainType === TERRAIN_MASK_WALL) continue;
-
-          // Skip avoided positions
-          if (avoidPositions.has(`${x},${y}`)) continue;
-
-          // Ensure at least 3 walkable neighbors (path connectivity)
-          let walkableNeighbors = 0;
-          for (let nx = -1; nx <= 1; nx++) {
-            for (let ny = -1; ny <= 1; ny++) {
-              if (nx === 0 && ny === 0) continue;
-              const tx = x + nx;
-              const ty = y + ny;
-              if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
-              if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
-                walkableNeighbors++;
-              }
+        // At least 3 walkable neighbors (path connectivity)
+        let walkableNeighbors = 0;
+        for (let nx = -1; nx <= 1; nx++) {
+          for (let ny = -1; ny <= 1; ny++) {
+            if (nx === 0 && ny === 0) continue;
+            const tx = x + nx;
+            const ty = y + ny;
+            if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
+            if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
+              walkableNeighbors++;
             }
           }
-          if (walkableNeighbors < 3) continue;
-
-          // Estimate weighted path cost from this position to nearest source
-          // Haulers walk from sources to extensions - shorter = better
-          // Extensions near sources are great: short haul distance + energy available for spawning
-          let minWeightedDist = Infinity;
-          for (const nearSource of sources) {
-            const weightedDist = this.estimatePathCost(x, y, nearSource.pos.x, nearSource.pos.y, terrain);
-            minWeightedDist = Math.min(minWeightedDist, weightedDist);
-          }
-
-          // Score based purely on path cost to sources
-          // Lower path cost = higher score (easier for haulers to fill)
-          const score = 100 - Math.min(minWeightedDist, 50);
-
-          candidates.push({ x, y, score });
         }
+        if (walkableNeighbors < 3) continue;
+
+        // Tight cluster: near the spawn AND near the extensions we already
+        // have. Cohesion weighs as much as spawn proximity so the mass grows
+        // outward ring by ring instead of sprinkling the whole radius; a
+        // small swamp penalty breaks ties toward plains.
+        let cohesion = 0;
+        if (clusterPoints.length > 0) {
+          for (const p of clusterPoints) {
+            cohesion += Math.max(Math.abs(p.x - x), Math.abs(p.y - y));
+          }
+          cohesion /= clusterPoints.length;
+        }
+        const swampPenalty = terrainType === TERRAIN_MASK_SWAMP ? 2 : 0;
+        const score = 100 - distToSpawn * 3 - cohesion * 3 - swampPenalty;
+        candidates.push({ x, y, score });
       }
     }
 
     if (candidates.length === 0) return null;
 
-    // Sort by score descending
-    candidates.sort((a, b) => b.score - a.score);
+    // Deterministic best: score, then y, then x.
+    candidates.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
     return candidates[0];
   }
 

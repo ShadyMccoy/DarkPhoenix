@@ -27,9 +27,9 @@ const sites = (s: { objects(h?: string): any[] }) =>
 /** Every findGridPosition predicate, checked from outside the bot. */
 const obeysGridRules = (site: { x: number; y: number }): boolean =>
   (site.x + site.y) % 2 === 0 && // checkerboard
-  cheb(site, SOURCE) >= 2 &&
-  cheb(site, SOURCE) <= 6 && // clusters near the source
-  cheb(site, SPAWN) > 1 && // clear of the spawn ring
+  cheb(site, SPAWN) >= 2 && // clear of the spawn ring
+  cheb(site, SPAWN) <= 8 && // CLUSTERS around the spawn (tender refill range)
+  cheb(site, SOURCE) >= 2 && // clear of mining tiles
   cheb(site, CONTROLLER) > 2 && // clear of the controller camp
   site.x >= 2 &&
   site.x <= 47 &&

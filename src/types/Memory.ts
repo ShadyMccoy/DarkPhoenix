@@ -316,6 +316,14 @@ declare global {
      */
     assignedSourcePos?: { x: number; y: number; roomName: string };
 
+    /**
+     * The extension tender's sticky fill destination: held until full/gone so
+     * the tender tours the cluster deterministically instead of re-picking
+     * nearest-every-tick (dither). Adjacent needy targets are always filled
+     * opportunistically regardless of this destination.
+     */
+    tendTargetId?: string;
+
     // === Fleet Coordination (Belt/Bus System) ===
 
     /**

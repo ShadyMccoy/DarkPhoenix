@@ -126,16 +126,40 @@ export class ExtensionTenderCorp extends Corp {
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
-      const target = this.fillTargets(room, creep.pos)[0];
-      if (!target) {
+      const targets = this.fillTargets(room, creep.pos);
+      if (targets.length === 0) {
         // Nothing to fill: idle on the depot so the next burst is served instantly.
         if (depot && !creep.pos.isNearTo(depot)) travelTo(creep, depot, { range: 1 });
         return;
       }
-      if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        travelTo(creep, target, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
-      } else {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY)));
+
+      // NEVER walk past an empty extension (owner directive 2026-07-09):
+      // whatever the current destination, if ANY needy target is adjacent
+      // right now, fill it THIS tick - the transfer is free alongside the
+      // move, so the tender is filling every tick it possibly can.
+      const adjacent = targets.find(t => creep.pos.isNearTo(t.pos));
+      if (adjacent) {
+        creep.transfer(adjacent, RESOURCE_ENERGY);
+        this.recordProduction(
+          Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY))
+        );
+      }
+
+      // Sticky destination: keep walking to the SAME target until it is full
+      // or gone, instead of re-picking nearest-every-tick (which dithers
+      // between equidistant extensions and produced the measured "random
+      // pattern" tour). Re-pick only when the held target no longer needs.
+      let dest = creep.memory.tendTargetId
+        ? targets.find(t => t.id === creep.memory.tendTargetId)
+        : undefined;
+      if (!dest) {
+        dest = targets[0]; // nearest needy
+        creep.memory.tendTargetId = dest.id;
+      }
+      if (!adjacent || adjacent.id !== dest.id) {
+        if (!creep.pos.isNearTo(dest.pos)) {
+          travelTo(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        }
       }
       return;
     }
