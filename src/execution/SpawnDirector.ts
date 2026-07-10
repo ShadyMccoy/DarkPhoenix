@@ -15,7 +15,14 @@
  */
 
 import "../types/Memory";
-import { ScheduleContext, SpawnDemand, SpawnDemandContext, scheduleSpawn } from "../spawn/SpawnScheduler";
+import {
+  ScheduleContext,
+  SpawnDemand,
+  SpawnDemandContext,
+  scheduleSpawn,
+  spawnPriority,
+  starvationBoost
+} from "../spawn/SpawnScheduler";
 import { CorpRegistry } from "./CorpRunner";
 import { commissionedCorpsOfKind } from "./CommissionHost";
 import { ReservationCorp } from "../corps/ReservationCorp";
@@ -85,6 +92,13 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         const first = firstSeen[key] ?? (firstSeen[key] = Game.time);
         d.since = first;
       }
+      // THE NOW PLAN (spec 11 phase 1, pure observability): publish this
+      // spawn's ordered acquisition queue - what the scheduler EXPECTS to buy,
+      // in rank order, with costs and funding flags - plus the outstanding
+      // producer funding need (the number the flow adapter will later add to
+      // the spawn sink's capacity so energy streams here while production has
+      // bodies to buy). Zero behavior change: the scheduler still decides.
+      publishSpawnAgenda(spawn.id, demands);
       if (demands.length === 0) continue;
 
       const ctx: ScheduleContext = {
@@ -247,4 +261,32 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
   const bootstrap = registry.bootstrapCorps[room.name];
   if (bootstrap) deliverers += bootstrap.getCreepCount();
   return deliverers * 10;
+}
+
+/**
+ * Publish the NOW plan (docs/specs/11): the ordered acquisition queue this
+ * spawn expects to work through, derived from the same demands and ranking
+ * the scheduler uses. Observability first - W2N6-class sequencing bugs
+ * ("granted 6x minerB against target 1", "reserver waited 1800 ticks")
+ * become one-line agenda-vs-actual violations instead of archaeology. The
+ * fundingNeed sums the minimum bodies of must-fund demands (blocking,
+ * replacement, holdToFund): the energy production is asking for RIGHT NOW,
+ * for the flow adapter to route toward the spawn network (spec 11 phase 2).
+ */
+function publishSpawnAgenda(spawnId: string, demands: SpawnDemand[]): void {
+  if (typeof Memory === "undefined") return;
+  const ranked = [...demands].sort(
+    (a, b) =>
+      spawnPriority(b) + starvationBoost(b, Game.time) - (spawnPriority(a) + starvationBoost(a, Game.time))
+  );
+  const agenda = ranked.slice(0, 8).map(d => ({
+    role: d.role,
+    corp: d.buyerCorpId,
+    minCost: d.minCost,
+    desiredCost: d.desiredCost,
+    mustFund: d.blocking || d.replacement === true || d.holdToFund === true
+  }));
+  const fundingNeed = agenda.reduce((sum, a) => sum + (a.mustFund ? a.minCost : 0), 0);
+  const table = (Memory.spawnAgenda ??= {});
+  table[spawnId] = { tick: Game.time, fundingNeed, queue: agenda };
 }

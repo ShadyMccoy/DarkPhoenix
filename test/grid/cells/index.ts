@@ -23,6 +23,7 @@ import { buildHaulingCells, buildHaulingT3Cells, buildHaulingT4Cells } from "./h
 import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, buildPlannerT4Cells, plannerCells } from "./planner";
 import { buildStatefulMovementCells, buildT2MovementCells, buildT3MovementCells, movementCells } from "./movement";
 import {
+  buildAgendaFidelityCells,
   buildStatefulSchedulerCells,
   buildT2SchedulerCells,
   buildT3SchedulerCells,
@@ -54,6 +55,7 @@ export const ALL_CELLS: GridCell[] = [
   ...plannerCells,
   ...buildPlannerT1Cells(),
   ...buildT2SchedulerCells(),
+  ...buildAgendaFidelityCells(),
   ...buildPlannerT2Cells(),
   ...buildT2MovementCells(),
   ...buildArrivalT2Cells(),

@@ -143,6 +143,22 @@ declare global {
     roomIntel?: { [roomName: string]: RoomIntel };
 
     /**
+     * THE NOW PLAN (docs/specs/11): per spawn, the ordered acquisition queue
+     * the scheduler expects to work through (rank order, costs, must-fund
+     * flags) plus the outstanding producer fundingNeed. Published by
+     * SpawnDirector each evaluation tick; observability first - the
+     * agenda-fidelity cell asserts spawns match the head, and the flow
+     * adapter (phase 2) routes fundingNeed toward the spawn network.
+     */
+    spawnAgenda?: {
+      [spawnId: string]: {
+        tick: number;
+        fundingNeed: number;
+        queue: Array<{ role: string; corp: string; minCost: number; desiredCost: number; mustFund: boolean }>;
+      };
+    };
+
+    /**
      * Serialized bootstrap corps by room name.
      */
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };

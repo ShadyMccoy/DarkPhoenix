@@ -688,3 +688,76 @@ export const spawnSchedulerCells: GridCell[] = [
     ],
   },
 ];
+
+/**
+ * Agenda fidelity (spec 11 phase 1): every creep the colony actually spawns
+ * must match the head of the last PUBLISHED agenda (Memory.spawnAgenda) - the
+ * one-line observable that turns sequencing bugs ("granted 6x minerB against
+ * target 1", "the reserver waited 1800 ticks") from archaeology into a cell
+ * verdict. Tolerance: top-2 entries, because the agenda re-publishes each
+ * evaluation tick and a same-tick recompute can legitimately swap adjacent
+ * entries (e.g. a demand satisfied by the very spawn being checked).
+ */
+export function buildAgendaFidelityCells(): GridCell[] {
+  let knownCreeps: Set<string> | null = null;
+  let lastQueue: Array<{ role: string; corp: string }> = [];
+  let agendaSeen = false;
+  let violations = 0;
+
+  const ROLE_BY_WORKTYPE: Record<string, string> = {
+    harvest: "miner",
+    haul: "hauler",
+    upgrade: "upgrader",
+    build: "builder",
+    tank: "tanker",
+    scout: "scout",
+    reserve: "reserver",
+  };
+
+  return [
+    {
+      // A busy two-source RCL2 ramp: many demands compete, so the agenda is
+      // exercised across roles - and every organic spawn must match its head.
+      id: "agenda-t2-spawns-match-head",
+      tier: 2,
+      avenue: "plan-fidelity",
+      window: 400,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 12).source(18, 32).source(32, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      assertions: [
+        eventually("the agenda is published", (s) => {
+          const table = s.memory?.spawnAgenda ?? {};
+          if (Object.values(table).some((a: any) => (a?.queue ?? []).length > 0)) agendaSeen = true;
+          return agendaSeen;
+        }),
+        always("every spawn matches the agenda head (top-2 tolerance)", (s) => {
+          const names = new Set(Object.keys(s.memory?.creeps ?? {}));
+          if (knownCreeps === null) {
+            knownCreeps = names;
+            return true;
+          }
+          for (const name of names) {
+            if (knownCreeps.has(name)) continue;
+            // Jacks are bootstrap machinery, outside the agenda's scope.
+            if (name.startsWith("jack-")) continue;
+            const mem: any = s.memory?.creeps?.[name];
+            const role = ROLE_BY_WORKTYPE[mem?.workType] ?? mem?.workType;
+            const top = lastQueue.slice(0, 2);
+            const matches = top.some((q) => q.role === role && q.corp === mem?.corpId);
+            if (!matches && lastQueue.length > 0) violations += 1;
+          }
+          knownCreeps = names;
+          // Capture the agenda AFTER the diff: it predicts the NEXT spawn.
+          const table: any = s.memory?.spawnAgenda ?? {};
+          const first: any = Object.values(table)[0];
+          lastQueue = (first?.queue ?? []).map((q: any) => ({ role: q.role, corp: q.corp }));
+          return violations === 0;
+        }, 20),
+      ],
+    },
+  ];
+}
