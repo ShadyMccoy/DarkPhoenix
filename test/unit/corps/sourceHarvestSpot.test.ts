@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
-import { setupGlobals, FIND_STRUCTURES, STRUCTURE_CONTAINER } from "../mock";
+import { setupGlobals, FIND_STRUCTURES, FIND_SOURCES, FIND_MINERALS, STRUCTURE_CONTAINER } from "../mock";
 import { sourceHarvestSpot, bestAdjacentTile } from "../../../src/corps/nodeEnergy";
 
 const FIND_MY_CONSTRUCTION_SITES = 114;
@@ -102,5 +102,48 @@ describe("sourceHarvestSpot (miner / container / pickup converge on one tile)", 
     const spot = sourceHarvestSpot(source, { x: 40, y: 40, roomName: "W0N0" } as any);
     // (11,11) walled, (11,10) occupied -> next nearest to the SE spawn is (10,11).
     expect({ x: spot.x, y: spot.y }).to.deep.equal({ x: 10, y: 11 });
+  });
+});
+
+/**
+ * bestAdjacentTile must never return a source or mineral tile: no buildable
+ * structure fits there (createConstructionSite -> ERR_INVALID_TARGET). This bit
+ * source-link placement, which asks for a tile ADJACENT to the harvest spot -
+ * range that includes the source's own tile - and looped on -7 forever because
+ * the source never moves. (Sources/minerals aren't FIND_STRUCTURES, so the
+ * structure/site scans miss them.)
+ */
+describe("bestAdjacentTile (excludes source and mineral tiles)", () => {
+  beforeEach(() => setupGlobals());
+
+  function roomWith(opts: { sources?: { x: number; y: number }[]; minerals?: { x: number; y: number }[] }): any {
+    const sources = (opts.sources ?? []).map(s => ({ pos: { x: s.x, y: s.y, roomName: "W0N0" } }));
+    const minerals = (opts.minerals ?? []).map(m => ({ pos: { x: m.x, y: m.y, roomName: "W0N0" } }));
+    return {
+      name: "W0N0",
+      getTerrain: () => ({ get: () => 0 }),
+      find: (type: number) => {
+        if (type === FIND_SOURCES) return sources;
+        if (type === FIND_MINERALS) return minerals;
+        return []; // no structures or sites
+      },
+    };
+  }
+
+  it("does not pick the source tile even when it is the nearest-spawn candidate", () => {
+    // Source at (10,10); ask for a tile adjacent to the harvest spot (11,10). The
+    // source tile (10,10) is in range and nearest the western spawn - it must be
+    // rejected in favour of another walkable neighbour.
+    const room = roomWith({ sources: [{ x: 10, y: 10 }] });
+    const spawnPos = { x: 1, y: 10, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 10, y: 10 });
+  });
+
+  it("does not pick a mineral tile", () => {
+    const room = roomWith({ minerals: [{ x: 10, y: 10 }] });
+    const spawnPos = { x: 1, y: 10, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 10, y: 10 });
   });
 });
