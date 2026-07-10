@@ -40,6 +40,23 @@ import { commissionsFromPlan } from "./commissionPlan";
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
 
+/** Ticks over which the agenda's funding need amortizes into a flow rate. */
+export const FUND_HORIZON = 50;
+
+/**
+ * The spawn's outstanding must-fund bodies (Memory.spawnAgenda.fundingNeed,
+ * spec 11) as an energy/tick rate: bank the queued bodies within roughly one
+ * re-solve horizon. Stale agendas (spawn busy/skipped > 100 ticks) decay to
+ * zero so a dead table entry cannot siphon flow forever.
+ */
+export function agendaFundingRate(sinkId: string): number {
+  if (typeof Memory === "undefined" || typeof Game === "undefined") return 0;
+  const spawnId = sinkId.replace("spawn-", "");
+  const entry = Memory.spawnAgenda?.[spawnId];
+  if (!entry || Game.time - entry.tick > 100) return 0;
+  return entry.fundingNeed / FUND_HORIZON;
+}
+
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
 function toSinkKind(type: SinkType): SinkKind | null {
   switch (type) {
@@ -161,7 +178,16 @@ export function buildColonyProblem(
       value: DEFAULT_SINK_VALUE[kind],
       capacity:
         kind === "spawn"
-          ? Math.max(sink.demand, 1) // feed the spawn its overhead need
+          ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,
+            // owner doctrine "production over consumption"): while the spawn's
+            // published queue holds must-fund bodies (blocking, replacement,
+            // holdToFund), the solver routes their financing here instead of
+            // spilling it to build/controller - the energy arrives exactly
+            // while production has something to buy, and reverts to surplus
+            // consumption when the queue drains. Measured absence: the
+            // reserver waited 1800+ ticks behind chained holds because its
+            // 650 never banked (task #30).
+            Math.max(sink.demand, 1) + agendaFundingRate(sink.id)
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
