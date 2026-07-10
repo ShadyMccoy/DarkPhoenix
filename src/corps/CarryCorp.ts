@@ -332,7 +332,7 @@ export class CarryCorp extends Corp {
       // Re-assign only when it has no circuit or its route's flow has vanished
       // (e.g. construction finished).
       const home = creep.memory.homeSink as LocalSink | undefined;
-      if (!home || !this.committedSinkHasFlow(home) || this.foundingUnstaffed(home)) {
+      if (!home || !this.committedSinkHasFlow(home) || this.foundingUnderstaffed(home)) {
         this.assignCircuit(creep);
       }
       // This trip's destination is decided ONCE, here: top up a hungry spawn
@@ -604,17 +604,25 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * A founding route with positive flow and NO committed hauler: circuits are
-   * permanent, so when the founding sink appears mid-life every hauler would
-   * otherwise keep its old circuit and the new room starved until a fresh
-   * hauler happened to spawn (measured: first delivery at t=1260 of a 1400t
-   * window). The first full hauler to notice re-runs assignCircuit; the
-   * committed-count proportionality sends exactly that one to the founding.
+   * A founding route staffed BELOW its proportional share of this corp's
+   * fleet: circuits are permanent (spawn is always a valid home), so when the
+   * founding sink appears mid-life no committed hauler would ever re-evaluate
+   * and the new room got exactly one body regardless of how much flow the
+   * solver routed there (measured: first delivery t=1260 of 1400 with zero;
+   * still delivery-starved and high-variance with the single-hauler version).
+   * Full haulers re-run assignCircuit while founding trails its share; the
+   * committed-count proportionality routes exactly the trailing ones there,
+   * and the per-trip spawn-critical override still tops a hungry spawn first.
    */
-  private foundingUnstaffed(home: LocalSink): boolean {
+  private foundingUnderstaffed(home: LocalSink): boolean {
     if (home === "founding") return false;
-    if (this.flowsBySink().founding <= 0) return false;
-    return !this.getAssignedCreeps().some(h => h.memory.homeSink === "founding");
+    const flows = this.flowsBySink();
+    if (flows.founding <= 0) return false;
+    const total = flows.spawn + flows.controller + flows.founding;
+    const fleet = this.getAssignedCreeps();
+    const committed = fleet.filter(h => h.memory.homeSink === "founding").length;
+    const share = Math.max(1, Math.floor((flows.founding / total) * fleet.length));
+    return committed < share;
   }
 
   /**

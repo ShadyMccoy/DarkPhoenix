@@ -168,9 +168,26 @@ export class ConstructionCorp extends Corp {
    * new room's corps attribute to the parent spawn until its own stands).
    * Falls back to the spawn's room without vision.
    */
-  private workRoom(spawn: StructureSpawn): Room {
+  private workRoom(spawn: StructureSpawn): Room | null {
     const roomName = this.nodeId.replace(/-construction$/, "");
-    return Game.rooms[roomName] ?? spawn.room;
+    const room = Game.rooms[roomName];
+    if (room) return room;
+    // Same-room corps always resolve; a CROSS-ROOM corp (founding, remote
+    // containers) without vision must NOT fall back to the spawn's room -
+    // operating on home would double the home corp's sites and demands.
+    return roomName === spawn.room.name ? spawn.room : null;
+  }
+
+  /**
+   * A workRoom we build in but do not own: a reserved remote-mining room
+   * (spec: remote source containers). Its only construction rung is the
+   * pile-gated source container - no extensions/depot/storage/links/roads,
+   * no dedicated-source reservation (that would stand down the remote's own
+   * haul route), no tankers (the builder eats the pile at the site, which is
+   * the whole point: the build is funded by energy that was decaying anyway).
+   */
+  private isRemoteWorkRoom(room: Room): boolean {
+    return !room.controller?.my;
   }
 
   /**
@@ -186,6 +203,10 @@ export class ConstructionCorp extends Corp {
     }
 
     const workRoom = this.workRoom(spawn);
+    if (!workRoom) {
+      this.targetBuilders = 0;
+      return;
+    }
     const constructionSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) {
       // Nothing to build, but containers decay - keep one builder while any needs
@@ -223,8 +244,20 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return;
 
     const room = this.workRoom(spawn);
+    if (!room) return; // cross-room corp without vision this tick
     const controller = room.controller;
     if (!controller) return;
+
+    if (this.isRemoteWorkRoom(room)) {
+      // Remote rung: one source container at a time, triggered by the pile
+      // threshold (findMissingSourceContainer), built from that same pile.
+      if (room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) {
+        const spot = this.findMissingSourceContainer(room);
+        if (spot) this.placeSite(room, spot.x, spot.y, STRUCTURE_CONTAINER, 0);
+      }
+      this.builders.run(creep => this.runBuilder(creep, room), spawn);
+      return;
+    }
 
     // Build one structure at a time (a queue, not a spread): only place the next
     // construction site when there are NO active sites in the room. Concentrating
@@ -359,6 +392,10 @@ export class ConstructionCorp extends Corp {
     // crew actually use it (a 10/tick source -> a 2-WORK builder) instead of being
     // capped at the flow's smaller nominal share and leaving the source half-idle.
     let buildEnergy = this.getTotalAllocatedEnergy();
+    // A remote workRoom gets NO flow allocation (the solver only admits owned
+    // rooms' sites) and needs none: the crew is funded entirely by the source
+    // pile at the site, so let the stock cap below be the sizing authority.
+    if (this.isRemoteWorkRoom(room)) buildEnergy = Number.POSITIVE_INFINITY;
     const dedicated = room.memory.dedicatedBuildSourceId;
     if (dedicated) {
       const src = Game.getObjectById(dedicated as Id<Source>);
@@ -1413,6 +1450,7 @@ export class ConstructionCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const workRoom = this.workRoom(spawn);
+    if (!workRoom) return [];
     const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
       // No sites, but containers decay: field one small builder to maintain them.
@@ -1426,6 +1464,11 @@ export class ConstructionCorp extends Corp {
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
+
+    // A remote workRoom never fields feeders: the builder eats the source
+    // pile at the site, and a tanker's home-side refuel loop would just walk
+    // energy across the border that the pile already provides for free.
+    if (this.isRemoteWorkRoom(workRoom)) return builderDemand;
 
     const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, sites[0]));
     return [...builderDemand, ...tankerDemand];

@@ -27,6 +27,7 @@ import { SinkAllocation } from "../../flow/FlowTypes";
 import { buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
+import { hostileRooms } from "../../utils/RoomDiscovery";
 
 /** The construction commission's binding: the room, its spawn, and the flow's
  * construction-energy allocations for that room (for builder sizing). */
@@ -34,6 +35,28 @@ export interface ConstructionAssignment {
   roomName: string;
   spawnId: string;
   allocations: SinkAllocation[];
+}
+
+/**
+ * Rooms our miners currently work that nobody owns (mirrors
+ * ReservationCorp.targetRooms): candidates for the remote source-container
+ * rung. Hostile-marked rooms are excluded (defense economics) and SK /
+ * controller-less rooms are skipped - we only invest where we can hold the
+ * ground with a reservation.
+ */
+function remoteMinedRooms(): Set<string> {
+  const out = new Set<string>();
+  if (typeof Game === "undefined" || !Game.creeps) return out;
+  const danger = hostileRooms();
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.workType !== "harvest") continue;
+    const controller = creep.room?.controller;
+    if (!controller || controller.my || controller.owner) continue;
+    if (danger.has(creep.room.name)) continue;
+    out.add(creep.room.name);
+  }
+  return out;
 }
 
 /** Reconstruct a construction SinkAllocation from a build commission's sink. */
@@ -79,8 +102,12 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // founding: spec 06 audit "attribute the new room's corps to the PARENT
     // spawn until the new spawn stands") still gets its construction corp,
     // staffed from the nearest spawn - builders walk over, exactly like a
-    // remote miner walks to its post.
-    for (const roomName of allocByRoom.keys()) {
+    // remote miner walks to its post. REMOTELY-MINED rooms join the same
+    // path (remote source containers): the corp's remote rung is pile-gated
+    // and pile-funded, so commissioning one for every room our miners work
+    // costs nothing until a source is measurably bleeding on the ground.
+    const spawnlessRooms = new Set([...allocByRoom.keys(), ...remoteMinedRooms()]);
+    for (const roomName of spawnlessRooms) {
       if (homeSpawnByRoom.has(roomName)) continue;
       let best = problem.spawns[0];
       if (!best) continue;

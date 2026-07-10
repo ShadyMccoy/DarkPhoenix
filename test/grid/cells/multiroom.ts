@@ -365,7 +365,32 @@ export function buildMultiroomT5Cells(): GridCell[] {
             .objects("east")
             .some((o) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("reserver-"))
         ),
-
+        // Remote source containers: once the remote miner's pile crosses the
+        // placement threshold, the remote construction corp (commissioned for
+        // any room our miners work, staffed from home) places a container
+        // site at the harvest spot...
+        eventually("a container site is placed at the remote source", (s) => {
+          const src = s.objects("east").find((o) => o.type === "source");
+          if (!src) return false;
+          return s
+            .objects("east")
+            .some(
+              (o) =>
+                o.type === "constructionSite" &&
+                o.structureType === "container" &&
+                Math.max(Math.abs(o.x - src.x), Math.abs(o.y - src.y)) <= 1
+            );
+        }),
+        // ...and its pile-funded builder walks out and starts converting the
+        // decaying ground energy into the container. (Completion mechanics are
+        // pinned by the T2 container-completes cell; at the organic timeline's
+        // pace the 5k build straddles the window edge, so the pipeline cell
+        // asserts the investment is UNDERWAY, not finished.)
+        eventually("the remote container build is underway", (s) =>
+          s
+            .objects("east")
+            .some((o) => o.type === "constructionSite" && o.structureType === "container" && (o.progress ?? 0) > 0)
+        ),
       ],
     },
 
