@@ -49,6 +49,16 @@ export interface SpawnDemand {
   value: number;
   /** True if the colony's economy is stalled until this creep exists. */
   blocking: boolean;
+  /**
+   * True when this demand exists because a live incumbent entered its
+   * replacement lead window (staffsPost excluded it): the post is still
+   * served TODAY but goes dark on schedule unless this body banks NOW.
+   * Holds like `blocking` (mustFund) without being mislabeled an emergency -
+   * measured on W2N6: without a hold, cheap demand streams kept the bank
+   * under the replacement body's cost until the incumbent died, degrading
+   * the delivery contract to reactive replacement plus a death-gap scramble.
+   */
+  replacement?: boolean;
   /** True if this creep increases energy delivery (miner/hauler). */
   producesIncome: boolean;
   /**
@@ -317,7 +327,7 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     // tempo should not wait on.
     const fundableIncome =
       demand.producesIncome && (demand.holdToFund === true || starvationBoost(demand, ctx.tick) > 0);
-    const mustFund = demand.blocking || fundableIncome;
+    const mustFund = demand.blocking || demand.replacement === true || fundableIncome;
     if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand

@@ -538,8 +538,13 @@ export class HarvestCorp extends Corp {
         // income corp outranks opening a fresh one), not by withholding the block here.
         // PHYSICAL count, not the delivery-aware one: a lead-time replacement's
         // incumbent is still mining, so the source is not dark and the demand
-        // must not trigger the scheduler's blocking energy hold every generation.
+        // must not claim the blocking EMERGENCY class every generation.
         blocking: this.getTotalCreepCount() === 0,
+        // ...but a demand caused by an excluded live incumbent still needs
+        // the scheduler's hold (mustFund), or cheap demand streams starve the
+        // body until the incumbent dies (measured, W2N6 - the death-gap
+        // scramble the delivery contract exists to prevent).
+        replacement: this.getTotalCreepCount() > current,
         producesIncome: true,
         desiredCost: desired.cost,
         minCost: min.cost,

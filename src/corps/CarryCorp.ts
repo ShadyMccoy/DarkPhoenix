@@ -966,6 +966,9 @@ export class CarryCorp extends Corp {
         // its circuit, so nothing is stranded and the demand must not trigger
         // the scheduler's strict blocking hold every hauler generation.
         blocking: this.getCreepCount() === 0,
+        // Excluded live incumbents make this a replacement: it must HOLD
+        // (mustFund) or cheap streams starve it until the incumbent dies.
+        replacement: this.getCreepCount() > current,
         producesIncome: true,
         desiredCost,
         minCost,

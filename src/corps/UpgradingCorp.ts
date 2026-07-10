@@ -441,6 +441,9 @@ export class UpgradingCorp extends Corp {
         // additional upgraders are scaling capacity (non-blocking). Any-form
         // count: a lead-time replacement is not "the controller stalled".
         blocking: !anyUpgrader,
+        // Excluded live incumbents make this a replacement: it must HOLD
+        // (mustFund) or cheap streams starve it until the incumbent dies.
+        replacement: this.getCreepCount() > current,
         producesIncome: false,
         desiredCost: desired.cost,
         minCost: min.cost,

@@ -122,6 +122,27 @@ describe("SpawnScheduler", () => {
         expect(result).to.equal(null);
       });
 
+      it("holds for an unaffordable REPLACEMENT demand (delivery contract funding)", () => {
+        // A lead-time replacement is deliberately NOT blocking (its incumbent
+        // still works), but without a hold, cheap demand streams keep the bank
+        // under its body cost until the incumbent dies - measured on W2N6
+        // (60+ ticks of unmet replacement demand, then a death-gap scramble).
+        // `replacement: true` demands hold exactly like blocking ones.
+        const replacementMiner = demand({
+          buyerCorpId: "minerR", role: "miner", value: 100, blocking: false,
+          replacement: true, producesIncome: true, minCost: 250, desiredCost: 250,
+          groupId: "srcA", groupStarted: true, // income tier, like the director stamps
+        });
+        const cheapTanker = demand({
+          buyerCorpId: "tanker", role: "tanker", value: 94, blocking: true,
+          minCost: 100, desiredCost: 150,
+        });
+        const result = scheduleSpawn([replacementMiner, cheapTanker], ctx({
+          energyAvailable: 150, energyCapacity: 550, energyIncome: 0,
+        }));
+        expect(result).to.equal(null); // bank accumulates toward the 250 body
+      });
+
       it("declines even a lower-ranked BLOCKING demand while holding for a producer", () => {
         // SEMANTIC CHANGE (2026-07-09, measured on W2N6): the old rule let any
         // lower blocking demand spend during a hold, assuming blocking demands
