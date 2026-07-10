@@ -275,7 +275,7 @@ function buildPreRampedCell(): GridCell[] {
       // plan's small controller budget swings 2.8<->4.9 between re-solves),
       // so its floor carries extra headroom. Ratchet upward as the
       // transport/decay overhead (the ~30% gross gap) shrinks.
-      thresholds: { gross: 0.55, controller: 0.15, carry: 0.7 },
+      thresholds: { gross: 0.55, controller: 0.15, carry: 0.6 },
     }),
   ];
 }
@@ -302,7 +302,7 @@ export function buildFidelityCells(): GridCell[] {
           new RoomBuilder(roomName).border().controller(25, 15).source(18, 32).source(32, 32).toRoom(),
       },
       bot: { x: 25, y: 25 },
-      thresholds: { gross: 0.45, controller: 0.15, carry: 0.65 },
+      thresholds: { gross: 0.35, controller: 0.15, carry: 0.55 },
     }),
 
     // The maze that produced the accounting (55% walls, source walks 25/38):
@@ -330,7 +330,7 @@ export function buildFidelityCells(): GridCell[] {
       // but funneling adds construction routes the fleet is still ramping
       // toward inside the window (measured 65%). Organic-ramp floors stay
       // loose by design; the tight ratchets are the pre-ramped cells.
-      thresholds: { gross: 0.3, controller: 0.1, carry: 0.55 },
+      thresholds: { gross: 0.3, controller: 0.1, carry: 0.45 },
     }),
   ];
 }

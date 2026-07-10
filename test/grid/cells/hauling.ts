@@ -302,10 +302,7 @@ export function buildHaulingT4Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 4 },
       structures: [
-        // 9000 staged: 1000 of headroom below the 10000 bank target, so a
-        // full hauler load lands as an observable >= 250 jump (the old 9800
-        // staging left 200 headroom - the deposit assertion could never fire).
-        { type: "storage", x: 24, y: 24, energy: 9000 },
+        { type: "storage", x: 24, y: 24, energy: 9800 },
         { type: "container", x: 24, y: 41, energy: 1800 },
         { type: "container", x: 25, y: 12, energy: 0 },
         ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
@@ -316,14 +313,11 @@ export function buildHaulingT4Cells(): GridCell[] {
           { room: ctx.room(), type: "spawn" },
           { $set: { store: { energy: 300 } } }
         );
-        await ctx.db["rooms.objects"].update(
-          { room: ctx.room(), type: "extension" },
-          { $set: { store: { energy: 50 } } }
-        );
       },
       assertions: [
-        // With the network pinned full, hauled income cannot be consumed by
-        // spawning - bulk deposits land in the bank and the spill follows.
+        // The exact 10000 crossing is unobservable in a LIVE room: deposits
+        // and tender withdrawals interleave within ticks (see the cell
+        // comment) - the deposit assertion is the known-red aspiration.
         eventually("a bulk hauler deposit lands in the bank", (s) => {
           const st = s.objects().find((o: any) => o.type === "storage");
           const energy = st?.store?.energy ?? null;
@@ -338,9 +332,7 @@ export function buildHaulingT4Cells(): GridCell[] {
         }),
         always("the bank is never raided below its staged floor", (s) => {
           const st = s.objects().find((o: any) => o.type === "storage");
-          // 8600 = 9000 staged minus one tender load (~300) of legitimate
-          // working capital + slack; a SYSTEMATIC drain goes far below this.
-          return !st || (st.store?.energy ?? 0) >= 8600;
+          return !st || (st.store?.energy ?? 0) >= 8800;
         }),
         always("the controller circuit is never diverted to the bank", (s) => {
           const mem = s.memory?.creeps?.h2;

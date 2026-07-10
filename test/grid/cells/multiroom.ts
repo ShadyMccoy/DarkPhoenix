@@ -320,11 +320,13 @@ export function buildMultiroomT5Cells(): GridCell[] {
       // home-saturation gate + spawn-then-recycle (this cell's findings,
       // spec 01) made the timeline LATER but stable: home saturates ~500,
       // remote opens at the next refresh+replan, mining ~1100, dispatch
-      // after. 1500 covers it with margin.
+      // after. 1800 (was 1500): the stock-grounded consumer doctrine leans
+      // the ramp fleet, shifting the whole organic timeline ~10-20% later -
+      // dispatch previously landed ~1098, then missed 1500 post-doctrine.
       id: "plan-t5-remote-pipeline",
       tier: 5,
       avenue: "planning-economy",
-      window: 1500,
+      window: 1800,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
@@ -392,8 +394,13 @@ export function buildMultiroomT5Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 2 },
       assertions: [
-        eventually("the keeper room is scouted (exclusion is exercised)", (s) =>
-          s.memory?.roomIntel?.["W4N4"] !== undefined
+        // POLICY CHANGE (8fe0ca2): scouts no longer enter SK rooms at all -
+        // keepers kill them and SK sources are never mined - so exclusion is
+        // structural, not exercised-via-intel. The cell now asserts NOTHING
+        // of ours ever sets foot there (the old "scouted" eventually would
+        // wait forever by design).
+        always("no creep of ours ever enters the keeper room", (s) =>
+          !s.objects("sk").some((o) => o.type === "creep" && o.user === s.userId)
         ),
         always("the keeper source is never planned", (s) => {
           const src = s.objects("sk").find((o) => o.type === "source");

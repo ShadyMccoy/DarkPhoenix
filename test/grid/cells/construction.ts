@@ -359,17 +359,27 @@ export function buildConstructionT2Cells(): GridCell[] {
           if (a) maxAHits = Math.max(maxAHits, a.hits ?? 0);
           return maxAHits >= 240000;
         }),
-        always("no container ever exceeds the 99% ceiling", (s) =>
-          s
-            .objects()
-            .filter((o) => o.type === "container")
-            .every((o) => (o.hits ?? 0) <= 247500 + 1100)
+        // graceTicks 2: helper containers stage at FULL hits (250000) and only
+        // drop under the ceiling when the engine's first decay event fires -
+        // a race the batch composition can flip (measured: fail @1 in full
+        // runs, pass solo). The invariants are about REPAIR behavior.
+        always(
+          "no container ever exceeds the 99% ceiling",
+          (s) =>
+            s
+              .objects()
+              .filter((o) => o.type === "container")
+              .every((o) => (o.hits ?? 0) <= 247500 + 1100),
+          2
         ),
-        always("never tops out to full", (s) =>
-          s
-            .objects()
-            .filter((o) => o.type === "container")
-            .every((o) => (o.hits ?? 0) < CONTAINER_FULL)
+        always(
+          "never tops out to full",
+          (s) =>
+            s
+              .objects()
+              .filter((o) => o.type === "container")
+              .every((o) => (o.hits ?? 0) < CONTAINER_FULL),
+          2
         ),
       ],
     },
