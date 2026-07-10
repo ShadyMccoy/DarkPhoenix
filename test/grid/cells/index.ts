@@ -30,6 +30,7 @@ import {
   spawnSchedulerCells,
 } from "./spawn-scheduler";
 import { calibrationCells } from "./calibration";
+import { buildDefenseCells } from "./defense";
 import { buildFidelityCells } from "./fidelity";
 import { buildJourneyCells } from "./journey";
 import { buildMultiroomT5Cells } from "./multiroom";
@@ -68,6 +69,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildChurnReplacementCells(),
   ...buildPlannerT3Cells(),
   ...buildResilienceCells(),
+  ...buildDefenseCells(),
   ...buildT4SchedulerCells(),
   ...buildSpawnExecT4Cells(),
   ...buildArrivalT4Cells(),

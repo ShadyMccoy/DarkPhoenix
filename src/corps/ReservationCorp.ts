@@ -14,6 +14,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { hostileRooms } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
 import { Position } from "../types/Position";
@@ -149,7 +150,10 @@ export class ReservationCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
 
-    const targets = this.targetRooms(spawn.room.name, spawn.owner?.username);
+    // DEFENSE ECONOMICS (owner 2026-07-10): don't send reservers into rooms
+    // held by hostiles (sighted, or inside a sighted hostile's TTL bound).
+    const danger = hostileRooms();
+    const targets = this.targetRooms(spawn.room.name, spawn.owner?.username).filter(r => !danger.has(r));
     if (targets.length === 0) return [];
 
     const covered = new Set(

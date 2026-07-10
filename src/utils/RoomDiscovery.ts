@@ -285,3 +285,51 @@ export function isSourceKeeperRoom(name: string): boolean {
   const inBand = (n: number) => n >= 4 && n <= 6;
   return inBand(h) && inBand(v) && !(h === 5 && v === 5);
 }
+
+/**
+ * Rooms currently containing hostile creeps (invaders, or any player's),
+ * memoized per tick. The v1 DEFENSE ECONOMICS (owner directive 2026-07-10):
+ * while hostiles hold a room, the corps operating there are DEFUNDED - no
+ * new bodies are bought for a grinder (miners mining there, haulers hauling
+ * there, reservers headed there). Existing creeps run out; funding resumes
+ * the tick the room clears. Vision-limited by design: an unseen room is not
+ * assumed hostile.
+ */
+let hostileRoomsTick = -1;
+let hostileRoomsCache = new Set<string>();
+export function hostileRooms(): Set<string> {
+  if (typeof Game === "undefined" || !Game.rooms) return new Set();
+  if (Game.time === hostileRoomsTick) return hostileRoomsCache;
+  hostileRoomsTick = Game.time;
+  hostileRoomsCache = new Set<string>();
+
+  // Vision pass: sight a hostile once and its ticksToLive BOUNDS the threat
+  // (owner: "not always sight on the invaders, but if we see one we capture
+  // the TTL") - the mark outlives vision; a clear sighting lifts it early.
+  if (typeof Memory !== "undefined") {
+    Memory.roomIntel = Memory.roomIntel ?? {};
+    for (const roomName in Game.rooms) {
+      const hostiles = Game.rooms[roomName].find(FIND_HOSTILE_CREEPS);
+      const intel = Memory.roomIntel[roomName];
+      if (hostiles.length > 0) {
+        const maxTtl = hostiles.reduce((m, c) => Math.max(m, c.ticksToLive ?? 1500), 0);
+        if (intel) intel.hostileUntil = Game.time + maxTtl;
+        else {
+          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: Game.time + maxTtl } as RoomIntel;
+        }
+      } else if (intel?.hostileUntil) {
+        delete intel.hostileUntil; // fresh all-clear sighting
+      }
+    }
+    // Marks persist without vision until their TTL bound expires.
+    for (const roomName in Memory.roomIntel) {
+      const until = Memory.roomIntel[roomName]?.hostileUntil;
+      if (until !== undefined && until > Game.time) hostileRoomsCache.add(roomName);
+    }
+  } else {
+    for (const roomName in Game.rooms) {
+      if (Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length > 0) hostileRoomsCache.add(roomName);
+    }
+  }
+  return hostileRoomsCache;
+}

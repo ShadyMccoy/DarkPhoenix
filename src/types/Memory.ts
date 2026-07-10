@@ -28,6 +28,13 @@ declare global {
   interface RoomIntel {
     /** Game tick when this room was last visited */
     lastVisit: number;
+    /**
+     * The room counts HOSTILE until this tick (defense economics: its corps
+     * are defunded). Set from a sighted hostile's ticksToLive - one glimpse
+     * bounds the threat's lifetime without standing vision - and cleared
+     * early by any fresh sighting of the room with no hostiles.
+     */
+    hostileUntil?: number;
     /** Number of energy sources in the room */
     sourceCount: number;
     /** Positions of energy sources */

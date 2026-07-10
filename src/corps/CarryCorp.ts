@@ -16,6 +16,7 @@ import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
+import { hostileRooms } from "../utils/RoomDiscovery";
 import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
@@ -837,6 +838,13 @@ export class CarryCorp extends Corp {
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
+
+    // DEFENSE ECONOMICS (owner 2026-07-10): no new haulers for a route whose
+    // pickup room is hostile (sighted, or inside a sighted hostile's TTL
+    // bound). Existing haulers run out; funding resumes on all-clear. The
+    // room comes from the nodeId (its leading segment is the source's room),
+    // which needs no Game objects - harness-safe.
+    if (hostileRooms().has(this.nodeId.split("-")[0])) return [];
 
     // If this source is reserved for the builder, field no haulers - its energy
     // belongs to the construction tankers.

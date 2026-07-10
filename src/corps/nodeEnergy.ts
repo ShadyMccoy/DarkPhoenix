@@ -178,15 +178,19 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
     return { pos: core!.pos, structure: core! };
   }
 
-  const container = sourcePos.findInRange(FIND_STRUCTURES, 1, {
-    filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
-  })[0] as StructureContainer | undefined;
-  if (container) return { pos: container.pos, structure: container };
-
+  // PILE BEFORE CONTAINER (owner 2026-07-10): a pile decays 1/1000 per tick,
+  // a container's contents do not - when both hold energy at the source,
+  // drain the depreciating stock first. Planning treats them as ONE summed
+  // stock; this is the execution-side half of the same principle.
   const pile = sourcePos
     .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
     .sort((a, b) => b.amount - a.amount)[0];
   if (pile) return { pos: pile.pos };
+
+  const container = sourcePos.findInRange(FIND_STRUCTURES, 1, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+  })[0] as StructureContainer | undefined;
+  if (container) return { pos: container.pos, structure: container };
 
   if (linkServed) return { pos: core!.pos, structure: core! };
 

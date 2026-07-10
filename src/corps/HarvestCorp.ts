@@ -15,6 +15,7 @@ import {
   calculateOptimalWorkParts
 } from "../planning/EconomicConstants";
 import { effectiveLife, staffsPost } from "../economy/primitives";
+import { hostileRooms } from "../utils/RoomDiscovery";
 import { Corp, SerializedCorp } from "./Corp";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -471,6 +472,11 @@ export class HarvestCorp extends Corp {
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignment = this.minerAssignment;
     if (!assignment) return [];
+
+    // DEFENSE ECONOMICS (owner 2026-07-10): while hostiles hold this source's
+    // room (sighted, or inside a sighted hostile's TTL bound), buy no bodies
+    // for the grinder. Existing miners run out; funding resumes on all-clear.
+    if (hostileRooms().has(this.getPosition().roomName)) return [];
 
     // WORK parts needed to saturate this source (2 energy/tick per WORK part).
     const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));

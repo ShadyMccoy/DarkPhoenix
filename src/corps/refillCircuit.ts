@@ -33,12 +33,18 @@ const cheb = (a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 /**
  * Order stops into a stable tour: nearest-neighbor chain from the anchor,
- * ties broken by id so the same set always yields the same circuit. O(n^2),
- * n <= 60 (spawns + extensions), recomputed only on set changes.
+ * then a bounded 2-opt improvement pass (owner directive 2026-07-10: the
+ * tender's set path should be a reasonable traveling-salesperson solution -
+ * the shortest loop through its stops, within reason). NN gives a decent
+ * greedy tour; 2-opt uncrosses it, which removes the classic NN pathology of
+ * doubling back. O(n^2) per improvement round, n <= 60 (spawns+extensions),
+ * rounds capped, recomputed only on structure-set changes - negligible cost
+ * for a tour walked thousands of times.
  */
 export function computeCircuit(stops: CircuitStop[], anchor: { x: number; y: number }): string[] {
+  const byId = new Map(stops.map(s => [s.id, s]));
   const remaining = [...stops].sort((a, b) => a.id.localeCompare(b.id));
-  const tour: string[] = [];
+  const tour: CircuitStop[] = [];
   let at = anchor;
   while (remaining.length > 0) {
     let bestIdx = 0;
@@ -51,10 +57,41 @@ export function computeCircuit(stops: CircuitStop[], anchor: { x: number; y: num
       }
     }
     const next = remaining.splice(bestIdx, 1)[0];
-    tour.push(next.id);
+    tour.push(next);
     at = next;
   }
-  return tour;
+
+  // 2-opt: while any edge pair crosses, reverse the segment between them.
+  // Closed loop including the return-to-anchor leg (the bus laps forever).
+  const loop = [{ id: "__anchor__", x: anchor.x, y: anchor.y }, ...tour];
+  let improved = true;
+  let rounds = 0;
+  while (improved && rounds < 25) {
+    improved = false;
+    rounds++;
+    for (let i = 0; i < loop.length - 1; i++) {
+      for (let j = i + 2; j < loop.length; j++) {
+        const a = loop[i];
+        const b = loop[i + 1];
+        const c = loop[j];
+        const d = loop[(j + 1) % loop.length];
+        if (cheb(a, b) + cheb(c, d) > cheb(a, c) + cheb(b, d)) {
+          // Reverse loop[i+1..j].
+          let lo = i + 1;
+          let hi = j;
+          while (lo < hi) {
+            const tmp = loop[lo];
+            loop[lo] = loop[hi];
+            loop[hi] = tmp;
+            lo++;
+            hi--;
+          }
+          improved = true;
+        }
+      }
+    }
+  }
+  return loop.filter(s => s.id !== "__anchor__").map(s => byId.get(s.id)!.id);
 }
 
 /** Cheap change-detector for the structure set backing a cached circuit. */

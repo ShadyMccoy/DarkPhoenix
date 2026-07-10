@@ -110,5 +110,18 @@ export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): Gr
     if (energy > 0) finds.push({ pos: ruin.pos, energy });
   }
 
+  // ONE SUMMED STOCK (owner 2026-07-10): a pile sitting on/next to a stocked
+  // container is a single quantity of energy for planning - the container's
+  // contents join the pile's find so thresholding and drain-rate sizing see
+  // the true stock (execution drains the decaying pile first; nodeEnergy).
+  for (const find of finds) {
+    const pos = new RoomPosition(find.pos.x, find.pos.y, find.pos.roomName);
+    for (const s of pos.findInRange(FIND_STRUCTURES, 0)) {
+      if (s.structureType === STRUCTURE_CONTAINER) {
+        find.energy += (s as StructureContainer).store[RESOURCE_ENERGY];
+      }
+    }
+  }
+
   return collectStocks(finds, threshold);
 }

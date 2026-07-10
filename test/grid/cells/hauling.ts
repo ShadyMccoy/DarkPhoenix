@@ -158,6 +158,7 @@ export function buildHaulingT4Cells(): GridCell[] {
   let ctrlKept = true;
   let prevBank: number | null = null;
   let sawBankDeposit = false;
+  const haulerLinger: Record<string, number> = {};
 
   return [
     {
@@ -167,10 +168,9 @@ export function buildHaulingT4Cells(): GridCell[] {
       id: "haul-t4-tender-bus-regime",
       tier: 4,
       avenue: "logistics",
-      // KNOWN RED (deliberately): same root cause as the bank cell - the
-      // colony spends its whole income on spawning in-window, so there is no
-      // surplus to spill. The regime activation, depot bridging, extension
-      // filling, and hauler-discipline assertions all bind and pass.
+      // Demand-saturated via the pinned spawn (below): spawning feeds from
+      // the pin instead of consuming hauled income, so the fill -> depot ->
+      // spill chain completes in-window (the old KNOWN RED's missing surplus).
       window: 170,
       rooms: { home: tenderRoom },
       bot: { x: 25, y: 25 },
@@ -182,6 +182,14 @@ export function buildHaulingT4Cells(): GridCell[] {
         ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
       ],
       creeps: tenderCreeps(),
+      async onTick(ctx) {
+        // Feed spawning from the pin, not from hauled income - the demand
+        // saturation that lets the fill -> depot -> spill chain complete.
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+      },
       assertions: [
         eventually("the tender regime activates", (s) => s.memory?.rooms?.[s.room()]?.extensionTenderActive === true),
         eventually("the depot is bridged to its buffer", (s) => {
@@ -206,16 +214,20 @@ export function buildHaulingT4Cells(): GridCell[] {
           return !!box && (box.store?.energy ?? 0) >= 250;
         }),
         always("haulers never fan across the extensions", (s) => {
+          // Fanning means SERVING the row - PARKING at extensions - not
+          // walking past them (spill trips to the controller legitimately
+          // cross the row; box checks kept catching transit). A hauler that
+          // LINGERS >= 4 consecutive samples within reach of the row is
+          // serving it; a passer-by clears in 1-3.
           for (const name of ["h1", "h2"]) {
             const c = s.creep(name);
-            if (!c) continue;
-            // The x 24-26 corridor is the room's main street: a hauler
-            // spilling surplus to the controller input (25,12) legitimately
-            // crosses the extension row there (measured: the spill trip
-            // first tripped this box the run the surplus actually moved).
-            // Fanning means SERVING the row - spread across its flanks.
-            if (c.x >= 24 && c.x <= 26) continue;
-            if (c.y >= 20 && c.y <= 22 && c.x >= 19 && c.x <= 30) return false;
+            if (!c) {
+              haulerLinger[name] = 0;
+              continue;
+            }
+            const nearRow = c.y >= 20 && c.y <= 22 && c.x >= 19 && c.x <= 30;
+            haulerLinger[name] = nearRow ? (haulerLinger[name] ?? 0) + 1 : 0;
+            if ((haulerLinger[name] ?? 0) >= 4) return false;
           }
           return true;
         }),
@@ -277,17 +289,23 @@ export function buildHaulingT4Cells(): GridCell[] {
       id: "haul-t4-storage-bank-and-spill",
       tier: 4,
       avenue: "logistics",
-      // KNOWN RED (deliberately): in a live room, organic spawning consumes
-      // the entire 10 e/t income (an 800-cost hauler spawned mid-window), so
-      // no surplus ever reaches the bank in-window. Proving the banking path
-      // needs a demand-saturated room design - future work, tracked in spec
-      // 08. The guard assertions (never balloons / never raided) still bind.
+      // KNOWN RED (deposit assertion only; understood precisely, 2026-07-10):
+      // the banking branch (top the depot to bankTarget) lives INSIDE the
+      // tender regime, and the tender's own refills - triggered by organic
+      // spawning momentarily draining the pinned extensions each tick - mask
+      // h1's deposits with interleaved withdrawals, so a storage-delta jump
+      // is unobservable from outside. A clean observable needs an
+      // intent-level seam (assert h1's transfer target), which the harness
+      // cannot see today. The SPILL half fires (@41) and every guard binds.
       window: 140,
       rooms: { home: tenderRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 4 },
       structures: [
-        { type: "storage", x: 24, y: 24, energy: 9800 },
+        // 9000 staged: 1000 of headroom below the 10000 bank target, so a
+        // full hauler load lands as an observable >= 250 jump (the old 9800
+        // staging left 200 headroom - the deposit assertion could never fire).
+        { type: "storage", x: 24, y: 24, energy: 9000 },
         { type: "container", x: 24, y: 41, energy: 1800 },
         { type: "container", x: 25, y: 12, energy: 0 },
         ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
@@ -298,13 +316,14 @@ export function buildHaulingT4Cells(): GridCell[] {
           { room: ctx.room(), type: "spawn" },
           { $set: { store: { energy: 300 } } }
         );
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "extension" },
+          { $set: { store: { energy: 50 } } }
+        );
       },
       assertions: [
-        // The exact 10000 crossing is unobservable in a LIVE room: organic
-        // spawning drains extensions, the tender refills them FROM the bank,
-        // and deposits/withdrawals interleave within ticks. The mechanism's
-        // observables: bulk hauler deposits land in the bank, and the spill
-        // only happens near the target.
+        // With the network pinned full, hauled income cannot be consumed by
+        // spawning - bulk deposits land in the bank and the spill follows.
         eventually("a bulk hauler deposit lands in the bank", (s) => {
           const st = s.objects().find((o: any) => o.type === "storage");
           const energy = st?.store?.energy ?? null;
@@ -319,7 +338,9 @@ export function buildHaulingT4Cells(): GridCell[] {
         }),
         always("the bank is never raided below its staged floor", (s) => {
           const st = s.objects().find((o: any) => o.type === "storage");
-          return !st || (st.store?.energy ?? 0) >= 8800;
+          // 8600 = 9000 staged minus one tender load (~300) of legitimate
+          // working capital + slack; a SYSTEMATIC drain goes far below this.
+          return !st || (st.store?.energy ?? 0) >= 8600;
         }),
         always("the controller circuit is never diverted to the bank", (s) => {
           const mem = s.memory?.creeps?.h2;
