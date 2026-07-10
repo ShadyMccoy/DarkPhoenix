@@ -24,6 +24,7 @@ import { GridCell, CellSample, always, atWindow, eventually } from "../GridCell"
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 import { fixtureRoom } from "../fixtureRoom";
 import { BODY_PART_COST, BodyPart } from "../../../src/planning/EconomicConstants";
+import { journeyWorld } from "./journey";
 
 const bodyCost = (body: any[]): number =>
   (body ?? []).reduce((sum: number, p: any) => sum + (BODY_PART_COST[p.type as BodyPart] ?? 0), 0);
@@ -150,6 +151,8 @@ function fidelityCell(spec: {
   rooms: GridCell["rooms"];
   bot: GridCell["bot"];
   thresholds: FidelityThresholds;
+  /** Replay a journey snapshot instead of a cold RCL2 stage (pre-ramped). */
+  world?: Pick<GridCell, "pinnedRooms" | "memory" | "stage" | "soloWorld">;
 }): GridCell {
   const watch = new EconWatch(spec.measureFrom);
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
@@ -173,7 +176,9 @@ function fidelityCell(spec: {
     window: spec.window,
     rooms: spec.rooms,
     bot: spec.bot,
-    controller: { level: 2 },
+    // A journey world carries its own controller in the snapshot restore;
+    // cold stages open the flow-economy gate at RCL2.
+    ...(spec.world ?? { controller: { level: 2 } }),
     assertions: [
       // Listed first so every sample is collected before any other check
       // reads the accumulator (including the atWindow boundary re-check).
@@ -236,8 +241,48 @@ function fidelityCell(spec: {
   };
 }
 
+/**
+ * Pre-ramped fidelity (spec 10 G2, owner: avoid long tests): replay the
+ * post-build-out journey snapshot - a REAL organically-reached fleet at the
+ * RCL2 extension cap - and measure steady-state plan-vs-actual over a short
+ * window. No ramp inside the cell, so the floors can be TIGHT: this is the
+ * ratchet the loose organic-ramp floors defer to. Skipped gracefully when
+ * the snapshot has not been captured yet.
+ */
+function buildPreRampedCell(): GridCell[] {
+  let world: ReturnType<typeof journeyWorld>;
+  try {
+    world = journeyWorld("synthetic-2src--extensions-rcl2-cap.json");
+  } catch {
+    return []; // snapshot not captured yet - re-run npm run journey:capture
+  }
+  return [
+    fidelityCell({
+      id: "fid-t4-preramped-steady-state",
+      tier: 4,
+      window: 400,
+      measureFrom: 100, // ~100 ticks to resettle the restored world
+      rooms: world.rooms,
+      bot: world.bot,
+      world: {
+        pinnedRooms: world.pinnedRooms,
+        memory: world.memory,
+        stage: world.stage,
+        soloWorld: world.soloWorld,
+      },
+      // Measured 72/65% gross, 34/20% controller, 89/84% carry across two
+      // calibration runs. The controller RATIO is denominator-noisy (the
+      // plan's small controller budget swings 2.8<->4.9 between re-solves),
+      // so its floor carries extra headroom. Ratchet upward as the
+      // transport/decay overhead (the ~30% gross gap) shrinks.
+      thresholds: { gross: 0.55, controller: 0.15, carry: 0.7 },
+    }),
+  ];
+}
+
 export function buildFidelityCells(): GridCell[] {
   return [
+    ...buildPreRampedCell(),
     // Friendly synthetic world: two sources at walk ~7, controller at ~10,
     // all-plain terrain. Everything the plan budgets is physically achievable
     // here, so steady-state shortfall = bug by construction. Thresholds are

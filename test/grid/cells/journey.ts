@@ -61,9 +61,20 @@ function snapshotFiles(): string[] {
   }
 }
 
-function cellFromSnapshot(file: string): GridCell {
+/**
+ * The verbatim-restore parts of a GridCell for a snapshot - rooms (pinned),
+ * bot placement, Memory, and the stage() that swaps addBot's scaffolding for
+ * the snapshot's own objects. Shared by the journey cells here and by any
+ * cell that wants a REAL organically-reached world (e.g. the pre-ramped
+ * fidelity cells replay the post-build-out snapshot and measure steady-state
+ * plan-vs-actual on it).
+ */
+export function journeyWorld(
+  file: string
+): Pick<GridCell, "rooms" | "pinnedRooms" | "bot" | "memory" | "stage" | "soloWorld"> & {
+  snap: JourneySnapshot;
+} {
   const snap = JSON.parse(readFileSync(path.join(FIXTURE_DIR, file)).toString()) as JourneySnapshot;
-  const tp = tripPoint(snap.trip);
   const roomNames = Object.keys(snap.rooms);
   const homeRoom = roomNames[0];
   const spawn = snap.rooms[homeRoom].objects.find(
@@ -72,10 +83,7 @@ function cellFromSnapshot(file: string): GridCell {
   if (!spawn) throw new Error(`journey snapshot ${file}: no bot spawn in ${homeRoom}`);
 
   return {
-    id: `journey-${snap.scenario}--${snap.trip}`,
-    tier: 4,
-    avenue: "rcl-journey",
-    window: tp.replayWindow,
+    snap,
     soloWorld: true,
     pinnedRooms: roomNames.reduce<Record<string, string>>((acc, r) => {
       acc[r === homeRoom ? "home" : r] = r;
@@ -117,6 +125,25 @@ function cellFromSnapshot(file: string): GridCell {
         }
       }
     },
+  };
+}
+
+function cellFromSnapshot(file: string): GridCell {
+  const world = journeyWorld(file);
+  const { snap } = world;
+  const tp = tripPoint(snap.trip);
+
+  return {
+    id: `journey-${snap.scenario}--${snap.trip}`,
+    tier: 4,
+    avenue: "rcl-journey",
+    window: tp.replayWindow,
+    rooms: world.rooms,
+    pinnedRooms: world.pinnedRooms,
+    soloWorld: world.soloWorld,
+    bot: world.bot,
+    memory: world.memory,
+    stage: world.stage,
     assertions: [
       eventually(`replayed moment fires: ${snap.description}`, (s) =>
         tp.check({ tick: s.tick, memory: s.memory, objects: () => s.objects() })
