@@ -300,16 +300,28 @@ export class HarvestCorp extends Corp {
     // released only once the fleet OVERSHOOTS its target count - which
     // covers both overlap completion and a plan shrink.
     const target = this.minerTargetCount(spawn.room.energyCapacityAvailable);
-    if (creeps.length <= target) return;
+    // Overshoot is judged on POST-STAFFING creeps only - the same staffsPost
+    // lens the demand side used to order the extra body. A dying incumbent
+    // inside its replacement lead time is already spoken for by the delivery
+    // contract: its successor is NOT surplus, and raw-size overshoot here
+    // recycled every contracted newborn at the spawn door, re-firing the
+    // replacement demand in a ~25-tick churn loop until the incumbent died
+    // with the real successor still in the spawn (measured, grid cell
+    // churn-t3-gapless-replacement: 4 miners built for one handoff, 53-tick
+    // post gap).
+    const walkTicks =
+      (this.minerAssignment.spawnDistance ?? 0) * travelTicksPerTile(spawn.room.energyCapacityAvailable);
+    const staffing = creeps.filter(c => staffsPost(c.ticksToLive, c.body?.length ?? 0, walkTicks));
+    if (staffing.length <= target) return;
 
     // Release the smallest; on WORK ties, the one FARTHEST from the source -
     // never the seated holder (grid cell move-miner-pocket-holdoff: an
     // index-order tie-break recycled the seated miner and displaced it).
     const source = Game.getObjectById(this.sourceId.replace("source-", "") as Id<Source>);
     let releaseIdx = 0;
-    creeps.forEach((c, i) => {
+    staffing.forEach((c, i) => {
       if (i === 0) return;
-      const cur = creeps[releaseIdx];
+      const cur = staffing[releaseIdx];
       const work = c.getActiveBodyparts(WORK);
       const curWork = cur.getActiveBodyparts(WORK);
       if (work < curWork) {
@@ -318,7 +330,7 @@ export class HarvestCorp extends Corp {
         if (c.pos.getRangeTo(source.pos) > cur.pos.getRangeTo(source.pos)) releaseIdx = i;
       }
     });
-    creeps[releaseIdx].memory.recycling = true;
+    staffing[releaseIdx].memory.recycling = true;
   }
 
   /** Miner count the plan wants - same math as getSpawnDemand's target. */

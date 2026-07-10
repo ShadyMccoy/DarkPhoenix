@@ -213,9 +213,14 @@ const STARVED_TIER = 3_000_000;
  * `since` is the first tick the demand was observed (0 when unstamped - the pure
  * unit/harness paths leave it 0, so they are unaffected). Returns 0 until the
  * demand has waited {@link STARVATION_THRESHOLD} ticks, then {@link STARVED_TIER}.
+ * Only exactly-0 means unstamped: a NEGATIVE since is a legitimately ancient
+ * stamp (test worlds backdate below the young sim clock; prod Game.time is
+ * always positive), and `<= 0` here silently disarmed the boost in early-game
+ * worlds - the starved one-shot only worked when its batch slot happened to
+ * start late on the shared server clock.
  */
 export function starvationBoost(demand: SpawnDemand, tick: number): number {
-  if (demand.since <= 0) return 0;
+  if (!demand.since) return 0;
   return tick - demand.since >= STARVATION_THRESHOLD ? STARVED_TIER : 0;
 }
 

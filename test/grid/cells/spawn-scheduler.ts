@@ -153,10 +153,10 @@ export function buildT2SchedulerCells(): GridCell[] {
     {
       // The full-body regrow hold: with colonyHasMiner true (B's staged
       // miner), source A's replacement demand has NO runt floor - min ==
-      // desired == 700 at 800 capacity. The bank (spawn + 10 EMPTY
-      // extensions) starts at 300; only hauler deliveries can reach 700, and
-      // the strict hold must refuse every cheaper demand meanwhile. Watched
-      // on the total-energy trajectory (drop below 700 = illegal spawn).
+      // desired == 650 (5W3M, no-carry miners) at 800 capacity. The bank
+      // (spawn + 10 EMPTY extensions) starts at 300; only hauler deliveries
+      // can reach 650, and the strict hold must refuse every cheaper demand
+      // meanwhile. Watched on the total-energy trajectory.
       id: "spawn-hold-full-miner-regrow",
       tier: 2,
       avenue: "spawn-decision",
@@ -191,7 +191,7 @@ export function buildT2SchedulerCells(): GridCell[] {
         },
       ],
       assertions: [
-        always("bank only climbs until the 700 full-miner start", (s) => {
+        always("bank only climbs until the 650 full-miner start", (s) => {
           const stores = s
             .objects()
             .filter((o: any) => o.type === "spawn" || o.type === "extension")
@@ -200,14 +200,14 @@ export function buildT2SchedulerCells(): GridCell[] {
           prevTotal = stores;
           if (s.tick <= 15 || regrowHoldEnded || prev === null) return true;
           if (stores >= prev) return true;
-          if (prev >= 700) {
+          if (prev >= 650) {
             regrowHoldEnded = true;
             return true;
           }
           // Deliveries only ADD; the sole legal subtraction is the 700 spawn.
           return false;
         }),
-        eventually("the first fresh creep is A's FULL 5W1C3M miner", (s) => {
+        eventually("the first fresh creep is A's FULL 5W3M miner", (s) => {
           if (regrowNamesAtStart === null) {
             regrowNamesAtStart = new Set(
               s
@@ -227,7 +227,7 @@ export function buildT2SchedulerCells(): GridCell[] {
           return (
             String(regrowFirstFresh.name).startsWith("miner-") &&
             parts.work === 5 &&
-            parts.carry === 1 &&
+            (parts.carry ?? 0) === 0 &&
             parts.move === 3
           );
         }),
@@ -319,8 +319,7 @@ export function buildT3SchedulerCells(): GridCell[] {
           }
           mem.spawnDemandFirstSeen = table;
           await ctx.env.set(ctx.env.keys.MEMORY + ctx.userId, JSON.stringify(mem));
-        }
-      },
+        }      },
       assertions: [
         eventually("the starved builder gets its one-shot spawn", (s) => {
           if (s.tick === 40) backdated = true;

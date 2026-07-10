@@ -775,18 +775,6 @@ export function buildChurnReplacementCells(): GridCell[] {
         always("(gap accounting)", (s) => {
           const alive = !!s.creep("m0");
           if (alive && succSpawnedAt === null && miningCreeps(s).length >= 2) succSpawnedAt = s.tick;
-          // TEMP PROBE (task #9): where does the successor WAIT? Trace the
-          // non-m0 mining creep's position every 10 ticks pre-death.
-          if (s.tick % 10 === 0 && incumbentDied === null) {
-            const succ = miningCreeps(s).find((o) => o.name !== "m0");
-            const spawn = s.objects().find((o) => o.type === "spawn");
-            if (succ) {
-              console.log(
-                `  [succpos] t=${s.tick} succ@${succ.x},${succ.y} spawning=${JSON.stringify(succ.spawning ?? null)} ` +
-                  `spawnBusy=${JSON.stringify(spawn?.spawning ?? null)}`
-              );
-            }
-          }
           if (!alive && incumbentDied === null && s.tick > 100) incumbentDied = s.tick;
           if (incumbentDied !== null) {
             const staffed = miningCreeps(s).some(
