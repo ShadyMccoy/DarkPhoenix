@@ -22,6 +22,7 @@ import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
+import { nextStop, roomCircuit } from "./refillCircuit";
 import { travelTo } from "./movement";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
@@ -145,21 +146,24 @@ export class ExtensionTenderCorp extends Corp {
         );
       }
 
-      // Sticky destination: keep walking to the SAME target until it is full
-      // or gone, instead of re-picking nearest-every-tick (which dithers
-      // between equidistant extensions and produced the measured "random
-      // pattern" tour). Re-pick only when the held target no longer needs.
-      let dest = creep.memory.tendTargetId
-        ? targets.find(t => t.id === creep.memory.tendTargetId)
-        : undefined;
-      if (!dest) {
-        dest = targets[0]; // nearest needy
-        creep.memory.tendTargetId = dest.id;
-      }
-      if (!adjacent || adjacent.id !== dest.id) {
+      // BUS CIRCUIT (owner directive 2026-07-10): the tender follows the room's
+      // fixed refill tour - same path every lap, skipping full stops - instead
+      // of any ad-hoc target picking. Deterministic, no dither, and spawning
+      // drains in the same order (SpawningCorp energyStructures), so holes
+      // appear as a contiguous run the bus sweeps.
+      const circuit = roomCircuit(room);
+      const needySet = new Set<string>(targets.map(t => t.id as string));
+      const stopIdx = nextStop(circuit, creep.memory.circuitIdx ?? 0, id => needySet.has(id));
+      if (stopIdx === null) return; // every stop full
+      creep.memory.circuitIdx = stopIdx;
+      const dest = targets.find(t => t.id === circuit[stopIdx]);
+      if (dest && (!adjacent || adjacent.id !== dest.id)) {
         if (!creep.pos.isNearTo(dest.pos)) {
           travelTo(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         }
+      } else if (adjacent && dest && adjacent.id === dest.id) {
+        // Serving the current stop this tick: advance to the next on the tour.
+        creep.memory.circuitIdx = (stopIdx + 1) % circuit.length;
       }
       return;
     }

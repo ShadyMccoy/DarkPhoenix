@@ -11,6 +11,12 @@
  * Usage (after: npm run build):
  *   npm run sim:real -- --shard shard3 --home W1N8 --ticks 1500
  *   npm run sim:real -- --home W1N8 --own W2N8 --gcl 2 --ticks 2000 --debug
+ *   npm run sim:real -- --home W1N8 --ticks 3000 --deploy-at 1500
+ *     (prod-style mid-run deploy: at the tick, the bot's code is re-read from
+ *      --deploy-file [default dist/main.js] and swapped in over the live
+ *      world + Memory - rebuild between launch and the deploy tick to A/B
+ *      two builds across one persistent state, the deploy-over-live class
+ *      of bugs fresh sims can never see.)
  *
  * --home picks the bot's first room (spawn auto-placed on an open plain tile
  * near its sources unless --spawn x,y). Every captured fixture for the shard
@@ -87,6 +93,14 @@ async function main(): Promise<void> {
   const ticks = parseInt(getArg("ticks", "1500"), 10);
   const debug = args.includes("--debug");
   const spawnOverride = getArg("spawn", "");
+  // Mid-run code deploy (owner: "that's how it works in prod"): at tick N,
+  // swap the bot's modules for a fresh read of --deploy-file (default
+  // dist/main.js - rebuild between launch and the deploy tick to A/B two
+  // builds over ONE persistent world). Tests the deploy-over-live-state
+  // class of bugs (e.g. the stale-spawnId incident) that fresh sims can
+  // never see.
+  const deployAt = parseInt(getArg("deploy-at", "0"), 10);
+  const deployFile = getArg("deploy-file", DIST_MAIN_JS);
 
   const fixtures = loadFixtures(shard);
   if (!home || !fixtures.has(home)) {
@@ -214,6 +228,15 @@ async function main(): Promise<void> {
   };
 
   for (let t = 1; t <= ticks; t += 1) {
+    if (deployAt > 0 && t === deployAt) {
+      // Prod-style deploy: overwrite the bot's code in the db mid-run; the
+      // runtime picks it up like a push + global reset, with Memory and the
+      // world state persisting across the boundary.
+      const { db } = await server.world.load();
+      const fresh = readFileSync(deployFile).toString();
+      await db["users.code"].update({ user: player.id }, { $set: { modules: { main: fresh } } });
+      console.log(`\n[deploy] code swapped at tick ${t} (${deployFile})`);
+    }
     await server.tick();
     if (metrics && t % 100 === 0) await sampleMetrics(t);
     if (t % 100 === 0) process.stdout.write(".");

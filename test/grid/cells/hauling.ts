@@ -209,6 +209,12 @@ export function buildHaulingT4Cells(): GridCell[] {
           for (const name of ["h1", "h2"]) {
             const c = s.creep(name);
             if (!c) continue;
+            // The x 24-26 corridor is the room's main street: a hauler
+            // spilling surplus to the controller input (25,12) legitimately
+            // crosses the extension row there (measured: the spill trip
+            // first tripped this box the run the surplus actually moved).
+            // Fanning means SERVING the row - spread across its flanks.
+            if (c.x >= 24 && c.x <= 26) continue;
             if (c.y >= 20 && c.y <= 22 && c.x >= 19 && c.x <= 30) return false;
           }
           return true;

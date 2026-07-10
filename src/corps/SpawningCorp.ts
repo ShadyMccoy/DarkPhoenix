@@ -9,6 +9,7 @@
 
 import { BODY_PART_COST, CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
+import { drawOrder } from "./refillCircuit";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 import {
   UpgraderStrategy,
@@ -150,8 +151,13 @@ export class SpawningCorp extends Corp {
       tanker: "tank"
     };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
+    // Drain in refill-circuit order (owner directive): spawning empties the
+    // same stops in the same sequence the refill bus tops them up, so holes
+    // form one contiguous run along the tour instead of scattered potholes.
+    const energyStructures = drawOrder(spawn.room);
     const result = spawn.spawnCreep(body, name, {
-      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id }
+      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id },
+      ...(energyStructures.length > 0 ? { energyStructures } : {})
     });
 
     if (result === OK) {

@@ -201,6 +201,13 @@ declare global {
     nodeIds?: string[];
 
     /**
+     * Cached refill bus circuit over spawn + extensions (corps/refillCircuit):
+     * a stable tour refillers follow (skipping full stops) and spawning
+     * drains in the same order. `sig` invalidates on structure-set changes.
+     */
+    refillCircuit?: { sig: string; tour: string[] };
+
+    /**
      * Last surveyed tick for this room.
      */
     lastSurveyTick?: number;
@@ -323,6 +330,13 @@ declare global {
      * opportunistically regardless of this destination.
      */
     tendTargetId?: string;
+
+    /**
+     * A refiller's position on the refill bus circuit (corps/refillCircuit):
+     * the index of the stop it is currently serving/heading to. Advances in
+     * circuit order, wrapping; full stops are skipped.
+     */
+    circuitIdx?: number;
 
     // === Fleet Coordination (Belt/Bus System) ===
 

@@ -15,6 +15,7 @@ import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife, staffsPos
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
+import { nextStop, roomCircuit } from "./refillCircuit";
 import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
@@ -367,96 +368,6 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * Assign a persistent slot to a hauler.
-   * The slot determines their starting position in the structure rotation.
-   * Persisted in creep memory to survive across ticks.
-   *
-   * Key: New haulers get the first UNUSED slot, not based on age sorting.
-   * This prevents slot conflicts when creeps die and new ones spawn.
-   */
-  private getHaulerSlot(creep: Creep): number {
-    // Check if already assigned
-    if (creep.memory.haulerSlot !== undefined) {
-      return creep.memory.haulerSlot;
-    }
-
-    // Find all slots already taken by other haulers
-    const allHaulers = this.getAssignedCreeps();
-    const takenSlots = new Set<number>();
-    for (const hauler of allHaulers) {
-      if (hauler.name !== creep.name && hauler.memory.haulerSlot !== undefined) {
-        takenSlots.add(hauler.memory.haulerSlot);
-      }
-    }
-
-    // Assign first available slot (0, 1, 2, ...)
-    let slot = 0;
-    while (takenSlots.has(slot)) {
-      slot++;
-    }
-
-    creep.memory.haulerSlot = slot;
-    return slot;
-  }
-
-  /**
-   * Get the current delivery target for a hauler using persistent assignment.
-   *
-   * Belt System Logic:
-   * 1. Each hauler has a persistent slot (0, 1, 2, ...)
-   * 2. They target structure at index (slot + deliveryRotation) % structureCount
-   * 3. After successful delivery OR when target is full, increment deliveryRotation
-   * 4. Each hauler advances through THEIR OWN sequence, preventing convergence
-   *
-   * Key insight: When a target is full, each hauler advances their OWN rotation
-   * rather than all searching for the same "next available" structure.
-   * This keeps haulers spread out like a conveyor belt.
-   */
-  private getCirculationTarget(
-    creep: Creep,
-    structures: (StructureSpawn | StructureExtension)[]
-  ): StructureSpawn | StructureExtension | null {
-    if (structures.length === 0) return null;
-
-    const slot = this.getHaulerSlot(creep);
-    const count = structures.length;
-
-    // Try up to 'count' rotations to find a structure that needs energy
-    // Each hauler advances through their OWN sequence, maintaining spacing
-    for (let attempts = 0; attempts < count; attempts++) {
-      const rotation = creep.memory.deliveryRotation ?? 0;
-      const targetIndex = (slot + rotation) % count;
-      const target = structures[targetIndex];
-
-      if (target.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        // Found a target that needs energy - use it
-        creep.memory.deliveryTargetId = target.id;
-        return target;
-      }
-
-      // Target is full - advance THIS hauler's rotation to their next structure
-      // This is key: each hauler moves through their own sequence
-      creep.memory.deliveryRotation = (rotation + 1) % count;
-    }
-
-    // All structures full - return null to allow fallback to workers/controller
-    // Reset rotation so we start fresh when things drain
-    creep.memory.deliveryRotation = 0;
-    delete creep.memory.deliveryTargetId;
-    return null;
-  }
-
-  /**
-   * Record a successful delivery and rotate to next structure in sequence.
-   * Called after a successful transfer to advance the circulation.
-   */
-  private advanceCirculation(creep: Creep, structureCount: number): void {
-    const current = creep.memory.deliveryRotation ?? 0;
-    creep.memory.deliveryRotation = (current + 1) % structureCount;
-    delete creep.memory.deliveryTargetId; // Clear so next tick recalculates
-  }
-
-  /**
    * Check if a hauler is already close to their target (within transfer range).
    * Used to anticipate arrival and prepare for delivery.
    */
@@ -725,18 +636,60 @@ export class CarryCorp extends Corp {
     const allSpawnStructures = this.getSpawnZoneStructures(room);
     if (allSpawnStructures.length === 0) return false;
 
-    const target = this.getCirculationTarget(creep, allSpawnStructures);
-    if (!target) return false; // all full
+    const needy = allSpawnStructures.filter(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+    if (needy.length === 0) return false; // all full
 
-    const result = creep.transfer(target, RESOURCE_ENERGY);
-    if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-    } else if (result === OK) {
-      const transferred = Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
-      this.recordProduction(transferred);
-      this.advanceCirculation(creep, allSpawnStructures.length);
-    } else if (result === ERR_FULL) {
-      this.advanceCirculation(creep, allSpawnStructures.length);
+    // NEVER walk past an empty extension (owner, measured live: the old
+    // ID-ordered "belt" rotation toured the cluster in spatially RANDOM order,
+    // walking right past adjacent empties). Whatever the destination, if a
+    // needy structure is adjacent right now, fill it THIS tick - the transfer
+    // rides alongside the move for free.
+    const adjacent = needy.find(s => creep.pos.isNearTo(s.pos));
+    if (adjacent) {
+      const r = creep.transfer(adjacent, RESOURCE_ENERGY);
+      if (r === OK) {
+        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY)));
+      }
+      if (adjacent.id === creep.memory.deliveryTargetId) delete creep.memory.deliveryTargetId;
+      return true;
+    }
+
+    // BUS CIRCUIT (owner directive 2026-07-10): follow the room's fixed
+    // refill tour - same path every lap, skip full stops. Each hauler joins
+    // the loop AT ITS OWN position (nearest stop), so a fleet spaces itself
+    // spatially - the old ID-rotation "belt" faked spacing while touring the
+    // cluster in random order, walking right past adjacent empties (observed
+    // live). Spawning drains in the same order (SpawningCorp), so holes form
+    // a contiguous run the bus sweeps.
+    const circuit = roomCircuit(room);
+    const needySet = new Map<string, StructureSpawn | StructureExtension>(needy.map(s => [s.id as string, s]));
+    let fromIdx = creep.memory.circuitIdx;
+    if (fromIdx === undefined || !circuit[fromIdx]) {
+      // Join the loop at the stop nearest the creep.
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < circuit.length; i++) {
+        const s = needySet.get(circuit[i]);
+        if (!s) continue;
+        const d = creep.pos.getRangeTo(s.pos);
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      }
+      fromIdx = best;
+    }
+    const stopIdx = nextStop(circuit, fromIdx, id => needySet.has(id));
+    if (stopIdx === null) return false; // every stop full
+    creep.memory.circuitIdx = stopIdx;
+    const dest = needySet.get(circuit[stopIdx]);
+    if (!dest) return false;
+    if (creep.pos.isNearTo(dest.pos)) {
+      // Serving this stop (the adjacent-first rule above already transferred
+      // if possible); advance the tour for next tick.
+      creep.memory.circuitIdx = (stopIdx + 1) % circuit.length;
+    } else {
+      creep.moveTo(dest, { visualizePathStyle: { stroke: "#ffffff" } });
     }
     return true;
   }
