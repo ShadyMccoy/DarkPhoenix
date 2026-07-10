@@ -115,7 +115,9 @@ export const spawnExecT1Cells: GridCell[] = [
     // Across the 600 boundary (errata wrong-behavior #1: restaged at 700,
     // where the demand's desired body AND the executor's rebuild both clear
     // MINER_CARRY_MIN_CAPACITY): the miner gains its link-feed CARRY -
-    // buildMinerBody(5, 700) = 5W1C3M, verified against BodyBuilder source.
+    // buildMinerBody(5, 650) = 5W3M - NO CARRY (owner 2026-07-10: pre-link
+    // the carry buffered 50 once and dropped everything anyway; only a
+    // link-fed miner gets one, via bodyStrategy "linkFed").
     id: "spawnexec-miner-carry-700-boundary",
     tier: 1,
     avenue: "spawn-execution",
@@ -126,11 +128,11 @@ export const spawnExecT1Cells: GridCell[] = [
     structures: fullExtensions(EXT_8),
     creeps: quiet(),
     assertions: [
-      eventually("miner crosses the boundary as 5W1C3M", (s) => {
+      eventually("miner crosses the boundary as 5W3M (no carry)", (s) => {
         const m = firstMinerDoc(s);
         if (!m) return false;
         const c = bodyCounts(m);
-        return c.work === 5 && c.carry === 1 && c.move === 3;
+        return c.work === 5 && (c.carry ?? 0) === 0 && c.move === 3;
       }),
     ],
   },
@@ -479,7 +481,7 @@ export function buildSpawnExecT3Cells(): GridCell[] {
 export function buildSpawnExecT4Cells(): GridCell[] {
   return [
     {
-      // At 1300 the miner body CAPS at its design point 5W1C3M (700) rather
+      // At 1300 the miner body CAPS at its design point 5W3M (650) rather
       // than growing monstrous, and the follow-on hauler keeps 1:1 pairs
       // sized to the route (carryPartsFor(10,12)*1.2 ~ 6-7C).
       id: "spawnexec-bodies-at-1300-rcl4",
@@ -525,11 +527,11 @@ export function buildSpawnExecT4Cells(): GridCell[] {
       ].map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
       creeps: quiet(),
       assertions: [
-        eventually("miner caps at exactly 5W1C3M", (s) => {
+        eventually("miner caps at exactly 5W3M (no carry)", (s) => {
           const m = firstMinerDoc(s);
           if (!m) return false;
           const c = bodyCounts(m);
-          return c.work === 5 && c.carry === 1 && c.move === 3;
+          return c.work === 5 && (c.carry ?? 0) === 0 && c.move === 3;
         }),
         eventually("the route hauler keeps 1:1 pairs in the [5,8] band", (s) => {
           const h = s

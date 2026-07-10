@@ -23,7 +23,7 @@ import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
-import { sourceHarvestSpot } from "./nodeEnergy";
+import { coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { travelTo } from "./movement";
 
 /**
@@ -523,10 +523,14 @@ export class HarvestCorp extends Corp {
     // 300 - permanent stall). With home income alive, hold out for the full
     // desired body: the income covers the wait, and a source has only so
     // many spots so each should be as large as the room can build.
-    const desired = buildMinerBody(desiredWork, ctx.energyCapacity);
+    // CARRY only when this source feeds a LINK (owner: otherwise it's 50
+    // wasted energy + 3 wasted spawn-ticks per generation - the miner drops
+    // everything anyway).
+    const linkFed = this.sourceIsLinkFed();
+    const desired = buildMinerBody(desiredWork, ctx.energyCapacity, linkFed);
     const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
     const minWork = colonyColdStart ? Math.min(desiredWork, 2) : desiredWork;
-    const min = buildMinerBody(minWork, ctx.energyCapacity);
+    const min = buildMinerBody(minWork, ctx.energyCapacity, linkFed);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
 
     return [
@@ -555,9 +559,23 @@ export class HarvestCorp extends Corp {
         desiredCost: desired.cost,
         minCost: min.cost,
         since: 0,
-        bodyParam: desiredWork
+        bodyParam: desiredWork,
+        bodyStrategy: linkFed ? "linkFed" : undefined
       }
     ];
+  }
+
+  /**
+   * Whether this source's output leaves via a LINK: a source link within
+   * feeding range and a core link in the room. The only case a miner body
+   * needs a CARRY part (to feed the link).
+   */
+  private sourceIsLinkFed(): boolean {
+    const source = Game.getObjectById(this.sourceId as Id<Source>);
+    if (!source) return false;
+    const core = coreLink(source.room);
+    if (!core) return false;
+    return sourceLink(source.pos, core.id) !== null;
   }
 
   /**

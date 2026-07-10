@@ -184,7 +184,8 @@ export class SpawningCorp extends Corp {
   ): BodyPartConstant[] {
     switch (role) {
       case "miner":
-        return buildMinerBody(bodyParam ?? 5, energyBudget).body;
+        // CARRY only for link-fed miners (the one job that uses it).
+        return buildMinerBody(bodyParam ?? 5, energyBudget, bodyStrategy === "linkFed").body;
       case "upgrader":
         return buildUpgraderBody(energyBudget, bodyParam ?? 5, bodyStrategy as UpgraderStrategy | undefined).body;
       case "builder":

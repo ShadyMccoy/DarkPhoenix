@@ -23,7 +23,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
 import { nextStop, roomCircuit } from "./refillCircuit";
-import { travelTo } from "./movement";
+import { travelTo, travelToBypass } from "./movement";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
   spawnId: string;
@@ -159,7 +159,9 @@ export class ExtensionTenderCorp extends Corp {
       const dest = targets.find(t => t.id === circuit[stopIdx]);
       if (dest && (!adjacent || adjacent.id !== dest.id)) {
         if (!creep.pos.isNearTo(dest.pos)) {
-          travelTo(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          // Bypass so a parked hauler/sibling on the cluster path is swapped
+          // through instead of deadlocking the bus (measured live).
+          travelToBypass(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         }
       } else if (adjacent && dest && adjacent.id === dest.id) {
         // Serving the current stop this tick: advance to the next on the tour.

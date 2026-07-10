@@ -18,7 +18,7 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
-import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -986,6 +986,25 @@ export class ConstructionCorp extends Corp {
     }
     for (const s of sites) {
       avoidPositions.add(`${s.pos.x},${s.pos.y}`);
+    }
+
+    // ENERGY HUBS stay clear (owner 2026-07-10: extensions built around a
+    // drop spot boxed the haulers in on each other): the core depot and the
+    // controller input are high-traffic exchange tiles - keep a 1-tile ring
+    // of walking room around each.
+    const hubRing = (pos: { x: number; y: number } | undefined): void => {
+      if (!pos) return;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          avoidPositions.add(`${pos.x + dx},${pos.y + dy}`);
+        }
+      }
+    };
+    const depot = coreDepot(room);
+    hubRing(depot ? { x: depot.pos.x, y: depot.pos.y } : undefined);
+    if (room.controller) {
+      const input = controllerInputSpot(room.controller);
+      hubRing(input ? { x: input.pos.x, y: input.pos.y } : undefined);
     }
 
     // CLUSTER placement (owner directive 2026-07-09: "proximity to OTHER

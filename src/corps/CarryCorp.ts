@@ -690,7 +690,11 @@ export class CarryCorp extends Corp {
       // if possible); advance the tour for next tick.
       creep.memory.circuitIdx = (stopIdx + 1) % circuit.length;
     } else {
-      creep.moveTo(dest, { visualizePathStyle: { stroke: "#ffffff" } });
+      // travelToBypass: refillers converge on the same tight cluster - a
+      // parked sibling on the path must be SWAPPED through, not deadlocked
+      // behind (measured live: haulers stuck on each other at a drop spot
+      // ringed by extensions).
+      travelToBypass(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
     }
     return true;
   }

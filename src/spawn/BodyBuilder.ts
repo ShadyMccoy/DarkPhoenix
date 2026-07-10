@@ -60,16 +60,19 @@ const MAX_BODY_PARTS = 50;
  */
 export const MINER_CARRY_MIN_CAPACITY = 600;
 
-export function buildMinerBody(desiredWork: number, energyCapacity: number): BodyResult {
+export function buildMinerBody(desiredWork: number, energyCapacity: number, withCarry = false): BodyResult {
   // Minimum viable miner: 1 WORK + 1 MOVE = 150 energy
   const minEnergy = PART_COSTS[WORK] + PART_COSTS[MOVE];
   if (energyCapacity < minEnergy) {
     return { body: [], cost: 0, workParts: 0 };
   }
 
-  // Reserve room for the CARRY part in a rich room, so the WORK loop below
-  // can't spend the whole budget first.
-  const addCarry = energyCapacity >= MINER_CARRY_MIN_CAPACITY;
+  // NO CARRY by default (owner 2026-07-10: pre-link it buffers 50 energy
+  // once and drops everything anyway - 50 wasted energy + 3 wasted
+  // spawn-ticks per miner generation). The ONLY miner that gets a CARRY is
+  // a link-fed one (withCarry=true, bodyStrategy "linkFed"): feeding the
+  // source link is the one job that uses it.
+  const addCarry = withCarry && energyCapacity >= MINER_CARRY_MIN_CAPACITY;
   if (addCarry) energyCapacity -= PART_COSTS[CARRY];
 
   // Calculate how many WORK parts we can afford
