@@ -46,6 +46,18 @@ class EconWatch {
   private measuredTicks = 0;
   private emptyPlanStreak = 0;
 
+  // Overhead decomposition (owner 2026-07-10): name the buckets inside the
+  // plan-vs-actual gap so each is ratchetable - under-mining vs decay vs
+  // accumulation vs transit vs spawn idle time.
+  private prevSourceEnergy = new Map<string, number>();
+  private minedEnergy = 0; // source drawdown actually harvested
+  private decayEnergy = 0; // pile decay losses (ceil(amount/1000)/tick)
+  private stockStart: number | null = null; // piles+containers+storage at measureFrom
+  private stockLast = 0;
+  private transitStart: number | null = null; // energy aboard creeps
+  private transitLast = 0;
+  private spawnIdleTicks = 0; // spawn idle while it could afford a minimal body
+
   constructor(private readonly measureFrom: number) {}
 
   /** Idempotent per tick; call from any assertion check. */
@@ -89,8 +101,48 @@ class EconWatch {
     }
     this.prevSites = sites;
 
+    // Overhead decomposition inputs (cheap single pass over objs).
+    let pileTotal = 0;
+    let pileDecayThisTick = 0;
+    let containerTotal = 0;
+    let transit = 0;
+    let spawnIdle = false;
+    let spawnBank = 0;
+    for (const o of objs) {
+      if (o.type === "energy") {
+        const amt = o.energy ?? 0;
+        pileTotal += amt;
+        pileDecayThisTick += Math.ceil(amt / 1000);
+      } else if (o.type === "container" || o.type === "storage") {
+        containerTotal += o.store?.energy ?? 0;
+      } else if (o.type === "creep" && o.user === s.userId) {
+        transit += o.store?.energy ?? 0;
+      } else if (o.type === "spawn" && o.user === s.userId) {
+        if (!o.spawning) spawnIdle = true;
+        spawnBank += o.store?.energy ?? 0;
+      } else if (o.type === "extension" && o.user === s.userId) {
+        spawnBank += o.store?.energy ?? 0;
+      }
+      if (o.type === "source") {
+        const prev = this.prevSourceEnergy.get(String(o._id));
+        const now = o.energy ?? 0;
+        // Drawdown = harvest; increases are regen resets and don't count.
+        if (measuring && prev !== undefined && now < prev) this.minedEnergy += prev - now;
+        this.prevSourceEnergy.set(String(o._id), now);
+      }
+    }
+
     if (!measuring) return;
     this.measuredTicks += 1;
+
+    this.decayEnergy += pileDecayThisTick;
+    const stockNow = pileTotal + containerTotal;
+    if (this.stockStart === null) this.stockStart = stockNow;
+    this.stockLast = stockNow;
+    if (this.transitStart === null) this.transitStart = transit;
+    this.transitLast = transit;
+    // Idle while a minimal body (150) is affordable = wasted build-time.
+    if (spawnIdle && spawnBank >= 150) this.spawnIdleTicks += 1;
 
     const corps: any[] = s.memory?.economyPlan?.corps ?? [];
     this.emptyPlanStreak = corps.length === 0 ? this.emptyPlanStreak + 1 : 0;
@@ -130,6 +182,40 @@ class EconWatch {
       planUpgrade: this.planUpgradeSum / n,
       planCarry: this.planCarrySum / n,
       fieldedCarry: this.fieldedCarrySum / n,
+    };
+  }
+
+  /**
+   * The gap, decomposed (per-tick rates over the measured window). Closes
+   * the books: mined = sinks + Δstock + decay + Δtransit + residual, and
+   * (planMine - mined) is UNDER-MINING - a different disease than transport
+   * loss, now separately visible. spawnIdleFrac is the fraction of measured
+   * ticks the spawn sat idle while a minimal body was affordable (wasted
+   * build-time, the scarcest resource).
+   */
+  overhead(): {
+    mined: number;
+    sinks: number;
+    stockDelta: number;
+    decay: number;
+    transitDelta: number;
+    residual: number;
+    spawnIdleFrac: number;
+  } {
+    const n = Math.max(1, this.measuredTicks);
+    const mined = this.minedEnergy / n;
+    const sinks = (this.ctrlEnergy + this.spawnEnergy + this.buildEnergy) / n;
+    const stockDelta = ((this.stockLast - (this.stockStart ?? this.stockLast)) || 0) / n;
+    const decay = this.decayEnergy / n;
+    const transitDelta = ((this.transitLast - (this.transitStart ?? this.transitLast)) || 0) / n;
+    return {
+      mined,
+      sinks,
+      stockDelta,
+      decay,
+      transitDelta,
+      residual: mined - sinks - stockDelta - decay - transitDelta,
+      spawnIdleFrac: this.spawnIdleTicks / n,
     };
   }
 }
@@ -224,7 +310,16 @@ function fidelityCell(spec: {
               `(actual ${r.actualPerTick.toFixed(1)} vs plan ${r.planMine.toFixed(1)} e/t), ` +
               `controller ${pct(g.controller)} (${r.ctrlPerTick.toFixed(1)} vs ${r.planUpgrade.toFixed(1)}), ` +
               `carry ${pct(g.carry)} (${r.fieldedCarry.toFixed(1)} vs ${r.planCarry.toFixed(1)} parts)\n` +
-              `  [plan-fidelity] ${spec.id} fleet: ${fleet}`
+              `  [plan-fidelity] ${spec.id} fleet: ${fleet}\n` +
+              (() => {
+                const o = watch.overhead();
+                return (
+                  `  [overhead] ${spec.id}: mined=${o.mined.toFixed(1)} sinks=${o.sinks.toFixed(1)} ` +
+                  `Δstock=${o.stockDelta.toFixed(1)} decay=${o.decay.toFixed(1)} ` +
+                  `Δtransit=${o.transitDelta.toFixed(1)} residual=${o.residual.toFixed(1)} ` +
+                  `spawnIdle=${(o.spawnIdleFrac * 100).toFixed(0)}%`
+                );
+              })()
           );
         }
         return !!g && g.gross >= spec.thresholds.gross;
