@@ -26,10 +26,16 @@ Missing: the act of claiming — a trigger, a claimer creep, and founding
 Three small pieces, all riding existing rails:
 
 1. **Trigger** (in the planning phase, cheap + interval-gated):
-   `shouldExpand(gcl, ownedRooms, candidates)` — pure. Expand when
-   `gcl.level > ownedRooms.length` AND a candidate node has
+   `shouldExpand(gcl, ownedRooms, candidates, bankedEnergy)` — pure. Expand
+   when `gcl.level > ownedRooms.length` AND a candidate node has
    `roi.score >= EXPAND_MIN_SCORE` AND its room is not owned/reserved-hostile
-   AND the home room is RCL ≥ 4 (can afford a claimer + seed builders).
+   AND **savings underwrite the campaign** (owner doctrine 2026-07-10:
+   "saved up stocks fund and plan producer corps"): `bankedEnergy >=
+   EXPANSION_CAPEX + SAFETY_RESERVE` where CAPEX ≈ claimer 650 + the spawn
+   site's 15k + seed bodies. Capital replaces the crude RCL gate: a colony
+   expands exactly when it has accumulated the investment, timing emergent
+   from the bank - producers are investments with a CAPEX hump, and the
+   bank exists to cross humps.
    Persist the chosen target in `Memory.expansion = { roomName, nodeId,
    spawnPos, sinceTick }` so the campaign survives resets; clear it when the
    new room's spawn finishes or after `EXPAND_TIMEOUT` (20k ticks) of no

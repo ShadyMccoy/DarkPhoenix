@@ -16,7 +16,7 @@ import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { carryPartsFor, SOURCE_RATE } from "../economy/primitives";
+import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, sourceHarvestSpot } from "./nodeEnergy";
 
@@ -312,6 +312,33 @@ export class ConstructionCorp extends Corp {
     if (runt) runt.memory.recycling = true;
   }
 
+  /**
+   * Energy ACTUALLY on the build side: the dedicated source's container and
+   * pile, plus containers/piles around the active site. What the crew can
+   * really burn - primitive piles and proper structures alike.
+   */
+  private buildSideStock(room: Room): number {
+    let stock = 0;
+    const around = (pos: RoomPosition, range: number): void => {
+      for (const s of pos.findInRange(FIND_STRUCTURES, range)) {
+        if (s.structureType === STRUCTURE_CONTAINER) {
+          stock += (s as StructureContainer).store[RESOURCE_ENERGY];
+        }
+      }
+      for (const r of pos.findInRange(FIND_DROPPED_RESOURCES, range)) {
+        if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
+      }
+    };
+    const dedicated = room.memory.dedicatedBuildSourceId;
+    if (dedicated) {
+      const src = Game.getObjectById(dedicated as Id<Source>);
+      if (src) around(src.pos, 2);
+    }
+    const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+    if (site) around(site.pos, 3);
+    return stock;
+  }
+
   private builderPlan(energyCapacity: number, room: Room): SquadPlan {
     // Energy the crew should consume: the flow's construction allocation, OR -
     // when a whole source is reserved for the builder - that source's full output
@@ -324,6 +351,15 @@ export class ConstructionCorp extends Corp {
       const src = Game.getObjectById(dedicated as Id<Source>);
       if (src) buildEnergy = Math.max(buildEnergy, src.energyCapacity / ENERGY_REGEN_TIME);
     }
+    // STOCK-GROUNDED (owner doctrine 2026-07-10): the crew is sized to the
+    // FUEL that actually reaches the build side - depot + dedicated-source
+    // stocks drained over a creep lifetime plus the reserve trickle - capped
+    // by the plan's allocation above. An allocation-sized crew with no real
+    // fuel is dead apparatus: measured on W2N6 as 20 e/t of builder capacity
+    // (plus a 6-tanker relay) fed ~4 e/t. Under-fueled sites keep the crew
+    // small and the spawn on the supply side; accumulated stock scales it up.
+    const fuel = this.buildSideStock(room);
+    buildEnergy = Math.max(5, Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5)));
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.
     const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);

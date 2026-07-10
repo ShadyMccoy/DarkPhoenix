@@ -15,7 +15,7 @@ import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { effectiveLife, staffsPost } from "../economy/primitives";
+import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
 import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -376,7 +376,20 @@ export class UpgradingCorp extends Corp {
     // sources still feeding the core (see effectiveAllocated) so we don't field
     // upgraders the remaining supply can't feed.
     const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
-    const allocated = spawn ? this.effectiveAllocated(spawn.room, base) : base;
+    const planAllocated = spawn ? this.effectiveAllocated(spawn.room, base) : base;
+    // STOCK-GROUNDED sizing (owner doctrine 2026-07-10): the upgrader fleet is
+    // sized to the energy ACTUALLY at the controller side - banked stock
+    // drained over a creep lifetime - not to the goal plan's allocation. The
+    // plan says what SHOULD flow here; the stock is what DID. Under-delivery
+    // keeps upgraders minimal (spawn capacity stays on the supply side, macro:
+    // income first); accumulated savings scale them up to be spent. Floored
+    // at the anti-downgrade reserve so the controller is never abandoned, and
+    // capped by the plan so upgraders never out-eat what the solver routes.
+    // No visible controller (harness stubs, degenerate rooms): the stock is
+    // unmeasurable, so trust the plan rather than clamping to the floor.
+    const stock = spawn && controller ? this.controllerSideStock(controller) : null;
+    const allocated =
+      stock === null ? planAllocated : Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, 2)));
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -470,6 +483,26 @@ export class UpgradingCorp extends Corp {
    * the miner regrow, and the single source become "plenty" - the economy
    * rebalances around the build instead of starving for it.
    */
+  /**
+   * Energy ACTUALLY available at the controller's work site: the input
+   * container/storage plus ground piles around the input spot. This is the
+   * "2000 in a storage by the controller" the fleet should be sized to -
+   * primitive piles and proper structures obey the same principle.
+   */
+  private controllerSideStock(controller: StructureController): number {
+    const spot = controllerInputSpot(controller).pos;
+    let stock = 0;
+    for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
+      if (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) {
+        stock += (s as StructureContainer | StructureStorage).store[RESOURCE_ENERGY];
+      }
+    }
+    for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {
+      if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
+    }
+    return stock;
+  }
+
   private effectiveAllocated(room: Room, base: number): number {
     if (!room.memory.dedicatedBuildSourceId) return base;
     const total = room.find(FIND_SOURCES).length || 1;

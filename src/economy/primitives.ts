@@ -87,6 +87,21 @@ export function staffsPost(ttl: number | undefined, bodyParts: number, travelTic
   return ttl > deliveryLeadTime(bodyParts, travelTicks);
 }
 
+/**
+ * The consumption rate (energy/tick) a CONSUMER should be sized to, given the
+ * ACTUAL energy at its work site (owner doctrine 2026-07-10: "plan consuming
+ * corps only based on the actual energy available... 2000 in a storage by the
+ * controller over a ~1500-tick lifetime needs X body parts"). Stock drains
+ * over one creep generation, plus whatever measurably flows in. Sizing
+ * consumers from ACTUALS (not the goal plan's allocation) is self-correcting:
+ * under-delivery -> small stock -> small consumers -> spawn capacity stays on
+ * the supply side (macro: income first, then spend savings); a windfall ->
+ * consumers scale up to eat it.
+ */
+export function sustainableConsumptionRate(stock: number, inflow = 0): number {
+  return inflow + stock / CREEP_LIFETIME;
+}
+
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */
 export function minerOverhead(distance: number): number {
   return MINER_COST / effectiveLife(distance);

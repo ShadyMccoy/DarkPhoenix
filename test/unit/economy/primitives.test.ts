@@ -4,6 +4,7 @@ import {
   effectiveLife,
   roundTripTicks,
   staffsPost,
+  sustainableConsumptionRate,
   carryPartsFor,
   minerOverhead,
   haulerOverhead,
@@ -129,6 +130,18 @@ describe("economy/primitives", () => {
       const distance = 22;
       const successorWorkingLife = CREEP_LIFETIME - distance;
       expect(successorWorkingLife).to.equal(effectiveLife(distance));
+    });
+  });
+
+  describe("sustainableConsumptionRate (stock-grounded consumer sizing)", () => {
+    it("drains a stock over one creep lifetime: 2000 banked -> ~1.33 e/t", () => {
+      expect(sustainableConsumptionRate(2000)).to.be.closeTo(2000 / CREEP_LIFETIME, 1e-9);
+    });
+    it("adds the measured inflow on top of the stock drain", () => {
+      expect(sustainableConsumptionRate(1500, 2)).to.be.closeTo(3, 1e-9);
+    });
+    it("no stock, no inflow -> zero (consumers wait; income keeps the spawn)", () => {
+      expect(sustainableConsumptionRate(0)).to.equal(0);
     });
   });
 
