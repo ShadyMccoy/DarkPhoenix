@@ -119,7 +119,7 @@ export class SpawningCorp extends Corp {
    * that to an actual body and a spawnCreep call.
    */
   public executeSpawn(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver" | "claimer",
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -136,13 +136,14 @@ export class SpawningCorp extends Corp {
     const bodyCost = this.calculateBodyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return false;
 
-    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout" | "reserve"> = {
+    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout" | "reserve" | "claim"> = {
       miner: "harvest",
       hauler: "haul",
       upgrader: "upgrade",
       builder: "build",
       scout: "scout",
       reserver: "reserve",
+      claimer: "claim",
       // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
       // local sinks and sources within one node (e.g. a hauler's drop-off -> the
       // builder). That is a different job from a hauler, which does long-range
@@ -176,7 +177,7 @@ export class SpawningCorp extends Corp {
    * Build a body for the given role that costs at most `energyBudget`.
    */
   private buildBodyForRole(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver" | "claimer",
     energyBudget: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
@@ -198,6 +199,9 @@ export class SpawningCorp extends Corp {
       case "reserver":
         // bodyParam is the desired CLAIM count; defaults to 2.
         return buildReserverBody(energyBudget, bodyParam ?? 2).body;
+      case "claimer":
+        // Claiming needs exactly one CLAIM part; same builder, capped at 1.
+        return buildReserverBody(energyBudget, bodyParam ?? 1).body;
       case "hauler": {
         const { carryRatio, moveRatio } = this.getPartRatios(haulerRatio ?? "1:1");
         const costPerUnit = BODY_PART_COST.carry * carryRatio + BODY_PART_COST.move * moveRatio;

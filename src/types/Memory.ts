@@ -133,6 +133,18 @@ declare global {
     lastRclUpTick?: number;
 
     /**
+     * The active expansion campaign (spec 06): which room we are claiming and
+     * where its founding spawn goes. Persisted so the campaign survives global
+     * resets; cleared when the new spawn stands or on EXPAND_TIMEOUT.
+     */
+    expansion?: {
+      roomName: string;
+      nodeId: string;
+      spawnPos: { x: number; y: number; roomName: string };
+      sinceTick: number;
+    };
+
+    /**
      * Room map cache metadata (tick when last computed).
      */
     roomMapCache?: { [roomName: string]: number };
@@ -282,7 +294,7 @@ declare global {
      * - repair: Structure repair
      * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout" | "reserve";
+    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout" | "reserve" | "claim";
 
     /**
      * Target ID for current task.
@@ -390,14 +402,14 @@ declare global {
      * hungry that tick), then held for the whole trip so it never thrashes
      * mid-route. Cleared when the load is emptied.
      */
-    deliverSinkId?: "spawn" | "controller";
+    deliverSinkId?: "spawn" | "controller" | "founding";
 
     /**
      * The hauler's PERMANENT delivery circuit, assigned once for life in
      * proportion to the flow solver's per-sink allocations. This is its default
      * destination every trip (overridden only to top up a hungry spawn).
      */
-    homeSink?: "spawn" | "controller";
+    homeSink?: "spawn" | "controller" | "founding";
 
     /** An upgrader's assigned parking tile (ringing the controller input spot);
      * it camps here, withdraws from the single input, and upgrades in place. */

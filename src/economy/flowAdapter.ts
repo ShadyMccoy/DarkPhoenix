@@ -57,6 +57,67 @@ export function agendaFundingRate(sinkId: string): number {
   return entry.fundingNeed / FUND_HORIZON;
 }
 
+/**
+ * A NEW SPAWN's construction site (spec 06 expansion): above ordinary
+ * construction (70) so every room funnels its surplus to the founding, below
+ * the live spawn network (100) so keeping existing creeps alive still wins.
+ */
+export const NEW_SPAWN_SITE_VALUE = 85;
+
+/**
+ * controllerValue anchors: a fresh L1 (200 remaining) prices at the top of
+ * the CONTROLLER band - which caps BELOW the new-spawn site's 85 ("new
+ * spawns just have a higher priority than upgrading", owner 2026-07-09).
+ * Measured failure at max=90: a freshly claimed room's own L1 controller
+ * outranked the founding site AND ordinary construction everywhere, so the
+ * whole colony's build allocation went to zero (exp-t5 founding cell).
+ */
+const CONTROLLER_VALUE_MAX = 80;
+/** ...and the L8-scale grind (10.4M remaining) near the bottom. */
+const CONTROLLER_VALUE_MIN = 40;
+const CONTROLLER_REMAINING_MIN = 200;
+const CONTROLLER_REMAINING_MAX = 10_400_000;
+const CONTROLLER_VALUE_K =
+  (CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_MIN) / Math.log(CONTROLLER_REMAINING_MAX / CONTROLLER_REMAINING_MIN);
+
+/**
+ * Value of a controller sink as a function of PROGRESS REMAINING to the next
+ * level (owner directive 2026-07-09): remaining is what prices the marginal
+ * energy, so a fresh L1 (200 to go) and a 99%-done level both price high,
+ * while a mid-level grind sits near the old flat 50. Anchors: 200 -> 80,
+ * 10.4M -> 40, log-interpolated and clamped. At RCL2 (45k) this yields ~60 -
+ * still below construction's 70, so "build supersedes upgrade" is preserved
+ * until a level is nearly done, exactly the crossover the owner asked for
+ * ("if something is 99% to the next RCL level, those marginal points are
+ * valuable").
+ */
+export function controllerValue(remaining: number): number {
+  const v =
+    CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_K * Math.log(Math.max(1, remaining) / CONTROLLER_REMAINING_MIN);
+  return Math.min(CONTROLLER_VALUE_MAX, Math.max(CONTROLLER_VALUE_MIN, v));
+}
+
+/**
+ * Per-INSTANCE sink value (spec 06: "the ONE missing piece"). The planner's
+ * DEFAULT_SINK_VALUE stays the kind-level baseline; this differentiates the
+ * two cases the expansion economics need: a new-spawn site outprices ordinary
+ * construction, and each controller prices by its remaining progress. Live
+ * Game lookups are guarded so harness/unit paths fall back to the defaults.
+ */
+function perInstanceSinkValue(kind: SinkKind, sink: { gameId?: string; position: Position }): number {
+  if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
+    const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
+    if (site && site.structureType === "spawn") return NEW_SPAWN_SITE_VALUE;
+  }
+  if (kind === "controller" && typeof Game !== "undefined" && Game.rooms) {
+    const controller = Game.rooms[sink.position.roomName]?.controller;
+    if (controller && controller.progressTotal) {
+      return controllerValue(controller.progressTotal - controller.progress);
+    }
+  }
+  return DEFAULT_SINK_VALUE[kind];
+}
+
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
 function toSinkKind(type: SinkType): SinkKind | null {
   switch (type) {
@@ -175,7 +236,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: DEFAULT_SINK_VALUE[kind],
+      value: perInstanceSinkValue(kind, sink),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,

@@ -9,6 +9,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { travelTo } from "./movement";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -162,6 +163,17 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
+   * The room this corp BUILDS in - its commission's room, which during an
+   * expansion founding differs from the STAFFING spawn's room (spec 06: the
+   * new room's corps attribute to the parent spawn until its own stands).
+   * Falls back to the spawn's room without vision.
+   */
+  private workRoom(spawn: StructureSpawn): Room {
+    const roomName = this.nodeId.replace(/-construction$/, "");
+    return Game.rooms[roomName] ?? spawn.room;
+  }
+
+  /**
    * Plan construction operations.
    */
   public plan(tick: number): void {
@@ -173,11 +185,12 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    const constructionSites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
+    const workRoom = this.workRoom(spawn);
+    const constructionSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) {
       // Nothing to build, but containers decay - keep one builder while any needs
       // repair, so a finished (RCL-maxed) room still maintains its containers.
-      this.targetBuilders = this.wantsMaintenance(spawn.room) ? 1 : 0;
+      this.targetBuilders = this.wantsMaintenance(workRoom) ? 1 : 0;
       return;
     }
 
@@ -209,7 +222,7 @@ export class ConstructionCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
 
-    const room = spawn.room;
+    const room = this.workRoom(spawn);
     const controller = room.controller;
     if (!controller) return;
 
@@ -1195,8 +1208,21 @@ export class ConstructionCorp extends Corp {
   private runBuilder(creep: Creep, room: Room): void {
     // No construction sites: switch to container maintenance (fuel from + repair the
     // most decayed container) instead of standing idle.
-    if (room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) {
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+    if (sites.length === 0) {
       this.doMaintenance(creep, room);
+      return;
+    }
+
+    // A founding crew works OUT OF ITS SITE ROOM: the hauler founding lane
+    // delivers energy at the site, not at the parent spawn, so walk over
+    // first instead of idling at home waiting to fill (measured: ~600 ticks
+    // of parent-room dawdling before the first cross-border trip).
+    if (creep.room.name !== room.name) {
+      travelTo(creep, new RoomPosition(sites[0].pos.x, sites[0].pos.y, room.name), {
+        range: 3,
+        visualizePathStyle: { stroke: "#ffaa00" }
+      });
       return;
     }
 
@@ -1258,7 +1284,18 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    const target = creep.pos.findClosestByPath(sites);
+    // A founding crew's site is in ANOTHER room (spec 06: the corp's workRoom
+    // differs from its staffing spawn's room). findClosestByPath is same-room
+    // only - it returns null from home - so walk the border first.
+    if (creep.room.name !== room.name) {
+      travelTo(creep, new RoomPosition(sites[0].pos.x, sites[0].pos.y, room.name), {
+        range: 3,
+        visualizePathStyle: { stroke: "#ffaa00" }
+      });
+      return;
+    }
+
+    const target = creep.pos.findClosestByPath(sites) ?? sites[0];
     if (!target) return;
 
     const result = creep.build(target);
@@ -1326,8 +1363,15 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // No energy nearby - stay put and wait for delivery
-    // (creep will move to construction site when it has energy)
+    // No energy in reach: park beside the site instead of freezing where we
+    // stand - deliveries (home tankers, the founding hauler lane) land AT the
+    // site, and a builder stranded outside doPickup's range-4 scan starves
+    // next to nothing (measured: the founding builder deadlocked empty on the
+    // border tile all window).
+    const site = _room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+    if (site && creep.pos.getRangeTo(site.pos) > PICKUP_RANGE) {
+      creep.moveTo(site.pos, { range: 2, visualizePathStyle: { stroke: "#ffaa00" } });
+    }
   }
 
   /**
@@ -1368,21 +1412,22 @@ export class ConstructionCorp extends Corp {
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
-    const sites = spawn.room.find(FIND_MY_CONSTRUCTION_SITES);
+    const workRoom = this.workRoom(spawn);
+    const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
       // No sites, but containers decay: field one small builder to maintain them.
       // It self-fuels at the container, so no tankers are needed (hence we return
       // only the builder demand here, never the feeder demand below).
-      if (!this.wantsMaintenance(spawn.room)) return [];
-      return this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, spawn.room));
+      if (!this.wantsMaintenance(workRoom)) return [];
+      return this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
     }
 
-    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, spawn.room));
+    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
 
-    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, spawn.room, sites[0]));
+    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, sites[0]));
     return [...builderDemand, ...tankerDemand];
   }
 

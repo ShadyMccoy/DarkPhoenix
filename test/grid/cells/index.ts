@@ -34,6 +34,7 @@ import { calibrationCells } from "./calibration";
 import { buildDefenseCells } from "./defense";
 import { buildFidelityCells } from "./fidelity";
 import { buildJourneyCells } from "./journey";
+import { buildExpansionT5Cells } from "./expansion";
 import { buildMultiroomT5Cells } from "./multiroom";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 import { buildResilienceCells } from "./resilience";
@@ -82,6 +83,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildFidelityCells(),
   ...buildJourneyCells(),
   ...buildMultiroomT5Cells(),
+  ...buildExpansionT5Cells(),
 ];
 
 const seen = new Set<string>();

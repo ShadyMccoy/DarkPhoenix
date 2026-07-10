@@ -135,3 +135,72 @@ describe("economy/flowAdapter - paved-source detection", () => {
     expect(problem.sources.find(s => s.id === "source-s2")!.paved).to.equal(undefined);
   });
 });
+
+describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", () => {
+  const g = globalThis as unknown as { Game?: any };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  it("controllerValue: log curve through the spec anchors, clamped", async () => {
+    const { controllerValue } = await import("../../../src/economy/flowAdapter");
+    expect(controllerValue(200)).to.be.closeTo(80, 1e-9); // fresh L1 - top of the band
+    expect(controllerValue(10_400_000)).to.be.closeTo(40, 1e-9); // L8-scale grind
+    expect(controllerValue(1)).to.equal(80); // clamp above
+    expect(controllerValue(1e9)).to.equal(40); // clamp below
+    // RCL2 (45k remaining) prices BELOW ordinary construction (70): build
+    // supersedes upgrade until a level is nearly done...
+    expect(controllerValue(45_000)).to.be.lessThan(70);
+    expect(controllerValue(45_000)).to.be.greaterThan(55);
+    // ...the whole band sits BELOW the new-spawn site: a freshly claimed L1
+    // controller must never outbid its own founding (measured: at max=90 it
+    // zeroed construction colony-wide).
+    expect(controllerValue(1)).to.be.lessThan(85);
+    // ...and a 99%-done level (450 left) crosses ABOVE construction: the
+    // cheap hop to the next rung outprices ordinary building.
+    expect(controllerValue(450)).to.be.greaterThan(70);
+  });
+
+  it("a new-spawn construction site prices at 85, ordinary sites at 70", async () => {
+    const { buildColonyProblem, NEW_SPAWN_SITE_VALUE } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    graph.addConstructionSite("founding", "home", at(8), 15000);
+    graph.addConstructionSite("ext", "home", at(9), 3000);
+    g.Game.getObjectById = (id: string) =>
+      id === "founding" ? { structureType: "spawn" } : id === "ext" ? { structureType: "extension" } : null;
+
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const founding = problem.sinks.find(k => k.id === "construction-founding")!;
+    const ext = problem.sinks.find(k => k.id === "construction-ext")!;
+    expect(founding.value).to.equal(NEW_SPAWN_SITE_VALUE);
+    expect(ext.value).to.equal(70);
+    // ordering the founding design rides on: live spawn network > new-spawn
+    // site > ordinary construction
+    const spawnSink = problem.sinks.find(k => k.kind === "spawn")!;
+    expect(spawnSink.value).to.be.greaterThan(founding.value);
+    expect(founding.value).to.be.greaterThan(ext.value);
+  });
+
+  it("controller sinks price by the live controller's remaining progress", async () => {
+    const { buildColonyProblem, controllerValue } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    g.Game.rooms = { [ROOM]: { controller: { progress: 44_550, progressTotal: 45_000 } } };
+
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const ctrl = problem.sinks.find(k => k.kind === "controller")!;
+    expect(ctrl.value).to.be.closeTo(controllerValue(450), 1e-9);
+    expect(ctrl.value).to.be.greaterThan(70); // 99%-done level outprices construction
+  });
+
+  it("falls back to the kind default without vision of the controller", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    expect(problem.sinks.find(k => k.kind === "controller")!.value).to.equal(50);
+  });
+});

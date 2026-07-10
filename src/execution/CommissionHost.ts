@@ -32,6 +32,7 @@ import { ColonyProblem } from "../economy/CorpPlanner";
 import { Corp } from "../corps/Corp";
 import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
 import { reservationKind } from "../corps/kinds/reservationKind";
+import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
@@ -51,6 +52,7 @@ const KINDS: CorpKind[] = [
   // Self-proposing (auxiliary, or hybrid like construction which reads the draft):
   scoutKind as never,
   reservationKind as never,
+  claimKind as never,
   extensionTenderKind as never,
   constructionKind as never
 ];

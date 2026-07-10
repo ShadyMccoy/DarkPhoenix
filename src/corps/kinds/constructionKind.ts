@@ -75,6 +75,27 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     for (const s of problem.spawns) {
       if (!homeSpawnByRoom.has(s.pos.roomName)) homeSpawnByRoom.set(s.pos.roomName, s.id);
     }
+    // A room with build allocations but NO spawn of its own (the expansion
+    // founding: spec 06 audit "attribute the new room's corps to the PARENT
+    // spawn until the new spawn stands") still gets its construction corp,
+    // staffed from the nearest spawn - builders walk over, exactly like a
+    // remote miner walks to its post.
+    for (const roomName of allocByRoom.keys()) {
+      if (homeSpawnByRoom.has(roomName)) continue;
+      let best = problem.spawns[0];
+      if (!best) continue;
+      if (typeof Game !== "undefined" && Game.map?.getRoomLinearDistance) {
+        let bestDist = Infinity;
+        for (const s of problem.spawns) {
+          const d = Game.map.getRoomLinearDistance(s.pos.roomName, roomName);
+          if (d < bestDist) {
+            bestDist = d;
+            best = s;
+          }
+        }
+      }
+      homeSpawnByRoom.set(roomName, best.id);
+    }
     return [...homeSpawnByRoom].map(([roomName, spawnId]) => {
       const allocations = allocByRoom.get(roomName) ?? [];
       return {

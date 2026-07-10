@@ -79,7 +79,7 @@ const ROLE_KIND: Record<string, string> = {
 /** Every live corp id this tick: the union of what each runner claims creeps by. */
 function liveCorpIds(registry: CorpRegistry): Set<string> {
   const ids = new Set<string>();
-  for (const kind of ["harvest", "carry", "upgrade", "construction", "scout", "reservation", "tender"]) {
+  for (const kind of ["harvest", "carry", "upgrade", "construction", "scout", "reservation", "claim", "tender"]) {
     const corps = commissionedCorpsOfKind<Corp>(kind);
     for (const id in corps) ids.add(corps[id].id);
   }

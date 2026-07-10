@@ -31,6 +31,7 @@ import { HarvestCorp } from "../corps/HarvestCorp";
 import { CarryCorp } from "../corps/CarryCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
 import { ConstructionCorp } from "../corps/ConstructionCorp";
+import { ClaimCorp } from "../corps/ClaimCorp";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -240,6 +241,15 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
       d.groupStarted = true;
       demands.push(d);
     }
+  }
+  // The claim corp (spec 06 expansion): CAPEX, not income - it keeps its
+  // investment-tier value (80, below every income corp) and competes here
+  // only through its holdToFund flag, banking the indivisible 650 once it
+  // tops an otherwise-satisfied queue.
+  const claimCorps = commissionedCorpsOfKind<ClaimCorp>("claim");
+  for (const id in claimCorps) {
+    const c = claimCorps[id];
+    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
 
   return demands;

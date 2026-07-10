@@ -33,7 +33,7 @@ export { pickRuntToRecycle };
  * Sinks are classified by their flow `toId`: a "controller-*" destination is the
  * controller; anything else (spawn/extension network) is treated as the spawn.
  */
-export type LocalSink = "spawn" | "controller";
+export type LocalSink = "spawn" | "controller" | "founding";
 
 /**
  * Free capacity (energy) in the spawn network at or above which a hauler diverts
@@ -156,16 +156,21 @@ export function pickDeliverySink(
 
 export function pickSinkByAllocation(
   assignments: { toId: string; flowRate: number }[],
-  delivered: { [sink: string]: number }
+  delivered: { [sink: string]: number },
+  foundingSinks: ReadonlySet<string> = new Set()
 ): LocalSink {
-  // Haulers serve only the spawn network and the controller. Construction is
+  // Haulers serve the spawn network and the controller. IN-ROOM construction is
   // deliberately excluded - feeding builders is the construction tankers' job, not
-  // the haulers' - so a construction route never pulls a hauler off its circuit.
-  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0 };
+  // the haulers' - so a local construction route never pulls a hauler off its
+  // circuit. CROSS-ROOM construction (the expansion FOUNDING, spec 06) is the
+  // exception: tankers are intra-room apparatus, so a route that crosses a border
+  // has no tanker shortcut and the hauler runs it like any other circuit.
+  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0 };
   for (const a of assignments) {
     if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
-    else if (a.toId.startsWith("construction-")) continue;
-    else flows.spawn += a.flowRate;
+    else if (a.toId.startsWith("construction-")) {
+      if (foundingSinks.has(a.toId)) flows.founding += a.flowRate;
+    } else flows.spawn += a.flowRate;
   }
 
   // Pick whichever sink with positive allocated flow is furthest behind its
@@ -174,7 +179,7 @@ export function pickSinkByAllocation(
   let best: LocalSink = "spawn";
   let bestScore = Infinity;
   let anyPositive = false;
-  for (const sink of ["spawn", "controller"] as const) {
+  for (const sink of ["spawn", "controller", "founding"] as const) {
     if (flows[sink] <= 0) continue;
     anyPositive = true;
     const score = (delivered[sink] ?? 0) / flows[sink];
@@ -327,7 +332,7 @@ export class CarryCorp extends Corp {
       // Re-assign only when it has no circuit or its route's flow has vanished
       // (e.g. construction finished).
       const home = creep.memory.homeSink as LocalSink | undefined;
-      if (!home || !this.committedSinkHasFlow(home)) {
+      if (!home || !this.committedSinkHasFlow(home) || this.foundingUnstaffed(home)) {
         this.assignCircuit(creep);
       }
       // This trip's destination is decided ONCE, here: top up a hungry spawn
@@ -335,7 +340,7 @@ export class CarryCorp extends Corp {
       // the home circuit. Fixed for the whole trip, so no mid-route thrash.
       const homeSink = creep.memory.homeSink as LocalSink;
       creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkCritical(room) ? "spawn" : homeSink;
-      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : "→spawn");
+      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : creep.memory.deliverSinkId === "founding" ? "→found" : "→spawn");
     }
 
     // A clean bus: it fills completely at its source stop, then runs the route and
@@ -558,16 +563,34 @@ export class CarryCorp extends Corp {
     return free >= SPAWN_PRIORITY_FREE_CAPACITY;
   }
 
-  /** Per-sink-type flow this corp's source feeds (spawn + controller; construction
-   * is excluded - tankers serve it, not haulers). */
+  /** Per-sink-type flow this corp's source feeds (spawn + controller +
+   * cross-room founding; local construction is excluded - tankers serve it). */
   private flowsBySink(): Record<LocalSink, number> {
-    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0 };
+    const founding = this.foundingSinkIds();
+    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0 };
     for (const a of this.haulerAssignments) {
       if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
-      else if (a.toId.startsWith("construction-")) continue;
-      else flows.spawn += a.flowRate;
+      else if (a.toId.startsWith("construction-")) {
+        if (founding.has(a.toId)) flows.founding += a.flowRate;
+      } else flows.spawn += a.flowRate;
     }
     return flows;
+  }
+
+  /**
+   * Construction sinks this corp is routed to that sit in ANOTHER room (the
+   * expansion founding): no tanker can ferry across a border, so these routes
+   * belong to the haulers (see pickSinkByAllocation).
+   */
+  private foundingSinkIds(): Set<string> {
+    const out = new Set<string>();
+    const myRoom = this.nodeId.split("-")[0];
+    for (const a of this.haulerAssignments) {
+      if (!a.toId.startsWith("construction-")) continue;
+      const site = Game.getObjectById(a.toId.replace("construction-", "") as Id<ConstructionSite>);
+      if (site && site.pos.roomName !== myRoom) out.add(a.toId);
+    }
+    return out;
   }
 
   /**
@@ -578,6 +601,20 @@ export class CarryCorp extends Corp {
   private committedSinkHasFlow(sink: LocalSink): boolean {
     if (sink === "spawn") return true;
     return this.flowsBySink()[sink] > 0;
+  }
+
+  /**
+   * A founding route with positive flow and NO committed hauler: circuits are
+   * permanent, so when the founding sink appears mid-life every hauler would
+   * otherwise keep its old circuit and the new room starved until a fresh
+   * hauler happened to spawn (measured: first delivery at t=1260 of a 1400t
+   * window). The first full hauler to notice re-runs assignCircuit; the
+   * committed-count proportionality sends exactly that one to the founding.
+   */
+  private foundingUnstaffed(home: LocalSink): boolean {
+    if (home === "founding") return false;
+    if (this.flowsBySink().founding <= 0) return false;
+    return !this.getAssignedCreeps().some(h => h.memory.homeSink === "founding");
   }
 
   /**
@@ -595,13 +632,43 @@ export class CarryCorp extends Corp {
       const s = h.memory.homeSink;
       if (s) committed[s] = (committed[s] ?? 0) + 1;
     }
-    creep.memory.homeSink = pickSinkByAllocation(this.haulerAssignments, committed);
+    creep.memory.homeSink = pickSinkByAllocation(this.haulerAssignments, committed, this.foundingSinkIds());
   }
 
   /** Attempt delivery to a specific local sink; returns true if it took action. */
   private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
     if (sink === "controller") return this.deliverToController(creep, room);
+    if (sink === "founding") return this.deliverToFounding(creep);
     return this.deliverToSpawn(creep, room);
+  }
+
+  /**
+   * Deliver to the expansion founding site in its (spawn-less) room: hand the
+   * load to a hungry builder beside the site, else drop it there - builders
+   * self-serve dropped energy within range 4 (doPickup). Returns false when the
+   * founding route has vanished (site finished), so the caller re-assigns.
+   */
+  private deliverToFounding(creep: Creep): boolean {
+    const sinkId = [...this.foundingSinkIds()][0];
+    if (!sinkId) return false;
+    const site = Game.getObjectById(sinkId.replace("construction-", "") as Id<ConstructionSite>);
+    if (!site) return false;
+    if (creep.room.name !== site.pos.roomName || creep.pos.getRangeTo(site.pos) > 1) {
+      travelTo(creep, site.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      return true;
+    }
+    const builder = creep.pos.findInRange(FIND_MY_CREEPS, 1, {
+      filter: c => c.memory.workType === "build" && c.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    })[0];
+    const carried = creep.store[RESOURCE_ENERGY];
+    if (builder) {
+      creep.transfer(builder, RESOURCE_ENERGY);
+      this.recordProduction(Math.min(carried, builder.store.getFreeCapacity(RESOURCE_ENERGY)));
+      return true;
+    }
+    creep.drop(RESOURCE_ENERGY);
+    this.recordProduction(carried);
+    return true;
   }
 
   /**

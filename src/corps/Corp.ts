@@ -14,6 +14,7 @@ export type CorpType =
   | "bootstrap"
   | "scout"
   | "reservation"
+  | "claim"
   | "moving";
 
 /**

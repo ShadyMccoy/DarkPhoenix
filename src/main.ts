@@ -33,6 +33,7 @@
 
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
+import { updateExpansionCampaign } from "./economy/expansion";
 import { ScoutCorp } from "./corps/ScoutCorp";
 import { HarvestCorp } from "./corps/HarvestCorp";
 import { CarryCorp } from "./corps/CarryCorp";
@@ -299,6 +300,12 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // Run the colony economic coordination (surveying, stats)
     colony.run(Game.time, corps);
 
+    // Expansion campaign (spec 06): open/advance/close Memory.expansion on the
+    // planning cadence. When the target room is claimed this places the
+    // founding spawn site; the flow solver's NEW_SPAWN_SITE_VALUE sink does
+    // the actual funneling - no scripted campaign beyond this state machine.
+    updateExpansionCampaign(colony.getNodes());
+
     // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
     const planningNodes = colony.getNodes();
     if (planningNodes.length > 0) {
@@ -447,7 +454,28 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) continue;
 
-    const roomNodes = nodes.filter(n => n.roomName === roomName);
+    // A freshly claimed room has no analyzed nodes yet, but its founding
+    // spawn site must still be a sink (spec 06 audit: "the flow graph must
+    // admit construction sinks in rooms the colony can see") - fall back to
+    // anchoring on ANY node, nearest by room distance, until the room's own
+    // analysis lands. The anchor only shapes graph topology; haul pricing
+    // uses the site's real position either way.
+    let roomNodes = nodes.filter(n => n.roomName === roomName);
+    if (roomNodes.length === 0 && Memory.expansion?.roomName === roomName) {
+      let nearest: Node | undefined;
+      let nearestDist = Infinity;
+      for (const node of nodes) {
+        const d = Game.map.getRoomLinearDistance(node.roomName, roomName);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = node;
+        }
+      }
+      if (nearest) {
+        roomNodes = [nearest];
+        console.log(`[Expansion] founding site in ${roomName} anchored to node ${nearest.id} (no local nodes yet)`);
+      }
+    }
     if (roomNodes.length === 0) continue;
 
     for (const site of sites) {
