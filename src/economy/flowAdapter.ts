@@ -40,6 +40,43 @@ import { commissionsFromPlan } from "./commissionPlan";
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
 
+/**
+ * Energy/tick the planner keeps routing to the controller ONCE THE ROOM HAS A
+ * STORAGE bank; everything above this banks in the storage instead of piling at
+ * the controller drop-off (owner 2026-07-11: "once we have a storage, that should
+ * be a good destination for a lot of drop-offs, and we deliver it locally from
+ * there"). This is the deposit half of the storage bank: the durable storage - not
+ * the controller - soaks the surplus, so it can accumulate the expansion CAPEX the
+ * capital trigger saves toward (bankedEnergy reads storage; STORAGE_BANK spill to
+ * the controller otherwise capped it at 10k, below EXPANSION_CAPEX).
+ *
+ * It is the tuning knob for the upgrade-vs-bank balance: raise it to favour faster
+ * RCL, lower it to save harder. Below this rate the controller still mops up ALL
+ * income (its capacity exceeds the supply, so nothing is left to bank), so a lean
+ * single/2-source room upgrades exactly as before and only genuine surplus banks.
+ * Comfortably above the anti-downgrade reserve so upgrading always makes progress.
+ * Without a storage there is nowhere durable to bank surplus, so the controller
+ * keeps absorbing the whole remainder (pre-storage behaviour is unchanged).
+ */
+export const STORAGE_UPGRADE_TARGET = 15;
+
+/**
+ * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
+ * the controller's room has a storage bank, then bounded to {@link
+ * STORAGE_UPGRADE_TARGET} so the surplus banks in storage. Pure over the set of
+ * storage-bearing rooms so it is unit-testable without Game.
+ */
+export function controllerRoutingCapacity(
+  sink: { position: Position },
+  totalSupply: number,
+  roomsWithStorage: ReadonlySet<string>
+): number {
+  if (roomsWithStorage.has(sink.position.roomName)) {
+    return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
+  }
+  return Math.max(totalSupply, 1);
+}
+
 /** Ticks over which the agenda's funding need amortizes into a flow rate. */
 export const FUND_HORIZON = 50;
 
@@ -228,6 +265,13 @@ export function buildColonyProblem(
   sources.push(...transientSources);
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
 
+  // Rooms whose bank is built: their controller stops mopping up the surplus so
+  // the storage can soak it (see controllerRoutingCapacity / STORAGE_UPGRADE_TARGET).
+  const roomsWithStorage = new Set<string>();
+  for (const sink of graph.getSinks()) {
+    if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
+  }
+
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
@@ -266,7 +310,7 @@ export function buildColonyProblem(
             Math.max(minedSupply, 1)
           : kind === "storage"
           ? Math.max(totalSupply, 1) // soak excess
-          : Math.max(totalSupply, 1), // controller mops up the remainder
+          : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage), // controller: mops up the remainder, unless a storage banks the surplus
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
   }

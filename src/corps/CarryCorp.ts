@@ -33,7 +33,7 @@ export { pickRuntToRecycle };
  * Sinks are classified by their flow `toId`: a "controller-*" destination is the
  * controller; anything else (spawn/extension network) is treated as the spawn.
  */
-export type LocalSink = "spawn" | "controller" | "founding";
+export type LocalSink = "spawn" | "controller" | "founding" | "storage";
 
 /**
  * Free capacity (energy) in the spawn network at or above which a hauler diverts
@@ -165,9 +165,10 @@ export function pickSinkByAllocation(
   // circuit. CROSS-ROOM construction (the expansion FOUNDING, spec 06) is the
   // exception: tankers are intra-room apparatus, so a route that crosses a border
   // has no tanker shortcut and the hauler runs it like any other circuit.
-  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0 };
+  const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0, storage: 0 };
   for (const a of assignments) {
     if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
+    else if (a.toId.startsWith("storage-")) flows.storage += a.flowRate;
     else if (a.toId.startsWith("construction-")) {
       if (foundingSinks.has(a.toId)) flows.founding += a.flowRate;
     } else flows.spawn += a.flowRate;
@@ -179,7 +180,7 @@ export function pickSinkByAllocation(
   let best: LocalSink = "spawn";
   let bestScore = Infinity;
   let anyPositive = false;
-  for (const sink of ["spawn", "controller", "founding"] as const) {
+  for (const sink of ["spawn", "controller", "founding", "storage"] as const) {
     if (flows[sink] <= 0) continue;
     anyPositive = true;
     const score = (delivered[sink] ?? 0) / flows[sink];
@@ -340,7 +341,15 @@ export class CarryCorp extends Corp {
       // the home circuit. Fixed for the whole trip, so no mid-route thrash.
       const homeSink = creep.memory.homeSink as LocalSink;
       creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkCritical(room) ? "spawn" : homeSink;
-      creep.say(creep.memory.deliverSinkId === "controller" ? "→ctrl" : creep.memory.deliverSinkId === "founding" ? "→found" : "→spawn");
+      creep.say(
+        creep.memory.deliverSinkId === "controller"
+          ? "→ctrl"
+          : creep.memory.deliverSinkId === "founding"
+          ? "→found"
+          : creep.memory.deliverSinkId === "storage"
+          ? "→bank"
+          : "→spawn"
+      );
     }
 
     // A clean bus: it fills completely at its source stop, then runs the route and
@@ -567,9 +576,10 @@ export class CarryCorp extends Corp {
    * cross-room founding; local construction is excluded - tankers serve it). */
   private flowsBySink(): Record<LocalSink, number> {
     const founding = this.foundingSinkIds();
-    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0 };
+    const flows: Record<LocalSink, number> = { spawn: 0, controller: 0, founding: 0, storage: 0 };
     for (const a of this.haulerAssignments) {
       if (a.toId.startsWith("controller-")) flows.controller += a.flowRate;
+      else if (a.toId.startsWith("storage-")) flows.storage += a.flowRate;
       else if (a.toId.startsWith("construction-")) {
         if (founding.has(a.toId)) flows.founding += a.flowRate;
       } else flows.spawn += a.flowRate;
@@ -647,7 +657,35 @@ export class CarryCorp extends Corp {
   private tryDeliverTo(creep: Creep, room: Room, sink: LocalSink): boolean {
     if (sink === "controller") return this.deliverToController(creep, room);
     if (sink === "founding") return this.deliverToFounding(creep);
+    if (sink === "storage") return this.deliverToStorage(creep, room);
     return this.deliverToSpawn(creep, room);
+  }
+
+  /**
+   * Bank a load in the room's storage. This is the deposit half of the storage
+   * bank: the flow planner routes the surplus here (surplus the controller no
+   * longer mops up once a storage exists - see flowAdapter's STORAGE_UPGRADE_TARGET),
+   * so the hauler drives to the storage and dumps everything into it. The energy
+   * is then distributed LOCALLY from the depot - the extension tender already
+   * refills the spawn/extensions from it (coreDepot), and the spawn-critical
+   * override still tops a hungry spawn first. Unlike deliverToSpawn's small bridge
+   * bank (STORAGE_BANK, then spill to the controller), this keeps filling the
+   * storage so it can accumulate the expansion capital the trigger saves toward.
+   *
+   * Returns false when the route has vanished (no storage) or the bank is
+   * physically full, so deliverEnergy spills the load to the spawn/controller.
+   */
+  private deliverToStorage(creep: Creep, room: Room): boolean {
+    const storage = room.storage;
+    if (!storage || !storage.my) return false; // route gone; caller re-assigns / falls back
+    if (storage.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false; // bank full: spill to consumers
+    if (creep.pos.getRangeTo(storage) > 1) {
+      travelTo(creep, storage, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
+      return true;
+    }
+    const moved = Math.min(creep.store[RESOURCE_ENERGY], storage.store.getFreeCapacity(RESOURCE_ENERGY));
+    if (creep.transfer(storage, RESOURCE_ENERGY) === OK) this.recordProduction(moved);
+    return true;
   }
 
   /**

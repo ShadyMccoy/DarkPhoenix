@@ -27,6 +27,12 @@ function homeNode(spawnX: number): Node {
   return n;
 }
 
+function homeNodeWithStorage(spawnX: number): Node {
+  const n = homeNode(spawnX);
+  n.resources.push({ type: "storage", id: "storage-0", position: at(spawnX) } as NodeResource);
+  return n;
+}
+
 function graphOf(nodes: Node[]): FlowGraph {
   return new FlowGraph(nodes, new NodeNavigator(nodes, []));
 }
@@ -65,6 +71,37 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(sol.haulers.filter(h => h.fromId === "source-s1").length).to.be.greaterThan(0);
     expect(sol.haulers.filter(h => h.fromId === "source-s2").length).to.be.greaterThan(0);
     expect(sol.isSustainable).to.equal(true);
+  });
+
+  it("banks the surplus in storage instead of the controller once a storage exists", () => {
+    // 3 sources = 30 e/tick. spawn takes its ~10 overhead; the controller is now
+    // capped at STORAGE_UPGRADE_TARGET (15) because the room has a storage bank, so
+    // the remaining ~5 banks in storage rather than piling at the controller.
+    const graph = graphOf([
+      homeNodeWithStorage(5),
+      sourceNode("s1", 15),
+      sourceNode("s2", 25),
+      sourceNode("s3", 35)
+    ]);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
+    expect(ctrl.allocated).to.be.closeTo(15, 1e-9); // capped at the upgrade target
+    expect(store.allocated).to.be.closeTo(5, 1e-9); // the surplus banks
+    // a hauler actually carries energy into the storage bank
+    expect(sol.haulers.some(h => h.toId.startsWith("storage-"))).to.equal(true);
+  });
+
+  it("leaves the controller mopping up the surplus when there is no storage", () => {
+    // Same 30 e/tick supply, no storage: the controller absorbs everything past the
+    // spawn overhead exactly as before (nothing banked). Guards the storage gate.
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25), sourceNode("s3", 35)]);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(ctrl.allocated).to.be.closeTo(20, 1e-9); // 30 supply - 10 spawn overhead
+    expect(sol.sinkAllocations.some(a => a.sinkType === "storage")).to.equal(false);
   });
 
   it("skips a source whose real distance makes it unprofitable", () => {
