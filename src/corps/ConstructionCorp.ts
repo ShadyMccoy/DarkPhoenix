@@ -90,18 +90,6 @@ const LINK_MIN_SOURCE_RANGE = 8;
 const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
 
 /**
- * Dropped energy at the controller's drop-off (input) spot that signals the RCL
- * drop-off container is worth its 5000 build cost: a pile this big means haulers
- * are delivering to the upgrade lane faster than the upgraders draw it down, so a
- * static container will buffer the energy (and stop it decaying on the ground)
- * instead of it piling on the input tile. The drop-off's pile is the same interim
- * mechanism the source's is - fine on the ground until the over-delivery evidence
- * accumulates, then converted to a container (or superseded by a storage/link).
- * Mirrors SOURCE_CONTAINER_PILE_THRESHOLD; tunable the same way.
- */
-const CONTROLLER_CONTAINER_PILE_THRESHOLD = 200;
-
-/**
  * Energy value assumed for a freed spawn build-part when judging a road route
  * (see primitives.energyPerSpawnPart: ~537 for a home source, ~153 for a d=75
  * remote, ~0 when the spawn is slack). A conservative mid-range constant until
@@ -940,32 +928,28 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * A still-missing CONTROLLER container: the RCL drop-off's own buffer. Like the
-   * source container it is PILE-GATED - built only once dropped energy has piled up
-   * at the drop-off (haulers delivering faster than the upgraders draw it down), so
-   * the 5000 build cost waits for the over-delivery evidence and the interim pile is
-   * fine until then - and it lands ON the drop-off tile itself (controllerInputSpot),
-   * so the hauler's pile, the container, and the upgraders' draw point converge on
-   * ONE tile (the same convergence sourceHarvestSpot gives the source container),
-   * rather than a spawn-nearest tile the pile never reaches.
+   * A still-missing CONTROLLER container: the RCL drop-off's own buffer. It lands
+   * ON the drop-off tile itself (controllerInputSpot), so the hauler's pile, the
+   * container, and the upgraders' draw point converge on ONE tile - the same
+   * convergence sourceHarvestSpot gives the source container - rather than a
+   * spawn-nearest tile the pile never reaches.
    *
-   * It sits far from the sources (expensive to feed a builder there) and only helps
-   * upgrading - a luxury - so it is placed LAST, after the extensions, which are
-   * cheap, near the sources, and compound spawn capacity for the whole economy.
+   * Unlike the source container this is NOT pile-gated. It sits LAST in the ladder
+   * (after extensions, storage, and links), and once the ladder completes we do
+   * not want to plan around energy piling on the ground at the drop-off - so it
+   * builds regardless of the drop-off pile. It buffers the upgraders but sits far
+   * from the sources (expensive to feed a builder there) and only helps upgrading,
+   * hence the last-place slot behind the capacity structures.
    */
   private findMissingControllerContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
     const ctrl = room.controller;
     if (!ctrl || !ctrl.my) return null;
     // controllerInputSpot resolves an existing container/link within range 3; if
-    // one already buffers the drop-off (or a storage serves), the pile has a
-    // durable home and no new container is wanted.
+    // one already buffers the drop-off (or a storage serves), no new container is
+    // wanted.
     const input = controllerInputSpot(ctrl);
     if (input.structure) return null;
-    const pile = input.pos
-      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
-      .reduce((sum, r) => sum + r.amount, 0);
-    if (pile < CONTROLLER_CONTAINER_PILE_THRESHOLD) return null;
     return { x: input.pos.x, y: input.pos.y };
   }
 
