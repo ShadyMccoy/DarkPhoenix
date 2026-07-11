@@ -16,6 +16,7 @@
 
 import { GridCell, always, eventually } from "../GridCell";
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
+import { makeRefillSla } from "../refillSLA";
 
 /** Home room with an east exit slot at (49, 24..26). */
 const homeEast = (build: (b: RoomBuilder) => RoomBuilder) => (roomName: string) => {
@@ -336,6 +337,8 @@ export function buildMultiroomT5Cells(): GridCell[] {
       controller: { level: 3 },
       structures: fullExts(EXT_8),
       assertions: [
+        // Refill SLA rides the longest organic sim too (horizontal).
+        makeRefillSla(undefined, 10),
         eventually("the planner mines the remote source", (s) => {
           const src = s.objects("east").find((o) => o.type === "source");
           if (!src) return false;

@@ -60,6 +60,11 @@ const CONTAINER_LIMIT = 5;
  * the owner build order applies: be greedy to RCL2, then EXTENSIONS (3000,
  * compounding capacity), THEN containers - so static-mining efficiency feeds
  * the RCL3 push - and containers only unlock once the extension set is BUILT.
+ *
+ * A/B'd 2026-07-10 and kept as-is: a broad RCL2 container flip collapsed the
+ * maze world's consumption, and even a depot-only early gate just displaced
+ * the extension rung (T0 policy cell). The refill SLA is instead served by
+ * the universal tender (reloads from any stock) and the near-fuel gate.
  */
 const CONTAINER_MIN_RCL = 3;
 
@@ -268,7 +273,14 @@ export class ConstructionCorp extends Corp {
     const currentExtensions = room.find(FIND_MY_STRUCTURES, {
       filter: s => s.structureType === STRUCTURE_EXTENSION
     }).length;
-    const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES).length;
+    // ROAD sites don't hold the queue: a paving project is linear, cheap per
+    // segment, and built by scavenging en route - letting it block the next
+    // STRUCTURE kept the pipeline world depot-less for 1500+ ticks while the
+    // remote route paved (refill SLA breach: the tender's reload stayed a
+    // full haul away).
+    const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType !== STRUCTURE_ROAD
+    }).length;
 
     const wantsContainer =
       containersUnlocked(rcl, currentExtensions >= maxExtensions) &&

@@ -22,8 +22,9 @@ import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
-import { nextStop, roomCircuit } from "./refillCircuit";
+import { extensionClusters, nextStop, roomCircuit } from "./refillCircuit";
 import { travelTo, travelToBypass } from "./movement";
+import { staffsPost } from "../economy/primitives";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
   spawnId: string;
@@ -89,14 +90,28 @@ export class ExtensionTenderCorp extends Corp {
     return false;
   }
 
-  /** Spawn + extensions in the room with free energy capacity, nearest the tender first. */
-  private fillTargets(room: Room, from: RoomPosition): FillTarget[] {
-    const targets = room.find(FIND_MY_STRUCTURES, {
-      filter: s =>
-        (s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_SPAWN) &&
-        (s as FillTarget).store.getFreeCapacity(RESOURCE_ENERGY) > 0
-    }) as FillTarget[];
-    return targets.sort((a, b) => from.getRangeTo(a.pos) - from.getRangeTo(b.pos));
+  /**
+   * Spawn + extensions in the room with free energy capacity - EXTENSIONS
+   * FIRST, then by range. The refill SLA (owner 2026-07-10) binds the
+   * extension bank to each draining spawn's build time, and the spawn
+   * structure's own 300 regenerates spawn capability regardless; measured
+   * (haul-t4-refill-sla-under-churn): with range-only ordering the tender's
+   * whole first load vanished into the adjacent spawn structure and the
+   * extensions waited out a second depot round-trip past the deadline.
+   */
+  private fillTargets(room: Room, from: RoomPosition, cluster?: FillTarget[]): FillTarget[] {
+    const pool =
+      cluster ??
+      (room.find(FIND_MY_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_SPAWN
+      }) as FillTarget[]);
+    const targets = pool.filter(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+    return targets.sort((a, b) => {
+      const aSpawn = a.structureType === STRUCTURE_SPAWN ? 1 : 0;
+      const bSpawn = b.structureType === STRUCTURE_SPAWN ? 1 : 0;
+      if (aSpawn !== bSpawn) return aSpawn - bSpawn;
+      return from.getRangeTo(a.pos) - from.getRangeTo(b.pos);
+    });
   }
 
   public work(tick: number): void {
@@ -114,7 +129,17 @@ export class ExtensionTenderCorp extends Corp {
     // network directly, so a dead tender can never deadlock the colony.
     room.memory.extensionTenderActive = !!depot && tenders.length > 0;
 
-    for (const creep of tenders) this.runTender(creep, room, depot);
+    // PER-CLUSTER assignment (refill SLA on split layouts): each tender owns
+    // one spatial cluster - a single tender cannot beat 3t/part deadlines
+    // across 20-tile-separated groups (measured on the legacy-layout
+    // snapshot). Stable by name order so assignments survive across ticks;
+    // extra tenders (clusters shrank) share cluster 0 until they expire.
+    const clusters = extensionClusters(room) as FillTarget[][];
+    const byName = [...tenders].sort((a, b) => a.name.localeCompare(b.name));
+    byName.forEach((creep, i) => {
+      const cluster = clusters.length > 0 ? clusters[i % clusters.length] : undefined;
+      this.runTender(creep, room, depot, cluster);
+    });
   }
 
   /**
@@ -122,15 +147,34 @@ export class ExtensionTenderCorp extends Corp {
    * from the depot when empty. It only flips state on full/empty, so it makes
    * complete trips (a clean burst) rather than dithering with partial loads.
    */
-  private runTender(creep: Creep, room: Room, depot: CoreDepot | null): void {
+  private runTender(creep: Creep, room: Room, depot: CoreDepot | null, cluster?: FillTarget[]): void {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
-      const targets = this.fillTargets(room, creep.pos);
+      const targets = this.fillTargets(room, creep.pos, cluster);
       if (targets.length === 0) {
-        // Nothing to fill: idle on the depot so the next burst is served instantly.
-        if (depot && !creep.pos.isNearTo(depot)) travelTo(creep, depot, { range: 1 });
+        // Nothing to fill: idle at the reload point AND top up while waiting,
+        // so the next burst starts with a full load. A tender idling on its
+        // burst leftovers had to mid-burst reload against a small creep's
+        // 6-9 tick deadline (measured: SLA breach at t=336 of the churn
+        // cell). Depot-less rooms idle at the nearest stocked container (or
+        // the spawn, keeping first response instant).
+        // Idle INSIDE the assigned cluster (its first member) when the depot
+        // is another cluster's neighborhood - first response beats reload.
+        const anchor = cluster && cluster.length > 0 ? cluster[0] : null;
+        const depotNear = depot && anchor ? anchor.pos.getRangeTo(depot.pos) <= 6 : !!depot;
+        const idleAt =
+          (depotNear ? depot : null) ??
+          anchor ??
+          this.reloadStock(creep) ??
+          Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+        if (idleAt && !creep.pos.isNearTo(idleAt)) {
+          travelTo(creep, idleAt, { range: 1 });
+        } else if (creep.store.getFreeCapacity() > 0) {
+          const stock = depot ?? this.reloadStock(creep);
+          if (stock && creep.pos.isNearTo(stock)) creep.withdraw(stock as StructureContainer, RESOURCE_ENERGY);
+        }
         return;
       }
 
@@ -138,7 +182,12 @@ export class ExtensionTenderCorp extends Corp {
       // whatever the current destination, if ANY needy target is adjacent
       // right now, fill it THIS tick - the transfer is free alongside the
       // move, so the tender is filling every tick it possibly can.
-      const adjacent = targets.find(t => creep.pos.isNearTo(t.pos));
+      // While any extension is needy, en-route transfers go to EXTENSIONS
+      // only: an adjacent spawn structure swallows the whole load in one
+      // transfer (300 vs an extension's 50) and defeats the sweep.
+      const needyExts = targets.filter(t => t.structureType === STRUCTURE_EXTENSION);
+      const adjacentPool = needyExts.length > 0 ? needyExts : targets;
+      const adjacent = adjacentPool.find(t => creep.pos.isNearTo(t.pos));
       if (adjacent) {
         creep.transfer(adjacent, RESOURCE_ENERGY);
         this.recordProduction(
@@ -152,7 +201,7 @@ export class ExtensionTenderCorp extends Corp {
       // drains in the same order (SpawningCorp energyStructures), so holes
       // appear as a contiguous run the bus sweeps.
       const circuit = roomCircuit(room);
-      const needySet = new Set<string>(targets.map(t => t.id as string));
+      const needySet = new Set<string>(adjacentPool.map(t => t.id as string));
       const stopIdx = nextStop(circuit, creep.memory.circuitIdx ?? 0, id => needySet.has(id));
       if (stopIdx === null) return; // every stop full
       creep.memory.circuitIdx = stopIdx;
@@ -170,11 +219,18 @@ export class ExtensionTenderCorp extends Corp {
       return;
     }
 
-    // Reloading: draw from the depot (fall back to the largest nearby drop pile so a
-    // not-yet-built depot still works).
+    // Reloading: depot first, then any stocked container, then a drop pile -
+    // a depot-less room's tender is still a real apparatus (refill SLA).
     if (depot && depot.store[RESOURCE_ENERGY] > 0) {
       if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+      }
+      return;
+    }
+    const container = this.reloadStock(creep);
+    if (container) {
+      if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        travelTo(creep, container, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
       }
       return;
     }
@@ -186,6 +242,15 @@ export class ExtensionTenderCorp extends Corp {
     } else if (depot && !creep.pos.isNearTo(depot)) {
       travelTo(creep, depot, { range: 1 });
     }
+  }
+
+  /** Nearest stocked container/storage - the depot-less reload point. */
+  private reloadStock(creep: Creep): StructureContainer | StructureStorage | null {
+    return creep.pos.findClosestByRange(FIND_STRUCTURES, {
+      filter: s =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+    }) as StructureContainer | StructureStorage | null;
   }
 
   /**
@@ -202,8 +267,14 @@ export class ExtensionTenderCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const room = spawn.room;
-    if (!coreDepot(room)) return []; // no depot yet -> haulers still fill the network
 
+    // No depot required (refill SLA, owner 2026-07-10): the tender IS the
+    // refill apparatus - a loaded tender idling by the bank is what beats a
+    // draining spawn's 3t/part deadline, and hauler fan-fill measurably
+    // cannot (organic breaches on the pre-ramped and pipeline worlds, both
+    // depot-less). Without a depot it reloads from any container or pile and
+    // idles by the spawn; the extensionTenderActive regime flag still keys
+    // on the depot, so haulers keep fanning alongside it until one exists.
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
     if (extensions.length === 0) return [];
 
@@ -211,14 +282,38 @@ export class ExtensionTenderCorp extends Corp {
     // miner, or it takes the first spawn slot and delays the economy it depends on.
     if (!this.roomHasMiner(room)) return [];
 
-    const tenders = this.getTenders();
-    if (tenders.length >= 1) return []; // one (oversized) tender per room is enough
-
-    // Carry enough to refill every extension (+ the spawn) in roughly one trip; the
-    // scheduler scales the body down to the energy on hand if it can't afford it all.
+    // DELIVERY CONTRACT (staffsPost, same as miners/haulers): an incumbent
+    // inside its replacement lead time no longer counts as staffing, so the
+    // successor spawns early and the refill post is never dark. A tender gap
+    // is a direct SLA breach (the depot bank goes invisible to refill while
+    // no tender lives) - the ~50-100 tick death gap measured as exactly the
+    // "extensions sit empty" class the owner keeps seeing live.
+    // Counted over ALL corp creeps INCLUDING spawning ones (a successor in
+    // the pipe staffs - staffsPost treats undefined ttl as freshest), else
+    // the demand re-fires while the replacement builds and double-orders.
+    let staffing = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.corpId !== this.id || c.memory.workType !== "tank") continue;
+      if (staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) staffing++;
+    }
+    // FLEET SIZE (refill SLA): one tender per spatial cluster - a single
+    // tender cannot beat per-drain deadlines across separated groups - AND
+    // enough combined carry to cover a full bank drain in one wave (at RCL2-3
+    // the body caps at ~400 carry while a big miner drains 650+; measured,
+    // pipeline t=1553: the lone tender's second trip lost the deadline).
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
-    const carry = Math.max(1, Math.min(extensions.length + 1, maxCarry));
+    const clusters = extensionClusters(room);
+    const bankCapacity = 300 + 50 * extensions.length;
+    const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
+    const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    if (staffing >= target) return [];
+
+    // Carry enough to refill the LARGEST cluster in roughly one trip; the
+    // scheduler scales the body down to the energy on hand if it can't afford it all.
+    const biggest = clusters.reduce((m, c) => Math.max(m, c.length), extensions.length);
+    const carry = Math.max(1, Math.min(biggest + 1, maxCarry));
 
     return [
       {

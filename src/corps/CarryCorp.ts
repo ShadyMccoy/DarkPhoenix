@@ -452,6 +452,29 @@ export class CarryCorp extends Corp {
     // until the build finishes) so the construction tankers get its full output.
     if (this.yieldsToBuild()) return;
 
+    // DEGRADED-MODE REFILL (owner SLA 2026-07-10: extensions refill before the
+    // draining spawn finishes): when NO tender is alive, the depot's bank is
+    // otherwise invisible to refill - only tenders move depot -> extensions -
+    // so a drained bank waits a full source round-trip while 2000 energy sits
+    // one tile from the spawn. A spawn-circuit hauler reloads from the stocked
+    // depot instead of trekking to its source whenever the network is short.
+    // Tender alive -> the flag is true and this never triggers (the depot
+    // stays the tender's exclusive reserve).
+    // Unassigned haulers (pre-first-circuit) count as spawn-circuit here: the
+    // earliest drains land exactly when nothing has flipped to working yet.
+    if ((creep.memory.homeSink ?? "spawn") === "spawn" && room.memory.extensionTenderActive !== true) {
+      const need = room.energyCapacityAvailable - room.energyAvailable;
+      if (need > 0) {
+        const depot = coreDepot(room);
+        if (depot && depot.store[RESOURCE_ENERGY] > 0) {
+          if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          }
+          return;
+        }
+      }
+    }
+
     const sources = room.find(FIND_SOURCES);
     const assignedSource = this.getAssignedSource(creep, sources);
 
@@ -713,7 +736,38 @@ export class CarryCorp extends Corp {
     if (allSpawnStructures.length === 0) return false;
 
     const needy = allSpawnStructures.filter(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
-    if (needy.length === 0) return false; // all full
+    if (needy.length === 0) {
+      // Bank full, no depot regime: top up the TENDER itself with the
+      // leftovers - it is the room's mobile forward magazine (refill SLA;
+      // measured: a depot-less tender reloading from a source container 15
+      // tiles out blew the deadline on back-to-back drains). Only while it
+      // has real free capacity; otherwise fall through to the controller
+      // spill exactly as before.
+      // Capped at ONE bank's worth: an uncapped top-up turned the tender's
+      // big body into a hoard - every spawn-circuit load ended in the tender
+      // instead of spilling to the controller (measured: maze sinks 7.8 ->
+      // 2.2 e/t, upgraders starved while stock climbed).
+      const bankCapacity = allSpawnStructures.reduce(
+        (sum, st) => sum + (st.store.getCapacity(RESOURCE_ENERGY) ?? 0),
+        0
+      );
+      const tender = Object.values(Game.creeps).find(
+        c =>
+          c.room.name === room.name &&
+          c.memory.workType === "tank" &&
+          String(c.memory.corpId ?? "").includes("tender") &&
+          c.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
+          c.store[RESOURCE_ENERGY] < bankCapacity
+      );
+      if (tender && creep.store[RESOURCE_ENERGY] > 0) {
+        const r = creep.transfer(tender, RESOURCE_ENERGY);
+        if (r === ERR_NOT_IN_RANGE) travelTo(creep, tender, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        else if (r === OK)
+          this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], tender.store.getFreeCapacity(RESOURCE_ENERGY)));
+        return true;
+      }
+      return false; // all full
+    }
 
     // NEVER walk past an empty extension (owner, measured live: the old
     // ID-ordered "belt" rotation toured the cluster in spatially RANDOM order,

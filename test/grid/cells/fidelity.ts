@@ -25,6 +25,7 @@ import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 import { fixtureRoom } from "../fixtureRoom";
 import { BODY_PART_COST, BodyPart } from "../../../src/planning/EconomicConstants";
 import { journeyWorld } from "./journey";
+import { makeRefillSla } from "../refillSLA";
 
 const bodyCost = (body: any[]): number =>
   (body ?? []).reduce((sum: number, p: any) => sum + (BODY_PART_COST[p.type as BodyPart] ?? 0), 0);
@@ -51,6 +52,9 @@ class EconWatch {
   // accumulation vs transit vs spawn idle time.
   private prevSourceEnergy = new Map<string, number>();
   private minedEnergy = 0; // source drawdown actually harvested
+  /** Per-source drawdown + position + regen-capped potential (task #36:
+   * which source leaves output in the ground, and how much). */
+  private perSource = new Map<string, { mined: number; x: number; y: number; capacity: number }>();
   private decayEnergy = 0; // pile decay losses (ceil(amount/1000)/tick)
   private stockStart: number | null = null; // piles+containers+storage at measureFrom
   private stockLast = 0;
@@ -124,11 +128,21 @@ class EconWatch {
         spawnBank += o.store?.energy ?? 0;
       }
       if (o.type === "source") {
-        const prev = this.prevSourceEnergy.get(String(o._id));
+        const id = String(o._id);
+        const prev = this.prevSourceEnergy.get(id);
         const now = o.energy ?? 0;
         // Drawdown = harvest; increases are regen resets and don't count.
-        if (measuring && prev !== undefined && now < prev) this.minedEnergy += prev - now;
-        this.prevSourceEnergy.set(String(o._id), now);
+        if (measuring && prev !== undefined && now < prev) {
+          this.minedEnergy += prev - now;
+          const entry =
+            this.perSource.get(id) ?? { mined: 0, x: o.x, y: o.y, capacity: o.energyCapacity ?? 3000 };
+          entry.mined += prev - now;
+          this.perSource.set(id, entry);
+        } else if (measuring && !this.perSource.has(id)) {
+          // Track unmined sources too - an entry with mined 0 IS the finding.
+          this.perSource.set(id, { mined: 0, x: o.x, y: o.y, capacity: o.energyCapacity ?? 3000 });
+        }
+        this.prevSourceEnergy.set(id, now);
       }
     }
 
@@ -193,6 +207,18 @@ class EconWatch {
    * ticks the spawn sat idle while a minimal body was affordable (wasted
    * build-time, the scarcest resource).
    */
+  /** Per-source actual vs potential (10 e/t for a 3000 source), task #36. */
+  sourceLedger(): string {
+    const n = Math.max(1, this.measuredTicks);
+    return [...this.perSource.values()]
+      .map(e => {
+        const rate = e.mined / n;
+        const potential = e.capacity / 300; // full regen cycle
+        return `(${e.x},${e.y}) ${rate.toFixed(1)}/${potential.toFixed(0)} e/t`;
+      })
+      .join("  ");
+  }
+
   overhead(): {
     mined: number;
     sinks: number;
@@ -266,6 +292,10 @@ function fidelityCell(spec: {
     // cold stages open the flow-economy gate at RCL2.
     ...(spec.world ?? { controller: { level: 2 } }),
     assertions: [
+      // The refill SLA rides every fidelity world (horizontal enforcement,
+      // owner directive 2026-07-10): staged and organically-grown extension
+      // banks alike must beat each draining spawn's build time.
+      makeRefillSla(undefined, 10),
       // Listed first so every sample is collected before any other check
       // reads the accumulator (including the atWindow boundary re-check).
       always(
@@ -317,7 +347,8 @@ function fidelityCell(spec: {
                   `  [overhead] ${spec.id}: mined=${o.mined.toFixed(1)} sinks=${o.sinks.toFixed(1)} ` +
                   `Δstock=${o.stockDelta.toFixed(1)} decay=${o.decay.toFixed(1)} ` +
                   `Δtransit=${o.transitDelta.toFixed(1)} residual=${o.residual.toFixed(1)} ` +
-                  `spawnIdle=${(o.spawnIdleFrac * 100).toFixed(0)}%`
+                  `spawnIdle=${(o.spawnIdleFrac * 100).toFixed(0)}%\n` +
+                  `  [sources] ${spec.id}: ${watch.sourceLedger()}`
                 );
               })()
           );

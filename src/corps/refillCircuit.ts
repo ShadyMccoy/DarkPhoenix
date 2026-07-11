@@ -151,3 +151,44 @@ export function drawOrder(room: Room): (StructureSpawn | StructureExtension)[] {
   }
   return out;
 }
+
+/**
+ * Spatial extension clusters (owner 2026-07-10, the extension-corp direction):
+ * extensions chained within CLUSTER_LINK_RANGE of each other form one refill
+ * unit; the spawn joins its nearest cluster. A single tender physically cannot
+ * beat the refill SLA across split clusters (measured on the legacy-layout
+ * snapshot: the far cluster's deadline lost to a 20-tile walk every drain), so
+ * the tender corp fields one tender PER cluster and each serves only its own.
+ * Sorted by centroid for stable tender assignment across ticks.
+ */
+const CLUSTER_LINK_RANGE = 4;
+
+export function extensionClusters(room: Room): (StructureSpawn | StructureExtension)[][] {
+  const members = room.find(FIND_MY_STRUCTURES, {
+    filter: s => s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_SPAWN
+  }) as (StructureSpawn | StructureExtension)[];
+  if (members.length === 0) return [];
+
+  // Union-find by chained proximity.
+  const parent = members.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < members.length; i++) {
+    for (let j = i + 1; j < members.length; j++) {
+      const a = members[i].pos;
+      const b = members[j].pos;
+      if (Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= CLUSTER_LINK_RANGE) {
+        parent[find(i)] = find(j);
+      }
+    }
+  }
+  const groups = new Map<number, (StructureSpawn | StructureExtension)[]>();
+  for (let i = 0; i < members.length; i++) {
+    const root = find(i);
+    const list = groups.get(root) ?? [];
+    list.push(members[i]);
+    groups.set(root, list);
+  }
+  const centroid = (g: (StructureSpawn | StructureExtension)[]): number =>
+    g.reduce((sum, s) => sum + s.pos.x + s.pos.y, 0) / g.length;
+  return [...groups.values()].sort((a, b) => centroid(a) - centroid(b));
+}

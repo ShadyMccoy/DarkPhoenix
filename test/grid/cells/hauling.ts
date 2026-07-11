@@ -13,6 +13,7 @@
  */
 
 import { GridCell, always, eventually } from "../GridCell";
+import { makeRefillSla } from "../refillSLA";
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 
 const homeRoom = (roomName: string) =>
@@ -154,6 +155,8 @@ const tenderCreeps = (extra: any[] = []) => [
 ];
 
 export function buildHaulingT4Cells(): GridCell[] {
+  let refillCycles = 0;
+  let refillWasShort = false;
   let depotSeen150 = false;
   let ctrlKept = true;
   let prevBank: number | null = null;
@@ -161,6 +164,70 @@ export function buildHaulingT4Cells(): GridCell[] {
   const haulerLinger: Record<string, number> = {};
 
   return [
+    {
+      // The refill SLA under organic churn (owner directive 2026-07-10):
+      // "refilling extensions should finish before the creep that drained
+      // them finishes spawning." Full bank + stocked depot + live income
+      // staged; every organic spawn drains the bank and the tender must
+      // restore it inside that creep's build time, drain after drain.
+      id: "haul-t4-refill-sla-under-churn",
+      tier: 4,
+      avenue: "logistics",
+      window: 400,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 10).source(25, 40).source(40, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 24, y: 24, energy: 2000 }, // stocked depot
+        { type: "container", x: 24, y: 39, energy: 1500 }, // source-side buffer
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })), // bank starts FULL (arms the SLA)
+      ],
+      creeps: [
+        {
+          name: "mA",
+          x: 24,
+          y: 40,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-sla-m", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          name: "hA",
+          x: 26,
+          y: 30,
+          body: ["carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-sla-h", working: false, assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          // Staged refill apparatus: the cell tests STEADY-STATE churn, not the
+          // cold-start ramp (a spawn busy building the very creep that drained
+          // the bank cannot also birth the first tender). Same adopted-stale
+          // pattern as the tender-bus cell.
+          name: "tenderA",
+          x: 23,
+          y: 24,
+          body: ["carry", "carry", "carry", "carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "tank", corpId: "stale-sla-tender" },
+        },
+      ],
+      assertions: [
+        makeRefillSla(undefined, 10),
+        eventually("the bank is drained and refilled at least twice (not vacuous)", (s) => {
+          const exts = s.objects().filter((o: any) => o.type === "extension" && o.user === s.userId);
+          if (exts.length === 0) return false;
+          const short = exts.some((o: any) => (o.store?.energy ?? 0) < 50);
+          if (short) refillWasShort = true;
+          if (!short && refillWasShort) {
+            refillCycles += 1;
+            refillWasShort = false;
+          }
+          return refillCycles >= 2;
+        }),
+      ],
+    },
+
     {
       // The tender regime: haulers run the dumb source->depot bus (never
       // fanning across extensions), the tender does the depot->extension last
@@ -191,6 +258,7 @@ export function buildHaulingT4Cells(): GridCell[] {
         );
       },
       assertions: [
+        makeRefillSla(undefined, 10),
         eventually("the tender regime activates", (s) => s.memory?.rooms?.[s.room()]?.extensionTenderActive === true),
         eventually("the depot is bridged to its buffer", (s) => {
           const depot = s.objects().find((o: any) => o.type === "container" && o.x === 24 && o.y === 24);
