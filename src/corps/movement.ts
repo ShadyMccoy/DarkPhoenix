@@ -137,3 +137,66 @@ export function travelToBypass(creep: Creep, target: MoveTarget, opts?: MoveToOp
   }
   return travelTo(creep, target, opts);
 }
+
+/**
+ * Should we HOLD in line behind the creep on our next step toward a contended
+ * target, instead of swapping past it? Yes when that creep is one of ours, can
+ * still move (so it will eventually clear), is NOT a yielding parked upgrader (a
+ * permanent resident of the approach - waiting for it would starve the target),
+ * and is strictly CLOSER to the target than we are (genuinely ahead of us in
+ * line). Pure predicate so the queue rule is unit-testable.
+ */
+export function shouldQueueBehind(
+  blocker: { my?: boolean; spawning?: boolean; fatigue?: number; pos: RoomPosition; memory: CreepMemory },
+  creepRangeToTarget: number,
+  targetPosition: RoomPosition
+): boolean {
+  if (!canForceThrough(blocker)) return false;
+  if (isYielding(blocker)) return false;
+  return blocker.pos.getRangeTo(targetPosition) < creepRangeToTarget;
+}
+
+/**
+ * Approach a contended target in SINGLE FILE instead of swarming it. Identical to
+ * {@link travelToBypass}, except that when the next step toward the target is
+ * blocked by one of our own transient creeps that is AHEAD of us in line (see
+ * {@link shouldQueueBehind}), we HOLD our tile rather than swapping past it or
+ * letting the pathfinder fan us out around it. That hold IS the queue: approaching
+ * creeps stack up along the lane and drain one at a time as the creep at the front
+ * reaches the target, services it, and leaves.
+ *
+ * The creep at the FRONT (nothing closer to the target ahead of it) never queues,
+ * so it always advances, services, and frees the spot - the line drains from the
+ * head. A yielding parked upgrader ringing the target is force-swapped through (not
+ * queued behind), so a dense upgrader camp still can't wall the input off. And a
+ * hold is bounded by {@link QUEUE_PATIENCE}: after that many consecutive held ticks
+ * the creep gives up waiting and force-swaps, so even a mis-detected blocker or a
+ * head-on stall (two lines meeting nose to nose) can never freeze it permanently.
+ *
+ * Use this only for one-directional APPROACHES to a shared drop-off/refill spot;
+ * use travelToBypass for the return leg (a queued approach meeting a force-swapping
+ * departure resolves; two queues meeting head-on would rely on the patience break).
+ */
+const QUEUE_PATIENCE = 3;
+
+export function travelToQueued(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const pos = targetPos(target);
+  const range = opts?.range ?? 0;
+  if (creep.pos.roomName === pos.roomName && creep.pos.getRangeTo(pos) > range) {
+    const path = creep.room.findPath(creep.pos, pos, { range, ignoreCreeps: true, maxRooms: 1 });
+    if (path.length > 0) {
+      const step = path[0];
+      const next = new RoomPosition(step.x, step.y, creep.pos.roomName);
+      const blocker = next.lookFor(LOOK_CREEPS).find(c => c.name !== creep.name);
+      const mem = creep.memory as CreepMemory & { queueHeld?: number };
+      const held = mem.queueHeld ?? 0;
+      if (blocker && held < QUEUE_PATIENCE && shouldQueueBehind(blocker, creep.pos.getRangeTo(pos), pos)) {
+        mem.queueHeld = held + 1;
+        return OK; // hold our tile - this is the queue
+      }
+    }
+  }
+  // Moving (or forcing) this tick - reset the hold clock.
+  delete (creep.memory as CreepMemory & { queueHeld?: number }).queueHeld;
+  return travelToBypass(creep, target, opts);
+}

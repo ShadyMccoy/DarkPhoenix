@@ -332,11 +332,13 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
   // tile short, common in remote mining where there is no container).
   const range = mode === "collect" && !spot.waitClear ? 1 : spot.structure ? 1 : 2;
   if (creep.pos.getRangeTo(spot.pos) > range) {
-    // travelToBypass so a hauler that just dropped on the controller pile and is now
-    // ringed by parked upgraders can SWAP through one to escape on its way back to
-    // pick up - without it the ring walls the hauler in on the input tile and it
-    // never leaves (the trapped-on-the-pile symptom). Away from the ring there is no
-    // yielding creep to swap, so this falls back to the border-bounce-safe travelTo.
+    // travelToBypass (force-swap), NOT a queue: this collect path is also how a
+    // just-emptied hauler LEAVES the controller input tile for its source. It heads
+    // OPPOSITE the haulers queuing to deliver, so if both sides held they would
+    // mutually block head-on (the original deadlock). Force-swapping resolves the
+    // head-on - both step through - and still swaps a hauler through a parked
+    // upgrader ring to escape (the trapped-on-the-pile symptom). Away from any creep
+    // this falls back to the border-bounce-safe travelTo.
     travelToBypass(creep, spot.pos, { range, visualizePathStyle: { stroke: "#ffaa00" } });
     return 0;
   }

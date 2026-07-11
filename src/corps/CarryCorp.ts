@@ -9,7 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
-import { travelTo, travelToBypass } from "./movement";
+import { travelTo, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
@@ -765,11 +765,11 @@ export class CarryCorp extends Corp {
       // if possible); advance the tour for next tick.
       creep.memory.circuitIdx = (stopIdx + 1) % circuit.length;
     } else {
-      // travelToBypass: refillers converge on the same tight cluster - a
-      // parked sibling on the path must be SWAPPED through, not deadlocked
-      // behind (measured live: haulers stuck on each other at a drop spot
-      // ringed by extensions).
-      travelToBypass(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
+      // travelToQueued: refillers converge on the same tight cluster, so line up
+      // behind whoever is already ahead toward this stop instead of swarming it -
+      // and force-swap through a parked sibling that has no travel intent (a stuck
+      // drop-off ring), rather than deadlocking behind it.
+      travelToQueued(creep, dest, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
     }
     return true;
   }
@@ -789,10 +789,11 @@ export class CarryCorp extends Corp {
     // (that pick flips every tick and turns the route into a shuffle).
     const spot = controllerDeliverySpot(controller);
     if (spot.structure) {
-      // Container/link: transfer from range 1, no need to stand on it. travelToBypass
-      // so a ring of parked upgraders can't wall the hauler out of range-1 access.
+      // Container/link: transfer from range 1, no need to stand on it. travelToQueued
+      // so a fleet routed here lines up rather than swarming the buffer, and a ring
+      // of parked upgraders still can't wall the hauler out of range-1 access.
       if (creep.pos.getRangeTo(spot.pos) > 1) {
-        travelToBypass(creep, spot.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+        travelToQueued(creep, spot.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         return true;
       }
       const moved = Math.min(
@@ -807,9 +808,10 @@ export class CarryCorp extends Corp {
     // tile so every parked upgrader ringing it (range 1) can withdraw from one
     // shared pile. A range-2 drop lands on the hauler's own tile, scattered out of
     // the ring's reach - the RCL2 starve. So stand ON the input tile and drop there;
-    // travelToBypass swaps through a parked upgrader if the ring has no open gap.
+    // travelToQueued lines up multiple haulers behind the one servicing the tile and
+    // still force-swaps through a parked upgrader when the ring has no open gap.
     if (!creep.pos.isEqualTo(spot.pos)) {
-      travelToBypass(creep, spot.pos, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
+      travelToQueued(creep, spot.pos, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
       return true;
     }
     const carried = creep.store[RESOURCE_ENERGY];
