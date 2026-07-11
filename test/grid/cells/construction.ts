@@ -237,8 +237,12 @@ export function buildConstructionT2Cells(): GridCell[] {
     },
 
     {
-      // The last rung: containers + depot + ALL 10 RCL3 extensions built ->
-      // the controller container fires, within 2 of the controller.
+      // The last rung: containers + depot + ALL 10 RCL3 extensions built AND a
+      // >= 200 pile piled up at the controller drop-off (23,8 for a plain-room
+      // controller at 25,10) -> the RCL drop-off container fires, on the input
+      // tile itself, within 2 of the controller. Pile-gated exactly like the
+      // source container: the drop-off's pile is the interim, the container the
+      // eventual buffer once the over-delivery evidence is on the ground.
       id: "cons-ctrl-container-last",
       tier: 2,
       avenue: "construction",
@@ -253,6 +257,16 @@ export function buildConstructionT2Cells(): GridCell[] {
         ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
       ],
       creeps: quiet(),
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "energy",
+          room: ctx.room(),
+          x: 23,
+          y: 8,
+          energy: 400,
+          resourceType: "energy",
+        });
+      },
       assertions: [
         eventually("the controller container site appears", (s) =>
           sites(s).some(
@@ -262,6 +276,45 @@ export function buildConstructionT2Cells(): GridCell[] {
         ),
         always("nothing else is placed", (s) =>
           sites(s).every(
+            (o: any) =>
+              o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
+          )
+        ),
+      ],
+    },
+
+    {
+      // The gate's negative: the whole ladder complete (containers + depot + all
+      // 10 extensions) but the drop-off pile is sub-threshold (150, decaying) ->
+      // the controller container must NOT fire. The interim pile is fine until
+      // the over-delivery evidence crosses the threshold; no 5000-cost buffer yet.
+      id: "cons-ctrl-container-waits-thin-pile",
+      tier: 2,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 24, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      async stage(ctx) {
+        await ctx.db["rooms.objects"].insert({
+          type: "energy",
+          room: ctx.room(),
+          x: 23,
+          y: 8,
+          energy: 150,
+          resourceType: "energy",
+        });
+      },
+      assertions: [
+        always("the controller container never fires on a thin pile", (s) =>
+          !sites(s).some(
             (o: any) =>
               o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
           )

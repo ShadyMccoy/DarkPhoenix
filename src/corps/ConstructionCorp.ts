@@ -90,6 +90,18 @@ const LINK_MIN_SOURCE_RANGE = 8;
 const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
 
 /**
+ * Dropped energy at the controller's drop-off (input) spot that signals the RCL
+ * drop-off container is worth its 5000 build cost: a pile this big means haulers
+ * are delivering to the upgrade lane faster than the upgraders draw it down, so a
+ * static container will buffer the energy (and stop it decaying on the ground)
+ * instead of it piling on the input tile. The drop-off's pile is the same interim
+ * mechanism the source's is - fine on the ground until the over-delivery evidence
+ * accumulates, then converted to a container (or superseded by a storage/link).
+ * Mirrors SOURCE_CONTAINER_PILE_THRESHOLD; tunable the same way.
+ */
+const CONTROLLER_CONTAINER_PILE_THRESHOLD = 200;
+
+/**
  * Energy value assumed for a freed spawn build-part when judging a road route
  * (see primitives.energyPerSpawnPart: ~537 for a home source, ~153 for a d=75
  * remote, ~0 when the spawn is slack). A conservative mid-range constant until
@@ -928,19 +940,33 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * A still-missing CONTROLLER container: a tile within range 2 of the controller.
-   * It buffers the upgraders, but it sits far from the sources (expensive to feed
-   * a builder there) and only helps upgrading - a luxury. So it is placed LAST,
-   * after extensions, which are cheap, near the sources, and compound spawn
-   * capacity for the whole economy.
+   * A still-missing CONTROLLER container: the RCL drop-off's own buffer. Like the
+   * source container it is PILE-GATED - built only once dropped energy has piled up
+   * at the drop-off (haulers delivering faster than the upgraders draw it down), so
+   * the 5000 build cost waits for the over-delivery evidence and the interim pile is
+   * fine until then - and it lands ON the drop-off tile itself (controllerInputSpot),
+   * so the hauler's pile, the container, and the upgraders' draw point converge on
+   * ONE tile (the same convergence sourceHarvestSpot gives the source container),
+   * rather than a spawn-nearest tile the pile never reaches.
+   *
+   * It sits far from the sources (expensive to feed a builder there) and only helps
+   * upgrading - a luxury - so it is placed LAST, after the extensions, which are
+   * cheap, near the sources, and compound spawn capacity for the whole economy.
    */
   private findMissingControllerContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
     const ctrl = room.controller;
-    if (ctrl && ctrl.my && !this.hasContainerNear(room, ctrl.pos, 2)) {
-      return this.bestAdjacentTile(room, ctrl.pos, 2);
-    }
-    return null;
+    if (!ctrl || !ctrl.my) return null;
+    // controllerInputSpot resolves an existing container/link within range 3; if
+    // one already buffers the drop-off (or a storage serves), the pile has a
+    // durable home and no new container is wanted.
+    const input = controllerInputSpot(ctrl);
+    if (input.structure) return null;
+    const pile = input.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
+      .reduce((sum, r) => sum + r.amount, 0);
+    if (pile < CONTROLLER_CONTAINER_PILE_THRESHOLD) return null;
+    return { x: input.pos.x, y: input.pos.y };
   }
 
   /** True once the room is at its container cap (built + pending). */
@@ -959,33 +985,6 @@ export class ConstructionCorp extends Corp {
       ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
     ];
     return containers.some(s => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
-  }
-
-  /**
-   * Pick a walkable, unoccupied tile within `range` of `target`, preferring the
-   * one nearest the spawn (shorter hauls).
-   */
-  private bestAdjacentTile(room: Room, target: RoomPosition, range: number): { x: number; y: number } | null {
-    const terrain = room.getTerrain();
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    const occupied = new Set<string>();
-    for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
-    for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
-
-    let best: { x: number; y: number; d: number } | null = null;
-    for (let dx = -range; dx <= range; dx++) {
-      for (let dy = -range; dy <= range; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const x = target.x + dx;
-        const y = target.y + dy;
-        if (x < 1 || x > 48 || y < 1 || y > 48) continue;
-        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-        if (occupied.has(`${x},${y}`)) continue;
-        const d = spawn ? Math.max(Math.abs(spawn.pos.x - x), Math.abs(spawn.pos.y - y)) : 0;
-        if (!best || d < best.d) best = { x, y, d };
-      }
-    }
-    return best ? { x: best.x, y: best.y } : null;
   }
 
   /**
