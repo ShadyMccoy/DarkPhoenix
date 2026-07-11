@@ -832,9 +832,9 @@ export class ConstructionCorp extends Corp {
     const result = room.createConstructionSite(x, y, type);
     if (result === OK) {
       this.recordCost(cost);
-      console.log(`[Construction] Placed ${type} site at (${x}, ${y})`);
+      console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
-      console.log(`[Construction] Failed to place ${type} at (${x}, ${y}): ${result}`);
+      console.log(`[Construction] Failed to place ${type} at ${room.name} (${x}, ${y}): ${result}`);
     }
   }
 

@@ -111,6 +111,14 @@ export function bestAdjacentTile(
   const occupied = new Set<string>();
   for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+  // Sources and minerals are NOT structures, so the two scans above miss them -
+  // but no buildable structure can sit on their tile (createConstructionSite
+  // returns ERR_INVALID_TARGET). This matters when `target` is ADJACENT to a
+  // source (e.g. placing a source link beside the harvest spot): the source's
+  // own tile is within range and would otherwise be picked as "nearest the
+  // spawn", producing a link site that fails to place every cooldown forever.
+  for (const s of room.find(FIND_SOURCES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+  for (const m of room.find(FIND_MINERALS)) occupied.add(`${m.pos.x},${m.pos.y}`);
 
   let best: { x: number; y: number; d: number } | null = null;
   for (let dx = -range; dx <= range; dx++) {
