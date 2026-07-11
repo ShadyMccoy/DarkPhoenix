@@ -199,6 +199,27 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(ratio).to.be.closeTo(3, 0.4, "controller should get ~3x the spawn's loads");
     });
 
+    it("routes storage-bound flow to the bank (storage), not the spawn circuit", () => {
+      const toStorage = [{ toId: "storage-ssss", flowRate: 6 }];
+      expect(pickSinkByAllocation(toStorage, {})).to.equal("storage");
+    });
+
+    it("keeps storage-bound flow as its own circuit alongside the spawn", () => {
+      // Equal spawn/storage flow -> the fleet splits ~evenly between the two,
+      // rather than storage being folded into the spawn circuit.
+      const assignments = [
+        { toId: "spawn-aaaa", flowRate: 4 },
+        { toId: "storage-ssss", flowRate: 4 }
+      ];
+      const delivered: Record<string, number> = { spawn: 0, controller: 0, construction: 0, storage: 0 };
+      for (let i = 0; i < 80; i += 1) {
+        delivered[pickSinkByAllocation(assignments, delivered)] += 1;
+      }
+      expect(delivered.storage).to.be.greaterThan(0, "storage gets its share");
+      expect(delivered.spawn).to.be.greaterThan(0, "spawn keeps its share");
+      expect(delivered.storage / delivered.spawn).to.be.closeTo(1, 0.4);
+    });
+
     it("never routes haulers to construction (tankers feed builders)", () => {
       const assignments = [
         { toId: "construction-ssss", flowRate: 5 },

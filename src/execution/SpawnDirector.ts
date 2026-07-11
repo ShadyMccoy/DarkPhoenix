@@ -27,6 +27,7 @@ import { CorpRegistry } from "./CorpRunner";
 import { commissionedCorpsOfKind } from "./CommissionHost";
 import { ReservationCorp } from "../corps/ReservationCorp";
 import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
+import { ControllerFeederCorp } from "../corps/ControllerFeederCorp";
 import { HarvestCorp } from "../corps/HarvestCorp";
 import { CarryCorp } from "../corps/CarryCorp";
 import { UpgradingCorp } from "../corps/UpgradingCorp";
@@ -212,6 +213,13 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
   const tenderCorps = commissionedCorpsOfKind<ExtensionTenderCorp>("tender");
   for (const id in tenderCorps) {
     const c = tenderCorps[id];
+    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
+  }
+  // Controller feeders live in the commission store (framework-ported); their
+  // feeders compete here on the same value-ranked infrastructure tier as tenders.
+  const controllerFeederCorps = commissionedCorpsOfKind<ControllerFeederCorp>("controllerFeeder");
+  for (const id in controllerFeederCorps) {
+    const c = controllerFeederCorps[id];
     if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
   // Reservation corps live in the commission store (framework-ported), but

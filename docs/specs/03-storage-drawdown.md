@@ -1,9 +1,13 @@
 # 03 — Storage draw-down (spend the bank when income dips)
 
-**Status:** not started. The deposit half exists (haulers bank up to
-`STORAGE_BANK = 10000` in a storage depot, CarryCorp); withdrawal is currently
-only implicit (the tender refills extensions from the depot). Nothing feeds the
-*controller or builders* from the bank when income collapses.
+**Status:** withdrawal not started; the deposit half now works. As of the
+storage-hauler-routing change the planner caps the controller at
+`STORAGE_UPGRADE_TARGET` once a room has a storage (`flowAdapter.ts`) and routes
+the surplus to the storage sink, which CarryCorp delivers as a first-class `storage`
+circuit (`deliverToStorage`) with no spill ceiling — so the bank actually
+accumulates the expansion CAPEX instead of stalling at `STORAGE_BANK = 10000`.
+Withdrawal is still only implicit (the tender refills extensions from the depot);
+nothing feeds the *controller or builders* from the bank when income collapses.
 **Priority:** P1.
 
 ## Goal
