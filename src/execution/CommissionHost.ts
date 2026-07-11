@@ -34,6 +34,7 @@ import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
 import { reservationKind } from "../corps/kinds/reservationKind";
 import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
+import { controllerFeederKind } from "../corps/kinds/controllerFeederKind";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
@@ -54,6 +55,7 @@ const KINDS: CorpKind[] = [
   reservationKind as never,
   claimKind as never,
   extensionTenderKind as never,
+  controllerFeederKind as never,
   constructionKind as never
 ];
 

@@ -119,7 +119,7 @@ export class SpawningCorp extends Corp {
    * that to an actual body and a spawnCreep call.
    */
   public executeSpawn(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver" | "claimer",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "feeder" | "reserver" | "claimer",
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -136,7 +136,10 @@ export class SpawningCorp extends Corp {
     const bodyCost = this.calculateBodyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return false;
 
-    const workTypeMap: Record<string, "harvest" | "haul" | "tank" | "upgrade" | "build" | "scout" | "reserve" | "claim"> = {
+    const workTypeMap: Record<
+      string,
+      "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "scout" | "reserve" | "claim"
+    > = {
       miner: "harvest",
       hauler: "haul",
       upgrader: "upgrade",
@@ -149,7 +152,12 @@ export class SpawningCorp extends Corp {
       // builder). That is a different job from a hauler, which does long-range
       // INTER-node transport - even though both are CARRY+MOVE creeps. Keep them
       // distinct so the economy can reason about (and instrument) each.
-      tanker: "tank"
+      tanker: "tank",
+      // A feeder is the controller's dedicated intra-node mover: it relays energy
+      // from the storage bank to the controller input. Its own workType keeps it
+      // distinct from the extension tender (both are "moving" corps) for
+      // instrumentation and orphan re-adoption.
+      feeder: "feed"
     };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     // Drain in refill-circuit order (owner directive): spawning empties the
@@ -177,7 +185,7 @@ export class SpawningCorp extends Corp {
    * Build a body for the given role that costs at most `energyBudget`.
    */
   private buildBodyForRole(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "reserver" | "claimer",
+    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "feeder" | "reserver" | "claimer",
     energyBudget: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
@@ -194,6 +202,16 @@ export class SpawningCorp extends Corp {
       case "tanker":
         // Pure CARRY+MOVE feeder; bodyParam is the desired CARRY parts.
         return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+      case "feeder": {
+        // The controller feeder SHUTTLES storage <-> controller, so unlike the
+        // parked extension tender it must move at load speed - a balanced 1:1
+        // CARRY:MOVE body (bodyParam = desired CARRY parts).
+        const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
+        const feederBody: BodyPartConstant[] = [];
+        for (let i = 0; i < carry; i++) feederBody.push(CARRY);
+        for (let i = 0; i < carry; i++) feederBody.push(MOVE);
+        return feederBody;
+      }
       case "scout":
         return [MOVE];
       case "reserver":

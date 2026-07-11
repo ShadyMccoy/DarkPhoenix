@@ -273,6 +273,16 @@ declare global {
      * tender can never deadlock the colony).
      */
     extensionTenderActive?: boolean;
+
+    /**
+     * True while a storage bank exists AND a live controller feeder is relaying it
+     * to the controller input. Set by ControllerFeederCorp, read by CarryCorp: when
+     * set, controller-bound loads stop at the storage (the feeder runs the short
+     * last leg to the upgraders); when the feeder dies it clears and haulers resume
+     * delivering to the controller directly (so a dead feeder never starves
+     * upgrading).
+     */
+    controllerFeederActive?: boolean;
   }
 
   /**
@@ -294,7 +304,7 @@ declare global {
      * - repair: Structure repair
      * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "tank" | "upgrade" | "build" | "repair" | "scout" | "reserve" | "claim";
+    workType?: "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "repair" | "scout" | "reserve" | "claim";
 
     /**
      * Target ID for current task.

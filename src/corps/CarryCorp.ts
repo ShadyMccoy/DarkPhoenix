@@ -821,6 +821,20 @@ export class CarryCorp extends Corp {
     const controller = room.controller;
     if (!controller) return false;
 
+    // STORAGE-FIRST HUB: once a dedicated controller feeder is relaying the bank
+    // to the controller, the long-range haulers stop at the storage and the feeder
+    // runs the short last leg (owner 2026-07-11: "storage is primary, dedicated
+    // feeder for controller"). Deposit into the bank instead of hauling all the way
+    // to the controller. Fall THROUGH to direct delivery only when the bank is
+    // missing or physically full, so energy is never stranded and a dead feeder
+    // (flag cleared) reverts to direct hauling.
+    if (room.memory.controllerFeederActive) {
+      const bank = room.storage;
+      if (bank && bank.my && bank.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        return this.deliverToStorage(creep, room);
+      }
+    }
+
     // The controller node resolves its own input spot (upgrader container, else the
     // shared drop tile the camping upgraders ring - see nodeEnergy). The hauler just
     // routes there and deposits; no chasing whichever upgrader has the most room
