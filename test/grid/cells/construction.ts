@@ -481,6 +481,69 @@ export function buildConstructionT2Cells(): GridCell[] {
         }),
       ],
     },
+
+    {
+      // Emergency repair OUTRANKS building. Ordinary maintenance is gated off
+      // entirely while ANY construction site exists (the builder builds one
+      // site at a time and only maintains a fully-built room), so a container
+      // that decays into the CRITICAL band mid-build heads to expiry with
+      // nothing coming to repair it. The build crew must DIVERT to rescue it.
+      // Here a source container is staged at 8% hits (critical) alongside an
+      // outstanding extension site; the staged 10-WORK builder must repair the
+      // container out of the danger band BEFORE finishing the build. Without
+      // the divert the builder finishes the extension and the 8% container
+      // just keeps decaying - "hits climb past 30%" times out.
+      id: "cons-repair-critical-during-build",
+      tier: 2,
+      avenue: "construction",
+      window: 150,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "container", x: 15, y: 29, energy: 2000, hits: 20000 }, // A: 8% - about to expire
+        { type: "container", x: 35, y: 29, energy: 0 },
+        { type: "container", x: 24, y: 24, energy: 2000 }, // depot fuel
+        ...EXT_POS.slice(0, 5).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: [
+        {
+          name: "cb1",
+          x: 15,
+          y: 28,
+          body: ["work", "work", "work", "work", "work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "carry", "move", "move"],
+          energy: 200,
+        },
+        ...quiet(),
+      ],
+      memory: {
+        creeps: {
+          cb1: { workType: "build", corpId: "building-$room()-construction", working: true },
+        },
+      },
+      async stage(ctx) {
+        // A persistent extension site so the room is unambiguously "building".
+        await ctx.db["rooms.objects"].insert({
+          type: "constructionSite",
+          room: ctx.room(),
+          x: 27,
+          y: 29,
+          user: ctx.userId,
+          structureType: "extension",
+          progress: 0,
+          progressTotal: 3000,
+        });
+      },
+      assertions: [
+        eventually("the room is building (an extension site exists)", (s) =>
+          s.objects().some((o: any) => o.type === "constructionSite" && o.structureType === "extension")
+        ),
+        eventually("the critical container is rescued out of the danger band (past 30%)", (s) => {
+          const a = s.objects().find((o: any) => o.type === "container" && o.x === 15 && o.y === 29);
+          return !!a && (a.hits ?? 0) > 75000;
+        }),
+      ],
+    },
   ];
 }
 

@@ -324,6 +324,15 @@ declare global {
     recycling?: boolean;
 
     /**
+     * A builder is mid-diversion: it left its construction work to rescue a
+     * structure that decayed into the critical band (about to expire), and
+     * keeps repairing until that structure clears the danger band before
+     * resuming the build. The latch gives the diversion hysteresis so the
+     * crew doesn't thrash between a far site and the container each tick.
+     */
+    repairingCritical?: boolean;
+
+    /**
      * ID of the SpawningCorp that spawned this creep.
      */
     spawnedBy?: string;

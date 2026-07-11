@@ -1,5 +1,13 @@
 import { expect } from "chai";
-import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO, REPAIR_SPAWN_BELOW } from "../../../src/corps/repair";
+import {
+  pickRepairTarget,
+  pickCriticalRepairTarget,
+  wantsCriticalRecovery,
+  wantsMaintenanceBuilder,
+  REPAIR_TO,
+  REPAIR_SPAWN_BELOW,
+  REPAIR_CRITICAL,
+} from "../../../src/corps/repair";
 
 const c = (hits: number, hitsMax = 250000) => ({ hits, hitsMax });
 
@@ -49,6 +57,34 @@ describe("corps/repair", () => {
       expect(wantsMaintenanceBuilder([midRepair], true)).to.equal(true);
       // once at the ceiling, retire even with a builder present
       expect(wantsMaintenanceBuilder([c(250000)], true)).to.equal(false);
+    });
+  });
+
+  describe("pickCriticalRepairTarget (emergency divert gate)", () => {
+    it("is null while everything is healthier than the critical gate", () => {
+      const justAbove = c(Math.ceil(250000 * REPAIR_CRITICAL) + 1); // just above 30%
+      expect(pickCriticalRepairTarget([justAbove, c(200000)])).to.equal(null);
+    });
+    it("returns the most-decayed structure once one crosses the critical gate", () => {
+      const critical = c(20000); // 8% - about to expire
+      const dipped = c(Math.floor(250000 * REPAIR_SPAWN_BELOW) - 1); // ~60%, below idle gate but not critical
+      expect(pickCriticalRepairTarget([dipped, critical])).to.equal(critical);
+    });
+    it("ranks by fraction across mixed scales (a critical road outranks a dipped container)", () => {
+      const road = { hits: 1000, hitsMax: 5000 }; // 20% - critical
+      const container = c(100000); // 40% - not critical
+      expect(pickCriticalRepairTarget([container, road])).to.equal(road);
+    });
+  });
+
+  describe("wantsCriticalRecovery (divert hysteresis)", () => {
+    it("holds the diversion until nothing remains in the idle-maintenance band", () => {
+      // Repaired past the critical gate but still under the idle start gate -> keep going.
+      const stillLow = c(Math.floor(250000 * REPAIR_SPAWN_BELOW) - 1);
+      expect(wantsCriticalRecovery([stillLow])).to.equal(true);
+      // Once clear of the idle band, release the diversion and resume building.
+      const recovered = c(Math.floor(250000 * REPAIR_SPAWN_BELOW) + 1);
+      expect(wantsCriticalRecovery([recovered])).to.equal(false);
     });
   });
 });

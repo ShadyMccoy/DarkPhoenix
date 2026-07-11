@@ -13,7 +13,13 @@ import { travelTo } from "./movement";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
-import { pickRepairTarget, wantsMaintenanceBuilder, REPAIR_TO } from "./repair";
+import {
+  pickRepairTarget,
+  pickCriticalRepairTarget,
+  wantsCriticalRecovery,
+  wantsMaintenanceBuilder,
+  REPAIR_TO
+} from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -1182,6 +1188,20 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
+   * A structure decayed into the critical band (about to expire) that a builder
+   * must rescue even while construction sites are outstanding, or null when the
+   * room's decaying structures are all healthier than the critical gate.
+   */
+  private findCriticalRepairTarget(room: Room): StructureContainer | StructureRoad | null {
+    return pickCriticalRepairTarget(this.roomRepairables(room));
+  }
+
+  /** Whether a mid-diversion builder should keep repairing (see wantsCriticalRecovery). */
+  private wantsCriticalRecovery(room: Room): boolean {
+    return wantsCriticalRecovery(this.roomRepairables(room));
+  }
+
+  /**
    * Maintain decaying structures when there is nothing to build. Containers fuel
    * the builder themselves (they hold energy), so maintenance needs no tanker;
    * roads hold nothing, so a road target sends the builder to the nearest energy
@@ -1247,6 +1267,26 @@ export class ConstructionCorp extends Corp {
     // most decayed container) instead of standing idle.
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
+      delete creep.memory.repairingCritical;
+      this.doMaintenance(creep, room);
+      return;
+    }
+
+    // EMERGENCY REPAIR outranks building: ordinary maintenance is gated off
+    // entirely while any site exists (the builder builds one site at a time and
+    // only maintains a fully-built room), so a structure that decays past the
+    // critical gate mid-build would head to expiry with nothing repairing it.
+    // Divert the crew to rescue it, latched with hysteresis (repair up out of the
+    // idle-maintenance band before resuming) so it doesn't thrash between a far
+    // site and the container each tick it dips past the start gate.
+    if (creep.memory.repairingCritical) {
+      if (this.wantsCriticalRecovery(room)) {
+        this.doMaintenance(creep, room);
+        return;
+      }
+      delete creep.memory.repairingCritical;
+    } else if (this.findCriticalRepairTarget(room)) {
+      creep.memory.repairingCritical = true;
       this.doMaintenance(creep, room);
       return;
     }
