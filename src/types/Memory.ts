@@ -382,6 +382,15 @@ declare global {
      */
     circuitIdx?: number;
 
+    /**
+     * Consecutive ticks this creep has HELD in a single-file queue behind another
+     * creep ahead of it toward a contended target (corps/movement travelToQueued).
+     * Bounds the queue: once it exceeds the patience limit the creep stops waiting
+     * and force-swaps through, so a mis-detected or head-on stall can never freeze
+     * it permanently. Reset the moment it stops holding.
+     */
+    queueHeld?: number;
+
     // === Fleet Coordination (Belt/Bus System) ===
 
     /**

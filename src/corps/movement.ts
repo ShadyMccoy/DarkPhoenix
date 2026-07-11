@@ -63,9 +63,9 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
 /**
  * Is this friendly creep YIELDING - a parked upgrader sitting on its assigned
  * upgrade tile? Such a creep has no travel intent of its own this tick (it camps
- * and upgrades in place) and walks straight back next tick, so it is safe to swap
- * through. We deliberately do NOT treat other stationary creeps as yielding: we
- * don't want to yank a hauler off its route or a miner off its source. Pure
+ * and upgrades in place) and walks straight back next tick, so swapping through it
+ * costs it nothing. This is the GENTLE subset of the force-bypass rule (see
+ * {@link canForceThrough}): displacing it never delays any real work. Pure
  * predicate so the swap rule is unit-testable.
  */
 export function isYielding(creep: {
@@ -84,19 +84,39 @@ export function isYielding(creep: {
 }
 
 /**
+ * Can this blocking creep be FORCE-displaced this tick? Only our own creeps can be
+ * commanded (`move` on a foreign creep is a no-op), and only if they can physically
+ * step: a spawning creep is welded into its spawn and a fatigued one cannot move, so
+ * ordering either to swap would leave OUR mover wedged against a tile that never
+ * clears (its move onto the still-occupied tile just fails). Everything else -
+ * a parked upgrader, an idle hauler, a sibling schooling on the same drop spot - is
+ * fair game: the swap displaces it one tile for one tick and it re-paths next tick.
+ * Pure predicate so the force-swap rule is unit-testable.
+ */
+export function canForceThrough(blocker: { my?: boolean; spawning?: boolean; fatigue?: number }): boolean {
+  return blocker.my === true && blocker.spawning !== true && (blocker.fatigue ?? 0) === 0;
+}
+
+/**
  * Move toward a target like {@link travelTo}, but if the immediate step is blocked
- * by a YIELDING creep (a parked upgrader on its tile), SWAP through it: both
- * creeps step onto each other's tile the same tick. The engine permits this -
- * two creeps each moving onto the other's tile pass through, while a lone mover
- * onto a standing creep is blocked (the "bypass" rule). The displaced upgrader
- * returns to its post next tick.
+ * by one of our own creeps, FORCE a swap: both creeps step onto each other's tile
+ * the same tick. The engine permits this - two creeps each moving onto the other's
+ * tile pass through, while a lone mover onto a standing creep is blocked (the
+ * "bypass" rule). The displaced creep re-paths from its new tile next tick.
  *
- * This is what lets a hauler thread in to the shared controller pile/container
- * even when parked upgraders fully ring it (the dense-camp case): without the
- * swap the ring walls the input off and the whole camp starves. We path with
- * `ignoreCreeps` so the route heads straight at the target (revealing the swap)
- * instead of detouring around a ring that has no gap; if the next tile is NOT a
- * yielding creep we fall back to normal creep-aware pathing.
+ * Originally this swapped ONLY through {@link isYielding} parked upgraders, to
+ * thread a hauler into a controller pile ringed by a dense upgrader camp. But a
+ * creep also gets walled in by NON-yielding siblings - haulers schooling on a
+ * shared drop spot, an extension refill cluster - and there the yield-only swap
+ * found no gap, so it fell back to creep-aware pathing that had no route and the
+ * creep simply froze in place (observed live: a hauler stuck ON its drop-off tile,
+ * unable to leave, its pickup/deliver state flip-flopping so it "picks up and drops
+ * energy every tick" without ever going anywhere). So we now swap through ANY of
+ * our creeps that {@link canForceThrough} - a boxed-in creep can always push a
+ * neighbour aside and escape. We path with `ignoreCreeps` so the route heads
+ * straight at the target (revealing the swap) instead of detouring around a ring
+ * that has no gap; if the next tile holds no displaceable creep we fall back to
+ * normal creep-aware pathing.
  */
 export function travelToBypass(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
   const pos = targetPos(target);
@@ -109,11 +129,74 @@ export function travelToBypass(creep: Creep, target: MoveTarget, opts?: MoveToOp
       const step = path[0];
       const next = new RoomPosition(step.x, step.y, creep.pos.roomName);
       const blocker = next.lookFor(LOOK_CREEPS).find(c => c.name !== creep.name);
-      if (blocker && isYielding(blocker)) {
+      if (blocker && canForceThrough(blocker)) {
         blocker.move(blocker.pos.getDirectionTo(creep.pos)); // step onto our tile
         return creep.move(step.direction); // we take its tile - mutual swap
       }
     }
   }
   return travelTo(creep, target, opts);
+}
+
+/**
+ * Should we HOLD in line behind the creep on our next step toward a contended
+ * target, instead of swapping past it? Yes when that creep is one of ours, can
+ * still move (so it will eventually clear), is NOT a yielding parked upgrader (a
+ * permanent resident of the approach - waiting for it would starve the target),
+ * and is strictly CLOSER to the target than we are (genuinely ahead of us in
+ * line). Pure predicate so the queue rule is unit-testable.
+ */
+export function shouldQueueBehind(
+  blocker: { my?: boolean; spawning?: boolean; fatigue?: number; pos: RoomPosition; memory: CreepMemory },
+  creepRangeToTarget: number,
+  targetPosition: RoomPosition
+): boolean {
+  if (!canForceThrough(blocker)) return false;
+  if (isYielding(blocker)) return false;
+  return blocker.pos.getRangeTo(targetPosition) < creepRangeToTarget;
+}
+
+/**
+ * Approach a contended target in SINGLE FILE instead of swarming it. Identical to
+ * {@link travelToBypass}, except that when the next step toward the target is
+ * blocked by one of our own transient creeps that is AHEAD of us in line (see
+ * {@link shouldQueueBehind}), we HOLD our tile rather than swapping past it or
+ * letting the pathfinder fan us out around it. That hold IS the queue: approaching
+ * creeps stack up along the lane and drain one at a time as the creep at the front
+ * reaches the target, services it, and leaves.
+ *
+ * The creep at the FRONT (nothing closer to the target ahead of it) never queues,
+ * so it always advances, services, and frees the spot - the line drains from the
+ * head. A yielding parked upgrader ringing the target is force-swapped through (not
+ * queued behind), so a dense upgrader camp still can't wall the input off. And a
+ * hold is bounded by {@link QUEUE_PATIENCE}: after that many consecutive held ticks
+ * the creep gives up waiting and force-swaps, so even a mis-detected blocker or a
+ * head-on stall (two lines meeting nose to nose) can never freeze it permanently.
+ *
+ * Use this only for one-directional APPROACHES to a shared drop-off/refill spot;
+ * use travelToBypass for the return leg (a queued approach meeting a force-swapping
+ * departure resolves; two queues meeting head-on would rely on the patience break).
+ */
+const QUEUE_PATIENCE = 3;
+
+export function travelToQueued(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const pos = targetPos(target);
+  const range = opts?.range ?? 0;
+  if (creep.pos.roomName === pos.roomName && creep.pos.getRangeTo(pos) > range) {
+    const path = creep.room.findPath(creep.pos, pos, { range, ignoreCreeps: true, maxRooms: 1 });
+    if (path.length > 0) {
+      const step = path[0];
+      const next = new RoomPosition(step.x, step.y, creep.pos.roomName);
+      const blocker = next.lookFor(LOOK_CREEPS).find(c => c.name !== creep.name);
+      const mem = creep.memory as CreepMemory & { queueHeld?: number };
+      const held = mem.queueHeld ?? 0;
+      if (blocker && held < QUEUE_PATIENCE && shouldQueueBehind(blocker, creep.pos.getRangeTo(pos), pos)) {
+        mem.queueHeld = held + 1;
+        return OK; // hold our tile - this is the queue
+      }
+    }
+  }
+  // Moving (or forcing) this tick - reset the hold clock.
+  delete (creep.memory as CreepMemory & { queueHeld?: number }).queueHeld;
+  return travelToBypass(creep, target, opts);
 }
