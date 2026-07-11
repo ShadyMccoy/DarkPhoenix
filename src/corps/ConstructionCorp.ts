@@ -946,19 +946,29 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * A still-missing CONTROLLER container: a tile within range 2 of the controller.
-   * It buffers the upgraders, but it sits far from the sources (expensive to feed
-   * a builder there) and only helps upgrading - a luxury. So it is placed LAST,
-   * after extensions, which are cheap, near the sources, and compound spawn
-   * capacity for the whole economy.
+   * A still-missing CONTROLLER container: the RCL drop-off's own buffer. It lands
+   * ON the drop-off tile itself (controllerInputSpot), so the hauler's pile, the
+   * container, and the upgraders' draw point converge on ONE tile - the same
+   * convergence sourceHarvestSpot gives the source container - rather than a
+   * spawn-nearest tile the pile never reaches.
+   *
+   * Unlike the source container this is NOT pile-gated. It sits LAST in the ladder
+   * (after extensions, storage, and links), and once the ladder completes we do
+   * not want to plan around energy piling on the ground at the drop-off - so it
+   * builds regardless of the drop-off pile. It buffers the upgraders but sits far
+   * from the sources (expensive to feed a builder there) and only helps upgrading,
+   * hence the last-place slot behind the capacity structures.
    */
   private findMissingControllerContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
     const ctrl = room.controller;
-    if (ctrl && ctrl.my && !this.hasContainerNear(room, ctrl.pos, 2)) {
-      return this.bestAdjacentTile(room, ctrl.pos, 2);
-    }
-    return null;
+    if (!ctrl || !ctrl.my) return null;
+    // controllerInputSpot resolves an existing container/link within range 3; if
+    // one already buffers the drop-off (or a storage serves), no new container is
+    // wanted.
+    const input = controllerInputSpot(ctrl);
+    if (input.structure) return null;
+    return { x: input.pos.x, y: input.pos.y };
   }
 
   /** True once the room is at its container cap (built + pending). */
@@ -977,33 +987,6 @@ export class ConstructionCorp extends Corp {
       ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
     ];
     return containers.some(s => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
-  }
-
-  /**
-   * Pick a walkable, unoccupied tile within `range` of `target`, preferring the
-   * one nearest the spawn (shorter hauls).
-   */
-  private bestAdjacentTile(room: Room, target: RoomPosition, range: number): { x: number; y: number } | null {
-    const terrain = room.getTerrain();
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    const occupied = new Set<string>();
-    for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
-    for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
-
-    let best: { x: number; y: number; d: number } | null = null;
-    for (let dx = -range; dx <= range; dx++) {
-      for (let dy = -range; dy <= range; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const x = target.x + dx;
-        const y = target.y + dy;
-        if (x < 1 || x > 48 || y < 1 || y > 48) continue;
-        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-        if (occupied.has(`${x},${y}`)) continue;
-        const d = spawn ? Math.max(Math.abs(spawn.pos.x - x), Math.abs(spawn.pos.y - y)) : 0;
-        if (!best || d < best.d) best = { x, y, d };
-      }
-    }
-    return best ? { x: best.x, y: best.y } : null;
   }
 
   /**

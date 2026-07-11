@@ -237,8 +237,11 @@ export function buildConstructionT2Cells(): GridCell[] {
     },
 
     {
-      // The last rung: containers + depot + ALL 10 RCL3 extensions built ->
-      // the controller container fires, within 2 of the controller.
+      // The last rung: containers + depot + ALL 10 RCL3 extensions built -> the
+      // RCL drop-off container fires, on the input tile itself, within 2 of the
+      // controller. NOT pile-gated (unlike the source container): once the ladder
+      // completes we don't plan around ground piles at the drop-off, so it builds
+      // regardless of any accumulated pile.
       id: "cons-ctrl-container-last",
       tier: 2,
       avenue: "construction",
