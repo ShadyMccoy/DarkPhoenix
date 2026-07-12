@@ -14,7 +14,7 @@ import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
-import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
+import { travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
 import { hostileRooms } from "../utils/RoomDiscovery";
 import { Position } from "../types/Position";
@@ -996,38 +996,7 @@ export class CarryCorp extends Corp {
    * stranded - and produces income. The hauler is sized (CARRY:MOVE pairs) to
    * the flow-solved carry-part requirement; it can be spawned small and scaled.
    */
-  /**
-   * Project the economics of hauling this corp's routes from a given spawn: one
-   * hauler per route, sized to its flow and distance, costed over the life left
-   * after walking out to the pickup. Throughput is the energy it moves.
-   */
-  public project(scene: ChainScene): CorpEconomics {
-    let costPerTick = 0;
-    let throughput = 0;
-    let spawnPartsPerTick = 0;
-    for (const a of this.haulerAssignments) {
-      const body = buildHaulerBody(a.flowRate, a.distance, scene.energyCapacity);
-      if (body.cost === 0 || body.carryCapacity === 0) continue;
-      // Energy in flight over the round trip sets the carry needed (1.2x margin
-      // for path variability); one capped body may not cover a long/high-flow
-      // route, so run as many as it takes - this is what makes hauling cost rise
-      // properly with distance.
-      const carryEnergyNeeded = carryPartsFor(a.flowRate, a.distance) * CARRY_CAPACITY * 1.2;
-      const haulers = Math.max(1, Math.ceil(carryEnergyNeeded / body.carryCapacity));
-      const pickup = scene.resource(a.fromId);
-      const travel = pickup ? scene.dist(scene.spawnPos, pickup.pos) * travelTicksPerTile(scene.energyCapacity) : 0;
-      const usefulLife = effectiveLife(travel);
-      costPerTick += (haulers * body.cost) / usefulLife;
-      // The hauler fleet is the part-hungry one: more haulers, each a bigger
-      // body, the farther the route - this is the term that makes a far source
-      // exhaust the spawn's build-rate budget.
-      spawnPartsPerTick += (haulers * body.body.length) / usefulLife;
-      throughput += a.flowRate;
-    }
-    return { costPerTick, throughput, spawnPartsPerTick };
-  }
-
-  public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return [];
 

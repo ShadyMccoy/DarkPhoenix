@@ -18,9 +18,8 @@ import {
   findTerritoryAdjacencies
 } from "../spatial";
 import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
-import { ChainSource } from "../corps/ChainEvaluator";
 import { RESERVER_BODY_COST } from "../corps/economics";
-import { ColonyNode, marginalNodeValue } from "../planning/ColonyEconomy";
+import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms } from "../utils";
 
@@ -406,9 +405,9 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
   // source in the colony goes into one shared pool. A node's economic value is
   // then its MARGINAL contribution - the colony economy with it minus without it
   // - so a node that would only cannibalise a neighbour's sources scores ~0
-  // rather than being credited their energy (see ColonyEconomy).
+  // rather than being credited their energy (see economy/siteValue).
   const allNodes = colony.getNodes();
-  const allSources: ChainSource[] = [];
+  const allSources: SiteSource[] = [];
   for (const n of allNodes) {
     for (const r of n.resources) {
       if (r.type === "source" && !isSourceKeeperRoom(r.position.roomName)) {
@@ -417,7 +416,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
   // The existing colony is the owned bases; a node's value is what it adds to them.
-  const ownedHubs: ColonyNode[] = [];
+  const ownedHubs: SiteNode[] = [];
   for (const n of allNodes) {
     if (ownedRooms.has(n.roomName)) ownedHubs.push(toColonyNode(n));
   }
@@ -429,7 +428,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
 
     const candidate = toColonyNode(node);
     const existing = ownedHubs.filter(h => h.id !== node.id);
-    const economicValue = marginalNodeValue(existing, candidate, allSources);
+    const economicValue = marginalSiteValue(existing, candidate, allSources);
 
     const surveyResult = surveyor.survey(node, Game.time);
     node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps, economicValue);
@@ -439,7 +438,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
 }
 
 /** A node as a colony hub: its peak is the hub centre, its controller the sink. */
-function toColonyNode(node: Node): ColonyNode {
+function toColonyNode(node: Node): SiteNode {
   const controller = node.resources.find(r => r.type === "controller");
   return { id: node.id, hubPos: node.peakPosition, controllerPos: controller?.position };
 }

@@ -17,7 +17,7 @@ import {
 import { effectiveLife, staffsPost } from "../economy/primitives";
 import { hostileRooms } from "../utils/RoomDiscovery";
 import { Corp, SerializedCorp } from "./Corp";
-import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
+import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { MinerAssignment } from "../flow/FlowTypes";
@@ -372,7 +372,8 @@ export class HarvestCorp extends Corp {
       desiredCost: desired.cost,
       minCost: upgradeCost, // strictly-bigger enforced at the spawn instant
       since: 0,
-      bodyParam: maxWorkPerMiner
+      bodyParam: maxWorkPerMiner,
+      why: "upsize" // spawn-then-recycle: the agenda names the transition (spec 11 phase 3)
     };
   }
 
@@ -455,32 +456,6 @@ export class HarvestCorp extends Corp {
    * produces income; additional miners are scaling demand (non-blocking). Value
    * tracks mining efficiency so better sources are staffed first.
    */
-  /**
-   * Project the economics of mining this corp's source from a given spawn: a
-   * miner sized to the source, costed by its body over the life left after
-   * walking out to the source, producing the source's energy/tick.
-   */
-  public project(scene: ChainScene): CorpEconomics {
-    const source = scene.resource(this.sourceId);
-    if (!source) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
-
-    const capacity = source.capacity ?? SOURCE_ENERGY_CAPACITY;
-    const supply = capacity / SOURCE_REGEN_TIME;
-    const body = buildMinerBody(calculateOptimalWorkParts(capacity), scene.energyCapacity);
-    if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
-
-    const harvestRate = Math.min(supply, HARVEST_RATE * body.workParts);
-    const travel = scene.dist(scene.spawnPos, source.pos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = effectiveLife(travel);
-    // A static miner walks out once and dies at the source, so it both costs
-    // energy and consumes spawn build-time over its (shortened) useful life.
-    return {
-      costPerTick: body.cost / usefulLife,
-      throughput: harvestRate,
-      spawnPartsPerTick: body.body.length / usefulLife
-    };
-  }
-
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignment = this.minerAssignment;
     if (!assignment) return [];

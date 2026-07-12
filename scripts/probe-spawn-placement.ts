@@ -11,7 +11,7 @@
 // (the game/test harness provides these; a bare ts-node script does not).
 import "../test/setup-mocha";
 import { Position } from "../src/types/Position";
-import { evaluateSpawnChain } from "../src/corps/ChainEvaluator";
+import { spawnSiteValue } from "../src/economy/siteValue";
 import {
   SpawnCandidateContext,
   createPlacementJob,
@@ -48,7 +48,7 @@ console.log(`evaluated ${job.evaluated} candidate tiles`);
 console.log(`\nbest spawn tile: (${best.pos!.x},${best.pos!.y})  value=${best.value.toFixed(3)} e/tick`);
 
 const ranked = candidates
-  .map((pos) => ({ pos, value: evaluateSpawnChain({ spawnPos: pos, sources: ctx.localSources, controllerPos }) }))
+  .map((pos) => ({ pos, value: spawnSiteValue(pos, ctx.localSources, controllerPos) }))
   .sort((a, b) => b.value - a.value);
 
 console.log(`\ntop 5 tiles:`);

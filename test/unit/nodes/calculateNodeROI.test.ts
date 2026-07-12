@@ -18,7 +18,7 @@ const source = (id: string, pos: Position): NodeResource => ({ type: "source", i
 const controller = (pos: Position): NodeResource => ({ type: "controller", id: "controller-0", position: pos });
 
 // calculateNodeROI no longer computes the economy itself - the caller passes the
-// node's marginal colony value (see ColonyEconomy). These tests cover how that
+// node's marginal colony value (see economy/siteValue). These tests cover how that
 // value, ownership and openness turn into the score fields.
 describe("calculateNodeROI", () => {
   const owned = new Set([ROOM]);

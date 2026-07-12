@@ -1,38 +1,9 @@
 /**
- * Virtual-mode economics for corps.
- *
- * A corp's economics live in the corp itself: given a scene (a spawn position,
- * the energy it can afford, and a way to locate resources), each corp reports
- * what it would cost to staff and what it would move - computed from its OWN
- * body and cost logic, with no live game state. Scoring a spawn site is then
- * just standing up the relevant corps and summing their projections; there is no
- * separate economic model to maintain. Improve a corp, or add a new corp type,
- * and the scores follow automatically.
+ * Corp-side economic constants and helpers that live CLOSE to body logic:
+ * spawn build-rate, spawn-part pricing, travel-tick estimation, and the
+ * reserver toll. (The chain/virtual-projection layer that once lived here was
+ * retired by spec 04 - site valuation now runs through economy/siteValue.)
  */
-
-import { Position } from "../types/Position";
-
-/** A resource a corp acts on, located in the scene. */
-export interface SceneResource {
-  pos: Position;
-  /** Energy per regeneration cycle, for sources. */
-  capacity?: number;
-}
-
-/**
- * The world a virtual corp reasons about: where its spawn is, how much energy
- * that spawn can afford a body, the controller it feeds, and a resource lookup.
- * Distances are injected so the whole thing stays pure and game-free.
- */
-export interface ChainScene {
-  spawnPos: Position;
-  /** Energy a single creep body may cost (spawn + extensions capacity). */
-  energyCapacity: number;
-  /** The controller this chain upgrades, if any. */
-  controllerPos?: Position;
-  dist: (a: Position, b: Position) => number;
-  resource(id: string): SceneResource | undefined;
-}
 
 /**
  * Body parts a single spawn can build per tick. A spawn produces one part every
@@ -48,8 +19,8 @@ export const SPAWN_PARTS_PER_TICK = 1 / 3;
 /**
  * Energy value of one unit of spawn throughput - energy per (part/tick), i.e. the
  * energy a body part held continuously (respawned forever) is worth. Multiply a
- * corp's {@link CorpEconomics.spawnPartsPerTick} by this to price its spawn
- * build-time in energy, then subtract from net (see {@link effectiveNet}). This
+ * roster's parts-per-tick by this to price its spawn build-time in energy,
+ * then subtract from net (the effective-energy model, docs/ECONOMIC_FRAMEWORK). This
  * is what makes the spawn-time wall fall out of a pure-energy ranking: a far
  * source whose haulers eat the build budget is penalized enough to lose to a near
  * one, with no hard distance limit.
@@ -61,39 +32,6 @@ export const SPAWN_PARTS_PER_TICK = 1 / 3;
  * against real colonies.
  */
 export const SPAWN_PART_ENERGY_VALUE = 155;
-
-/** What a corp projects it would cost and move, per tick, in a given scene. */
-export interface CorpEconomics {
-  /**
-   * Energy/tick to keep this corp's creeps alive (its spawn overhead),
-   * discounted for the life each creep wastes walking from the spawn to its
-   * post - so a corp far from its worksite costs more.
-   */
-  costPerTick: number;
-  /** Energy/tick this corp delivers toward the goal (0 for pure consumers). */
-  throughput: number;
-  /**
-   * Body parts/tick this corp draws from spawn throughput: its claim on the
-   * spawn's finite build rate (see {@link SPAWN_PARTS_PER_TICK}). Computed on the
-   * same creep-count and useful-life basis as {@link costPerTick}, so the two
-   * budgets stay in step. This is what makes the spawn-time wall fall out of
-   * planning: sum it across the corps a spawn supports and a far, part-hungry
-   * roster exceeds the spawn's build rate long before it exhausts the energy.
-   */
-  spawnPartsPerTick: number;
-}
-
-/**
- * Net energy/tick of a corp (or a summed chain) in a single currency: its energy
- * delivery, minus its energy upkeep, minus its spawn build-time priced in energy
- * (see {@link SPAWN_PART_ENERGY_VALUE}). This is the number to RANK by - a corp
- * that delivers energy but hogs the spawn's build rate (a far hauler fleet, a
- * reserver) is demoted just as if it cost that much energy, so the spawn-time
- * constraint falls out of the same comparison that already weighs energy.
- */
-export function effectiveNet(econ: CorpEconomics): number {
-  return econ.throughput - econ.costPerTick - econ.spawnPartsPerTick * SPAWN_PART_ENERGY_VALUE;
-}
 
 /**
  * Ticks a creep burns per tile walking from the spawn to its post.

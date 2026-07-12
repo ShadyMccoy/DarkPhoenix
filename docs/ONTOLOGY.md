@@ -96,7 +96,7 @@ target is ONE planner (the GOAP `CorpPlanner`) whose operators are corps.
 | **EconomyPlanner / EconomyAdapter** | `flow/EconomyPlanner.ts`, `flow/EconomyAdapter.ts` | ✅ DELETED | Absorbed by `CorpPlanner`; overlay removed from `main.ts` |
 | **Duplicate formulas** | 9 files (see analysis) | ✅ collapsed | `economy/primitives.ts` is the canonical home. CarryCorp/ConstructionCorp/BodyBuilder/HarvestCorp/UpgradingCorp/FlowGraph now call `carryPartsFor`/`effectiveLife`/`roundTripTicks`; the FlowTypes copies (`calculateRoundTrip`/`calculateCarryParts`/`calculateHaulerCostPerTick`) are deleted |
 | **Four "value" models** | mintValue / net-energy / effectiveNet / sink.value | ✅ one model | `DEFAULT_SINK_VALUE` in the planner (spawn 100 / construction 70 / controller 50) |
-| **ChainPlanner / Chain / projections / OfferCollector** | `planning/*`, `corps/CorpState.ts` | VESTIGIAL — not driving spawns; market-era artifact | Out of scope now; isolate, then retire |
+| **Chain/market valuation layer** | `corps/ChainEvaluator.ts`, `planning/ColonyEconomy.ts`, `corps/*.project()` | ✅ DELETED (spec 04, 2026-07-12) | Replaced by `economy/siteValue.ts` (`spawnSiteValue` / `marginalSiteValue`) — site + node valuation now runs through `planColony`, one economy authority end-to-end |
 | **EdgeVariant variant search** | `framework/EdgeVariant.ts` (`generateEdgeVariants`/`selectBestVariant`), `FlowSolver` terrain branch | DEAD — `edge.terrain` never populated | Remove functions + branch; keep `HaulerRatio`/`MiningMode` types (used by body building) |
 | **FlowEdge (framework)** | `framework/FlowEdge.ts` | DEAD — imported only by EdgeVariant + its test | Remove |
 

@@ -1,6 +1,6 @@
 import { Node, NodeResource, NodeResourceType, PotentialCorp, getCorpsByType, getResourcesByType } from "./Node";
 import { Position } from "../types/Position";
-import { evaluateSpawnChain } from "../corps/ChainEvaluator";
+import { spawnSiteValue } from "../economy/siteValue";
 
 /**
  * Configuration for surveying
@@ -160,11 +160,7 @@ export class NodeSurveyor {
       .filter((r) => r.type === "source")
       .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
 
-    const estimatedROI = evaluateSpawnChain({
-      spawnPos: spawn.position,
-      sources: localSources,
-      controllerPos: controller?.position,
-    });
+    const estimatedROI = spawnSiteValue(spawn.position, localSources, controller?.position);
 
     return {
       type: "spawning",

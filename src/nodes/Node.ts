@@ -384,7 +384,7 @@ export function calculateNodeROI(
 
   // `economicValue` is the node's MARGINAL contribution to the colony - the
   // whole-colony economy with this node minus without it (see
-  // ColonyEconomy.marginalNodeValue, computed by the caller, which has the
+  // economy/siteValue.marginalSiteValue, computed by the caller, which has the
   // colony context). Marginal, so a node that would only cannibalise a
   // neighbour's sources scores ~0 here rather than being credited their energy.
 

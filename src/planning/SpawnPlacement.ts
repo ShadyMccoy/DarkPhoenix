@@ -4,7 +4,8 @@
  * Picking which node to expand to is a coarse decision (one valuation per node,
  * at its peak - see calculateNodeROI). Picking WHERE in that node's territory to
  * drop the spawn is a fine one: every buildable tile is a candidate, and each is
- * scored by the chain of corps a spawn there would run (evaluateSpawnChain).
+ * scored by the economy a spawn there would run (economy/siteValue, the
+ * CorpPlanner pricing the miners/haulers/sinks - spec 04).
  * A spawn closer to the sources and controller wastes less energy on hauling, so
  * the best tile is the one that maximises that productive value.
  *
@@ -17,21 +18,17 @@
 
 import { Position, chebyshevDistance } from "../types/Position";
 import { Node } from "../nodes/Node";
-import {
-  ChainSource,
-  ReachableChainSource,
-  evaluateSpawnChain,
-} from "../corps/ChainEvaluator";
+import { ReachableSiteSource, SiteSource, spawnSiteValue } from "../economy/siteValue";
 
 /** The economy facts shared by every candidate tile in one node. */
 export interface SpawnCandidateContext {
   nodeId: string;
   /** Sources inside this node's territory (fixed across candidates). */
-  localSources: ChainSource[];
+  localSources: SiteSource[];
   /** The controller this node would upgrade. */
   controllerPos?: Position;
   /** Reachable adjacent-node sources, if the caller wants them folded in. */
-  reachableSources?: ReachableChainSource[];
+  reachableSources?: ReachableSiteSource[];
   /** Buildable tiles to consider for the spawn. */
   candidates: Position[];
 }
@@ -102,10 +99,7 @@ export function stepPlacementJob(
     }
 
     const pos = ctx.candidates[job.candidateIndex];
-    const value = evaluateSpawnChain({
-      spawnPos: pos,
-      sources: ctx.localSources,
-      controllerPos: ctx.controllerPos,
+    const value = spawnSiteValue(pos, ctx.localSources, ctx.controllerPos, {
       reachableSources: ctx.reachableSources,
       dist,
     });
@@ -153,7 +147,7 @@ export function buildPlacementContexts(
     const controller = node.resources.find((r) => r.type === "controller");
     if (!controller) continue;
 
-    const localSources: ChainSource[] = node.resources
+    const localSources: SiteSource[] = node.resources
       .filter((r) => r.type === "source")
       .map((r) => ({ id: r.id, capacity: r.capacity ?? 3000, pos: r.position }));
 

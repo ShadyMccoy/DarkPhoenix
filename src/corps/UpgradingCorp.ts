@@ -16,7 +16,7 @@ import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
-import { ChainScene, CorpEconomics, travelTicksPerTile } from "./economics";
+import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 8;
@@ -319,29 +319,7 @@ export class UpgradingCorp extends Corp {
     return false;
   }
 
-  /**
-   * Project the economics of upgrading the scene's controller with the energy
-   * allocated to this corp: an upgrader sized to that energy, costed over the
-   * life left after walking out to the controller. It is a pure consumer, so it
-   * reports cost only (no throughput).
-   */
-  public project(scene: ChainScene): CorpEconomics {
-    const allocated = this.sinkAllocation?.allocated ?? 0;
-    if (allocated <= 0 || !scene.controllerPos) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
-
-    // Virtual planning estimate: the upgrader is a pure consumer (throughput 0),
-    // so this only sizes its cost/part footprint for the planner. Keep the
-    // conservative CARRY-heavier estimate here - the realized body (built WORK-heavy
-    // in getSpawnDemand) is cheaper per WORK, so this never UNDER-budgets a source.
-    const body = buildUpgraderBody(scene.energyCapacity, Math.max(1, Math.ceil(allocated)), "mobile");
-    if (body.cost === 0) return { costPerTick: 0, throughput: 0, spawnPartsPerTick: 0 };
-
-    const travel = scene.dist(scene.spawnPos, scene.controllerPos) * travelTicksPerTile(scene.energyCapacity);
-    const usefulLife = effectiveLife(travel);
-    return { costPerTick: body.cost / usefulLife, throughput: 0, spawnPartsPerTick: body.body.length / usefulLife };
-  }
-
-  /**
+    /**
    * Declare this corp's spawn demand for the scheduler.
    *
    * The upgrader is what drives RCL progress, so its demand is blocking when no

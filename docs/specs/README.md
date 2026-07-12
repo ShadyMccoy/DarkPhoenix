@@ -31,7 +31,7 @@ Conventions used by every spec:
 | 01 | [Early-game progression](01-rcl5-cold-start-stall.md) | mostly closed (cold-start pipeline pinned by resilience cells); remaining question: live RCL2-3 throughput | P1 |
 | 02 | [Link logistics](02-link-logistics.md) | shipped in altered form: LinkRunner (free function) + planner haulPos pricing; the corp-kind redesign remains open | P2 |
 | 03 | [Storage draw-down](03-storage-drawdown.md) | deposit half + controller feeder relay landed; planner-level draw-down (bank as supply) not started | P1 |
-| 04 | [Retire the chain/market layer](04-retire-chain-layer.md) | not started | P1 |
+| 04 | [Retire the chain/market layer](04-retire-chain-layer.md) | **DONE 2026-07-12** — `economy/siteValue` re-bases node/spawn valuation on planColony; ChainEvaluator/ColonyEconomy deleted | landed |
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |
 | 06 | [Expansion: claim the next room](06-expansion.md) | **LANDED 2026-07-10** — capital-gated claiming + sink-based founding, exp-t5 cells green | landed |
 | 07 | [Tower defense (minimal)](07-tower-defense.md) | deferred by owner; economic standdown landed (def-t3 cell) | P3 |
