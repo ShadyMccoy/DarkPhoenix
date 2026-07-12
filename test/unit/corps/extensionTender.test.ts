@@ -94,12 +94,26 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(demand[0].bodyParam, "sized to refill the whole extension set (+spawn)").to.equal(6);
   });
 
-  it("asks for nothing once a tender is already fielded (one per room)", () => {
+  // SLA fleet sizing (commit 540289d): the target is max(clusters, coverage) —
+  // in this world 2 (the spawn sits in its own cluster, and a 550 bank over a
+  // 400-carry body needs two tenders to cover a full drain in one wave).
+  it("asks for a second tender while SLA coverage is short", () => {
     const r = room({ depot: true, extensions: 5 });
     const corp = corpFor(r);
     Game.creeps = {
       m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false },
       t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false }
+    } as any;
+    expect(corp.getSpawnDemand(ctx as any)).to.have.length(1);
+  });
+
+  it("asks for nothing once the SLA fleet is fielded", () => {
+    const r = room({ depot: true, extensions: 5 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false },
+      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false },
+      t2: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false }
     } as any;
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
