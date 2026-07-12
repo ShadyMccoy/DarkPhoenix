@@ -1,6 +1,15 @@
 # DarkPhoenix - Screeps Flow-Based AI
 
-A Screeps AI that uses max-flow min-cost (MFMC) algorithms for optimal resource allocation. Instead of hardcoded state machines or slow market price discovery, a centralized solver allocates energy based on priority weights and transport costs.
+A Screeps AI built around a single pure economy planner. Instead of hardcoded
+state machines or market price discovery, one deterministic solver —
+`economy/CorpPlanner.ts` — reasons over an abstract world description
+(spawns, sources, sinks, real path distances) and commissions **corps**:
+units of economic activity that consume spawn build-time (± energy) and
+produce energy-at-a-place or colony value.
+
+> **Doc authority:** [docs/ONTOLOGY.md](docs/ONTOLOGY.md) (domain model) and
+> [docs/PIPELINE.md](docs/PIPELINE.md) (the live pipeline, `file:line`
+> anchors) reflect the code as it is. If any doc disagrees with them, they win.
 
 ## Quick Start
 
@@ -23,93 +32,55 @@ Most Screeps AIs use either:
 - **State machines**: "if energy low, spawn harvester" - brittle, hard to extend
 - **Market economies**: price discovery through supply/demand - slow to converge, circular dependencies
 
-DarkPhoenix takes a different approach: **flow-based allocation**.
+DarkPhoenix plans the colony as one economic problem with **two currencies**:
 
-A centralized FlowSolver models the colony as a network of sources (energy producers), sinks (energy consumers), and edges (transport paths). Each tick, it computes the optimal allocation based on:
-- **Priorities**: Spawn is always critical (100), towers spike during combat (95), construction rises after RCL-up (80)
-- **Costs**: Transport distance affects which source serves which sink
-- **Capacity**: Each source has limited output, each edge has limited throughput
+- **Energy** (e/tick) — what sources yield and sinks consume.
+- **Spawn build-time** (parts/tick) — a spawn builds 1 body part / 3 ticks;
+  this is usually the *tighter* wall, and it is priced in energy so far
+  sources fall out of contention without any hard distance cap.
 
-## Architecture Overview
+Each solve (every 50 ticks) runs two pure phases:
 
-```
-src/
-├── main.ts              # Game loop entry point
-├── flow/                # Flow-based economy
-│   ├── FlowGraph.ts     # Network of sources, sinks, edges
-│   ├── FlowSolver.ts    # MFMC allocation algorithm
-│   └── PriorityManager.ts # Dynamic priority calculation
-├── corps/               # Business units
-│   ├── MiningCorp.ts    # Harvester management
-│   ├── HaulingCorp.ts   # Logistics
-│   ├── UpgradingCorp.ts # Controller upgrades
-│   └── SpawningCorp.ts  # Creep production
-├── nodes/               # Territory regions
-│   └── Node.ts          # Spatial territory with resources
-├── spatial/             # Room analysis
-│   └── RoomMap.ts       # Peak detection & territories
-├── planning/            # Chain validation
-│   └── ChainPlanner.ts  # Complete path verification
-├── types/               # Domain types
-└── utils/               # Utilities
-```
+1. **Producer selection** — assign each source to its nearest spawn, drop
+   net-negative sources, fill each spawn's mining build-time budget in
+   net-energy-per-build-part order.
+2. **Value routing** — route the produced energy to sinks by value
+   (spawn 100 > new-spawn site 85 > controller ≤ 80 > construction 70 >
+   storage 1), a reserve pre-pass guaranteeing critical floors (e.g. the
+   anti-downgrade trickle) first. Each source→sink flow becomes a hauler.
 
-## Flow-Based Economy
-
-### How It Works
+The plan is wrapped into **Commission** envelopes and materialized into
+runtime corps by pluggable **CorpKinds** (`corps/kinds/`) — new capabilities
+plug in by declaring their shape, without editing the planner core, the
+runner, or `main.ts`. All economic formulas live in ONE place,
+[`economy/primitives.ts`](src/economy/primitives.ts); a conformance suite
+enforces that no kind ships its own math.
 
 ```
-SOURCES (Energy Producers)
-├── Source A: 10 energy/tick
-└── Source B: 10 energy/tick
-
-         ↓ FlowSolver allocates by priority ↓
-
-SINKS (Energy Consumers)
-├── Spawn (priority 100): Gets energy first
-├── Tower (priority 95 during combat): Defense priority
-├── Construction (priority 80): Building phase
-├── Controller (priority 70): Normal upgrading
-└── Storage (priority 5): Excess buffer
+terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─▶ Commissions ─▶ Corps ─▶ creeps
 ```
 
-### Priority-Based Allocation
-
-Priorities adjust dynamically based on game state:
-
-```typescript
-// After RCL-up with 5 construction sites
-context = { rcl: 3, constructionSites: 5, hostileCreeps: 0 }
-priorities = { spawn: 100, construction: 80, controller: 10 }
-// → Energy flows: Spawn 15%, Construction 60%, Controller 25%
-
-// After construction complete
-context = { rcl: 3, constructionSites: 0, hostileCreeps: 0 }
-priorities = { spawn: 100, construction: 0, controller: 70 }
-// → Energy flows: Spawn 15%, Controller 85%
-```
-
-### Benefits Over Markets
-
-| Aspect | Market-Based | Flow-Based |
-|--------|--------------|------------|
-| Bootstrap problem | Circular: corps need energy to make offers | Single solve: no dependencies |
-| State changes | Slow price discovery | Instant priority update |
-| Optimization | Local (each corp decides) | Global (solver sees all) |
-| Complexity | O(offers²) matching | O(sources × sinks) |
+See [docs/PIPELINE.md](docs/PIPELINE.md) for every hop with source anchors.
 
 ## Corps System
 
-Corps are business units that execute allocated work:
+Corps are business units that execute commissioned work:
 
-| Corp | Purpose | Allocation Source |
-|------|---------|-------------------|
-| MiningCorp | Harvest energy sources | FlowSource assignment |
-| HaulingCorp | Transport resources | FlowEdge assignment |
-| UpgradingCorp | Upgrade controller | Controller sink allocation |
-| ConstructionCorp | Build structures | Construction sink allocation |
-| SpawningCorp | Spawn creeps | Spawn capacity |
-| BootstrapCorp | Emergency recovery | Starvation fallback only |
+| Corp | Shape | Purpose |
+|------|-------|---------|
+| HarvestCorp | produce | static miners on assigned sources |
+| CarryCorp | transport | haulers sized to route flow (2:1 body on paved routes) |
+| UpgradingCorp | consume | controller upgrading, sized from actual stock |
+| ConstructionCorp | consume + auxiliary | building, paving, repair ladder |
+| ExtensionTenderCorp / ControllerFeederCorp | auxiliary | local movers: depot→extensions, storage→controller |
+| ScoutCorp / ReservationCorp / ClaimCorp | auxiliary | intel, remote reservation, expansion claiming |
+| SpawningCorp / BootstrapCorp | infrastructure | spawn queue execution; cold-start jacks (not commissioned) |
+
+Auxiliary kinds `propose()` their own commissions when preconditions hold;
+producer/transport/consumer commissions come from the solver. The spawn side
+honors a **delivery contract** (`staffsPost`): an incumbent inside its
+replacement lead time no longer counts as staffing, so successors spawn early
+and posts never go dark.
 
 ## Spatial Analysis
 
@@ -123,14 +94,15 @@ Wall Distance → Invert → Distance Transform → Find Peaks
    (walls)      (walls)      (open areas)    (building zones)
 ```
 
-Peaks become territory centers. Each tile is assigned to its nearest peak, creating natural zones for resource allocation.
+Peaks become territory centers. Each tile is assigned to its nearest peak,
+creating natural zones for resource allocation.
 
 ## Development
 
 ### Building
 
 ```bash
-npm run build          # Compile TypeScript
+npm run build          # Compile TypeScript (grid/integration measure dist/main.js!)
 npm run watch          # Watch mode
 npm run push-main      # Deploy to main server
 npm run push-sim       # Deploy to simulation
@@ -144,48 +116,57 @@ Local verification runs entirely in Node — no Docker, no Steam key.
 npm test                  # Run unit + integration tests
 npm run test-unit         # Fast unit tests (mocked Game API)
 npm run test-integration  # Build, then run the bot against a full in-process Screeps engine
+npm run grid              # The inflection-point grid (spec 08) — the repo's success metric
+npm run sim:real -- --home W1N6 --metrics   # Real-map sim with plan-vs-actual sampling
 ```
 
-Integration tests use [`screeps-server-mockup`](https://github.com/screepers/screeps-server-mockup),
-which boots a real Screeps server in-process, loads the compiled `dist/main.js`,
-and lets tests tick the world and inspect memory. See
-[docs/in-depth/testing.md](docs/in-depth/testing.md) for details.
+The **grid** (`test/grid/`, spec 08) is the primary metric: ~114 cells stage
+worlds at decision moments and assert the decision plus its consequence in a
+short window, ratcheted in `test/grid/baseline.json` (BOT LEVEL = highest
+tier fully green). Real captured rooms live in `test/fixtures/real-rooms/`;
+journey snapshots replay organic ramp moments. Integration tests use
+[`screeps-server-mockup`](https://github.com/screepers/screeps-server-mockup).
+See [docs/in-depth/testing.md](docs/in-depth/testing.md) and
+[CLAUDE.md](CLAUDE.md) for the workflow rules.
 
 ## Project Structure
 
 | Directory | Purpose |
 |-----------|---------|
-| `src/flow/` | Flow-based economy (MFMC solver, priority manager) |
-| `src/corps/` | Business units executing allocated work |
-| `src/nodes/` | Territory regions derived from spatial analysis |
-| `src/spatial/` | Room analysis and territory mapping |
-| `src/planning/` | Chain planning and validation |
-| `src/types/` | TypeScript interfaces and domain types |
-| `src/utils/` | Utility functions and helpers |
-| `docs/` | Extended documentation |
-| `test/` | Unit and simulation tests |
-
-## Documentation
-
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design and components
-- [MFMC Migration Plan](docs/MFMC_MIGRATION_PLAN.md) - Flow-based economy design
-- [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - Resource allocation and ROI
-- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territories
+| `src/economy/` | The planner: CorpPlanner, primitives (canonical math), Commission/CorpKind framework |
+| `src/corps/` | Runtime corps + `kinds/` (the pluggable CorpKind implementations) |
+| `src/execution/` | Live-loop glue: CommissionHost, SpawnDirector, OrphanRescue, LinkRunner |
+| `src/spawn/` | Pure body building + spawn scheduling math |
+| `src/flow/` | Legacy translation layer: FlowGraph world discovery + FlowSolution output shape |
+| `src/nodes/`, `src/spatial/` | Territory model, path distances, room analysis |
+| `src/telemetry/` | RawMemory segment exports (dashboard: `telemetry-app/`) |
+| `docs/` | ONTOLOGY, PIPELINE, specs (each spec = its acceptance tests) |
+| `test/` | unit, integration, grid cells, real-room + journey fixtures |
 
 ## Roadmap
 
 ### Implemented
-- Flow-based resource allocation (MFMC solver)
-- Priority-weighted energy distribution
-- Spatial analysis with peak detection
-- Territory-based node system
-- Corps executing allocated work
+- Single pure economy planner (two currencies, value routing, reserve floors)
+- CorpKind commission framework — all corp kinds run through CommissionHost
+- Delivery contract (gapless replacement), runt-recycle upsizing
+- Storage banking + local movers (extension tender, controller feeder)
+- Link networks (source→core link transport), road economics + paved-route bodies
+- Remote mining with reservation; capital-gated expansion (claim + founding)
+- The inflection-point grid + real-map fixtures + journey snapshot replay
 
-### Planned
-- Multi-room flow networks
-- Defense priority escalation
-- Remote mining as extended territories
-- Mineral/boost flow integration
+### Planned (see docs/specs/)
+- Storage draw-down as planner supply (spec 03)
+- The NOW plan: spawn agenda as the transition contract (spec 11)
+- Robustness program: chaos harness, incident pipeline, CPU governor (spec 09)
+- Tower defense (spec 07, deferred)
+
+## Documentation
+
+- [Ontology](docs/ONTOLOGY.md) - the domain model (authoritative)
+- [Pipeline](docs/PIPELINE.md) - the live architecture, end to end
+- [Task specs](docs/specs/README.md) - current work, each with acceptance tests
+- [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - effective energy, spawn-part pricing
+- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territories
 
 ## Contributing
 

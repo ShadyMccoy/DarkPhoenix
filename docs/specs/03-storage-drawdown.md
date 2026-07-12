@@ -6,8 +6,11 @@ storage-hauler-routing change the planner caps the controller at
 the surplus to the storage sink, which CarryCorp delivers as a first-class `storage`
 circuit (`deliverToStorage`) with no spill ceiling — so the bank actually
 accumulates the expansion CAPEX instead of stalling at `STORAGE_BANK = 10000`.
-Withdrawal is still only implicit (the tender refills extensions from the depot);
-nothing feeds the *controller or builders* from the bank when income collapses.
+Withdrawal is partially implicit: the tender refills extensions from the depot,
+and `ControllerFeederCorp` relays storage → controller input as a steady last
+leg once a bank exists. But neither is an *income-dip response* — nothing feeds
+builders from the bank, and the planner never treats the bank as supply when
+income collapses.
 **Priority:** P1.
 
 ## Goal

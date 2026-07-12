@@ -1,6 +1,13 @@
 # Economic Framework
 
-This document describes the flow-based economic model underlying DarkPhoenix's resource allocation.
+This document describes the economic model underlying DarkPhoenix's resource
+allocation: the canonical primitives, the two-currency planning problem, and
+the effective-energy model that prices sources and remote operations.
+
+> Architecture context lives in [PIPELINE.md](PIPELINE.md) and
+> [ONTOLOGY.md](ONTOLOGY.md). The FlowSolver/priority-table design older
+> versions of this file described is deleted; the live solver is
+> `economy/CorpPlanner.ts` (`planColony`, pure and deterministic).
 
 ## Core Philosophy
 
@@ -10,214 +17,83 @@ IF spawn.energy < 200 THEN spawn harvester
 IF sources.length > harvesters THEN spawn harvester
 ```
 
-DarkPhoenix uses flow-based allocation:
+DarkPhoenix computes the colony's allocation as one economic problem:
+
 ```
-FlowSolver sees: 2 sources producing 20 energy/tick
-FlowSolver sees: spawn needs 5/tick, controller needs 15/tick
-FlowSolver allocates: spawn priority 100, controller priority 70
-Result: spawn gets energy first, controller gets remainder
-```
-
-The key insight: **optimal allocation emerges from a single global solve, not local decisions**.
-
-## Flow Network Model
-
-### Sources (Producers)
-
-Energy sources in the room:
-
-```typescript
-interface FlowSource {
-  id: string;
-  nodeId: string;
-  position: Position;
-  capacity: number;       // 10 energy/tick per source
-  assigned: boolean;      // Has miner?
-}
+planColony sees: spawns, sources, sinks, real path distances (pure data)
+Phase 1 (producer selection): staff the sources whose net energy per
+  build-part is best, per spawn, under the spawn's mining build budget
+Phase 2 (value routing): route the produced energy to sinks in value order,
+  after a reserve pre-pass guarantees critical floors
+Output: commissioned miners, haulers and sink allocations — the plan
 ```
 
-### Sinks (Consumers)
+The key insight: **optimal allocation emerges from a single global solve, not
+local decisions** — and the solve reasons in TWO currencies at once.
 
-Structures and operations that consume energy:
+## The two currencies
 
-```typescript
-interface FlowSink {
-  id: string;
-  nodeId: string;
-  position: Position;
-  type: SinkType;
-  priority: number;       // 1-100
-  demand: number;         // Energy needed per tick
-  currentAllocation: number;
-}
+1. **Energy** (e/tick) — what sources yield (`capacity/300`, ≤ 10 standard)
+   and sinks absorb.
+2. **Spawn build-time** (parts/tick) — a spawn builds one body part per 3
+   ticks (`SPAWN_PARTS_PER_TICK = 1/3`, ≈ 500 parts per creep lifetime).
+   This is usually the *tighter* wall: a far source can stay
+   net-energy-positive while demanding more hauler parts than the spawn can
+   physically build.
 
-type SinkType =
-  | "spawn"          // Priority 100 (always)
-  | "extension"      // Priority 90 (when spawning)
-  | "tower"          // Priority 95 (during combat)
-  | "construction"   // Priority 80 (after RCL-up)
-  | "controller"     // Priority 70 (normal) / 10 (building phase)
-  | "storage";       // Priority 5 (excess only)
-```
+Build-time is **priced in energy** (`energyPerSpawnPart` — the exchange rate,
+evaluated at the margin) rather than hard-capped, so part-hungry far sources
+are demoted in ranking and the spawn-time wall falls out of planning without
+any hard distance limit.
 
-### Edges (Transport)
+## Canonical primitives (`src/economy/primitives.ts`)
 
-Paths between sources and sinks:
+ONE definition of every per-tick economic quantity — no module reimplements
+these (the kind-conformance suite enforces it):
 
-```typescript
-interface FlowEdge {
-  fromId: string;
-  toId: string;
-  distance: number;       // Walking distance
-  carryCapacity: number;  // CARRY parts allocated
-  flowRate: number;       // Energy/tick through edge
-  costPerEnergy: number;  // Transport overhead
-}
-```
+- `effectiveLife(d) = CREEP_LIFETIME − d` — a creep posted `d` tiles away
+  amortises its cost over the remainder of its life
+- `roundTripTicks(d) = 2d + 2`
+- `carryPartsFor(rate, d) = rate · roundTrip / 50`
+- `minerOverhead(d)`, `haulerOverhead(carry, d)` — spawn cost per tick
+- `netEnergy(rate, d) = rate − minerOverhead − haulerOverhead` — source profitability
+- `spawnPartsFor(rate, d)` — build-time the source's miner + haulers consume
+- `energyPerSpawnPart(rate, d) = netEnergy / spawnPartsFor` — the shadow price
+- `miningBudgetPerSpawn() = SPAWN_PARTS_PER_TICK · MINING_BUDGET_FRACTION (0.6)`
+- `deliveryLeadTime` / `staffsPost` — the replacement delivery contract
+- `sustainableConsumptionRate(stock, inflow)` — consumers sized from ACTUAL
+  stock at their work site (macro doctrine: production over consumption;
+  consumers burn the residual, never the goal plan's paper allocation)
 
-## Priority-Based Allocation
+## Sink values (the value ladder)
 
-### How Priorities Work
+The planner fills sinks in value order, from nearest supply first
+(`DEFAULT_SINK_VALUE` + per-instance overrides in `economy/flowAdapter.ts`):
 
-The FlowSolver allocates energy greedily by priority:
+| Sink | Value | Notes |
+|------|-------|-------|
+| spawn | 100 | keeping creeps alive — plus the agenda's funding need (spec 11) |
+| new-spawn construction site | 85 | expansion founding outranks ordinary work |
+| controller | 80 → 40 | log-priced by progress REMAINING (200 → 80, 10.4M → 40) |
+| construction | 70 | build-out is investment; may absorb the full surplus while sites exist |
+| storage | 1 | soaks excess only |
 
-1. Sort sinks by priority (highest first)
-2. For each sink, allocate up to its demand
-3. Subtract from available production
-4. Continue until production exhausted
+Floors are guaranteed by a reserve pre-pass (controller anti-downgrade = 2
+e/tick). Once a room has a storage, the controller is capped at
+`STORAGE_UPGRADE_TARGET` (15 e/t) and the surplus banks — the deposit half of
+the warchest that funds expansion CAPEX.
 
-```typescript
-function allocateBySinkPriority(
-  availableEnergy: number,
-  sinks: FlowSink[]
-): SinkAllocation[] {
-  // Sort by priority descending
-  const sorted = sinks.sort((a, b) => b.priority - a.priority);
-
-  const allocations: SinkAllocation[] = [];
-  let remaining = availableEnergy;
-
-  for (const sink of sorted) {
-    const allocation = Math.min(sink.demand, remaining);
-    allocations.push({ sinkId: sink.id, amount: allocation });
-    remaining -= allocation;
-
-    if (remaining <= 0) break;
-  }
-
-  return allocations;
-}
-```
-
-### Dynamic Priority Context
-
-Priorities adjust based on game state:
-
-```typescript
-interface PriorityContext {
-  tick: number;
-  rcl: number;
-  rclProgress: number;
-  constructionSites: number;
-  hostileCreeps: number;
-  storageEnergy: number;
-  spawnQueue: number;
-}
-
-function calculatePriorities(context: PriorityContext): Map<SinkType, number> {
-  const priorities = new Map<SinkType, number>();
-
-  // Spawn is always critical
-  priorities.set("spawn", 100);
-
-  // Defense priority during combat
-  if (context.hostileCreeps > 0) {
-    priorities.set("tower", 95);
-  } else {
-    priorities.set("tower", 30);
-  }
-
-  // Building phase after RCL-up
-  if (context.constructionSites > 0) {
-    priorities.set("construction", 80);
-    priorities.set("controller", 10);  // Pause upgrading
-  } else {
-    priorities.set("construction", 0);
-    priorities.set("controller", 70);
-  }
-
-  // Extensions needed for spawning
-  if (context.spawnQueue > 0) {
-    priorities.set("extension", 90);
-  } else {
-    priorities.set("extension", 50);
-  }
-
-  // Storage is low-priority buffer
-  priorities.set("storage", 5);
-
-  return priorities;
-}
-```
-
-## Cost Calculation
-
-### Transport Overhead
-
-Moving energy costs spawn capacity (hauler bodies):
-
-```typescript
-function calculateHaulerCost(amount: number, distance: number): {
-  carryParts: number;
-  spawnCost: number;
-} {
-  // Round trip distance
-  const roundTrip = distance * 2;
-
-  // Energy per hauler trip (50 per CARRY part)
-  const carryPerTrip = 50;
-
-  // Trips needed per 1500 ticks (creep lifetime)
-  const tripsPerLifetime = 1500 / roundTrip;
-
-  // Total energy moved per hauler
-  const energyPerHauler = carryPerTrip * tripsPerLifetime;
-
-  // Parts needed to move target amount
-  const carryParts = Math.ceil(amount / energyPerHauler);
-
-  // Spawn cost (50 per CARRY, 50 per MOVE)
-  const spawnCost = carryParts * 100;
-
-  return { carryParts, spawnCost };
-}
-```
-
-### Net Energy Calculation
-
-```typescript
-interface FlowSolution {
-  totalHarvest: number;      // Gross energy from sources
-  totalOverhead: number;     // Miners + haulers spawn cost
-  netEnergy: number;         // Available for sinks
-  efficiency: number;        // netEnergy / totalHarvest
-}
-
-// Example:
-// 2 sources × 10 energy/tick = 20 gross
-// Miners: 2 × (200 energy / 1500 ticks) = 0.27/tick overhead
-// Haulers: 2 × (200 energy / 1500 ticks) = 0.27/tick overhead
-// Net: 20 - 0.54 = 19.46 energy/tick available
-// Efficiency: 97.3%
-```
+**Ordering is load-bearing.** The controller band caps at 80 *below* the
+founding site's 85 deliberately; at 90 a freshly claimed room's own L1
+controller outbid its founding site and zeroed construction colony-wide
+(measured). Never nudge one value in isolation.
 
 ## Effective Energy: What a Source TRULY Nets
 
-The net-energy example above is the *co-located* best case. The real value of a
-source is its **effective energy/tick** after every overhead it actually incurs,
-and that is what should drive "is this source worth mining, and from where?".
-Three effects, all distance-driven, pull it down — and a fourth currency makes
-the cutoff fall out without a hard limit.
+The real value of a source is its **effective energy/tick** after every
+overhead it actually incurs, and that is what drives "is this source worth
+mining, and from where?". Three effects, all distance-driven, pull it down —
+and the build-time currency makes the cutoff fall out without a hard limit.
 
 Tools: `npm run sim:energy` prints the effective-energy table;
 `scripts/effective-energy.ts` is the model. Each corp reports its own numbers via
@@ -242,23 +118,22 @@ The miner is a flat, small cost (a 5W3M body, ~0.43 e/tick amortized). The
 
 A static miner walks `d` tiles out and then **dies at the source**, so it only
 mines for `1500 − d` ticks and must be respawned that much more often. Its real
-amortized cost is `650/(1500−d)` (e.g. respawn every 1300 at d=200), not the flat
-`650/1500` the old `FlowSolver` used. The same initial walk-out shortens a
-hauler's productive life too. TTL pulls the *net-zero* break-even in from ~356 to
-~285 tiles (owned) / ~339 to ~270 (unreserved).
+amortized cost is `650/(1500−d)` (e.g. respawn every 1300 at d=200), not a flat
+`650/1500`. The same initial walk-out shortens a hauler's productive life too.
+TTL pulls the *net-zero* break-even in from ~356 to ~285 tiles (owned) / ~339
+to ~270 (unreserved).
 
 ### 3. Spawn build-time is a SECOND budget — priced in energy
 
-A spawn has two budgets, not one. Besides energy it has **build-time**: it makes
-one body part every `SPAWN_TIME_PER_PART` (3) ticks = **500 parts over a 1500-tick
-life** (`SPAWN_PARTS_PER_TICK = 1/3`). A far source can stay net-energy-positive
-yet demand more hauler parts than the spawn can physically build — so build-time
-is often the *tighter* wall, and it bites at a closer distance than the energy
-break-even. A single owned source at d≈200 already eats ~40% of one spawn's entire
-part budget; two such sources nearly saturate it before a single upgrader is built.
+A spawn has two budgets, not one. Besides energy it has **build-time**: one
+body part every `SPAWN_TIME_PER_PART` (3) ticks = **500 parts over a 1500-tick
+life**. A far source can stay net-energy-positive yet demand more hauler parts
+than the spawn can physically build — so build-time is often the *tighter*
+wall, and it bites at a closer distance than the energy break-even. A single
+owned source at d≈200 already eats ~40% of one spawn's entire part budget.
 
-Rather than a hard part cap, we **price build-time in energy** and fold it into the
-same ranking that already weighs energy:
+Rather than a hard part cap, we **price build-time in energy** and fold it into
+the same ranking that already weighs energy:
 
 ```
 effectiveNet = throughput − energyUpkeep − spawnPartsPerTick · SPAWN_PART_ENERGY_VALUE
@@ -267,129 +142,61 @@ effectiveNet = throughput − energyUpkeep − spawnPartsPerTick · SPAWN_PART_E
 `SPAWN_PART_ENERGY_VALUE ≈ 155` (energy per part/tick) is calibrated from a
 representative source at the average remote distance (~75 tiles): it nets ~7.4
 e/tick on ~70 parts, so a held part is worth ~0.1 e/tick ≈ 155 over its life.
-Ranking by `effectiveNet`, a part-hungry far source is demoted below a near one in
-pure energy — so the spawn-time wall **falls out of planning**, no hard distance
-limit required.
+Ranking by `effectiveNet`, a part-hungry far source is demoted below a near one
+in pure energy — the spawn-time wall **falls out of planning**, no hard
+distance limit required.
 
-The constant is really a stand-in for the colony's **marginal alternative use of a
-part** (an idle spawn → cheap parts → far sources welcome; abundant near sources →
-expensive parts → far sources excluded). By construction `effNet` crosses zero at
-the calibration distance, so with 155 a single spawn's profitable remote reach is
-about **50–75 tiles**; lower the constant (a poorer marginal alternative) and the
-reach extends. Tune it to the colony, don't hard-code a distance.
+The constant is really a stand-in for the colony's **marginal alternative use
+of a part** (an idle spawn → cheap parts → far sources welcome; abundant near
+sources → expensive parts → far sources excluded). By construction `effNet`
+crosses zero at the calibration distance, so with 155 a single spawn's
+profitable remote reach is about **50–75 tiles**; lower the constant (a poorer
+marginal alternative) and the reach extends. Tune it to the colony, don't
+hard-code a distance.
 
 ### 4. Reserving a remote room is a per-ROOM cost
 
-Reserving lifts a remote source from 5 → 10 e/tick, but a reserver is **expensive
-in both currencies**: a `CLAIM+MOVE` body costs 650 energy, and CLAIM creeps live
-only **`CREEP_CLAIM_LIFE_TIME` = 600 ticks** (not 1500), so its short life makes it
-cost more than its body suggests. It also walks to the room — amortized ~`650/(600−d)`
-e/tick *plus* its parts priced in energy. Two effects pull that toll back down:
+Reserving lifts a remote source from 5 → 10 e/tick, but a reserver is
+**expensive in both currencies**: a `CLAIM+MOVE` body costs 650 energy, and
+CLAIM creeps live only **600 ticks**, so its short life makes it cost more than
+its body suggests. It also walks to the room — amortized ~`650/(600−d)` e/tick
+*plus* its parts priced in energy. Two effects pull that toll back down:
 
-- **Per-room, shared across the room's sources.** A **two-source** room halves the
-  per-source reserver cost, so two sources justify reserving (and reaching farther)
-  where one source may not.
-- **Duty cycle ~50%.** Reservation accumulates (up to 5000) and decays 1/tick, so a
-  reserver is *not* needed continuously — let it build up, let it tick down, then
-  top up. That roughly halves the amortized cost again.
+- **Per-room, shared across the room's sources.** A **two-source** room halves
+  the per-source reserver cost, so two sources justify reserving (and reaching
+  farther) where one source may not.
+- **Duty cycle ~50%.** Reservation accumulates (up to 5000) and decays 1/tick,
+  so a reserver is *not* needed continuously — let it build up, let it tick
+  down, then top up. That roughly halves the amortized cost again.
 
-Reserve only while `+5/source` gross beats the (duty-cycled, per-source) reserver
-toll — another decision that falls straight out of `effectiveNet`. With both
-effects, the toll is ~0.8–1.2 e/tick per room and reserving wins out to ~50 tiles
-for one source, ~75 for two.
+Reserve only while `+5/source` gross beats the (duty-cycled, per-source)
+reserver toll — another decision that falls straight out of `effectiveNet`.
+With both effects, the toll is ~0.8–1.2 e/tick per room and reserving wins out
+to ~50 tiles for one source, ~75 for two.
 
-## ROI Tracking
+## Plan-vs-actual (the fidelity doctrine)
 
-Even with flow-based allocation, we track corps performance:
+The planner publishes its budgets (`Memory.economyPlan`: mine rate, upgrade
+work, build work, hauler CARRY) and the harnesses measure what was physically
+delivered, reporting the ratio:
 
-```typescript
-interface PerformanceRecord {
-  tick: number;
-  expectedValue: number;    // Allocated by solver
-  actualValue: number;      // Actually delivered
-  cost: number;             // Resources consumed
-}
+- `npm run sim:real -- --metrics` samples plan-vs-actual per 100-tick window;
+- the grid's `fid-*` cells ratchet fidelity floors with a full energy ledger
+  (mined = sinks + Δstock + decay + Δtransit + residual);
+- **two plans** (spec 11): tight floors belong on actual-vs-NOW
+  (`Memory.spawnAgenda`); NOW-vs-GOAL convergence is a ramp gauge.
 
-// ROI calculation
-const roi = (actualValue - cost) / cost;
-```
-
-### Why Track ROI?
-
-1. **Validate solver accuracy** - Expected vs actual
-2. **Identify bottlenecks** - Low actual means something's wrong
-3. **Tune priorities** - If upgrading consistently underperforms, adjust
-4. **Detect problems** - Negative ROI = investigate
-
-## Comparison: Flow vs Market
-
-### Market-Based (Old)
-
-```
-Mining Corp: "I'll sell 10 energy at $0.05"
-Upgrade Corp: "I'll buy 10 energy at $0.08"
-Market: Matches offers, creates contract
-Problem: Mining Corp needs energy to spawn miner to make the offer
-         → Circular dependency
-         → Slow price discovery
-         → Local optimization only
-```
-
-### Flow-Based (Current)
-
-```
-FlowSolver: Sees all sources and sinks
-FlowSolver: Computes global optimal allocation
-FlowSolver: Assigns miners to sources, haulers to edges
-Corps: Execute their assignments
-         → No circular dependency
-         → Instant allocation
-         → Global optimization
-```
-
-## Implementation Status
-
-### Implemented
-
-- [x] FlowSource and FlowSink types
-- [x] FlowGraph construction from room data
-- [x] Priority-based allocation algorithm
-- [x] PriorityManager with context-aware priorities
-- [x] FlowSolver with net energy calculation
-- [x] Corps receiving and executing allocations
-
-### Planned
-
-- [ ] Multi-room flow networks
-- [ ] Mineral/boost sink types
-- [ ] Terminal as cross-room edge
-- [ ] Defense sink with threat-level priority
+On synthetic worlds the plan *should* be achievable — a fidelity gap there is
+a bug signal by construction, not noise.
 
 ## Best Practices
 
-### 1. Trust the Solver
-
-Don't manually override allocations. If something's wrong, adjust priorities or fix the input data.
-
-### 2. Keep Priorities Simple
-
-Use the standard priority tiers:
-- 100: Critical (spawn)
-- 90-95: Urgent (defense, extension fill)
-- 70-80: Normal (upgrading, construction)
-- 5-30: Low (storage, idle towers)
-
-### 3. Monitor Efficiency
-
-Track `FlowSolution.efficiency`. Below 90% means too much overhead—optimize hauler routes or miner placement.
-
-### 4. React to Context
-
-Let PriorityManager handle priority shifts. Defense → high tower priority. RCL-up → high construction priority. Don't hardcode responses.
-
-### 5. Validate with ROI
-
-If a corp's actual ROI is much lower than expected, investigate:
-- Are creeps dying?
-- Are paths blocked?
-- Is the priority context wrong?
+1. **Trust the solver.** Don't manually override allocations; fix the input
+   data (the `ColonyProblem`) or the per-instance value model.
+2. **Never reimplement a formula.** If you need an economic quantity, import
+   it from `economy/primitives.ts`; if it doesn't exist, add it there.
+3. **Respect the value ladder.** Value-ordering inversions have zeroed
+   colony-wide allocations before; change values with a grid cell pinning the
+   ordering you rely on.
+4. **Report plan next to actual.** Any economy result quoted alone is half a
+   number.

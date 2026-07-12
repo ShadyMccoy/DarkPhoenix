@@ -98,20 +98,21 @@ trip point and re-capture; the grid only ever pays the core moment.
 - **G1 CLOSED (2026-07-09):** completion cells landed - cons-t2-container-completes,
   cons-t4-storage-completes, cons-t4-link-completes (site staged at ~90% + staffed
   builder; the structure must stand). All pass.
-- **G2: pre-ramped fidelity cells** — blocked on G6: a healthy post-build-out
-  state to snapshot does not organically occur inside affordable windows yet.
-- **G3 DIAGNOSED (2026-07-09):** the controller shortfall and the runt-fleet
-  plateau share one root: **G6**.
-- **G6: build-out allocation starves the RCL2→3 escape.** Flow allocates
-  ~2-5 e/t to construction, builderPlan fields a 1-WORK builder, 15k energy of
-  extensions ≈ 3000 ticks, the room never leaves 300 capacity, every body
-  stays a runt. Extensions are capacity-shadow-priced (bigger bodies, higher
-  energyPerSpawnPart), not energy-priced - the solver undervalues them.
+- **G2 CLOSED (2026-07-09):** `fid-t4-preramped-steady-state` landed, replaying
+  the organically-captured `synthetic-2src--extensions-rcl2-cap` journey
+  snapshot with tight fidelity floors (gross 0.55 / controller 0.15 / carry 0.6).
+- **G3 CLOSED with G6** (2026-07-09): the controller shortfall and the
+  runt-fleet plateau shared one root: G6.
+- **G6 FIXED (2026-07-09):** construction sink capacity uncapped in
+  `flowAdapter` (bounded by MINED supply, was a flat 5 e/t), value 70 >
+  controller 50, plus the reserve pre-pass = "pause upgrading at the 2 e/t
+  floor while sites exist" (owner directive). A/B: extension trips fire at
+  1371/2869 organic ticks — they never fired when capped.
 - **G4: tower defense** (spec 07) — no cells; out of economy scope for now.
 - **G5: upgrader supply-before-demand core moment** — currently only implicit
   in a 900t organic cell (or capture the `first-upgrader` trip point).
-- **G7: replacement successor pre-positioning.** Advance delivery (staffsPost)
-  cuts the death gap ~3x (measured 28-37 vs 80-110 reactive), but the successor
-  holds off at distance while the incumbent holds the spot and only walks in
-  after the death. Park it at range 1-2 instead; then ratchet the gapless
-  cell's 45-tick allowance toward 10.
+- **G7 RESOLVED (2026-07-10):** the "successor holds off at distance" was
+  actually the runt-recycle churn below it; with the staffing-lens fix
+  (flagMinerRuntForRecycling counts via staffsPost) the successor walks
+  straight to post — measured post gap 2 ticks. Remaining nicety: ratchet the
+  gapless cell's 45-tick allowance downward.

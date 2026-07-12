@@ -1,5 +1,9 @@
 # MFMC Migration Plan: Market → Flow-Based Economy
 
+> **Historical document.** This migration completed and was itself superseded:
+> the FlowSolver it introduced has since been replaced by the pure
+> `economy/CorpPlanner`. Current architecture: [PIPELINE.md](PIPELINE.md).
+
 ## Overview
 
 Replace the offer/contract market system with a **weighted flow allocation** model while preserving:

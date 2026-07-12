@@ -10,11 +10,14 @@
 
 ## Architecture
 
-- [Architecture Overview](ARCHITECTURE.md)
-- [MFMC Migration Plan](MFMC_MIGRATION_PLAN.md)
+- [Ontology (authoritative domain model)](ONTOLOGY.md)
+- [The Economic Pipeline (current architecture)](PIPELINE.md)
+- [Architecture Overview (pointer)](ARCHITECTURE.md)
 - [Economic Framework](ECONOMIC_FRAMEWORK.md)
 - [Corps System](ROUTINES.md)
 - [Spatial System](SPATIAL_SYSTEM.md)
+- [Task Specs](specs/README.md)
+- [MFMC Migration Plan (historical)](MFMC_MIGRATION_PLAN.md)
 
 ## In-Depth
 

@@ -1,0 +1,91 @@
+# DarkPhoenix — agent playbook
+
+Screeps AI built around ONE pure economy planner (`economy/CorpPlanner.ts`)
+whose operators are corps. Read order for architecture truth:
+
+1. [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model (authoritative)
+2. [docs/PIPELINE.md](docs/PIPELINE.md) — the live pipeline, file:line anchors
+3. [docs/specs/](docs/specs/README.md) — the work: each spec IS its acceptance tests
+4. The code. When code and ONTOLOGY disagree, that is a bug — fix it, don't drift.
+
+## The workflow (non-negotiable)
+
+- **The success metric is the grid**: `npm run grid` (spec 08), ratcheted in
+  `test/grid/baseline.json`. BOT LEVEL = highest tier with every tier ≤ T fully
+  green. Update the baseline **in the same commit** as the bot change that
+  earned it.
+- **ALWAYS `npm run build` before any grid/integration run** — they measure
+  `dist/main.js`, not your working tree. A stale bundle has cost full false-red
+  runs more than once.
+- **Regression gate** for live-behavior changes: `npm run test-unit` PLUS the
+  `flow-handoff`, `runt-economy`, `storage-depot` integration tests
+  (`npx mocha "test/integration/<file>.test.ts"`, one file at a time).
+- Write the failing test/cell FIRST. Acceptance criteria live in tests only;
+  diag probes (`scripts/diag-*.ts`) are for investigation.
+- `test/mocha.opts` has `--bail`: a red run reports only the FIRST failure —
+  don't assume the rest of the suite is green.
+
+## Epistemics (measured, not vibes)
+
+- **Multi-draw rule**: identical-code 3000-tick draws vary ±20-30% (measured).
+  Any tempo/throughput claim under ~30% needs multiple draws (`npm run
+  sim:variance`). Grid-pinned deterministic behaviors are exempt.
+- **Plan-vs-actual**: always report the planner's budget NEXT TO the measured
+  actual (`npm run sim:real -- --metrics`; fid-* grid cells). On synthetic
+  worlds the plan should be achievable — a fidelity gap there is a bug signal
+  by construction.
+- **Two plans** (spec 11): the GOAL plan (`Memory.economyPlan`, solver
+  equilibrium) is not a schedule. The NOW plan (`Memory.spawnAgenda`) is the
+  transition. Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp
+  gauge.
+- **Macro doctrine**: production over consumption. Fund producers first, bank
+  to the warchest, consumers burn the residual and are sized from ACTUAL stock
+  at their work site (`sustainableConsumptionRate`), never from the goal plan.
+
+## Economics rules
+
+- ALL economic formulas live in `economy/primitives.ts`. No module reimplements
+  them (the kind-conformance suite enforces this to 1e-9).
+- Sink values are a strict ladder (spawn 100 > new-spawn-site 85 >
+  controller ≤80 > construction 70 > controller floor 40 > storage 1).
+  Ordering inversions have zeroed colony-wide construction before (the
+  90-vs-85 founding incident) — never nudge one value in isolation.
+
+## Trap list (each of these has burned a session)
+
+- **Recycling counts as staffing**: do NOT exclude `recycling` creeps from
+  staffing counts — the pounce-recycle path orders its own successor;
+  excluding them double-orders (measured collapse to a 7-runt fleet).
+- **staffsPost symmetry**: every consumer of "how many creeps does this post
+  have" must use the SAME `staffsPost` lens as the demand side, or newborns
+  get recycled at the spawn door (~25t churn loop, measured).
+- **Grid staging**: `addBot`'s `gcl` is POINTS, not level (1e6 = GCL 2). The
+  mockup db's `$set` with dotted paths (`"store.energy"`) silently NO-OPS —
+  write whole objects. Staged storage needs the OWNED schema
+  (user + storeCapacityResource).
+- **New corp kinds** must be added to OrphanRescue `liveCorpIds` AND
+  SpawnDirector `collectDemands`, or their creeps get orphan-recycled / never
+  spawn. Every kind's `materialize` must refresh `spawnId` on existing corps
+  (immortal consumer corps otherwise keep a dead spawn's id forever —
+  conformance test enforces).
+- **Corp id prefixes**: planner ids are pure (`harvest-{flowSourceId}`); kinds
+  strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
+  live creeps.
+- **Sim blind spots**: sims never churn spawn ids and never lose room vision —
+  both classes have caused live-only incidents. Don't claim live-readiness
+  from sims alone.
+
+## Commands
+
+| Command | What |
+|---|---|
+| `npm run build` | bundle to `dist/main.js` (do this before grid/integration) |
+| `npm run test-unit` | unit suite (~seconds) |
+| `npm run grid` / `grid:full` | inflection grid; `--cell <id>`, `--update-baseline` |
+| `npm run sim:real -- --home <room> [--metrics]` | real-map sim on captured fixtures |
+| `npm run capture:rooms -- --shard S --around R` | snapshot live rooms to fixtures |
+| `npm run journey:capture` | organic run → trip-point snapshots |
+| `npm run sim:variance` / `sim:ab` | multi-draw variance / A/B harness |
+
+App-specific login fields, seed users and workcell notes live in
+`AGENTS_CUSTOM.md` (platform-owned) when present.
