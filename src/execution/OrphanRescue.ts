@@ -35,7 +35,7 @@ import { driveRecycle } from "../corps/recycle";
 
 /**
  * Ticks a creep may stay orphaned before it is recycled. Long enough to ride out
- * the commission churn around a flow re-solve (FLOW_RESOLVE_INTERVAL = 50) without
+ * the commission churn around a flow re-solve (FULL_SOLVE_INTERVAL = 50, see CpuGovernor) without
  * killing a creep whose corp is about to reappear, short enough that a genuinely
  * abandoned creep stops wasting its life and returns its energy soon.
  */

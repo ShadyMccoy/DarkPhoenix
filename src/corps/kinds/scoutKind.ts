@@ -21,6 +21,7 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ScoutCorp, SerializedScoutCorp } from "../ScoutCorp";
 import { SpawningCorp } from "../SpawningCorp";
+import { plan as governorPlan } from "../../execution/CpuGovernor";
 
 /** The scout commission's binding: which room, served by which spawn. */
 export interface ScoutAssignment {
@@ -44,6 +45,9 @@ export const scoutKind: CorpKind<ScoutCorp> = {
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
+    // CPU governor (spec 09 ph5): under survival degradation, intel freezes -
+    // no new scout commissions (fielded scouts drain via retiring hysteresis).
+    if (governorPlan().freezeScouting) return [];
     // One scout corp per room that has a spawn (first spawn is home).
     const homeSpawnByRoom = new Map<string, string>();
     for (const s of problem.spawns) {

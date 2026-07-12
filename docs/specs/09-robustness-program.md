@@ -1,8 +1,14 @@
 # 09 — Robustness program: surviving worlds we didn't design
 
-**Status:** PROPOSED (2026-07-09).
-**Priority:** P0 for phases 1-2 (they gate the respawn-tolerant strategy);
-P1-P2 for the rest.
+**Status:** IN PROGRESS. Phase 1 DONE (boot-real cells green); phase 4 LANDED
+2026-07-12 (black box → RawMemory segment 5 + Memory.blackBoxTail, watchdog
+rules in `telemetry/watchdogs.ts` evaluated by the bot and relayed by
+telemetry-app, `npm run capture:incident` emits fixture + skeleton cell);
+phase 5 PARTIAL 2026-07-12 (CpuGovernor with unit-pinned shedding order:
+telemetry → solve cadence → construction/paving → scouting; per-phase
+bulkheads in main.ts recording to the black box; Memory schema versioning
+still open). Phase 6 partial (economic standdown). Phases 2-3 open.
+**Priority:** P0 for phase 2 (chaos harness) next.
 
 ## Why
 

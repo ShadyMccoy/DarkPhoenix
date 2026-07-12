@@ -36,7 +36,7 @@ Conventions used by every spec:
 | 06 | [Expansion: claim the next room](06-expansion.md) | **LANDED 2026-07-10** — capital-gated claiming + sink-based founding, exp-t5 cells green | landed |
 | 07 | [Tower defense (minimal)](07-tower-defense.md) | deferred by owner; economic standdown landed (def-t3 cell) | P3 |
 | 08 | [Inflection-point grid](08-inflection-grid.md) | ~114 cells; BOT LEVEL 3 ratcheted (red: haul-t4-storage-bank-and-spill, plan-t5-remote-pipeline) | ongoing — the success metric |
-| 09 | [Robustness program](09-robustness-program.md) | phase 1 done (boot-real cells), phase 6 partial (standdown); chaos/incidents/bulkheads unbuilt | P0 (phases 2, 4) |
+| 09 | [Robustness program](09-robustness-program.md) | phases 1, 4 done; 5 partial (CpuGovernor + bulkheads; schema versioning open); 6 partial (standdown); 2-3 open | P0 (phase 2) |
 | 10 | [RCL journey map](10-rcl-journey.md) | living ledger — most steps cell-pinned; see gap list | ongoing |
 | 11 | [Two plans: goal and now](11-two-plans.md) | phases 1-2 landed (agenda published + funding); phase 3 (transitions into agenda) open | P0 |
 

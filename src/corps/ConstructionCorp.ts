@@ -10,6 +10,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { travelTo } from "./movement";
+import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -804,6 +805,7 @@ export class ConstructionCorp extends Corp {
 
   /** Place road sites on planned tiles lacking both a road and a site. Returns count placed. */
   private placeMissingRoadSites(room: Room, flat: number[]): number {
+    if (governorPlan().pauseConstruction) return 0; // CPU governor: paving is investment
     let placed = 0;
     for (let i = 0; i + 1 < flat.length; i += 2) {
       const x = flat[i];
@@ -829,6 +831,9 @@ export class ConstructionCorp extends Corp {
 
   /** Create a construction site and record its cost. */
   private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant, cost: number): void {
+    // CPU governor (spec 09 ph5): under austere degradation, NEW investment
+    // pauses - existing sites keep building, the income core keeps running.
+    if (governorPlan().pauseConstruction) return;
     const result = room.createConstructionSite(x, y, type);
     if (result === OK) {
       this.recordCost(cost);

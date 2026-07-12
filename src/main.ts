@@ -78,6 +78,7 @@ import {
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
+import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { runWatchdogs } from "./telemetry/watchdogs";
 
 // =============================================================================
@@ -119,10 +120,6 @@ let colony: Colony | undefined;
 /** Node navigator for pathfinding (created from persisted edges) */
 let nodeNavigator: NodeNavigator | undefined;
 
-/** How often (ticks) to re-solve the flow economy so it adapts to RCL-ups,
- * new construction sites, etc. (the heavy spatial analysis is gated separately). */
-const FLOW_RESOLVE_INTERVAL = 50;
-
 /** Flow economy coordinator (replaces market-based allocation) */
 let flowEconomy: FlowEconomy | undefined;
 
@@ -150,11 +147,32 @@ const corps: CorpRegistry = createCorpRegistry();
  *
  * Wrapped with ErrorMapper to catch and log errors without crashing.
  */
+/**
+ * Phase bulkhead (spec 09 ph5): one phase's throw must not abort the tick's
+ * remaining phases. ErrorMapper saves the PROCESS; this saves the TICK - the
+ * error is logged, recorded to the black box with its phase name, and the
+ * loop moves on.
+ */
+function bulkhead(name: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[Bulkhead:${name}] ${msg}\n${e instanceof Error ? e.stack ?? "" : ""}`);
+    blackBoxRecord("err", { phase: name, msg });
+  }
+}
+
 export const loop = ErrorMapper.wrapLoop(() => {
   // Reclaim memory for creeps that died last tick. Done first so it always runs,
   // even if a later phase throws (the loop is ErrorMapper-wrapped) - otherwise
   // dead-creep memory would leak whenever planning/execution hit an error.
   cleanupDeadCreeps();
+
+  // CPU governor (spec 09 ph5): compute this tick's degradation plan from the
+  // bucket. Consumers (solve cadence, telemetry, construction, scouting) read
+  // it via plan(); level transitions land in the black box.
+  const gov: GovernorPlan = runGovernor(typeof Game.cpu?.bucket === "number" ? Game.cpu.bucket : 10000);
 
   // ===========================================================================
   // PHASE 0: INIT - Lazy initialization (once per code push)
@@ -185,26 +203,26 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // ===========================================================================
 
   // Run spawning corps first (they process pending spawn orders)
-  runSpawningCorps(corps);
+  bulkhead("spawning-corps", () => runSpawningCorps(corps));
 
   // Run bootstrap corps. Everything else (mining, hauling, upgrading,
   // construction, scout, reservation, tender) runs through the commission host.
-  runBootstrapCorps(corps);
+  bulkhead("bootstrap", () => runBootstrapCorps(corps));
 
   // Run all FRAMEWORK-commissioned corps: the solver-backed economy
   // (harvest/carry/upgrade, from the planner's commissions) plus the
   // auxiliaries (scout, reservation, tender).
-  runCommissionHost(corps, flowEconomy?.getCommissions() ?? [], Game.time);
+  bulkhead("commissions", () => runCommissionHost(corps, flowEconomy?.getCommissions() ?? [], Game.time));
 
   // Safety net: re-adopt or recycle any creep no live corp claimed this tick.
   // A creep only acts if a corp scans it in by corpId; corps are demobilized
   // routinely (a re-solve dropping a source's commission deletes the corp while
   // its creeps live on), so without this an orphaned creep just freezes on its
   // tile until it dies. Runs AFTER every corp so it sees this tick's live set.
-  rescueOrphans(corps);
+  bulkhead("orphans", () => rescueOrphans(corps));
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
-  runLinks();
+  bulkhead("links", () => runLinks());
 
   // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
   // below their commissioned throughput) surface in Memory.corpVariance.
@@ -287,8 +305,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // this the economy stays frozen on its first solution (the expensive spatial
   // analysis inside is separately gated, so this only re-runs the cheap
   // rebuild+solve+materialize).
+  // Cadence from the CPU governor: 50 at full operation, stretched when the
+  // bucket falls (the heavy spatial analysis inside is separately gated).
   const economyNeedsResolve =
-    colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % FLOW_RESOLVE_INTERVAL === 0;
+    colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % gov.solveInterval === 0;
 
   if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
@@ -366,17 +386,20 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // getSpawnDemand(); the scheduler picks the single best creep to spawn per
   // spawn, balancing flow-derived value, affordability and anti-starvation.
   // Runs AFTER planning so materialized assignments/allocations are available.
-  runSpawnScheduling(corps);
+  bulkhead("spawn-scheduling", () => runSpawnScheduling(corps));
 
   // ===========================================================================
   // PHASE 3: PERSIST - Save state and update telemetry (every tick)
   // ===========================================================================
 
   // Persist all state
-  persistState(colony, corps, getAnalysisCache());
+  bulkhead("persist", () => persistState(colony!, corps, getAnalysisCache()));
 
-  // Update telemetry (write to RawMemory segments for external monitoring)
-  updateTelemetry(colony, corps);
+  // Update telemetry (write to RawMemory segments for external monitoring).
+  // Under governor degradation the heavy export is the FIRST thing shed;
+  // the flight recorder always runs (it is how the shedding is observed).
+  if (!gov.skipTelemetry) bulkhead("telemetry", () => updateTelemetry(colony!, corps));
+  bulkhead("flight-recorder", () => runFlightRecorder());
 
   // Restore visualization cache from memory if needed (avoids expensive analysis)
   restoreVisualizationCache(colony);
@@ -669,9 +692,15 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
     flowEconomy?.getSolution() ?? undefined
   );
 
-  // Flight recorder (spec 09 phase 4): periodic watch sample, watchdog
-  // evaluation (the rules live in telemetry/watchdogs, unit-tested; the
-  // dashboard only displays), and the segment flush.
+}
+
+/**
+ * The flight recorder's periodic duties (spec 09 phase 4): watch sample,
+ * watchdog evaluation (rules in telemetry/watchdogs, unit-tested; the
+ * dashboard only displays), and the segment flush. Runs EVERY tick, even
+ * under full governor degradation - it is how the shedding is observed.
+ */
+function runFlightRecorder(): void {
   let alerts: ReturnType<typeof runWatchdogs> = [];
   if (Game.time % 10 === 0) {
     let minDowngrade: number | null = null;

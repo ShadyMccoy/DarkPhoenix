@@ -27,6 +27,7 @@ export type BlackBoxKind =
   | "hold" // an evaluated spawn bought nothing: {why, top role/corp, bank}
   | "churn" // commission set changed: {created, demobilized}
   | "watch" // periodic sample: {dt: downgradeTicks, bucket, creeps}
+  | "gov" // CPU governor level transition: {level, bucket}
   | "err"; // a caught error: {phase, msg (truncated)}
 
 export interface BlackBoxRow {
