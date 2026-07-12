@@ -291,10 +291,20 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
  * Walkable upgrader PARKING tiles RINGING the input spot: tiles within range 1 of
  * the input (so an upgrader withdraws without moving) AND within upgrade range (3)
  * of the controller (so it upgrades from there), excluding the controller's own
- * tile AND the input tile itself. Sorted deterministically so each upgrader keeps a
- * stable slot across ticks. This is the "analyse the controller-adjacent layout"
- * strategy: the parked upgraders ring the one shared pile/container and never move
- * or block each other.
+ * tile AND the input tile itself. Ordered CLOSEST-TO-THE-CONTROLLER first (ties
+ * broken by (x,y) for a stable, deterministic slot each upgrader keeps across
+ * ticks). This is the "analyse the controller-adjacent layout" strategy: the
+ * parked upgraders ring the one shared pile/container and never move or block each
+ * other.
+ *
+ * Proximity ordering matters when the input spot sits ~2 tiles off the controller
+ * (a bare drop tile is placed to maximise parking capacity, so it lands on the
+ * open side, up to range 2 away). Its ring then spans range 1..3 of the
+ * controller. Filling from the FAR corner (a plain (x,y) sort did) left a lone
+ * RCL2 upgrader parked 3 tiles out on the open side while a range-1 tile sat free
+ * next to the controller - the "upgrader doesn't move close enough" symptom.
+ * Closest-first fills the tiles hugging the controller before the outer ring, so
+ * upgraders sit as near the controller as the shared input allows.
  *
  * The input tile is deliberately EXCLUDED: it is the dedicated drop/withdraw point
  * that the hauler must reach to deposit. An upgrader squatting it would wall the
@@ -319,7 +329,8 @@ export function controllerParkingTiles(controller: StructureController, input: R
       tiles.push(new RoomPosition(x, y, room.name));
     }
   }
-  tiles.sort((a, b) => a.x - b.x || a.y - b.y);
+  const distToController = (p: RoomPosition): number => Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy));
+  tiles.sort((a, b) => distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
   return tiles;
 }
 
