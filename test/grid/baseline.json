@@ -1,11 +1,11 @@
 {
-  "botLevel": 3,
+  "botLevel": 0,
   "cells": {
-    "fid-t4-preramped-steady-state": "pass",
+    "fid-t4-preramped-steady-state": "fail",
     "journey-synthetic-2src--extensions-rcl2-cap": "pass",
     "cons-t2-container-completes": "pass",
     "cons-t4-link-completes": "pass",
-    "move-bypass-ring-deposit": "pass",
+    "move-bypass-ring-deposit": "timeout",
     "churn-canary-readopt": "pass",
     "spawn-no-hauler-before-miner": "pass",
     "plan-t0-single-source-commissioned": "pass",
@@ -26,7 +26,7 @@
     "move-swamp-detour": "pass",
     "spawn-starved-builder-one-shot": "pass",
     "move-scout-border-crossing": "pass",
-    "haul-t4-storage-bank-and-spill": "timeout",
+    "haul-t4-storage-bank-and-spill": "pass",
     "churn-remote-orphan-walks-home": "pass",
     "calib-adoption-timing": "pass",
     "spawnexec-miner-runt-recycle-affordable": "pass",
@@ -59,8 +59,8 @@
     "plan-t2-antidowngrade-construction": "pass",
     "boot-real-plain-w2n6": "pass",
     "boot-real-maze-w1n6": "pass",
-    "fid-t4-synthetic-steady-state": "pass",
-    "fid-t5-real-maze-steady-state": "pass",
+    "fid-t4-synthetic-steady-state": "fail",
+    "fid-t5-real-maze-steady-state": "fail",
     "plan-t5-remote-pipeline": "fail",
     "exp-t5-founding-funnels-to-completion": "pass",
     "journey-synthetic-2src--first-extension-built": "pass",
@@ -109,11 +109,14 @@
     "move-reach-harvest-spot": "pass",
     "spawnexec-first-hauler-group-prefix": "pass",
     "spawnexec-road-hauler-2to1": "pass",
-    "move-bypass-ring-escape": "pass",
+    "move-bypass-ring-escape": "timeout",
     "move-miner-congestion-open": "pass",
     "move-miner-pocket-holdoff": "pass",
     "move-border-inward-step": "pass",
-    "move-upgrader-park-settle": "pass",
-    "spawnexec-bodies-at-1300-rcl4": "pass"
+    "move-upgrader-park-settle": "fail",
+    "spawnexec-bodies-at-1300-rcl4": "pass",
+    "haul-t4-feeder-fields-for-bank": "pass",
+    "agenda-t2-receipts-match-head": "pass",
+    "agenda-t3-replacement-labeled": "pass"
   }
 }
