@@ -5,9 +5,11 @@
 rules in `telemetry/watchdogs.ts` evaluated by the bot and relayed by
 telemetry-app, `npm run capture:incident` emits fixture + skeleton cell);
 phase 5 PARTIAL 2026-07-12 (CpuGovernor with unit-pinned shedding order:
-telemetry → solve cadence → construction/paving → scouting; per-phase
-bulkheads in main.ts recording to the black box; Memory schema versioning
-still open). Phase 6 partial (economic standdown). Phases 2-3 open.
+telemetry → solve cadence → construction/paving → scouting — DRY-RUN by
+default, armed live via `Memory.cpuGovernor = "on"`: the mockup meters real
+CPU, so an armed governor couples cells to host load (measured: six cells
+regressed); per-phase bulkheads in main.ts recording to the black box;
+Memory schema versioning still open). Phase 6 partial (economic standdown). Phases 2-3 open.
 **Priority:** P0 for phase 2 (chaos harness) next.
 
 ## Why

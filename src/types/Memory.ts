@@ -162,6 +162,15 @@ declare global {
     blackBoxTail?: Array<{ t: number; k: string; d: Record<string, unknown> }>;
 
     /**
+     * Arms the CPU governor's load-shedding (spec 09 ph5): set to "on" from
+     * the live console. Unset/off = DRY RUN - the governor still black-boxes
+     * its would-be level, but sheds nothing (sims/grid must stay
+     * deterministic; the mockup meters real CPU, so an armed governor would
+     * couple cell behavior to host load - measured, six cells regressed).
+     */
+    cpuGovernor?: "on" | "off";
+
+    /**
      * THE NOW PLAN (docs/specs/11): per spawn, the ordered acquisition queue
      * the scheduler expects to work through (rank order, costs, must-fund
      * flags) plus the outstanding producer fundingNeed. Published by

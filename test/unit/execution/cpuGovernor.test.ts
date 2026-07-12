@@ -66,6 +66,22 @@ describe("CpuGovernor", () => {
     for (let i = 1; i < sheds.length; i++) expect(sheds[i]).to.be.greaterThan(sheds[i - 1]);
   });
 
+  it("runs DRY unless Memory.cpuGovernor is 'on' (sims stay deterministic)", () => {
+    resetGovernor();
+    (global as any).Memory = {}; // a Memory WITHOUT the arming flag = dry run
+    try {
+      const applied = runGovernor(SURVIVAL_BUCKET - 1, 1);
+      expect(applied.level, "would-be level computed, nothing shed").to.equal("full");
+      (global as any).Memory = { cpuGovernor: "on" };
+      const armedPlan = runGovernor(SURVIVAL_BUCKET - 1, 2);
+      expect(armedPlan.level).to.equal("survival");
+      expect(armedPlan.freezeScouting).to.equal(true);
+    } finally {
+      delete (global as any).Memory;
+      resetGovernor();
+    }
+  });
+
   it("logs level TRANSITIONS to the black box (not steady state)", () => {
     resetGovernor();
     resetBlackBox();

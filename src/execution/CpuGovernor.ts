@@ -64,15 +64,31 @@ let lastLevel: GovernorLevel | null = null;
 let current: GovernorPlan = governorPlan(10000);
 
 /**
+ * ARMED only when the owner flips Memory.cpuGovernor = "on" (a live console
+ * command). Everywhere else - grid worlds, sims, integration - the governor
+ * runs DRY: it computes and black-boxes its would-be level (observability
+ * first, the spec-11 phase-1 pattern) but sheds nothing. Cells must stay
+ * deterministic: the mockup meters real CPU against a real bucket, so an
+ * armed governor couples cell behavior to HOST LOAD (measured: a full grid
+ * run drained heavy worlds' buckets, paused construction colony-wide, and
+ * failed six baseline-green cells with runt fleets). Spec 09 ph5: "real
+ * effect verified on the live server only."
+ */
+function armed(): boolean {
+  return typeof Memory === "undefined" || Memory.cpuGovernor === "on";
+}
+
+/**
  * Evaluate the governor for this tick and log level TRANSITIONS to the black
  * box. Call once per tick, early in the loop; consumers read via plan().
  */
 export function runGovernor(bucket: number, tick?: number): GovernorPlan {
-  current = governorPlan(bucket);
-  if (current.level !== lastLevel) {
-    if (lastLevel !== null) record("gov", { level: current.level, bucket }, tick);
-    lastLevel = current.level;
+  const computed = governorPlan(bucket);
+  if (computed.level !== lastLevel) {
+    if (lastLevel !== null) record("gov", { level: computed.level, bucket, armed: armed() }, tick);
+    lastLevel = computed.level;
   }
+  current = armed() ? computed : governorPlan(10000);
   return current;
 }
 

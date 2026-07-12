@@ -74,6 +74,11 @@ whose operators are corps. Read order for architecture truth:
 - **Sim blind spots**: sims never churn spawn ids and never lose room vision —
   both classes have caused live-only incidents. Don't claim live-readiness
   from sims alone.
+- **CPU governor is DRY-RUN by default** (`Memory.cpuGovernor = "on"` arms it,
+  live console only). The mockup meters real CPU against a real bucket, so an
+  armed governor couples cell behavior to HOST LOAD — a full grid run drained
+  heavy worlds' buckets, paused construction colony-wide, and failed six
+  baseline-green cells before this was caught.
 
 ## Commands
 
