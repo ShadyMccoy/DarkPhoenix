@@ -181,6 +181,17 @@ export class ExtensionTenderCorp extends Corp {
       delete creep.memory.awayReloading;
     }
 
+    // POSITIONING DISCIPLINE: a half-loaded tender heads home instead of
+    // lingering at a slow fuel point for a full load - the working branch
+    // parks it at its cluster anchor (topping up there if fuel is near), so
+    // it is AT the post when the next drain lands. Measured (pipeline
+    // t=1398): two tenders each holding 150 sat 7-13 tiles out hunting the
+    // rest of a load while one extension went 11 short past its deadline.
+    if (!creep.memory.working && creep.store[RESOURCE_ENERGY] >= creep.store.getCapacity() / 2) {
+      creep.memory.working = true;
+      delete creep.memory.awayReloading;
+    }
+
     // Denied a far reload (stagger): hold the post instead. Any energy that
     // lands (a hauler top-up, an adjacent pile) resumes the burst at once -
     // a partial load serving the bank beats a full one 30 tiles away.
@@ -306,12 +317,20 @@ export class ExtensionTenderCorp extends Corp {
     }
   }
 
-  /** Nearest stocked container/storage - the depot-less reload point. */
+  /**
+   * Nearest stocked container/storage - the depot-less reload point. The
+   * CONTROLLER's input container is excluded: that is the upgraders' bucket
+   * (a consumer's stock, kept full by the feeder) - a tender draining it is
+   * circular economics AND a 12+ tile wander (measured, pipeline t=1548: a
+   * tender reloaded at the controller box while its cluster went short).
+   */
   private reloadStock(creep: Creep): StructureContainer | StructureStorage | null {
+    const controller = creep.room.controller;
     return creep.pos.findClosestByRange(FIND_STRUCTURES, {
       filter: s =>
         (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
-        (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 0 &&
+        !(controller && s.structureType === STRUCTURE_CONTAINER && s.pos.getRangeTo(controller.pos) <= 3)
     }) as StructureContainer | StructureStorage | null;
   }
 
