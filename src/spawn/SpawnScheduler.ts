@@ -111,6 +111,90 @@ export interface SpawnDemand {
    * "mobile" vs "containerFed" supply strategy). The scheduler does not interpret it.
    */
   bodyStrategy?: string;
+  /**
+   * The TRANSITION this demand implements (spec 11 phase 3), when the corp
+   * knows something the generic flags cannot express (e.g. HarvestCorp's
+   * spawn-then-recycle upsizing). Left unset, the agenda derives a label
+   * from the flags ({@link agendaWhy}). The scheduler does not interpret it.
+   */
+  why?: AgendaWhy;
+}
+
+// =============================================================================
+// THE NOW PLAN (spec 11 phase 3) - the agenda as the transition contract
+// =============================================================================
+
+/**
+ * Why an acquisition is on the agenda - the transition it implements. The
+ * measured failure classes each get a name, so agenda-vs-actual violations
+ * read as "the replacement never surfaced", not archaeology:
+ *  - replacement: delivery contract - an incumbent entered its lead window
+ *  - upsize:      spawn-then-recycle - a runt's strictly-bigger overlap body
+ *  - campaign:    an indivisible funded op (reserver hold, expansion claim)
+ *  - new-unit:    opening a fresh income unit (first miner of a source)
+ *  - scale:       finishing a started unit (haulers, extra miners)
+ *  - infra:       the local movers/intel tier (tender, feeder, scout)
+ *  - consume:     consumers sized from stock (upgraders, builders)
+ */
+export type AgendaWhy = "replacement" | "upsize" | "campaign" | "new-unit" | "scale" | "infra" | "consume";
+
+/** One published acquisition on a spawn's agenda (Memory.spawnAgenda queue). */
+export interface AgendaEntry {
+  role: string;
+  corp: string;
+  minCost: number;
+  desiredCost: number;
+  mustFund: boolean;
+  why: AgendaWhy;
+  /** "bank>=N" (head, unaffordable) or "after:<corpId>" (ordered behind). */
+  precondition?: string;
+}
+
+const INFRA_ROLES = new Set<string>(["tanker", "feeder", "scout"]);
+
+/** Derive the transition label for a demand (corp-provided `why` wins). */
+export function agendaWhy(d: SpawnDemand): AgendaWhy {
+  if (d.why) return d.why;
+  if (d.replacement === true) return "replacement";
+  if (d.holdToFund === true) return "campaign";
+  if (INFRA_ROLES.has(d.role)) return "infra";
+  if (d.producesIncome) return d.groupStarted === false ? "new-unit" : "scale";
+  return "consume";
+}
+
+/**
+ * Build the published agenda for one spawn: the ordered next acquisitions
+ * under the scheduler's own ranking, each labeled with its transition and
+ * precondition, plus the outstanding must-fund financing need. Pure - the
+ * scheduler still makes its own decisions; deviations are SIGNAL.
+ */
+export function buildAgendaQueue(
+  demands: SpawnDemand[],
+  tick: number,
+  energyAvailable: number
+): { queue: AgendaEntry[]; fundingNeed: number } {
+  const ranked = [...demands].sort(
+    (a, b) => spawnPriority(b) + starvationBoost(b, tick) - (spawnPriority(a) + starvationBoost(a, tick))
+  );
+  const queue = ranked.slice(0, 8).map((d, i): AgendaEntry => {
+    const precondition =
+      i === 0
+        ? d.minCost > energyAvailable
+          ? `bank>=${d.minCost}`
+          : undefined
+        : `after:${ranked[i - 1].buyerCorpId}`;
+    return {
+      role: d.role,
+      corp: d.buyerCorpId,
+      minCost: d.minCost,
+      desiredCost: d.desiredCost,
+      mustFund: d.blocking || d.replacement === true || d.holdToFund === true,
+      why: agendaWhy(d),
+      ...(precondition ? { precondition } : {})
+    };
+  });
+  const fundingNeed = queue.reduce((sum, a) => sum + (a.mustFund ? a.minCost : 0), 0);
+  return { queue, fundingNeed };
 }
 
 /**

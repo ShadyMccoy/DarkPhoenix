@@ -45,6 +45,19 @@ three times today:
    upsizing at capacity rungs, build-out phases (the funneling pause),
    expansion campaigns (spec 06 - a campaign IS a now-plan fragment).
 
+   **Phase 3 landed (2026-07-12):** every agenda entry now carries its
+   TRANSITION label (`why`: replacement / upsize / campaign / new-unit /
+   scale / infra / consume - `buildAgendaQueue` in spawn/SpawnScheduler,
+   pure + unit-tested) and a precondition (`bank>=N` on an unaffordable
+   head, `after:<corpId>` behind it), and the director appends EXECUTION
+   RECEIPTS (`Memory.spawnAgenda[spawn].executed`, last 8 buys) beside the
+   published queue - the actual-vs-NOW observable. Cells:
+   `agenda-t2-receipts-match-head` (every receipt matches its predicting
+   queue's top-2) and `agenda-t3-replacement-labeled` (a dying miner
+   surfaces as why:"replacement" ~75 ticks before death and its successor's
+   purchase is receipted). Remaining phase-3 candidates: build-out phase
+   fragments and expansion campaigns as multi-entry agenda sequences.
+
 ## Non-goals
 
 - No second solver. The NOW plan is derived (goal + fleet state + ranking),

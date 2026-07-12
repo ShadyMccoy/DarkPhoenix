@@ -697,11 +697,26 @@ export const spawnSchedulerCells: GridCell[] = [
  * evaluation tick and a same-tick recompute can legitimately swap adjacent
  * entries (e.g. a demand satisfied by the very spawn being checked).
  */
+/** 10 extension positions clear of the spawn (the churn replacement grid). */
+const AGENDA_REPL_EXTS: Array<{ x: number; y: number }> = [
+  { x: 23, y: 23 }, { x: 23, y: 25 }, { x: 23, y: 27 },
+  { x: 27, y: 23 }, { x: 27, y: 27 },
+  { x: 24, y: 22 }, { x: 26, y: 22 },
+  { x: 24, y: 28 }, { x: 26, y: 28 },
+  { x: 25, y: 21 },
+];
+
 export function buildAgendaFidelityCells(): GridCell[] {
   let knownCreeps: Set<string> | null = null;
   let lastQueue: Array<{ role: string; corp: string }> = [];
   let agendaSeen = false;
   let violations = 0;
+  // agenda-t2-receipts-match-head state
+  let receiptsSeen = 0;
+  const receiptChecked = new Set<string>();
+  // agenda-t3-replacement-labeled state
+  let replacementSeen = false;
+  let replacementCorp: string | null = null;
 
   const ROLE_BY_WORKTYPE: Record<string, string> = {
     harvest: "miner",
@@ -756,6 +771,140 @@ export function buildAgendaFidelityCells(): GridCell[] {
           lastQueue = (first?.queue ?? []).map((q: any) => ({ role: q.role, corp: q.corp }));
           return violations === 0;
         }, 20),
+      ],
+    },
+
+    {
+      // Phase 3, actual-vs-NOW via RECEIPTS: every execution receipt the
+      // director records must match the top-2 of the queue published the
+      // SAME tick (the buy happens right after the publish; a busy spawn is
+      // skipped without republish, so entry.tick pins the predicting queue).
+      id: "agenda-t2-receipts-match-head",
+      tier: 2,
+      avenue: "plan-fidelity",
+      window: 400,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 12).source(18, 32).source(32, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      assertions: [
+        eventually("at least three execution receipts accumulate", (s) => {
+          const table: any = s.memory?.spawnAgenda ?? {};
+          receiptsSeen = Math.max(
+            receiptsSeen,
+            ...Object.values(table).map((e: any) => (e?.executed ?? []).length),
+            0
+          );
+          return receiptsSeen >= 3;
+        }),
+        eventually("entries carry transition labels and preconditions", (s) => {
+          const table: any = s.memory?.spawnAgenda ?? {};
+          for (const e of Object.values(table) as any[]) {
+            const queue = e?.queue ?? [];
+            if (queue.length >= 2 && queue.every((q: any) => typeof q.why === "string")) {
+              // Non-head entries chain after: their predecessor.
+              if (queue.slice(1).every((q: any) => typeof q.precondition === "string" && q.precondition.startsWith("after:"))) {
+                return true;
+              }
+            }
+          }
+          return false;
+        }),
+        always("every receipt matches its predicting queue (top-2)", (s) => {
+          const table: any = s.memory?.spawnAgenda ?? {};
+          for (const e of Object.values(table) as any[]) {
+            for (const r of e?.executed ?? []) {
+              const key = `${r.tick}:${r.corp}:${r.role}`;
+              if (receiptChecked.has(key)) continue;
+              receiptChecked.add(key);
+              // The predicting queue is the one published the buy tick; if a
+              // republish beat our sampling, skip rather than false-fail.
+              if (e.tick !== r.tick) continue;
+              const top = (e.queue ?? []).slice(0, 2);
+              if (!top.some((q: any) => q.role === r.role && q.corp === r.corp)) return false;
+            }
+          }
+          return true;
+        }, 20),
+      ],
+    },
+
+    {
+      // Phase 3, the replacement transition NAMED in the NOW plan: a miner
+      // with a shortened life must surface as an agenda entry labeled
+      // why:"replacement" while the incumbent still lives (the delivery
+      // contract made visible), and the successor's purchase must be
+      // receipted for the same corp.
+      id: "agenda-t3-replacement-labeled",
+      tier: 3,
+      avenue: "plan-fidelity",
+      window: 320,
+      rooms: {
+        home: (roomName: string) =>
+          new RoomBuilder(roomName).border().controller(25, 10).source(40, 25).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: AGENDA_REPL_EXTS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 0 })),
+      creeps: [
+        {
+          name: "m0",
+          x: 39,
+          y: 25,
+          body: ["work", "work", "work", "work", "work", "carry", "move", "move", "move"],
+          memory: {
+            workType: "harvest",
+            corpId: "staged-agenda-m0",
+            assignedSourceId: "$id(home,source,40,25)",
+          },
+        },
+      ],
+      async stage(ctx) {
+        // Death at ~t220: inside the window, past adoption + the ~57t lead.
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "creep", name: "m0" },
+          { $set: { ageTime: ctx.gameTime + 220 } }
+        );
+      },
+      async onTick(ctx) {
+        // Quiet then funded, as in the gapless cell: adoption first, then the
+        // replacement decision is about TIMING, never affordability.
+        const energy = ctx.tick < 30 ? 0 : 50;
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "extension" },
+          { $set: { store: { energy } } }
+        );
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: ctx.tick < 30 ? 0 : 300 } } }
+        );
+      },
+      assertions: [
+        eventually("the replacement surfaces labeled in the agenda while the incumbent lives", (s) => {
+          if (!s.creep("m0")) return replacementSeen; // latch: judged only while alive
+          const table: any = s.memory?.spawnAgenda ?? {};
+          for (const e of Object.values(table) as any[]) {
+            for (const q of e?.queue ?? []) {
+              if (q.role === "miner" && q.why === "replacement") {
+                replacementSeen = true;
+                replacementCorp = q.corp;
+              }
+            }
+          }
+          return replacementSeen;
+        }),
+        eventually("the labeled replacement is bought (receipt for the same corp)", (s) => {
+          if (!replacementSeen || !replacementCorp) return false;
+          const table: any = s.memory?.spawnAgenda ?? {};
+          for (const e of Object.values(table) as any[]) {
+            for (const r of e?.executed ?? []) {
+              if (r.role === "miner" && r.corp === replacementCorp) return true;
+            }
+          }
+          return false;
+        }),
       ],
     },
   ];

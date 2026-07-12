@@ -19,10 +19,10 @@ import {
   ScheduleContext,
   SpawnDemand,
   SpawnDemandContext,
-  scheduleSpawn,
-  spawnPriority,
-  starvationBoost
+  buildAgendaQueue,
+  scheduleSpawn
 } from "../spawn/SpawnScheduler";
+import { record as blackBox } from "../telemetry/BlackBox";
 import { CorpRegistry } from "./CorpRunner";
 import { commissionedCorpsOfKind } from "./CommissionHost";
 import { ReservationCorp } from "../corps/ReservationCorp";
@@ -94,13 +94,13 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         const first = firstSeen[key] ?? (firstSeen[key] = Game.time);
         d.since = first;
       }
-      // THE NOW PLAN (spec 11 phase 1, pure observability): publish this
-      // spawn's ordered acquisition queue - what the scheduler EXPECTS to buy,
-      // in rank order, with costs and funding flags - plus the outstanding
-      // producer funding need (the number the flow adapter will later add to
-      // the spawn sink's capacity so energy streams here while production has
-      // bodies to buy). Zero behavior change: the scheduler still decides.
-      publishSpawnAgenda(spawn.id, demands);
+      // THE NOW PLAN (spec 11): publish this spawn's ordered acquisition
+      // queue - what the scheduler EXPECTS to buy, in rank order, with each
+      // entry's TRANSITION label and precondition (phase 3) - plus the
+      // outstanding producer funding need (which the flow adapter routes to
+      // the spawn sink so energy streams here while production has bodies to
+      // buy). The scheduler still decides; deviations are signal.
+      publishSpawnAgenda(spawn.id, demands, room.energyAvailable);
       if (demands.length === 0) continue;
 
       const ctx: ScheduleContext = {
@@ -111,10 +111,25 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       };
 
       const result = scheduleSpawn(demands, ctx);
-      if (!result) continue;
+      if (!result) {
+        // Flight recorder (rate-limited): an evaluated spawn with live
+        // demands that bought nothing is the wedge signature the incident
+        // pipeline hunts - record WHAT was waiting and on how much bank.
+        if (Game.time % 25 === 0) {
+          const head = [...demands].sort((a, b) => b.value - a.value)[0];
+          blackBox("hold", {
+            spawn: spawn.id,
+            role: head.role,
+            corp: head.buyerCorpId,
+            minCost: head.minCost,
+            bank: room.energyAvailable
+          });
+        }
+        continue;
+      }
 
       const d = result.demand;
-      spawningCorp.executeSpawn(
+      const spawned = spawningCorp.executeSpawn(
         d.role,
         d.buyerCorpId,
         result.energyBudget,
@@ -123,6 +138,13 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         d.haulerRatio,
         d.bodyStrategy
       );
+      // Execution receipt (actual-vs-NOW): what the spawn actually bought,
+      // appended beside the published queue so fidelity cells and telemetry
+      // compare intent to action without diffing creep lists from outside.
+      if (spawned) {
+        recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
+        blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
+      }
     }
   }
 
@@ -290,21 +312,27 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
  * fundingNeed sums the minimum bodies of must-fund demands (blocking,
  * replacement, holdToFund): the energy production is asking for RIGHT NOW,
  * for the flow adapter to route toward the spawn network (spec 11 phase 2).
+ * Phase 3: entries carry their transition label (`why`) and precondition,
+ * and execution receipts accumulate beside the queue (recordAgendaExecution).
  */
-function publishSpawnAgenda(spawnId: string, demands: SpawnDemand[]): void {
+function publishSpawnAgenda(spawnId: string, demands: SpawnDemand[], energyAvailable: number): void {
   if (typeof Memory === "undefined") return;
-  const ranked = [...demands].sort(
-    (a, b) =>
-      spawnPriority(b) + starvationBoost(b, Game.time) - (spawnPriority(a) + starvationBoost(a, Game.time))
-  );
-  const agenda = ranked.slice(0, 8).map(d => ({
-    role: d.role,
-    corp: d.buyerCorpId,
-    minCost: d.minCost,
-    desiredCost: d.desiredCost,
-    mustFund: d.blocking || d.replacement === true || d.holdToFund === true
-  }));
-  const fundingNeed = agenda.reduce((sum, a) => sum + (a.mustFund ? a.minCost : 0), 0);
+  const { queue, fundingNeed } = buildAgendaQueue(demands, Game.time, energyAvailable);
   const table = (Memory.spawnAgenda ??= {});
-  table[spawnId] = { tick: Game.time, fundingNeed, queue: agenda };
+  // Receipts survive the per-tick republish - they are the actual-vs-NOW half.
+  const executed = table[spawnId]?.executed;
+  table[spawnId] = { tick: Game.time, fundingNeed, queue, ...(executed ? { executed } : {}) };
+}
+
+/** Ring size for a spawn's execution receipts (enough for a fidelity window). */
+const AGENDA_EXECUTED_MAX = 8;
+
+/** Append an execution receipt beside the spawn's published agenda. */
+function recordAgendaExecution(spawnId: string, role: string, corp: string, cost: number): void {
+  if (typeof Memory === "undefined") return;
+  const entry = Memory.spawnAgenda?.[spawnId];
+  if (!entry) return;
+  const executed = (entry.executed ??= []);
+  executed.push({ tick: Game.time, role, corp, cost });
+  if (executed.length > AGENDA_EXECUTED_MAX) executed.splice(0, executed.length - AGENDA_EXECUTED_MAX);
 }

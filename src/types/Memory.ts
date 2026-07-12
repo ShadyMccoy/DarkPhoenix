@@ -155,6 +155,13 @@ declare global {
     roomIntel?: { [roomName: string]: RoomIntel };
 
     /**
+     * The black box tail (spec 09 phase 4): the last ~40 flight-recorder rows,
+     * kept in Memory so a global reset - often the interesting moment - still
+     * leaves evidence. The full ring lives in RawMemory segment 5.
+     */
+    blackBoxTail?: Array<{ t: number; k: string; d: Record<string, unknown> }>;
+
+    /**
      * THE NOW PLAN (docs/specs/11): per spawn, the ordered acquisition queue
      * the scheduler expects to work through (rank order, costs, must-fund
      * flags) plus the outstanding producer fundingNeed. Published by
@@ -166,7 +173,19 @@ declare global {
       [spawnId: string]: {
         tick: number;
         fundingNeed: number;
-        queue: Array<{ role: string; corp: string; minCost: number; desiredCost: number; mustFund: boolean }>;
+        queue: Array<{
+          role: string;
+          corp: string;
+          minCost: number;
+          desiredCost: number;
+          mustFund: boolean;
+          /** The transition this acquisition implements (spec 11 phase 3). */
+          why?: string;
+          /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
+          precondition?: string;
+        }>;
+        /** Execution receipts (actual-vs-NOW): the last ~8 spawns bought here. */
+        executed?: Array<{ tick: number; role: string; corp: string; cost: number }>;
       };
     };
 
@@ -319,6 +338,13 @@ declare global {
      * (the haul-t4 bank-deposit lesson). Written on successful transfer only.
      */
     lastDeliver?: { to: string; amount: number; tick: number };
+
+    /**
+     * Tender reload stagger (ExtensionTenderCorp): this tender currently
+     * holds the fleet's single far-reload pass. Sticky across ticks so a
+     * mid-walk reloader is never recalled by a name-order re-sort.
+     */
+    awayReloading?: boolean;
 
     /**
      * Source ID for hauling tasks.
