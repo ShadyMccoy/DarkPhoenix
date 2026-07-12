@@ -165,22 +165,49 @@ describe("travelToBypass (force-swap through a boxed-in blocker)", () => {
     };
   }
 
-  it("swaps through a NON-yielding sibling: both step onto each other's tile", () => {
-    const blocker = blockerAt({ memory: { workType: "haul" } }); // not a parked upgrader
-    const creep = requesterWith(blocker);
+  it("swaps through a YIELDING parked upgrader: both step onto each other's tile", () => {
+    // The ring-bypass: a parked upgrader on its cached tile issues no move intent
+    // of its own, so the swap command sticks - and it walks straight back next
+    // tick. This is the ONLY creep the swap rule may displace.
+    const upgrader = blockerAt({ memory: { workType: "upgrade", upgradeSpot: { x: 25, y: 19 } } });
+    const creep = requesterWith(upgrader);
 
     travelToBypass(creep as any, new MockPos(25, 8, ROOM) as any, { range: 0 } as any);
 
     // We advance toward the target (north)...
-    expect(creep.calls.move, "requester steps into the blocker's tile").to.equal(DIRS.TOP);
-    // ...and the blocker is commanded onto OUR tile (south) - the mutual swap.
-    expect(blocker.bcalls.move, "blocker steps onto our tile").to.equal(DIRS.BOTTOM);
+    expect(creep.calls.move, "requester steps into the upgrader's tile").to.equal(DIRS.TOP);
+    // ...and the upgrader is commanded onto OUR tile (south) - the mutual swap.
+    expect(upgrader.bcalls.move, "the upgrader steps onto our tile").to.equal(DIRS.BOTTOM);
     // No fallback pathfinding was used.
     expect(creep.calls.moveTo).to.equal(undefined);
   });
 
+  it("does NOT command a non-yielding sibling; falls back to creep-aware pathing", () => {
+    // Commanding a moving creep overwrites the step it chose (the park-settle
+    // counter-command livelock); commanding a seated one knocks it off its work
+    // (the #97 regression). Either way: route around, never through.
+    const blocker = blockerAt({ memory: { workType: "haul" } });
+    const creep = requesterWith(blocker);
+
+    travelToBypass(creep as any, new MockPos(25, 8, ROOM) as any, { range: 0 } as any);
+
+    expect(blocker.bcalls.move, "the sibling is left alone").to.equal(undefined);
+    expect(creep.calls.move, "no raw swap step").to.equal(undefined);
+    expect(creep.calls.moveTo, "falls back to creep-aware pathing").to.not.equal(undefined);
+  });
+
+  it("does NOT command an upgrader that is not yet on its assigned tile", () => {
+    const walking = blockerAt({ memory: { workType: "upgrade", upgradeSpot: { x: 25, y: 18 } } });
+    const creep = requesterWith(walking);
+
+    travelToBypass(creep as any, new MockPos(25, 8, ROOM) as any, { range: 0 } as any);
+
+    expect(walking.bcalls.move, "an in-transit upgrader keeps its own intent").to.equal(undefined);
+    expect(creep.calls.moveTo, "falls back to moveTo").to.not.equal(undefined);
+  });
+
   it("does NOT command a foreign blocker; falls back to creep-aware pathing", () => {
-    const blocker = blockerAt({ my: false, memory: { workType: "haul" } });
+    const blocker = blockerAt({ my: false, memory: { workType: "upgrade", upgradeSpot: { x: 25, y: 19 } } });
     const creep = requesterWith(blocker);
 
     travelToBypass(creep as any, new MockPos(25, 8, ROOM) as any, { range: 0 } as any);
@@ -189,8 +216,8 @@ describe("travelToBypass (force-swap through a boxed-in blocker)", () => {
     expect(creep.calls.moveTo, "falls back to moveTo").to.not.equal(undefined);
   });
 
-  it("does NOT force through a fatigued blocker (its tile would never clear)", () => {
-    const blocker = blockerAt({ fatigue: 2, memory: { workType: "haul" } });
+  it("does NOT force through a fatigued yielding upgrader (its tile would never clear)", () => {
+    const blocker = blockerAt({ fatigue: 2, memory: { workType: "upgrade", upgradeSpot: { x: 25, y: 19 } } });
     const creep = requesterWith(blocker);
 
     travelToBypass(creep as any, new MockPos(25, 8, ROOM) as any, { range: 0 } as any);
@@ -242,7 +269,10 @@ describe("travelToBypass (force-swap through a boxed-in blocker)", () => {
       expect(creep.calls.moveTo, "the head of the line keeps moving").to.not.equal(undefined);
     });
 
-    it("breaks a stall: after QUEUE_PATIENCE held ticks it force-swaps through", () => {
+    it("breaks a stall: after QUEUE_PATIENCE held ticks it fans AROUND the blocker", () => {
+      // The creep ahead is not clearing (servicing the spot, or a head-on line).
+      // Patience runs out, then we stop waiting and path creep-aware around it -
+      // never commanding it aside (the #97 regression / counter-command livelock).
       const ahead = blockerAt({ memory: { workType: "haul" } });
       const creep = requesterWith(ahead);
       const target = new MockPos(25, 8, ROOM) as any;
@@ -255,10 +285,11 @@ describe("travelToBypass (force-swap through a boxed-in blocker)", () => {
       }
       expect(creep.memory.queueHeld).to.equal(3);
 
-      // Tick 4: patience exhausted -> force-swap breaks the stall, hold clock reset.
+      // Tick 4: patience exhausted -> creep-aware fallback, hold clock reset.
       travelToQueued(creep as any, target, { range: 0 } as any);
-      expect(creep.calls.move, "forces through after patience").to.equal(DIRS.TOP);
-      expect(ahead.bcalls.move, "the blocker is swapped onto our tile").to.equal(DIRS.BOTTOM);
+      expect(ahead.bcalls.move, "the blocker is never commanded").to.equal(undefined);
+      expect(creep.calls.move, "no raw swap step").to.equal(undefined);
+      expect(creep.calls.moveTo, "fans around via creep-aware pathing").to.not.equal(undefined);
       expect(creep.memory.queueHeld, "hold clock reset").to.equal(undefined);
     });
   });
