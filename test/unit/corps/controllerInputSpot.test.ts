@@ -99,4 +99,20 @@ describe("controllerInputSpot / controllerParkingTiles", () => {
     const tiles = controllerParkingTiles(c, controllerInputSpot(c).pos);
     for (const t of tiles) expect(["24,11", "24,12", "24,13"]).to.not.include(`${t.x},${t.y}`);
   });
+
+  it("orders the parking ring CLOSEST to the controller first (upgraders hug it)", () => {
+    // A bare drop tile is placed ~2 off the controller (open side, to maximise
+    // parking capacity), so its ring spans range 1..3 of the controller. The FIRST
+    // upgrader must take a range-1 tile next to the controller, not a far-corner
+    // range-3 tile - the "upgrader doesn't move close enough" regression.
+    const c = controllerWith({ cx: 25, cy: 10 });
+    const input = controllerInputSpot(c).pos;
+    const tiles = controllerParkingTiles(c, input);
+    expect(tiles.length).to.be.greaterThan(0);
+    const dist = (t: { x: number; y: number }) => cheb(t, { x: 25, y: 10 });
+    // Distances are non-decreasing: the ring fills from the controller outward.
+    for (let i = 1; i < tiles.length; i++) expect(dist(tiles[i])).to.be.at.least(dist(tiles[i - 1]));
+    // The slot the first (RCL2: only) upgrader takes is a minimal-distance tile.
+    expect(dist(tiles[0])).to.equal(Math.min(...tiles.map(dist)));
+  });
 });
