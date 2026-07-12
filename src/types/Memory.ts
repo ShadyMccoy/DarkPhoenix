@@ -312,6 +312,15 @@ declare global {
     targetId?: string;
 
     /**
+     * Receipt of the creep's last completed energy delivery: a coarse target
+     * label, the amount moved, and the tick. An INTENT-LEVEL observability
+     * seam: harnesses can assert WHERE a mover sent its load even when
+     * interleaved same-tick flows make store deltas unreadable from outside
+     * (the haul-t4 bank-deposit lesson). Written on successful transfer only.
+     */
+    lastDeliver?: { to: string; amount: number; tick: number };
+
+    /**
      * Source ID for hauling tasks.
      */
     sourceId?: string;

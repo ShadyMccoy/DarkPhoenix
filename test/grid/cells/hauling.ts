@@ -159,7 +159,6 @@ export function buildHaulingT4Cells(): GridCell[] {
   let refillWasShort = false;
   let depotSeen150 = false;
   let ctrlKept = true;
-  let prevBank: number | null = null;
   let sawBankDeposit = false;
   const haulerLinger: Record<string, number> = {};
 
@@ -357,15 +356,90 @@ export function buildHaulingT4Cells(): GridCell[] {
       id: "haul-t4-storage-bank-and-spill",
       tier: 4,
       avenue: "logistics",
-      // KNOWN RED (deposit assertion only; understood precisely, 2026-07-10):
-      // the banking branch (top the depot to bankTarget) lives INSIDE the
-      // tender regime, and the tender's own refills - triggered by organic
-      // spawning momentarily draining the pinned extensions each tick - mask
-      // h1's deposits with interleaved withdrawals, so a storage-delta jump
-      // is unobservable from outside. A clean observable needs an
-      // intent-level seam (assert h1's transfer target), which the harness
-      // cannot see today. The SPILL half fires (@41) and every guard binds.
+      // Deposits are asserted via the INTENT-LEVEL receipt
+      // (creep.memory.lastDeliver, written by CarryCorp.deliverToStorage):
+      // interleaved same-tick tender/feeder withdrawals make a storage-delta
+      // jump unobservable from outside (the 2026-07-10 KNOWN RED lesson).
+      // The floor guard allows the ControllerFeeder's legitimate bank
+      // outflow (storage -> controller input, CONTROLLER_FEED_TARGET 2000,
+      // landed 9c1a5cd) plus tender refills of spawn-volley drains; only a
+      // raid-class breach (spawn circuit diverting the bank, upgraders
+      // eating it) goes below 6000 from the staged 9800.
       window: 140,
+      rooms: { home: tenderRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        { type: "storage", x: 24, y: 24, energy: 9800 },
+        { type: "container", x: 24, y: 41, energy: 1800 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      // Feeder staged like the tender (adopted stale): this cell pins the
+      // BANKING behavior, not the feeder's organic spawn timing (measured
+      // ~t107 active - past this window; pinned by haul-t4-feeder-fields-
+      // for-bank instead). With the feeder live, the storage-first hub sends
+      // h2's controller loads into the bank, which is the deposit observable.
+      creeps: tenderCreeps([
+        {
+          name: "fd",
+          x: 23,
+          y: 25,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "feed", corpId: "stale-feeder" },
+        },
+      ]),
+      async onTick(ctx) {
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room(), type: "spawn" },
+          { $set: { store: { energy: 300 } } }
+        );
+      },
+      assertions: [
+        // Store deltas interleave with tender/feeder withdrawals within a
+        // tick - the RECEIPT (creep.memory.lastDeliver) is the observable.
+        eventually("a bulk hauler deposit lands in the bank", (s) => {
+          const creeps = s.memory?.creeps ?? {};
+          for (const name in creeps) {
+            const r = creeps[name]?.lastDeliver;
+            if (r && r.to === "storage" && r.amount >= 250) sawBankDeposit = true;
+          }
+          return sawBankDeposit;
+        }),
+        always("the bank never balloons past the target", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          return !st || (st.store?.energy ?? 0) <= 10500;
+        }),
+        // Legitimate outflow: the controller feeder's 2000-target relay +
+        // tender refills. A raid (spawn circuit draining the bank) blows
+        // through 6000; steady-state operation does not.
+        always("the bank is never raided below the feeder allowance", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          return !st || (st.store?.energy ?? 0) >= 6000;
+        }),
+        always("the controller circuit is never diverted to the bank", (s) => {
+          const mem = s.memory?.creeps?.h2;
+          if (!mem || mem.homeSink !== "controller") return true;
+          const ok = mem.deliverSinkId === undefined || mem.deliverSinkId === "controller";
+          if (!ok) ctrlKept = false;
+          return ctrlKept;
+        }),
+        eventually("the surplus spills to the controller side", (s) => {
+          const box = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!box && (box.store?.energy ?? 0) >= 250;
+        }),
+      ],
+    },
+
+    {
+      // The feeder follows the bank (commit 9c1a5cd): once a room has a
+      // storage and a miner, ControllerFeederCorp demands its feeder
+      // (value 95, non-blocking) and the scheduler fields it organically.
+      // Measured in this world: spawned @83, active ~107 (8 parts).
+      id: "haul-t4-feeder-fields-for-bank",
+      tier: 4,
+      avenue: "logistics",
+      window: 160,
       rooms: { home: tenderRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 4 },
@@ -383,35 +457,18 @@ export function buildHaulingT4Cells(): GridCell[] {
         );
       },
       assertions: [
-        // The exact 10000 crossing is unobservable in a LIVE room: deposits
-        // and tender withdrawals interleave within ticks (see the cell
-        // comment) - the deposit assertion is the known-red aspiration.
-        eventually("a bulk hauler deposit lands in the bank", (s) => {
-          const st = s.objects().find((o: any) => o.type === "storage");
-          const energy = st?.store?.energy ?? null;
-          const jumped = prevBank !== null && energy !== null && energy - prevBank >= 250;
-          prevBank = energy;
-          if (jumped) sawBankDeposit = true;
-          return sawBankDeposit;
-        }),
-        always("the bank never balloons past the target", (s) => {
-          const st = s.objects().find((o: any) => o.type === "storage");
-          return !st || (st.store?.energy ?? 0) <= 10500;
-        }),
-        always("the bank is never raided below its staged floor", (s) => {
-          const st = s.objects().find((o: any) => o.type === "storage");
-          return !st || (st.store?.energy ?? 0) >= 8800;
-        }),
-        always("the controller circuit is never diverted to the bank", (s) => {
-          const mem = s.memory?.creeps?.h2;
-          if (!mem || mem.homeSink !== "controller") return true;
-          const ok = mem.deliverSinkId === undefined || mem.deliverSinkId === "controller";
-          if (!ok) ctrlKept = false;
-          return ctrlKept;
-        }),
-        eventually("the surplus spills to the controller side", (s) => {
-          const box = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
-          return !!box && (box.store?.energy ?? 0) >= 250;
+        eventually("a feeder is fielded for the banked room", (s) =>
+          s.objects().some(
+            (o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("feeder-")
+          )
+        ),
+        eventually("the feeder regime activates", (s) => s.memory?.rooms?.[s.room()]?.controllerFeederActive === true),
+        eventually("the feeder relays the bank to the controller input", (s) => {
+          const creeps = s.memory?.creeps ?? {};
+          for (const name in creeps) {
+            if (creeps[name]?.lastDeliver?.to === "controller-input") return true;
+          }
+          return false;
         }),
       ],
     },

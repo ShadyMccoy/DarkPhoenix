@@ -155,7 +155,10 @@ export class ControllerFeederCorp extends Corp {
           creep.store[RESOURCE_ENERGY],
           input.structure.store.getFreeCapacity(RESOURCE_ENERGY) ?? creep.store[RESOURCE_ENERGY]
         );
-        if (creep.transfer(input.structure, RESOURCE_ENERGY) === OK) this.recordProduction(moved);
+        if (creep.transfer(input.structure, RESOURCE_ENERGY) === OK) {
+          this.recordProduction(moved);
+          creep.memory.lastDeliver = { to: "controller-input", amount: moved, tick: Game.time };
+        }
         return;
       }
       // Bare tile (no container yet): drop ON the input tile so every parked upgrader

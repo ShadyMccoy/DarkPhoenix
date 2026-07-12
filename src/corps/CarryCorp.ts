@@ -707,7 +707,12 @@ export class CarryCorp extends Corp {
       return true;
     }
     const moved = Math.min(creep.store[RESOURCE_ENERGY], storage.store.getFreeCapacity(RESOURCE_ENERGY));
-    if (creep.transfer(storage, RESOURCE_ENERGY) === OK) this.recordProduction(moved);
+    if (creep.transfer(storage, RESOURCE_ENERGY) === OK) {
+      this.recordProduction(moved);
+      // Intent-level receipt: a same-tick tender/feeder withdrawal can mask
+      // this deposit from any outside store-delta observer (haul-t4 lesson).
+      creep.memory.lastDeliver = { to: "storage", amount: moved, tick: Game.time };
+    }
     return true;
   }
 
