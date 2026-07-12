@@ -77,6 +77,8 @@ import {
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
+import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
+import { runWatchdogs } from "./telemetry/watchdogs";
 
 // =============================================================================
 // GLOBALS
@@ -666,6 +668,37 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
     activeCorps.spawningCorps,
     flowEconomy?.getSolution() ?? undefined
   );
+
+  // Flight recorder (spec 09 phase 4): periodic watch sample, watchdog
+  // evaluation (the rules live in telemetry/watchdogs, unit-tested; the
+  // dashboard only displays), and the segment flush.
+  let alerts: ReturnType<typeof runWatchdogs> = [];
+  if (Game.time % 10 === 0) {
+    let minDowngrade: number | null = null;
+    let maxRcl = 0;
+    for (const roomName in Game.rooms) {
+      const c = Game.rooms[roomName].controller;
+      if (!c?.my) continue;
+      if (minDowngrade === null || c.ticksToDowngrade < minDowngrade) minDowngrade = c.ticksToDowngrade;
+      if (c.level > maxRcl) maxRcl = c.level;
+    }
+    blackBoxRecord("watch", {
+      dt: minDowngrade,
+      bucket: Game.cpu.bucket,
+      cpu: Math.round(Game.cpu.getUsed() * 10) / 10,
+      creeps: Object.keys(Game.creeps).length
+    });
+    alerts = runWatchdogs({
+      tick: Game.time,
+      rcl: maxRcl,
+      lastSpawnTick: lastSpawnTick(),
+      minDowngradeTicks: minDowngrade,
+      bucket: Game.cpu.bucket,
+      errRowsInWindow: errRowCount()
+    });
+    for (const a of alerts) console.log(`[WATCHDOG] ${a.kind}: ${a.message}`);
+  }
+  blackBoxFlush(Game.time, alerts);
 }
 
 /**

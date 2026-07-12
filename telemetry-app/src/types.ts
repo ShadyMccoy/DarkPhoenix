@@ -13,6 +13,7 @@ export const TELEMETRY_SEGMENTS = {
   INTEL: 3,
   CORPS: 4,
   CHAINS: 5,
+  BLACKBOX: 5, // Flight recorder: decisions ring + watchdog alerts (spec 09 ph4)
   FLOW: 6,     // Flow economy: sources, sinks, allocations
 };
 
@@ -270,6 +271,15 @@ export interface FlowTelemetry {
 /**
  * All telemetry data combined.
  */
+/** The flight recorder segment (spec 09 phase 4): decisions + alerts. */
+export interface BlackBoxTelemetry {
+  v: number;
+  tick: number;
+  /** Watchdog verdicts, evaluated by the BOT (rules live in-repo, unit-tested). */
+  alerts: Array<{ kind: string; message: string }>;
+  rows: Array<{ t: number; k: string; d: Record<string, unknown> }>;
+}
+
 export interface AllTelemetry {
   core: CoreTelemetry | null;
   nodes: NodeTelemetry | null;
@@ -278,5 +288,6 @@ export interface AllTelemetry {
   corps: CorpsTelemetry | null;
   chains: ChainsTelemetry | null;
   flow: FlowTelemetry | null;
+  blackbox: BlackBoxTelemetry | null;
   lastUpdate: number;
 }

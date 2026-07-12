@@ -21,6 +21,7 @@ import {
   EdgesTelemetry,
   CorpsTelemetry,
   FlowTelemetry,
+  BlackBoxTelemetry,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +93,7 @@ let telemetry: AllTelemetry = {
   corps: null,
   chains: null,
   flow: null,
+  blackbox: null,
   lastUpdate: 0,
 };
 
@@ -214,6 +216,7 @@ async function pollTelemetry(): Promise<void> {
       TELEMETRY_SEGMENTS.EDGES,
       TELEMETRY_SEGMENTS.CORPS,
       TELEMETRY_SEGMENTS.FLOW,
+      TELEMETRY_SEGMENTS.BLACKBOX,
     ]);
 
     // Parse segments (nodes uses special parser for v2 compact format)
@@ -225,6 +228,7 @@ async function pollTelemetry(): Promise<void> {
       corps: parseTelemetry<CorpsTelemetry>(segments[TELEMETRY_SEGMENTS.CORPS]),
       chains: null,
       flow: parseTelemetry<FlowTelemetry>(segments[TELEMETRY_SEGMENTS.FLOW]),
+      blackbox: parseTelemetry<BlackBoxTelemetry>(segments[TELEMETRY_SEGMENTS.BLACKBOX]),
       lastUpdate: Date.now(),
     };
 
@@ -239,6 +243,11 @@ async function pollTelemetry(): Promise<void> {
 
       // Save to local cache
       saveTelemetryCache(newTelemetry);
+
+      // Watchdog alerts (evaluated by the bot; the dashboard only relays).
+      for (const a of newTelemetry.blackbox?.alerts ?? []) {
+        console.warn(`  [WATCHDOG] ${a.kind}: ${a.message}`);
+      }
 
       // Broadcast to all connected clients
       broadcastTelemetry();

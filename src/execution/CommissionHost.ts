@@ -39,6 +39,7 @@ import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
 import { constructionKind } from "../corps/kinds/constructionKind";
+import { record as blackBox } from "../telemetry/BlackBox";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -121,7 +122,14 @@ export function runCommissionHost(
   // their natural death/recycle instead of stranding them as orphans the instant
   // a re-solve churns the commission set; it requests no new spawns, so the
   // planner's wind-down still takes effect as the fleet drains.
+  const beforeIds = new Set(liveStore.keys());
   materializeCommissions(commissions, liveStore, (_corpId, entry) => !hasLiveCreeps(entry.corp.id));
+  // Flight recorder: commission churn is a top incident signal (spec 09 ph4).
+  let created = 0;
+  for (const id of liveStore.keys()) if (!beforeIds.has(id)) created++;
+  let removed = 0;
+  for (const id of beforeIds) if (!liveStore.has(id)) removed++;
+  if (created > 0 || removed > 0) blackBox("churn", { created, removed });
   runCommissionedCorps(liveStore, tick);
 
   Memory.commissionedCorps = serializeStore(liveStore);
