@@ -40,7 +40,7 @@ const extFree = (o: any): number => Math.max(0, (o.storeCapacityResource?.energy
  */
 const NEAR_FUEL_RANGE = 10;
 
-function roomFuel(objects: any[], userId: string): number {
+function roomFuel(objects: any[], userId: string, creepMemory: Record<string, any> = {}): number {
   const spawns = objects.filter((o) => o.type === "spawn" && o.user === userId);
   if (spawns.length === 0) return 0;
   const near = (o: any): boolean =>
@@ -50,7 +50,16 @@ function roomFuel(objects: any[], userId: string): number {
     if (!near(o)) continue;
     if (o.type === "energy") fuel += o.energy ?? o.amount ?? 0;
     else if (o.type === "container" || o.type === "storage" || o.type === "spawn") fuel += o.store?.energy ?? 0;
-    else if (o.type === "creep") fuel += o.store?.energy ?? 0; // loads already in transit
+    else if (o.type === "creep") {
+      // Loads already in transit count - EXCEPT a construction corp's
+      // dedicated site shuttles: their cargo is committed to a build site
+      // and the refill apparatus can never draw it (measured, pipeline
+      // t=1142: nearly all of the 371 "near fuel" rode on tanker-uction
+      // creeps while one extension sat 50 short - unservable in fact).
+      const corpId = String(creepMemory[o.name]?.corpId ?? "");
+      if (corpId.startsWith("construction-")) continue;
+      fuel += o.store?.energy ?? 0;
+    }
   }
   return fuel;
 }
@@ -101,7 +110,7 @@ export function makeRefillSla(handle?: string, graceTicks = 0): CellAssertion {
       // what was once coverable, and that is an income story (measured,
       // pipeline t=778: nearFuel 184 vs deficit 360 at the deadline after an
       // early sample latched fuelSeen on a shallower deficit).
-      if (roomFuel(objects, s.userId) >= deficit) fuelSeen = true;
+      if (roomFuel(objects, s.userId, s.memory?.creeps ?? {}) >= deficit) fuelSeen = true;
       else fuelSeen = false;
 
       if (fuelSeen) {
@@ -110,7 +119,7 @@ export function makeRefillSla(handle?: string, graceTicks = 0): CellAssertion {
           .map((o) => `${o.name}@${o.x},${o.y}:${o.store?.energy ?? 0}`);
         const emptyExts = exts.filter((o) => extFree(o) > 0).map((o) => `(${o.x},${o.y}):${extFree(o)}`);
         console.log(
-          `  [refill-sla] VIOLATION t=${s.tick} deficit=${deficit} nearFuel=${roomFuel(objects, s.userId)} ` +
+          `  [refill-sla] VIOLATION t=${s.tick} deficit=${deficit} nearFuel=${roomFuel(objects, s.userId, s.memory?.creeps ?? {})} ` +
             `tanks=${tenders.join(" ")} short=${emptyExts.join(" ")}`
         );
         return false;

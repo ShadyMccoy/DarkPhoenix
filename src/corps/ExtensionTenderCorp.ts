@@ -136,9 +136,24 @@ export class ExtensionTenderCorp extends Corp {
     // extra tenders (clusters shrank) share cluster 0 until they expire.
     const clusters = extensionClusters(room) as FillTarget[][];
     const byName = [...tenders].sort((a, b) => a.name.localeCompare(b.name));
+
+    // RELOAD STAGGER (the pipeline-world SLA breach, spec 08 known-red #39):
+    // with no stocked depot, reload fuel is a FAR walk, and both tenders
+    // reloading simultaneously leave the bank dark exactly when near fuel
+    // (hauler hand-offs, piles by the spawn) arrives. Cheap reloads (stocked
+    // depot) need no stagger; otherwise only ONE tender may be away - the
+    // rest hold their cluster, topping up from whatever lands within reach.
+    const cheapReload = !!depot && depot.store[RESOURCE_ENERGY] > 0;
+    const reloaders = byName.filter(c => !c.memory.working);
+    // Sticky designation: a tender already mid-reload keeps its pass (else a
+    // name-order swap would recall it empty from halfway out); otherwise the
+    // first empty tender by name gets it.
+    const designated = reloaders.find(c => c.memory.awayReloading)?.name ?? reloaders[0]?.name ?? null;
+
     byName.forEach((creep, i) => {
       const cluster = clusters.length > 0 ? clusters[i % clusters.length] : undefined;
-      this.runTender(creep, room, depot, cluster);
+      const mayReload = cheapReload || byName.length <= 1 || creep.name === designated;
+      this.runTender(creep, room, depot, cluster, mayReload);
     });
   }
 
@@ -147,12 +162,59 @@ export class ExtensionTenderCorp extends Corp {
    * from the depot when empty. It only flips state on full/empty, so it makes
    * complete trips (a clean burst) rather than dithering with partial loads.
    */
-  private runTender(creep: Creep, room: Room, depot: CoreDepot | null, cluster?: FillTarget[]): void {
+  private runTender(creep: Creep, room: Room, depot: CoreDepot | null, cluster?: FillTarget[], mayReload = true): void {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
+    if (creep.memory.working) delete creep.memory.awayReloading;
+    else if (mayReload) creep.memory.awayReloading = true;
+
+    // SLA: never wander with a servable load while the bank is short - a
+    // partial burst NOW beats topping up first against a 3t/part deadline
+    // (measured, pipeline t=1142: a tender orbited a dry container holding 13
+    // while an extension sat 50 short past its due moment).
+    if (
+      !creep.memory.working &&
+      creep.store[RESOURCE_ENERGY] >= 50 &&
+      this.fillTargets(room, creep.pos, cluster).length > 0
+    ) {
+      creep.memory.working = true;
+      delete creep.memory.awayReloading;
+    }
+
+    // Denied a far reload (stagger): hold the post instead. Any energy that
+    // lands (a hauler top-up, an adjacent pile) resumes the burst at once -
+    // a partial load serving the bank beats a full one 30 tiles away.
+    if (!creep.memory.working && !mayReload) {
+      if (creep.store[RESOURCE_ENERGY] > 0) {
+        creep.memory.working = true;
+      } else {
+        const anchor = cluster && cluster.length > 0 ? cluster[0] : Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+        if (anchor && !creep.pos.isNearTo(anchor.pos)) {
+          travelTo(creep, anchor, { range: 1 });
+          return;
+        }
+        const stock = this.reloadStock(creep);
+        if (stock && creep.pos.isNearTo(stock)) creep.withdraw(stock as StructureContainer, RESOURCE_ENERGY);
+        else {
+          const pile = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+            filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+          })[0];
+          if (pile) creep.pickup(pile);
+        }
+        return;
+      }
+    }
 
     if (creep.memory.working) {
-      const targets = this.fillTargets(room, creep.pos, cluster);
+      // Cluster ownership is a PREFERENCE, not a wall: with its own cluster
+      // satisfied, a loaded tender covers any other cluster's short rather
+      // than idling beside it (measured, pipeline t=1194: one extension 50
+      // short past its deadline while a tender with 65 aboard idled 3 tiles
+      // away on the wrong cluster - the SLA is room-level).
+      let targets = this.fillTargets(room, creep.pos, cluster);
+      if (targets.length === 0 && creep.store[RESOURCE_ENERGY] > 0) {
+        targets = this.fillTargets(room, creep.pos);
+      }
       if (targets.length === 0) {
         // Nothing to fill: idle at the reload point AND top up while waiting,
         // so the next burst starts with a full load. A tender idling on its
