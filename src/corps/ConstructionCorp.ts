@@ -14,13 +14,7 @@ import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
-import {
-  pickRepairTarget,
-  pickCriticalRepairTarget,
-  wantsCriticalRecovery,
-  wantsMaintenanceBuilder,
-  REPAIR_TO
-} from "./repair";
+import { pickCriticalRepairTarget, wantsCriticalRecovery, wantsMaintenanceBuilder, nextRepairTarget } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -1177,11 +1171,6 @@ export class ConstructionCorp extends Corp {
     }) as (StructureContainer | StructureRoad)[];
   }
 
-  /** The structure most in need of repair (below the ceiling, by fraction), or null. */
-  private findRepairTarget(room: Room): StructureContainer | StructureRoad | null {
-    return pickRepairTarget(this.roomRepairables(room), REPAIR_TO);
-  }
-
   /** Whether to field/keep a maintenance builder for decaying structures (hysteresis). */
   private wantsMaintenance(room: Room): boolean {
     return wantsMaintenanceBuilder(this.roomRepairables(room), this.builders.count() > 0);
@@ -1205,13 +1194,20 @@ export class ConstructionCorp extends Corp {
    * Maintain decaying structures when there is nothing to build. Containers fuel
    * the builder themselves (they hold energy), so maintenance needs no tanker;
    * roads hold nothing, so a road target sends the builder to the nearest energy
-   * instead. It tops up the most-decayed structure, then the next, until all reach
-   * the ceiling - at which point findRepairTarget returns null and the builder
-   * idles to be recycled.
+   * instead. It fully repairs one structure (latched, most-decayed first) to the
+   * ceiling before starting the next, until all reach the ceiling - at which point
+   * nextRepairTarget returns null and the builder idles to be recycled.
    */
   private doMaintenance(creep: Creep, room: Room): void {
-    const target = this.findRepairTarget(room);
-    if (!target) return; // all healthy: idle until plan() retires this builder
+    // Latch onto one structure and repair it to the ceiling before switching, so
+    // the builder finishes a structure instead of ping-ponging to whichever is
+    // momentarily most decayed (see nextRepairTarget).
+    const target = nextRepairTarget(this.roomRepairables(room), creep.memory.repairTargetId);
+    if (!target) {
+      delete creep.memory.repairTargetId; // all healthy: idle until plan() retires this builder
+      return;
+    }
+    creep.memory.repairTargetId = target.id;
 
     if (creep.store[RESOURCE_ENERGY] === 0) {
       this.refuelForMaintenance(creep, target);

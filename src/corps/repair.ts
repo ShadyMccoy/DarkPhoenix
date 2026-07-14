@@ -72,6 +72,34 @@ interface Repairable {
 }
 
 /**
+ * The structure a maintenance builder should repair THIS tick. It latches to its
+ * current target and finishes it (repairs to the REPAIR_TO ceiling) before moving
+ * on, instead of re-picking the lowest-fraction structure every tick.
+ *
+ * Without the latch the builder retargets each tick to whichever structure has the
+ * lowest hits fraction. As it repairs the most-decayed one past a rival's fraction,
+ * the rival becomes "most decayed" and the builder walks off to it - then back -
+ * ping-ponging between the two and topping up neither (the "repairs something once
+ * then moves on" annoyance). Holding the target until it is back at the ceiling
+ * makes the builder fully repair one structure before starting the next; the
+ * most-decayed structure is still the one it starts on, so nothing endangered
+ * waits longer.
+ *
+ * Returns the latched target while it is still below the ceiling, otherwise the
+ * next most-decayed structure (or null when everything is at the ceiling).
+ */
+export function nextRepairTarget<T extends Repairable & { id: string }>(
+  structures: T[],
+  latchedId: string | undefined
+): T | null {
+  if (latchedId) {
+    const latched = structures.find(s => s.id === latchedId);
+    if (latched && latched.hits < latched.hitsMax * REPAIR_TO) return latched;
+  }
+  return pickRepairTarget(structures, REPAIR_TO);
+}
+
+/**
  * The most-decayed structure below `belowFraction` of its max hits, or null if all
  * are healthier than that. "Most decayed" is the lowest hits/hitsMax fraction, so
  * structures of different scales (roads vs containers) rank fairly.
