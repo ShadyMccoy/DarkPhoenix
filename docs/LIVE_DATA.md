@@ -82,6 +82,19 @@ The response is `{ ok: 1, data: "<the JSON string you set as the segment>" }`.
 `data` is the raw segment string; parse it against the matching interface in
 `Telemetry.ts`.
 
+**c) Snapshot all segments to disk — `npm run capture:telemetry`.** The on-disk
+counterpart of the dashboard: pulls segments 0–6, parses them, and writes one
+timestamped combined file to `test/fixtures/telemetry/<shard>-t<tick>.json`, so
+live economy state is diff-able / inspectable offline. `<tick>` is the tick the
+bot stamped on the core segment — the freshness ground truth (telemetry can be
+CPU-skipped, so it is not necessarily "now").
+
+```bash
+SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard3
+SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard3 --segments 0,4,6
+SCREEPS_TOKEN=... npm run capture:telemetry -- --out /tmp/live.json
+```
+
 ### 3. Full incident capture — `npm run capture:incident` (token)
 
 The heaviest pull, for reproducing a live failure locally. For one shard+room it
@@ -117,11 +130,7 @@ un-gzips it for you.
 ## Which one do I want?
 
 - **"What does a live room look like for a sim?"** → path 1 (`capture:rooms`).
-- **"What is the economy doing right now?"** → path 2 (dashboard, or curl a
-  segment).
+- **"What is the economy doing right now?"** → path 2: watch it live in the
+  dashboard (2a), or land it on disk with `npm run capture:telemetry` (2c) to
+  diff/inspect offline.
 - **"Reproduce this live bug in the grid."** → path 3 (`capture:incident`).
-
-If you later want the segments 0–6 landed on disk as a timestamped snapshot
-(diff-able economy state, no browser), that script does not exist yet — the
-curl in path 2b is the manual version, and it's a small script to add if the
-workflow warrants it.
