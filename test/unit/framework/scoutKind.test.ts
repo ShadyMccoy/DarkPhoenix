@@ -137,12 +137,12 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
     const corp = store.get("scout-W1N1")!.corp as ScoutCorp;
-    corp.recordRevenue(42);
+    corp.recordProduction(42);
     const restored = deserializeStore(JSON.parse(JSON.stringify(serializeStore(store))));
     const back = restored.get("scout-W1N1")!.corp as ScoutCorp;
     expect(back.id).to.equal(corp.id);
     expect(back.getSpawnId()).to.equal("spawn1");
-    expect(back.balance).to.equal(42);
+    expect(back.unitsProduced).to.equal(42);
   });
 
   it("rung 4 - COMPOSE: scout coexists with another registered kind, ordered by runOrder", () => {

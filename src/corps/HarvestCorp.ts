@@ -8,7 +8,6 @@
  */
 
 import {
-  CREEP_LIFETIME,
   HARVEST_RATE,
   SOURCE_ENERGY_CAPACITY,
   SOURCE_REGEN_TIME,
@@ -98,9 +97,6 @@ export class HarvestCorp extends Corp {
   /** Target number of harvesters (computed during planning) */
   private targetMiners = 1;
 
-  /** Creeps we've already recorded expected production for (session-only) */
-  private accountedCreeps: Set<string> = new Set();
-
   /**
    * Flow-based miner assignment from FlowEconomy.
    * When set, this corp uses the assignment for spawn decisions instead
@@ -132,13 +128,6 @@ export class HarvestCorp extends Corp {
 
       if (creep.memory.corpId === this.id && !creep.spawning) {
         creeps.push(creep);
-
-        if (!this.accountedCreeps.has(name)) {
-          this.accountedCreeps.add(name);
-          const workParts = creep.getActiveBodyparts(WORK);
-          const expectedEnergy = workParts * 2 * CREEP_LIFETIME;
-          this.recordExpectedProduction(expectedEnergy);
-        }
       }
     }
 

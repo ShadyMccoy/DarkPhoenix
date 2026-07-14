@@ -39,16 +39,21 @@ export interface CoreTelemetry {
     nodeCount: number;
     totalCorps: number;
     activeCorps: number;
-    activeChains: number;
-    averageROI: number;
   };
   creeps: {
     total: number;
+    tracked: number;
+    untracked: number;
     bootstrap: number;
     miners: number;
     haulers: number;
     upgraders: number;
     scouts: number;
+    builders: number;
+    reservers: number;
+    tankers: number;
+    feeders: number;
+    claimers: number;
   };
   rooms: {
     name: string;
@@ -174,15 +179,10 @@ export interface CorpsTelemetry {
   tick: number;
   corps: {
     id: string;
+    kind: string;
     type: string;
     nodeId: string;
     roomName: string;
-    balance: number;
-    totalRevenue: number;
-    totalCost: number;
-    profit: number;
-    roi: number;
-    isActive: boolean;
     creepCount: number;
     createdAt: number;
     lastActivityTick: number;
@@ -190,9 +190,7 @@ export interface CorpsTelemetry {
   summary: {
     totalCorps: number;
     activeCorps: number;
-    totalBalance: number;
-    avgProfit: number;
-    corpsByType: { [type: string]: number };
+    corpsByKind: { [kind: string]: number };
   };
 }
 

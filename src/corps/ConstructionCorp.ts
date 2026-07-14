@@ -265,7 +265,7 @@ export class ConstructionCorp extends Corp {
       // threshold (findMissingSourceContainer), built from that same pile.
       if (room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) {
         const spot = this.findMissingSourceContainer(room);
-        if (spot) this.placeSite(room, spot.x, spot.y, STRUCTURE_CONTAINER, 0);
+        if (spot) this.placeSite(room, spot.x, spot.y, STRUCTURE_CONTAINER);
       }
       this.builders.run(creep => this.runBuilder(creep, room), spawn);
       return;
@@ -597,7 +597,7 @@ export class ConstructionCorp extends Corp {
     if (containersOpen) {
       const srcContainer = this.findMissingSourceContainer(room);
       if (srcContainer) {
-        this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER, 0);
+        this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER);
         return;
       }
     }
@@ -609,7 +609,7 @@ export class ConstructionCorp extends Corp {
     if (containersOpen) {
       const depot = this.findMissingCoreDepot(room);
       if (depot) {
-        this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER, 0);
+        this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER);
         return;
       }
     }
@@ -625,7 +625,7 @@ export class ConstructionCorp extends Corp {
     if (builtExtensions < (EXTENSION_LIMITS[rcl] || 0)) {
       const ext = this.findGridPosition(room);
       if (ext) {
-        this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION, 100);
+        this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION);
         return;
       }
     }
@@ -637,7 +637,7 @@ export class ConstructionCorp extends Corp {
     //     container (a luxury).
     const storage = this.findMissingStorage(room, rcl);
     if (storage) {
-      this.placeSite(room, storage.x, storage.y, STRUCTURE_STORAGE, 0);
+      this.placeSite(room, storage.x, storage.y, STRUCTURE_STORAGE);
       return;
     }
 
@@ -646,7 +646,7 @@ export class ConstructionCorp extends Corp {
     //     instant transfer (see execution/LinkRunner).
     const link = this.findMissingLink(room, rcl);
     if (link) {
-      this.placeSite(room, link.x, link.y, STRUCTURE_LINK, 0);
+      this.placeSite(room, link.x, link.y, STRUCTURE_LINK);
       return;
     }
 
@@ -657,7 +657,7 @@ export class ConstructionCorp extends Corp {
     if (containersOpen) {
       const ctrlContainer = this.findMissingControllerContainer(room);
       if (ctrlContainer) {
-        this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER, 0);
+        this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER);
         return;
       }
     }
@@ -829,14 +829,13 @@ export class ConstructionCorp extends Corp {
     return true;
   }
 
-  /** Create a construction site and record its cost. */
-  private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant, cost: number): void {
+  /** Create a construction site. */
+  private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant): void {
     // CPU governor (spec 09 ph5): under austere degradation, NEW investment
     // pauses - existing sites keep building, the income core keeps running.
     if (governorPlan().pauseConstruction) return;
     const result = room.createConstructionSite(x, y, type);
     if (result === OK) {
-      this.recordCost(cost);
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
       console.log(`[Construction] Failed to place ${type} at ${room.name} (${x}, ${y}): ${result}`);
@@ -1221,8 +1220,6 @@ export class ConstructionCorp extends Corp {
     const result = creep.repair(target);
     if (result === ERR_NOT_IN_RANGE) {
       creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
-    } else if (result === OK) {
-      this.recordConsumption(creep.getActiveBodyparts(WORK)); // repair: 1 energy/WORK/tick
     }
   }
 
@@ -1380,7 +1377,6 @@ export class ConstructionCorp extends Corp {
       creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
-      this.recordConsumption(workParts * 5);
       this.recordProduction(workParts * 5);
     }
   }
@@ -1629,15 +1625,11 @@ export class ConstructionCorp extends Corp {
   }
 }
 
-/** Starting balance for construction corps (enough to place several extensions) */
-const CONSTRUCTION_CORP_STARTING_BALANCE = 1000;
-
 /**
  * Create a ConstructionCorp for a room.
  */
 export function createConstructionCorp(room: Room, spawn: StructureSpawn): ConstructionCorp {
   const nodeId = `${room.name}-construction`;
   const corp = new ConstructionCorp(nodeId, spawn.id);
-  corp.balance = CONSTRUCTION_CORP_STARTING_BALANCE;
   return corp;
 }

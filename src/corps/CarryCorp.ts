@@ -11,7 +11,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelTo, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
+import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
@@ -208,9 +208,6 @@ export class CarryCorp extends Corp {
   /** ID of the spawn to use */
   private spawnId: string;
 
-  /** Creeps we've already recorded expected production for (session-only) */
-  private accountedCreeps: Set<string> = new Set();
-
   /**
    * Flow-based hauler assignments from FlowEconomy.
    * Each assignment specifies a source → sink route with CARRY requirements.
@@ -235,13 +232,6 @@ export class CarryCorp extends Corp {
         !creep.spawning
       ) {
         creeps.push(creep);
-
-        if (!this.accountedCreeps.has(name)) {
-          this.accountedCreeps.add(name);
-          const carryCapacity = creep.store.getCapacity();
-          const expectedDeliveries = (carryCapacity * CREEP_LIFETIME) / CARRY_CAPACITY; // Estimate
-          this.recordExpectedProduction(expectedDeliveries);
-        }
       }
     }
     return creeps;

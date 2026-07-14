@@ -9,7 +9,7 @@
 // Shared constants
 export * from "./CorpConstants";
 
-export { Corp, CorpType, SerializedCorp, calculateROI } from "./Corp";
+export { Corp, CorpType, SerializedCorp } from "./Corp";
 
 export { BootstrapCorp, SerializedBootstrapCorp, createBootstrapCorp } from "./BootstrapCorp";
 

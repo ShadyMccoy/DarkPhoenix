@@ -278,7 +278,6 @@ export class BootstrapCorp extends Corp {
       this.lastEmergencyAttempt = tick;
       if (result === OK) {
         this.emergencyJackNames.push(name);
-        this.recordCost(JACK_COST);
       }
     }
 
@@ -370,7 +369,6 @@ export class BootstrapCorp extends Corp {
 
     if (result === OK) {
       this.creepNames.push(name);
-      this.recordCost(cost);
       console.log(`[Bootstrap] Spawned ${name} (${body.length} parts, commute ${commute})`);
     }
   }
@@ -427,11 +425,6 @@ export class BootstrapCorp extends Corp {
       if (target) {
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
-        } else {
-          // Record revenue when we successfully transfer
-          const transferred = Math.min(creep.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
-          // Very low "revenue" - bootstrap is not about profit
-          this.recordRevenue(transferred * 0.001);
         }
       } else {
         // Spawn and extensions are full - put surplus energy into the

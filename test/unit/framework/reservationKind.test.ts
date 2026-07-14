@@ -130,12 +130,12 @@ describe("reservation kind on the corp framework (rungs 2-4)", () => {
     expect(() => runCommissionedCorps(store, Game.time)).to.not.throw();
 
     const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
-    corp.recordRevenue(7);
+    corp.recordProduction(7);
     const restored = deserializeStore(JSON.parse(JSON.stringify(serializeStore(store))));
     const back = restored.get("reservation-W1N1")!.corp as ReservationCorp;
     expect(back.id).to.equal(corp.id);
     expect(back.getSpawnId()).to.equal("spawn1");
-    expect(back.balance).to.equal(7);
+    expect(back.unitsProduced).to.equal(7);
   });
 
   it("rung 4 - COMPOSE: coexists with the scout kind over the same world", async () => {

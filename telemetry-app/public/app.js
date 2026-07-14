@@ -59,7 +59,13 @@ const elements = {
   creepsMiners: document.getElementById("creeps-miners"),
   creepsHaulers: document.getElementById("creeps-haulers"),
   creepsUpgraders: document.getElementById("creeps-upgraders"),
+  creepsBuilders: document.getElementById("creeps-builders"),
   creepsScouts: document.getElementById("creeps-scouts"),
+  creepsReservers: document.getElementById("creeps-reservers"),
+  creepsTankers: document.getElementById("creeps-tankers"),
+  creepsFeeders: document.getElementById("creeps-feeders"),
+  creepsClaimers: document.getElementById("creeps-claimers"),
+  creepsUntracked: document.getElementById("creeps-untracked"),
 
   // Tables
   roomsTable: document.querySelector("#rooms-table tbody"),
@@ -76,7 +82,6 @@ const elements = {
   // Corps summary
   corpsTotal: document.getElementById("corps-total"),
   corpsActive: document.getElementById("corps-active"),
-  corpsBalance: document.getElementById("corps-balance"),
 
   // Flow
   flowHarvest: document.getElementById("flow-harvest"),
@@ -303,7 +308,13 @@ function updateUI() {
   elements.creepsMiners.textContent = core.creeps.miners;
   elements.creepsHaulers.textContent = core.creeps.haulers;
   elements.creepsUpgraders.textContent = core.creeps.upgraders;
+  elements.creepsBuilders.textContent = core.creeps.builders;
   elements.creepsScouts.textContent = core.creeps.scouts;
+  elements.creepsReservers.textContent = core.creeps.reservers;
+  elements.creepsTankers.textContent = core.creeps.tankers;
+  elements.creepsFeeders.textContent = core.creeps.feeders;
+  elements.creepsClaimers.textContent = core.creeps.claimers;
+  elements.creepsUntracked.textContent = core.creeps.untracked;
 
   // Update Rooms table
   updateRoomsTable(core.rooms);
@@ -453,33 +464,28 @@ function updateCorpsUI(corps) {
   // Update summary
   elements.corpsTotal.textContent = corps.summary.totalCorps;
   elements.corpsActive.textContent = corps.summary.activeCorps;
-  elements.corpsBalance.textContent = formatNumber(
-    Math.round(corps.summary.totalBalance)
-  );
 
-  // Update table
+  // Update table: sort by kind, then by creep count descending
   elements.corpsTable.innerHTML = corps.corps
-    .sort((a, b) => b.profit - a.profit)
-    .map(
-      (corp) => `
+    .slice()
+    .sort((a, b) => (a.kind || "").localeCompare(b.kind || "") || b.creepCount - a.creepCount)
+    .map((corp) => {
+      const active = corp.creepCount > 0;
+      return `
     <tr>
       <td>${corp.id.slice(-8)}</td>
+      <td>${corp.kind}</td>
       <td>${corp.type}</td>
       <td>${corp.roomName}</td>
-      <td>${formatNumber(Math.round(corp.balance))}</td>
-      <td class="${corp.profit >= 0 ? "positive" : "negative"}">
-        ${formatNumber(Math.round(corp.profit))}
-      </td>
-      <td>${(corp.roi * 100).toFixed(1)}%</td>
       <td>${corp.creepCount}</td>
       <td>
-        <span class="badge ${corp.isActive ? "badge-active" : "badge-inactive"}">
-          ${corp.isActive ? "Active" : "Idle"}
+        <span class="badge ${active ? "badge-active" : "badge-inactive"}">
+          ${active ? "Active" : "Idle"}
         </span>
       </td>
     </tr>
-  `
-    )
+  `;
+    })
     .join("");
 }
 

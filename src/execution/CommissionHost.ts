@@ -184,3 +184,27 @@ export function commissionedCorpsOfKind<T extends Corp>(kind: string): { [corpId
   }
   return out;
 }
+
+/** One entry in the complete corp census. */
+export interface CorpCensusEntry {
+  corpId: string;
+  kind: string;
+  corp: Corp;
+}
+
+/**
+ * Every corp in the commission store, of every kind, with its kind label - the
+ * single source of truth for a complete census (telemetry, stats). This covers
+ * all framework kinds (harvest/carry/upgrade/scout/reservation/claim/tender/
+ * controllerFeeder/construction); the two legacy-registry kinds (bootstrap,
+ * spawning) live outside the store and must be appended by the caller (mirrors
+ * OrphanRescue.liveCorpIds). Prefer this over hand-picked per-kind maps, which
+ * have repeatedly drifted out of sync as new kinds were added.
+ */
+export function allCommissionedCorps(): CorpCensusEntry[] {
+  const out: CorpCensusEntry[] = [];
+  for (const [corpId, entry] of ensureStore()) {
+    out.push({ corpId, kind: entry.kind, corp: entry.corp });
+  }
+  return out;
+}

@@ -176,7 +176,6 @@ export class ScoutCorp extends Corp {
 
     if (targetRoom && creep.room.name === targetRoom && targetRoom !== homeRoom) {
       const value = this.recordRoomIntel(creep.room);
-      this.recordRevenue(value);
       console.log(`[Scout] ${creep.name} recorded intel for ${targetRoom} (value: ${value.toFixed(2)})`);
 
       const excludeRooms = this.getAssignedTargets();
