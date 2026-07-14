@@ -387,6 +387,14 @@ declare global {
     repairingCritical?: boolean;
 
     /**
+     * The structure a maintenance builder is currently repairing. It latches to
+     * one target and finishes it (repairs to the ceiling) before switching, so
+     * the builder doesn't ping-pong between two similarly-decayed structures,
+     * topping up neither. Cleared when the target reaches the ceiling or is gone.
+     */
+    repairTargetId?: string;
+
+    /**
      * ID of the SpawningCorp that spawned this creep.
      */
     spawnedBy?: string;
