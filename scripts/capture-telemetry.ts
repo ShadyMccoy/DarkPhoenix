@@ -23,11 +23,33 @@
  *   SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard3 --segments 0,4,6
  *   SCREEPS_TOKEN=... npm run capture:telemetry -- --out /tmp/live.json
  */
+import { spawnSync } from "child_process";
 import { mkdirSync, writeFileSync } from "fs";
 import * as path from "path";
 
 // Node 18+ global fetch; the test tsconfig has no DOM lib, so declare it.
 declare const fetch: (url: string, init?: any) => Promise<any>;
+
+/**
+ * Make Node's built-in fetch honour HTTPS_PROXY. Unlike curl, undici (fetch)
+ * ignores the proxy env vars unless NODE_USE_ENV_PROXY=1 is set BEFORE the
+ * runtime starts - setting it in-process is too late (the global dispatcher is
+ * already built). So when a proxy is configured but the flag is off, re-exec
+ * this same command once with the flag set. No-ops off-proxy, and the guard on
+ * the flag itself prevents an exec loop. Without this, a proxied environment
+ * (e.g. Claude Code's egress proxy) gets a 403 on the first API call.
+ */
+function ensureFetchUsesProxy(): void {
+  const proxied = process.env.HTTPS_PROXY ?? process.env.https_proxy;
+  if (!proxied || process.env.NODE_USE_ENV_PROXY === "1") return;
+  const result = spawnSync(
+    process.execPath,
+    [...process.execArgv, ...process.argv.slice(1)],
+    { stdio: "inherit", env: { ...process.env, NODE_USE_ENV_PROXY: "1" } }
+  );
+  process.exit(result.status ?? 1);
+}
+ensureFetchUsesProxy();
 
 const API = process.env.SCREEPS_API_URL ?? "https://screeps.com/api";
 const OUT_DIR = path.resolve("test", "fixtures", "telemetry");
