@@ -1,6 +1,13 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
-import { CarryCorp, pickSinkByAllocation, pickRuntToRecycle, pickDeliverySink } from "../../../src/corps/CarryCorp";
+import {
+  CarryCorp,
+  pickSinkByAllocation,
+  pickRuntToRecycle,
+  pickDeliverySink,
+  shouldBankControllerLoad,
+  CONTROLLER_STARVE_FLOOR
+} from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
 import { Game as MockGame } from "../mock";
 
@@ -295,6 +302,41 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
 
     it("does nothing when there is no carry demand", () => {
       expect(pickRuntToRecycle([3], 0, 5)).to.equal(null);
+    });
+  });
+
+  // The recurring RCL-drop-off jam: controller-bound haulers must BANK in storage
+  // across a transient feeder gap instead of all stampeding the one drop tile.
+  describe("controller-bound loads bank in storage across feeder gaps", () => {
+    it("banks while the feeder is actively relaying, whatever the input stock", () => {
+      expect(
+        shouldBankControllerLoad({ hasBankCapacity: true, feederActive: true, controllerInputStock: 0 })
+      ).to.equal(true);
+    });
+
+    it("STILL banks when the feeder is momentarily gone but the input holds a buffer", () => {
+      // The core regression: the old code (gated solely on controllerFeederActive)
+      // sent this load to the drop tile the instant the feeder died. With a healthy
+      // buffer the upgraders are fine, so the hauler banks and never joins the pile.
+      expect(
+        shouldBankControllerLoad({
+          hasBankCapacity: true,
+          feederActive: false,
+          controllerInputStock: CONTROLLER_STARVE_FLOOR + 1
+        })
+      ).to.equal(true);
+    });
+
+    it("feeds the controller DIRECTLY only when the input is starving AND no feeder", () => {
+      expect(
+        shouldBankControllerLoad({ hasBankCapacity: true, feederActive: false, controllerInputStock: 0 })
+      ).to.equal(false);
+    });
+
+    it("feeds the controller directly when there is no bank capacity, feeder or not", () => {
+      expect(
+        shouldBankControllerLoad({ hasBankCapacity: false, feederActive: true, controllerInputStock: 5000 })
+      ).to.equal(false);
     });
   });
 });

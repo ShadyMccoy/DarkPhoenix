@@ -56,6 +56,47 @@ const SPAWN_PRIORITY_FREE_CAPACITY = 50;
 const SPAWN_DIVERT_FILL = 0.5;
 
 /**
+ * Energy staged at the controller input below which a controller-bound hauler
+ * feeds the controller DIRECTLY instead of banking in storage. While the input
+ * holds at least this much buffer, the feeder (or the residual buffer itself)
+ * keeps the upgraders fed, so haulers bank; only when the buffer runs low is the
+ * controller genuinely at risk and a hauler steps in with a direct delivery.
+ * Sized as a working buffer, not a full container - well under the feeder's
+ * CONTROLLER_FEED_TARGET so normal feeder operation never trips it.
+ */
+export const CONTROLLER_STARVE_FLOOR = 200;
+
+/**
+ * Should a controller-bound hauler BANK its load in storage rather than haul it
+ * to the controller drop-off tile? Yes whenever a storage bank has room AND
+ * either a feeder is actively relaying the bank to the controller OR the
+ * controller input still holds a working buffer.
+ *
+ * This is the fix for the recurring RCL-drop-off jam: the redirect used to be
+ * gated SOLELY on `controllerFeederActive`, so the instant the single, non-blocking
+ * feeder died (or before it first spawned) every controller-bound hauler in the
+ * fleet reverted to the ONE drop tile at once - the measured pile-up. Keying the
+ * redirect off the input buffer instead means a transient feeder gap no longer
+ * stampedes the fleet onto the tile: haulers keep banking while the buffer lasts
+ * (giving the feeder time to respawn), and only step in directly if the buffer
+ * actually runs down with no feeder servicing it (genuine starvation - the
+ * anti-downgrade fallback). Pure so the routing rule is unit-testable.
+ */
+export function shouldBankControllerLoad(params: {
+  /** A storage exists, is ours, and has free capacity for the load. */
+  hasBankCapacity: boolean;
+  /** A live feeder is relaying storage -> controller this tick. */
+  feederActive: boolean;
+  /** Energy staged at the controller input right now (container/link + piles). */
+  controllerInputStock: number;
+  /** Override the starvation floor (defaults to {@link CONTROLLER_STARVE_FLOOR}). */
+  starveFloor?: number;
+}): boolean {
+  if (!params.hasBankCapacity) return false; // no bank -> the controller must be fed directly
+  return params.feederActive || params.controllerInputStock >= (params.starveFloor ?? CONTROLLER_STARVE_FLOOR);
+}
+
+/**
  * Small energy buffer kept in the core depot so the extension tender always has a
  * load on hand. Deliberately modest: it only needs to bridge between hauler drop-offs,
  * not bankroll the whole network - a large buffer would pull haulers off the
@@ -872,6 +913,21 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Energy staged at the controller input right now: its container/link buffer,
+   * else the bare drop pile on the input tile. The gauge {@link shouldBankControllerLoad}
+   * reads to tell a healthy (feeder-maintained) buffer from genuine starvation.
+   */
+  private controllerInputStock(controller: StructureController): number {
+    const spot = controllerDeliverySpot(controller);
+    if (spot.structure) return spot.structure.store[RESOURCE_ENERGY] ?? 0;
+    let stock = 0;
+    for (const r of spot.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+      if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
+    }
+    return stock;
+  }
+
+  /**
    * Deliver to the controller's consumers: an upgrader container, then the
    * upgrader/builder creeps directly, then dropping adjacent to the controller.
    * Returns false when the room has no controller.
@@ -880,18 +936,26 @@ export class CarryCorp extends Corp {
     const controller = room.controller;
     if (!controller) return false;
 
-    // STORAGE-FIRST HUB: once a dedicated controller feeder is relaying the bank
-    // to the controller, the long-range haulers stop at the storage and the feeder
+    // STORAGE-FIRST HUB: the long-range haulers stop at the storage and the feeder
     // runs the short last leg (owner 2026-07-11: "storage is primary, dedicated
-    // feeder for controller"). Deposit into the bank instead of hauling all the way
-    // to the controller. Fall THROUGH to direct delivery only when the bank is
-    // missing or physically full, so energy is never stranded and a dead feeder
-    // (flag cleared) reverts to direct hauling.
-    if (room.memory.controllerFeederActive) {
-      const bank = room.storage;
-      if (bank && bank.my && bank.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        return this.deliverToStorage(creep, room);
-      }
+    // feeder for controller"). Bank the load instead of hauling all the way to the
+    // controller - but key the redirect off the controller INPUT BUFFER, not just a
+    // live feeder: gating solely on the feeder meant that the instant the single,
+    // non-blocking feeder died the whole controller-bound fleet reverted to the one
+    // drop tile at once (the measured RCL-drop-off jam). See shouldBankControllerLoad:
+    // haulers keep banking across a transient feeder gap while the buffer lasts, and
+    // only feed the controller directly when it actually runs low (starvation) or the
+    // bank is missing/full - so energy is never stranded.
+    const bank = room.storage;
+    const hasBankCapacity = !!(bank && bank.my && bank.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+    if (
+      shouldBankControllerLoad({
+        hasBankCapacity,
+        feederActive: !!room.memory.controllerFeederActive,
+        controllerInputStock: this.controllerInputStock(controller)
+      })
+    ) {
+      return this.deliverToStorage(creep, room);
     }
 
     // The controller node resolves its own input spot (upgrader container, else the
