@@ -240,6 +240,8 @@ export interface SerializedCarryCorp extends SerializedCorp {
   spawnId: string;
   /** Flow-based hauler assignments (from FlowEconomy) */
   haulerAssignments?: HaulerAssignment[];
+  /** Where this corp's route picks up (see CarryCorp.pickupPos). */
+  pickupPos?: Position;
 }
 
 /**
@@ -254,6 +256,16 @@ export class CarryCorp extends Corp {
    * Each assignment specifies a source → sink route with CARRY requirements.
    */
   private haulerAssignments: HaulerAssignment[] = [];
+
+  /**
+   * Where this corp's route picks up - the CarryCorp analogue of HarvestCorp's
+   * POST. Seeded from the commission (consumes.at) and refined to the live
+   * source position whenever the source resolves, so a hauler whose real-id
+   * source is momentarily out of vision keeps walking the route instead of
+   * being round-robined onto a source in whatever room it stands in (a sticky
+   * mis-assignment that outlived the vision gap).
+   */
+  private pickupPos: Position | null = null;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
@@ -461,8 +473,22 @@ export class CarryCorp extends Corp {
       const source = Game.getObjectById(sourceGameId as Id<Source>);
       if (source) {
         creep.memory.assignedSourceId = source.id;
+        // Remember where the route picks up, for ticks with no vision of it.
+        this.pickupPos = { x: source.pos.x, y: source.pos.y, roomName: source.pos.roomName };
         return source;
       }
+
+      // Real id, no vision (getObjectById resolves only visible rooms): HOLD
+      // THE ROUTE. Falling through to the legacy round-robin here latched the
+      // hauler onto a source in whatever room it stood in - and stamped
+      // assignedSourceId, so the mis-assignment was sticky for the creep's
+      // whole life. Navigate to the remembered pickup position instead, the
+      // same shape as the intel path above; approaching it restores vision
+      // and the source resolves.
+      if (this.pickupPos) {
+        creep.memory.assignedSourcePos = { ...this.pickupPos };
+      }
+      return null;
     }
 
     // Fallback: legacy round-robin distribution (for transition period)
@@ -1175,6 +1201,16 @@ export class CarryCorp extends Corp {
   }
 
   /**
+   * Seed the pickup position from the commission (consumes.at = the source's
+   * haul spot). A hint only: the live source position replaces it whenever the
+   * source resolves, and a hint never overwrites what vision established.
+   */
+  public setPickupHint(pos: Position | undefined): void {
+    if (!pos || this.pickupPos) return;
+    this.pickupPos = pos;
+  }
+
+  /**
    * Check if this corp has flow-based assignments.
    */
   public hasFlowAssignments(): boolean {
@@ -1287,7 +1323,8 @@ export class CarryCorp extends Corp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
-      haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined
+      haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
+      pickupPos: this.pickupPos ?? undefined
     };
   }
 
@@ -1297,6 +1334,7 @@ export class CarryCorp extends Corp {
   public deserialize(data: SerializedCarryCorp): void {
     super.deserialize(data);
     this.haulerAssignments = data.haulerAssignments ?? [];
+    this.pickupPos = data.pickupPos ?? null;
   }
 }
 

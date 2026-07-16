@@ -69,6 +69,7 @@ export const carryKind: CorpKind<CarryCorp> = {
       existing.setHaulerAssignments(assignments);
       // Commission-owned, same stripping as creation below: never let it go stale.
       existing.setSpawnId(routes[0].spawnId.replace("spawn-", ""));
+      existing.setPickupHint(c.consumes.at);
       return existing;
     }
     // The flow spawn id is prefixed ("spawn-<gameId>"); strip it so the corp's
@@ -78,6 +79,7 @@ export const carryKind: CorpKind<CarryCorp> = {
     const roomName = c.consumes.at?.roomName ?? routes[0].sourceId;
     const corp = new CarryCorp(legacyNodeId(roomName, routes[0].sourceId), spawnId);
     corp.setHaulerAssignments(assignments);
+    corp.setPickupHint(c.consumes.at);
     return corp;
   },
 
