@@ -35,6 +35,16 @@ declare global {
      * early by any fresh sighting of the room with no hostiles.
      */
     hostileUntil?: number;
+    /**
+     * The room's controller is reserved by the Invader NPC (an invader core
+     * holds it) until ~this tick. Same defense economics as hostileUntil: the
+     * room's corps are defunded - mining is throttled/contested and our
+     * reserver cannot take the controller anyway. Set from the sighted
+     * reservation's ticksToEnd; cleared early by a fresh sighting with the
+     * reservation gone. A live core RENEWS its reservation, so the bound
+     * refreshes on every sighting rather than being exact.
+     */
+    invaderReservedUntil?: number;
     /** Number of energy sources in the room */
     sourceCount: number;
     /** Positions of energy sources */
@@ -159,7 +169,7 @@ declare global {
      * kept in Memory so a global reset - often the interesting moment - still
      * leaves evidence. The full ring lives in RawMemory segment 5.
      */
-    blackBoxTail?: Array<{ t: number; k: string; d: Record<string, unknown> }>;
+    blackBoxTail?: { t: number; k: string; d: Record<string, unknown> }[];
 
     /**
      * Arms the CPU governor's load-shedding (spec 09 ph5): set to "on" from
@@ -182,7 +192,7 @@ declare global {
       [spawnId: string]: {
         tick: number;
         fundingNeed: number;
-        queue: Array<{
+        queue: {
           role: string;
           corp: string;
           minCost: number;
@@ -192,9 +202,9 @@ declare global {
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
           precondition?: string;
-        }>;
+        }[];
         /** Execution receipts (actual-vs-NOW): the last ~8 spawns bought here. */
-        executed?: Array<{ tick: number; role: string; corp: string; cost: number }>;
+        executed?: { tick: number; role: string; corp: string; cost: number }[];
       };
     };
 

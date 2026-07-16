@@ -25,7 +25,7 @@ consume (30) → auxiliary (40).
 | ConstructionCorp | `construction` | hybrid | proposes per owned room (container maintenance) + reads solver build commissions |
 | ExtensionTenderCorp | `extensionTender` | auxiliary | depot→spawn/extensions local mover; SLA fleet = max(clusters, coverage) |
 | ControllerFeederCorp | `controllerFeeder` | auxiliary | storage→controller-input relay once a bank exists |
-| ScoutCorp | `scout` | auxiliary | BFS intel, hostile stamps (`roomIntel.hostileUntil`) |
+| ScoutCorp | `scout` | auxiliary | BFS intel, hostile stamps (`roomIntel.hostileUntil` / `.invaderReservedUntil`) |
 | ReservationCorp | `reservation` | auxiliary | remote reservers (value 115, holdToFund) |
 | ClaimCorp | `claim` | auxiliary | capital-gated expansion claiming (spec 06) |
 | SpawningCorp | — | infrastructure | spawn queue execution; still registry-hosted |

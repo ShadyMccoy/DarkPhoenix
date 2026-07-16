@@ -286,14 +286,19 @@ export function isSourceKeeperRoom(name: string): boolean {
   return inBand(h) && inBand(v) && !(h === 5 && v === 5);
 }
 
+/** The Invader NPC's username: invader creeps and invader-core reservations. */
+export const INVADER_USERNAME = "Invader";
+
 /**
- * Rooms currently containing hostile creeps (invaders, or any player's),
- * memoized per tick. The v1 DEFENSE ECONOMICS (owner directive 2026-07-10):
- * while hostiles hold a room, the corps operating there are DEFUNDED - no
- * new bodies are bought for a grinder (miners mining there, haulers hauling
- * there, reservers headed there). Existing creeps run out; funding resumes
- * the tick the room clears. Vision-limited by design: an unseen room is not
- * assumed hostile.
+ * Rooms currently held by hostiles, memoized per tick. Two flavors, one set:
+ * hostile CREEPS (invaders, or any player's) sighted in the room, and an
+ * invader CORE's controller reservation - the core is a structure the creep
+ * pass never sees, so the reservation itself is the observable. The v1
+ * DEFENSE ECONOMICS (owner directive 2026-07-10): while hostiles hold a
+ * room, the corps operating there are DEFUNDED - no new bodies are bought
+ * for a grinder (miners mining there, haulers hauling there, reservers
+ * headed there). Existing creeps run out; funding resumes the tick the room
+ * clears. Vision-limited by design: an unseen room is not assumed hostile.
  */
 let hostileRoomsTick = -1;
 let hostileRoomsCache = new Set<string>();
@@ -320,15 +325,42 @@ export function hostileRooms(): Set<string> {
       } else if (intel?.hostileUntil) {
         delete intel.hostileUntil; // fresh all-clear sighting
       }
+
+      // Invader-core reservation: the room is held even with zero hostile
+      // creeps in sight. The reservation's ticksToEnd bounds the occupation
+      // the way a creep's ticksToLive bounds a raid - though a live core
+      // RENEWS it, so each sighting refreshes the bound; blind, the mark
+      // lapses at the last-seen bound and the next sighting re-arms it.
+      const reservation = Game.rooms[roomName].controller?.reservation;
+      const stamped = Memory.roomIntel[roomName]; // may exist since the creep pass
+      if (reservation && reservation.username === INVADER_USERNAME) {
+        const until = Game.time + reservation.ticksToEnd;
+        if (stamped) stamped.invaderReservedUntil = until;
+        else {
+          Memory.roomIntel[roomName] = { lastVisit: Game.time, invaderReservedUntil: until } as RoomIntel;
+        }
+      } else if (stamped?.invaderReservedUntil) {
+        delete stamped.invaderReservedUntil; // fresh sighting: reservation gone
+      }
     }
     // Marks persist without vision until their TTL bound expires.
     for (const roomName in Memory.roomIntel) {
-      const until = Memory.roomIntel[roomName]?.hostileUntil;
-      if (until !== undefined && until > Game.time) hostileRoomsCache.add(roomName);
+      const intel = Memory.roomIntel[roomName];
+      const hostileUntil = intel?.hostileUntil;
+      const reservedUntil = intel?.invaderReservedUntil;
+      if (
+        (hostileUntil !== undefined && hostileUntil > Game.time) ||
+        (reservedUntil !== undefined && reservedUntil > Game.time)
+      ) {
+        hostileRoomsCache.add(roomName);
+      }
     }
   } else {
     for (const roomName in Game.rooms) {
-      if (Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length > 0) hostileRoomsCache.add(roomName);
+      const room = Game.rooms[roomName];
+      if (room.find(FIND_HOSTILE_CREEPS).length > 0 || room.controller?.reservation?.username === INVADER_USERNAME) {
+        hostileRoomsCache.add(roomName);
+      }
     }
   }
   return hostileRoomsCache;

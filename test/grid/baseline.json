@@ -46,6 +46,7 @@
     "plan-t4-two-spawn-nearest": "pass",
     "haul-t0-first-delivery": "pass",
     "def-t3-invader-defunds-source": "pass",
+    "def-t5-invader-reservation-defunds-remote": "pass",
     "plan-t5-sk-never-mined": "pass",
     "agenda-t3-replacement-labeled": "pass",
     "churn-t3-gapless-replacement": "pass",
