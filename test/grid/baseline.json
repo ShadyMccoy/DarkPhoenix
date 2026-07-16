@@ -106,6 +106,7 @@
     "cons-one-site-at-a-time": "pass",
     "cons-ext-before-ctrl-container": "pass",
     "cons-ctrl-container-last": "pass",
+    "cons-ctrl-container-surplus-first": "pass",
     "cons-pocket-container-exact-tile": "pass",
     "haul-t4-tender-death-failsafe": "pass",
     "cons-capguard-storage-rcl4": "pass",
