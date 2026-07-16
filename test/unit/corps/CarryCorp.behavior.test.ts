@@ -305,6 +305,85 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
   });
 
+  // The blind window: a route's fromId is a REAL game id (stable identity), but
+  // Game.getObjectById only resolves objects in visible rooms. When the route's
+  // room drops out of vision (e.g. an invader wiped its creeps), the old code
+  // fell through to the legacy round-robin and STICKILY latched the hauler onto
+  // a source in whatever room it happened to stand in - a hauler spawned during
+  // the blind window served the wrong source for its whole life. It must hold
+  // its route instead, navigating to the remembered pickup position exactly as
+  // the intel-id path does.
+  describe("blind-window pickup - a route hauler holds its route without vision", () => {
+    /** A hauler with fresh memory, standing wherever (room only matters for the bug). */
+    function blindHauler(corpId: string): any {
+      return { name: "bh1", memory: { corpId, workType: "haul" }, spawning: false };
+    }
+
+    it("navigates to the commissioned pickup position instead of latching a local source", () => {
+      const corp = carryCorp("W1N1-hauling-blind");
+      corp.setHaulerAssignments([route("spawn1", 30, 5)]); // fromId "source-src1", unresolvable (no vision)
+      corp.setPickupHint({ x: 14, y: 22, roomName: "W2N1" }); // the commission's consumes.at
+
+      const creep = blindHauler("W1N1-hauling-blind");
+      const localSources = [{ id: "home-src", pos: { x: 3, y: 3 } }]; // visible sources in the creep's room
+      const resolved = (corp as any).getAssignedSource(creep, localSources);
+
+      expect(resolved).to.equal(null, "no vision: no source object to return");
+      expect(creep.memory.assignedSourcePos, "keeps walking the route").to.deep.equal({
+        x: 14, y: 22, roomName: "W2N1"
+      });
+      expect(creep.memory.assignedSourceId, "must NOT latch onto a local source").to.equal(undefined);
+    });
+
+    it("remembers the pickup position from live vision, so later blind ticks need no hint", () => {
+      const corp = carryCorp("W1N1-hauling-remember");
+      corp.setHaulerAssignments([route("spawn1", 30, 5)]);
+
+      // Vision tick: the source resolves; the corp learns where the route picks up.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = {
+        ...MockGame, creeps: {}, time: 100,
+        getObjectById: (id: string) =>
+          id === "src1" ? { id: "src1", pos: { x: 14, y: 22, roomName: "W2N1" } } : null
+      };
+      const seeing = blindHauler("W1N1-hauling-remember");
+      expect((corp as any).getAssignedSource(seeing, []).id).to.equal("src1");
+
+      // Blind tick: vision gone. A FRESH hauler (no memory yet) still routes there.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps: {}, time: 101 };
+      const fresh = blindHauler("W1N1-hauling-remember");
+      expect((corp as any).getAssignedSource(fresh, [])).to.equal(null);
+      expect(fresh.memory.assignedSourcePos).to.deep.equal({ x: 14, y: 22, roomName: "W2N1" });
+    });
+
+    it("round-trips the remembered pickup position through serialization", () => {
+      const corp = carryCorp("W1N1-hauling-persist");
+      corp.setHaulerAssignments([route("spawn1", 30, 5)]);
+      corp.setPickupHint({ x: 14, y: 22, roomName: "W2N1" });
+
+      const revived = new CarryCorp("W1N1-hauling-persist", "spawn1");
+      revived.deserialize(corp.serialize());
+
+      const creep = blindHauler("W1N1-hauling-persist");
+      // Assignments are commission-owned (rebound by materialize), not persisted state.
+      revived.setHaulerAssignments([route("spawn1", 30, 5)]);
+      expect((revived as any).getAssignedSource(creep, [])).to.equal(null);
+      expect(creep.memory.assignedSourcePos).to.deep.equal({ x: 14, y: 22, roomName: "W2N1" });
+    });
+
+    it("keeps the legacy round-robin for corps WITHOUT route assignments", () => {
+      const corp = carryCorp("W1N1-hauling-legacy");
+      const creep = blindHauler("W1N1-hauling-legacy");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps: { bh1: creep }, time: 100 };
+
+      const local = { id: "home-src", pos: { x: 3, y: 3 } };
+      expect((corp as any).getAssignedSource(creep, [local])).to.equal(local);
+      expect(creep.memory.assignedSourceId).to.equal("home-src");
+    });
+  });
+
   // The recurring RCL-drop-off jam: controller-bound haulers must BANK in storage
   // across a transient feeder gap instead of all stampeding the one drop tile.
   describe("controller-bound loads bank in storage across feeder gaps", () => {

@@ -740,17 +740,25 @@ function populateNodeResources(
         // Add sources from intel within territory. Intel-only rooms are by
         // definition not owned (no vision), so they are all remote - gated
         // on home saturation like the live branch.
-        for (const sourcePos of intel.sourcePositions || []) {
-          if (!isOwnedRoom && !remotesUnlocked) continue;
+        (intel.sourcePositions || []).forEach((sourcePos, i) => {
+          if (!isOwnedRoom && !remotesUnlocked) return;
           if (shouldClaimResource(sourcePos.x, sourcePos.y, roomName)) {
+            // Identity must be STABLE across vision flips: prefer the real game
+            // id intel captured while the room was visible. Minting a positional
+            // id here renamed the source (and thus its commission corpId) every
+            // time a mined room lost vision - e.g. an invader wiping its creeps
+            // while the defense gate held replacements home - so the re-solve
+            // built a SECOND harvest corp for the same source, and both corps
+            // spawned a miner (the duplicate-miner incident). The positional id
+            // remains only as the legacy fallback for pre-sourceIds intel.
             node.resources.push({
               type: "source",
-              id: `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
+              id: intel.sourceIds?.[i] ?? `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,
               position: { x: sourcePos.x, y: sourcePos.y, roomName },
               capacity: sourceCapacity
             });
           }
-        }
+        });
 
         // Add controller from intel only if owned by us
         if (
