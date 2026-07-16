@@ -190,14 +190,25 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
   // a container's contents do not - when both hold energy at the source,
   // drain the depreciating stock first. Planning treats them as ONE summed
   // stock; this is the execution-side half of the same principle.
+  //
+  // EXCEPT while the container is FULL: harvest dropped onto a full container
+  // tile spills to the ground, so a fresh trickle-pile reappears EVERY tick and
+  // pile-first locks the hauler into ~10-energy pickups forever (observed live
+  // 2026-07-16: a hauler parked at the source inching toward full while 2000
+  // sat in the container). A full container means the pile is overflow in
+  // progress, not stale stock: withdraw from the container instead - one intent
+  // fills the hauler AND re-opens capacity so the next drops are absorbed. The
+  // leftover pile is drained by pile-first as soon as the container is no
+  // longer full.
   const pile = sourcePos
     .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
     .sort((a, b) => b.amount - a.amount)[0];
-  if (pile) return { pos: pile.pos };
-
   const container = sourcePos.findInRange(FIND_STRUCTURES, 1, {
     filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
   })[0] as StructureContainer | undefined;
+  const containerFull = container !== undefined && (container.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) === 0;
+
+  if (pile && !containerFull) return { pos: pile.pos };
   if (container) return { pos: container.pos, structure: container };
 
   if (linkServed) return { pos: core!.pos, structure: core! };
