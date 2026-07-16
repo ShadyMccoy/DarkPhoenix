@@ -20,7 +20,13 @@ export {
   CorpVarianceRow
 } from "./CorpRunner";
 
-export { commissionedCorpsOfKind, runCommissionHost, resetCommissionHost } from "./CommissionHost";
+export {
+  commissionedCorpsOfKind,
+  allCommissionedCorps,
+  CorpCensusEntry,
+  runCommissionHost,
+  resetCommissionHost
+} from "./CommissionHost";
 
 export { rescueOrphans, orphanAction, ORPHAN_GRACE_TICKS } from "./OrphanRescue";
 

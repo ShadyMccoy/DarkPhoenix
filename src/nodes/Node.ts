@@ -251,46 +251,6 @@ export function hasCorpForResource(node: Node, _resourceId: string): boolean {
 }
 
 /**
- * Calculate total balance of all corps in a node
- */
-export function getTotalBalance(node: Node): number {
-  return node.corps.reduce((sum, corp) => sum + corp.balance, 0);
-}
-
-/**
- * Get active corps in a node
- */
-export function getActiveCorps(node: Node): Corp[] {
-  return node.corps.filter(corp => corp.isActive);
-}
-
-/**
- * Prune dead corps from a node
- * Returns the pruned corps
- */
-export function pruneDead(node: Node, currentTick: number, gracePeriod = 1500): Corp[] {
-  const pruned: Corp[] = [];
-
-  node.corps = node.corps.filter(corp => {
-    // Keep if has positive balance
-    if (corp.balance > 10) return true;
-
-    // Keep if active in a chain
-    if (corp.isActive) return true;
-
-    // Grace period for new corps
-    const age = currentTick - corp.createdAt;
-    if (age < gracePeriod) return true;
-
-    // Prune this corp
-    pruned.push(corp);
-    return false;
-  });
-
-  return pruned;
-}
-
-/**
  * Serialize a node for persistence
  */
 export function serializeNode(node: Node): SerializedNode {

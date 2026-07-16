@@ -170,7 +170,6 @@ export class SpawningCorp extends Corp {
     });
 
     if (result === OK) {
-      this.recordCost(bodyCost);
       const workParts = body.filter(p => p === WORK).length;
       this.recordProduction(workParts * CREEP_LIFETIME);
       const carryParts = body.filter(p => p === CARRY).length;
@@ -332,8 +331,6 @@ export class SpawningCorp extends Corp {
   }
 }
 
-const SPAWNING_CORP_STARTING_BALANCE = 3000;
-
 /**
  * Create a SpawningCorp for a spawn structure.
  * Uses max spawn capacity for the room's RCL so creeps are sized for
@@ -344,6 +341,5 @@ export function createSpawningCorp(spawn: StructureSpawn): SpawningCorp {
   const controllerLevel = spawn.room.controller?.level ?? 1;
   const maxCapacity = getMaxSpawnCapacity(controllerLevel);
   const corp = new SpawningCorp(nodeId, spawn.id, maxCapacity);
-  corp.balance = SPAWNING_CORP_STARTING_BALANCE;
   return corp;
 }

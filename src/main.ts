@@ -34,13 +34,10 @@
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
 import { updateExpansionCampaign } from "./economy/expansion";
-import { ScoutCorp } from "./corps/ScoutCorp";
-import { HarvestCorp } from "./corps/HarvestCorp";
-import { CarryCorp } from "./corps/CarryCorp";
-import { UpgradingCorp } from "./corps/UpgradingCorp";
-import { ConstructionCorp } from "./corps/ConstructionCorp";
 import {
   CorpRegistry,
+  CorpCensusEntry,
+  allCommissionedCorps,
   cleanupDeadCreeps,
   commissionedCorpsOfKind,
   createCorpRegistry,
@@ -105,7 +102,6 @@ declare global {
       resetAnalysis: () => void;
       showNodes: () => void;
       exportNodes: () => string;
-      forgiveDebt: (amount?: number) => void;
       clearSpawnQueue: () => void;
       marketStatus: () => void;
       forceBootstrap: () => void;
@@ -680,18 +676,15 @@ function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
  */
 function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void {
   const telemetry = getTelemetry();
-  telemetry.update(
-    activeColony,
-    activeCorps.bootstrapCorps,
-    commissionedCorpsOfKind<HarvestCorp>("harvest"),
-    commissionedCorpsOfKind<CarryCorp>("carry"),
-    commissionedCorpsOfKind<UpgradingCorp>("upgrade"),
-    commissionedCorpsOfKind<ScoutCorp>("scout"),
-    commissionedCorpsOfKind<ConstructionCorp>("construction"),
-    activeCorps.spawningCorps,
-    flowEconomy?.getSolution() ?? undefined
-  );
-
+  // Complete corp census: every commissioned kind + the two legacy-registry
+  // kinds (bootstrap, spawning), mirroring OrphanRescue.liveCorpIds. This is
+  // the single source of truth so no creep-owning kind is left uncounted.
+  const census: CorpCensusEntry[] = [
+    ...allCommissionedCorps(),
+    ...Object.entries(activeCorps.bootstrapCorps).map(([corpId, corp]) => ({ corpId, kind: "bootstrap", corp })),
+    ...Object.entries(activeCorps.spawningCorps).map(([corpId, corp]) => ({ corpId, kind: "spawning", corp }))
+  ];
+  telemetry.update(activeColony, census, flowEconomy?.getSolution() ?? undefined);
 }
 
 /**
@@ -1096,61 +1089,6 @@ global.exportNodes = (): string => {
 };
 
 /**
- * Full economic reset - clears all corp economic state.
- * Call from console: `global.forgiveDebt()` or `global.forgiveDebt(1000)`
- *
- * This resets:
- * - All corp balances, revenue, and cost tracking
- * - All production/consumption tracking
- *
- * @param amount Optional starting balance for all corps (default: 1000)
- */
-global.forgiveDebt = (amount = 1000) => {
-  let corpsReset = 0;
-
-  const resetCorp = (corp: {
-    balance: number;
-    totalRevenue: number;
-    totalCost: number;
-    id: string;
-    unitsProduced: number;
-    expectedUnitsProduced: number;
-    unitsConsumed: number;
-  }) => {
-    corp.balance = amount;
-    corp.totalRevenue = 0;
-    corp.totalCost = 0;
-    corp.unitsProduced = 0;
-    corp.expectedUnitsProduced = 0;
-    corp.unitsConsumed = 0;
-    corpsReset++;
-  };
-
-  // Reset all corp types (harvest/carry/upgrade live in the commission store)
-  for (const id in commissionedCorpsOfKind("harvest")) {
-    resetCorp(commissionedCorpsOfKind("harvest")[id]);
-  }
-  for (const id in commissionedCorpsOfKind("carry")) {
-    resetCorp(commissionedCorpsOfKind("carry")[id]);
-  }
-  for (const id in commissionedCorpsOfKind("upgrade")) {
-    resetCorp(commissionedCorpsOfKind("upgrade")[id]);
-  }
-  for (const id in commissionedCorpsOfKind("construction")) {
-    resetCorp(commissionedCorpsOfKind("construction")[id]);
-  }
-  for (const id in corps.spawningCorps) {
-    resetCorp(corps.spawningCorps[id]);
-    // Give SpawningCorp extra balance for maintenance haulers (3x normal)
-    corps.spawningCorps[id].balance = amount * 3;
-  }
-
-  console.log(`[GodMode] Full economic reset complete:`);
-  console.log(`  - ${corpsReset} corps reset to balance=${amount}`);
-  console.log(`  - SpawningCorps given extra balance=${amount * 3} (for maintenance haulers)`);
-};
-
-/**
  * Clear all pending spawn requests.
  * Use this to recover from a deadlocked spawn queue.
  * Call from console: `global.clearSpawnQueue()`
@@ -1265,20 +1203,18 @@ global.marketStatus = () => {
   console.log("=== Corps ===");
   const showCorpStats = (
     name: string,
-    corpMap: { [id: string]: { id: string; balance: number; getCreepCount?: () => number } }
+    corpMap: { [id: string]: { id: string; getCreepCount?: () => number; getPendingOrderCount?: () => number } }
   ) => {
     const count = Object.keys(corpMap).length;
     if (count === 0) return;
 
-    let totalBalance = 0;
     let totalCreeps = 0;
     for (const id in corpMap) {
-      totalBalance += corpMap[id].balance;
-      if (typeof corpMap[id].getCreepCount === "function") {
-        totalCreeps += corpMap[id].getCreepCount!();
-      }
+      const corp = corpMap[id];
+      if (typeof corp.getCreepCount === "function") totalCreeps += corp.getCreepCount();
+      else if (typeof corp.getPendingOrderCount === "function") totalCreeps += corp.getPendingOrderCount();
     }
-    console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps, ${totalBalance.toFixed(0)} balance`);
+    console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps`);
   };
 
   showCorpStats("Mining", commissionedCorpsOfKind("harvest"));

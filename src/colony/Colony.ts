@@ -1,11 +1,6 @@
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { CorpRegistry } from "../execution/CorpRunner";
-import { commissionedCorpsOfKind } from "../execution/CommissionHost";
-import { ScoutCorp } from "../corps/ScoutCorp";
-import { HarvestCorp } from "../corps/HarvestCorp";
-import { CarryCorp } from "../corps/CarryCorp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
-import { ConstructionCorp } from "../corps/ConstructionCorp";
+import { allCommissionedCorps } from "../execution/CommissionHost";
 import { Node } from "../nodes/Node";
 
 /**
@@ -39,8 +34,6 @@ export interface ColonyStats {
   totalCorps: number;
   /** Active corps (with creeps) */
   activeCorps: number;
-  /** Average corp ROI */
-  averageROI: number;
 }
 
 /**
@@ -78,8 +71,7 @@ export class Colony {
   private stats: ColonyStats = {
     nodeCount: 0,
     totalCorps: 0,
-    activeCorps: 0,
-    averageROI: 0
+    activeCorps: 0
   };
 
   public constructor(config: Partial<ColonyConfig> = {}) {
@@ -173,44 +165,29 @@ export class Colony {
    * Update colony statistics
    */
   private updateStats(corpRegistry: CorpRegistry): void {
-    // Count corps from registry
-    const totalCorps =
-      Object.keys(corpRegistry.bootstrapCorps).length +
-      Object.keys(commissionedCorpsOfKind("harvest")).length +
-      Object.keys(commissionedCorpsOfKind("carry")).length +
-      Object.keys(commissionedCorpsOfKind("upgrade")).length +
-      Object.keys(commissionedCorpsOfKind("scout")).length +
-      Object.keys(commissionedCorpsOfKind("construction")).length +
-      Object.keys(corpRegistry.spawningCorps).length;
-
-    // Count active corps (those with creeps)
+    // Complete census: every commissioned kind + the two legacy-registry kinds.
+    // Using the census (not a hand-picked per-kind list) keeps totals honest as
+    // new corp kinds are added - the old list silently missed reservation /
+    // tender / controllerFeeder / claim.
+    let totalCorps = 0;
     let activeCorps = 0;
+    for (const { corp } of allCommissionedCorps()) {
+      totalCorps++;
+      const counter = corp as unknown as { getCreepCount?: () => number };
+      if (typeof counter.getCreepCount === "function" && counter.getCreepCount() > 0) activeCorps++;
+    }
     for (const corp of Object.values(corpRegistry.bootstrapCorps)) {
+      totalCorps++;
       if (corp.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(commissionedCorpsOfKind<HarvestCorp>("harvest"))) {
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    for (const corp of Object.values(commissionedCorpsOfKind<CarryCorp>("carry"))) {
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    for (const corp of Object.values(commissionedCorpsOfKind<UpgradingCorp>("upgrade"))) {
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    for (const corp of Object.values(commissionedCorpsOfKind<ScoutCorp>("scout"))) {
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    for (const corp of Object.values(commissionedCorpsOfKind<ConstructionCorp>("construction"))) {
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    // Spawning corps are active if they exist
+    // Spawning corps are active if they exist (they hold no creeps of their own)
+    totalCorps += Object.keys(corpRegistry.spawningCorps).length;
     activeCorps += Object.keys(corpRegistry.spawningCorps).length;
 
     this.stats = {
       nodeCount: this.nodes.length,
       totalCorps,
-      activeCorps,
-      averageROI: 0
+      activeCorps
     };
   }
 

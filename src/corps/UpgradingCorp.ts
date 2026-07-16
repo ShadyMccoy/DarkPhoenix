@@ -204,12 +204,11 @@ export class UpgradingCorp extends Corp {
     }
   }
 
-  /** Upgrade the controller in place, recording the WORK consumed. */
+  /** Upgrade the controller in place, recording the WORK produced. */
   private tryUpgrade(creep: Creep, controller: StructureController): void {
     if (creep.pos.getRangeTo(controller) > 3) return;
     if (creep.upgradeController(controller) === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
-      this.recordConsumption(workParts);
       this.recordProduction(workParts);
     }
   }

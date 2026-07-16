@@ -23,17 +23,46 @@ import { Corp } from "../corps/Corp";
 import { FlowSolution } from "../flow/FlowTypes";
 
 /**
- * Interface for corps that track creeps.
+ * One corp in the complete census (structurally compatible with
+ * CommissionHost.CorpCensusEntry - the caller passes that array here). Kept
+ * local so telemetry does not depend on the execution layer.
  */
-interface CreepTrackingCorp extends Corp {
-  getCreepCount(): number;
+export interface CorpCensusEntry {
+  corpId: string;
+  kind: string;
+  corp: Corp;
 }
 
 /**
- * Interface for spawning corps (tracks pending orders instead of creeps).
+ * Map from a corp's commission `kind` to the human creep-role bucket in the
+ * core telemetry census. Every creep-owning kind appears here; `spawning` is
+ * intentionally absent (it spawns other corps' creeps and is tracked by
+ * pending orders, not by a creep count of its own).
  */
-interface SpawningCorpLike extends Corp {
-  getPendingOrderCount(): number;
+const KIND_TO_CREEP_BUCKET: Record<string, keyof CoreTelemetry["creeps"]> = {
+  bootstrap: "bootstrap",
+  harvest: "miners",
+  carry: "haulers",
+  upgrade: "upgraders",
+  construction: "builders",
+  scout: "scouts",
+  reservation: "reservers",
+  tender: "tankers",
+  controllerFeeder: "feeders",
+  claim: "claimers"
+};
+
+/** Live creep count for any corp, whichever accessor it exposes. */
+function corpCreepCount(corp: Corp): number {
+  const c = corp as unknown as { getCreepCount?: () => number; getPendingOrderCount?: () => number };
+  if (typeof c.getCreepCount === "function") return c.getCreepCount();
+  if (typeof c.getPendingOrderCount === "function") return c.getPendingOrderCount();
+  return 0;
+}
+
+/** Room name for a corp, derived from its nodeId prefix. */
+function corpRoomName(corp: Corp): string {
+  return corp.nodeId.split("-")[0] || "unknown";
 }
 
 /**
@@ -81,17 +110,28 @@ export interface CoreTelemetry {
     nodeCount: number;
     totalCorps: number;
     activeCorps: number;
-    averageROI: number;
   };
-  /** Creep counts by type */
+  /**
+   * Creep census. `total` is the ground truth (every creep in the game);
+   * `tracked` is the sum of the per-role buckets (creeps claimed by a live
+   * corp); `untracked = total - tracked` (orphans, recyclers, newborns not yet
+   * claimed). Every creep-owning corp kind has a bucket, so the buckets and
+   * `total` reconcile - no kind can hide.
+   */
   creeps: {
     total: number;
+    tracked: number;
+    untracked: number;
     bootstrap: number;
     miners: number;
     haulers: number;
     upgraders: number;
     scouts: number;
     builders: number;
+    reservers: number;
+    tankers: number;
+    feeders: number;
+    claimers: number;
   };
   /** Owned rooms summary */
   rooms: {
@@ -199,25 +239,22 @@ export interface CorpsTelemetry {
   tick: number;
   corps: {
     id: string;
+    /** Commission kind (harvest/carry/reservation/tender/...) - the precise operator */
+    kind: string;
+    /** CorpType (mining/hauling/moving/...) - note tender & feeder share "moving" */
     type: string;
     nodeId: string;
     roomName: string;
-    balance: number;
-    totalRevenue: number;
-    totalCost: number;
-    profit: number;
-    roi: number;
-    isActive: boolean;
     creepCount: number;
     createdAt: number;
     lastActivityTick: number;
   }[];
   summary: {
     totalCorps: number;
+    /** Corps with at least one live creep */
     activeCorps: number;
-    totalBalance: number;
-    avgProfit: number;
-    corpsByType: { [type: string]: number };
+    /** Count of corps by commission kind (every kind, including aux kinds) */
+    corpsByKind: { [kind: string]: number };
   };
 }
 
@@ -298,17 +335,7 @@ export class Telemetry {
    * Updates all telemetry data in RawMemory segments.
    * Call this from the main game loop.
    */
-  public update(
-    colony: Colony | undefined,
-    bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
-    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
-    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    scoutCorps: { [roomName: string]: { getCreepCount(): number } },
-    constructionCorps: { [roomName: string]: CreepTrackingCorp } = {},
-    spawningCorps: { [spawnId: string]: SpawningCorpLike } = {},
-    flowSolution?: FlowSolution
-  ): void {
+  public update(colony: Colony | undefined, census: CorpCensusEntry[], flowSolution?: FlowSolution): void {
     if (!this.config.enabled) return;
 
     // Set public segments for API access
@@ -323,15 +350,7 @@ export class Telemetry {
     if (!shouldUpdate) return;
 
     // Update core telemetry (always)
-    this.updateCoreTelemetry(
-      colony,
-      bootstrapCorps,
-      harvestCorps,
-      haulingCorps,
-      upgradingCorps,
-      scoutCorps,
-      constructionCorps
-    );
+    this.updateCoreTelemetry(colony, census);
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
@@ -343,7 +362,7 @@ export class Telemetry {
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(harvestCorps, haulingCorps, upgradingCorps, constructionCorps, spawningCorps);
+    this.updateCorpsTelemetry(census);
 
     // Update flow telemetry (sources, sinks, allocations)
     this.updateFlowTelemetry(flowSolution);
@@ -352,48 +371,38 @@ export class Telemetry {
   /**
    * Updates core telemetry (Segment 0).
    */
-  private updateCoreTelemetry(
-    colony: Colony | undefined,
-    bootstrapCorps: { [roomName: string]: { getCreepCount(): number } },
-    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
-    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    scoutCorps: { [roomName: string]: { getCreepCount(): number } },
-    constructionCorps: { [roomName: string]: CreepTrackingCorp }
-  ): void {
-    // Count creeps
-    let bootstrapCount = 0;
-    let minerCount = 0;
-    let haulerCount = 0;
-    let upgraderCount = 0;
-    let scoutCount = 0;
-    let builderCount = 0;
-
-    for (const roomName in bootstrapCorps) {
-      bootstrapCount += bootstrapCorps[roomName].getCreepCount();
+  private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[]): void {
+    // Creep census: one bucket per creep-owning kind, summed from the complete
+    // corp list so every kind is counted (no more silent undercount).
+    const creeps: CoreTelemetry["creeps"] = {
+      total: Object.keys(Game.creeps).length,
+      tracked: 0,
+      untracked: 0,
+      bootstrap: 0,
+      miners: 0,
+      haulers: 0,
+      upgraders: 0,
+      scouts: 0,
+      builders: 0,
+      reservers: 0,
+      tankers: 0,
+      feeders: 0,
+      claimers: 0
+    };
+    for (const { kind, corp } of census) {
+      const bucket = KIND_TO_CREEP_BUCKET[kind];
+      if (!bucket) continue; // spawning (and any non-creep kind) is not a creep bucket
+      const n = corpCreepCount(corp);
+      creeps[bucket] += n;
+      creeps.tracked += n;
     }
-    for (const sourceId in harvestCorps) {
-      minerCount += harvestCorps[sourceId].getCreepCount();
-    }
-    for (const roomName in haulingCorps) {
-      haulerCount += haulingCorps[roomName].getCreepCount();
-    }
-    for (const roomName in upgradingCorps) {
-      upgraderCount += upgradingCorps[roomName].getCreepCount();
-    }
-    for (const roomName in scoutCorps) {
-      scoutCount += scoutCorps[roomName].getCreepCount();
-    }
-    for (const roomName in constructionCorps) {
-      builderCount += constructionCorps[roomName].getCreepCount();
-    }
+    creeps.untracked = Math.max(0, creeps.total - creeps.tracked);
 
     // Get colony stats
     const stats = colony?.getStats() || {
       nodeCount: 0,
       totalCorps: 0,
-      activeCorps: 0,
-      averageROI: 0
+      activeCorps: 0
     };
 
     // Build rooms array
@@ -413,7 +422,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 1,
+      version: 2, // Version 2: complete creep census, dropped colony.averageROI
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -430,18 +439,9 @@ export class Telemetry {
       colony: {
         nodeCount: stats.nodeCount,
         totalCorps: stats.totalCorps,
-        activeCorps: stats.activeCorps,
-        averageROI: stats.averageROI
+        activeCorps: stats.activeCorps
       },
-      creeps: {
-        total: Object.keys(Game.creeps).length,
-        bootstrap: bootstrapCount,
-        miners: minerCount,
-        haulers: haulerCount,
-        upgraders: upgraderCount,
-        scouts: scoutCount,
-        builders: builderCount
-      },
+      creeps,
       rooms
     };
 
@@ -668,103 +668,35 @@ export class Telemetry {
   /**
    * Updates corps telemetry (Segment 4).
    */
-  private updateCorpsTelemetry(
-    harvestCorps: { [sourceId: string]: CreepTrackingCorp },
-    haulingCorps: { [roomName: string]: CreepTrackingCorp },
-    upgradingCorps: { [roomName: string]: CreepTrackingCorp },
-    constructionCorps: { [roomName: string]: CreepTrackingCorp },
-    spawningCorps: { [spawnId: string]: SpawningCorpLike }
-  ): void {
+  private updateCorpsTelemetry(census: CorpCensusEntry[]): void {
     const corps: CorpsTelemetry["corps"] = [];
-    const corpsByType: { [type: string]: number } = {};
+    const corpsByKind: { [kind: string]: number } = {};
+    let activeCorps = 0;
 
-    const addCorp = (corp: CreepTrackingCorp, roomName: string) => {
-      const profit = corp.totalRevenue - corp.totalCost;
-      const roi = corp.totalCost > 0 ? profit / corp.totalCost : 0;
-
+    for (const { kind, corp } of census) {
+      const creepCount = corpCreepCount(corp);
       corps.push({
         id: corp.id,
+        kind,
         type: corp.type,
         nodeId: corp.nodeId || "",
-        roomName,
-        balance: corp.balance,
-        totalRevenue: corp.totalRevenue,
-        totalCost: corp.totalCost,
-        profit,
-        roi,
-        isActive: corp.isActive,
-        creepCount: corp.getCreepCount(),
+        roomName: corpRoomName(corp),
+        creepCount,
         createdAt: corp.createdAt,
         lastActivityTick: corp.lastActivityTick
       });
-
-      corpsByType[corp.type] = (corpsByType[corp.type] || 0) + 1;
-    };
-
-    // Add mining corps
-    for (const sourceId in harvestCorps) {
-      const corp = harvestCorps[sourceId];
-      // Extract room from source ID (format is like "xxxxRoomName")
-      const roomName =
-        Object.keys(Game.rooms).find(r => Game.rooms[r].find(FIND_SOURCES).some(s => s.id === sourceId)) || "unknown";
-      addCorp(corp, roomName);
+      corpsByKind[kind] = (corpsByKind[kind] || 0) + 1;
+      if (creepCount > 0) activeCorps++;
     }
-
-    // Add hauling corps
-    for (const roomName in haulingCorps) {
-      addCorp(haulingCorps[roomName], roomName);
-    }
-
-    // Add upgrading corps
-    for (const roomName in upgradingCorps) {
-      addCorp(upgradingCorps[roomName], roomName);
-    }
-
-    // Add construction corps
-    for (const roomName in constructionCorps) {
-      addCorp(constructionCorps[roomName], roomName);
-    }
-
-    // Add spawning corps
-    for (const spawnId in spawningCorps) {
-      const corp = spawningCorps[spawnId];
-      const profit = corp.totalRevenue - corp.totalCost;
-      const roi = corp.totalCost > 0 ? profit / corp.totalCost : 0;
-      // Extract room from nodeId (format: "E75N8-spawn-xxxx")
-      const roomName = corp.nodeId.split("-")[0] || "unknown";
-
-      corps.push({
-        id: corp.id,
-        type: corp.type,
-        nodeId: corp.nodeId || "",
-        roomName,
-        balance: corp.balance,
-        totalRevenue: corp.totalRevenue,
-        totalCost: corp.totalCost,
-        profit,
-        roi,
-        isActive: corp.isActive,
-        creepCount: corp.getPendingOrderCount(), // Show pending orders as "creepCount"
-        createdAt: corp.createdAt,
-        lastActivityTick: corp.lastActivityTick
-      });
-
-      corpsByType[corp.type] = (corpsByType[corp.type] || 0) + 1;
-    }
-
-    const totalBalance = corps.reduce((sum, c) => sum + c.balance, 0);
-    const avgProfit = corps.length > 0 ? corps.reduce((sum, c) => sum + c.profit, 0) / corps.length : 0;
 
     const telemetry: CorpsTelemetry = {
-      version: 1,
+      version: 2, // Version 2: dropped money accounting, keyed by kind, full census
       tick: Game.time,
       corps,
       summary: {
         totalCorps: corps.length,
-        activeCorps: corps.filter(c => c.isActive).length,
-        totalBalance,
-        avgProfit,
-        corpsByType
+        activeCorps,
+        corpsByKind
       }
     };
 

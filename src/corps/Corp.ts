@@ -17,23 +17,23 @@ export type CorpType =
   | "moving";
 
 /**
- * Serialized corp state for persistence
+ * Serialized corp state for persistence.
+ *
+ * Only lifecycle metadata and the production meter survive resets - the old
+ * money-accounting fields (balance / totalRevenue / totalCost / isActive /
+ * unitsConsumed / expectedUnitsProduced) were removed: nothing read them to
+ * make a decision (corp lifecycle is driven by materializeCommissions +
+ * hasLiveCreeps), so they were pure serialized dead weight.
  */
 export interface SerializedCorp {
   id: string;
   type: CorpType;
   nodeId: string;
-  balance: number;
-  totalRevenue: number;
-  totalCost: number;
   createdAt: number;
-  isActive: boolean;
   lastActivityTick: number;
-  // Production tracking for marginal cost pricing
+  /** Units produced (for the variance-vs-budget meter) */
   unitsProduced: number;
-  expectedUnitsProduced: number;
-  unitsConsumed: number;
-  // Planning state
+  /** Planning state */
   lastPlannedTick: number;
 }
 
@@ -41,14 +41,16 @@ export interface SerializedCorp {
  * Corp is the base class for all economic entities in the colony.
  *
  * A Corp represents a business unit that:
- * - Receives work assignments from FlowEconomy
- * - Maintains a credit balance for cost tracking
- * - Tracks production metrics for efficiency analysis
+ * - Receives work assignments from the CorpPlanner / FlowEconomy
+ * - Tracks production throughput for the variance-vs-budget meter
  *
  * In the flow-based economy:
- * - FlowEconomy calculates optimal resource allocation
+ * - The planner calculates optimal resource allocation
  * - Corps receive MinerAssignment/HaulerAssignment/SinkAllocation
  * - Corps execute work based on these assignments
+ *
+ * Corp lifecycle (creation / retirement / removal) is driven by
+ * materializeCommissions + hasLiveCreeps, NOT by any per-corp balance or ROI.
  */
 export abstract class Corp {
   /** Unique identifier for this corp */
@@ -60,20 +62,8 @@ export abstract class Corp {
   /** Node (territory) this corp operates in */
   public readonly nodeId: string;
 
-  /** Current credit balance */
-  public balance = 0;
-
-  /** Total revenue earned over lifetime */
-  public totalRevenue = 0;
-
-  /** Total costs incurred over lifetime */
-  public totalCost = 0;
-
   /** Tick when corp was created */
   public createdAt = 0;
-
-  /** Whether corp is currently active (part of a funded chain) */
-  public isActive = false;
 
   /** Last tick this corp performed work */
   public lastActivityTick = 0;
@@ -88,14 +78,8 @@ export abstract class Corp {
    */
   public retiring = false;
 
-  /** Units produced (energy harvested, carried, etc.) for marginal cost calculation */
+  /** Units produced (energy harvested, carried, etc.) for the variance meter */
   public unitsProduced = 0;
-
-  /** Expected units to be produced over lifetime (for amortizing upfront costs) */
-  public expectedUnitsProduced = 0;
-
-  /** Units consumed (energy used) for tracking consumption */
-  public unitsConsumed = 0;
 
   /**
    * Rolling production-rate meter (in-memory, not serialized).
@@ -165,62 +149,11 @@ export abstract class Corp {
   }
 
   /**
-   * Record revenue from a sale
-   */
-  public recordRevenue(amount: number): void {
-    if (amount <= 0) return;
-    this.balance += amount;
-    this.totalRevenue += amount;
-  }
-
-  /**
-   * Record a cost (reduces balance)
-   */
-  public recordCost(amount: number): void {
-    if (amount <= 0) return;
-    this.balance -= amount;
-    this.totalCost += amount;
-  }
-
-  /**
-   * Record production of units (for marginal cost calculation)
+   * Record production of units (for the variance-vs-budget meter)
    */
   public recordProduction(units: number): void {
     if (units <= 0) return;
     this.unitsProduced += units;
-  }
-
-  /**
-   * Record expected production over lifetime (for amortizing upfront costs).
-   * Call this when acquiring a long-lived asset (e.g., picking up a new creep).
-   * This prevents price spikes during the bootstrapping period.
-   */
-  public recordExpectedProduction(units: number): void {
-    if (units <= 0) return;
-    this.expectedUnitsProduced += units;
-  }
-
-  /**
-   * Record consumption of units
-   */
-  public recordConsumption(units: number): void {
-    if (units <= 0) return;
-    this.unitsConsumed += units;
-  }
-
-  /**
-   * Get actual ROI based on lifetime revenue and costs
-   */
-  public getActualROI(): number {
-    if (this.totalCost === 0) return 0;
-    return (this.totalRevenue - this.totalCost) / this.totalCost;
-  }
-
-  /**
-   * Get profit (lifetime revenue - cost)
-   */
-  public getProfit(): number {
-    return this.totalRevenue - this.totalCost;
   }
 
   // ===========================================================================
@@ -275,43 +208,6 @@ export abstract class Corp {
   }
 
   /**
-   * Check if corp is bankrupt (negative balance below threshold)
-   */
-  public isBankrupt(): boolean {
-    return this.balance < -100;
-  }
-
-  /**
-   * Check if corp is dormant (no activity for extended period)
-   */
-  public isDormant(currentTick: number, threshold = 1500): boolean {
-    if (this.lastActivityTick === 0) return false;
-    return currentTick - this.lastActivityTick > threshold;
-  }
-
-  /**
-   * Check if corp should be pruned (bankrupt or dormant)
-   */
-  public shouldPrune(currentTick: number): boolean {
-    return this.isBankrupt() || this.isDormant(currentTick);
-  }
-
-  /**
-   * Activate this corp (part of a funded chain)
-   */
-  public activate(tick: number): void {
-    this.isActive = true;
-    this.lastActivityTick = tick;
-  }
-
-  /**
-   * Deactivate this corp
-   */
-  public deactivate(): void {
-    this.isActive = false;
-  }
-
-  /**
    * Check if planning should be run this tick.
    * Planning is periodic - runs every PLANNING_INTERVAL ticks.
    */
@@ -336,15 +232,9 @@ export abstract class Corp {
       id: this.id,
       type: this.type,
       nodeId: this.nodeId,
-      balance: this.balance,
-      totalRevenue: this.totalRevenue,
-      totalCost: this.totalCost,
       createdAt: this.createdAt,
-      isActive: this.isActive,
       lastActivityTick: this.lastActivityTick,
       unitsProduced: this.unitsProduced,
-      expectedUnitsProduced: this.expectedUnitsProduced,
-      unitsConsumed: this.unitsConsumed,
       lastPlannedTick: this.lastPlannedTick
     };
   }
@@ -353,15 +243,9 @@ export abstract class Corp {
    * Restore corp state from persistence
    */
   public deserialize(data: SerializedCorp): void {
-    this.balance = data.balance ?? 0;
-    this.totalRevenue = data.totalRevenue ?? 0;
-    this.totalCost = data.totalCost ?? 0;
     this.createdAt = data.createdAt ?? 0;
-    this.isActive = data.isActive ?? false;
     this.lastActivityTick = data.lastActivityTick ?? 0;
     this.unitsProduced = data.unitsProduced ?? 0;
-    this.expectedUnitsProduced = data.expectedUnitsProduced ?? 0;
-    this.unitsConsumed = data.unitsConsumed ?? 0;
     this.lastPlannedTick = data.lastPlannedTick ?? 0;
   }
 
@@ -376,12 +260,4 @@ export abstract class Corp {
    * Used for distance calculations.
    */
   public abstract getPosition(): Position;
-}
-
-/**
- * Calculate ROI from revenue and cost (pure function)
- */
-export function calculateROI(revenue: number, cost: number): number {
-  if (cost === 0) return 0;
-  return (revenue - cost) / cost;
 }
