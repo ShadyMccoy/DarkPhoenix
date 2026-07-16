@@ -472,6 +472,83 @@ export function buildHaulingT4Cells(): GridCell[] {
         }),
       ],
     },
+
+    {
+      // Spec 03 withdrawal, the SURPLUS half: a bank ABOVE the warchest target
+      // (WARCHEST_TARGET = 27,650; 60k staged) is spendable, and the spend is
+      // EMERGENT - the bank joins the solve as a transient source, the
+      // controller reverts to mop-up, and the feeder relay + stock-grounded
+      // upgraders drain it into controller progress. The staged fleet mirrors
+      // haul-t4-storage-bank-and-spill (whose 9,800 bank pins the SAVE regime:
+      // that cell's >=6000 floor must stay green - a filling warchest never
+      // drains).
+      id: "haul-t4-bank-surplus-upgrades",
+      tier: 4,
+      avenue: "logistics",
+      window: 250,
+      rooms: { home: tenderRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        { type: "storage", x: 24, y: 24, energy: 60_000 },
+        { type: "container", x: 24, y: 41, energy: 1800 },
+        { type: "container", x: 25, y: 12, energy: 2000 },
+        ...EXT_ROW.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      // Staged consumers so the drain is observable inside the window: three
+      // parked upgraders (18 WORK) ring the input container; the stale feeder
+      // and tender are adopted like the sibling cells' staging.
+      creeps: tenderCreeps([
+        {
+          name: "fd",
+          x: 23,
+          y: 25,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "feed", corpId: "stale-feeder" },
+        },
+        {
+          name: "u1",
+          x: 24,
+          y: 11,
+          body: ["work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "move", "move"],
+          memory: { workType: "upgrade", corpId: "stale-upgrading", working: false, upgradeSpot: { x: 24, y: 11 } },
+        },
+        {
+          name: "u2",
+          x: 26,
+          y: 11,
+          body: ["work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "move", "move"],
+          memory: { workType: "upgrade", corpId: "stale-upgrading", working: false, upgradeSpot: { x: 26, y: 11 } },
+        },
+        {
+          name: "u3",
+          x: 24,
+          y: 13,
+          body: ["work", "work", "work", "work", "work", "work", "carry", "carry", "carry", "move", "move"],
+          memory: { workType: "upgrade", corpId: "stale-upgrading", working: false, upgradeSpot: { x: 24, y: 13 } },
+        },
+      ]),
+      assertions: [
+        eventually("the bank draws down toward the warchest", (s) => {
+          const st = s.objects().find((o: any) => o.type === "storage");
+          return !!st && (st.store?.energy ?? 0) <= 58_500;
+        }),
+        always("the bank never materializes a CarryCorp (depot movers own the legs)", (s) =>
+          !JSON.stringify(s.memory?.commissionedCorps ?? {}).includes("carry-bank-")
+        ),
+        eventually("the feeder relays the surplus to the controller input", (s) => {
+          const creeps = s.memory?.creeps ?? {};
+          for (const name in creeps) {
+            if (creeps[name]?.lastDeliver?.to === "controller-input") return true;
+          }
+          return false;
+        }),
+        eventually("the surplus becomes controller progress", (s) => {
+          const ctrl = s.objects().find((o: any) => o.type === "controller");
+          return !!ctrl && (ctrl.progress ?? 0) >= 500;
+        }),
+      ],
+    },
   ];
 }
 

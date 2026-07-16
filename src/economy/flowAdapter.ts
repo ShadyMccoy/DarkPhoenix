@@ -41,37 +41,30 @@ import { commissionsFromPlan } from "./commissionPlan";
 export const ANTI_DOWNGRADE_RESERVE = 2;
 
 /**
- * Energy/tick the planner keeps routing to the controller ONCE THE ROOM HAS A
- * STORAGE bank; everything above this banks in the storage instead of piling at
- * the controller drop-off (owner 2026-07-11: "once we have a storage, that should
- * be a good destination for a lot of drop-offs, and we deliver it locally from
- * there"). This is the deposit half of the storage bank: the durable storage - not
- * the controller - soaks the surplus, so it can accumulate the expansion CAPEX the
- * capital trigger saves toward (bankedEnergy reads storage; STORAGE_BANK spill to
- * the controller otherwise capped it at 10k, below EXPANSION_CAPEX).
- *
- * It is the tuning knob for the upgrade-vs-bank balance: raise it to favour faster
- * RCL, lower it to save harder. Below this rate the controller still mops up ALL
- * income (its capacity exceeds the supply, so nothing is left to bank), so a lean
- * single/2-source room upgrades exactly as before and only genuine surplus banks.
- * Comfortably above the anti-downgrade reserve so upgrading always makes progress.
- * Without a storage there is nowhere durable to bank surplus, so the controller
- * keeps absorbing the whole remainder (pre-storage behaviour is unchanged).
+ * The save-regime controller cap lives in economy/bank.ts with the rest of the
+ * warchest primitives (the feeder and upgrader sizing derive from the same
+ * module); re-exported here for the existing import sites.
  */
-export const STORAGE_UPGRADE_TARGET = 15;
+export { STORAGE_UPGRADE_TARGET } from "./bank";
+import { STORAGE_UPGRADE_TARGET, bankToTransientSource } from "./bank";
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
- * the controller's room has a storage bank, then bounded to {@link
- * STORAGE_UPGRADE_TARGET} so the surplus banks in storage. Pure over the set of
- * storage-bearing rooms so it is unit-testable without Game.
+ * the controller's room has a storage bank that is still FILLING, then bounded to
+ * {@link STORAGE_UPGRADE_TARGET} so the surplus banks in storage. Once the bank
+ * passes the warchest target (the room appears in `surplusRooms` because a bank
+ * source was emitted for it - see detectBankSources), the cap lifts and the
+ * controller reverts to mopping up: the warchest is full, so there is nothing
+ * left to save for and the surplus draw needs somewhere to land. Pure over the
+ * two room sets so it is unit-testable without Game.
  */
 export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
-  roomsWithStorage: ReadonlySet<string>
+  roomsWithStorage: ReadonlySet<string>,
+  surplusRooms: ReadonlySet<string> = new Set()
 ): number {
-  if (roomsWithStorage.has(sink.position.roomName)) {
+  if (roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
   return Math.max(totalSupply, 1);
@@ -220,6 +213,26 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
 }
 
 /**
+ * Detect SURPLUS storage banks across visible owned rooms and turn each into a
+ * transient bank source at its storage position (spec 03 withdrawal, surplus
+ * half - see economy/bank.ts). A bank still filling its warchest emits nothing:
+ * the deposit half (STORAGE_UPGRADE_TARGET cap) keeps accumulating it. Live
+ * default for buildColonyProblem; injectable for tests.
+ */
+export function detectBankSources(): PlannerSource[] {
+  if (typeof Game === "undefined" || !Game.rooms) return [];
+  const out: PlannerSource[] = [];
+  for (const roomName in Game.rooms) {
+    const storage = Game.rooms[roomName].storage;
+    if (!storage || !storage.my) continue;
+    const banked = storage.store.energy ?? 0;
+    const source = bankToTransientSource(roomName, { x: storage.pos.x, y: storage.pos.y, roomName }, banked);
+    if (source) out.push(source);
+  }
+  return out;
+}
+
+/**
  * Sources whose haul route ConstructionCorp has fully paved, by GAME id (the
  * `paved` receipt in room memory - see RoomMemory.roadRoutes). Graph source ids
  * carry a "source-" prefix, so callers match with stripFlowId. Live default for
@@ -242,7 +255,8 @@ export function buildColonyProblem(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
-  pavedSources: Set<string> = detectPavedSources()
+  pavedSources: Set<string> = detectPavedSources(),
+  bankSources: PlannerSource[] = detectBankSources()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -261,8 +275,10 @@ export function buildColonyProblem(
   // the shard1 stress fixture: unhauled piles grew, inflating supply until
   // the plan wanted build 140 e/t / 316 CARRY against 20 e/t of mining).
   const minedSupply = sources.reduce((sum, s) => sum + s.rate, 0);
-  // Ground stocks join as miner-less transient sources (scavenging).
-  sources.push(...transientSources);
+  // Ground stocks join as miner-less transient sources (scavenging), and so
+  // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
+  // is a ground-stock-shaped supply at the storage position).
+  sources.push(...transientSources, ...bankSources);
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
 
   // Rooms whose bank is built: their controller stops mopping up the surplus so
@@ -271,11 +287,17 @@ export function buildColonyProblem(
   for (const sink of graph.getSinks()) {
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
   }
+  // Rooms whose bank is in SURPLUS (a bank source was emitted): the warchest is
+  // full, so the controller cap lifts AND - the structural anti-pump (spec 03) -
+  // the room's storage sink is dropped from this solve entirely. Withdrawing
+  // and depositing in the same plan is impossible by construction.
+  const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
 
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
     if (!kind) continue;
+    if (kind === "storage" && surplusRooms.has(sink.position.roomName)) continue;
     sinks.push({
       id: sink.id,
       kind,
@@ -310,7 +332,7 @@ export function buildColonyProblem(
             Math.max(minedSupply, 1)
           : kind === "storage"
           ? Math.max(totalSupply, 1) // soak excess
-          : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage), // controller: mops up the remainder, unless a storage banks the surplus
+          : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage, surplusRooms), // controller: mops up the remainder, unless a still-filling storage banks the surplus
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
   }
@@ -338,6 +360,10 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     corps.push({ kind: "mine", work: Math.max(1, Math.ceil(m.rate / 2)), sourceId: m.sourceId, spawnId: m.spawnId });
   }
   for (const h of plan.haulers) {
+    // Bank flows are executed by the depot movers (tender/feeder), never by a
+    // spawnable CarryCorp - publishing them would be permanent phantom variance
+    // for the plan-vs-fielded gauges.
+    if (h.sourceId.startsWith("bank-")) continue;
     corps.push({
       kind: "haul",
       carry: Math.max(1, Math.ceil(h.carryParts)),
@@ -373,9 +399,10 @@ export function solveWithCorpPlanner(
   graph: FlowGraph,
   tick = 0,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  bankSources: PlannerSource[] = detectBankSources()
 ): FlowSolution {
-  return solveColony(graph, tick, dist, transientSources).solution;
+  return solveColony(graph, tick, dist, transientSources, bankSources).solution;
 }
 
 /**
@@ -392,9 +419,17 @@ export function solveColony(
   graph: FlowGraph,
   tick = 0,
   dist: ColonyProblem["dist"] = pathDistance,
-  transientSources: PlannerSource[] = detectTransientSources()
+  transientSources: PlannerSource[] = detectTransientSources(),
+  bankSources: PlannerSource[] = detectBankSources()
 ): { solution: FlowSolution; commissions: Commission[] } {
-  const problem = buildColonyProblem(graph, dist, transientSources, detectLinkHaulPositions(graph));
+  const problem = buildColonyProblem(
+    graph,
+    dist,
+    transientSources,
+    detectLinkHaulPositions(graph),
+    detectPavedSources(),
+    bankSources
+  );
   const plan = planColony(problem);
   publishRoster(plan);
   const commissions = commissionsFromPlan(problem, plan);

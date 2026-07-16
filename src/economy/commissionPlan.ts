@@ -75,6 +75,13 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     routesBySource.set(h.sourceId, list);
   }
   for (const [sourceId, routes] of routesBySource) {
+    // Bank sources (spec 03 withdrawal) get NO transport commission: the depot
+    // movers already run those legs - the extension tender (bank -> spawn) and
+    // the ControllerFeederCorp (bank -> controller input, sized to the same
+    // economy/bank primitives). A CarryCorp here would fight the feeder for
+    // the input tile and, via the feeder-active redirect, pump the load
+    // straight back into the storage it withdrew from.
+    if (sourceId.startsWith("bank-")) continue;
     const src = sourceById.get(sourceId);
     const flow = routes.reduce((s, r) => s + r.flowRate, 0);
     out.push({

@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { upgraderAllocation, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { WARCHEST_TARGET, feederRelayRate } from "../../../src/economy/bank";
+import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
 /**
  * The upgrader COUNT ceiling. Sized to consume the controller allocation, but
@@ -37,5 +39,45 @@ describe("upgraderTargetCount", () => {
 
   it("always fields at least one upgrader so the controller is never abandoned", () => {
     expect(upgraderTargetCount(0, 2, PARKING, 2)).to.equal(1);
+  });
+});
+
+/**
+ * The upgrader ENERGY allocation (stock-grounded sizing, spec 03 surplus half).
+ * The plan says what SHOULD flow to the controller; the work-site stock says
+ * what DID. While the warchest fills, upgraders sip (floor trickle inflow) so
+ * the bank actually accumulates; once the bank is in SURPLUS and a feeder
+ * relays it, the relay rate is real measured-shape inflow and the fleet scales
+ * up to planAllocated - that is what spends a 100k bank on the controller.
+ */
+describe("upgraderAllocation", () => {
+  it("trusts the plan when the stock is unmeasurable (no controller in view)", () => {
+    expect(upgraderAllocation(12, null, null)).to.equal(12);
+  });
+
+  it("save regime: sips from the local stock while the warchest fills", () => {
+    // 2000 staged at the input, bank below target behind the feeder: the
+    // pinned pre-surplus behavior - 2 + 2000/1500 ~ 3.33, NOT the plan's 15.
+    expect(upgraderAllocation(15, 2000, 10_000)).to.be.closeTo(sustainableConsumptionRate(2000, 2), 1e-9);
+  });
+
+  it("save regime: no feeder relay behind the stock behaves identically", () => {
+    expect(upgraderAllocation(15, 2000, null)).to.be.closeTo(sustainableConsumptionRate(2000, 2), 1e-9);
+  });
+
+  it("surplus regime: the feeder relay is real inflow and the fleet scales to the plan", () => {
+    const banked = WARCHEST_TARGET + 100_000;
+    // plan opened to 30 by the bank draw; relay 35 + stock term clears it, so
+    // the PLAN caps the fleet (planner authority), not the drip-fed stock.
+    expect(upgraderAllocation(30, 2000, banked)).to.be.closeTo(30, 1e-9);
+    // and the uncapped sizing is exactly the shared-primitives formula
+    expect(upgraderAllocation(999, 2000, banked)).to.be.closeTo(
+      sustainableConsumptionRate(2000, feederRelayRate(banked)),
+      1e-9
+    );
+  });
+
+  it("never sizes below the anti-downgrade floor", () => {
+    expect(upgraderAllocation(15, 0, null)).to.equal(2);
   });
 });

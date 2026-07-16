@@ -25,6 +25,25 @@ import { PlannerSource } from "./CorpPlanner";
 /** Below this many energy a stock is left to opportunistic source-hauler pickup. */
 export const SCAVENGE_THRESHOLD = 750;
 
+/**
+ * Chebyshev range around an OWNED controller inside which energy is the
+ * upgraders' working buffer, never scavenge supply - WHILE A FEEDER RELAY
+ * MANAGES IT (room.memory.controllerFeederActive). Matches upgrade range and
+ * the input-spot buffer scan (controllerInputSpot resolves containers within
+ * range 3): under a feeder the input stock is held at CONTROLLER_FEED_TARGET,
+ * so planning it as supply commissions haulers to carry the upgraders' own
+ * buffer home again - an energy circle the feeder immediately refills, paying
+ * transport overhead in both directions forever.
+ *
+ * The gate matters: BEFORE a room has a feeder (no storage - RCL2/3), the
+ * controller drop-off is the colony's OVERFLOW buffer (haulers spill the
+ * post-spawn surplus there), and scavenging the overgrown pile back into
+ * construction is load-bearing recapture - excluding it unconditionally left
+ * the spill to rot (measured: fid-t4-preramped gross fidelity 72% -> 53%,
+ * decay 5.5 e/t of 20 mined).
+ */
+export const CONTROLLER_BUCKET_RANGE = 3;
+
 /** Target ticks to clear a stock - sets how much hauling we throw at it. */
 export const SCAVENGE_DRAIN_TICKS = 150;
 
@@ -76,6 +95,18 @@ export function collectStocks(finds: EnergyFind[], threshold = SCAVENGE_THRESHOL
     .map(f => ({ id: stockId(f.pos), pos: f.pos, amount: f.energy }));
 }
 
+/**
+ * Drop finds inside the controller bucket (see CONTROLLER_BUCKET_RANGE). Pure:
+ * pass null when the room has no owned controller and everything is kept.
+ */
+export function excludeControllerBucket(finds: EnergyFind[], controllerPos: Position | null): EnergyFind[] {
+  if (!controllerPos) return finds;
+  return finds.filter(
+    f =>
+      Math.max(Math.abs(f.pos.x - controllerPos.x), Math.abs(f.pos.y - controllerPos.y)) > CONTROLLER_BUCKET_RANGE
+  );
+}
+
 /** Turn a detected stock into a transient PlannerSource (no miner; bounded drain rate). */
 export function stockToTransientSource(stock: GroundStock, nodeId: string): PlannerSource {
   return {
@@ -94,7 +125,7 @@ export function stockToTransientSource(stock: GroundStock, nodeId: string): Plan
  * functions above.
  */
 export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): GroundStock[] {
-  const finds: EnergyFind[] = [];
+  let finds: EnergyFind[] = [];
 
   for (const r of room.find(FIND_DROPPED_RESOURCES)) {
     if (r.resourceType === RESOURCE_ENERGY && r.amount > 0) {
@@ -109,6 +140,17 @@ export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): Gr
     const energy = ruin.store[RESOURCE_ENERGY];
     if (energy > 0) finds.push({ pos: ruin.pos, energy });
   }
+
+  // The FEEDER-MANAGED controller bucket is not scavengeable: that energy
+  // already reached its destination and the feeder would just refill it (the
+  // circle). Without a feeder the drop-off is the overflow buffer and stays
+  // scavengeable - recapture of over-spill into construction is load-bearing.
+  const ctrl = room.controller;
+  const feederManaged = !!ctrl && ctrl.my && !!room.memory.controllerFeederActive;
+  finds = excludeControllerBucket(
+    finds,
+    feederManaged ? { x: ctrl!.pos.x, y: ctrl!.pos.y, roomName: room.name } : null
+  );
 
   // ONE SUMMED STOCK (owner 2026-07-10): a pile sitting on/next to a stocked
   // container is a single quantity of energy for planning - the container's

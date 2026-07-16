@@ -19,6 +19,7 @@ import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
+import { spendableBankSurplus } from "../economy/bank";
 import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
 
@@ -604,6 +605,22 @@ export class ConstructionCorp extends Corp {
       const depot = this.findMissingCoreDepot(room);
       if (depot) {
         this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER);
+        return;
+      }
+    }
+
+    // 1.7 Controller container JUMPS the queue in the surplus-spend regime
+    //     (spec 03 withdrawal): with the warchest full, the feeder relays the
+    //     bank draw plus the upgrade target through the drop-off - 30+ e/t
+    //     across a bare tile whose pile decays ~2 e/t forever. The 5k
+    //     container pays for itself in ~2500 ticks and every rung below waits
+    //     one 5k build. While the warchest is still FILLING the ladder is
+    //     unchanged (rung 3 below) - cons-ext-before-ctrl-container and
+    //     cons-link-core-first pin that ordering.
+    if (containersOpen && room.storage?.my && spendableBankSurplus(room.storage.store.energy ?? 0) > 0) {
+      const ctrlContainer = this.findMissingControllerContainer(room);
+      if (ctrlContainer) {
+        this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER);
         return;
       }
     }

@@ -657,6 +657,43 @@ export function buildConstructionT4Cells(): GridCell[] {
     },
 
     {
+      // Spec 03 surplus regime: with the warchest FULL (40k > 27,650), the
+      // feeder relays 30+ e/t through the drop-off, and a bare tile decays
+      // ~2 e/t forever - so the 5k controller container JUMPS the extension
+      // grind. The normal ladder (extensions first, controller container last)
+      // stays pinned by cons-ext-before-ctrl-container and
+      // cons-ctrl-container-last: a FILLING bank (e.g. cons-link-core-first's
+      // 10k) never hoists.
+      id: "cons-ctrl-container-surplus-first",
+      tier: 4,
+      avenue: "construction",
+      window: 60,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [
+        { type: "storage", x: 24, y: 25, energy: 40_000 },
+        { type: "container", x: 15, y: 29, energy: 0 },
+        { type: "container", x: 35, y: 29, energy: 0 },
+        // extensions BELOW the RCL4 cap: the extension rung still wants more,
+        // which is exactly what the hoist must outrank in surplus
+        ...EXT_20.slice(0, 10).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      assertions: [
+        eventually("the drop-off container jumps the extension grind", (s) =>
+          sites(s).some(
+            (o: any) =>
+              o.structureType === "container" && Math.max(Math.abs(o.x - 25), Math.abs(o.y - 10)) <= 2
+          )
+        ),
+        always("no extension site while the surplus pours over a bare drop-off", (s) =>
+          !sites(s).some((o: any) => o.structureType === "extension")
+        ),
+      ],
+    },
+
+    {
       // Link anchoring: at RCL5 with zero links, the CORE link beside the
       // storage wins - even though both sources are >8 range and eligible.
       id: "cons-link-core-first",
