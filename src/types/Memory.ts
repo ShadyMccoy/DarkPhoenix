@@ -39,6 +39,18 @@ declare global {
     sourceCount: number;
     /** Positions of energy sources */
     sourcePositions: { x: number; y: number }[];
+    /**
+     * Real game ids of the sources, index-aligned with sourcePositions. The
+     * node-resource refresh prefers these over minting positional
+     * `intel-ROOM-X-Y` ids, so a source's flow id - and the commission corpId
+     * / harvest corp derived from it - is STABLE across losing vision of the
+     * room. Without this, a mined remote whose creeps were wiped (invader)
+     * re-registered under a different id on the intel fallback, and the
+     * re-solve materialized a SECOND corp for the same physical source, which
+     * double-spawned its miner. Optional: entries written before this field
+     * fall back to positional ids until re-sighted.
+     */
+    sourceIds?: string[];
     /** Type of mineral in the room (if any) */
     mineralType: MineralConstant | null;
     /** Position of the mineral (if any) */

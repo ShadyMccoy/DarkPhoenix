@@ -230,6 +230,10 @@ export class ScoutCorp extends Corp {
 
     const sources = room.find(FIND_SOURCES);
     const sourcePositions = sources.map(s => ({ x: s.pos.x, y: s.pos.y }));
+    // Real ids, index-aligned with sourcePositions: the node-resource refresh
+    // uses them so a source keeps ONE flow id across vision flips (see
+    // RoomIntel.sourceIds - the duplicate-miner-after-an-invader fix).
+    const sourceIds = sources.map(s => s.id);
 
     const minerals = room.find(FIND_MINERALS);
     const mineral = minerals[0];
@@ -250,6 +254,7 @@ export class ScoutCorp extends Corp {
       lastVisit: Game.time,
       sourceCount: sources.length,
       sourcePositions,
+      sourceIds,
       mineralType,
       mineralPos,
       controllerLevel,

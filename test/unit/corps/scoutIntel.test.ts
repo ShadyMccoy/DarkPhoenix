@@ -20,7 +20,7 @@ function remoteRoom(name: string, opts: { reservation?: string; lastVisit?: numb
       reservation: opts.reservation ? { username: opts.reservation } : undefined
     },
     find: (type: number) => {
-      if (type === FIND_SOURCES) return [{ pos: { x: 25, y: 25 } }];
+      if (type === FIND_SOURCES) return [{ id: "src-live-1", pos: { x: 25, y: 25 } }];
       if (type === FIND_MINERALS) return [];
       return []; // hostiles etc.
     }
@@ -46,6 +46,17 @@ describe("ScoutCorp intel from vision (not just scouts)", () => {
     expect(intel.controllerPos).to.deep.equal({ x: 10, y: 10 });
     expect(intel.sourcePositions).to.deep.equal([{ x: 25, y: 25 }]);
     expect(intel.lastVisit).to.equal(Game.time);
+  });
+
+  it("records each source's REAL game id beside its position (stable identity for the intel fallback)", () => {
+    // The node-resource refresh prefers these ids over positional `intel-...`
+    // ids, so a source's flow id - and its harvest corp - survives losing
+    // vision of the room (the duplicate-miner-after-an-invader incident).
+    Game.rooms = { W1N0: remoteRoom("W1N0") };
+    new ScoutCorp("W0N0-scout", "spawn1").work(Game.time);
+
+    const intel = (Memory as any).roomIntel!.W1N0 as any;
+    expect(intel.sourceIds, "ids aligned with sourcePositions").to.deep.equal(["src-live-1"]);
   });
 
   it("captures the controller reservation so the planner can see who holds it", () => {

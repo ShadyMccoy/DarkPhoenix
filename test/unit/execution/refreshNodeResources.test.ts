@@ -196,6 +196,56 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     expect(node.resources.filter((r) => r.type === "source")[0].capacity).to.equal(1500);
   });
 
+  it("registers an intel source under its REAL game id when intel recorded one", () => {
+    // Source identity must be STABLE across vision loss. The intel fallback used
+    // to mint a positional id (`intel-ROOM-X-Y`), so a mined remote that lost
+    // vision (e.g. an invader wiped its creeps and the defunding gate kept
+    // replacements home) re-registered as a DIFFERENT flow source. The commission
+    // corpId follows the source id, so the re-solve materialized a second harvest
+    // corp for the same physical source - and each corp spawned its own miner
+    // (the duplicate-miner-after-an-invader incident). With the real id recorded
+    // in intel, the id - and the corp - survives the vision flip.
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" },
+      { x: 24, y: 25, roomName: "W1N0" },
+      { x: 26, y: 25, roomName: "W1N0" },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const intel = intelWithSource(100, 25, 25) as any;
+    intel.sourceIds = ["5bbcadc99099fc012e6342cc"]; // captured while the room was visible
+    Memory.roomIntel!["W1N0"] = intel as never;
+
+    refreshNodeResources(colony, result);
+
+    const sources = node.resources.filter((r) => r.type === "source");
+    expect(sources).to.have.length(1);
+    expect(sources[0].id, "intel source keeps its real game id").to.equal("5bbcadc99099fc012e6342cc");
+  });
+
+  it("falls back to the positional intel id only when no real id was recorded (legacy intel)", () => {
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" },
+      { x: 24, y: 25, roomName: "W1N0" },
+      { x: 26, y: 25, roomName: "W1N0" },
+    ]);
+
+    // Pre-sourceIds intel entry (old Memory): no ids recorded.
+    Memory.roomIntel!["W1N0"] = intelWithSource(100, 25, 25) as never;
+
+    refreshNodeResources(colony, result);
+
+    const sources = node.resources.filter((r) => r.type === "source");
+    expect(sources).to.have.length(1);
+    expect(sources[0].id).to.equal("intel-W1N0-25-25");
+  });
+
   it("does not claim a source outside the node's territory", () => {
     const colony = new Colony();
     const node = createNode("n-remote", "W1N0", { x: 5, y: 5, roomName: "W1N0" }, 1, ["W1N0"], 100);
