@@ -24,7 +24,7 @@ import { Position } from "../types/Position";
 import { CoreDepot, coreDepot, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
-import { STORAGE_UPGRADE_TARGET } from "../economy/flowAdapter";
+import { feederRelayRate } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -40,7 +40,8 @@ export interface SerializedControllerFeederCorp extends SerializedCorp {
 const CONTROLLER_FEED_TARGET = 2000;
 
 /**
- * ControllerFeederCorp fields one feeder that shuttles storage -> controller input.
+ * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
+ * while a bank surplus is being drawn down) that relays storage -> controller input.
  */
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
@@ -183,10 +184,16 @@ export class ControllerFeederCorp extends Corp {
   }
 
   /**
-   * Demand one feeder once a storage bank exists and the room produces energy.
-   * NON-blocking infrastructure: until it spawns, room.memory.controllerFeederActive
+   * Demand feeders once a storage bank exists and the room produces energy.
+   * NON-blocking infrastructure: until one spawns, room.memory.controllerFeederActive
    * stays false and the haulers feed the controller directly, so nothing is starved.
-   * Sized to sustain the upgrade target over the bank->controller round trip.
+   * Sized to sustain the RELAY RATE (economy/bank.feederRelayRate) over the
+   * bank->controller round trip: the save-regime upgrade target while the
+   * warchest fills - one shuttle, exactly as before - plus the surplus draw
+   * once the bank is full, fielding additional shuttles when one body cannot
+   * physically move the flow (a 35 e/t relay is ~27 CARRY across a 15-tile
+   * leg; pretending one 13-CARRY feeder covers it would starve the upgraders
+   * the plan just scaled up).
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -196,15 +203,18 @@ export class ControllerFeederCorp extends Corp {
     if (!controller) return [];
     if (!(room.storage && room.storage.my)) return []; // no bank yet -> haulers feed the controller directly
     if (!this.roomHasMiner(room)) return []; // infrastructure follows income
-    if (this.getFeeders().length >= 1) return []; // one feeder per room is enough
 
-    // Balanced 1:1 body sized to sustain the upgrade target over the round trip
-    // (the feeder travels, unlike the parked extension tender). The storage sits by
+    // Balanced 1:1 body sized to sustain the relay over the round trip (the
+    // feeder travels, unlike the parked extension tender). The storage sits by
     // the spawn, so the spawn->controller distance approximates the bank->controller leg.
+    const banked = room.storage.store.energy ?? 0;
     const distance = spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
-    const carry = Math.max(1, Math.min(Math.ceil(carryPartsFor(STORAGE_UPGRADE_TARGET, distance) * 1.2), maxCarry));
+    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(feederRelayRate(banked), distance) * 1.2));
+    const wantedFeeders = Math.ceil(neededCarry / maxCarry);
+    if (this.getFeeders().length >= wantedFeeders) return [];
+    const carry = Math.min(neededCarry, maxCarry);
 
     return [
       {

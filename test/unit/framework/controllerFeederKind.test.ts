@@ -154,6 +154,67 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(demands[0].producesIncome).to.equal(false);
   });
 
+  it("sizes the relay to the save-regime target while the warchest fills", async () => {
+    const { STORAGE_UPGRADE_TARGET } = await import("../../../src/economy/bank");
+    const { carryPartsFor } = await import("../../../src/economy/primitives");
+    const store: CorpStore = new Map();
+    materializeCommissions(planCommissions(world).commissions, store);
+    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+
+    installRoom(true, true); // bank at 5000: well below the warchest target
+    const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
+    expect(demands).to.have.length(1);
+    // spawn (25,25) -> controller (40,25): range 15. Sized to sustain the
+    // save-regime 15 e/t over the round trip, exactly as before the surplus
+    // mechanism existed - a filling warchest must see NO behavior change.
+    const expected = Math.ceil(carryPartsFor(STORAGE_UPGRADE_TARGET, 15) * 1.2);
+    expect(demands[0].bodyParam).to.equal(expected);
+  });
+
+  it("scales the relay (more feeders) once the bank is in surplus", async () => {
+    const { WARCHEST_TARGET, feederRelayRate } = await import("../../../src/economy/bank");
+    const { carryPartsFor } = await import("../../../src/economy/primitives");
+    const store: CorpStore = new Map();
+    materializeCommissions(planCommissions(world).commissions, store);
+    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+
+    installRoom(true, true);
+    const banked = WARCHEST_TARGET + 100_000; // deep surplus: draw at its cap
+    (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = banked;
+
+    // needed carry across the relay exceeds one max body (13 CARRY at 1300
+    // capacity), so the corp fields a second (and third) feeder rather than
+    // pretending one shuttle can move 35 e/t.
+    const needed = Math.ceil(carryPartsFor(feederRelayRate(banked), 15) * 1.2);
+    const maxCarry = 13;
+    const wantedFeeders = Math.ceil(needed / maxCarry);
+    expect(wantedFeeders).to.be.greaterThan(1); // the scenario actually exercises scaling
+
+    const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
+    expect(demands).to.have.length(1);
+    expect(demands[0].bodyParam).to.equal(maxCarry);
+
+    // stub live feeders one below the target: still demanding
+    for (let i = 0; i < wantedFeeders - 1; i++) {
+      Game.creeps[`feed${i}`] = {
+        name: `feed${i}`,
+        spawning: false,
+        room: { name: HOME },
+        memory: { corpId: corp.id, workType: "feed" }
+      } as never;
+    }
+    expect(corp.getSpawnDemand({ energyCapacity: 1300 } as never)).to.have.length(1);
+
+    // at the target: satisfied
+    Game.creeps[`feed${wantedFeeders - 1}`] = {
+      name: `feed${wantedFeeders - 1}`,
+      spawning: false,
+      room: { name: HOME },
+      memory: { corpId: corp.id, workType: "feed" }
+    } as never;
+    expect(corp.getSpawnDemand({ energyCapacity: 1300 } as never)).to.have.length(0);
+  });
+
   it("rung 3 - EXECUTE/PERSIST: run() is safe; store round-trips to a fixpoint", () => {
     installRoom(true, true);
     const store: CorpStore = new Map();

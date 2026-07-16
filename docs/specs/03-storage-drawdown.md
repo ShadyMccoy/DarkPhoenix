@@ -1,17 +1,47 @@
-# 03 — Storage draw-down (spend the bank when income dips)
+# 03 — Storage draw-down (spend the bank)
 
-**Status:** withdrawal not started; the deposit half now works. As of the
-storage-hauler-routing change the planner caps the controller at
-`STORAGE_UPGRADE_TARGET` once a room has a storage (`flowAdapter.ts`) and routes
-the surplus to the storage sink, which CarryCorp delivers as a first-class `storage`
-circuit (`deliverToStorage`) with no spill ceiling — so the bank actually
-accumulates the expansion CAPEX instead of stalling at `STORAGE_BANK = 10000`.
-Withdrawal is partially implicit: the tender refills extensions from the depot,
-and `ControllerFeederCorp` relays storage → controller input as a steady last
-leg once a bank exists. But neither is an *income-dip response* — nothing feeds
-builders from the bank, and the planner never treats the bank as supply when
-income collapses.
-**Priority:** P1.
+**Status:** the SURPLUS half is LIVE (2026-07-16); the income-dip (shortfall)
+half is not started. The deposit half works: the planner caps the controller at
+`STORAGE_UPGRADE_TARGET` once a room has a storage (`economy/bank.ts`, re-exported
+by `flowAdapter.ts`) and routes the surplus to the storage sink, which CarryCorp
+delivers as a first-class `storage` circuit (`deliverToStorage`) with no spill
+ceiling — so the bank actually accumulates the expansion CAPEX instead of
+stalling at `STORAGE_BANK = 10000`.
+
+The **surplus withdrawal** now closes the loop (measured live failure it fixes:
+100k+ banked while the controller upgraded at ~3.3 e/t): once a room's bank
+passes `WARCHEST_TARGET = EXPANSION_CAPEX + 2·EXPANSION_SAFETY_RESERVE`
+(`economy/bank.ts`), the surplus joins the solve as a transient **bank source**
+at the storage position (`detectBankSources`, `flowAdapter.ts`), that room's
+storage sink is dropped from the problem (structural anti-pump), and the
+controller cap lifts back to mop-up. The runtime chain scales from the same
+primitives: `ControllerFeederCorp` fields shuttles to `feederRelayRate(banked)`
+and upgrader sizing (`upgraderAllocation`, `UpgradingCorp.ts`) uses the relay
+as its inflow term while a feeder actively relays a surplus. Bank flows never
+materialize as CarryCorp commissions (`commissionPlan.ts` skips `bank-*`) —
+the tender (bank → spawn/extensions) and feeder (bank → controller input) own
+those legs. The draw tapers linearly (`surplus/150`, capped 20 e/t), so the
+bank settles AT the warchest with everything above it flowing to the
+controller — an equilibrium, not a mode switch.
+
+Companion fixes in the same change: the controller drop-off container jumps
+the construction ladder in the surplus regime (`ConstructionCorp.ts` rung 1.7 —
+a bare drop tile decays ~2 e/t under a 30 e/t relay), and stocks inside the
+FEEDER-MANAGED controller bucket (Chebyshev ≤ 3 of an owned controller, only
+while `controllerFeederActive`) are excluded from scavenge detection
+(`excludeControllerBucket`, `scavenge.ts`) so the upgraders' buffer can never
+be re-planned as supply while the feeder would just refill it. Pre-feeder the
+drop-off stays scavengeable — it is the colony's overflow buffer there, and
+recapturing over-spill into construction is load-bearing (measured:
+unconditional exclusion dropped fid-t4-preramped gross fidelity 72% → 53%,
+5.5 e/t rotting on the ground).
+
+What remains is the *income-dip response* — nothing feeds builders from the
+bank, and the planner still never treats the bank as supply when income
+collapses while the bank is BELOW the warchest (the `bankDrawRate` design
+below).
+**Priority:** P1 (remaining shortfall half: P2 — the surplus half removed the
+main live bleed).
 
 ## Goal
 

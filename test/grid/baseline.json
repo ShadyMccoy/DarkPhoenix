@@ -35,6 +35,7 @@
     "spawn-timer-survives-busy-spawn": "pass",
     "spawn-hold-full-miner-regrow": "pass",
     "haul-t4-feeder-fields-for-bank": "pass",
+    "haul-t4-bank-surplus-upgrades": "pass",
     "spawn-first-miner-outranks-all": "pass",
     "haul-t4-tender-bus-regime": "pass",
     "spawn-blocking-hauler-spawns-at-min-scaled": "pass",

@@ -51,10 +51,15 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    spawn/controller/storage; SK rooms skipped), and builds source×sink edges
    with **real cached `pathDistance`** (`:216`). Shapes in `flow/FlowTypes.ts`.
 
-3. **FlowGraph → ColonyProblem.** `economy/flowAdapter.ts:108` `buildColonyProblem`
+3. **FlowGraph → ColonyProblem.** `economy/flowAdapter.ts` `buildColonyProblem`
    flattens the graph into a pure, `Game`-free `ColonyProblem` (`CorpPlanner.ts:90`):
    `{spawns, sources, sinks, dist}`. It also injects **scavenge** sources
-   (dropped energy/tombstones ≥ 750, `scavenge.ts`) and **link `haulPos`**
+   (dropped energy/tombstones ≥ 750, `scavenge.ts`; stocks inside a
+   feeder-managed controller bucket are excluded — the feeder would just
+   refill them), **bank**
+   sources (spec 03 surplus draw-down: a storage above `WARCHEST_TARGET`
+   becomes a transient source and its room's storage sink is dropped —
+   `economy/bank.ts`), and **link `haulPos`**
    (a link-served source is *hauled* from the core link by storage but *mined*
    at the real walk distance). Sink `value` = `DEFAULT_SINK_VALUE`; controllers
    carry `reserve = ANTI_DOWNGRADE_RESERVE` (2).

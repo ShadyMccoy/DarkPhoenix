@@ -16,6 +16,7 @@ import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
+import { bankSurplusRate, feederRelayRate } from "../economy/bank";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -50,6 +51,34 @@ export function upgraderTargetCount(
   const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
   const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
   return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
+}
+
+/**
+ * The energy/tick the upgrader fleet is sized to consume (pure, unit-tested):
+ * STOCK-GROUNDED sizing (owner doctrine 2026-07-10) - the stock at the work
+ * site drained over a creep generation, plus what measurably flows in - capped
+ * by the plan's allocation so upgraders never out-eat what the solver routes.
+ *
+ * The inflow term is the anti-downgrade trickle (2)... UNLESS the room's bank
+ * is in SURPLUS and a feeder is actively relaying it (bankedBehindFeeder is
+ * the storage's energy when `controllerFeederActive`, null otherwise). Then
+ * the relay rate (economy/bank.feederRelayRate - the same primitive that
+ * sizes the feeder fleet) is the real inflow, and the fleet scales up to the
+ * plan. This is the consumption half of the spec-03 surplus draw: while the
+ * warchest FILLS the sip keeps the bank accumulating (the pinned save
+ * regime); once it is FULL the windfall doctrine applies - "a windfall ->
+ * consumers scale up to eat it" - which a feeder-capped 2000 input stock
+ * otherwise hides (measured live: 100k banked, upgraders sized to ~3.3 e/t).
+ */
+export function upgraderAllocation(
+  planAllocated: number,
+  stock: number | null,
+  bankedBehindFeeder: number | null
+): number {
+  if (stock === null) return planAllocated;
+  const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
+  const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
+  return Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, inflow)));
 }
 
 /**
@@ -355,18 +384,19 @@ export class UpgradingCorp extends Corp {
     const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
     const planAllocated = spawn ? this.effectiveAllocated(spawn.room, base) : base;
     // STOCK-GROUNDED sizing (owner doctrine 2026-07-10): the upgrader fleet is
-    // sized to the energy ACTUALLY at the controller side - banked stock
-    // drained over a creep lifetime - not to the goal plan's allocation. The
-    // plan says what SHOULD flow here; the stock is what DID. Under-delivery
-    // keeps upgraders minimal (spawn capacity stays on the supply side, macro:
-    // income first); accumulated savings scale them up to be spent. Floored
-    // at the anti-downgrade reserve so the controller is never abandoned, and
-    // capped by the plan so upgraders never out-eat what the solver routes.
-    // No visible controller (harness stubs, degenerate rooms): the stock is
-    // unmeasurable, so trust the plan rather than clamping to the floor.
+    // sized to the energy ACTUALLY at the controller side - stock drained over
+    // a creep lifetime plus the measured-shape inflow - not to the goal plan's
+    // allocation (see upgraderAllocation). Under-delivery keeps upgraders
+    // minimal (spawn capacity stays on the supply side, macro: income first);
+    // a full warchest behind an active feeder relay scales them up to be
+    // spent. No visible controller (harness stubs, degenerate rooms): the
+    // stock is unmeasurable, so trust the plan rather than clamping to the floor.
     const stock = spawn && controller ? this.controllerSideStock(controller) : null;
-    const allocated =
-      stock === null ? planAllocated : Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, 2)));
+    const bankedBehindFeeder =
+      spawn && spawn.room.memory.controllerFeederActive && spawn.room.storage?.my
+        ? spawn.room.storage.store.energy ?? 0
+        : null;
+    const allocated = upgraderAllocation(planAllocated, stock, bankedBehindFeeder);
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
