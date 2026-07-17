@@ -74,7 +74,10 @@ const ROLE_KIND: Record<string, string> = {
   reserve: "reservation",
   scout: "scout",
   tank: "tender",
-  feed: "controllerFeeder"
+  feed: "controllerFeeder",
+  guard: "raidGuard",
+  buster: "coreBuster",
+  strike: "coreBuster"
 };
 
 /** Every live corp id this tick: the union of what each runner claims creeps by. */
@@ -87,6 +90,8 @@ function liveCorpIds(registry: CorpRegistry): Set<string> {
     "construction",
     "scout",
     "reservation",
+    "raidGuard",
+    "coreBuster",
     "claim",
     "tender",
     "controllerFeeder"

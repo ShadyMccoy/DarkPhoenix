@@ -479,3 +479,33 @@ export function buildReserverBody(energyCapacity: number, maxClaim = 2): Reserve
   for (let i = 0; i < claimParts; i++) body.push(MOVE);
   return { body, cost: claimParts * unitCost, claimParts };
 }
+
+/** Result of building a raid-guard body. */
+export interface GuardBodyResult {
+  body: BodyPartConstant[];
+  cost: number;
+  attackParts: number;
+}
+
+/**
+ * Raid-guard body (spec 13 phase 3): a small ATTACK/MOVE melee sized from the
+ * ENGINE'S OWN raid table, not from an estimator - reserved/unowned rooms
+ * (all our remotes) only ever face 10-part "small" invaders (1000 hits, <=T1
+ * boosts, ~90% solo). 5xATTACK/5xMOVE (650) out-damages every small template
+ * including a boosted healer (150 dps > 120 hps); the floor is 3 pairs (390)
+ * - below that the guard trades too slowly to win before taking lethal
+ * return fire. ATTACK parts first so MOVE survives longest (a wounded guard
+ * stays mobile).
+ */
+export function buildGuardBody(energyCapacity: number, maxAttack = 5): GuardBodyResult {
+  const unitCost = PART_COSTS[ATTACK] + PART_COSTS[MOVE]; // 130 per ATTACK+MOVE pair
+  const affordable = Math.floor(energyCapacity / unitCost);
+  const attackParts = Math.min(maxAttack, affordable);
+  if (attackParts < 3) {
+    return { body: [], cost: 0, attackParts: 0 };
+  }
+  const body: BodyPartConstant[] = [];
+  for (let i = 0; i < attackParts; i++) body.push(ATTACK);
+  for (let i = 0; i < attackParts; i++) body.push(MOVE);
+  return { body, cost: attackParts * unitCost, attackParts };
+}

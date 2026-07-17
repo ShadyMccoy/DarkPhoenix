@@ -25,6 +25,10 @@ export { ConstructionCorp, SerializedConstructionCorp, createConstructionCorp } 
 
 export { ReservationCorp, SerializedReservationCorp } from "./ReservationCorp";
 
+export { RaidGuardCorp, SerializedRaidGuardCorp } from "./RaidGuardCorp";
+
+export { CoreBusterCorp, SerializedCoreBusterCorp } from "./CoreBusterCorp";
+
 export { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "./ExtensionTenderCorp";
 
 export {

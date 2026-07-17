@@ -45,6 +45,30 @@ declare global {
      * refreshes on every sighting rather than being exact.
      */
     invaderReservedUntil?: number;
+    /**
+     * Energy OUR corps harvested in this room since the last observed raid -
+     * a tick-exact mirror of the engine's per-room invader fuse (spec 13:
+     * the engine fires a raid when its counter crosses a 70k-130k goal).
+     * Accrued at HarvestCorp's harvest site (utils/raidMeter); reset by the
+     * hostileRooms() vision pass when Invader creeps are sighted. Drives the
+     * raid-guard pre-spawn (armed at 65k) and goes "overdue" past 130k -
+     * evidence raids can't fire here at all.
+     */
+    raidDebt?: number;
+    /**
+     * Tick Invader-owned creeps were last SIGHTED in the room (the raid
+     * observation that reset raidDebt). Recent-sighting + active hostile
+     * mark = raid in progress: the guard corp's reactive trigger.
+     */
+    lastRaidSeen?: number;
+    /**
+     * Whether an invader CORE structure was in sight on the last sighting of
+     * an invader-reserved room. Splits the occupation for the buster corp:
+     * true = kill the core first; false = the reservation is a corpse
+     * decaying 1/tick - send the CLAIM striker. Cleared with the
+     * reservation mark.
+     */
+    invaderCorePresent?: boolean;
     /** Number of energy sources in the room */
     sourceCount: number;
     /** Positions of energy sources */
@@ -354,7 +378,20 @@ declare global {
      * - repair: Structure repair
      * - scout: Room scouting
      */
-    workType?: "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "repair" | "scout" | "reserve" | "claim";
+    workType?:
+      | "harvest"
+      | "haul"
+      | "tank"
+      | "feed"
+      | "upgrade"
+      | "build"
+      | "repair"
+      | "scout"
+      | "reserve"
+      | "claim"
+      | "guard"
+      | "buster"
+      | "strike";
 
     /**
      * Target ID for current task.
@@ -398,6 +435,13 @@ declare global {
      * itself once the room is maxed out and the spawn would otherwise idle.
      */
     recycling?: boolean;
+
+    /**
+     * Tick a raid guard lost its room assignment (no targeted room left for
+     * it). After GUARD_RECYCLE_GRACE quiet ticks it liquidates back into the
+     * spawn - working capital, not a standing army. Cleared on reassignment.
+     */
+    idleSince?: number;
 
     /**
      * A builder is mid-diversion: it left its construction work to rescue a

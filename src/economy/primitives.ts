@@ -157,3 +157,59 @@ export const MINING_BUDGET_FRACTION = 0.6;
 export function miningBudgetPerSpawn(): number {
   return SPAWN_PARTS_PER_TICK * MINING_BUDGET_FRACTION;
 }
+
+// ---------------------------------------------------------------------------
+// NPC-invader raid facts (spec 13 ground truth, verified against the vendored
+// engine in node_modules - the same code the live servers run). Raids are a
+// metered tax on OUR harvesting: the engine sums a per-source counter
+// (engine harvest.js:45-48) and the backend cron fires a raid when the room's
+// sum reaches `invaderGoal` (backend cronjobs.js:386-391).
+// ---------------------------------------------------------------------------
+
+/** The base raid goal (backend `C.INVADERS_ENERGY_GOAL`, constants.js:776). */
+export const INVADERS_ENERGY_GOAL = 100_000;
+
+/**
+ * The goal's post-raid reroll floor: `floor(100k * U(0.7, 1.3))`
+ * (cronjobs.js:433-438). Below this much accrued debt a raid CANNOT fire.
+ */
+export const RAID_GOAL_FLOOR = 70_000;
+
+/**
+ * The reroll ceiling for the common (90%) branch. Debt beyond this with no
+ * raid observed is evidence raids aren't firing here at all (sector has no
+ * live stronghold, or every exit borders an owned/reserved room) - the meter
+ * goes OVERDUE and the guard disarms.
+ */
+export const RAID_GOAL_CEIL = 130_000;
+
+/**
+ * Expected energy harvested per raid: 90% U(70k,130k) + 5% doubled + 5%
+ * exactly 100k (the engine's Math.floor(0.5)=0 quirk falls back to the base
+ * goal) = 0.9*100k + 0.05*200k + 0.05*100k.
+ */
+export const INVADER_RAID_MEAN_ENERGY = 105_000;
+
+/**
+ * Arm the guard one delivery lead under the goal floor: the crossing at
+ * ~10 e/tick gives >=500 ticks of lead versus ~180 needed for spawn + walk,
+ * so a guard commissioned here stands at the source before the raid can fire
+ * (bonzAI/Overmind arm 65k-90k against the same floor).
+ */
+export const RAID_ARM_FLOOR = 65_000;
+
+/** Raid invaders live exactly this long and never leave their room (cronjobs.js:281). */
+export const INVADER_TTL = 1_500;
+
+/**
+ * Minimum REMAINING occupation (read `invaderReservedUntil - Game.time`)
+ * before the core-buster mission is worth commissioning. Payback sketch
+ * (engine facts): income under a foreign reservation is 0, an unmolested
+ * level-0 core renews its reservation for the parent stronghold's whole
+ * collapse window (tens of thousands of ticks), and the mission costs one
+ * ATTACK body (390-1300) plus one CLAIM striker (650) against the room's
+ * FULL rate restored. At a 5-10 e/tick blackout, the mission repays in well
+ * under 1000 ticks of remaining occupation; below the gate the reservation
+ * is about to lapse on its own and fighting buys nothing.
+ */
+export const CORE_BUSTER_MIN_REMAINING = 1_000;

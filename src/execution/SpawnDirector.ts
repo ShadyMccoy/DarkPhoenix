@@ -26,6 +26,8 @@ import { record as blackBox } from "../telemetry/BlackBox";
 import { CorpRegistry } from "./CorpRunner";
 import { commissionedCorpsOfKind } from "./CommissionHost";
 import { ReservationCorp } from "../corps/ReservationCorp";
+import { RaidGuardCorp } from "../corps/RaidGuardCorp";
+import { CoreBusterCorp } from "../corps/CoreBusterCorp";
 import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
 import { ControllerFeederCorp } from "../corps/ControllerFeederCorp";
 import { HarvestCorp } from "../corps/HarvestCorp";
@@ -267,6 +269,40 @@ export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: Spa
       // opposite of the intent that reserved mining outranks plain mining. As a
       // started unit it leads all fresh source-opening while still yielding to the
       // higher-value started haulers that move the base energy.
+      d.groupId = c.id;
+      d.groupStarted = true;
+      demands.push(d);
+    }
+  }
+  // Raid guards (spec 13): producer protection at value 105 - above the
+  // hauler band's floor, below the reserver 115. The corp's own demand logic
+  // is deliberately EXEMPT from hostileRooms() (it exists to enter exactly
+  // the rooms the economy flees), so no gate here. Same income-tier
+  // treatment as the reserver, for the same measured reason: at base tier
+  // the guard starved behind income churn through the whole pre-raid window
+  // (def-t4 cell) and the remote fleet it protects died. groupStarted: the
+  // income it preserves is already committed (armed meter = we mined 65k+
+  // there), so fresh source-openings (blocking) still outrank it while
+  // scaling haulers compete with it on value.
+  const raidGuardCorps = commissionedCorpsOfKind<RaidGuardCorp>("raidGuard");
+  for (const id in raidGuardCorps) {
+    const c = raidGuardCorps[id];
+    if (c.getSpawnId() !== spawnId || c.retiring) continue;
+    for (const d of c.getSpawnDemand(ctx)) {
+      d.groupId = c.id;
+      d.groupStarted = true;
+      demands.push(d);
+    }
+  }
+  // Core busters (spec 13 ph4): the kill+strip mission that reclaims an
+  // invader-occupied remote. Same military exemption and income-tier
+  // treatment as the guard (value 104 - the mission RESTORES zeroed income),
+  // but never blocking: an occupation is a long siege, not a kill window.
+  const coreBusterCorps = commissionedCorpsOfKind<CoreBusterCorp>("coreBuster");
+  for (const id in coreBusterCorps) {
+    const c = coreBusterCorps[id];
+    if (c.getSpawnId() !== spawnId || c.retiring) continue;
+    for (const d of c.getSpawnDemand(ctx)) {
       d.groupId = c.id;
       d.groupStarted = true;
       demands.push(d);

@@ -16,7 +16,7 @@ import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
-import { hostileRooms } from "../utils/RoomDiscovery";
+import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { Position } from "../types/Position";
 
 // Re-exported so existing call sites/tests can import it from CarryCorp.
@@ -1086,6 +1086,13 @@ export class CarryCorp extends Corp {
     // room comes from the nodeId (its leading segment is the source's room),
     // which needs no Game objects - harness-safe.
     if (hostileRooms().has(this.nodeId.split("-")[0])) return [];
+
+    // Spec 13 phase 2b (The International's pathsThrough): the circuit is
+    // also defunded when any room it TRANSITS is hostile - a clear pickup
+    // room two rooms out does not make the drive through the raid safe.
+    // Route check only when the spawn resolves (harness degrades to above).
+    const homeSpawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (homeSpawn && routeIsDangerous(this.nodeId.split("-")[0], homeSpawn.room.name)) return [];
 
     // If this source is reserved for the builder, field no haulers - its energy
     // belongs to the construction tankers.

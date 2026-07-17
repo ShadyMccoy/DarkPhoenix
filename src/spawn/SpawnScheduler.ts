@@ -36,7 +36,10 @@ export type SpawnRole =
   | "tanker"
   | "feeder"
   | "reserver"
-  | "claimer";
+  | "claimer"
+  | "guard"
+  | "buster"
+  | "striker";
 
 /**
  * A request for one creep, declared by a producing corp.
