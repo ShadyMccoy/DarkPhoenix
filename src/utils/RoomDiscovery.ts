@@ -7,6 +7,10 @@
  * @module utils/RoomDiscovery
  */
 
+import { recordRaidSighting } from "./raidMeter";
+import { INVADER_TTL } from "../economy/primitives";
+import { record as blackBox } from "../telemetry/BlackBox";
+
 /**
  * Discovers all rooms within a certain exit distance from owned rooms.
  * Uses BFS traversal via Game.map.describeExits (public data, no vision needed).
@@ -367,12 +371,30 @@ export function hostileRooms(): Set<string> {
       const intel = Memory.roomIntel[roomName];
       if (hostiles.length > 0) {
         const maxTtl = hostiles.reduce((m, c) => Math.max(m, c.ticksToLive ?? 1500), 0);
-        if (intel) intel.hostileUntil = Game.time + maxTtl;
+        const until = Game.time + maxTtl;
+        if (intel?.hostileUntil === undefined) {
+          // Fresh mark on a previously-clear room: flight-recorder row so
+          // live defund windows have measurable starts (spec 13 phase 5).
+          blackBox("mark", { room: roomName, kind: "creeps", until });
+        }
+        if (intel) intel.hostileUntil = until;
         else {
-          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: Game.time + maxTtl } as RoomIntel;
+          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: until } as RoomIntel;
+        }
+        // Raid observation (spec 13): Invader-owned creeps in sight mean the
+        // engine zeroed its raid fuse when it spawned them - zero the mirror
+        // and stamp the sighting (the guard corp's reactive trigger). One
+        // flight-recorder row per raid (not per tick of visibility).
+        if (hostiles.some(c => c.owner?.username === INVADER_USERNAME)) {
+          const seen = Memory.roomIntel[roomName]?.lastRaidSeen;
+          if (seen === undefined || Game.time - seen >= INVADER_TTL) {
+            blackBox("raid", { room: roomName, debt: Memory.roomIntel[roomName]?.raidDebt ?? 0 });
+          }
+          recordRaidSighting(roomName);
         }
       } else if (intel?.hostileUntil) {
         delete intel.hostileUntil; // fresh all-clear sighting
+        blackBox("unmark", { room: roomName, kind: "creeps" });
       }
 
       // Invader-core reservation: the room is held even with zero hostile
@@ -384,12 +406,27 @@ export function hostileRooms(): Set<string> {
       const stamped = Memory.roomIntel[roomName]; // may exist since the creep pass
       if (reservation && reservation.username === INVADER_USERNAME) {
         const until = Game.time + reservation.ticksToEnd;
+        if (stamped?.invaderReservedUntil === undefined) {
+          blackBox("mark", { room: roomName, kind: "reservation", until });
+        }
         if (stamped) stamped.invaderReservedUntil = until;
         else {
           Memory.roomIntel[roomName] = { lastVisit: Game.time, invaderReservedUntil: until } as RoomIntel;
         }
+        // Is the CORE itself in sight? Splits the occupation into its two
+        // phases for the buster corp (spec 13 phase 4): core alive = KILL
+        // (stripping against a live core's +2/tick renewal is pointless),
+        // core dead = STRIP (the leftover reservation decays 1/tick for up
+        // to 5000 ticks unless CLAIM parts grind it). Only checked in
+        // invader-reserved rooms with vision, so the extra find() is rare.
+        const coreSeen = Game.rooms[roomName]
+          .find(FIND_HOSTILE_STRUCTURES)
+          .some(s => s.structureType === STRUCTURE_INVADER_CORE);
+        Memory.roomIntel[roomName].invaderCorePresent = coreSeen;
       } else if (stamped?.invaderReservedUntil) {
         delete stamped.invaderReservedUntil; // fresh sighting: reservation gone
+        delete stamped.invaderCorePresent;
+        blackBox("unmark", { room: roomName, kind: "reservation" });
       }
     }
     // Marks persist without vision until their TTL bound expires.
@@ -413,4 +450,47 @@ export function hostileRooms(): Set<string> {
     }
   }
   return hostileRoomsCache;
+}
+
+/**
+ * Rooms a haul route transits between two rooms, endpoints included, per the
+ * engine's room-level router (Game.map.findRoute - the same topology moveTo
+ * follows across rooms). Memoized per tick. Falls back to just the endpoints
+ * when the map API is unavailable (harness) or routing fails, so callers
+ * degrade to the old pickup-room-only behavior.
+ *
+ * Spec 13 phase 2b (The International's `pathsThrough`): a route is dangerous
+ * if ANY room it transits is hostile - haulers must not drive their circuit
+ * through a raid two rooms out just because the pickup room itself is clear.
+ */
+let routeRoomsTick = -1;
+let routeRoomsCache = new Map<string, string[]>();
+export function routeRooms(fromRoom: string, toRoom: string): string[] {
+  if (typeof Game === "undefined") return [fromRoom, toRoom];
+  if (Game.time !== routeRoomsTick) {
+    routeRoomsTick = Game.time;
+    routeRoomsCache = new Map();
+  }
+  const key = `${fromRoom}->${toRoom}`;
+  const hit = routeRoomsCache.get(key);
+  if (hit) return hit;
+
+  let rooms = [fromRoom, toRoom];
+  if (fromRoom === toRoom) {
+    rooms = [fromRoom];
+  } else if (typeof Game.map?.findRoute === "function") {
+    const route = Game.map.findRoute(fromRoom, toRoom);
+    if (Array.isArray(route)) {
+      rooms = [fromRoom, ...route.map(step => step.room)];
+    }
+  }
+  routeRoomsCache.set(key, rooms);
+  return rooms;
+}
+
+/** Is any room on the route between the two rooms currently hostile? */
+export function routeIsDangerous(fromRoom: string, toRoom: string): boolean {
+  const danger = hostileRooms();
+  if (danger.size === 0) return false;
+  return routeRooms(fromRoom, toRoom).some(r => danger.has(r));
 }

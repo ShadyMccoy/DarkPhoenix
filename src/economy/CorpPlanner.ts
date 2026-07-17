@@ -77,6 +77,15 @@ export interface PlannerSource {
    * instead of 2 - which the routing pass prices in.
    */
   paved?: boolean;
+  /**
+   * Expected NPC-invader cost per unit harvested (spec 13 phase 5): raids
+   * fire as a function of energy harvested, so their defense cost is a
+   * per-energy tax. Set by the adapter for sources outside spawn rooms
+   * (towers make the home tax ~0); subtracted from the source's net in
+   * producer selection so both the profitability gate and the
+   * net-per-build-part ranking price the raid reality.
+   */
+  invaderTax?: number;
 }
 
 export type SinkKind = "spawn" | "controller" | "construction" | "storage";
@@ -203,7 +212,10 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
     const near = nearestSpawn(source.pos, spawns, dist);
     if (!near) continue;
-    const net = netEnergy(source.rate, near.distance);
+    // Net of the invader tax (spec 13): a remote's expected raid-defense
+    // cost scales with what we harvest there, so it lands here - where both
+    // the mine/don't-mine gate and the ranking read it.
+    const net = netEnergy(source.rate, near.distance) - (source.invaderTax ?? 0) * source.rate;
     if (net <= 0) continue; // never mine a source that costs more than it yields
     candidates.push({
       source,

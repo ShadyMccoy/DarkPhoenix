@@ -1,16 +1,21 @@
 /**
- * defense cells - v1 DEFENSE ECONOMICS (owner directive 2026-07-10): no
- * military yet; a room held by hostiles simply stops being FUNDED. Corps
- * operating there (miners at its sources, haulers on its routes, reservers
- * headed in) emit no spawn demands, so the colony never buys bodies for a
- * grinder. One sighting captures the hostile's ticksToLive, so the mark
- * outlives vision; funding resumes on the TTL bound or an all-clear look.
+ * defense cells - two layers, both pinned here:
  *
- * Two hostile flavors share the one danger lens (hostileRooms): sighted
- * hostile CREEPS (TTL-bounded), and an invader CORE's controller
- * reservation (bounded by the reservation's ticksToEnd) - the core is a
- * structure the creep pass never sees, so the reservation is the
- * observable. See docs/specs/12-invader-protocols.md.
+ * FLIGHT (spec 12, owner directive 2026-07-10): a room held by hostiles
+ * stops being FUNDED. Corps operating there emit no spawn demands, so the
+ * colony never buys ECONOMY bodies for a grinder. One sighting captures the
+ * hostile's ticksToLive, so the mark outlives vision; funding resumes on
+ * the TTL bound or an all-clear look. Two hostile flavors share the one
+ * danger lens (hostileRooms): sighted hostile CREEPS (TTL-bounded), and an
+ * invader CORE's controller reservation (bounded by ticksToEnd).
+ *
+ * FIGHT (spec 13, owner directive 2026-07-17 "keep the remote flowing"):
+ * layered ON TOP of flight, exempt from its gate. The raid meter mirrors
+ * the engine's harvested-energy fuse and pre-spawns a RaidGuard before the
+ * raid fires (def-t4); the CoreBuster runs kill+strip against core
+ * occupations (def-t5-core-buster). Flight remains the fallback for rooms
+ * without a mission - the def-t3/def-t5 flight cells must stay green
+ * unchanged.
  */
 
 import { GridCell, always, eventually } from "../GridCell";
@@ -114,6 +119,169 @@ export function buildDefenseCells(): GridCell[] {
                 o.name.startsWith("miner-") &&
                 Math.max(Math.abs(o.x - 40), Math.abs(o.y - 25)) <= 1
             );
+        }),
+      ],
+    },
+
+    {
+      // FIGHT-FIRST (spec 13 phase 3): the raid meter is staged ARMED (66k,
+      // past the 65k floor) for a remote we mine, so the guard corp
+      // PRE-SPAWNS - the guard must be fielded BEFORE the raid is injected
+      // at tick 150. The injected invader is engine-faithful (the exact
+      // smallMelee body remotes always get, driven by the real engine raid
+      // AI) and must die to the guard, the staged remote miner must survive,
+      // and the sighting must reset the raid meter to zero.
+      id: "def-t4-raid-guard-holds-the-remote",
+      tier: 4,
+      avenue: "defense",
+      window: 300,
+      rooms: {
+        home: homeEast((b) => b.controller(25, 10).source(25, 40)),
+        east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
+      },
+      adjacency: { east: "E" },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      // Full extension bank: the 650 guard body must be affordable (300
+      // spawn + 10x50) - the pre-spawn, not energy scraping, is under test.
+      structures: [
+        { type: "extension", x: 23, y: 23, energy: 50 },
+        { type: "extension", x: 23, y: 27, energy: 50 },
+        { type: "extension", x: 27, y: 23, energy: 50 },
+        { type: "extension", x: 27, y: 27, energy: 50 },
+        { type: "extension", x: 22, y: 25, energy: 50 },
+        { type: "extension", x: 28, y: 25, energy: 50 },
+        { type: "extension", x: 24, y: 22, energy: 50 },
+        { type: "extension", x: 26, y: 22, energy: 50 },
+        { type: "extension", x: 24, y: 28, energy: 50 },
+        { type: "extension", x: 26, y: 28, energy: 50 },
+      ],
+      creeps: [
+        // Home income pair keeps the economy sane (multiroom pattern).
+        {
+          name: "mH",
+          x: 24,
+          y: 39,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-def-m", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          name: "hH",
+          x: 22,
+          y: 30,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-def-h", working: false, assignedSourceId: "$id(home,source,25,40)" },
+        },
+        // Remote miner: standing vision, the "we mine here" gate for the
+        // armed trigger, and the body the raid would otherwise kill. NO
+        // corpId - canary-proven untouchable (OrphanRescue skips unmanaged
+        // creeps by design), so only combat can remove it from the room.
+        {
+          name: "rmE",
+          x: 26,
+          y: 25,
+          room: "east",
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest" },
+        },
+      ],
+      // The raid meter staged ARMED: 66k of accrued debt in the east room.
+      // sourceIds present so the guard's plan-derived mined-room lens (the
+      // durable-signal doctrine) can map the planner's east mine commission
+      // to this room.
+      memory: {
+        roomIntel: {
+          "$room(east)": {
+            lastVisit: 1,
+            raidDebt: 66000,
+            lastHarvested: 1,
+            sourceCount: 1,
+            sourceIds: ["$id(east,source,25,25)"],
+            sourcePositions: [{ x: 25, y: 25 }],
+            mineralType: null,
+            mineralPos: null,
+            controllerLevel: 0,
+            controllerPos: { x: 10, y: 10 },
+            controllerOwner: null,
+            controllerReservation: null,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            isSafe: true,
+          },
+        },
+      },
+      async stage(ctx) {
+        await ensureInvaderUser(ctx.db);
+      },
+      async onTick(ctx) {
+        // Inject the raid at tick 200 (armed-lens runway: the staged home
+        // pair orphan-recycles, home saturation flaps, and east re-enters the
+        // GOAL plan around t100 - live colonies carry their remotes in the
+        // plan continuously, the cold cell needs the slack): the exact smallMelee body remotes
+        // always receive (backend cronjobs.js:266-273), full 1500 TTL so
+        // only combat - never expiry - can remove it inside the window.
+        if (ctx.tick !== 150) return;
+        await ctx.db["rooms.objects"].insert({
+          type: "creep",
+          name: "invader_east_1",
+          x: 1,
+          y: 25,
+          room: ctx.room("east"),
+          user: "2",
+          body: [
+            { type: "tough", hits: 100 },
+            { type: "tough", hits: 100 },
+            { type: "move", hits: 100 },
+            { type: "move", hits: 100 },
+            { type: "move", hits: 100 },
+            { type: "move", hits: 100 },
+            { type: "move", hits: 100 },
+            { type: "ranged_attack", hits: 100 },
+            { type: "work", hits: 100 },
+            { type: "attack", hits: 100 },
+          ],
+          store: {},
+          storeCapacity: 0,
+          hits: 1000,
+          hitsMax: 1000,
+          fatigue: 0,
+          ageTime: ctx.gameTime + 1500,
+          spawning: false,
+          notifyWhenAttacked: false,
+        });
+      },
+      assertions: [
+        // PRE-SPAWN: the guard is fielded off the armed meter alone - before
+        // any hostile exists anywhere.
+        eventually("the guard is fielded BEFORE the raid arrives", (s) => {
+          if (s.tick >= 150) return false;
+          return [undefined, "east"].some((h) =>
+            s
+              .objects(h)
+              .some((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("guard-"))
+          );
+        }),
+        // The injection actually landed (non-vacuity for the kill assertion).
+        eventually("the raid lands in the east room", (s) =>
+          s.objects("east").some((o: any) => o.type === "creep" && o.user === "2")
+        ),
+        // THE FIGHT: the invader dies to the guard well before its 1500 TTL.
+        eventually("the guard kills the invader inside the window", (s) => {
+          if (s.tick <= 155) return false;
+          return !s.objects("east").some((o: any) => o.type === "creep" && o.user === "2");
+        }),
+        // THE POINT: the staged remote miner survives the whole raid.
+        always(
+          "the remote miner is never lost",
+          (s) => s.objects("east").some((o: any) => o.type === "creep" && o.name === "rmE"),
+          10 // staging settles
+        ),
+        // The sighting resets the raid meter (the engine zeroed its counter
+        // when the raid spawned; the mirror follows on first sight).
+        eventually("the raid sighting resets the meter", (s) => {
+          if (s.tick <= 150) return false;
+          const intel = s.memory?.roomIntel?.[s.room("east")];
+          return typeof intel?.raidDebt === "number" && intel.raidDebt === 0 && typeof intel?.lastRaidSeen === "number";
         }),
       ],
     },
@@ -228,6 +396,184 @@ export function buildDefenseCells(): GridCell[] {
           !s
             .objects("east")
             .some((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("miner-"))
+        ),
+      ],
+    },
+
+    {
+      // KILL + STRIP (spec 13 phase 4, superseding spec 12 phase 2): a LIVE
+      // invader core (engine-processed: it renews its reservation every
+      // tick) squats a remote we know is worth mining. The buster corp must
+      // field an ATTACK creep off the intel marks alone, grind the core
+      // down, and - because the engine does NOT clear the reservation on
+      // core death - flip to the CLAIM striker phase and engage the
+      // controller. The economic defund holds throughout (no economy body
+      // is ever bought for the room). The core is staged pre-damaged (3000
+      // hits) so the kill fits the window; the full 100k grind is arithmetic,
+      // not behavior.
+      id: "def-t5-core-buster-reclaims-remote",
+      tier: 5,
+      avenue: "defense",
+      window: 500,
+      rooms: {
+        home: homeEast((b) => b.controller(25, 10).source(25, 40)),
+        east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
+      },
+      adjacency: { east: "E" },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "extension", x: 23, y: 23, energy: 50 },
+        { type: "extension", x: 23, y: 27, energy: 50 },
+        { type: "extension", x: 27, y: 23, energy: 50 },
+        { type: "extension", x: 27, y: 27, energy: 50 },
+        { type: "extension", x: 22, y: 25, energy: 50 },
+        { type: "extension", x: 28, y: 25, energy: 50 },
+        { type: "extension", x: 24, y: 22, energy: 50 },
+        { type: "extension", x: 26, y: 22, energy: 50 },
+        { type: "extension", x: 24, y: 28, energy: 50 },
+        { type: "extension", x: 26, y: 28, energy: 50 },
+      ],
+      creeps: [
+        // Home income pair keeps the economy sane (multiroom pattern).
+        {
+          name: "mH",
+          x: 24,
+          y: 39,
+          body: ["work", "work", "work", "work", "work", "move", "move", "move"],
+          memory: { workType: "harvest", corpId: "staged-def-m", assignedSourceId: "$id(home,source,25,40)" },
+        },
+        {
+          name: "hH",
+          x: 22,
+          y: 30,
+          body: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"],
+          memory: { workType: "haul", corpId: "staged-def-h", working: false, assignedSourceId: "$id(home,source,25,40)" },
+        },
+        // Standing eye: vision so the marks stamp every tick. NO corpId
+        // (untouchable), single MOVE so it changes nothing economically.
+        {
+          name: "eye",
+          x: 30,
+          y: 25,
+          room: "east",
+          body: ["move"],
+          memory: { workType: "scout" },
+        },
+      ],
+      // The east room is KNOWN to be worth mining (the mission gate needs
+      // sourceCount - a room never scouted is never a mission, which is what
+      // keeps the phase-1 flight cell military-free).
+      memory: {
+        roomIntel: {
+          "$room(east)": {
+            lastVisit: 1,
+            sourceCount: 1,
+            sourcePositions: [{ x: 25, y: 25 }],
+            mineralType: null,
+            mineralPos: null,
+            controllerLevel: 0,
+            controllerPos: { x: 10, y: 10 },
+            controllerOwner: null,
+            controllerReservation: null,
+            hostileCreepCount: 0,
+            hostileStructureCount: 1,
+            isSafe: false,
+          },
+        },
+      },
+      async stage(ctx) {
+        await ensureInvaderUser(ctx.db);
+        // A LIVE lesser core beside the controller: the engine processes
+        // hand-inserted invaderCore objects (reservation renewal, +2/tick).
+        // Pre-damaged to 3000 hits so a 6-pair buster finishes in ~17 ticks
+        // of contact. No deployTime and no effects: long-deployed, hittable.
+        await ctx.db["rooms.objects"].insert({
+          type: "invaderCore",
+          room: ctx.room("east"),
+          x: 11,
+          y: 10,
+          user: "2",
+          level: 0,
+          hits: 3000,
+          hitsMax: 100000,
+          notifyWhenAttacked: false,
+        });
+        // Its reservation, mid-occupation: enough remaining to clear the
+        // CORE_BUSTER_MIN_REMAINING payback gate (1000). Whole-object $set:
+        // dotted paths silently no-op in the mockup db.
+        await ctx.db["rooms.objects"].update(
+          { room: ctx.room("east"), type: "controller" },
+          { $set: { reservation: { user: "2", endTime: ctx.gameTime + 1500 } } }
+        );
+      },
+      assertions: [
+        // Intel: the sighting stamps the occupation AND the core's presence.
+        eventually("intel stamps the reservation mark and the core sighting", (s) => {
+          const intel = s.memory?.roomIntel?.[s.room("east")];
+          return typeof intel?.invaderReservedUntil === "number" && intel?.invaderCorePresent === true;
+        }),
+        // Non-vacuity: the core stands at the start.
+        eventually("the staged core initially stands", (s) =>
+          s.tick <= 20 && s.objects("east").some((o: any) => o.type === "invaderCore")
+        ),
+        // KILL: the buster is fielded and the core object disappears (it has
+        // no decay path staged - only the buster's ATTACK removes it).
+        eventually("a buster is fielded", (s) =>
+          [undefined, "east"].some((h) =>
+            s.objects(h).some((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("buster-"))
+          )
+        ),
+        eventually("the core is destroyed", (s) =>
+          s.tick > 20 && !s.objects("east").some((o: any) => o.type === "invaderCore")
+        ),
+        // PHASE FLIP: with the core gone but the reservation standing, the
+        // sighting flips the mission to the strip phase.
+        eventually("intel flips to the strip phase (core gone, reservation stands)", (s) => {
+          const intel = s.memory?.roomIntel?.[s.room("east")];
+          return intel?.invaderCorePresent === false && typeof intel?.invaderReservedUntil === "number";
+        }),
+        // STRIP: the CLAIM striker is fielded and engages the controller
+        // while the leftover reservation still stands (attackController is
+        // its only duty there; full clearance is arithmetic beyond the
+        // window - the engagement is the behavior under test).
+        eventually("a striker is fielded", (s) =>
+          [undefined, "east"].some((h) =>
+            s.objects(h).some((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("striker-"))
+          )
+        ),
+        eventually("the striker engages the reserved controller", (s) => {
+          const ctrl = s.objects("east").find((o: any) => o.type === "controller");
+          if (!ctrl?.reservation) return false;
+          return s
+            .objects("east")
+            .some(
+              (o: any) =>
+                o.type === "creep" &&
+                typeof o.name === "string" &&
+                o.name.startsWith("striker-") &&
+                Math.max(Math.abs(o.x - ctrl.x), Math.abs(o.y - ctrl.y)) <= 1
+            );
+        }),
+        // THE DEFUND HOLDS THROUGHOUT: the mission never re-opens the
+        // economy - no body is ever assigned the east source, and no
+        // reserver is fielded while the room stays foreign-reserved.
+        always(
+          "no economy body is bought for the occupied room",
+          (s) => {
+            const src = s.objects("east").find((o: any) => o.type === "source");
+            if (!src) return true;
+            const assigned = Object.values(s.memory?.creeps ?? {}).some(
+              (mem: any) => mem?.assignedSourceId === src._id
+            );
+            const reserver = [undefined, "east"].some((h) =>
+              s
+                .objects(h)
+                .some((o: any) => o.type === "creep" && typeof o.name === "string" && o.name.startsWith("reserver-"))
+            );
+            return !assigned && !reserver;
+          },
+          10 // staging settles
         ),
       ],
     },

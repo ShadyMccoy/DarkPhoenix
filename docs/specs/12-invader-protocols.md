@@ -1,11 +1,13 @@
 # 12 — Invader protocols: flight, and eventually fight
 
-**Status:** Phase 1 (flight on invader-core reservation) **LANDED 2026-07-16**.
-Phase 2 (fight: kill the core, take the room back) is specced below and
-DEFERRED — same owner doctrine as spec 07 ("we spread like a disease; losing
-a room is fine"), and the same shape: specced now so it's a small task
-whenever the doctrine changes.
-**Priority:** phase 2 is P3 / backlog.
+**Status:** Phase 1 (flight on invader-core reservation) **LANDED 2026-07-16**
+— stays live as the fallback layer, def-t3/def-t5 flight cells green
+unchanged. Phase 2 (fight) SUPERSEDED and **LANDED 2026-07-17** via
+[spec 13](13-invader-economics.md) phase 4 as `CoreBusterCorp` — the kill
+**+ strip** mission with corrected engine-ground-truth economics (see the
+corrections block under phase 2): grid `def-t5-core-buster-reclaims-remote`
+green. The `invaderCorePresent` sighting keeps this cell's core-less world
+(reservation decaying, no structure) military-free, exactly as specced.
 
 ## The problem
 
@@ -56,6 +58,22 @@ lifecycle as `hostileUntil`:
   passes on the shared lens).
 
 ## Phase 2 — fight: kill the core, take the room back (SPECCED, DEFERRED)
+
+> **Engine-ground-truth corrections (2026-07-17, see spec 13):** the payback
+> math below is wrong in three ways, all verified against the vendored engine.
+> (1) Income under a foreign reservation is **zero**, not throttled — the
+> harvest intent returns early (`engine .../creeps/harvest.js:31`), so the
+> occupation wastes the room's FULL rate. (2) Killing the core does **not**
+> clear the reservation (`invader-core/destroy.js:11-23`); it decays at
+> 1/tick from up to 5000, and `attackController` strips only CLAIM_parts×1
+> per attack from a reservation — the mission is kill **+ strip**, and
+> ReservationCorp cannot re-take until the strip completes. (3) The
+> occupation bound is the parent stronghold's collapse timer (up to ~82.5k
+> ticks — the core renews its 5000-tick reservation indefinitely), not 5000;
+> and the stronghold replants a lesser core every 2000-4000 ticks. Net: the
+> buster's benefit is larger than stated, its restoration lag is longer, and
+> it is a recurring chore, not one-and-done. Use spec 13 phase 5 for the
+> corrected ledger when this is picked up.
 
 Economics first: a level-0 expansion core has 100k hits and no attack. A
 ~10×ATTACK melee creep (~1300 energy incl. MOVE) kills it in ~330 ticks of

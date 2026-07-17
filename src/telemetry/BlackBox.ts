@@ -28,6 +28,9 @@ export type BlackBoxKind =
   | "churn" // commission set changed: {created, demobilized}
   | "watch" // periodic sample: {dt: downgradeTicks, bucket, creeps}
   | "gov" // CPU governor level transition: {level, bucket}
+  | "mark" // a defense mark stamped on a previously-clear room: {room, kind, until}
+  | "unmark" // a defense mark lifted early by an all-clear sighting: {room, kind}
+  | "raid" // Invader creeps sighted - the raid observation: {room, debt (meter at reset)}
   | "err"; // a caught error: {phase, msg (truncated)}
 
 export interface BlackBoxRow {

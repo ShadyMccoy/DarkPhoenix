@@ -266,6 +266,27 @@ export class ScoutCorp extends Corp {
       isSafe
     };
 
+    // The defund marks belong to the hostileRooms() vision pass (spec 12:
+    // stamp / bound / all-clear) and the raid meter to the harvest site
+    // (spec 13). A full re-record must carry all of them over - dropping the
+    // marks lifted a live defund whenever vision ended the same tick, and
+    // dropping the meter would erase up to 130k of raid-debt history.
+    if (oldIntel?.hostileUntil !== undefined) {
+      Memory.roomIntel[room.name].hostileUntil = oldIntel.hostileUntil;
+    }
+    if (oldIntel?.invaderReservedUntil !== undefined) {
+      Memory.roomIntel[room.name].invaderReservedUntil = oldIntel.invaderReservedUntil;
+    }
+    if (oldIntel?.raidDebt !== undefined) {
+      Memory.roomIntel[room.name].raidDebt = oldIntel.raidDebt;
+    }
+    if (oldIntel?.lastHarvested !== undefined) {
+      Memory.roomIntel[room.name].lastHarvested = oldIntel.lastHarvested;
+    }
+    if (oldIntel?.lastRaidSeen !== undefined) {
+      Memory.roomIntel[room.name].lastRaidSeen = oldIntel.lastRaidSeen;
+    }
+
     return value;
   }
 

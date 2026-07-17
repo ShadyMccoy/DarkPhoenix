@@ -32,6 +32,8 @@ import { ColonyProblem } from "../economy/CorpPlanner";
 import { Corp } from "../corps/Corp";
 import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
 import { reservationKind } from "../corps/kinds/reservationKind";
+import { raidGuardKind } from "../corps/kinds/raidGuardKind";
+import { coreBusterKind } from "../corps/kinds/coreBusterKind";
 import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
 import { controllerFeederKind } from "../corps/kinds/controllerFeederKind";
@@ -54,6 +56,8 @@ const KINDS: CorpKind[] = [
   // Self-proposing (auxiliary, or hybrid like construction which reads the draft):
   scoutKind as never,
   reservationKind as never,
+  raidGuardKind as never,
+  coreBusterKind as never,
   claimKind as never,
   extensionTenderKind as never,
   controllerFeederKind as never,

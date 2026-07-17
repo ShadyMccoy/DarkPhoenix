@@ -13,6 +13,8 @@ export type CorpType =
   | "bootstrap"
   | "scout"
   | "reservation"
+  | "raidGuard"
+  | "coreBuster"
   | "claim"
   | "moving";
 

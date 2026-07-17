@@ -444,3 +444,59 @@ describe("Phase 2 - paved routes (roads)", () => {
     expect(plainHauler.spawnParts).to.be.closeTo((2 * plainHauler.carryParts) / (1500 - plainHauler.distance), 1e-9);
   });
 });
+
+describe("Invader tax on remote sources (spec 13 phase 5)", () => {
+  it("subtracts the tax from net: a marginal source flips unfunded when taxed", () => {
+    // A source whose untaxed net is barely positive: taxed past it, the
+    // profitability gate must drop it.
+    const d = 250; // far enough that hauler amortization eats most of the margin
+    const untaxedNet = netEnergy(10, d);
+    expect(untaxedNet).to.be.greaterThan(0); // fixture sanity
+    const killTax = (untaxedNet + 0.001) / 10;
+
+    const funded = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("far", d), invaderTax: killTax / 2 }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    expect(funded.miners, "half the kill-tax: still profitable").to.have.length(1);
+
+    const dropped = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("far", d), invaderTax: killTax }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    expect(dropped.miners, "taxed past its margin: not worth mining").to.have.length(0);
+  });
+
+  it("ranks an untaxed source above an otherwise-identical taxed one", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [
+          { ...source("taxed", 40), invaderTax: 0.05 },
+          source("clean", -40)
+        ],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    expect(plan.miners.length, "both still profitable").to.equal(2);
+    expect(plan.miners[0].sourceId, "the clean source is staffed first").to.equal("clean");
+  });
+
+  it("never taxes what has no field: existing fixtures are byte-identical", () => {
+    const a = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("a", 10)],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    expect(a.miners[0].rate).to.equal(10);
+    expect(a.miners[0].netEnergy).to.be.closeTo(netEnergy(10, 10), 1e-9);
+  });
+});

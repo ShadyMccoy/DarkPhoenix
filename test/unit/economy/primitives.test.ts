@@ -157,3 +157,28 @@ describe("economy/primitives", () => {
     });
   });
 });
+
+describe("invader tax (spec 13 phase 5 - engine-fact derivation)", () => {
+  const { INVADER_RAID_MEAN_ENERGY, INVADERS_ENERGY_GOAL, RAID_GOAL_FLOOR, RAID_GOAL_CEIL, RAID_ARM_FLOOR, EXPECTED_RAID_DEFENSE_COST, INVADER_TAX_PER_ENERGY, invaderTaxPerEnergy } =
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require("../../../src/economy/primitives");
+
+  it("pins the engine facts the meter and tax derive from", () => {
+    expect(INVADERS_ENERGY_GOAL).to.equal(100_000);
+    expect(RAID_GOAL_FLOOR).to.equal(70_000);
+    expect(RAID_GOAL_CEIL).to.equal(130_000);
+    expect(RAID_ARM_FLOOR).to.equal(65_000);
+    // E[energy/raid] = 0.9*100k + 0.05*200k + 0.05*100k (reroll distribution)
+    expect(INVADER_RAID_MEAN_ENERGY).to.be.closeTo(0.9 * 100_000 + 0.05 * 200_000 + 0.05 * 100_000, 1e-9);
+  });
+
+  it("prices the tax as expected defense cost per expected raid energy", () => {
+    expect(invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST)).to.be.closeTo(750 / 105_000, 1e-9);
+    expect(INVADER_TAX_PER_ENERGY).to.be.closeTo(invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST), 1e-9);
+    expect(invaderTaxPerEnergy(0)).to.equal(0);
+  });
+
+  it("stays under 1% of gross at the derived cost (a margin shift, not a rate change)", () => {
+    expect(INVADER_TAX_PER_ENERGY).to.be.lessThan(0.01);
+  });
+});

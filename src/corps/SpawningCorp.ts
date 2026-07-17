@@ -13,6 +13,7 @@ import { drawOrder } from "./refillCircuit";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
 import {
   UpgraderStrategy,
+  buildGuardBody,
   buildMinerBody,
   buildReserverBody,
   buildTankerBody,
@@ -119,7 +120,19 @@ export class SpawningCorp extends Corp {
    * that to an actual body and a spawnCreep call.
    */
   public executeSpawn(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "feeder" | "reserver" | "claimer",
+    role:
+      | "miner"
+      | "hauler"
+      | "upgrader"
+      | "builder"
+      | "scout"
+      | "tanker"
+      | "feeder"
+      | "reserver"
+      | "claimer"
+      | "guard"
+      | "buster"
+      | "striker",
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -138,7 +151,7 @@ export class SpawningCorp extends Corp {
 
     const workTypeMap: Record<
       string,
-      "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "scout" | "reserve" | "claim"
+      "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "scout" | "reserve" | "claim" | "guard" | "buster" | "strike"
     > = {
       miner: "harvest",
       hauler: "haul",
@@ -147,6 +160,13 @@ export class SpawningCorp extends Corp {
       scout: "scout",
       reserver: "reserve",
       claimer: "claim",
+      // A raid guard is the remote mines' bodyguard (spec 13): its own
+      // workType keeps it distinct for orphan re-adoption and the census.
+      guard: "guard",
+      // The core-buster mission's two phases (spec 13): ATTACK buster kills
+      // the invader core, CLAIM striker grinds off the leftover reservation.
+      buster: "buster",
+      striker: "strike",
       // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
       // local sinks and sources within one node (e.g. a hauler's drop-off -> the
       // builder). That is a different job from a hauler, which does long-range
@@ -184,7 +204,19 @@ export class SpawningCorp extends Corp {
    * Build a body for the given role that costs at most `energyBudget`.
    */
   private buildBodyForRole(
-    role: "miner" | "hauler" | "upgrader" | "builder" | "scout" | "tanker" | "feeder" | "reserver" | "claimer",
+    role:
+      | "miner"
+      | "hauler"
+      | "upgrader"
+      | "builder"
+      | "scout"
+      | "tanker"
+      | "feeder"
+      | "reserver"
+      | "claimer"
+      | "guard"
+      | "buster"
+      | "striker",
     energyBudget: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
@@ -219,6 +251,16 @@ export class SpawningCorp extends Corp {
       case "claimer":
         // Claiming needs exactly one CLAIM part; same builder, capped at 1.
         return buildReserverBody(energyBudget, bodyParam ?? 1).body;
+      case "guard":
+        // bodyParam is the desired ATTACK count; defaults to the engine-fact 5.
+        return buildGuardBody(energyBudget, bodyParam ?? 5).body;
+      case "buster":
+        // Core grinder: same ATTACK/MOVE shape, up to 10 pairs (cores are
+        // 100k hits and defenseless - bigger just finishes sooner).
+        return buildGuardBody(energyBudget, bodyParam ?? 10).body;
+      case "striker":
+        // Reservation stripper: CLAIM+MOVE pairs, attackController duty.
+        return buildReserverBody(energyBudget, bodyParam ?? 2).body;
       case "hauler": {
         const { carryRatio, moveRatio } = this.getPartRatios(haulerRatio ?? "1:1");
         const costPerUnit = BODY_PART_COST.carry * carryRatio + BODY_PART_COST.move * moveRatio;

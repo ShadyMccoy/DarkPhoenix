@@ -14,7 +14,8 @@ import {
   calculateOptimalWorkParts
 } from "../planning/EconomicConstants";
 import { effectiveLife, staffsPost } from "../economy/primitives";
-import { hostileRooms } from "../utils/RoomDiscovery";
+import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
+import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
 import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -419,6 +420,10 @@ export class HarvestCorp extends Corp {
     if (result === OK) {
       const energyHarvested = creep.getActiveBodyparts(WORK) * 2;
       this.recordProduction(energyHarvested);
+      // Mirror the engine's invader-raid fuse (spec 13): every harvested unit
+      // is raid debt for this room. Written here, at the same intent the
+      // engine meters, so the mirror is tick-exact for our own harvesting.
+      accrueRaidDebt(creep.room.name, energyHarvested);
       return energyHarvested;
     }
 
@@ -453,6 +458,12 @@ export class HarvestCorp extends Corp {
     // room (sighted, or inside a sighted hostile's TTL bound), buy no bodies
     // for the grinder. Existing miners run out; funding resumes on all-clear.
     if (hostileRooms().has(this.getPosition().roomName)) return [];
+
+    // Spec 13 phase 2b (transit embargo): a replacement miner must not WALK
+    // through a raided room to reach a clear one. Endpoint rooms come first
+    // (Game-free, harness-safe); the route check needs the spawn resolved.
+    const homeSpawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) return [];
 
     // WORK parts needed to saturate this source (2 energy/tick per WORK part).
     const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));

@@ -59,6 +59,7 @@ import {
   runSpawnPlacementStep,
   runSpawnScheduling,
   runSpawningCorps,
+  runTowers,
   snapshotCorpVariance,
   startSpawnPlacement
 } from "./execution";
@@ -219,6 +220,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
   bulkhead("links", () => runLinks());
+
+  // Fire each room's towers at the closest hostile (RCL 3+; no-op before towers).
+  bulkhead("towers", () => runTowers());
 
   // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
   // below their commissioned throughput) surface in Memory.corpVariance.

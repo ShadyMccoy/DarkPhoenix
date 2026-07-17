@@ -228,6 +228,12 @@ export interface IntelTelemetry {
     hostileCreepCount: number;
     hostileStructureCount: number;
     isSafe: boolean;
+    /** Spec 12/13 defense state - previously invisible to dashboards. */
+    hostileUntil?: number;
+    invaderReservedUntil?: number;
+    invaderCorePresent?: boolean;
+    raidDebt?: number;
+    lastRaidSeen?: number;
   }[];
 }
 
@@ -651,7 +657,14 @@ export class Telemetry {
           controllerReservation: intel.controllerReservation,
           hostileCreepCount: intel.hostileCreepCount,
           hostileStructureCount: intel.hostileStructureCount,
-          isSafe: intel.isSafe
+          isSafe: intel.isSafe,
+          // Defense state (spec 12/13): the active defund marks and the raid
+          // meter, so dashboards can see live windows without Memory access.
+          ...(intel.hostileUntil !== undefined ? { hostileUntil: intel.hostileUntil } : {}),
+          ...(intel.invaderReservedUntil !== undefined ? { invaderReservedUntil: intel.invaderReservedUntil } : {}),
+          ...(intel.invaderCorePresent !== undefined ? { invaderCorePresent: intel.invaderCorePresent } : {}),
+          ...(intel.raidDebt !== undefined ? { raidDebt: intel.raidDebt } : {}),
+          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {})
         });
       }
     }

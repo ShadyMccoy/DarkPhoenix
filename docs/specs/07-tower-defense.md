@@ -1,9 +1,18 @@
 # 07 — Tower defense (minimal)
 
-**Status:** DEFERRED by owner decision — the strategy is respawn-tolerant
-("we spread like a disease; losing a room is fine"). Specced now so it's a
-~1-hour task whenever it's picked up.
-**Priority:** P3 / backlog.
+**Status:** **LANDED 2026-07-17** (spec 13 tranche 1). TowerRunner fires
+every owned room's towers at the closest hostile; ConstructionCorp places
+one tower at RCL3 beside the spawn (tower sites, like roads, do NOT hold the
+one-at-a-time build queue — a pending tower site parked the storage queue
+900+ ticks in a builder-less world before this was caught); the extension
+tender fills towers below half charge; `toSinkKind` maps tower→spawn.
+Verified: `pickTowerTarget` + tender unit tests; `tower-defense.test.ts`
+(engine-driven 10xATTACK invader killed by tower fire, no friendly losses,
+injected mid-run — an invader entering a creep-less owned room SUICIDES by
+engine rule); storage-depot regression green.
+The spec-13 engine survey confirms sufficiency for NPCs: owned rooms below
+RCL4 only ever face 10-part "small" raids, and 50-part "big" raids begin
+exactly at RCL4 — after the RCL3 tower exists.
 
 ## Current state
 

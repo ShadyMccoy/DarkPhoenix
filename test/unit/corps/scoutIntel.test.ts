@@ -72,4 +72,47 @@ describe("ScoutCorp intel from vision (not just scouts)", () => {
     new ScoutCorp("W0N0-scout", "spawn1").work(Game.time);
     expect(((Memory as any).roomIntel!.W1N0 as any).sentinel, "fresh intel left untouched").to.equal(true);
   });
+
+  it("preserves the defund marks across a re-record (scout mark-wipe regression)", () => {
+    // The marks belong to the hostileRooms() vision pass (spec 12). A stale
+    // room's full re-record must carry them over - overwriting them lifted a
+    // live defund early whenever vision dropped the same tick.
+    Game.time = 10000;
+    (Memory as any).roomIntel!.W1N0 = {
+      lastVisit: 1000, // >= STALE_THRESHOLD stale, so the pass re-records
+      hostileUntil: 10800,
+      invaderReservedUntil: 14000
+    } as any;
+    Game.rooms = { W1N0: remoteRoom("W1N0") };
+    new ScoutCorp("W0N0-scout", "spawn1").work(Game.time);
+
+    const intel = (Memory as any).roomIntel!.W1N0 as any;
+    expect(intel.lastVisit, "the room WAS re-recorded").to.equal(Game.time);
+    expect(intel.hostileUntil, "creep mark survives the re-record").to.equal(10800);
+    expect(intel.invaderReservedUntil, "reservation mark survives the re-record").to.equal(14000);
+  });
+
+  it("preserves the raid meter across a re-record (spec 13: the fuse mirror)", () => {
+    Game.time = 10000;
+    (Memory as any).roomIntel!.W1N0 = { lastVisit: 1000, raidDebt: 92_500, lastRaidSeen: 900 } as any;
+    Game.rooms = { W1N0: remoteRoom("W1N0") };
+    new ScoutCorp("W0N0-scout", "spawn1").work(Game.time);
+
+    const intel = (Memory as any).roomIntel!.W1N0 as any;
+    expect(intel.lastVisit, "the room WAS re-recorded").to.equal(Game.time);
+    expect(intel.raidDebt, "debt history survives").to.equal(92_500);
+    expect(intel.lastRaidSeen, "raid observation survives").to.equal(900);
+  });
+
+  it("does not invent marks on a re-record of an unmarked room", () => {
+    Game.time = 10000;
+    (Memory as any).roomIntel!.W1N0 = { lastVisit: 1000 } as any;
+    Game.rooms = { W1N0: remoteRoom("W1N0") };
+    new ScoutCorp("W0N0-scout", "spawn1").work(Game.time);
+
+    const intel = (Memory as any).roomIntel!.W1N0 as any;
+    expect(intel.lastVisit).to.equal(Game.time);
+    expect(intel.hostileUntil).to.equal(undefined);
+    expect(intel.invaderReservedUntil).to.equal(undefined);
+  });
 });
