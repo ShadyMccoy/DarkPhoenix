@@ -242,6 +242,11 @@ export function buildHaulingT4Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "container", x: 24, y: 24, energy: 0 }, // depot
         { type: "container", x: 24, y: 41, energy: 1800 }, // source container
         { type: "container", x: 25, y: 12, energy: 0 }, // controller input

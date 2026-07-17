@@ -250,6 +250,11 @@ export function buildConstructionT2Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 0 },
         { type: "container", x: 35, y: 29, energy: 0 },
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -284,6 +289,11 @@ export function buildConstructionT2Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 1000, hits: 137500 }, // A: 55%
         { type: "container", x: 35, y: 29, energy: 0, hits: 187500 }, // B: 75%
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -329,6 +339,11 @@ export function buildConstructionT2Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 1500, hits: 137500 }, // A: 55%
         { type: "container", x: 35, y: 29, energy: 0 },
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -404,6 +419,11 @@ export function buildConstructionT2Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "container", x: HARVEST_SPOT.x, y: HARVEST_SPOT.y, energy: 2000 },
         { type: "container", x: DEPOT_TILE.x, y: DEPOT_TILE.y, energy: 1500 },
         { type: "container", x: 25, y: 12, energy: 0 },
@@ -439,6 +459,11 @@ export function buildConstructionT2Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: [
+        // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
+        // rung is already satisfied, so this cell keeps pinning its original
+        // contract undisturbed. Placement itself is pinned by the def-* cells
+        // and the tower-defense integration test.
+        { type: "tower", x: 30, y: 26, energy: 1000 },
         { type: "road", x: 25, y: 20, hits: 4500 }, // 90% - lowest ABSOLUTE hits
         // 55% - worst FRACTION; holds its own repair energy (the ~875 the
         // climb burns) so the 2-MOVE builder never leaves the tile mid-climb.
