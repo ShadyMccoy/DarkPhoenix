@@ -369,30 +369,7 @@ export class CarryCorp extends Corp {
       creep.say("pickup");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-      creep.memory.working = true;
-      // Each hauler has ONE permanent home circuit (assigned in proportion to the
-      // flow solver's per-sink allocations - see assignCircuit), so it is a dumb
-      // automaton on a defined route, not re-rolling its destination every trip.
-      // Re-assign only when it has no circuit or its route's flow has vanished
-      // (e.g. construction finished).
-      const home = creep.memory.homeSink as LocalSink | undefined;
-      if (!home || !this.committedSinkHasFlow(home) || this.foundingUnderstaffed(home)) {
-        this.assignCircuit(creep);
-      }
-      // This trip's destination is decided ONCE, here: top up a hungry spawn
-      // (the critical bottleneck, under-weighted by its tiny flow share), else run
-      // the home circuit. Fixed for the whole trip, so no mid-route thrash.
-      const homeSink = creep.memory.homeSink as LocalSink;
-      creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkCritical(room) ? "spawn" : homeSink;
-      creep.say(
-        creep.memory.deliverSinkId === "controller"
-          ? "→ctrl"
-          : creep.memory.deliverSinkId === "founding"
-          ? "→found"
-          : creep.memory.deliverSinkId === "storage"
-          ? "→bank"
-          : "→spawn"
-      );
+      this.depart(creep, room);
     }
 
     // A clean bus: it fills completely at its source stop, then runs the route and
@@ -405,6 +382,39 @@ export class CarryCorp extends Corp {
     } else {
       this.pickupEnergy(creep, room);
     }
+  }
+
+  /**
+   * Send a loaded hauler out on its delivery leg: commit to a home circuit and fix
+   * this trip's destination. Called on the normal full-load state flip, and by the
+   * scavenger path when its transient stock runs dry mid-load (a drained stock can
+   * never top the hauler up to full, so waiting for the flip would freeze it).
+   */
+  private depart(creep: Creep, room: Room): void {
+    creep.memory.working = true;
+    // Each hauler has ONE permanent home circuit (assigned in proportion to the
+    // flow solver's per-sink allocations - see assignCircuit), so it is a dumb
+    // automaton on a defined route, not re-rolling its destination every trip.
+    // Re-assign only when it has no circuit or its route's flow has vanished
+    // (e.g. construction finished).
+    const home = creep.memory.homeSink as LocalSink | undefined;
+    if (!home || !this.committedSinkHasFlow(home) || this.foundingUnderstaffed(home)) {
+      this.assignCircuit(creep);
+    }
+    // This trip's destination is decided ONCE, here: top up a hungry spawn
+    // (the critical bottleneck, under-weighted by its tiny flow share), else run
+    // the home circuit. Fixed for the whole trip, so no mid-route thrash.
+    const homeSink = creep.memory.homeSink as LocalSink;
+    creep.memory.deliverSinkId = homeSink !== "spawn" && this.spawnNetworkCritical(room) ? "spawn" : homeSink;
+    creep.say(
+      creep.memory.deliverSinkId === "controller"
+        ? "→ctrl"
+        : creep.memory.deliverSinkId === "founding"
+        ? "→found"
+        : creep.memory.deliverSinkId === "storage"
+        ? "→bank"
+        : "→spawn"
+    );
   }
 
   // ===========================================================================
@@ -559,13 +569,23 @@ export class CarryCorp extends Corp {
       return;
     }
 
-    // A scavenger draws from a ground stock (tombstone / ruin / pile); an ordinary
-    // hauler from its source's output spot (container / drop pile / wait tile). The
-    // stock spot is null once drained - the scavenger then just carries home what
-    // it has and stands down (re-detection drops the stock next economy rebuild).
+    // A scavenger draws from a ground stock (tombstone / ruin / pile / summed
+    // container); an ordinary hauler from its source's output spot (container /
+    // drop pile / wait tile). The stock spot is null once drained - the scavenger
+    // then carries home what it has and stands down (re-detection drops the stock
+    // next economy rebuild).
     if (this.isScavenger()) {
       const spot = scavengeSpot(targetPos);
-      if (spot) workSpot(creep, spot, "collect");
+      if (spot) {
+        workSpot(creep, spot, "collect");
+      } else if (creep.store[RESOURCE_ENERGY] > 0) {
+        // Drained stock, partial load aboard: DEPART NOW. The clean-bus state
+        // machine only flips to delivering on a FULL load, and a stock that no
+        // longer exists can never provide the top-up - waiting for the flip
+        // froze the scavenger beside its dead stock for the rest of its life
+        // (observed live 2026-07-17, 744/800 aboard).
+        this.depart(creep, room);
+      }
       return;
     }
     workSpot(creep, sourcePickupSpot(targetPos), "collect");
