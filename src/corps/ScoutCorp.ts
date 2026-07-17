@@ -266,6 +266,17 @@ export class ScoutCorp extends Corp {
       isSafe
     };
 
+    // The defund marks belong to the hostileRooms() vision pass (spec 12:
+    // stamp / bound / all-clear). A full re-record must carry them over -
+    // dropping them here lifted a live defund whenever vision ended the same
+    // tick, resuming funding for an occupied room.
+    if (oldIntel?.hostileUntil !== undefined) {
+      Memory.roomIntel[room.name].hostileUntil = oldIntel.hostileUntil;
+    }
+    if (oldIntel?.invaderReservedUntil !== undefined) {
+      Memory.roomIntel[room.name].invaderReservedUntil = oldIntel.invaderReservedUntil;
+    }
+
     return value;
   }
 

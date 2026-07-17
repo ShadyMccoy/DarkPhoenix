@@ -31,7 +31,15 @@ export interface SerializedExtensionTenderCorp extends SerializedCorp {
 }
 
 /** A spawn or extension the tender keeps topped up. */
-type FillTarget = StructureSpawn | StructureExtension;
+type FillTarget = StructureSpawn | StructureExtension | StructureTower;
+
+/**
+ * A tower joins the fill circuit only below half charge (spec 07): keep the
+ * war chest loaded without topping off a mid-fight trickle shot-by-shot.
+ */
+export function towerNeedsFill(energy: number, capacity: number): boolean {
+  return energy < capacity * 0.5;
+}
 
 export class ExtensionTenderCorp extends Corp {
   private spawnId: string;
@@ -105,7 +113,14 @@ export class ExtensionTenderCorp extends Corp {
       (room.find(FIND_MY_STRUCTURES, {
         filter: s => s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_SPAWN
       }) as FillTarget[]);
-    const targets = pool.filter(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+    // Towers (spec 07) join EVERY pool - including per-cluster ones, they sit
+    // beside the spawn by construction - but only below half charge.
+    const towers = (
+      room.find(FIND_MY_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_TOWER
+      }) as StructureTower[]
+    ).filter(t => towerNeedsFill(t.store[RESOURCE_ENERGY], t.store.getCapacity(RESOURCE_ENERGY) ?? 0));
+    const targets = [...pool, ...towers].filter(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
     return targets.sort((a, b) => {
       const aSpawn = a.structureType === STRUCTURE_SPAWN ? 1 : 0;
       const bSpawn = b.structureType === STRUCTURE_SPAWN ? 1 : 0;

@@ -34,6 +34,8 @@ export { runSpawnScheduling } from "./SpawnDirector";
 
 export { runLinks } from "./LinkRunner";
 
+export { pickTowerTarget, runTowers } from "./TowerRunner";
+
 export { persistState, cleanupDeadCreeps } from "./Persistence";
 
 export {

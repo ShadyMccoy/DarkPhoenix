@@ -160,8 +160,13 @@ function toSinkKind(type: SinkType): SinkKind | null {
       return "controller";
     case "storage":
       return "storage";
+    case "tower":
+      // Spawn-network demand (~10 e/t refill through the tender) - spec 07.
+      // No tower sinks are DISCOVERED yet (FlowGraph doesn't emit them); this
+      // mapping prices the draw the moment they are.
+      return "spawn";
     default:
-      return null; // tower/terminal/link/lab/factory not modelled as energy sinks yet
+      return null; // terminal/link/lab/factory not modelled as energy sinks yet
   }
 }
 

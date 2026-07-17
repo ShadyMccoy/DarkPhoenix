@@ -118,3 +118,59 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
 });
+
+/**
+ * Spec 07 "feed" acceptance: towers join the tender's fill circuit below half
+ * charge (keep the war chest loaded) and stay OUT of it above (don't top off
+ * a mid-fight trickle). Sorted by range like any other non-spawn target.
+ */
+describe("ExtensionTenderCorp feeds towers (spec 07)", () => {
+  beforeEach(() => {
+    (global as any).FIND_MY_STRUCTURES = FIND_MY_STRUCTURES;
+    (global as any).STRUCTURE_EXTENSION = "extension";
+    (global as any).STRUCTURE_SPAWN = "spawn";
+    (global as any).STRUCTURE_TOWER = "tower";
+    (global as any).RESOURCE_ENERGY = "energy";
+  });
+
+  const from = { x: 25, y: 25, getRangeTo: (p: any) => Math.max(Math.abs(p.x - 25), Math.abs(p.y - 25)) };
+
+  function roomWith(towerEnergy: number): any {
+    const ext = {
+      structureType: "extension",
+      pos: { x: 20, y: 25 }, // range 5
+      store: { getFreeCapacity: () => 50, energy: 0, getCapacity: () => 50 }
+    };
+    const tower = {
+      structureType: "tower",
+      pos: { x: 27, y: 25 }, // range 2 - closer than the extension
+      store: {
+        getFreeCapacity: () => 1000 - towerEnergy,
+        getCapacity: () => 1000,
+        energy: towerEnergy
+      }
+    };
+    return {
+      name: "W0N0",
+      find: (type: number, o?: any) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const all = [ext, tower];
+          return o?.filter ? all.filter(o.filter) : all;
+        }
+        return [];
+      }
+    };
+  }
+
+  it("includes a 40% tower, sorted by range like any other target", () => {
+    const corp = new ExtensionTenderCorp("W0N0-tender", "spawn1");
+    const targets = (corp as any).fillTargets(roomWith(400), from);
+    expect(targets.map((t: any) => t.structureType)).to.deep.equal(["tower", "extension"]);
+  });
+
+  it("excludes an 80% tower (don't top off the mid-fight trickle)", () => {
+    const corp = new ExtensionTenderCorp("W0N0-tender", "spawn1");
+    const targets = (corp as any).fillTargets(roomWith(800), from);
+    expect(targets.map((t: any) => t.structureType)).to.deep.equal(["extension"]);
+  });
+});

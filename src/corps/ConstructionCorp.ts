@@ -78,6 +78,9 @@ function containersUnlocked(rcl: number, extensionsAtCap: boolean): boolean {
 /** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
 const STORAGE_MIN_RCL = 4;
 
+/** Towers unlock at RCL 3 (CONTROLLER_STRUCTURES) - spec 07's one-tower v1. */
+const TOWER_MIN_RCL = 3;
+
 /** Links allowed per RCL (game rule). The network anchors on the storage. */
 const LINK_LIMITS: { [rcl: number]: number } = { 5: 2, 6: 3, 7: 4, 8: 6 };
 
@@ -280,8 +283,13 @@ export class ConstructionCorp extends Corp {
     // STRUCTURE kept the pipeline world depot-less for 1500+ ticks while the
     // remote route paved (refill SLA breach: the tender's reload stayed a
     // full haul away).
+    // TOWER sites don't hold it either (spec 07): the tower is a security
+    // fixture placed early in the ladder, and a pending 600-energy site must
+    // not stall the storage/extension pipeline behind it while the room's
+    // builder fleet ramps (measured: storage-depot regression - the tower
+    // site parked the queue for 900+ ticks in a builder-less world).
     const activeSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
-      filter: s => s.structureType !== STRUCTURE_ROAD
+      filter: s => s.structureType !== STRUCTURE_ROAD && s.structureType !== STRUCTURE_TOWER
     }).length;
 
     const wantsContainer =
@@ -291,12 +299,14 @@ export class ConstructionCorp extends Corp {
         this.findMissingControllerContainer(room) !== null);
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
+    const wantsTower = this.findMissingTower(room, rcl) !== null;
     const canBuildMore =
       activeSites === 0 &&
       (currentExtensions < maxExtensions ||
         wantsContainer ||
         wantsStorage ||
         wantsLink ||
+        wantsTower ||
         this.wantsRoadWork(room));
 
     if (canBuildMore) {
@@ -625,6 +635,18 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // 1.8 Tower (RCL 3, spec 07 - owner directive 2026-07-17 "at home, we
+    //     will build towers"): the room's entire NPC defense. Between the core
+    //     depot and extensions: the engine's raid table only sends 50-part
+    //     "big" invaders to OWNED rooms at RCL4+, so one tower placed at RCL3
+    //     precedes every threat class it must answer. Near the spawn so the
+    //     extension tender can reach it.
+    const tower = this.findMissingTower(room, rcl);
+    if (tower) {
+      this.placeSite(room, tower.x, tower.y, STRUCTURE_TOWER);
+      return;
+    }
+
     // 2. Extensions: cheap (3000), near the sources, and they compound spawn
     //    capacity (bigger creeps) - so they come BEFORE the far controller
     //    container. Building the controller container first (it sits ~20 tiles
@@ -875,6 +897,23 @@ export class ConstructionCorp extends Corp {
    * depot role (haulers' dump point, tender's draw point) without changing any
    * routes - coreDepot() prefers it over the container from the moment it's built.
    */
+  /**
+   * A still-missing TOWER (spec 07 v1: one per room from RCL3). Beside the
+   * spawn - pattern of findMissingStorage - so the tender's fill circuit
+   * covers it without a dedicated runner.
+   */
+  private findMissingTower(room: Room, rcl: number): { x: number; y: number } | null {
+    if (rcl < TOWER_MIN_RCL) return null;
+    const hasTower =
+      room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0 ||
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0;
+    if (hasTower) return null;
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (!spawn) return null;
+    const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos);
+    return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
   private findMissingStorage(room: Room, rcl: number): { x: number; y: number } | null {
     if (rcl < STORAGE_MIN_RCL || room.storage) return null;
     const hasSite =
