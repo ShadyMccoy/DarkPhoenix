@@ -219,9 +219,10 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
 
 /**
  * Where a scavenger collects a ground stock: a tombstone or ruin holding energy
- * (withdraw), else a dropped pile (pick up), at or beside `pos`. Returns null when
- * the stock is gone - the scavenger has drained it and can stand down. Position-
- * based so it serves the stock by where it was detected.
+ * (withdraw), else a dropped pile (pick up) or the container the stock was summed
+ * with (withdraw), at or beside `pos`. Returns null when the stock is gone - the
+ * scavenger has drained it and can stand down. Position-based so it serves the
+ * stock by where it was detected.
  */
 export function scavengeSpot(pos: RoomPosition): EnergySpot | null {
   const tomb = pos
@@ -237,7 +238,29 @@ export function scavengeSpot(pos: RoomPosition): EnergySpot | null {
   const pile = pos
     .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0 })
     .sort((a, b) => b.amount - a.amount)[0];
-  if (pile) return { pos: pile.pos };
+
+  // A stock detected ON a container tile INCLUDES that container's contents
+  // (detectRoomStocks' one-summed-stock rule), so the container is part of this
+  // scavenger's stock and must be reachable - otherwise a stock whose bulk sits
+  // in the container is mostly invisible to its own scavenger (observed live
+  // 2026-07-17: a full source container's overflow pile was promoted to a 2000+
+  // stock, and the scavenger stood beside the container forever, seeing only
+  // the per-tick trickle). Range 0 mirrors detection exactly: a container on a
+  // NEIGHBOURING tile was never summed into this stock and belongs to some
+  // other route - drawing from it would steal off-route energy.
+  //
+  // Pile-vs-container priority is sourcePickupSpot's rule: the decaying pile
+  // first, EXCEPT while the container is full - then the pile is overflow in
+  // progress, re-created every tick, and pile-first locks the scavenger into
+  // ~10-energy pickups while the stock's bulk sits in the container. One
+  // withdraw fills the scavenger AND re-opens capacity for the next drops.
+  const container = pos.findInRange(FIND_STRUCTURES, 0, {
+    filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+  })[0] as StructureContainer | undefined;
+  const containerFull = container !== undefined && (container.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) === 0;
+
+  if (pile && !containerFull) return { pos: pile.pos };
+  if (container) return { pos: container.pos, structure: container };
 
   return null;
 }

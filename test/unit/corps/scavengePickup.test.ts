@@ -6,19 +6,26 @@ import { scavengeSpot, workSpot, EnergySpot } from "../../../src/corps/nodeEnerg
 (global as any).FIND_DROPPED_RESOURCES = 106;
 (global as any).FIND_TOMBSTONES = 118;
 (global as any).FIND_RUINS = 123;
+(global as any).FIND_STRUCTURES = 107;
+(global as any).STRUCTURE_CONTAINER = "container";
 
 const cheby = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
   Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
 interface Stocked {
   pos: { x: number; y: number };
-  store?: Record<string, number>;
+  store?: { energy: number; getFreeCapacity?: (r?: string) => number };
   resourceType?: string;
   amount?: number;
+  structureType?: string;
 }
 
-/** A mock RoomPosition standing among tombstones / ruins / piles. */
-function mockPos(x: number, y: number, world: { tombs?: Stocked[]; ruins?: Stocked[]; piles?: Stocked[] }) {
+/** A mock RoomPosition standing among tombstones / ruins / piles / containers. */
+function mockPos(
+  x: number,
+  y: number,
+  world: { tombs?: Stocked[]; ruins?: Stocked[]; piles?: Stocked[]; containers?: Stocked[] }
+) {
   const self = { x, y };
   return {
     x,
@@ -30,7 +37,9 @@ function mockPos(x: number, y: number, world: { tombs?: Stocked[]; ruins?: Stock
           ? world.tombs
           : type === (global as any).FIND_RUINS
             ? world.ruins
-            : world.piles;
+            : type === (global as any).FIND_STRUCTURES
+              ? world.containers
+              : world.piles;
       return (list ?? []).filter(o => cheby(self, o.pos) <= range && (!opts?.filter || opts.filter(o)));
     }
   } as any;
@@ -39,6 +48,11 @@ function mockPos(x: number, y: number, world: { tombs?: Stocked[]; ruins?: Stock
 const tomb = (x: number, y: number, energy: number): Stocked => ({ pos: { x, y }, store: { energy } });
 const ruin = (x: number, y: number, energy: number): Stocked => ({ pos: { x, y }, store: { energy } });
 const pile = (x: number, y: number, amount: number): Stocked => ({ pos: { x, y }, resourceType: "energy", amount });
+const container = (x: number, y: number, energy: number, capacity = 2000): Stocked => ({
+  structureType: "container",
+  pos: { x, y },
+  store: { energy, getFreeCapacity: () => capacity - energy }
+});
 
 describe("scavengeSpot (stock pickup resolution)", () => {
   it("withdraws from a tombstone when one holds energy", () => {
@@ -66,6 +80,62 @@ describe("scavengeSpot (stock pickup resolution)", () => {
 
   it("returns null when the stock is gone (scavenger can stand down)", () => {
     expect(scavengeSpot(mockPos(25, 25, {}))).to.equal(null);
+  });
+
+  // A stock detected ON a container tile includes the container's contents
+  // (detectRoomStocks' one-summed-stock rule), so the scavenger must be able to
+  // withdraw from that container - not just chase the ground portion. This is
+  // the live 2026-07-17 incident: a full source container's overflow pile was
+  // promoted to a 2000+ stock, and the scavenger stood beside the container
+  // inching along on the ~10-energy per-tick trickle it could see.
+  describe("container-backed stocks (the summed container is reachable)", () => {
+    it("withdraws from a FULL container instead of chasing the overflow trickle", () => {
+      const c = container(25, 25, 2000); // 2000/2000 - no free capacity
+      const trickle = pile(25, 25, 12); // this tick's spill
+      const spot = scavengeSpot(mockPos(25, 25, { piles: [trickle], containers: [c] }));
+
+      expect(spot).to.not.equal(null);
+      expect(spot!.structure).to.equal(c);
+      expect(spot!.pos).to.equal(c.pos);
+    });
+
+    it("drains the pile before a NON-full container (decay-first doctrine)", () => {
+      const c = container(25, 25, 1200); // 800 free - drops are being absorbed
+      const p = pile(25, 25, 300);
+      const spot = scavengeSpot(mockPos(25, 25, { piles: [p], containers: [c] }));
+
+      expect(spot!.structure).to.equal(undefined);
+      expect(spot!.pos).to.equal(p.pos);
+    });
+
+    it("withdraws the stock's container remainder once the pile is gone", () => {
+      const c = container(25, 25, 1500);
+      const spot = scavengeSpot(mockPos(25, 25, { containers: [c] }));
+
+      expect(spot).to.not.equal(null);
+      expect(spot!.structure).to.equal(c);
+    });
+
+    it("still prefers a tombstone over the container (decays fastest)", () => {
+      const t = tomb(25, 25, 100);
+      const c = container(25, 25, 2000);
+      const spot = scavengeSpot(mockPos(25, 25, { tombs: [t], containers: [c] }));
+
+      expect(spot!.withdrawFrom).to.equal(t);
+    });
+
+    it("ignores a container on an ADJACENT tile (not part of the summed stock)", () => {
+      // Detection only sums a container at range 0 of the find; a neighbouring
+      // container belongs to some other route (e.g. a commissioned source's) and
+      // drawing from it would steal off-route energy.
+      const c = container(26, 25, 2000);
+      expect(scavengeSpot(mockPos(25, 25, { containers: [c] }))).to.equal(null);
+    });
+
+    it("ignores an EMPTY container (stock gone, scavenger stands down)", () => {
+      const c = container(25, 25, 0);
+      expect(scavengeSpot(mockPos(25, 25, { containers: [c] }))).to.equal(null);
+    });
   });
 });
 
