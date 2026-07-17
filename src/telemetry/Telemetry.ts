@@ -66,6 +66,64 @@ function corpRoomName(corp: Corp): string {
 }
 
 /**
+ * A measured body: total part count plus a per-type breakdown (only non-zero
+ * types present). Keys are the raw Screeps part types ("work", "carry", ...).
+ */
+export interface BodyAggregate {
+  total: number;
+  byPart: { [part: string]: number };
+}
+
+/** Fresh, empty aggregate. */
+function emptyBody(): BodyAggregate {
+  return { total: 0, byPart: {} };
+}
+
+/**
+ * Aggregate ACTUAL body parts from every live creep (`Creep.body`), grouped by
+ * the corp that owns it (`memory.corpId`). This is measured ground truth - NOT
+ * reconstructed from planner harvest rates (the flow segment's `workParts` is
+ * the PLAN side; this is the ACTUAL side) - so a dashboard can sit the planner's
+ * committed parts next to the parts actually walking around.
+ *
+ * One pass yields both views: `perCorp` (keyed by corpId, for the corps
+ * segment) and `colony` (every creep, orphans included, for the core segment) -
+ * a creep we are paying for counts colony-wide even when no live corp claims it.
+ */
+function aggregateActualBodies(): { perCorp: Map<string, BodyAggregate>; colony: BodyAggregate } {
+  const perCorp = new Map<string, BodyAggregate>();
+  const colony = emptyBody();
+
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    const body = creep.body ?? []; // spawning/mocked creeps may lack a body
+    if (body.length === 0) continue;
+
+    const corpId = creep.memory?.corpId;
+    let bucket: BodyAggregate | undefined;
+    if (corpId) {
+      bucket = perCorp.get(corpId);
+      if (!bucket) {
+        bucket = emptyBody();
+        perCorp.set(corpId, bucket);
+      }
+    }
+
+    for (const part of body) {
+      const t = part.type;
+      colony.total++;
+      colony.byPart[t] = (colony.byPart[t] || 0) + 1;
+      if (bucket) {
+        bucket.total++;
+        bucket.byPart[t] = (bucket.byPart[t] || 0) + 1;
+      }
+    }
+  }
+
+  return { perCorp, colony };
+}
+
+/**
  * Segment assignments for telemetry data.
  */
 export const TELEMETRY_SEGMENTS = {
@@ -133,6 +191,13 @@ export interface CoreTelemetry {
     feeders: number;
     claimers: number;
   };
+  /**
+   * ACTUAL body parts across every live creep, measured from `Creep.body` (not
+   * reconstructed from planner rates). `total` is every part in the world;
+   * `byPart` breaks it down by type ("work"/"carry"/"move"/...). This is the
+   * measured "what we have" for the plan-vs-actual body-parts gauge.
+   */
+  bodyParts: BodyAggregate;
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -252,6 +317,10 @@ export interface CorpsTelemetry {
     nodeId: string;
     roomName: string;
     creepCount: number;
+    /** Total ACTUAL body parts across this corp's live creeps (measured, 0 if none). */
+    bodyParts: number;
+    /** ACTUAL body parts by type for this corp's live creeps; {} when it has none. */
+    body: { [part: string]: number };
     createdAt: number;
     lastActivityTick: number;
   }[];
@@ -355,8 +424,12 @@ export class Telemetry {
 
     if (!shouldUpdate) return;
 
+    // Measure ACTUAL bodies once (single pass over Game.creeps); core wants the
+    // colony total, corps wants the per-corp breakdown.
+    const bodies = aggregateActualBodies();
+
     // Update core telemetry (always)
-    this.updateCoreTelemetry(colony, census);
+    this.updateCoreTelemetry(colony, census, bodies.colony);
 
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
@@ -368,7 +441,7 @@ export class Telemetry {
     this.updateIntelTelemetry();
 
     // Update corps telemetry
-    this.updateCorpsTelemetry(census);
+    this.updateCorpsTelemetry(census, bodies.perCorp);
 
     // Update flow telemetry (sources, sinks, allocations)
     this.updateFlowTelemetry(flowSolution);
@@ -377,7 +450,7 @@ export class Telemetry {
   /**
    * Updates core telemetry (Segment 0).
    */
-  private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[]): void {
+  private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[], bodyParts: BodyAggregate): void {
     // Creep census: one bucket per creep-owning kind, summed from the complete
     // corp list so every kind is counted (no more silent undercount).
     const creeps: CoreTelemetry["creeps"] = {
@@ -428,7 +501,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 2, // Version 2: complete creep census, dropped colony.averageROI
+      version: 3, // Version 3: added actual body-parts capture (measured from Creep.body)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -448,6 +521,7 @@ export class Telemetry {
         activeCorps: stats.activeCorps
       },
       creeps,
+      bodyParts,
       rooms
     };
 
@@ -681,13 +755,16 @@ export class Telemetry {
   /**
    * Updates corps telemetry (Segment 4).
    */
-  private updateCorpsTelemetry(census: CorpCensusEntry[]): void {
+  private updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map<string, BodyAggregate>): void {
     const corps: CorpsTelemetry["corps"] = [];
     const corpsByKind: { [kind: string]: number } = {};
     let activeCorps = 0;
 
     for (const { kind, corp } of census) {
       const creepCount = corpCreepCount(corp);
+      // ACTUAL body of this corp's live creeps (measured), or empty when it owns
+      // none - never a reconstruction from planned rates.
+      const body = perCorpBody.get(corp.id) ?? emptyBody();
       corps.push({
         id: corp.id,
         kind,
@@ -695,6 +772,8 @@ export class Telemetry {
         nodeId: corp.nodeId || "",
         roomName: corpRoomName(corp),
         creepCount,
+        bodyParts: body.total,
+        body: body.byPart,
         createdAt: corp.createdAt,
         lastActivityTick: corp.lastActivityTick
       });
@@ -703,7 +782,7 @@ export class Telemetry {
     }
 
     const telemetry: CorpsTelemetry = {
-      version: 2, // Version 2: dropped money accounting, keyed by kind, full census
+      version: 3, // Version 3: added actual body-parts capture (measured from Creep.body)
       tick: Game.time,
       corps,
       summary: {
@@ -732,7 +811,9 @@ export class Telemetry {
           id: miner.sourceId,
           nodeId: miner.nodeId || "",
           harvestRate: miner.harvestRate,
-          // Work parts calculated from harvest rate (2 energy/tick per WORK part)
+          // PLANNED work parts, derived from the solver's harvest rate (2
+          // energy/tick per WORK part). The ACTUAL work parts spawned are the
+          // measured bodies on the matching harvest corp in segments 0/4.
           workParts: Math.ceil(miner.harvestRate / 2),
           efficiency: miner.efficiency,
           spawnDistance: miner.spawnDistance

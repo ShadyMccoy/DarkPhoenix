@@ -14,6 +14,7 @@ export {
   PUBLIC_SEGMENTS,
   DEFAULT_TELEMETRY_CONFIG,
   type TelemetryConfig,
+  type BodyAggregate,
   type CoreTelemetry,
   type NodeTelemetry,
   type EdgesTelemetry,
