@@ -57,6 +57,22 @@ lifecycle as `hostileUntil`:
 
 ## Phase 2 — fight: kill the core, take the room back (SPECCED, DEFERRED)
 
+> **Engine-ground-truth corrections (2026-07-17, see spec 13):** the payback
+> math below is wrong in three ways, all verified against the vendored engine.
+> (1) Income under a foreign reservation is **zero**, not throttled — the
+> harvest intent returns early (`engine .../creeps/harvest.js:31`), so the
+> occupation wastes the room's FULL rate. (2) Killing the core does **not**
+> clear the reservation (`invader-core/destroy.js:11-23`); it decays at
+> 1/tick from up to 5000, and `attackController` strips only CLAIM_parts×1
+> per attack from a reservation — the mission is kill **+ strip**, and
+> ReservationCorp cannot re-take until the strip completes. (3) The
+> occupation bound is the parent stronghold's collapse timer (up to ~82.5k
+> ticks — the core renews its 5000-tick reservation indefinitely), not 5000;
+> and the stronghold replants a lesser core every 2000-4000 ticks. Net: the
+> buster's benefit is larger than stated, its restoration lag is longer, and
+> it is a recurring chore, not one-and-done. Use spec 13 phase 5 for the
+> corrected ledger when this is picked up.
+
 Economics first: a level-0 expansion core has 100k hits and no attack. A
 ~10×ATTACK melee creep (~1300 energy incl. MOVE) kills it in ~330 ticks of
 contact. Payback: a reserved remote source is ~10 e/tick versus ~5

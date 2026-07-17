@@ -39,7 +39,8 @@ Conventions used by every spec:
 | 09 | [Robustness program](09-robustness-program.md) | phases 1, 4 done; 5 partial (CpuGovernor + bulkheads; schema versioning open); 6 partial (standdown); 2-3 open | P0 (phase 2) |
 | 10 | [RCL journey map](10-rcl-journey.md) | living ledger — most steps cell-pinned; see gap list | ongoing |
 | 11 | [Two plans: goal and now](11-two-plans.md) | phases 1-2 landed (agenda published + funding); phase 3 (transitions into agenda) open | P0 |
-| 12 | [Invader protocols: flight, and eventually fight](12-invader-protocols.md) | phase 1 (defund invader-reserved rooms) **LANDED 2026-07-16**, def-t5 cell green; phase 2 (core buster) specced, deferred | P3 (phase 2) |
+| 12 | [Invader protocols: flight, and eventually fight](12-invader-protocols.md) | phase 1 (defund invader-reserved rooms) **LANDED 2026-07-16**, def-t5 cell green; phase 2 (core buster) specced, deferred — payback math corrected by spec 13 | P3 (phase 2) |
+| 13 | [Invader economics: predict, price, and schedule the raid tax](13-invader-economics.md) | PLANNED — research digest landed 2026-07-17 (engine ground truth + 6 public bots); phase 0 is a P0 bug (scout wipes defund marks) | P0 (phase 0), P1 (1-3) |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
