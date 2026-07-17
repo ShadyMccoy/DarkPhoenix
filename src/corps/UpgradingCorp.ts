@@ -197,7 +197,10 @@ export class UpgradingCorp extends Corp {
    * Upgraders are stationary - they stay near the controller and only pick up nearby energy.
    */
   private runUpgrader(creep: Creep, room: Room, controller: StructureController): void {
-    // Track working state for energy pickup
+    // `working` is kept for external readers/telemetry, but the parked action
+    // below is driven directly off the store: a container-fed upgrader tops up
+    // AND upgrades in the SAME tick (see the parked block), so it never needs the
+    // collect/deposit oscillation the flag used to gate.
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
     }
@@ -216,8 +219,9 @@ export class UpgradingCorp extends Corp {
       // travelToBypass so an upgrader can swap through an already-parked sibling on
       // the way to its own tile instead of stalling in the cramped controller ring.
       travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
-      // Upgrade en route if already in range - no idle ticks while repositioning.
-      if (creep.memory.working && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
+      // Upgrade en route if it has energy and is already in range - no idle WORK
+      // ticks while repositioning.
+      if (creep.store[RESOURCE_ENERGY] > 0 && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
       return;
     }
     // No parking computed (degenerate layout): fall back to camping within range.
@@ -226,11 +230,16 @@ export class UpgradingCorp extends Corp {
       return;
     }
 
-    if (creep.memory.working) {
-      this.tryUpgrade(creep, controller);
-    } else {
-      this.drawFromInput(creep, controller);
-    }
+    // Parked at the input: top up AND upgrade in the SAME tick. withdraw/pickup and
+    // upgradeController are independent intents (the canonical static-upgrader
+    // idiom), so refilling the buffer the upgrade is draining keeps a container-fed
+    // upgrader from ever going dry. The old collect/deposit oscillation
+    // (working ? upgrade : draw) drained the buffer to 0, then spent one whole tick
+    // withdrawing with the WORK parts IDLE before resuming - a wasted WORK tick per
+    // drain cycle (~11% of throughput on a WORK-heavy, small-buffer body; measured
+    // live 2026-07-17). Draw first so the just-topped-up buffer feeds this upgrade.
+    if (creep.store.getFreeCapacity() > 0) this.drawFromInput(creep, controller);
+    this.tryUpgrade(creep, controller);
   }
 
   /** Upgrade the controller in place, recording the WORK produced. */

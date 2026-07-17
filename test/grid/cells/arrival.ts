@@ -176,6 +176,9 @@ export function buildArrivalT2Cells(): GridCell[] {
   let dryAdopted: number | null = null;
   let dryBaseProgress: number | null = null;
 
+  // no-dry-tick (WORK-heavy small-buffer drain) closure
+  let noDryAdopted: number | null = null;
+
   // pile-pickup closure
   let prevPileStore: number | null = null;
   let pileStall = 0;
@@ -288,6 +291,87 @@ export function buildArrivalT2Cells(): GridCell[] {
           if (s.tick > dryAdopted + 16) return false;
           return (ctrl.progress ?? 0) - dryBaseProgress >= 36;
         }),
+      ],
+    },
+
+    {
+      // A container-fed upgrader tops up AND upgrades in the SAME tick, so its
+      // buffer never goes dry between draws. The regression: the parked upgrader
+      // used a collect/deposit oscillation (working ? upgrade : draw), so when a
+      // WORK-heavy, small-buffer body drained to 0 it spent one whole tick
+      // WITHDRAWING with the WORK parts idle - "empty for a tick, then withdraws"
+      // (live 2026-07-17). Same geometry as arrive-upgrader-dry-withdraws-in-place
+      // (container 25,12 -> input spot; parking tile 24,11), but a 6-WORK/1-CARRY
+      // body (50 buffer) that drains in ~8 ticks, so the 45-tick window crosses
+      // the empty boundary ~5 times. The crisp pin: u1's store NEVER reads empty
+      // once parked - the oscillation snapshots a 0 on every drain, the same-tick
+      // top-up never does. The sibling parked cell's 4W/4C body starts at 200 and
+      // never drains here, which is exactly why it misses this.
+      id: "arrive-upgrader-no-dry-tick-under-drain",
+      tier: 2,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      // Plenty of buffer so the container never legitimately dries inside the
+      // window (~6/tick drawn * 45 = 270 << 4000); an empty u1 means the bug, not
+      // a starved input.
+      structures: [{ type: "container", x: 25, y: 12, energy: 4000 }],
+      creeps: [
+        {
+          name: "u1",
+          x: 24,
+          y: 11,
+          // WORK-heavy, single-CARRY (containerFed shape): 50 buffer drained 6/tick.
+          body: ["work", "work", "work", "work", "work", "work", "carry", "move", "move"],
+          energy: 50, // starts full, so it is working from tick 1 (never a legit 0)
+          memory: {
+            workType: "upgrade",
+            corpId: "stale-upgrading",
+            working: true,
+            upgradeSpot: { x: 24, y: 11 },
+          },
+        },
+        ...quiet(),
+      ],
+      assertions: [
+        eventually("adopted by the upgrading corp", (s) => {
+          const corpId = s.memory?.creeps?.u1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("upgrading-") && noDryAdopted === null) {
+            noDryAdopted = s.tick;
+          }
+          return noDryAdopted !== null;
+        }),
+        always("never leaves its parking tile", (s) => {
+          const c = s.creep("u1");
+          return !!c && c.x === 24 && c.y === 11;
+        }),
+        // THE regression pin: a parked, container-fed upgrader tops up in the same
+        // tick it upgrades, so its buffer never snapshots empty. The old
+        // oscillation drains to exactly 0 on every cycle - one wasted WORK tick.
+        // graceTicks covers adoption warm-up (pre-adoption the creep sits full).
+        always(
+          "buffer never goes dry (no wasted WORK tick refilling)",
+          (s) => {
+            const c = s.creep("u1");
+            return !!c && (c.store?.energy ?? 0) > 0;
+          },
+          8
+        ),
+        // Corroboration that it is genuinely upgrading-while-topped-up, not merely
+        // sitting full: the buffer stays high (never dips toward the empty the
+        // oscillation would produce) once parked.
+        always(
+          "buffer stays topped up under continuous upgrade",
+          (s) => {
+            const c = s.creep("u1");
+            return !!c && (c.store?.energy ?? 0) >= 20;
+          },
+          8
+        ),
       ],
     },
 
