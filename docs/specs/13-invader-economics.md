@@ -1,28 +1,34 @@
-# 13 — Invader economics: predict, price, and schedule the raid tax
+# 13 — Invader economics: keep the remotes flowing
 
-**Status:** PLANNED — this document is the research digest + phased plan; no code
-landed. Research pass 2026-07-17: vendored engine source
+**Status:** PLANNED — research digest + phased plan; no code landed.
+Research pass 2026-07-17: vendored engine source
 (`@screeps/engine` 4.3.2 / `@screeps/backend` 3.3.0 / `@screeps/common` 2.16.1 —
 the same code the live servers and our mockup run) plus six public bots
 (license ledger at the bottom). Every engine claim below was verified against
 `node_modules` at the cited file:line.
-**Priority (proposed):** phase 0 = P0 (bug in landed spec-12 behavior);
-phases 1–3 = P1 (the actual noise reduction); phase 4 = P2; phase 5 stays P3
-with corrected math.
-**Relation to spec 12:** spec 12 is the reactive layer (flight on sighting).
-This spec is the *ex-ante* layer: raids are deterministic-enough to predict,
-price, and schedule. Spec 12 phase 2 (fight) gets its economics corrected here.
+**Owner directive (2026-07-17):** "mainly I just want to keep the remote
+flowing. at home, we will build towers." This flips the spec-07/12 doctrine
+for the NPC scope: remotes get a small guard corp instead of flight-only,
+home rooms get spec 07's towers (un-deferred), and the core buster proceeds
+with corrected math. Player-military and strongholds stay out of scope.
+**Priority (proposed):** tranche 1 (phase 0 bugfix + towers) = P0/P1;
+tranches 2–3 (meter + guard, core buster) = P1; tranche 4 (pricing +
+telemetry) = P2.
+**Relation to spec 12:** spec 12 phase 1 (flight) stays landed as the
+*fallback* layer. Its phase 2 (fight) is superseded by phase 4 here, with
+engine-ground-truth corrections.
 
 ## The problem
 
 Invader raids make the live economy noisy: random-looking income dips in
-remotes, bodies bought into kill windows, defund windows of unmeasured cost.
-Spec 12 phase 1 defunds *after* a sighting — correct but purely reactive, so
-every raid is paid at ambush prices. Meanwhile **none of this noise is visible
-to our harness**: raid generation lives exclusively in `@screeps/backend`'s
-wall-clock cronjobs (`genInvaders`, every 300 real seconds —
-`@screeps/backend/lib/cronjobs.js:18`), which screeps-server-mockup never runs
-(its `tick()` drives only the engine loop; no backend process, no crons). So:
+remotes, bodies bought into kill windows, occupations that zero a room for
+thousands of ticks. Spec 12 phase 1 defunds *after* a sighting — correct but
+purely reactive, and flight prices every raid at ~1500 ticks of blackout.
+Meanwhile **none of this noise is visible to our harness**: raid generation
+lives exclusively in `@screeps/backend`'s wall-clock cronjobs (`genInvaders`,
+every 300 real seconds — `@screeps/backend/lib/cronjobs.js:18`), which
+screeps-server-mockup never runs (its `tick()` drives only the engine loop;
+no backend process, no crons). So:
 
 - The grid's measured ±20–30% draw variance (spec 08) contains **zero** invader
   contribution — invader noise is a **live-only effect class**, currently
@@ -30,7 +36,8 @@ wall-clock cronjobs (`genInvaders`, every 300 real seconds —
 - The mockup engine *does* accrue the raid fuse (`source.invaderHarvested`
   increments on every harvest — journey fixtures carry values like
   `"invaderHarvested": 20638`) — nothing ever consumes it. Staged invaders DO
-  run the real engine raid AI (`@screeps/engine/src/processor.js:66-70,194-206`).
+  run the real engine raid AI (`@screeps/engine/src/processor.js:66-70,194-206`)
+  — so guard-vs-invader grid cells are real fights.
 
 ## Ground truth: how raids actually work (engine source, verified)
 
@@ -62,17 +69,20 @@ The trigger is **your own harvesting**, metered per room:
    On respawn/placeSpawn the API sets `invaderGoal = 1,000,000` (10× grace,
    `backend/lib/game/api/game.js:399-402`).
 4. **Raid composition is a static table, not an estimate**
-   (`createRaid`, `cronjobs.js:320-375`): reserved/unowned rooms (all our
-   remotes) get **10-part "small" bodies, ~90% solo**, T1 boost at 50%
-   per creep; groups of 2–5 only on a 10% roll (or always in sector-center
-   rooms, which also get T3 boosts — `utils.isCenter`, coords %10 ∈ 4..6);
-   50-part "big" bodies require the room to be OWNED at RCL ≥ 4. Invader TTL
-   is **1500** (`:281`); they never leave their room and suicide when nothing
-   is reachable (`invaders/findAttack.js:82-89`).
+   (`createRaid`, `cronjobs.js:320-375`) — and it scales with the *victim
+   room's* status, not the attacker's colony. Reserved/unowned rooms (**all
+   our remotes, forever**) get **10-part "small" bodies (1000 hits), ~90%
+   solo**, T1 boost at 50% per creep; groups of 2–5 only on a 10% roll (or
+   always in sector-center rooms, which also get T3 boosts — `utils.isCenter`,
+   coords %10 ∈ 4..6); 50-part "big" bodies require the room to be **OWNED at
+   RCL ≥ 4** — i.e. big raids arrive only after towers exist. The three small
+   templates: melee (2T/5M/1RA/1W/1A, ~40 DPS adjacent), ranged (2T/5M/3RA,
+   30 DPS, kites at range 3 — `invaders/findAttack.js:26-28`), healer (5M/5H,
+   60 HPS, 120 with LO). Invader TTL is **1500** (`:281`); they never leave
+   their room and suicide when nothing is reachable (`findAttack.js:82-89`).
 5. **Occupation blocks income entirely** — `harvest.js:31` returns early when
    the room controller is reserved by another user: an invader-reserved room
-   yields **0 e/tick to us**, not a throttled rate. (This corrects spec 12
-   phase 2's "10 vs 5 e/tick" payback assumption — see phase 5.)
+   yields **0 e/tick to us**, not a throttled rate.
 6. **Cores** — the sector stronghold plants defenseless **level-0 lesser
    cores** (100k hits, cannot spawn creeps — `INVADER_CORE_CREEP_SPAWN_TIME`
    is 0 for levels 0-1) in the nearest room with an unowned controller
@@ -86,30 +96,33 @@ The trigger is **your own harvesting**, metered per room:
    and `attackController` strips only `CLAIM_parts × 1` tick per attack from a
    *reservation* (`creeps/attackController.js:33-40`; the 300×/part
    `CONTROLLER_CLAIM_DOWNGRADE` applies only to owned controllers). A 2-CLAIM
-   reserver therefore needs ~1700 ticks to grind out a full reservation
-   (2/attack + 1 natural decay per tick).
+   reserver grinds out a full reservation in ~1700 ticks (2/attack + 1
+   natural decay per tick).
 
-**Planner-shaped consequences:** raid frequency is proportional to harvest
-throughput (a *per-energy tax*, E ≈ cost/105k); raid timing is *predictable*
-from a counter we can mirror exactly; raid size for remotes is a compile-time
-constant; and there are two structural off-switches (sector has no stronghold;
-all exits owned/reserved) plus one deferral lever (stop harvesting below the
-70k goal floor).
+**Planner-shaped consequences:** raid *timing* is predictable from a counter
+we can mirror exactly; raid *size* for remotes is a compile-time constant
+that never grows; occupations are pure structure-grinding with a known strip
+phase; and defense is cheap — a 650-energy guard versus ~10k+ energy of
+blackout per absorbed raid. Fighting the NPC tier is the economically
+dominant strategy for any remote worth mining; the flight layer remains as
+the fallback for everything else.
 
 ## Survey: what public bots do about it
 
 | Bot | Mechanism | What we take | License |
 |---|---|---|---|
-| **Overmind** (bencbartlett) | Per-room invasion clock: accrue harvested energy at source-regen boundaries, `isInvasionLikely` at 90k/75k/65k by source count (ported from bonzAI's InvaderGuru); defender pre-spawn off the prediction; DEFCON gates consumer spend (construction/repair need `safe`); defense commissioned only after 20 consecutive unsafe ticks, decommissioned after 100 quiet; dev branch: outpost suspension with typed reasons + 5000t expiry; casualty EMA charging only the **unamortized remainder** of a dead body | The clock (phase 1), the amortized-casualty accounting (phase 4), suspension-with-expiry shape (phase 3). Their bug to avoid: `lastSeen > 20000` compares an absolute tick, permanently disabling prediction — use ages. **Negative finding:** master never proactively suspends mining before a predicted raid — prediction only feeds defenders. That gap is our main opportunity. | MIT (verified stock, master + dev) |
-| **The International** | `abandonRemote` = lowest attacker `ticksToLive` + jitter, **set-with-max** semantics; **recursive abandonment through `pathsThrough`** (a remote is dead if its haul path transits a hostile room); `threatened` scalar: instant max-ratchet up, ×0.99999/tick decay down; lesser cores answered with fixed cheap ATTACK/MOVE demand while income is zeroed **only when the reservation actually flips** | TTL-bounded embargo we already have (spec 12); take **transit-aware defunding** (phase 1b) and don't-panic-on-core-sighting (phase 5). Their remote-defender sizing exists but is commented out on Main — live TI answers raids with pure avoidance, validating our doctrine. | MIT |
-| **Grey Company** (glitchassassin / Jon Winsley) | Per-remote-source double-entry `HarvestLedger` (deposits − harvester spawn − hauler ticks − repair), scored in 10×1500-tick windows; disable when windowed avg < 0, retry after 100k ticks; `THREAT_TOLERANCE` ladder by RCL; **budget classes**: remote defense = ESSENTIAL, core-killing = EFFICIENCY (storage-gated surplus spend). Blog: remotes at RCL4 measured **net-negative to RCL5** (−6k ticks) because spawn time, not energy, is the binding constraint | Measured-not-vibes remote valuation (phase 4 feeds phase 2's tax constant); core-kill as a warchest-gated consumer (phase 5); windows ≥ 10×1500 to stay outside our own ±20-30% draw variance | Unlicense (public domain) |
-| **TooAngel** | `attackTimer` integrator: +1/tick with hostiles, −5/tick without; ladder >15 defender, >50 gates upgraders/link routing, >100 safemode, >300 escalate; **consumption shuts off under threat, producers keep running**; civilian corps file one-shot deduped defense tickets; **flee is vestigial dead code** — losses absorbed, economy gated instead | The asymmetric integrator shape if we ever need a scalar (we likely don't — our TTL marks are already bounded); the negative finding: skip per-creep flee AI, gate demand instead (already our doctrine) | AGPL-3.0 — **ideas only, never port lines** |
-| **screeps-quorum** | **Invaders as weather**: zero combat creep roles; towers fire unconditionally; raids in remotes → total withdrawal (miner/hauler/reservist demand → 0, no defense ever, wait out TTL); stock-based economy tiers (CRASHED..BURSTING) gate consumers so threat couples *implicitly* through lost income; throttled notify (3000t/message-hash) + dedupe-windowed aggression ledger | Strongest doctrinal match. Their withdrawal is our spec-12 defund; their implicit-coupling insight says our `sustainableConsumptionRate` already shrinks consumers after raids — assert it, don't rebuild it. Take the throttled-alert/event-dedupe shapes for phase 4 | MIT |
-| **bonzAI** | Original InvaderGuru (the 90k/75k/65k clock Overmind ported) | Semantics via Overmind's MIT port | **No license — ideas only** |
+| **Overmind** (bencbartlett) | Per-room invasion clock: accrue harvested energy at source-regen boundaries, `isInvasionLikely` at 90k/75k/65k by source count (ported from bonzAI's InvaderGuru); **defender pre-spawn off the prediction**; defense commissioned only after 20 consecutive unsafe ticks, decommissioned after 100 quiet; analytic defender sizing (heal-vs-damage parity with 1.5× margin); casualty EMA charging only the **unamortized remainder** of a dead body | The clock (phase 1) and the pre-spawn move — executed better here because our meter is exact, not a regen-boundary proxy, and our lead time is the existing `deliveryLeadTime` contract. Their bug to avoid: `lastSeen > 20000` compares an absolute tick, permanently disabling prediction — use ages. Quiet-period decommission (100t) for the guard's recycle gate. Casualty amortization for phase 5 | MIT (verified stock, master + dev) |
+| **The International** | `abandonRemote` = lowest attacker `ticksToLive` + jitter, set-with-max; **recursive abandonment through `pathsThrough`**; lesser cores answered with fixed cheap ATTACK/MOVE demand (8 parts/core) while income is zeroed **only when the reservation actually flips** | Transit-aware defunding (phase 1b); don't-panic-on-core-sighting — keep harvesting until the reservation actually flips (phase 4). Its remote-defender sizing is commented out on Main — the guards below fill the gap TI left | MIT |
+| **Grey Company** (glitchassassin / Jon Winsley) | Per-remote-source double-entry `HarvestLedger` scored in 10×1500-tick windows, disable when avg < 0, retry after 100k; **budget classes: remote defense = ESSENTIAL, core-killing = EFFICIENCY** (storage-gated); remote defenders escalate one creep at a time to score parity | The budget split maps 1:1 onto our doctrine: the raid guard is producer-protecting spend (fund it), the core buster is warchest-gated (phase 4 gate). Measured ledgers feed phase 5's calibration. Windows ≥ 10×1500 to stay outside our ±20-30% draw variance | Unlicense (public domain) |
+| **TooAngel** | `attackTimer` integrator (+1/−5) with escalation ladder; consumption gates under threat, producers keep running; **defenders self-recycle when threat clears**, spawn rate-limited; civilian corps file one-shot deduped defense tickets; flee is vestigial dead code | Guard self-liquidation with a quiet-period grace (phase 3) — refundable working capital, not standing army. The negative finding stands: skip per-creep flee AI | AGPL-3.0 — **ideas only, never port lines** |
+| **screeps-quorum** | **Towers-only at home**: zero combat creep roles; towers fire unconditionally, replenisher refills under drain; remote raids → total withdrawal; throttled notify (3000t/message-hash) + dedupe-windowed aggression ledger | Validates the home-room half of the owner directive: spec 07's tower is the entire owned-room answer to NPCs. Alert/event-dedupe shapes for phase 5 | MIT |
+| **bonzAI** | Original InvaderGuru (the 90k/75k/65k clock) + threshold defender pre-spawn | Semantics via Overmind's MIT port | **No license — ideas only** |
 
-**Community-wide negative finding:** no public bot deliberately meters its own
-harvest to *schedule* raid crossings or park below the goal floor. Phase 3 is
-novel territory — and it is pure planning, our home turf.
+**Community-wide negative finding:** nobody pre-positions off an *exact*
+mirror of the engine counter (all use the regen-boundary proxy or nothing),
+and nobody prices guard amortization into remote selection. Both are cheap
+for us because the meter increment point is our own `recordProduction` and
+all economics land in `primitives.ts`.
 
 ## Design
 
@@ -121,8 +134,9 @@ novel territory — and it is pure planning, our home turf.
 passive ≥5000-stale re-record in `work()`, `ScoutCorp.ts:96-101`) erases the
 spec-12 defund marks. They only survive today because the `hostileRooms()`
 vision pass re-stamps next tick *while the room stays visible*; if vision
-drops the same tick (scout leaves/dies — exactly the vision-loss class from
-CLAUDE.md's sim blind spots), funding silently resumes for an occupied room.
+drops the same tick (scout leaves/dies), funding silently resumes for an
+occupied room. The flight layer is the guard system's fallback, so it must
+be airtight first.
 
 Fix: `recordRoomIntel` carries the two mark fields over from the old entry
 (the vision pass keeps sole authority for setting/clearing them).
@@ -134,10 +148,23 @@ Fix: `recordRoomIntel` carries the two mark fields over from the old entry
 - Regression gate: unit suite + `def-t3-invader-defunds-source` +
   `def-t5-invader-reservation-defunds-remote`.
 
-### Phase 1 — mirror the raid meter (raid-debt intel)
+### Phase 1 — home towers: un-defer spec 07 as written
 
-Mirror the engine's counter in intel — we can do it *exactly*, not by
-Overmind's regen-boundary proxy, because the increment point is our own code:
+The owner directive un-defers spec 07 for owned rooms. Its minimal design
+(TowerRunner fires at closest hostile; ConstructionCorp places 1 tower at
+RCL3 near the core; ExtensionTender feeds below 50%) needs no changes — the
+engine facts guarantee sufficiency: owned rooms below RCL4 only ever face
+10-part smalls (one tower one-shots the wave over a few ticks), and 50-part
+big raids begin exactly at RCL4, after the tower exists. Quorum runs this
+posture with zero combat creeps as validation. Acceptance tests are spec
+07's, unchanged. Optional later hardening (NOT v1): Overmind's winnability
+check (don't fire when healing outpaces tower+creep damage) matters only for
+player drain attacks, not NPCs.
+
+### Phase 2 — mirror the raid meter (raid-debt intel)
+
+Mirror the engine's counter in intel — exactly, not by Overmind's
+regen-boundary proxy, because the increment point is our own code:
 `HarvestCorp.runHarvester` records `WORK × 2` per successful harvest
 (`src/corps/HarvestCorp.ts:417-422`, `recordProduction`).
 
@@ -150,201 +177,218 @@ New `RoomIntel` fields (same lifecycle discipline as the spec-12 marks):
   (`Memory.commissionedCorps` drop path, `CommissionHost.ts:120-126`).
 - `lastRaidSeen?: number` — stamped by the `hostileRooms()` vision pass when
   sighted hostiles include Invader-owned creeps; the same sighting resets
-  `raidDebt` to 0 (the engine reset happened at spawn time).
+  `raidDebt` to 0 (the engine reset happened at raid-spawn time).
 - Semantics: debt starts at 0 when we first mine a room (the engine counter
-  may hold prior tenants' debt — accept that the *first* raid can come early;
-  the spec-12 reactive defund already covers surprises, and after the first
-  observed raid the mirror is exact). `raidDebt > 130k` with no raid seen =
-  `overdue`: evidence that raids aren't firing here (sector-quiet or
-  exits-blocked) — phase 3 scheduling disarms for that room, phase 2 tax
-  stays (conservative), and the state is logged for calibration.
+  may hold prior tenants' debt — the first raid can come early; the guard's
+  reactive trigger and the spec-12 flight fallback cover surprises, and after
+  the first observed raid the mirror is exact). `raidDebt > 130k` with no
+  raid seen = `overdue`: evidence raids aren't firing here (sector-quiet or
+  exits-blocked) — the guard disarms for that room and the state is logged
+  for calibration.
 
-**1b — transit-aware defunding (TI's `pathsThrough`, small and independent):**
+**2b — transit-aware defunding (TI's `pathsThrough`, small and independent):**
 `CarryCorp.getSpawnDemand` gates on the *pickup* room only
 (`CarryCorp.ts:1083-1088`); a hauler route transiting a marked room is still
 funded. Extend the demand gate: a route is defunded if **any room on its
 cached path** is in `hostileRooms()`. (Seam: the route's rooms are derivable
-from the cached `pathDistance` path used to build the edge.)
+from the cached `pathDistance` path used to build the edge.) Guards defend
+their own room; transit rooms we don't mine still need the embargo.
 
 **Acceptance (write first):**
 - Unit: the debt reducer — increments on recorded harvest, resets on
   Invader-sighting, survives corp churn (write/read through Memory), `overdue`
-  transition at >130k, no accrual for owned home rooms with a tower (see
-  phase 2 scope).
-- Grid (fidelity pin, deterministic): a cell that stages a remote mine, runs
-  the window, then asserts `Memory.roomIntel[room].raidDebt` matches the sum
-  of the db's real `source.invaderHarvested` deltas within hauling-lag
-  tolerance — the mockup engine increments the true counter for free, so the
-  mirror is directly checkable against ground truth.
-- Unit (1b): a two-hop route whose middle room is marked emits no hauler
+  transition at >130k.
+- Grid (fidelity pin, deterministic): stage a remote mine, run the window,
+  assert `Memory.roomIntel[room].raidDebt` matches the sum of the db's real
+  `source.invaderHarvested` deltas within hauling-lag tolerance — the mockup
+  engine increments the true counter for free.
+- Unit (2b): a two-hop route whose middle room is marked emits no hauler
   demand; pickup-room-only marking still defunds as today.
 
-### Phase 2 — price it: the invader tax in `primitives.ts`
+### Phase 3 — RaidGuardCorp: pre-spawned remote defense
 
-Because raid frequency is proportional to harvested energy, expected raid
-cost is a **per-energy coefficient** — exactly the shape the planner wants:
+The core of "keep the remote flowing". One guard corp kind, commissioned off
+the raid clock so the guard is **standing at the source when the raid walks
+in**, killing 10-part smalls in seconds; miners never stop, haulers never
+stop, the hostile mark lifts on the guard's own all-clear sighting within a
+few ticks. Economics: guard ≈ 650 energy + 30 ticks of spawn time per ~105k
+harvested (< 1% of gross income) versus ~10k+ energy of blackout per raid
+absorbed under flight — defense is ~15× cheaper for any remote worth mining.
 
-- `INVADER_RAID_MEAN_ENERGY = 105_000` (derivation comment: 90% U(70k,130k) +
-  5% doubled + 5% 100k — engine `cronjobs.js:433-438`).
-- `invaderTaxPerEnergy(expectedRaidCost: number): number` =
-  `expectedRaidCost / INVADER_RAID_MEAN_ENERGY`.
-- v1 `expectedRaidCost` for our no-military doctrine is the **absorb price**:
-  ~1500 ticks (invader TTL) of the room's income blacked out + the flush/
-  restaff churn, with bodies-lost ≈ 0 *assuming phase 0+3 landed* (we stop
-  buying into the window; existing creeps mostly age out). Order of
-  magnitude: a d=75 remote source nets ~7 e/t → one raid ≈ 10.5k energy of
-  blackout → tax ≈ 0.1 e per e harvested (~1.4% of gross at rate 10, ~10% of
-  *net*). Phase 4 replaces the assumption with the measured number.
-- Application point — per-source, remote-only, following the exact
-  `paved?`/`transient?`/`haulPos?` precedent: an optional `PlannerSource`
-  field set by a detector in `buildColonyProblem`
-  (`flowAdapter.ts:253-341`) reading RoomIntel, subtracted from `net` in
-  `selectProducers` (`CorpPlanner.ts:206`) so it hits **both** the
-  profitability gate and the net-per-part ranking. Owned rooms with a tower
-  pay ~0 (towers absorb smalls for the energy cost of the shots); SK rooms
-  are already excluded at graph level.
-- **The sink-value ladder is untouched.** The tax is a producer-side cost
-  term, not a sink value — no ladder ordering risk (the 90-vs-85 class of
-  incident cannot occur here).
-- The dormant `reserverTollPerRoom`/`reserveRoomWorthIt`
-  (`src/corps/economics.ts:83-102`, unit-tested, never wired) is the existing
-  per-room-cost template; the tax lands next to `netEnergy` in
-  `economy/primitives.ts` per the one-home rule, with the conformance suite
-  extended.
-- **Reservation gains a tax credit** (engine `checkExit`): when reserving a
-  neighbor room completes an all-exits-blocked set around a mined remote, the
-  reservation's value includes the *deferred* raid tax of that remote (a value
-  input to the reservation decision, NOT a new sink value). Optional; ship
-  the tax first.
+Design (kind `raidGuard`, through the spec-00 framework, pattern of
+`reservationKind`):
 
-**Acceptance (write first):**
-- Unit (`primitives.test.ts`): `invaderTaxPerEnergy` pinned to 1e-9; the
-  105k constant's derivation table-tested.
-- Unit (planner): a marginal remote source flips to unfunded when taxed; an
-  equal-rate pair keeps its distance-driven order (the tax must never reorder
-  equal-gross flows — by construction it can't; pin it anyway).
-- Grid: `Memory.economyPlan` observability — the published roster carries the
-  taxed net for remote mines (plan-vs-actual gets an honest denominator).
+1. **Propose** — one corp per remote room the current draft plan mines (the
+   `constructionKind` hybrid pattern: read the draft's harvest commissions,
+   `constructionKind.ts:84-95`). A corp with no trigger and no creeps costs
+   nothing.
+2. **Demand trigger** (in `getSpawnDemand`, runtime state):
+   - *Predictive*: `raidDebt ≥ RAID_ARM_FLOOR` (65k — one spawn+travel lead
+     under the 70k goal floor; the crossing at ≥10 e/t gives ≥500 ticks of
+     lead versus ~30+150 needed). Demand is emitted `deliveryLeadTime` early,
+     the same contract miners use.
+   - *Reactive fallback*: `hostileUntil` freshly stamped on a mined remote
+     (surprise raids, unknown counter history).
+   - *Disarm*: `overdue` rooms and rooms the plan stopped mining emit nothing.
+3. **Body** — static table from the engine composition facts, no estimator:
+   default `5×ATTACK/5×MOVE` (650, RCL3; 150 DPS beats every small template
+   including a boosted healer's 120 HPS). A ranged variant (`3×RANGED/3×MOVE`,
+   600) is the v1.1 answer to kiting smallRanged — v1 accepts that a kiter
+   times out while the guard bodyguards the miner (invaders can't out-damage
+   a guarded position: 30 ranged DPS < guard heal-free kill threshold on any
+   engagement). Two-guard escalation only on an *observed* 2+ raid (the ~10%
+   tail) — never precomputed armies.
+4. **Lifecycle** — guard travels to its room, engages Invader-user hostiles
+   (closest-first), holds near the source tiles; after the room is quiet for
+   ~100 ticks (Overmind's decommission window) it recycles at the home spawn,
+   refunding the TTL remainder (TooAngel's self-liquidation). Working
+   capital, not a standing army.
+5. **Demand value** — 105: below reserver 115 (income multiplier), above the
+   hauler scale band's floor 90; it protects an active income stream but must
+   never outbid the miner/first-hauler income tier (it doesn't — income tier
+   is 1e6-tiered in `spawnPriority`, value only breaks ties within tiers).
+   Never blocking, no `holdToFund` (650 is affordable at its RCL gate). Add
+   the ladder-ordering unit test in the same commit (90-vs-85 lesson).
+6. **Gate exemption** — the guard is military: EXEMPT from the
+   `hostileRooms()` gate for its own target room (it exists to enter exactly
+   the rooms the economy flees), same rule spec 12 phase 2 established.
+7. **Wiring traps** (each has burned a session — confirmed at code): KINDS
+   array (`CommissionHost.ts:49-61`), OrphanRescue `liveCorpIds`
+   (`OrphanRescue.ts:83-93`), SpawnDirector `collectDemands` block
+   (`SpawnDirector.ts:173-286`), `materialize` refreshes `spawnId`
+   (conformance-enforced), new "guard" role plumbing (SpawnRole union,
+   `SpawningCorp` role/workType maps + `buildBodyForRole`,
+   `CreepMemory.workType`, `BodyBuilder` builder). **Recycling counts as
+   staffing** — the guard's self-recycle must not double-order; count
+   recycling guards via the same `staffsPost` lens as demand.
 
-### Phase 3 — schedule it: raid crossings on our clock
-
-The novel lever. The counter only advances when we harvest, and the raid only
-fires at ≥70k — so **when the raid happens is our choice**. There is no
-avoidance (debt never decays; ~one raid per ~100k harvested is a law), only
-scheduling — plus the honesty that a walked-away room keeps its debt frozen
-(`re-entry rule` below).
-
-- **Armed window**: `raidDebt ≥ RAID_ARM_FLOOR` (65k — under the 70k goal
-  floor by one spawn+travel lead, per bonzAI's margin logic) puts the room's
-  income corps in *scheduled-defund* mode: `SpawnDirector` demands for
-  replacement miners/haulers whose `deliveryLeadTime` would land them inside
-  the predicted raid window are suppressed (reuses the spec-11 NOW-plan
-  machinery — this is an agenda transition, not a GOAL-plan change; the
-  planner still opens the mine, same non-vacuity doctrine as spec 12).
-- **Flush**: the crossing is aligned to the fleet's replacement boundary —
-  the last pre-window generation ages out, the raid trips against an empty
-  room (or a single expendable runt), invaders find nothing, TTL out in
-  ≤1500, `hostileUntil` (already landed) covers the tail, successors spawn
-  on the all-clear. The raid still costs its blackout — but zero bodies, at
-  a chosen time, with a known size (10-part small, 90% solo — the static
-  composition table).
-- **Re-entry rule** (walk-away liability): reopening any room whose
-  `raidDebt` is at/above the arm floor *starts* with a flush — never staff a
-  fresh fleet into an armed room. One check at commissioning time.
-- **Traps that apply** (from the checklist, confirmed at code): suppressed
-  corps must keep counting surviving creeps via the same `staffsPost` lens
-  (churn loop otherwise); suspension must ride the existing `retiring`/
-  commission flow so OrphanRescue's 25t grace doesn't recycle the fleet;
-  recycling counts as staffing.
+**Interaction with the flight layer:** unchanged and still live. Marks still
+stamp on sightings; income-corp demand still gates on them. With a guard
+fielded, the fight lasts a few ticks and the guard's standing vision lifts
+the mark immediately — flight only actually bites where no guard was
+commissioned (not-mined rooms, overdue rooms, guard dead on arrival), which
+is exactly the intended defense-in-depth.
 
 **Acceptance (write first):**
-- Unit: the window scheduler — table-driven `(raidDebt, harvestRate,
-  deliveryLeadTime) → suppress/allow` decisions; `overdue` rooms never arm;
-  re-entry rule.
-- Grid (deterministic — we inject the raid): stage `raidDebt` at 68k via
-  Memory + staged source `invaderHarvested` (RoomBuilder `.obj()` passes
-  arbitrary attributes verbatim; whole-object writes only — the dotted-path
-  `$set` no-op trap), run mining to the crossing, inject one engine-faithful
-  small invader (exact 10-part body from `cronjobs.js:266-273`, pinned
-  `ageTime`) via `onTick`: assert **no replacement is bought into the
-  window**, no fielded creep dies, funding resumes after TTL, and the debt
-  resets on the sighting.
-- Regression gate: standard trio + both def-t* cells (the reactive layer must
-  be byte-identical when the scheduler is cold).
+- Unit: arm-floor trigger table-driven (`raidDebt`, rate, lead time →
+  demand/none); body picker vs observed raid subtype; quiet-period recycle
+  decision; overdue disarm; ladder-ordering test (105 sits between 90 and 115
+  and below every income-tier demand).
+- Grid `def-t4-guard-holds-the-remote` (deterministic — we inject the raid):
+  stage `raidDebt` near the floor via Memory + staged
+  `source.invaderHarvested` (whole-object writes — the dotted-path `$set`
+  no-op trap), mine to the crossing, inject one engine-faithful smallMelee
+  (exact body from `cronjobs.js:266-273`, pinned `ageTime` as backstop) via
+  `onTick`. Assert: the guard is fielded BEFORE the injection tick
+  (pre-spawn, not reaction); the invader object disappears well before its
+  `ageTime` (killed, not expired); no miner/hauler dies; the room's delivered
+  energy over the window stays above a floor (the flow never stopped); the
+  guard recycles after the quiet window; `raidDebt` reset on the sighting.
+  Staged invaders run the real engine raid AI, so this is a real fight.
+- Kind-conformance suite for `raidGuard`.
+- Regression gate: standard trio + both def-t* cells (flight must be
+  byte-identical when no guard is commissioned).
 
-### Phase 4 — measure it: raid P&L, live calibration
+### Phase 4 — CoreBusterCorp: kill + strip (supersedes spec 12 phase 2)
 
-Everything above runs on a derived constant until live data replaces it:
+Occupations, not raids, are the expensive event (income = 0 under a foreign
+reservation, bounded by the parent stronghold's collapse timer — tens of
+thousands of ticks). Spec 12 phase 2's design carries over with three
+engine-ground-truth corrections (also noted in spec 12):
 
-- **BlackBox** gains `mark`/`unmark` event kinds (room, bound, cause:
-  creep|reservation|scheduled) — defund windows become measurable durations
-  (today the marks never leave Memory; the event vocabulary is
-  spawn|hold|churn|watch|gov|err only, `BlackBox.ts:25-31`).
-- **IntelTelemetry** adds `hostileUntil`/`invaderReservedUntil`/`raidDebt`
-  (currently omitted, `Telemetry.ts:635-666`) so dashboards can see the
-  defund state that already exists.
-- **Casualty accounting** (Overmind's amortization, tombstone-free): a corp
-  creep that disappears with TTL ≫ its delivery lead charges the
-  *unamortized remainder* of its body cost to its room's raid P&L — an old
-  creep dying to an invader is nearly free, a newborn is a full loss. This
-  is the correct marginal number for `expectedRaidCost`.
-- **Windows**: per Grey Company and our own multi-draw rule, calibration
-  windows are ≥ 10×1500 ticks; single-raid numbers are anecdotes.
+1. **Benefit is bigger**: eviction restores the room's FULL rate, not a 10-vs-5
+   delta (`harvest.js:31`).
+2. **The mission is kill + strip**: core death leaves the reservation
+   decaying 1/tick from up to 5000. After the kill, ReservationCorp's
+   reserver must `attackController` until clear (2-CLAIM ≈ 1700 ticks), then
+   re-reserve — a `work()` branch on "controller reserved by Invader and no
+   core present", plus the corrected payback gate reading both legs. A
+   3-CLAIM body variant halves the strip when energy allows.
+3. **It recurs**: the stronghold replants a lesser core every 2000–4000 ticks
+   at the nearest unowned controller — our closest remotes to a sighted
+   stronghold absorb them preferentially. The buster is a recurring chore
+   priced per expansion cycle; remote-selection scoring should mildly
+   penalize stronghold proximity. Per Grey Company's budget split, the
+   buster is EFFICIENCY-class: commissioned only above a warchest floor,
+   while the raid guard is ESSENTIAL-class.
+
+Keep harvesting until the reservation actually flips (TI's insight) — a core
+sighting alone must not defund; `invaderReservedUntil` (already landed)
+remains the defund trigger.
+
+**Acceptance (write first):** spec 12 phase 2's suite, extended: payback
+table-driven off both legs (kill ticks + strip ticks vs full-rate blackout ×
+remaining bound); grid `def-t5-core-buster-reclaims-remote` staging a real
+`invaderCore` object (the engine processes hand-inserted cores — they renew
+reservations) and asserting kill → strip → re-reserve → miner works the
+source before window end.
+
+### Phase 5 — price it, measure it
+
+- **Primitives**: `INVADER_RAID_MEAN_ENERGY = 105_000` (derivation comment:
+  90% U(70k,130k) + 5% doubled + 5% 100k); `invaderTaxPerEnergy(cost) =
+  cost / INVADER_RAID_MEAN_ENERGY` where v1 cost = guard body + spawn-part
+  price + expected buster amortization — now ~0.5-1% of gross, so it rarely
+  flips a remote, but it keeps room ranking honest and prices the reservation
+  **exit-blocking credit** (engine `checkExit`): reserving a neighbor that
+  completes an all-exits-blocked set defers the tax entirely — a value input
+  to the reservation decision, NOT a new sink value. Applied per-source via
+  the `paved?`/`transient?` detector precedent in `buildColonyProblem`
+  (`flowAdapter.ts:253-341`), subtracted at `CorpPlanner.ts:206`. The
+  sink-value ladder is untouched.
+- **Observability**: BlackBox gains `mark`/`unmark`/`raid` event kinds (room,
+  bound, cause) — the vocabulary today is spawn|hold|churn|watch|gov|err only
+  (`BlackBox.ts:25-31`); IntelTelemetry adds
+  `hostileUntil`/`invaderReservedUntil`/`raidDebt` (currently omitted,
+  `Telemetry.ts:635-666`).
+- **Calibration**: per-remote income EMA through raid windows is THE success
+  metric for phase 3 ("the remote kept flowing"); casualty accounting via
+  Overmind's amortization (a vanished creep charges only its unamortized
+  body remainder). Windows ≥ 10×1500 ticks per Grey Company and our own
+  multi-draw rule.
 - Doc fixes bundled here: CLAUDE.md sim-blind-spots gains "invader raids are
   live-only (mockup runs no backend crons)"; the command table's description
   of `sim:variance` ("multi-draw") is corrected — it is a single-draw
   plan-vs-actual gauge (`scripts/sim-variance.ts`); the multi-draw studies
   were repeated `ab-cold-start` invocations.
 
-**Acceptance:** unit tests for the casualty amortization formula (primitives)
-and the BlackBox event emission; a telemetry snapshot test pinning the new
-intel fields.
+**Acceptance:** primitives pinned to 1e-9 incl. the tax and amortization
+formulas; planner unit test (tax affects gate + ranking, never reorders
+equal-gross flows); BlackBox emission tests; telemetry snapshot pin.
 
-### Phase 5 — fight economics, corrected (stays P3; replaces spec 12 phase 2 math)
+### Fallback appendix — scheduled flushes (kept, demoted)
 
-Engine facts change the core-buster ledger materially:
-
-- Income under occupation is **0**, not "throttled" (`harvest.js:31`) — the
-  benefit of eviction is the room's full rate, bigger than spec 12 assumed.
-- Killing the core does **not** restore income: the reservation survives and
-  decays 1/tick from up to 5000; a CLAIM creep strips only claimParts×1 per
-  attack (~1700 ticks for our 2-CLAIM reserver). The buster mission is
-  therefore **kill + strip**: the attacker kills the core (100k hits,
-  defenseless, deploy-invulnerability wait), then ReservationCorp's normal
-  reserver *attacks* the controller before it can re-reserve. Payback window
-  must count both legs.
-- Occupation is bounded by the **parent stronghold's collapse timer** (up to
-  ~82.5k ticks), not 5000 — "wait it out" is far more expensive than spec 12
-  assumed, which *strengthens* the buster's case for high-value remotes.
-- The stronghold replants a lesser core every 2000–4000 ticks somewhere in
-  the sector (nearest unowned controller — our closest remotes to the
-  stronghold absorb them preferentially), so busting is a recurring chore
-  priced per expansion cycle, not one-and-done. Remote-selection scoring
-  should mildly penalize proximity to a sighted stronghold room.
-- Suppression levers priced but not built: stronghold kill = sector-wide raid
-  holiday for the remaining decay window + ruin-blocked respawn (weight class
-  far beyond P3 — leave specced); tower v1 stays spec 07.
+For rooms not worth a guard (marginal margin, guard unaffordable, overdue
+ambiguity), the counter still enables the pacifist trick no public bot
+ships: suppress replacement spawns whose delivery lands past the 70k
+crossing, align the crossing with a fleet-replacement boundary, and let the
+raid trip against an empty room. One rule survives into the main path
+regardless: **never staff a fresh fleet into an armed room** — reopening any
+room with `raidDebt` at/above the arm floor starts with either a fielded
+guard or a deliberate flush (walk-away debt never decays; `:426-428`).
 
 ## What we deliberately do NOT adopt
 
-- **Per-creep flee AI** — TooAngel ships broken flee and thrives; Overmind's
-  flee-with-drop is its weakest layer. Demand gating + scheduled windows
-  capture the value without pathing code.
-- **Defender corps for remotes** — military stays P3; quorum ships zero
-  combat creeps successfully; TI's sizing code is commented out on Main.
-  The static composition table means if this ever changes, defender sizing is
-  a lookup, not an estimator.
-- **DEFCON/threat enums and reputation ledgers** — our two TTL-bounded marks
-  + the tax + stock-sized consumers (`sustainableConsumptionRate`) already
-  produce quorum's implicit response; assert it in a cell before ever adding
-  explicit threat state.
+- **Per-creep flee AI** — TooAngel ships broken flee and thrives; guards +
+  demand gating capture the value without pathing code.
+- **DEFCON/threat enums and reputation ledgers** — two TTL-bounded marks +
+  the meter + stock-sized consumers already produce the same behavior for
+  NPCs; player-threat machinery is out of scope.
+- **Strongholds and SK/center rooms** — ramparted, T3-boosted, RCL7+ squad
+  territory; SK rooms stay excluded at graph level. Killing the sector
+  stronghold (= sector-wide raid holiday for its remaining decay window +
+  ruin-blocked respawn) is priced in the survey but stays specced-only.
+- **Adaptive defender sizing** — the NPC threat table is static; bodies are
+  compile-time constants, not estimators (Overmind's parity formula becomes
+  relevant only if player defense is ever in scope).
 
 ## Harness notes (for whoever implements)
 
 - Mockup never generates raids — every cell stages. Staged user-"2" creeps run
   the real engine raid AI; pin determinism with `ageTime` (existing pattern,
-  `defense.ts:20`). `world.reset()` pre-seeds the Invader user.
-- `source.invaderHarvested` accrues for real in the mockup — the phase-1
+  `defense.ts:20`). `world.reset()` pre-seeds the Invader user. Staged
+  `invaderCore` objects come alive too (reservation renewal, deploy timers).
+- `source.invaderHarvested` accrues for real in the mockup — the phase-2
   fidelity cell diffs our mirror against the db's truth.
 - Whole-object `$set` only (dotted paths silently no-op); staged controllers
   clear the `addBot` safeMode (stage.ts does this whenever `cell.controller`
@@ -373,14 +417,18 @@ as prior art.
 
 ## Rollout order and why
 
-0. Phase 0 (scout mark-wipe) — protects what spec 12 already paid for.
-1. Phase 1 (+1b) — pure intel, zero behavior risk, enables everything else.
-2. Phase 2 — one primitive + one detector; remotes get honest margins; the
-   planner stops opening remotes whose margin was fictional (that alone
-   removes a live noise source: marginal remotes that flap between profitable
-   and raided).
-3. Phase 3 — the scheduling win; the largest expected noise reduction
-   (no bodies into kill windows, dips become planned maintenance).
-4. Phase 4 — turns the derived tax constant into a measured one.
-5. Phase 5 — deferred until the owner changes the military doctrine; the
-   corrected math sits ready.
+1. **Tranche 1 — phase 0 + phase 1** (scout mark-wipe fix; spec 07 towers
+   un-deferred). Protects the landed fallback layer and closes the home-room
+   half of the directive. Small, independent, low-risk.
+2. **Tranche 2 — phase 2 + phase 3** (raid meter; RaidGuardCorp). The "keep
+   the remote flowing" core: exact prediction + pre-spawned guards. This is
+   where the live noise reduction lands — no more blackouts, no more bodies
+   lost, raids become a <1% income line item.
+3. **Tranche 3 — phase 4** (CoreBusterCorp kill + strip). Ends occupations,
+   the single most expensive invader event class.
+4. **Tranche 4 — phase 5** (pricing + telemetry). Turns derived constants
+   into measured ones and makes the whole system visible on dashboards.
+
+Success metric per the workflow: new def-t4/def-t5 cells green and ratcheted;
+live validation = per-remote income EMA flat through observed raid windows
+over a ≥15k-tick live sample.

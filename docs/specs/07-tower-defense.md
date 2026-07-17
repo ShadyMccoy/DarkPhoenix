@@ -1,9 +1,11 @@
 # 07 — Tower defense (minimal)
 
-**Status:** DEFERRED by owner decision — the strategy is respawn-tolerant
-("we spread like a disease; losing a room is fine"). Specced now so it's a
-~1-hour task whenever it's picked up.
-**Priority:** P3 / backlog.
+**Status:** UN-DEFERRED by owner directive 2026-07-17 ("at home, we will
+build towers") — picked up as spec 13 tranche 1. Design below unchanged; the
+spec-13 engine survey confirms it is sufficient for NPCs: owned rooms below
+RCL4 only ever face 10-part "small" raids, and 50-part "big" raids begin
+exactly at RCL4 — after the RCL3 tower exists.
+**Priority:** P1 (was P3).
 
 ## Current state
 

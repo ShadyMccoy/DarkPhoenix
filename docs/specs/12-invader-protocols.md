@@ -1,11 +1,12 @@
 # 12 — Invader protocols: flight, and eventually fight
 
-**Status:** Phase 1 (flight on invader-core reservation) **LANDED 2026-07-16**.
-Phase 2 (fight: kill the core, take the room back) is specced below and
-DEFERRED — same owner doctrine as spec 07 ("we spread like a disease; losing
-a room is fine"), and the same shape: specced now so it's a small task
-whenever the doctrine changes.
-**Priority:** phase 2 is P3 / backlog.
+**Status:** Phase 1 (flight on invader-core reservation) **LANDED 2026-07-16**
+— stays live as the fallback layer. Phase 2 (fight) is SUPERSEDED by
+[spec 13](13-invader-economics.md) phase 4 (owner directive 2026-07-17:
+"keep the remote flowing" — guards in remotes, towers at home): the design
+below carries over with corrected engine-ground-truth economics (see the
+corrections block under phase 2) as a kill **+ strip** mission.
+**Priority:** was P3; now P1 via spec 13 tranche 3.
 
 ## The problem
 
