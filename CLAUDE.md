@@ -59,6 +59,14 @@ whose operators are corps. Read order for architecture truth:
 - **staffsPost symmetry**: every consumer of "how many creeps does this post
   have" must use the SAME `staffsPost` lens as the demand side, or newborns
   get recycled at the spawn door (~25t churn loop, measured).
+- **Room state from intel, never creep positions or vision**: a trigger keyed
+  to "one of our creeps is standing there" flaps on every death AND goes blind
+  with the vision the dead creep provided (stranded-reserver incident: target
+  revoked mid-route, the 1300-energy reserver idled out its CLAIM lifetime, 10
+  reserver spawns in 2400 ticks). Durable signals only: the draft plan's
+  commissions (`CorpKind.propose(problem, draft)`) for "do we work this room",
+  the shared `RoomDiscovery` lenses (`isReservableRoom`, `hostileRooms`) for
+  room state — and work()/getSpawnDemand() must read the SAME lens.
 - **Grid staging**: `addBot`'s `gcl` is POINTS, not level (1e6 = GCL 2). The
   mockup db's `$set` with dotted paths (`"store.energy"`) silently NO-OPS —
   write whole objects. Staged storage needs the OWNED schema

@@ -21,7 +21,7 @@ import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { Colony } from "../colony";
-import { get7x7BoxAroundOwnedRooms } from "../utils";
+import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
 
 // =============================================================================
 // CONSTANTS
@@ -637,13 +637,10 @@ function populateNodeResources(
       // the moment a miner gives us vision of the remote (which would make the
       // planner thrash on a remote that is only worthwhile reserved). Owned/already-
       // reserved rooms already read 3000 from source.energyCapacity, so this only
-      // lifts the reservable-but-not-yet-reserved gap.
-      const ctrl = room.controller;
-      const couldReserveLive =
-        !!ctrl &&
-        !ctrl.owner &&
-        (!ctrl.reservation || ctrl.reservation.username === myUsername) &&
-        homeCapacity >= RESERVER_BODY_COST;
+      // lifts the reservable-but-not-yet-reserved gap. isReservableRoom is the
+      // SHARED lens (RoomDiscovery) - the ReservationCorp gates its dispatch on
+      // the same predicate, so valuation and execution cannot disagree.
+      const couldReserveLive = isReservableRoom(roomName, myUsername) && homeCapacity >= RESERVER_BODY_COST;
 
       // Add sources within territory. Remote (unowned-room) sources wait for
       // home saturation - see remotesUnlocked above.
@@ -728,11 +725,9 @@ function populateNodeResources(
         // op should rank like the 3000 it becomes. Over-commitment and too-far rooms
         // are held back downstream by the source's own net-energy gate and the
         // dynamic spawn-time budget, so no distance check is needed here.
-        const couldReserve =
-          !!intel.controllerPos &&
-          !intel.controllerOwner &&
-          (!intel.controllerReservation || intel.controllerReservation === myUsername) &&
-          homeCapacity >= RESERVER_BODY_COST;
+        // isReservableRoom is the SHARED lens (RoomDiscovery): no vision here, so
+        // it reads this same intel - and the ReservationCorp dispatches on it.
+        const couldReserve = isReservableRoom(roomName, myUsername) && homeCapacity >= RESERVER_BODY_COST;
 
         // Source capacity: 3000 for owned/reserved/reservable rooms, 1500 otherwise.
         const sourceCapacity = isOwnedRoom || isReservedByUs || couldReserve ? 3000 : 1500;
