@@ -1,15 +1,20 @@
 /**
  * ReservationCorp ported onto the corp framework - proof ladder rungs 1-4
- * (docs/specs/00-corp-framework.md). Mirrors the scout port; the reservation-
- * specific proof is rung 3's runtime trigger: targetRooms gates work() and
- * getSpawnDemand() on "one of OUR miners is harvesting an unowned,
- * controllered room" - the spec's poster auxiliary trigger.
+ * (docs/specs/00-corp-framework.md). The reservation-specific proof is rung 2's
+ * DRAFT-READING trigger: propose() derives target rooms from the draft plan's
+ * remote harvest commissions - the durable "we mine this room" signal - exactly
+ * as the propose() contract prescribes for auxiliaries. The trigger must NOT
+ * read live creep positions or require room vision: the stranded-reserver
+ * incident (shard1 t72378345) came from keying targets to "a miner is standing
+ * there right now", which flaps on every miner death and goes blind with the
+ * vision the dead miner was providing.
  */
 
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
 import { Position } from "../../../src/types/Position";
 import { ColonyProblem } from "../../../src/economy/CorpPlanner";
+import { Commission } from "../../../src/economy/Commission";
 import {
   CorpStore,
   deserializeStore,
@@ -21,11 +26,12 @@ import {
 } from "../../../src/economy/CorpKind";
 import { planCommissions } from "../../../src/economy/commissionPlan";
 import { ReservationCorp } from "../../../src/corps/ReservationCorp";
-import { reservationKind } from "../../../src/corps/kinds/reservationKind";
+import { reservationKind, ReservationAssignment } from "../../../src/corps/kinds/reservationKind";
 import { describeCorpKindConformance } from "./conformance";
 
 const HOME = "W1N1";
 const REMOTE = "W1N2";
+const TOO_FAR = "W1N9"; // linear distance 8 from HOME > MAX_SCOUT_DISTANCE (5)
 
 function installGlobals(): void {
   setupGlobals();
@@ -47,17 +53,22 @@ const world: ColonyProblem = {
   dist: (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
 };
 
+// hostileRooms() memoizes per Game.time - unique ticks per test, never replayed.
+let tick = 60_000;
+
 function resetWorld(): void {
   installGlobals();
+  tick += 100;
   Game.creeps = {};
   Game.rooms = {};
-  Game.time = 12345;
+  Game.time = tick;
   Game.getObjectById = () => null;
   (Memory as Record<string, unknown>).creeps = {};
+  (Memory as Record<string, unknown>).roomIntel = {};
 }
 
-/** Home spawn plus one of OUR miners harvesting an unowned remote room. */
-function installMinedRemote(): void {
+/** Home spawn resolvable by id - no vision of anything else. */
+function installHomeSpawn(): void {
   const spawn = {
     id: "spawn1",
     pos: { x: 25, y: 25, roomName: HOME },
@@ -65,11 +76,36 @@ function installMinedRemote(): void {
     room: { name: HOME, controller: { my: true, level: 3 } }
   };
   Game.getObjectById = (id: string) => (id === "spawn1" ? spawn : null);
-  Game.creeps.miner1 = {
-    name: "miner1",
-    spawning: false,
-    memory: { workType: "harvest", corpId: "harvest-x" },
-    room: { name: REMOTE, controller: { my: false, owner: undefined, reservation: undefined } }
+}
+
+/** Scout intel: an unowned, controllered room unless overridden. */
+function intel(roomName: string, over: Record<string, unknown> = {}): void {
+  (Memory as Record<string, Record<string, unknown>>).roomIntel[roomName] = {
+    lastVisit: tick - 10,
+    sourceCount: 1,
+    sourcePositions: [{ x: 10, y: 10 }],
+    mineralType: null,
+    mineralPos: null,
+    controllerLevel: 0,
+    controllerPos: { x: 5, y: 5 },
+    controllerOwner: null,
+    controllerReservation: null,
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    isSafe: true,
+    ...over
+  };
+}
+
+/** A solver harvest commission for a source in `roomName` - the draft signal. */
+function harvestDraft(sourceId: string, roomName: string): Commission {
+  return {
+    corpId: `harvest-${sourceId}`,
+    kind: "harvest",
+    shape: "produce",
+    consumes: { spawnPartsPerTick: 0.1 },
+    produces: { energyRate: 10, at: { x: 30, y: 30, roomName } },
+    assignment: { sourceId }
   };
 }
 
@@ -90,43 +126,74 @@ describe("reservation kind on the corp framework (rungs 2-4)", () => {
     expect(res).to.have.length(1);
     expect(res[0].corpId).to.equal("reservation-W1N1");
     expect(res[0].shape).to.equal("auxiliary");
-    expect(res[0].assignment).to.deep.equal({ roomName: HOME, spawnId: "spawn1" });
+    // The solver mines only the HOME source here, so no remote targets yet.
+    expect(res[0].assignment).to.deep.equal({ roomName: HOME, spawnId: "spawn1", targetRooms: [] });
   });
 
-  it("rung 3 - BIND: materialize keeps the LEGACY runtime corp id", () => {
+  it("rung 2 - TRIGGER: targets come from the draft plan's REMOTE harvest commissions", () => {
+    const draft = [
+      harvestDraft("srcHome", HOME), // mined, but it's a spawn room: excluded
+      harvestDraft("srcRemote", REMOTE), // mined remote: targeted
+      harvestDraft("srcFar", TOO_FAR) // mined but out of reserver range: excluded
+    ];
+    const res = reservationKind.propose(world, draft);
+    expect(res).to.have.length(1);
+    const a = res[0].assignment as ReservationAssignment;
+    expect(a.targetRooms).to.deep.equal([REMOTE]);
+  });
+
+  it("rung 3 - BIND: materialize keeps the LEGACY runtime corp id and adopts the targets", () => {
+    const draft = [harvestDraft("srcRemote", REMOTE)];
     const store: CorpStore = new Map();
-    materializeCommissions(planCommissions(world).commissions, store);
+    materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
     const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
     expect(corp.id).to.equal("reservation-W1N1-reservation");
     expect(corp.getSpawnId()).to.equal("spawn1");
+    expect(corp.getTargetRooms()).to.deep.equal([REMOTE]);
   });
 
-  it("rung 3 - TRIGGER: demands a reserver only while a miner works an unowned room", () => {
+  it("rung 3 - BIND: materialize refreshes targetRooms on an existing corp (stale-assignment regression)", () => {
+    // A persisted corp outlives plan changes; targets are commission-owned
+    // state like spawnId - every round's materialize must adopt the CURRENT
+    // plan's rooms, or live corps keep chasing a mine the planner closed.
+    const first = reservationKind.propose(world, [harvestDraft("srcRemote", REMOTE)])[0];
+    const corp = reservationKind.materialize(first, undefined) as ReservationCorp;
+    expect(corp.getTargetRooms()).to.deep.equal([REMOTE]);
+    const second = reservationKind.propose(world, [])[0];
+    const rebound = reservationKind.materialize(second, corp as never) as ReservationCorp;
+    expect(rebound.getTargetRooms()).to.deep.equal([]);
+  });
+
+  it("rung 3 - TRIGGER: demands a reserver while the plan mines an unowned remote - no miner, no vision", () => {
+    const draft = [harvestDraft("srcRemote", REMOTE)];
     const store: CorpStore = new Map();
-    materializeCommissions(planCommissions(world).commissions, store);
+    materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
     const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
     const ctx = { energyCapacity: 1300 } as never;
 
-    expect(corp.getSpawnDemand(ctx)).to.have.length(0); // no miner abroad yet
-
-    installMinedRemote();
+    installHomeSpawn();
+    intel(REMOTE); // scouted: unowned, controllered
+    // Game.creeps is EMPTY (the remote's miner is dead) and Game.rooms has no
+    // vision of REMOTE - the demand must hold anyway. This is the stranded-
+    // reserver regression: the old creep-position trigger reported no targets
+    // here, revoking in-flight reservers and flapping demand with every death.
     const demands = corp.getSpawnDemand(ctx);
     expect(demands).to.have.length(1);
     expect(demands[0].role).to.equal("reserver");
     expect(demands[0].producesIncome).to.equal(true);
     expect(demands[0].desiredCost).to.equal(1300); // 2x (CLAIM+MOVE) @ 650
 
-    // an owned remote (someone else's room) must NOT be targeted
-    (Game.creeps.miner1 as { room: { controller: { owner?: unknown } } }).room.controller.owner = {
-      username: "enemy"
-    };
+    // A rival takes the controller (seen by the next scout pass): demand stops.
+    intel(REMOTE, { controllerOwner: "enemy" });
     expect(corp.getSpawnDemand(ctx)).to.have.length(0);
   });
 
   it("rung 3 - EXECUTE/PERSIST: run() never throws; store round-trips with state", () => {
-    installMinedRemote();
+    installHomeSpawn();
+    intel(REMOTE);
+    const draft = [harvestDraft("srcRemote", REMOTE)];
     const store: CorpStore = new Map();
-    materializeCommissions(planCommissions(world).commissions, store);
+    materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
     expect(() => runCommissionedCorps(store, Game.time)).to.not.throw();
 
     const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
@@ -135,6 +202,7 @@ describe("reservation kind on the corp framework (rungs 2-4)", () => {
     const back = restored.get("reservation-W1N1")!.corp as ReservationCorp;
     expect(back.id).to.equal(corp.id);
     expect(back.getSpawnId()).to.equal("spawn1");
+    expect(back.getTargetRooms()).to.deep.equal([REMOTE]);
     expect(back.unitsProduced).to.equal(7);
   });
 
@@ -157,7 +225,7 @@ describe("reservation kind rung 1", () => {
       shape: "auxiliary",
       consumes: { spawnPartsPerTick: 0 },
       produces: { valuePerTick: 0 },
-      assignment: { roomName: HOME, spawnId: "spawn1" }
+      assignment: { roomName: HOME, spawnId: "spawn1", targetRooms: [REMOTE] }
     },
     expectedSpawnPartsPerTick: 0
   });

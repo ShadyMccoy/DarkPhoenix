@@ -16,5 +16,7 @@ export {
   getRoomBox,
   getRoomBoxAroundOwnedRooms,
   get7x7RoomBox,
-  get7x7BoxAroundOwnedRooms
+  get7x7BoxAroundOwnedRooms,
+  isReservableRoom,
+  roomLinearDistance
 } from "./RoomDiscovery";

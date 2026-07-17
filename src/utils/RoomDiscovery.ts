@@ -286,6 +286,55 @@ export function isSourceKeeperRoom(name: string): boolean {
   return inBand(h) && inBand(v) && !(h === 5 && v === 5);
 }
 
+/**
+ * Pure room-name port of Game.map.getRoomLinearDistance: Chebyshev distance on
+ * the room lattice, with the W/E and N/S seams handled (Wn -> -n-1 / En -> n on
+ * x; Nn -> -n-1 / Sn -> n on y). Pure so PLANNING code (CorpKind.propose) can
+ * gate by distance without touching Game. Malformed names -> Infinity.
+ */
+export function roomLinearDistance(a: string, b: string): number {
+  const pa = parseRoomName(a);
+  const pb = parseRoomName(b);
+  if (!pa || !pb) return Infinity;
+  const wx = (p: { xDir: string; x: number }): number => (p.xDir === "W" ? -p.x - 1 : p.x);
+  const wy = (p: { yDir: string; y: number }): number => (p.yDir === "N" ? -p.y - 1 : p.y);
+  return Math.max(Math.abs(wx(pa) - wx(pb)), Math.abs(wy(pa) - wy(pb)));
+}
+
+/**
+ * THE room-reservability lens: could `myUsername` hold this room's controller?
+ * Prefers live vision when the room happens to be visible, and falls back to
+ * scout intel (Memory.roomIntel) - it NEVER reads creep positions, so the
+ * answer cannot flap when a creep dies or vision is lost. This is the same
+ * predicate the planner's source valuation uses (IncrementalAnalysis
+ * couldReserve: sources in reservable rooms are worth the reserved 3000), so
+ * "valued as reservable" and "reserver dispatched" can never disagree.
+ *
+ * Stranded-reserver incident (shard1 t72378345): ReservationCorp derived its
+ * targets from "a miner creep is standing in the room THIS TICK" - the dead
+ * miner took both the trigger and the room's vision with it, an in-flight
+ * 1300-energy reserver was revoked mid-route and idled out its CLAIM lifetime,
+ * and the blackbox showed 10 reserver spawns in 2400 ticks of churn. Room
+ * state must come from durable signals: this lens, or the plan's commissions.
+ *
+ * Unknown rooms (no vision, no intel) default to reservable: reservation
+ * targets only come from the plan, and the plan only mines rooms it has seen.
+ */
+export function isReservableRoom(roomName: string, myUsername: string | undefined): boolean {
+  const room = typeof Game !== "undefined" && Game.rooms ? Game.rooms[roomName] : undefined;
+  if (room) {
+    const ctrl = room.controller;
+    return !!ctrl && !ctrl.owner && (!ctrl.reservation || ctrl.reservation.username === myUsername);
+  }
+  const intel = typeof Memory !== "undefined" ? Memory.roomIntel?.[roomName] : undefined;
+  if (!intel) return true;
+  return (
+    !!intel.controllerPos &&
+    !intel.controllerOwner &&
+    (!intel.controllerReservation || intel.controllerReservation === myUsername)
+  );
+}
+
 /** The Invader NPC's username: invader creeps and invader-core reservations. */
 export const INVADER_USERNAME = "Invader";
 

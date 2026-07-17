@@ -6,17 +6,28 @@
  * This is the one genuinely room-specific part of remote mining: a source in an
  * unowned room is throttled to half output unless we hold its controller. A
  * reserver (CLAIM + MOVE) parks on the controller and reserves it continuously.
- * We only bother for rooms we are actually mining - the trigger is "one of our
- * miners is working in an unowned, controllered room" - so the claimer's cost is
- * always set against real extra harvest.
+ *
+ * TARGETING IS COMMISSION-OWNED and vision-free. The kind's propose() derives
+ * target rooms from the draft plan's remote harvest commissions ("the plan
+ * mines this room" - durable across miner deaths), and materialize() refreshes
+ * them here every round, exactly like spawnId. At runtime the targets are
+ * gated by the shared reservability lens (isReservableRoom: live vision when
+ * available, scout intel otherwise). Both work() and getSpawnDemand() read the
+ * SAME reservableTargets() - the staffsPost-symmetry rule.
+ *
+ * NEVER key targeting to live creep positions: "a miner is standing there this
+ * tick" flaps on every miner death, and the dead miner takes the room's vision
+ * with it. Measured live (shard1 t72378345): an in-flight reserver's target
+ * was revoked mid-route the tick its remote's miner died; the 1300-energy
+ * creep idled out its CLAIM lifetime while the room's reservation decayed, and
+ * the corp churned 10 reserver spawns in 2400 ticks.
  *
  * @module corps/ReservationCorp
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { hostileRooms } from "../utils/RoomDiscovery";
+import { hostileRooms, isReservableRoom } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { buildReserverBody } from "../spawn/BodyBuilder";
 import { travelTo } from "./movement";
@@ -26,6 +37,8 @@ import { travelTo } from "./movement";
  */
 export interface SerializedReservationCorp extends SerializedCorp {
   spawnId: string;
+  /** Commission-owned planned remotes; refreshed by materialize every round. */
+  targetRooms?: string[];
 }
 
 /**
@@ -33,6 +46,7 @@ export interface SerializedReservationCorp extends SerializedCorp {
  */
 export class ReservationCorp extends Corp {
   private spawnId: string;
+  private targetRooms: string[] = [];
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("reservation", nodeId, customId);
@@ -52,6 +66,20 @@ export class ReservationCorp extends Corp {
    */
   public setSpawnId(spawnId: string): void {
     this.spawnId = spawnId;
+  }
+
+  /**
+   * Rebind to the commission's CURRENT target rooms - the remote rooms the
+   * draft plan mines. Commission-owned like spawnId: materialize() refreshes
+   * this every round, so targets follow the plan (a closed mine drops out, a
+   * newly opened remote joins) instead of following creep positions.
+   */
+  public setTargetRooms(rooms: string[]): void {
+    this.targetRooms = [...rooms];
+  }
+
+  public getTargetRooms(): string[] {
+    return [...this.targetRooms];
   }
 
   public getPosition(): Position {
@@ -74,26 +102,14 @@ export class ReservationCorp extends Corp {
   }
 
   /**
-   * Rooms worth reserving from this home: unowned, controllered rooms within
-   * scouting range where one of our miners is currently working, and which no
-   * other player owns or reserves (we cannot reserve over them). Reserving a room
-   * we are mining roughly doubles that source's output, so the trigger is simply
-   * "are we mining here".
+   * The rooms currently worth holding: the plan's remotes (targetRooms), gated
+   * by the vision-free reservability lens. THE single lens for this corp -
+   * work() assigns from it and getSpawnDemand() prices from it, so an
+   * assignment the demand side paid for can never be revoked by a different
+   * predicate on the work side (the staffsPost-symmetry rule).
    */
-  private targetRooms(homeRoom: string, myUsername: string | undefined): string[] {
-    const targets = new Set<string>();
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.workType !== "harvest") continue;
-      const controller = creep.room.controller;
-      if (!controller) continue; // Source Keeper / controller-less rooms: not reservable
-      if (controller.my) continue; // our own room needs no reservation
-      if (controller.owner) continue; // owned by another player: cannot reserve
-      if (controller.reservation && controller.reservation.username !== myUsername) continue; // someone else reserves it
-      if (Game.map.getRoomLinearDistance(homeRoom, creep.room.name) > MAX_SCOUT_DISTANCE) continue;
-      targets.add(creep.room.name);
-    }
-    return [...targets];
+  private reservableTargets(myUsername: string | undefined): string[] {
+    return this.targetRooms.filter(r => isReservableRoom(r, myUsername));
   }
 
   public work(tick: number): void {
@@ -101,16 +117,16 @@ export class ReservationCorp extends Corp {
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
-    const homeRoom = spawn.room.name;
-    const myUsername = spawn.owner?.username;
 
-    const targets = this.targetRooms(homeRoom, myUsername);
+    const targets = this.reservableTargets(spawn.owner?.username);
     const covered = new Set<string>();
 
     for (const creep of this.getActiveCreeps()) {
       let target = creep.memory.targetRoom;
-      // (Re)assign if the creep has no target, its target is no longer worth
-      // reserving, or another reserver already covers it.
+      // (Re)assign only when the PLAN moved: the creep has no target, its
+      // target left the plan / became unreservable per intel, or another
+      // reserver already covers it. A miner dying or vision dropping does NOT
+      // change `targets`, so an in-flight reserver keeps its assignment.
       if (!target || !targets.includes(target) || covered.has(target)) {
         target = targets.find(r => !covered.has(r));
         creep.memory.targetRoom = target;
@@ -143,8 +159,8 @@ export class ReservationCorp extends Corp {
    * Request one reserver while a target room lacks one. Reservers are an income
    * optimisation (they lift a remote source from 1500 to 3000), so they rank
    * below the core mining/hauling that produces the base income, and are only
-   * requested for rooms we already mine. Gated by affordability: CLAIM costs 600,
-   * so a low-capacity room asks for nothing until it can build one.
+   * requested for rooms the plan already mines. Gated by affordability: CLAIM
+   * costs 600, so a low-capacity room asks for nothing until it can build one.
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
@@ -152,8 +168,9 @@ export class ReservationCorp extends Corp {
 
     // DEFENSE ECONOMICS (owner 2026-07-10): don't send reservers into rooms
     // held by hostiles (sighted, or inside a sighted hostile's TTL bound).
+    // Demand-side only: an already-fielded reserver runs out (v1 doctrine).
     const danger = hostileRooms();
-    const targets = this.targetRooms(spawn.room.name, spawn.owner?.username).filter(r => !danger.has(r));
+    const targets = this.reservableTargets(spawn.owner?.username).filter(r => !danger.has(r));
     if (targets.length === 0) return [];
 
     const covered = new Set(
@@ -203,12 +220,14 @@ export class ReservationCorp extends Corp {
   public serialize(): SerializedReservationCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId
+      spawnId: this.spawnId,
+      targetRooms: [...this.targetRooms]
     };
   }
 
   public deserialize(data: SerializedReservationCorp): void {
     super.deserialize(data);
     this.spawnId = data.spawnId ?? this.spawnId;
+    this.targetRooms = data.targetRooms ?? [];
   }
 }

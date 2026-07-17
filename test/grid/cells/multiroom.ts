@@ -147,13 +147,19 @@ export function buildMultiroomT5Cells(): GridCell[] {
     },
 
     {
-      // A worked remote room's reserver ranks as STARTED INCOME: with the
-      // trigger armed (rh standing by the east source) and 650 affordable,
-      // the reserver is fielded and walks into the east room.
+      // A worked remote room's reserver ranks as STARTED INCOME: once the
+      // PLAN opens the east mine (the rh's vision feeds the solver) and 650
+      // is affordable, the reserver is fielded and walks into the east room.
+      // The trigger is plan-coupled - the draft's remote harvest commission,
+      // NOT "a creep is standing there" (the stranded-reserver incident) - so
+      // dispatch waits on the node-resource refresh (50t) + re-solve (10t)
+      // before the spawn hold even arms: the old 90t window was structurally
+      // too short. Measured post-fix: fielded @324, enters east @353; 600
+      // leaves multi-draw headroom.
       id: "spawn-reserver-started-income",
       tier: 5,
       avenue: "spawn-decision",
-      window: 90,
+      window: 600,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
@@ -190,10 +196,12 @@ export function buildMultiroomT5Cells(): GridCell[] {
       // behind the ENTIRE income expansion (fresh miner ~95, its hauler
       // ~157, the remote source's miner ~234 - the staged rh gives vision,
       // so the solver legitimately opens the remote mine) and rides its
-      // income starved-hold (~315) to the spawn. NOTE for spec 01: value 92
-      // underprices reservation (650 energy doubles a remote source, beating
-      // a scaling hauler's marginal value 110) - a candidate energy lever.
-      window: 400,
+      // income starved-hold to the spawn (measured post plan-coupling: the
+      // reserver follows @356; 600 leaves multi-draw headroom). NOTE for
+      // spec 01: value 92 underprices reservation (650 energy doubles a
+      // remote source, beating a scaling hauler's marginal value 110) - a
+      // candidate energy lever.
+      window: 600,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40).source(10, 30)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
@@ -231,11 +239,15 @@ export function buildMultiroomT5Cells(): GridCell[] {
     {
       // Body scaling across rooms: at 1300 capacity the reserver carries the
       // full 2x(CLAIM+MOVE) pair set and physically reaches the remote
-      // controller.
+      // controller. Plan-coupled dispatch (see spawn-reserver-started-income)
+      // arms the demand only after the node refresh (50t) + re-solve opens
+      // the east mine, and the 1300 holdToFund bank (vs 650 in the RCL3
+      // cells) adds ~190t on a one-source income. Measured post-fix: body
+      // fielded @514, reaches the controller @560; 800 leaves headroom.
       id: "spawnexec-reserver-body-multiroom",
       tier: 5,
       avenue: "spawn-execution",
-      window: 110,
+      window: 800,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
