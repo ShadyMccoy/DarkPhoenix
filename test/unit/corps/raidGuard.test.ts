@@ -40,16 +40,13 @@ function install(): void {
 }
 
 /**
- * The GOAL plan mines the remote (the armed-trigger gate) - the durable
- * signal per the stranded-reserver trap: plan + intel, never creep
- * positions. Seeds Memory.economyPlan and the room's intel sourceIds.
+ * The room was harvested recently (the armed-trigger gate) - the durable
+ * signal per the stranded-reserver trap: the meter's own harvest stamp,
+ * never creep positions or the (remote-flapping) GOAL plan.
  */
 function installPlannedMine(room = REMOTE): void {
-  (Memory as any).economyPlan = {
-    corps: [{ kind: "mine", sourceId: `source-src-${room}`, spawnId: "spawn1" }]
-  };
   const intel = (Memory as any).roomIntel[room] ?? {};
-  intel.sourceIds = [`src-${room}`];
+  intel.lastHarvested = Game.time - 100;
   (Memory as any).roomIntel[room] = intel;
 }
 

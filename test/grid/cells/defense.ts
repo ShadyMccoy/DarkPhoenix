@@ -194,6 +194,7 @@ export function buildDefenseCells(): GridCell[] {
           "$room(east)": {
             lastVisit: 1,
             raidDebt: 66000,
+            lastHarvested: 1,
             sourceCount: 1,
             sourceIds: ["$id(east,source,25,25)"],
             sourcePositions: [{ x: 25, y: 25 }],
@@ -213,7 +214,10 @@ export function buildDefenseCells(): GridCell[] {
         await ensureInvaderUser(ctx.db);
       },
       async onTick(ctx) {
-        // Inject the raid at tick 150: the exact smallMelee body remotes
+        // Inject the raid at tick 200 (armed-lens runway: the staged home
+        // pair orphan-recycles, home saturation flaps, and east re-enters the
+        // GOAL plan around t100 - live colonies carry their remotes in the
+        // plan continuously, the cold cell needs the slack): the exact smallMelee body remotes
         // always receive (backend cronjobs.js:266-273), full 1500 TTL so
         // only combat - never expiry - can remove it inside the window.
         if (ctx.tick !== 150) return;

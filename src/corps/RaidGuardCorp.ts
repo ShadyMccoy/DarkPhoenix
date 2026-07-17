@@ -43,6 +43,21 @@ import { travelTo } from "./movement";
 export const GUARD_RECYCLE_GRACE = 100;
 
 /**
+ * Engage hostiles only inside this range of the guard; farther ones are
+ * coming to us anyway (invader AI hunts creeps, and the post is where the
+ * creeps are). 3 = one step outside the invader's melee reach.
+ */
+export const GUARD_ENGAGE_RANGE = 3;
+
+/**
+ * How recently a room must have been harvested for its armed meter to field
+ * a guard: two creep lifetimes - wide enough that no single death, re-solve
+ * or vision gap un-arms an active mine, narrow enough that a genuinely
+ * abandoned room stands its guard down.
+ */
+export const GUARD_MINED_RECENCY = 3_000;
+
+/**
  * Serialized state specific to RaidGuardCorp.
  */
 export interface SerializedRaidGuardCorp extends SerializedCorp {
@@ -90,38 +105,21 @@ export class RaidGuardCorp extends Corp {
   }
 
   /**
-   * Rooms the GOAL plan currently mines, from Memory alone. Durable-signal
-   * doctrine (the stranded-reserver trap): room state comes from the plan
-   * and intel, never from "a creep is standing there this tick" - that
-   * signal flaps on every miner death and goes blind with the vision the
-   * dead miner provided. The published plan survives both.
-   */
-  private planMinedRooms(): Set<string> {
-    const mined = new Set<string>();
-    const plan = (Memory as { economyPlan?: { corps?: Array<{ kind: string; sourceId?: string }> } }).economyPlan;
-    const minedSourceIds = new Set<string>();
-    for (const c of plan?.corps ?? []) {
-      if (c.kind === "mine" && typeof c.sourceId === "string") {
-        minedSourceIds.add(c.sourceId.replace("source-", ""));
-      }
-    }
-    if (minedSourceIds.size === 0 || !Memory.roomIntel) return mined;
-    for (const roomName in Memory.roomIntel) {
-      const ids = Memory.roomIntel[roomName]?.sourceIds;
-      if (ids?.some(id => minedSourceIds.has(id))) mined.add(roomName);
-    }
-    return mined;
-  }
-
-  /**
-   * Rooms that currently want a guard, from the plan and intel alone (no
-   * vision, no creep positions - the durable-signal doctrine):
+   * Rooms that currently want a guard, from intel alone - the durable-signal
+   * doctrine (the stranded-reserver trap), taken all the way down: NOT live
+   * creep positions (flap on every miner death, blind without the dead
+   * miner's vision) and NOT the GOAL plan's remote content (measured in
+   * def-t4 dev: remotes flap in and out of the plan with home-saturation
+   * churn, idling the guard into its recycle grace mid-mission). The signal
+   * is the meter's own harvest stamp: raidDebt only grows while we ACTUALLY
+   * mine a room, and `lastHarvested` records when we last did.
    *
-   * - ARMED (predictive): raidDebt crossed the 65k arm floor on a room the
-   *   GOAL plan mines - the raid can fire any time after 70k, and debt only
-   *   accrues while we harvest, so commissioning here pre-positions the guard
-   *   one delivery-lead ahead of the crossing. OVERDUE rooms (>130k, no raid
-   *   ever seen) disarm - raids provably don't fire there.
+   * - ARMED (predictive): raidDebt crossed the 65k arm floor and the room
+   *   was harvested within GUARD_MINED_RECENCY - the raid can fire any time
+   *   after 70k, so commissioning here pre-positions the guard ahead of the
+   *   crossing. OVERDUE rooms (>130k, no raid ever seen) disarm - raids
+   *   provably don't fire there. A truly abandoned room disarms when its
+   *   harvest stamp ages out.
    * - RAID IN PROGRESS (reactive): Invader creeps were sighted within their
    *   1500-tick lifetime and the hostile mark is still live - covers rooms
    *   whose counter history we didn't have (first raid after moving in).
@@ -132,8 +130,6 @@ export class RaidGuardCorp extends Corp {
   public guardTargets(homeRoom: string): string[] {
     if (typeof Memory === "undefined" || !Memory.roomIntel) return [];
 
-    const planMined = this.planMinedRooms();
-
     const targets: string[] = [];
     for (const roomName in Memory.roomIntel) {
       if (roomName === homeRoom) continue;
@@ -142,7 +138,9 @@ export class RaidGuardCorp extends Corp {
       if (intel.controllerOwner) continue; // owned rooms never receive raids for us to guard
       if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
 
-      const armed = raidMeterState(intel.raidDebt) === "armed" && planMined.has(roomName);
+      const minedRecently =
+        intel.lastHarvested !== undefined && Game.time - intel.lastHarvested < GUARD_MINED_RECENCY;
+      const armed = raidMeterState(intel.raidDebt) === "armed" && minedRecently;
       const raidInProgress =
         intel.lastRaidSeen !== undefined &&
         Game.time - intel.lastRaidSeen < INVADER_TTL &&
@@ -190,7 +188,15 @@ export class RaidGuardCorp extends Corp {
     }
   }
 
-  /** Walk to the target room; engage the closest hostile; otherwise hold at the source. */
+  /**
+   * Walk to the target room, then BODYGUARD the post: hold beside the source
+   * and engage hostiles only at short range. Never chase across the room -
+   * invaders move at guard speed and hunt OUR creeps, so a cross-room chase
+   * is an unwinnable stern-chase (measured in the def-t4 cell: kill at the
+   * window's literal last tick in one draw, timeout in the next), while
+   * holding the post guarantees the fight happens HERE, adjacent, where the
+   * guard's 150 dps ends it in ~7 ticks.
+   */
   private runGuard(creep: Creep, targetRoom: string): void {
     if (creep.room.name !== targetRoom) {
       travelTo(creep, new RoomPosition(25, 25, targetRoom), {
@@ -201,14 +207,14 @@ export class RaidGuardCorp extends Corp {
     }
 
     const hostile = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
-    if (hostile) {
+    if (hostile && creep.pos.getRangeTo(hostile) <= GUARD_ENGAGE_RANGE) {
       if (creep.attack(hostile) === ERR_NOT_IN_RANGE) {
         travelTo(creep, hostile.pos, { range: 1, visualizePathStyle: { stroke: "#ff6666" } });
       }
       return;
     }
 
-    // Quiet: post up beside the room's first source (where the raid's damage
+    // Hold the post beside the room's first source (where the raid's damage
     // would land) without standing ON the miner's tile.
     const post = Memory.roomIntel?.[targetRoom]?.sourcePositions?.[0];
     const anchor = post ? new RoomPosition(post.x, post.y, targetRoom) : new RoomPosition(25, 25, targetRoom);

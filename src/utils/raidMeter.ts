@@ -53,8 +53,9 @@ export function accrueRaidDebt(roomName: string, amount: number): void {
   const intel = Memory.roomIntel[roomName];
   if (intel) {
     intel.raidDebt = (intel.raidDebt ?? 0) + amount;
+    intel.lastHarvested = Game.time;
   } else {
-    Memory.roomIntel[roomName] = { lastVisit: Game.time, raidDebt: amount } as RoomIntel;
+    Memory.roomIntel[roomName] = { lastVisit: Game.time, raidDebt: amount, lastHarvested: Game.time } as RoomIntel;
   }
 }
 

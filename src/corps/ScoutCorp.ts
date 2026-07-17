@@ -280,6 +280,9 @@ export class ScoutCorp extends Corp {
     if (oldIntel?.raidDebt !== undefined) {
       Memory.roomIntel[room.name].raidDebt = oldIntel.raidDebt;
     }
+    if (oldIntel?.lastHarvested !== undefined) {
+      Memory.roomIntel[room.name].lastHarvested = oldIntel.lastHarvested;
+    }
     if (oldIntel?.lastRaidSeen !== undefined) {
       Memory.roomIntel[room.name].lastRaidSeen = oldIntel.lastRaidSeen;
     }

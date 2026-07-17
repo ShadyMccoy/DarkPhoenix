@@ -56,6 +56,16 @@ declare global {
      */
     raidDebt?: number;
     /**
+     * Tick OUR corps last harvested in this room (stamped with every
+     * raidDebt accrual). The guard's "we mine here" gate reads this - a
+     * durable Memory signal of ACTUAL economic activity that cannot flap on
+     * a miner death, a re-solve, or lost vision (the stranded-reserver trap;
+     * measured in def-t4 dev: both the live-creep lens AND the GOAL-plan
+     * lens flapped with home-saturation churn and idled the guard into its
+     * recycle grace mid-mission).
+     */
+    lastHarvested?: number;
+    /**
      * Tick Invader-owned creeps were last SIGHTED in the room (the raid
      * observation that reset raidDebt). Recent-sighting + active hostile
      * mark = raid in progress: the guard corp's reactive trigger.
