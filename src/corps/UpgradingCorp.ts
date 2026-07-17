@@ -197,7 +197,10 @@ export class UpgradingCorp extends Corp {
    * Upgraders are stationary - they stay near the controller and only pick up nearby energy.
    */
   private runUpgrader(creep: Creep, room: Room, controller: StructureController): void {
-    // Track working state for energy pickup
+    // `working` is kept for external readers/telemetry, but the parked action
+    // below is driven directly off the store: a container-fed upgrader tops up
+    // AND upgrades in the SAME tick (see the parked block), so it never needs the
+    // collect/deposit oscillation the flag used to gate.
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
     }
@@ -216,8 +219,9 @@ export class UpgradingCorp extends Corp {
       // travelToBypass so an upgrader can swap through an already-parked sibling on
       // the way to its own tile instead of stalling in the cramped controller ring.
       travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
-      // Upgrade en route if already in range - no idle ticks while repositioning.
-      if (creep.memory.working && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
+      // Upgrade en route if it has energy and is already in range - no idle WORK
+      // ticks while repositioning.
+      if (creep.store[RESOURCE_ENERGY] > 0 && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
       return;
     }
     // No parking computed (degenerate layout): fall back to camping within range.
@@ -226,11 +230,24 @@ export class UpgradingCorp extends Corp {
       return;
     }
 
-    if (creep.memory.working) {
-      this.tryUpgrade(creep, controller);
-    } else {
+    // Parked at the input: refill and upgrade in the SAME tick so the buffer never
+    // goes dry (withdraw/pickup and upgradeController are independent intents - the
+    // canonical static-upgrader idiom), but do NOT withdraw every tick. Each
+    // withdraw/pickup intent costs ~0.2 CPU, so sipping a few energy every tick
+    // wastes it fleet-wide. Refill just-in-time: only when the buffer can no longer
+    // cover a full WORK cycle next tick (energy < 2x the per-tick burn). The top-up
+    // lands THIS tick, so a full workParts still fires every tick while draws batch
+    // into one every several ticks. The old oscillation (working ? upgrade : draw)
+    // instead went fully dry each cycle and spent a whole tick refilling with the
+    // WORK parts idle (~11% throughput on a WORK-heavy body; measured live
+    // 2026-07-17). A buffer too small to hold two cycles necessarily draws every
+    // tick - unavoidable to stay fed. drawFromInput itself issues no intent when the
+    // input is dry, so a starved upgrader spends no CPU either.
+    const workParts = Math.max(1, creep.getActiveBodyparts(WORK));
+    if (creep.store[RESOURCE_ENERGY] < 2 * workParts && creep.store.getFreeCapacity() > 0) {
       this.drawFromInput(creep, controller);
     }
+    this.tryUpgrade(creep, controller);
   }
 
   /** Upgrade the controller in place, recording the WORK produced. */

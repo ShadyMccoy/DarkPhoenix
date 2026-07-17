@@ -176,6 +176,9 @@ export function buildArrivalT2Cells(): GridCell[] {
   let dryAdopted: number | null = null;
   let dryBaseProgress: number | null = null;
 
+  // no-dry-tick (WORK-heavy small-buffer drain) closure
+  let noDryAdopted: number | null = null;
+
   // pile-pickup closure
   let prevPileStore: number | null = null;
   let pileStall = 0;
@@ -287,6 +290,89 @@ export function buildArrivalT2Cells(): GridCell[] {
           }
           if (s.tick > dryAdopted + 16) return false;
           return (ctrl.progress ?? 0) - dryBaseProgress >= 36;
+        }),
+      ],
+    },
+
+    {
+      // A container-fed upgrader must top up AND upgrade in the SAME tick (so its
+      // buffer never goes dry), BUT must not withdraw every tick (each withdraw is
+      // ~0.2 CPU). Same geometry as arrive-upgrader-dry-withdraws-in-place
+      // (container 25,12 -> input spot; parking tile 24,11), with a 6-WORK/1-CARRY
+      // body (50 buffer) draining 6/tick. Two invariants pin BOTH concerns, and
+      // only the batched same-tick top-up satisfies both:
+      //   1) never dry (always store > 0) - the oscillation regression
+      //      (working ? upgrade : draw) snapshots a 0 on every drain (a wasted WORK
+      //      tick, "empty for a tick, then withdraws", live 2026-07-17); the
+      //      same-tick top-up never does. The sibling parked cell's 4W/4C body
+      //      starts at 200 and never drains here, which is why it misses this.
+      //   2) drains between draws (eventually store <= 15) - a naive fix that
+      //      withdraws EVERY tick keeps the buffer pinned ~44-50 and burns 0.2 CPU
+      //      per tick per upgrader; the just-in-time batched refill lets the buffer
+      //      fall to ~workParts (8) before topping up, so it is observed low.
+      id: "arrive-upgrader-no-dry-tick-under-drain",
+      tier: 2,
+      avenue: "work-transition",
+      window: 45,
+      rooms: {
+        home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 32).toRoom(),
+      },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      // Plenty of buffer so the container never legitimately dries inside the
+      // window (~6/tick drawn * 45 = 270 << 4000); an empty u1 means the bug, not
+      // a starved input.
+      structures: [{ type: "container", x: 25, y: 12, energy: 4000 }],
+      creeps: [
+        {
+          name: "u1",
+          x: 24,
+          y: 11,
+          // WORK-heavy, single-CARRY (containerFed shape): 50 buffer drained 6/tick.
+          body: ["work", "work", "work", "work", "work", "work", "carry", "move", "move"],
+          energy: 50, // starts full, so it is working from tick 1 (never a legit 0)
+          memory: {
+            workType: "upgrade",
+            corpId: "stale-upgrading",
+            working: true,
+            upgradeSpot: { x: 24, y: 11 },
+          },
+        },
+        ...quiet(),
+      ],
+      assertions: [
+        eventually("adopted by the upgrading corp", (s) => {
+          const corpId = s.memory?.creeps?.u1?.corpId;
+          if (typeof corpId === "string" && corpId.startsWith("upgrading-") && noDryAdopted === null) {
+            noDryAdopted = s.tick;
+          }
+          return noDryAdopted !== null;
+        }),
+        always("never leaves its parking tile", (s) => {
+          const c = s.creep("u1");
+          return !!c && c.x === 24 && c.y === 11;
+        }),
+        // Invariant 1 - never dry: a parked, container-fed upgrader tops up in the
+        // same tick it upgrades, so its buffer never snapshots empty. The old
+        // oscillation drains to exactly 0 on every cycle - one wasted WORK tick.
+        // graceTicks covers adoption warm-up (pre-adoption the creep sits full).
+        always(
+          "buffer never goes dry (no wasted WORK tick refilling)",
+          (s) => {
+            const c = s.creep("u1");
+            return !!c && (c.store?.energy ?? 0) > 0;
+          },
+          8
+        ),
+        // Invariant 2 - draws are batched, not every-tick: the just-in-time refill
+        // lets the buffer fall to ~workParts (8 for this 6-WORK body) before topping
+        // up, so it is observed <= 15. A naive fix that withdraws EVERY tick pins the
+        // buffer ~44-50 (never <= 15) and burns 0.2 CPU/tick/upgrader - this fails on
+        // that regression while the oscillation bug (which also drains low) does not,
+        // so the two invariants together admit only the batched same-tick top-up.
+        eventually("buffer drains between batched draws (not topped up every tick)", (s) => {
+          const c = s.creep("u1");
+          return !!c && (c.store?.energy ?? 0) <= 15;
         }),
       ],
     },

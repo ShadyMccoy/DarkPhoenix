@@ -86,6 +86,7 @@
     "arrive-miner-threads-pocket-opening": "pass",
     "spawnexec-miner-body-550": "pass",
     "arrive-upgrader-dry-withdraws-in-place": "pass",
+    "arrive-upgrader-no-dry-tick-under-drain": "pass",
     "arrive-hauler-pile-pickup-range1": "pass",
     "arrive-hauler-drops-on-input-tile": "pass",
     "churn-jack-starvation-timer": "pass",
