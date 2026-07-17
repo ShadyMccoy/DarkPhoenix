@@ -15,6 +15,7 @@
 import "../../../src/types/Memory";
 import { expect } from "chai";
 import { hostileRooms, routeIsDangerous, routeRooms } from "../../../src/utils/RoomDiscovery";
+import { rows } from "../../../src/telemetry/BlackBox";
 
 const FIND_HOSTILE_CREEPS = 103;
 const FIND_HOSTILE_STRUCTURES = 121;
@@ -292,5 +293,59 @@ describe("utils/RoomDiscovery - invader-core sighting splits the occupation phas
     observe({ W6N6: mockRoom("W6N6", {}) }); // fresh sighting: reservation gone
     expect(g.Memory.roomIntel.W6N6.invaderReservedUntil).to.equal(undefined);
     expect(g.Memory.roomIntel.W6N6.invaderCorePresent).to.equal(undefined);
+  });
+});
+
+describe("utils/RoomDiscovery - flight-recorder rows for defense state (spec 13 ph5)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any; FIND_HOSTILE_CREEPS?: number };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+  let savedFind: unknown;
+  let time = 90_000;
+
+  function observe(rooms: Record<string, any>): Set<string> {
+    time += 1;
+    g.Game = { time, rooms };
+    return hostileRooms();
+  }
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    savedFind = g.FIND_HOSTILE_CREEPS;
+    g.FIND_HOSTILE_CREEPS = FIND_HOSTILE_CREEPS;
+    (globalThis as any).FIND_HOSTILE_STRUCTURES = FIND_HOSTILE_STRUCTURES;
+    (globalThis as any).STRUCTURE_INVADER_CORE = "invaderCore";
+    g.Memory = { roomIntel: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+    g.FIND_HOSTILE_CREEPS = savedFind as number;
+  });
+
+  // The ring has no reset - unique room names isolate these assertions.
+  it("records one mark row per fresh mark, one unmark on the early lift", () => {
+    observe({ W7N1: mockRoom("W7N1", { hostiles: [{ ticksToLive: 500 } as any] }) });
+    observe({ W7N1: mockRoom("W7N1", { hostiles: [{ ticksToLive: 499 } as any] }) }); // re-stamp: no new row
+    observe({ W7N1: mockRoom("W7N1", {}) }); // all-clear lift
+
+    const marks = rows().filter(r => r.k === "mark" && r.d.room === "W7N1");
+    const unmarks = rows().filter(r => r.k === "unmark" && r.d.room === "W7N1");
+    expect(marks).to.have.length(1);
+    expect(marks[0].d.kind).to.equal("creeps");
+    expect(unmarks).to.have.length(1);
+  });
+
+  it("records one raid row per raid, not per tick of visibility", () => {
+    g.Memory.roomIntel.W7N2 = { lastVisit: 1, raidDebt: 71_000 };
+    const invader = { ticksToLive: 1400, owner: { username: "Invader" } } as any;
+    observe({ W7N2: mockRoom("W7N2", { hostiles: [invader] }) });
+    observe({ W7N2: mockRoom("W7N2", { hostiles: [invader] }) });
+    observe({ W7N2: mockRoom("W7N2", { hostiles: [invader] }) });
+
+    const raids = rows().filter(r => r.k === "raid" && r.d.room === "W7N2");
+    expect(raids).to.have.length(1);
+    expect(raids[0].d.debt, "the meter reading at reset (calibration data)").to.equal(71_000);
   });
 });

@@ -23,7 +23,7 @@ import {
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { coreLink, sourceLink } from "../corps/nodeEnergy";
-import { haulerOverhead, minerOverhead } from "./primitives";
+import { INVADER_TAX_PER_ENERGY, haulerOverhead, minerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
@@ -261,9 +261,15 @@ export function buildColonyProblem(
   transientSources: PlannerSource[] = detectTransientSources(),
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
   pavedSources: Set<string> = detectPavedSources(),
-  bankSources: PlannerSource[] = detectBankSources()
+  bankSources: PlannerSource[] = detectBankSources(),
+  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
+
+  // The invader tax (spec 13 phase 5) applies to sources OUTSIDE spawn
+  // rooms: raid frequency is proportional to energy harvested, and at home
+  // the tower absorbs the raid for the cost of its shots (~0).
+  const spawnRooms = new Set(spawns.map(s => s.pos.roomName));
 
   const sources: PlannerSource[] = graph.getSources().map(s => ({
     id: s.id,
@@ -272,7 +278,8 @@ export function buildColonyProblem(
     rate: s.capacity,
     maxMiners: s.maxMiners,
     haulPos: linkHaulPos.get(s.id),
-    ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {})
+    ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {}),
+    ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
   }));
   // Sustained income only: what mined sources yield per tick. Transient
   // stocks are real energy but ONE-OFF - sizing standing fleets or the

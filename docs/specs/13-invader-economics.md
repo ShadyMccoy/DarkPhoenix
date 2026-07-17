@@ -1,6 +1,32 @@
 # 13 — Invader economics: keep the remotes flowing
 
-**Status:** PLANNED — research digest + phased plan; no code landed.
+**Status:** **LANDED 2026-07-17** (phases 0–5 implemented in one pass; only
+phase 5's live CALIBRATION — replacing the derived tax constant with
+measured raid P&L over ≥15k-tick live windows — remains open by nature).
+Landed surface: scout mark-wipe fix (+ raid-meter carry-over); spec 07
+towers (TowerRunner + RCL3 placement + tender feeding,
+`tower-defense.test.ts` green); the raid meter
+(`utils/raidMeter.ts`, exact mirror at `HarvestCorp` harvest site, reset on
+Invader sighting); transit embargo (`routeRooms`/`routeIsDangerous`,
+Carry/Harvest demand gates); `RaidGuardCorp` (pre-spawn off the 65k arm
+floor, blocking+income at 105 after measured starvation/racing at lower
+tiers, 100t quiet-grace recycle) — grid `def-t4-raid-guard-holds-the-remote`
+green (guard fielded t1, engine-driven raid killed t165, miner never lost);
+`CoreBusterCorp` kill+strip with the `invaderCorePresent` phase-flip
+sighting — grid `def-t5-core-buster-reclaims-remote` green (core destroyed
+t93, phase flip t94, striker engaging t193, defund held); the invader tax
+(`invaderTaxPerEnergy` in primitives, per-source detector in
+`buildColonyProblem`, subtracted in `selectProducers`); BlackBox
+`mark`/`unmark`/`raid` rows + IntelTelemetry defense fields.
+Deviation from the plan as written: the strip leg lives in
+`CoreBusterCorp` as a second creep phase (CLAIM "striker"), not in
+ReservationCorp — the reserver's targeting needs miners present, which an
+occupied room by definition lacks; a self-contained two-phase mission
+avoided touching ReservationCorp at all.
+
+Original planning document follows.
+
+**Plan status (original):** phased plan; research digest 2026-07-17.
 Research pass 2026-07-17: vendored engine source
 (`@screeps/engine` 4.3.2 / `@screeps/backend` 3.3.0 / `@screeps/common` 2.16.1 —
 the same code the live servers and our mockup run) plus six public bots

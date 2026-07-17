@@ -8,6 +8,8 @@
  */
 
 import { recordRaidSighting } from "./raidMeter";
+import { INVADER_TTL } from "../economy/primitives";
+import { record as blackBox } from "../telemetry/BlackBox";
 
 /**
  * Discovers all rooms within a certain exit distance from owned rooms.
@@ -320,18 +322,30 @@ export function hostileRooms(): Set<string> {
       const intel = Memory.roomIntel[roomName];
       if (hostiles.length > 0) {
         const maxTtl = hostiles.reduce((m, c) => Math.max(m, c.ticksToLive ?? 1500), 0);
-        if (intel) intel.hostileUntil = Game.time + maxTtl;
+        const until = Game.time + maxTtl;
+        if (intel?.hostileUntil === undefined) {
+          // Fresh mark on a previously-clear room: flight-recorder row so
+          // live defund windows have measurable starts (spec 13 phase 5).
+          blackBox("mark", { room: roomName, kind: "creeps", until });
+        }
+        if (intel) intel.hostileUntil = until;
         else {
-          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: Game.time + maxTtl } as RoomIntel;
+          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: until } as RoomIntel;
         }
         // Raid observation (spec 13): Invader-owned creeps in sight mean the
         // engine zeroed its raid fuse when it spawned them - zero the mirror
-        // and stamp the sighting (the guard corp's reactive trigger).
+        // and stamp the sighting (the guard corp's reactive trigger). One
+        // flight-recorder row per raid (not per tick of visibility).
         if (hostiles.some(c => c.owner?.username === INVADER_USERNAME)) {
+          const seen = Memory.roomIntel[roomName]?.lastRaidSeen;
+          if (seen === undefined || Game.time - seen >= INVADER_TTL) {
+            blackBox("raid", { room: roomName, debt: Memory.roomIntel[roomName]?.raidDebt ?? 0 });
+          }
           recordRaidSighting(roomName);
         }
       } else if (intel?.hostileUntil) {
         delete intel.hostileUntil; // fresh all-clear sighting
+        blackBox("unmark", { room: roomName, kind: "creeps" });
       }
 
       // Invader-core reservation: the room is held even with zero hostile
@@ -343,6 +357,9 @@ export function hostileRooms(): Set<string> {
       const stamped = Memory.roomIntel[roomName]; // may exist since the creep pass
       if (reservation && reservation.username === INVADER_USERNAME) {
         const until = Game.time + reservation.ticksToEnd;
+        if (stamped?.invaderReservedUntil === undefined) {
+          blackBox("mark", { room: roomName, kind: "reservation", until });
+        }
         if (stamped) stamped.invaderReservedUntil = until;
         else {
           Memory.roomIntel[roomName] = { lastVisit: Game.time, invaderReservedUntil: until } as RoomIntel;
@@ -360,6 +377,7 @@ export function hostileRooms(): Set<string> {
       } else if (stamped?.invaderReservedUntil) {
         delete stamped.invaderReservedUntil; // fresh sighting: reservation gone
         delete stamped.invaderCorePresent;
+        blackBox("unmark", { room: roomName, kind: "reservation" });
       }
     }
     // Marks persist without vision until their TTL bound expires.

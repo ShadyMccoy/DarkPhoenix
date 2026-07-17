@@ -1,16 +1,21 @@
 /**
- * defense cells - v1 DEFENSE ECONOMICS (owner directive 2026-07-10): no
- * military yet; a room held by hostiles simply stops being FUNDED. Corps
- * operating there (miners at its sources, haulers on its routes, reservers
- * headed in) emit no spawn demands, so the colony never buys bodies for a
- * grinder. One sighting captures the hostile's ticksToLive, so the mark
- * outlives vision; funding resumes on the TTL bound or an all-clear look.
+ * defense cells - two layers, both pinned here:
  *
- * Two hostile flavors share the one danger lens (hostileRooms): sighted
- * hostile CREEPS (TTL-bounded), and an invader CORE's controller
- * reservation (bounded by the reservation's ticksToEnd) - the core is a
- * structure the creep pass never sees, so the reservation is the
- * observable. See docs/specs/12-invader-protocols.md.
+ * FLIGHT (spec 12, owner directive 2026-07-10): a room held by hostiles
+ * stops being FUNDED. Corps operating there emit no spawn demands, so the
+ * colony never buys ECONOMY bodies for a grinder. One sighting captures the
+ * hostile's ticksToLive, so the mark outlives vision; funding resumes on
+ * the TTL bound or an all-clear look. Two hostile flavors share the one
+ * danger lens (hostileRooms): sighted hostile CREEPS (TTL-bounded), and an
+ * invader CORE's controller reservation (bounded by ticksToEnd).
+ *
+ * FIGHT (spec 13, owner directive 2026-07-17 "keep the remote flowing"):
+ * layered ON TOP of flight, exempt from its gate. The raid meter mirrors
+ * the engine's harvested-energy fuse and pre-spawns a RaidGuard before the
+ * raid fires (def-t4); the CoreBuster runs kill+strip against core
+ * occupations (def-t5-core-buster). Flight remains the fallback for rooms
+ * without a mission - the def-t3/def-t5 flight cells must stay green
+ * unchanged.
  */
 
 import { GridCell, always, eventually } from "../GridCell";

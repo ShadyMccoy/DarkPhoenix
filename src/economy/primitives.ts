@@ -202,6 +202,29 @@ export const RAID_ARM_FLOOR = 65_000;
 export const INVADER_TTL = 1_500;
 
 /**
+ * Expected defense cost per NPC raid under the fight-first posture: one
+ * 5xATTACK/5xMOVE guard body (650) with a ~15% margin for the multi-creep
+ * tail (~10% of raids are 2-5 smalls) and the occasional lost trade. A
+ * DERIVED starting point - phase 5 telemetry replaces it with the measured
+ * number (calibration windows >= 10x1500 ticks per the multi-draw rule).
+ */
+export const EXPECTED_RAID_DEFENSE_COST = 750;
+
+/**
+ * The invader tax as a per-energy coefficient: raids fire as a function of
+ * energy harvested (one per E[105k] - see INVADER_RAID_MEAN_ENERGY), so the
+ * expected defense cost composes as a constant tax on every harvested unit.
+ * By construction it can never reorder equal-gross flows - it shifts
+ * margins, dropping remotes whose profit was fictional.
+ */
+export function invaderTaxPerEnergy(expectedRaidCost: number): number {
+  return expectedRaidCost / INVADER_RAID_MEAN_ENERGY;
+}
+
+/** The default remote-source tax rate (~0.71% of gross at the derived cost). */
+export const INVADER_TAX_PER_ENERGY = invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST);
+
+/**
  * Minimum REMAINING occupation (read `invaderReservedUntil - Game.time`)
  * before the core-buster mission is worth commissioning. Payback sketch
  * (engine facts): income under a foreign reservation is 0, an unmolested

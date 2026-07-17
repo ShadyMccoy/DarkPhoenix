@@ -71,9 +71,11 @@ whose operators are corps. Read order for architecture truth:
 - **Corp id prefixes**: planner ids are pure (`harvest-{flowSourceId}`); kinds
   strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
   live creeps.
-- **Sim blind spots**: sims never churn spawn ids and never lose room vision —
-  both classes have caused live-only incidents. Don't claim live-readiness
-  from sims alone.
+- **Sim blind spots**: sims never churn spawn ids, never lose room vision,
+  and never generate NPC raids (raid generation is a backend wall-clock cron
+  the mockup doesn't run — invader noise is a LIVE-ONLY effect class; grid
+  cells stage their raids by db insert). Don't claim live-readiness from
+  sims alone.
 - **CPU governor is DRY-RUN by default** (`Memory.cpuGovernor = "on"` arms it,
   live console only). The mockup meters real CPU against a real bucket, so an
   armed governor couples cell behavior to HOST LOAD — a full grid run drained
@@ -90,7 +92,7 @@ whose operators are corps. Read order for architecture truth:
 | `npm run sim:real -- --home <room> [--metrics]` | real-map sim on captured fixtures |
 | `npm run capture:rooms -- --shard S --around R` | snapshot live rooms to fixtures |
 | `npm run journey:capture` | organic run → trip-point snapshots |
-| `npm run sim:variance` / `sim:ab` | multi-draw variance / A/B harness |
+| `npm run sim:variance` / `sim:ab` | single-draw plan-vs-actual gauge / A/B harness (multi-draw = repeated `ab-cold-start` runs) |
 
 App-specific login fields, seed users and workcell notes live in
 `AGENTS_CUSTOM.md` (platform-owned) when present.
