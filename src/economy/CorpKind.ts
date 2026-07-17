@@ -36,9 +36,11 @@ export interface CorpKind<C extends Corp = Corp> {
    * PLAN (pure): propose commissions this kind can fulfil in this world.
    * Central shapes (produce/transport/consume) normally return [] - the
    * solver emits them - while auxiliary kinds implement their trigger here
-   * (e.g. reserver: "a miner works an unowned controllered room"), reading
-   * the draft commissions for preconditions instead of inventing a private
-   * side-channel.
+   * (e.g. reserver: "the draft plan MINES an unowned, controllered room"),
+   * reading the draft commissions for preconditions instead of inventing a
+   * private side-channel. The draft is the DURABLE signal: never trigger on
+   * live creep positions or room vision, which flap on every creep death
+   * (the stranded-reserver incident - see corps/kinds/reservationKind).
    */
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[];
   /** BIND: create the runtime corp for a commission, or update the existing one. */

@@ -74,7 +74,8 @@ export interface CorpKind<C extends Corp = Corp> {
   /** PLAN (pure): propose commissions this kind can fulfil in this world.
    *  Producer/transport/consumer kinds usually return [] here because the
    *  central solver emits them; auxiliary kinds implement their trigger here
-   *  (e.g. reserver: "a miner works an unowned controllered room"). */
+   *  (e.g. reserver: "the draft plan MINES an unowned, controllered room" -
+   *  the DURABLE signal; never live creep positions or room vision). */
   propose(problem: ColonyProblem, plan: ReadonlyDraftPlan): Commission[];
   /** MATERIALIZE: create-or-update the runtime corp for a commission. */
   materialize(c: Commission, existing: C | undefined): C;

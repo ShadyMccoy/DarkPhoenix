@@ -27,6 +27,7 @@ function install(): void {
   Game.creeps = {};
   Game.rooms = {};
   (Memory as any).roomIntel = {};
+  (Memory as any).economyPlan = undefined;
   Game.getObjectById = (id: string) =>
     id === "spawn1"
       ? ({
@@ -38,14 +39,18 @@ function install(): void {
       : null;
 }
 
-/** One of OUR miners currently working the remote (the armed-trigger gate). */
-function installMiner(room = REMOTE): void {
-  (Game.creeps as any)[`miner-${room}`] = {
-    name: `miner-${room}`,
-    spawning: false,
-    memory: { workType: "harvest", corpId: "harvest-x" },
-    room: { name: room }
+/**
+ * The GOAL plan mines the remote (the armed-trigger gate) - the durable
+ * signal per the stranded-reserver trap: plan + intel, never creep
+ * positions. Seeds Memory.economyPlan and the room's intel sourceIds.
+ */
+function installPlannedMine(room = REMOTE): void {
+  (Memory as any).economyPlan = {
+    corps: [{ kind: "mine", sourceId: `source-src-${room}`, spawnId: "spawn1" }]
   };
+  const intel = (Memory as any).roomIntel[room] ?? {};
+  intel.sourceIds = [`src-${room}`];
+  (Memory as any).roomIntel[room] = intel;
 }
 
 const ctx = { energyCapacity: 800, tick: 50_000 } as any;
@@ -55,7 +60,7 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
 
   it("targets an ARMED room we currently mine (predictive pre-spawn)", () => {
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: RAID_ARM_FLOOR };
-    installMiner();
+    installPlannedMine();
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     expect(corp.guardTargets(HOME)).to.deep.equal([REMOTE]);
     const demands = corp.getSpawnDemand(ctx);
@@ -76,7 +81,7 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
 
   it("disarms OVERDUE rooms (debt past 130k with no raid: raids don't fire here)", () => {
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: RAID_GOAL_CEIL + 1 };
-    installMiner();
+    installPlannedMine();
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     expect(corp.guardTargets(HOME)).to.deep.equal([]);
   });
@@ -108,15 +113,15 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
   it("never targets the home room or an owned room", () => {
     (Memory as any).roomIntel[HOME] = { lastVisit: 1, raidDebt: 90_000 };
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 90_000, controllerOwner: "somebody" };
-    installMiner(HOME);
-    installMiner(REMOTE);
+    installPlannedMine(HOME);
+    installPlannedMine(REMOTE);
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     expect(corp.guardTargets(HOME)).to.deep.equal([]);
   });
 
   it("emits no demand for a target already covered by an assigned guard", () => {
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
-    installMiner();
+    installPlannedMine();
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     (Game.creeps as any).g1 = {
       name: "g1",
@@ -129,14 +134,14 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
 
   it("emits no demand below the viable-body floor (3 pairs = 390)", () => {
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
-    installMiner();
+    installPlannedMine();
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     expect(corp.getSpawnDemand({ energyCapacity: 300, tick: Game.time } as any)).to.have.length(0);
   });
 
   it("holds the value-ladder slot: hauler floor 90 < guard 105 < reserver 115", () => {
     (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
-    installMiner();
+    installPlannedMine();
     const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
     const demand = corp.getSpawnDemand(ctx)[0];
     expect(demand.value).to.equal(105);

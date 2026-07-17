@@ -186,12 +186,16 @@ export function buildDefenseCells(): GridCell[] {
         },
       ],
       // The raid meter staged ARMED: 66k of accrued debt in the east room.
+      // sourceIds present so the guard's plan-derived mined-room lens (the
+      // durable-signal doctrine) can map the planner's east mine commission
+      // to this room.
       memory: {
         roomIntel: {
           "$room(east)": {
             lastVisit: 1,
             raidDebt: 66000,
             sourceCount: 1,
+            sourceIds: ["$id(east,source,25,25)"],
             sourcePositions: [{ x: 25, y: 25 }],
             mineralType: null,
             mineralPos: null,

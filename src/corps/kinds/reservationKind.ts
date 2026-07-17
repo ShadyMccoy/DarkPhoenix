@@ -2,11 +2,20 @@
  * @fileoverview reservationKind - ReservationCorp as a registered CorpKind:
  * the second port onto the corp framework (docs/specs/00-corp-framework.md).
  *
- * Auxiliary shape, like scout. The economically interesting trigger ("one of
- * our miners works an unowned, controllered room") lives at RUNTIME inside the
- * corp (targetRooms gates both work() and getSpawnDemand()), because it reads
- * live creeps; propose() commissions one reservation corp per spawn room
- * unconditionally - a corp with no targets and no creeps costs nothing.
+ * Auxiliary shape, like scout - and the poster child for the propose()
+ * contract: THE TRIGGER READS THE DRAFT. A room is worth reserving exactly
+ * when the draft plan mines it (a remote harvest commission targets one of its
+ * sources), so propose() derives each home's targetRooms from the draft and
+ * bakes them into the commission assignment. materialize() refreshes them on
+ * the live corp every round, exactly like spawnId - commission-owned state.
+ *
+ * The trigger must NOT read live creep positions ("a miner is standing there
+ * this tick") and must NOT require room vision. Both were the stranded-
+ * reserver incident (shard1 t72378345): the remote's miner died, taking the
+ * trigger and the room's vision with it; the in-flight reserver was revoked
+ * mid-route and idled out its CLAIM lifetime while the reservation decayed.
+ * Runtime reservability (owned/reserved by others, hostiles) is gated inside
+ * the corp by the shared vision-free lenses (isReservableRoom, hostileRooms).
  *
  * Spawning stays on the value-ranked SpawnDirector path: the director reads
  * this corp's getSpawnDemand() through the commission store, so reservers keep
@@ -22,23 +31,38 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ReservationCorp, SerializedReservationCorp } from "../ReservationCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
+import { roomLinearDistance } from "../../utils/RoomDiscovery";
+import { MAX_SCOUT_DISTANCE } from "../CorpConstants";
 
-/** The reservation commission's binding: which home room, which spawn. */
+/**
+ * The reservation commission's binding: which home room, which spawn, and
+ * which remote rooms the draft plan mines from there (the reserve-worthy set).
+ */
 export interface ReservationAssignment {
   roomName: string;
   spawnId: string;
+  targetRooms: string[];
 }
 
 export const reservationKind: CorpKind<ReservationCorp> = {
   kind: "reservation",
   runOrder: 40,
 
-  propose(problem: ColonyProblem): Commission[] {
+  propose(problem: ColonyProblem, draft: readonly Commission[] = []): Commission[] {
     const homeSpawnByRoom = new Map<string, string>();
     for (const s of problem.spawns) {
       if (!homeSpawnByRoom.has(s.pos.roomName)) {
         homeSpawnByRoom.set(s.pos.roomName, s.id);
       }
+    }
+    // The trigger, on the DURABLE signal: rooms the draft plan MINES that are
+    // not our own spawn rooms. Solver harvest commissions carry the source
+    // position in produces.at, so no Game/vision/creep lookup is needed here.
+    const minedRemotes = new Set<string>();
+    for (const c of draft) {
+      if (c.kind !== "harvest") continue;
+      const room = c.produces.at?.roomName;
+      if (room && !homeSpawnByRoom.has(room)) minedRemotes.add(room);
     }
     return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
       corpId: corpIdFor("reservation", roomName),
@@ -48,7 +72,11 @@ export const reservationKind: CorpKind<ReservationCorp> = {
       // sources), priced by the SpawnDirector's value ranking, not the planner.
       consumes: { spawnPartsPerTick: 0 },
       produces: { valuePerTick: 0 },
-      assignment: { roomName, spawnId } as ReservationAssignment
+      assignment: {
+        roomName,
+        spawnId,
+        targetRooms: [...minedRemotes].filter(r => roomLinearDistance(roomName, r) <= MAX_SCOUT_DISTANCE).sort()
+      } as ReservationAssignment
     }));
   },
 
@@ -56,11 +84,14 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     const a = c.assignment as ReservationAssignment;
     if (existing) {
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      existing.setTargetRooms(a.targetRooms ?? []); // ditto - targets follow the PLAN
       return existing;
     }
     // Legacy nodeId convention preserves the pre-port runtime corp id, so live
     // reservers' memory.corpId still resolves across the migration.
-    return new ReservationCorp(`${a.roomName}-reservation`, a.spawnId);
+    const corp = new ReservationCorp(`${a.roomName}-reservation`, a.spawnId);
+    corp.setTargetRooms(a.targetRooms ?? []);
+    return corp;
   },
 
   run(corp: ReservationCorp, tick: number): void {

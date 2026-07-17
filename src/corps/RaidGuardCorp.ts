@@ -90,15 +90,40 @@ export class RaidGuardCorp extends Corp {
   }
 
   /**
-   * Rooms that currently want a guard, from intel alone (no vision needed):
+   * Rooms the GOAL plan currently mines, from Memory alone. Durable-signal
+   * doctrine (the stranded-reserver trap): room state comes from the plan
+   * and intel, never from "a creep is standing there this tick" - that
+   * signal flaps on every miner death and goes blind with the vision the
+   * dead miner provided. The published plan survives both.
+   */
+  private planMinedRooms(): Set<string> {
+    const mined = new Set<string>();
+    const plan = (Memory as { economyPlan?: { corps?: Array<{ kind: string; sourceId?: string }> } }).economyPlan;
+    const minedSourceIds = new Set<string>();
+    for (const c of plan?.corps ?? []) {
+      if (c.kind === "mine" && typeof c.sourceId === "string") {
+        minedSourceIds.add(c.sourceId.replace("source-", ""));
+      }
+    }
+    if (minedSourceIds.size === 0 || !Memory.roomIntel) return mined;
+    for (const roomName in Memory.roomIntel) {
+      const ids = Memory.roomIntel[roomName]?.sourceIds;
+      if (ids?.some(id => minedSourceIds.has(id))) mined.add(roomName);
+    }
+    return mined;
+  }
+
+  /**
+   * Rooms that currently want a guard, from the plan and intel alone (no
+   * vision, no creep positions - the durable-signal doctrine):
    *
-   * - ARMED (predictive): raidDebt crossed the 65k arm floor while our miners
-   *   work the room - the raid can fire any time after 70k, and debt only
+   * - ARMED (predictive): raidDebt crossed the 65k arm floor on a room the
+   *   GOAL plan mines - the raid can fire any time after 70k, and debt only
    *   accrues while we harvest, so commissioning here pre-positions the guard
    *   one delivery-lead ahead of the crossing. OVERDUE rooms (>130k, no raid
    *   ever seen) disarm - raids provably don't fire there.
    * - RAID IN PROGRESS (reactive): Invader creeps were sighted within their
-   *   1500-tick lifetime and the hostile mark is still live - cover rooms
+   *   1500-tick lifetime and the hostile mark is still live - covers rooms
    *   whose counter history we didn't have (first raid after moving in).
    *
    * Owned rooms are never targeted (towers are the home answer, spec 07),
@@ -107,11 +132,7 @@ export class RaidGuardCorp extends Corp {
   public guardTargets(homeRoom: string): string[] {
     if (typeof Memory === "undefined" || !Memory.roomIntel) return [];
 
-    const minedNow = new Set<string>();
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.workType === "harvest" && !creep.spawning) minedNow.add(creep.room.name);
-    }
+    const planMined = this.planMinedRooms();
 
     const targets: string[] = [];
     for (const roomName in Memory.roomIntel) {
@@ -121,7 +142,7 @@ export class RaidGuardCorp extends Corp {
       if (intel.controllerOwner) continue; // owned rooms never receive raids for us to guard
       if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
 
-      const armed = raidMeterState(intel.raidDebt) === "armed" && minedNow.has(roomName);
+      const armed = raidMeterState(intel.raidDebt) === "armed" && planMined.has(roomName);
       const raidInProgress =
         intel.lastRaidSeen !== undefined &&
         Game.time - intel.lastRaidSeen < INVADER_TTL &&
