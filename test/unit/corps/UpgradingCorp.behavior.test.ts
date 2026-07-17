@@ -54,6 +54,8 @@ class MockUpgrader {
   private pendingWithdraw = 0;
   /** True on ticks upgradeController(OK) fired - the throughput signal under test. */
   public upgradedThisTick = false;
+  /** Count of withdraw/pickup intents issued - the CPU signal (0.2 CPU each). */
+  public drawCount = 0;
 
   public constructor(x: number, y: number, energy: number, capacity: number, workParts: number) {
     this.capacity = capacity;
@@ -94,10 +96,12 @@ class MockUpgrader {
     if (avail <= 0) return -6; // ERR_NOT_ENOUGH_RESOURCES
     this.pendingWithdraw = Math.min(free, avail);
     (target as any).__debit = this.pendingWithdraw;
+    this.drawCount += 1;
     return (global as any).OK;
   }
 
   public pickup(): number {
+    this.drawCount += 1;
     return (global as any).OK;
   }
 
@@ -194,5 +198,12 @@ describe("UpgradingCorp per-tick behaviour (parked, container-fed)", () => {
     // at least one tick a pure withdraw with no upgrade).
     const missed = fired.filter(f => !f).length;
     expect(missed).to.equal(0, `upgrader wasted ${missed} WORK tick(s) refilling`);
+    // ...WITHOUT withdrawing every tick: each withdraw/pickup intent costs ~0.2
+    // CPU, so a container-fed upgrader must batch its draws (top up just-in-time
+    // before the buffer can't cover another WORK cycle), not sip every tick.
+    // Draining 6/tick from a 50 buffer it refills ~once every 7 ticks (~4 draws in
+    // 30) - not the ~29 an every-tick top-up would issue.
+    expect(creep.drawCount).to.be.at.least(1, "must actually refill");
+    expect(creep.drawCount).to.be.at.most(8, `withdrew on ${creep.drawCount}/30 ticks - draws should batch`);
   });
 });

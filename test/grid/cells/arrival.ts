@@ -295,18 +295,21 @@ export function buildArrivalT2Cells(): GridCell[] {
     },
 
     {
-      // A container-fed upgrader tops up AND upgrades in the SAME tick, so its
-      // buffer never goes dry between draws. The regression: the parked upgrader
-      // used a collect/deposit oscillation (working ? upgrade : draw), so when a
-      // WORK-heavy, small-buffer body drained to 0 it spent one whole tick
-      // WITHDRAWING with the WORK parts idle - "empty for a tick, then withdraws"
-      // (live 2026-07-17). Same geometry as arrive-upgrader-dry-withdraws-in-place
-      // (container 25,12 -> input spot; parking tile 24,11), but a 6-WORK/1-CARRY
-      // body (50 buffer) that drains in ~8 ticks, so the 45-tick window crosses
-      // the empty boundary ~5 times. The crisp pin: u1's store NEVER reads empty
-      // once parked - the oscillation snapshots a 0 on every drain, the same-tick
-      // top-up never does. The sibling parked cell's 4W/4C body starts at 200 and
-      // never drains here, which is exactly why it misses this.
+      // A container-fed upgrader must top up AND upgrade in the SAME tick (so its
+      // buffer never goes dry), BUT must not withdraw every tick (each withdraw is
+      // ~0.2 CPU). Same geometry as arrive-upgrader-dry-withdraws-in-place
+      // (container 25,12 -> input spot; parking tile 24,11), with a 6-WORK/1-CARRY
+      // body (50 buffer) draining 6/tick. Two invariants pin BOTH concerns, and
+      // only the batched same-tick top-up satisfies both:
+      //   1) never dry (always store > 0) - the oscillation regression
+      //      (working ? upgrade : draw) snapshots a 0 on every drain (a wasted WORK
+      //      tick, "empty for a tick, then withdraws", live 2026-07-17); the
+      //      same-tick top-up never does. The sibling parked cell's 4W/4C body
+      //      starts at 200 and never drains here, which is why it misses this.
+      //   2) drains between draws (eventually store <= 15) - a naive fix that
+      //      withdraws EVERY tick keeps the buffer pinned ~44-50 and burns 0.2 CPU
+      //      per tick per upgrader; the just-in-time batched refill lets the buffer
+      //      fall to ~workParts (8) before topping up, so it is observed low.
       id: "arrive-upgrader-no-dry-tick-under-drain",
       tier: 2,
       avenue: "work-transition",
@@ -349,8 +352,8 @@ export function buildArrivalT2Cells(): GridCell[] {
           const c = s.creep("u1");
           return !!c && c.x === 24 && c.y === 11;
         }),
-        // THE regression pin: a parked, container-fed upgrader tops up in the same
-        // tick it upgrades, so its buffer never snapshots empty. The old
+        // Invariant 1 - never dry: a parked, container-fed upgrader tops up in the
+        // same tick it upgrades, so its buffer never snapshots empty. The old
         // oscillation drains to exactly 0 on every cycle - one wasted WORK tick.
         // graceTicks covers adoption warm-up (pre-adoption the creep sits full).
         always(
@@ -361,17 +364,16 @@ export function buildArrivalT2Cells(): GridCell[] {
           },
           8
         ),
-        // Corroboration that it is genuinely upgrading-while-topped-up, not merely
-        // sitting full: the buffer stays high (never dips toward the empty the
-        // oscillation would produce) once parked.
-        always(
-          "buffer stays topped up under continuous upgrade",
-          (s) => {
-            const c = s.creep("u1");
-            return !!c && (c.store?.energy ?? 0) >= 20;
-          },
-          8
-        ),
+        // Invariant 2 - draws are batched, not every-tick: the just-in-time refill
+        // lets the buffer fall to ~workParts (8 for this 6-WORK body) before topping
+        // up, so it is observed <= 15. A naive fix that withdraws EVERY tick pins the
+        // buffer ~44-50 (never <= 15) and burns 0.2 CPU/tick/upgrader - this fails on
+        // that regression while the oscillation bug (which also drains low) does not,
+        // so the two invariants together admit only the batched same-tick top-up.
+        eventually("buffer drains between batched draws (not topped up every tick)", (s) => {
+          const c = s.creep("u1");
+          return !!c && (c.store?.energy ?? 0) <= 15;
+        }),
       ],
     },
 

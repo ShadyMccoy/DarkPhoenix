@@ -230,15 +230,23 @@ export class UpgradingCorp extends Corp {
       return;
     }
 
-    // Parked at the input: top up AND upgrade in the SAME tick. withdraw/pickup and
-    // upgradeController are independent intents (the canonical static-upgrader
-    // idiom), so refilling the buffer the upgrade is draining keeps a container-fed
-    // upgrader from ever going dry. The old collect/deposit oscillation
-    // (working ? upgrade : draw) drained the buffer to 0, then spent one whole tick
-    // withdrawing with the WORK parts IDLE before resuming - a wasted WORK tick per
-    // drain cycle (~11% of throughput on a WORK-heavy, small-buffer body; measured
-    // live 2026-07-17). Draw first so the just-topped-up buffer feeds this upgrade.
-    if (creep.store.getFreeCapacity() > 0) this.drawFromInput(creep, controller);
+    // Parked at the input: refill and upgrade in the SAME tick so the buffer never
+    // goes dry (withdraw/pickup and upgradeController are independent intents - the
+    // canonical static-upgrader idiom), but do NOT withdraw every tick. Each
+    // withdraw/pickup intent costs ~0.2 CPU, so sipping a few energy every tick
+    // wastes it fleet-wide. Refill just-in-time: only when the buffer can no longer
+    // cover a full WORK cycle next tick (energy < 2x the per-tick burn). The top-up
+    // lands THIS tick, so a full workParts still fires every tick while draws batch
+    // into one every several ticks. The old oscillation (working ? upgrade : draw)
+    // instead went fully dry each cycle and spent a whole tick refilling with the
+    // WORK parts idle (~11% throughput on a WORK-heavy body; measured live
+    // 2026-07-17). A buffer too small to hold two cycles necessarily draws every
+    // tick - unavoidable to stay fed. drawFromInput itself issues no intent when the
+    // input is dry, so a starved upgrader spends no CPU either.
+    const workParts = Math.max(1, creep.getActiveBodyparts(WORK));
+    if (creep.store[RESOURCE_ENERGY] < 2 * workParts && creep.store.getFreeCapacity() > 0) {
+      this.drawFromInput(creep, controller);
+    }
     this.tryUpgrade(creep, controller);
   }
 
