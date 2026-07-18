@@ -6,10 +6,11 @@ import {
   pickRuntToRecycle,
   pickDeliverySink,
   shouldBankControllerLoad,
+  shouldRefillFromDepot,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
-import { Game as MockGame } from "../mock";
+import { Game as MockGame, setupGlobals } from "../mock";
 
 /**
  * Trivial, deterministic scenarios that pin down a CarryCorp's *observable*
@@ -416,6 +417,149 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(
         shouldBankControllerLoad({ hasBankCapacity: false, feederActive: true, controllerInputStock: 5000 })
       ).to.equal(false);
+    });
+  });
+
+  // The degraded, tender-less depot refill (pickupEnergy) is a reload-from-the-
+  // NEARBY-bank shortcut. Without a locality gate it dragged an empty spawn-homed
+  // hauler back to the core depot even when the hauler was out at (or walking
+  // toward) its own far/remote source - the observed "empty hauler heading back
+  // home". shouldRefillFromDepot restricts the shortcut to when the depot really
+  // is the shorter reload.
+  describe("degraded depot refill fires only when the depot is the nearer reload", () => {
+    it("refills when the depot is at least as close as the source pickup", () => {
+      expect(shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: 2, rangeToPickup: 16 })).to.equal(
+        true
+      );
+      expect(shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: 5, rangeToPickup: 5 })).to.equal(
+        true
+      );
+    });
+
+    it("treks to the source when the depot is farther (no empty drag home)", () => {
+      // The bug: an empty hauler 2 tiles from its source was hauled 16 tiles home.
+      expect(shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: 16, rangeToPickup: 2 })).to.equal(
+        false
+      );
+    });
+
+    it("refills at home when the source is out of the creep's room this tick", () => {
+      // A hauler AT HOME whose source is remote: top up from the near depot rather
+      // than run a whole remote round-trip (rangeToPickup is Infinity off-room).
+      expect(
+        shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: 3, rangeToPickup: Infinity })
+      ).to.equal(true);
+    });
+
+    it("never diverts to a depot a room away (the U-turn across the border)", () => {
+      // Creep out at its remote source: the depot is off-room (Infinity) so the
+      // hauler picks up locally instead of heading home.
+      expect(
+        shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: Infinity, rangeToPickup: 3 })
+      ).to.equal(false);
+      expect(
+        shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 100, rangeToDepot: Infinity, rangeToPickup: Infinity })
+      ).to.equal(false);
+    });
+
+    it("does not refill when the depot is empty or the network is already full", () => {
+      expect(shouldRefillFromDepot({ depotEnergy: 0, networkNeed: 100, rangeToDepot: 1, rangeToPickup: 50 })).to.equal(
+        false
+      );
+      expect(shouldRefillFromDepot({ depotEnergy: 500, networkNeed: 0, rangeToDepot: 1, rangeToPickup: 50 })).to.equal(
+        false
+      );
+    });
+  });
+
+  // End-to-end wiring: pickupEnergy computes the two ranges and routes the empty
+  // hauler accordingly. Proves the locality gate is actually connected.
+  describe("pickupEnergy routing (the drag, end to end)", () => {
+    const mkPos = (x: number, y: number, roomName: string) => ({ x, y, roomName });
+
+    /** Stand an empty spawn-homed hauler up in `creepRoom`, its source in
+     * `sourceRoom`, and a stocked storage depot in the home room; run pickupEnergy
+     * and report where it tried to go. */
+    function runPickup(opts: {
+      creepRoom: string;
+      sourceRoom: string;
+      withdrawResult?: number;
+    }): { withdrawTarget: unknown; moveTo: { x: number; y: number; roomName: string } | null } {
+      const HOME = "W1N1";
+      const depot = { structureType: "storage", my: true, pos: mkPos(24, 24, HOME), store: { energy: 2000 } };
+      const source = { id: "src1", pos: mkPos(10, 10, opts.sourceRoom) };
+      const rec = { withdrawTarget: null as unknown, moveTo: null as { x: number; y: number; roomName: string } | null };
+
+      const creep: any = {
+        name: "h1",
+        memory: { corpId: "W1N1-hauling-src1", workType: "haul", homeSink: "spawn" },
+        room: { name: opts.creepRoom },
+        store: { energy: 0 },
+        pos: {
+          x: 25,
+          y: 25,
+          roomName: opts.creepRoom,
+          getRangeTo: (t: any) => {
+            const p = t?.pos ?? t;
+            return Math.max(Math.abs(25 - p.x), Math.abs(25 - p.y));
+          },
+          isEqualTo: (t: any) => {
+            const p = t?.pos ?? t;
+            return p.x === 25 && p.y === 25;
+          },
+          isNearTo: () => false,
+          findInRange: () => []
+        },
+        withdraw: (t: any) => {
+          rec.withdrawTarget = t;
+          return opts.withdrawResult ?? OK;
+        },
+        moveTo: (t: any) => {
+          rec.moveTo = t?.pos ?? t;
+          return OK;
+        },
+        say: () => {}
+      };
+
+      const room: any = {
+        name: HOME,
+        memory: {},
+        storage: depot,
+        energyCapacityAvailable: 550,
+        energyAvailable: 100, // networkNeed 450 > 0
+        find: () => []
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = {
+        ...MockGame,
+        time: 100,
+        creeps: { h1: creep },
+        getObjectById: (id: string) => (id === "src1" ? source : null)
+      };
+
+      const corp = carryCorp("W1N1-hauling-src1");
+      corp.setHaulerAssignments([route("spawn1", 5, 2)]); // fromId "source-src1"
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).pickupEnergy(creep, room);
+      return rec;
+    }
+
+    it("does NOT drag an empty hauler home when it is out near its source", () => {
+      // Creep is in a room away from home, its source one room further out. The
+      // stocked home depot must NOT pull it back: it keeps heading to its source.
+      const rec = runPickup({ creepRoom: "W2N1", sourceRoom: "W3N1" });
+      expect(rec.withdrawTarget, "must not touch the home depot").to.equal(null);
+      expect(rec.moveTo, "keeps moving toward its source").to.not.equal(null);
+      expect(rec.moveTo!.roomName).to.equal("W3N1");
+    });
+
+    it("still tops up from the depot when the hauler is AT HOME (source remote)", () => {
+      // Same energy conditions, but the hauler is in the home room: the near depot
+      // is the shorter reload, so the degraded shortcut still fires.
+      const rec = runPickup({ creepRoom: "W1N1", sourceRoom: "W2N1" });
+      expect(rec.withdrawTarget, "reloads from the home depot").to.not.equal(null);
+      expect((rec.withdrawTarget as any).structureType).to.equal("storage");
     });
   });
 });
