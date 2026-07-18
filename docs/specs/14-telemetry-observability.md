@@ -216,6 +216,38 @@ amortization exists for producers (`effectiveLife`, `CorpPlanner.ts:393,433`)
 but subtracts tiles, not ticks (~2× underweight off-road; roads halve real
 ticks — the priced `paved` ratio already models the body savings).
 
+### 2026-07-18 (later) — P4 feasibility deployed after full acquittal; hollow-gate hole found and closed
+
+The spawn-parts ledger (P4, 69b0f63+6f23eb5) hit a red full grid twice:
+4 baseline-green cells down (agenda-t2-spawns/receipts-match-head,
+plan-t1-single-source-loop timeout, plan-t5-remote-pipeline). First run
+was discarded as cross-contaminated (two grids shared the host after a
+container restart resurrected a presumed-dead run); the clean exclusive
+rerun REPRODUCED all four — contamination falsified as cause. Solo
+reruns reproduced deterministically. Control runs on pre-P4 source
+(bcb39f4, src ≡ the deployed FIFO build) failed **identically** (± 3-30
+ticks) — **P4 acquitted on all four**; the regressions are properties of
+the build already live.
+
+Process hole found while attributing: `npm run grid -- --cell` skips the
+baseline ratchet and exits 0 regardless of verdict. The bucketed-FIFO
+deploy gate read exit codes, so its five grid-cell "greens" were never
+actually verified — the four cells may have been red since that change.
+Closed: audit command now requires marker parsing (`[P]`/`[x]`/`[T]`)
+and pre-change-source attribution before any red cell blocks a deploy.
+
+P4 deployed on its own evidence (898 unit incl. red-first feasibility
+pins, integration trio green in four consecutive runs, cap arithmetically
+slack in the failing cells' worlds). Predicted deltas: ledger P4 line
+FAIL→ok, planAllocated ~125→feasible, upgrader target 8→small, the
+miner/upgrader oscillation stops, spawn off the 0.98 pin. OPEN incident
+(next cycles): the four cells vs the FIFO build — pre-FIFO control run,
+then multi-draw to separate FIFO-caused from lucky-baseline margin
+(agenda cells fail at t387-390/400, plan-t5 at t1246-1276/1800 — late-run
+tail events; suspicion: time-varying effectivePriority lets the published
+head and the buy walk diverge across a bucket boundary, and tempo margins
+thinned).
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the

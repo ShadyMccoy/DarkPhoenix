@@ -108,6 +108,16 @@ npm run audit:ledger        # spec 15: latest capture vs previous, every leak a 
   `flow-handoff`, `runt-economy`, `storage-depot` (one file at a time,
   `npm run build` FIRST — they run dist/main.js). Bump segment versions on
   schema change. Never nudge a sink value in isolation.
+- **Grid verdicts are the `[P]`/`[x]`/`[T]` markers, NEVER exit codes**:
+  `npm run grid -- --cell <id>` skips the baseline ratchet and exits 0
+  regardless of the cell's verdict (measured 2026-07-18: a deploy gate read
+  exit codes and shipped on five unverified cells — four were failing). Parse
+  the marker lines; a `--cell` run "passes" only on `[P]`.
+- **Attribution before blame**: a red cell gates a deploy only if it is red
+  BECAUSE of the pending change — run the cell on the pre-change source
+  (checkout src at the last deployed commit, build, rerun). Identical failure
+  pre/post acquits the pending change; the regression then becomes its own
+  incident against the DEPLOYED build and must not hold the fix hostage.
 - Commit with the measured numbers in the message. Update the spec-14 incident
   log for anything found in prod. Commit the capture that proved it as a
   fixture (economy segments only — slim, ~20K).
