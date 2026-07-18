@@ -166,6 +166,42 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 **DONE** — `CorpPlanner.test.ts` (verdicts), `flowPlan.test.ts`
 (candidates verbatim).
 
+## Audit log
+
+### 2026-07-18 — S3 starvation backstop: raw-age FIFO falsified, bucketed FIFO shipped
+
+The `since` export (phase 4) named the live S3 inversion exactly (t72403765:
+tender age 1371 at queue position 4 behind self-renewing starved scale-haulers
+≤1134; four hauler buys in ~160t; upgrader fleet decayed to 0 by t72404213
+while storage rose +19 e/t against a 115 e/t plan). First fix — raw-age FIFO
+inside the starved tier — was **falsified by its own gate**: flow-handoff red
+twice (zero flow haulers by t600) while a control draw on the pre-FIFO
+additive ranking stayed green. The agenda mirror, surfaced into the probe
+(now permanent there), named both mechanisms in one draw: cold start seeds
+every demand in the same tick so raw age degenerates to collection order
+(miner buys round-robin across sources, no source completes, minerPrecedence
+never unlocks a hauler), and the no-walls walk variant let the tier's builder
+eat the blocking hauler's accumulating bank (`exec=[miner@260 builder@325]`,
+hauler head stuck at `bank>=300` forever).
+
+Shipped (56292a7, deployed with 540b0fa MAX_SURPLUS_DRAW=100): starved tier
+ranks by **age bucket** (age / STARVATION_THRESHOLD, step 2e6 > max
+spawnPriority; value doctrine orders within a bucket), purchase **resets the
+demand stream's clock** (age = unserved time, restoring STARVED_TIER's
+documented one-shot contract), walk walls byte-identical to the control.
+Gate: 885 unit + 3 integration + 5 grid cells green. Verdict: **fixed**
+(prod verification pending next capture — predicted: tender staffed within a
+spawn window, upgraders refleet, storage slope negative, progress toward
+plan).
+
+Open finding for spec 15 (measured this cycle, not yet fixed): the GOAL plan
+is **spawn-infeasible ~1.6×** — plan-implied maintenance ≈0.54 parts/tick vs
+0.333 physical (producers 0.33 incl. 0.134 of scavenge/bank routes priced by
+no budget; consumers/infra ≈0.21 vs the flat 40% reservation). Effective-TTL
+amortization exists for producers (`effectiveLife`, `CorpPlanner.ts:393,433`)
+but subtracts tiles, not ticks (~2× underweight off-road; roads halve real
+ticks — the priced `paved` ratio already models the body savings).
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
