@@ -3,7 +3,11 @@
 **Status:** phases 0/0b LANDED (PRs #111/#113); phases 1–2 implemented
 2026-07-18 (room energy ledger, core v4; sizing records, corps v4 — first
 stamper: UpgradingCorp via the shared `nodeEnergy.controllerSideStock`
-lens and `upgraderSizing`); phases 3–4 open.
+lens and `upgraderSizing`); phases 3–4 implemented 2026-07-18 (spawn
+meter + NOW-plan mirror, core v5). The reserver-loop fix the audit found
+landed alongside (owner-authorized): ReservationCorp's demand lens now
+counts living reservers including spawning/unassigned newborns
+(`countLivingReservers`), with its own sizing stamp.
 Deviation from the plan as written: phase 1 drops the
 `spawnEnergy`/`extensionEnergy` split — no decision reads a per-structure
 split (the lens decisions read is `energyAvailable`/`energyCapacity`,
@@ -122,6 +126,9 @@ Sits next to the static ceiling (`SPAWN_PARTS_PER_TICK`) so
 Acceptance: unit test advances a mocked spawn through busy/idle ticks and
 asserts the meter; integration smoke: meter present and ≤ 1.0 after a
 `flow-handoff` run.
+**DONE** — `test/unit/telemetry/spawnMeter.test.ts` (utilization =
+busy/observed, partsPerTick = utilization/3, Memory-backed windows,
+queueDepth; window = 1500t, `last` guard against double-count).
 
 ### Phase 4 — NOW-plan mirror (actual-vs-NOW, spec 11 alignment)
 
@@ -132,6 +139,8 @@ visible without a `/user/memory` pull. Spec 11's tight-assertion pair
 
 Acceptance: unit test seeds a spawnAgenda and asserts the telemetry
 mirror; receipts match `executed` verbatim.
+**DONE** — `test/unit/telemetry/agendaMirror.test.ts` (first 4 queue
+heads + receipts verbatim, deep-equal; block absent without an agenda).
 
 ## Non-goals
 

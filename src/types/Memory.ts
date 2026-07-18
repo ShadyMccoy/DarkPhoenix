@@ -234,6 +234,15 @@ declare global {
      * agenda-fidelity cell asserts spawns match the head, and the flow
      * adapter (phase 2) routes fundingNeed toward the spawn network.
      */
+    /**
+     * Spawn-meter windows (spec 14 phase 3): measured busy ticks per spawn
+     * over a rolling ~1500-tick window, accumulated every observed tick by
+     * telemetry. `last` guards against double-counting a tick.
+     */
+    spawnMeter?: {
+      [spawnId: string]: { t0: number; last: number; ticks: number; busy: number };
+    };
+
     spawnAgenda?: {
       [spawnId: string]: {
         tick: number;

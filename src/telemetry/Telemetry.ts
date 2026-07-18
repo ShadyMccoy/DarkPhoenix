@@ -25,9 +25,13 @@ import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
+  SPAWN_PARTS_PER_TICK,
   UPGRADE_ENERGY_PER_WORK,
   workPartsForEnergyRate
 } from "../economy/primitives";
+
+/** Spawn-meter window length: one creep lifetime, the economy's natural period. */
+const SPAWN_METER_WINDOW = 1500;
 
 /**
  * Energy/tick a single WORK part burns at a WORK-driven consumer sink, keyed by
@@ -215,6 +219,41 @@ export interface CoreTelemetry {
    * measured "what we have" for the plan-vs-actual body-parts gauge.
    */
   bodyParts: BodyAggregate;
+  /**
+   * Spawn meter (spec 14 phase 3): MEASURED utilization per spawn over a
+   * rolling ~1500-tick window. Every busy tick builds exactly 1/3 part, so
+   * `partsPerTick = utilization / 3` - no spawn-start detection, no receipt
+   * arithmetic. `ceiling` is the physical limit (SPAWN_PARTS_PER_TICK) so
+   * "X% of ceiling" is a read, not a derivation.
+   */
+  spawns: {
+    id: string;
+    name: string;
+    /** Observed ticks in the current window. */
+    windowTicks: number;
+    /** busyTicks / windowTicks (0 when nothing observed yet). */
+    utilization: number;
+    /** Actual parts/tick built = utilization / 3. */
+    partsPerTick: number;
+    /** Physical ceiling (SPAWN_PARTS_PER_TICK = 1/3). */
+    ceiling: number;
+    /** Current agenda queue length for this spawn (0 when no agenda). */
+    queueDepth: number;
+  }[];
+  /**
+   * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
+   * 4, VERBATIM) + executed receipts per spawn, so actual-vs-NOW is a
+   * telemetry read instead of a /user/memory pull. Absent when no agenda.
+   */
+  agenda?: {
+    [spawnId: string]: {
+      tick: number;
+      fundingNeed: number;
+      queueDepth: number;
+      queue: unknown[];
+      executed: unknown[];
+    };
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -484,6 +523,10 @@ export class Telemetry {
     // Request segments we'll be writing to
     RawMemory.setActiveSegments(PUBLIC_SEGMENTS);
 
+    // Spawn meter accumulates EVERY observed tick, before the interval gate -
+    // sampling busy state on an interval would systematically undercount.
+    this.meterSpawns();
+
     // Check if we should update based on interval
     const shouldUpdate = this.config.updateInterval === 0 || Game.time % this.config.updateInterval === 0;
 
@@ -510,6 +553,27 @@ export class Telemetry {
 
     // Update flow telemetry (sources, sinks, allocations)
     this.updateFlowTelemetry(flowSolution);
+  }
+
+  /**
+   * Accumulate the spawn meter: one observation per spawn per tick (the `last`
+   * guard makes a second update() call in the same tick a no-op). Windows roll
+   * after SPAWN_METER_WINDOW ticks.
+   */
+  private meterSpawns(): void {
+    const spawns = Game.spawns ?? {};
+    const meter = (Memory.spawnMeter = Memory.spawnMeter ?? {});
+    for (const name in spawns) {
+      const s = spawns[name];
+      let w = meter[s.id];
+      if (!w || Game.time - w.t0 >= SPAWN_METER_WINDOW) {
+        w = meter[s.id] = { t0: Game.time, last: -1, ticks: 0, busy: 0 };
+      }
+      if (w.last === Game.time) continue;
+      w.last = Game.time;
+      w.ticks++;
+      if (s.spawning) w.busy++;
+    }
   }
 
   /**
@@ -568,8 +632,44 @@ export class Telemetry {
       }
     }
 
+    // Spawn meter readout (phase 3): measured utilization from the Memory windows.
+    const spawns: CoreTelemetry["spawns"] = [];
+    const gameSpawns = Game.spawns ?? {};
+    for (const name in gameSpawns) {
+      const s = gameSpawns[name];
+      const w = Memory.spawnMeter?.[s.id];
+      const ticks = w?.ticks ?? 0;
+      const busy = w?.busy ?? 0;
+      const utilization = ticks > 0 ? busy / ticks : 0;
+      spawns.push({
+        id: s.id,
+        name,
+        windowTicks: ticks,
+        utilization,
+        partsPerTick: utilization * SPAWN_PARTS_PER_TICK,
+        ceiling: SPAWN_PARTS_PER_TICK,
+        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0
+      });
+    }
+
+    // NOW-plan mirror (phase 4): agenda heads + receipts, verbatim.
+    let agenda: CoreTelemetry["agenda"];
+    if (Memory.spawnAgenda) {
+      agenda = {};
+      for (const spawnId in Memory.spawnAgenda) {
+        const a = Memory.spawnAgenda[spawnId];
+        agenda[spawnId] = {
+          tick: a.tick,
+          fundingNeed: a.fundingNeed,
+          queueDepth: a.queue.length,
+          queue: a.queue.slice(0, 4),
+          executed: a.executed ?? []
+        };
+      }
+    }
+
     const telemetry: CoreTelemetry = {
-      version: 4, // Version 4: room energy ledger (storage/controller stocks, feeder state)
+      version: 5, // Version 5: spawn meter + NOW-plan mirror (spec 14 phases 3-4)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -590,6 +690,8 @@ export class Telemetry {
       },
       creeps,
       bodyParts,
+      spawns,
+      agenda,
       rooms
     };
 
