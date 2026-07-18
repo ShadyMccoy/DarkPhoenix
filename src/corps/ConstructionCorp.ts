@@ -1654,8 +1654,12 @@ export class ConstructionCorp extends Corp {
    * consumption and the refuel round-trip (see targetTankerCount).
    */
   private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite): SquadPlan {
-    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 4));
-    const target = this.targetTankerCount(room, site, this.builders.members(), perTanker);
+    // Big shuttles, few bodies (owner 2026-07-18: construction consumes 5x
+    // more energy per WORK, so the DELIVERY side is the binding constraint -
+    // "we actually need the haulers to be bigger"). The old 4-CARRY cap
+    // forced 200-capacity shuttles out of an 1800-capacity room.
+    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
+    const target = this.targetTankerCount(room, site, perTanker, ctx);
     const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
     const min = buildTankerBody(1, ctx.energyCapacity, false);
     return {
@@ -1668,18 +1672,25 @@ export class ConstructionCorp extends Corp {
 
   /**
    * How many tankers the relay needs: enough CARRY in flight to sustain the
-   * builder's consumption over the refuel round-trip, never fewer than two so
-   * there is always one staged for a seamless hot swap.
+   * CREW PLAN's consumption over the refuel round-trip, never fewer than two
+   * so there is always one staged for a seamless hot swap. Sized to the PLAN
+   * (builderPlan's buildEnergy), not the fielded builders - the relay must
+   * arrive WITH the crew, not lag it (consumers size to their allocated flow;
+   * the ledger shrinks the ALLOCATION when parts are scarce, never the crew
+   * against a funded flow). The round-trip endpoint is the SAME lens the
+   * tanker fetch uses: the storage in the surplus regime, the nearest source
+   * otherwise - sizing and fetching cannot disagree.
    */
-  private targetTankerCount(room: Room, site: ConstructionSite, builders: Creep[], perTanker: number): number {
-    const work = builders.reduce((sum, b) => sum + b.getActiveBodyparts(WORK), 0);
-    const consumption = Math.max(5, work * 5); // energy/tick the builder eats
-    const source = site.pos.findClosestByRange(FIND_SOURCES);
-    const dist = source ? site.pos.getRangeTo(source) : 8;
+  private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
+    const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
+    const bank = room.storage;
+    const surplusBanked = bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0;
+    const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
+    const dist = fuelPos ? site.pos.getRangeTo(fuelPos) : 8;
     // CARRY needed in flight to sustain consumption over the round trip, with a
     // 1.5x margin: a tanker also spends ticks transferring at the builder and
-    // withdrawing at the source, so the bare round-trip figure under-delivers and
-    // a far site starves its builder. The margin scales the relay with distance.
+    // withdrawing at the fuel point, so the bare round-trip figure under-delivers
+    // and a far site starves its builder. The margin scales the relay with distance.
     const carryNeeded = Math.ceil(carryPartsFor(consumption, dist) * 1.5);
     return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
