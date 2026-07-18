@@ -147,7 +147,6 @@ export class ConstructionCorp extends Corp {
    * builder while the rest refuel.
    */
   private readonly tankers: Squad;
-  private readonly repairers: Squad;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("building", nodeId, customId);
@@ -170,20 +169,6 @@ export class ConstructionCorp extends Corp {
       producesIncome: false,
       blockingWhenEmpty: true, // the first feeder is essential
       usefulPart: CARRY
-    });
-    // REPAIR IS A SEPARATE FUNCTION (owner 2026-07-18: "the existence of
-    // construction sites doesn't have to impact the repair in any way").
-    // One standing small detail that ONLY repairs, fielded whenever any
-    // structure is below the maintenance start gate - regardless of sites.
-    // Builders never repair; paving never yields to repair.
-    this.repairers = new Squad({
-      corpId: this.id,
-      workType: "repair",
-      role: "builder", // census/cells count builders; the split is by workType
-      value: 66, // routine upkeep: below the build crew, above idle consumption
-      producesIncome: false,
-      blockingWhenEmpty: false,
-      usefulPart: WORK
     });
   }
 
@@ -362,10 +347,31 @@ export class ConstructionCorp extends Corp {
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
-    this.builders.run(creep => this.runBuilder(creep, room), spawn);
+    this.assignRepairDetail(room);
+    this.builders.run(
+      creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
+      spawn
+    );
     this.tankers.run(creep => this.runTanker(creep, room), spawn);
-    // The repair detail runs UNCONDITIONALLY - sites or no sites.
-    this.repairers.run(creep => this.doMaintenance(creep, room), spawn);
+  }
+
+  /**
+   * Keep exactly one crew member flagged as the REPAIR DETAIL while anything
+   * wants maintenance (owner 2026-07-18: repair and building are separate
+   * functions - sites never impact repair). Sticky: the flag lives on the
+   * creep for life; a new one is assigned only when none exists. With nothing
+   * to maintain the flag clears so the member rejoins the build crew.
+   */
+  private assignRepairDetail(room: Room): void {
+    const members = this.builders.members();
+    const detail = members.find(c => c.memory.repairDetail);
+    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room)) {
+      if (detail) delete detail.memory.repairDetail;
+      return;
+    }
+    if (detail) return;
+    const recruit = members[0];
+    if (recruit) recruit.memory.repairDetail = true;
   }
 
   /**
@@ -1617,14 +1623,13 @@ export class ConstructionCorp extends Corp {
     const workRoom = this.workRoom(spawn);
     if (!workRoom) return [];
     const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
-    const repairerDemand = this.repairers.spawnDemand(this.repairerPlan(ctx, workRoom));
     if (sites.length === 0) {
       // No sites: only the standing repair detail may want staffing. It
       // self-fuels at containers/storage, so it never needs tankers.
-      return repairerDemand;
+      return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
     }
 
-    const builderDemand = [...this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom)), ...repairerDemand];
+    const builderDemand = this.builders.spawnDemand(this.builderPlanWithDetail(ctx, workRoom));
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
@@ -1643,6 +1648,15 @@ export class ConstructionCorp extends Corp {
    * always at a builder while the others refuel, sized to the builders' total
    * consumption and the refuel round-trip (see targetTankerCount).
    */
+  /** Crew plan plus the standing repair detail (owner 2026-07-18: repair is a
+   * separate FUNCTION - one crew member is permanently assigned to repair,
+   * sites or no sites; see assignRepairDetail). */
+  private builderPlanWithDetail(ctx: SpawnDemandContext, room: Room): SquadPlan {
+    const plan = this.builderPlan(ctx.energyCapacity, room);
+    if (this.wantsMaintenance(room)) plan.target += 1; // the detail rides along
+    return plan;
+  }
+
   /** The standing repair detail: one small self-fueling W-heavy body while
    * anything sits below the maintenance start gate. Independent of sites. */
   private repairerPlan(ctx: SpawnDemandContext, room: Room): SquadPlan {

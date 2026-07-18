@@ -490,6 +490,9 @@ declare global {
      * topping up neither. Cleared when the target reaches the ceiling or is gone.
      */
     repairTargetId?: string;
+    /** This crew member IS the standing repair detail (owner 2026-07-18:
+     * repair and building are separate functions). Sticky for life. */
+    repairDetail?: boolean;
 
     /**
      * ID of the SpawningCorp that spawned this creep.
