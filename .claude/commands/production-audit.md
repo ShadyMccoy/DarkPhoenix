@@ -75,8 +75,11 @@ SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
 ## 4. Ship + verify (the loop is not done at green tests)
 
 - Push the branch; open/update the PR with plan-vs-actual numbers.
-- Deploy: `npm run push-main` — ONLY if `screeps.json` (write token) exists and
-  the full gate is green. No write token ⇒ stop at the PR and say so.
+- Deploy: `npm run push-main` — ONLY if `screeps.json` exists and the full
+  gate is green. The env `SCREEPS_TOKEN` is full-access; if `screeps.json` is
+  missing, generate it (gitignored) with a `main` block
+  `{token: $SCREEPS_TOKEN, hostname: screeps.com, branch: main}` — never
+  commit it or echo the token. No token ⇒ stop at the PR and say so.
 - **Post-deploy verification is mandatory**: wait ~200+ ticks, recapture,
   re-run the triage checklist. Predict the expected deltas BEFORE deploying
   (e.g. "reserver cadence →1/150t, feeder gate →staffed") and check each.
