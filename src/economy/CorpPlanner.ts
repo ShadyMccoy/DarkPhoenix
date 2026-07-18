@@ -181,7 +181,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable";
 }
 
 export interface ColonyPlan {
@@ -222,6 +222,10 @@ function nearestSpawn(pos: Position, spawns: PlannerSpawn[], dist: ColonyProblem
   let best: { spawn: PlannerSpawn; distance: number } | null = null;
   for (const spawn of spawns) {
     const d = dist(pos, spawn.pos);
+    // A non-finite distance is a failed path lens, not a far spawn: letting
+    // it through produced an "unprofitable at distance Infinity" verdict with
+    // garbage per-part math. Unreachable spawns simply don't compete.
+    if (!Number.isFinite(d)) continue;
     if (!best || d < best.distance || (d === best.distance && spawn.id < best.spawn.id)) {
       best = { spawn, distance: d };
     }
@@ -249,7 +253,16 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
     const near = nearestSpawn(source.pos, spawns, dist);
-    if (!near) continue;
+    if (!near) {
+      // The formerly verdict-LESS skip (spec 14: no invisible decisions).
+      // Spawns exist but none is reachable: the path lens failed for this
+      // source. Measured live t72416041+: five worked, reserved, mark-free
+      // remotes silently absent from candidates for 1000+ ticks while their
+      // miners kept mining - without this row the drop cause was guesswork
+      // between graph exclusion and path failure.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, verdict: "unreachable", parts: 0 });
+      continue;
+    }
     // Net of the invader tax (spec 13): a remote's expected raid-defense
     // cost scales with what we harvest there, so it lands here - where both
     // the mine/don't-mine gate and the ranking read it.

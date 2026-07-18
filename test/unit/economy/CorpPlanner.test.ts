@@ -634,3 +634,21 @@ describe("planColony source verdicts (exclusions stamped, spec 14 phase 5)", () 
     expect(plan.sourceVerdicts.map(v => v.sourceId)).to.deep.equal(["a"]);
   });
 });
+
+describe("unreachable sources get a verdict (no invisible decisions, spec 14)", () => {
+  it("a source no spawn can path to is stamped 'unreachable', never silently skipped", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("a", 10), source("marooned", 20)],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)],
+        // Path lens fails for the marooned source only (Infinity = unreachable).
+        dist: (x, y) => (x.x === 20 || y.x === 20 ? Number.POSITIVE_INFINITY : manhattan(x, y))
+      })
+    );
+    const v = plan.sourceVerdicts.find(s => s.sourceId === "marooned");
+    expect(v).to.not.equal(undefined);
+    expect(v!.verdict).to.equal("unreachable");
+    expect(plan.miners.map(m => m.sourceId)).to.deep.equal(["a"]);
+  });
+});
