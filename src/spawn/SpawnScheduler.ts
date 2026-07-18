@@ -183,9 +183,7 @@ export function buildAgendaQueue(
   tick: number,
   energyAvailable: number
 ): { queue: AgendaEntry[]; fundingNeed: number } {
-  const ranked = [...demands].sort(
-    (a, b) => spawnPriority(b) + starvationBoost(b, tick) - (spawnPriority(a) + starvationBoost(a, tick))
-  );
+  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick) - effectivePriority(a, tick));
   const queue = ranked.slice(0, 8).map((d, i): AgendaEntry => {
     const precondition =
       i === 0
@@ -328,9 +326,26 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
   return tick - demand.since >= STARVATION_THRESHOLD ? STARVED_TIER : 0;
 }
 
-/** Spawn priority including the anti-starvation age boost - the value the scheduler ranks on. */
-function effectivePriority(demand: SpawnDemand, tick: number): number {
-  return spawnPriority(demand) + starvationBoost(demand, tick);
+/**
+ * Spawn priority including the anti-starvation backstop - THE value both the
+ * buy walk and the published agenda rank on (one function, so the NOW plan can
+ * never show an order the scheduler won't follow).
+ *
+ * Inside the starved tier, AGE decides - oldest first - NOT the base income
+ * tier. A flat boost preserved income-over-infra ordering among the starved,
+ * which vacates the "one guaranteed slot" promise whenever starvation is not
+ * singular: under a fleet-wide rebuild, "scale" hauler demands are a
+ * self-renewing stream that all cross the threshold, and consumers/infra
+ * starve INSIDE the backstop (live incident t72403765: tender age 1371 held
+ * at queue position 4 behind starved haulers aged <=1134, receipts showing
+ * four hauler buys in ~160t; upgrader age 1023 at position 6 - the colony's
+ * progress itself queued behind the stream). FIFO among the starved makes the
+ * guarantee real: every demand that crosses the threshold is reached in
+ * bounded time.
+ */
+export function effectivePriority(demand: SpawnDemand, tick: number): number {
+  const starved = starvationBoost(demand, tick);
+  return starved > 0 ? starved + (tick - demand.since) : spawnPriority(demand);
 }
 
 /**

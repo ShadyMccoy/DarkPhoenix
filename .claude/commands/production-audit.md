@@ -104,8 +104,10 @@ SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
 ## 4. Ship + verify (the loop is not done at green tests)
 
 - Push the branch; open/update the PR with plan-vs-actual numbers.
-- Deploy: `npm run build && npm run deploy` — ONLY when the required gate is
-  green. This POSTs the TESTED webpack bundle (dist/main.js) to the account's
+- Deploy: `npm run build && npm run deploy` — executed DIRECTLY from the
+  session (standing owner authorization 2026-07-18: "actually push to prod
+  straight from here"); never wait for a human once the required gate is
+  green, and never deploy before it is. This POSTs the TESTED webpack bundle (dist/main.js) to the account's
   ACTIVE world branch via the code API using the full-access env
   `SCREEPS_TOKEN` (never echo it). Do NOT use `npm run push-main` (rollup
   re-bundles src with a second, broken-here pipeline; the active branch is

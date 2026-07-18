@@ -123,4 +123,17 @@ describe("agenda carries demand age (since) for starvation diagnosis", () => {
     );
     expect(queue[0].corp).to.equal("starved-tanker");
   });
+
+  it("among STARVED demands the OLDEST wins - income tier does not re-order inside the backstop (live incident t72403765: tender age 1371 stuck behind a self-renewing stream of starved scale-haulers aged <=1134)", () => {
+    const { queue } = buildAgendaQueue(
+      [
+        demand({ buyerCorpId: "starved-hauler", role: "hauler", producesIncome: true, value: 110, since: 11866 }), // age 1134
+        demand({ buyerCorpId: "starved-tanker", role: "tanker", producesIncome: false, value: 96, since: 11629 }), // age 1371
+        demand({ buyerCorpId: "starved-upgrader", role: "upgrader", producesIncome: false, value: 90, since: 11977 }) // age 1023
+      ],
+      13000,
+      300
+    );
+    expect(queue.map(q => q.corp)).to.deep.equal(["starved-tanker", "starved-hauler", "starved-upgrader"]);
+  });
 });
