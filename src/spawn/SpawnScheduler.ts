@@ -399,8 +399,30 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // spawns, because at income 0 the consumer can never be afforded without
   // it (the cold-start deadlock).
   let holdStrict = false;
+  // A hold raised INSIDE the starved tier is deferred until the walk crosses
+  // the tier boundary. Within the tier no demand may wall out another: the
+  // backstop's bounded-time promise is per-STARVED-demand, and (measured:
+  // flow-handoff on the first FIFO build, zero flow creeps by t600) a cold
+  // start seeds every demand in the same tick, so the oldest unaffordable
+  // must-fund head hard-exited the walk while affordable starved demands sat
+  // behind it. The tier drains itself one purchase at a time - each buy
+  // resets that stream's clock (resetDemandClock) and drops it below the
+  // tier - so the deferred body's bank still accumulates once the tier empties.
+  let starvedHoldPending = false;
+  let starvedHoldStrict = false;
 
   for (const demand of ranked) {
+    const starved = starvationBoost(demand, ctx.tick) > 0;
+    // Crossing the starved-tier boundary (ranking puts every starved demand
+    // first): a deferred starved hold becomes a real one here, protecting
+    // the accumulating bank from the fresh tiers exactly as a direct hold
+    // would have.
+    if (!starved && starvedHoldPending) {
+      starvedHoldPending = false;
+      if (ctx.energyIncome > 0) return null;
+      holdForBlocking = true;
+      holdStrict = holdStrict || starvedHoldStrict;
+    }
     if (ctx.energyAvailable >= demand.minCost) {
       // While holding for an unaffordable blocking demand, decline EVERY
       // lower-priority spend - blocking ones included. The old rule let any
@@ -449,19 +471,23 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     // hold was tried and measurably cost ~12% mined energy in the two-source
     // A/B: it parks the spawn for 700-cost miner top-ups that fleet-first
     // tempo should not wait on.
-    const fundableIncome =
-      demand.producesIncome && (demand.holdToFund === true || starvationBoost(demand, ctx.tick) > 0);
+    const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
     const mustFund = demand.blocking || demand.replacement === true || fundableIncome;
     if (mustFund && canEverAfford) {
-      if (ctx.energyIncome > 0) {
+      if (starved) {
+        // Defer: no walls inside the starved tier (see starvedHoldPending).
+        starvedHoldPending = true;
+        starvedHoldStrict = starvedHoldStrict || demand.producesIncome;
+      } else if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand
         // instead of spending on something less important.
         return null;
+      } else {
+        // No income measured this tick: hold anyway. The dribble accumulates
+        // toward this body; lower demands wait (see the decline above).
+        holdForBlocking = true;
+        if (demand.producesIncome) holdStrict = true;
       }
-      // No income measured this tick: hold anyway. The dribble accumulates
-      // toward this body; lower demands wait (see the decline above).
-      holdForBlocking = true;
-      if (demand.producesIncome) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn.
   }
