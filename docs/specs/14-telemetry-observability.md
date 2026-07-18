@@ -194,6 +194,20 @@ Gate: 885 unit + 3 integration + 5 grid cells green. Verdict: **fixed**
 spawn window, upgraders refleet, storage slope negative, progress toward
 plan).
 
+**Verified t72411542 (+7329t):** tender 0→1 (24 parts), upgrader 0→1 at 15
+WORK with allocated 36.3→116.3 and inflow 35→115 (the draw-guard lift,
+exact), feeders 1→2, progress ~0-3→16.8 pts/t window average, receipts
+rotating full-size bodies across roles (haulers 1000-1550, feeder 1552,
+builder, guard). Storage slope +19→+2.2 e/t (upgrader fleet 1/8 fielded;
+negative expected as it scales). Transient named, not fixed: an invader raid
+plus TTL expiry collapsed miners 6→3 (both HOME miners dead, reservers 0/4),
+and the rebuild drains the pre-deploy starvation backlog in bucket order -
+reserver holdToFund at head (energyAvailable 1250/1300 at capture) walled the
+younger home-miner demands ~1000t (~20 e/t idle home income). Self-limiting
+by design: purchase resets clocks, so post-backlog ordering reverts to value
+(home miners first). Watch next capture for release + hasMiner→true +
+feeder/tender gates reopening.
+
 Open finding for spec 15 (measured this cycle, not yet fixed): the GOAL plan
 is **spawn-infeasible ~1.6×** — plan-implied maintenance ≈0.54 parts/tick vs
 0.333 physical (producers 0.33 incl. 0.134 of scavenge/bank routes priced by
