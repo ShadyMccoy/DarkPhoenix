@@ -142,6 +142,30 @@ mirror; receipts match `executed` verbatim.
 **DONE** — `test/unit/telemetry/agendaMirror.test.ts` (first 4 queue
 heads + receipts verbatim, deep-equal; block absent without an agenda).
 
+### Phase 5 — planner exclusion stamps (the "why are the remotes dead" question)
+
+`selectProducers` was the last silent decision in the economy: a source
+absent from the plan was indistinguishable from one priced out by the
+invader tax, dropped for build-time budget, or never reachable. Driven by
+the large-hauler audit (2026-07-18): the GOAL plan excluded all 5 remotes
+continuously across 2000+ ticks while the NOW pipeline kept buying for
+them, and the cause (tax overshoot? reservation-lapse deadlock? budget?)
+was UNDETERMINABLE from captures — the raid-embargo attribution was
+falsified by timing (marks expire ≤1500t; the exclusion persisted).
+
+Every non-transient candidate now gets a `SourceVerdict` — `{sourceId,
+rate, distance, net, tax, parts, verdict: funded|unprofitable|
+over-budget|no-spawn}` — recorded in producer selection with the exact
+pricing the decision read, carried through ColonyPlan → FlowSolution →
+the flow segment as `candidates[]` (v3). One capture now names each
+remote's exclusion reason and its tax term directly.
+
+Acceptance: planner unit test drives a taxed source (unprofitable, tax
+term visible), a budget-exhausted world (over-budget with positive net),
+and funded/miner symmetry; telemetry test asserts verbatim export + v3.
+**DONE** — `CorpPlanner.test.ts` (verdicts), `flowPlan.test.ts`
+(candidates verbatim).
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the

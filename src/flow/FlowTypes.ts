@@ -422,6 +422,23 @@ export interface FlowSolution {
 
   /** Tick when this solution was computed */
   computedAt: number;
+
+  /**
+   * Per-candidate funding verdicts from producer selection (spec 14 phase 5) -
+   * why each non-transient source was funded or excluded (unprofitable /
+   * over-budget / no-spawn), with the net/tax pricing the decision read.
+   * Shape: economy/CorpPlanner.SourceVerdict[]. Optional: absent on legacy
+   * solutions.
+   */
+  sourceVerdicts?: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
+  }[];
 }
 
 // =============================================================================

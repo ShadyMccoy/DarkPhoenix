@@ -465,6 +465,21 @@ export interface FlowTelemetry {
      */
     workParts?: number;
   }[];
+  /**
+   * Planner funding verdicts for every non-transient mining candidate (spec 14
+   * phase 5), VERBATIM from producer selection: why each source is in or out
+   * of the plan (funded / unprofitable / over-budget / no-spawn) with the
+   * net/tax pricing the decision read. "Why are the remotes dead" is a read.
+   */
+  candidates: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
+  }[];
   /** Flow summary */
   summary: {
     totalHarvest: number;
@@ -1028,11 +1043,12 @@ export class Telemetry {
     }
 
     const telemetry: FlowTelemetry = {
-      version: 2, // Version 2: added planned hauler carry + consumer WORK (full plan-side body)
+      version: 3, // Version 3: planner source verdicts (candidates) - why each source is in/out
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      candidates: flowSolution?.sourceVerdicts ?? [],
       summary: flowSolution
         ? {
             totalHarvest: flowSolution.totalHarvest,

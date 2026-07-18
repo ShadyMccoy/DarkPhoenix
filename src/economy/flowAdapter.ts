@@ -501,7 +501,8 @@ export function solveColony(
     unmetDemand,
     isSustainable: netEnergyTotal >= 0,
     warnings: [],
-    computedAt: tick
+    computedAt: tick,
+    sourceVerdicts: plan.sourceVerdicts
   };
   return { solution, commissions };
 }

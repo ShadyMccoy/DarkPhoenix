@@ -155,10 +155,30 @@ export interface CommissionedSink {
   sources: { sourceId: string; amount: number; distance: number }[];
 }
 
+/**
+ * The pricing verdict for one non-transient mining candidate (spec 14 phase 5
+ * - decision symmetry for the planner). selectProducers was the last silent
+ * decision in the economy: a source absent from the plan was indistinguishable
+ * from one priced out by the invader tax or dropped for build-time budget.
+ * `net` and `tax` are the exact terms the funding decision compared;
+ * `tax` is the invader-tax TERM in energy/tick (invaderTax * rate).
+ */
+export interface SourceVerdict {
+  sourceId: string;
+  rate: number;
+  distance: number;
+  net: number;
+  tax: number;
+  parts: number;
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn";
+}
+
 export interface ColonyPlan {
   miners: CommissionedMiner[];
   haulers: CommissionedHauler[];
   sinks: CommissionedSink[];
+  /** Per-candidate funding verdicts for every non-transient source. */
+  sourceVerdicts: SourceVerdict[];
   /** Gross energy/tick produced by selected sources. */
   totalProduced: number;
   /** Energy/tick actually delivered to sinks. */
@@ -203,9 +223,16 @@ function nearestSpawn(pos: Position, spawns: PlannerSpawn[], dist: ColonyProblem
  * unprofitable ones, and per spawn keep sources by net-energy-per-build-part until
  * the spawn's mining budget is spent.
  */
-function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
+function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[]; verdicts: SourceVerdict[] } {
   const { sources, spawns, dist } = problem;
-  if (spawns.length === 0) return [];
+  const verdicts: SourceVerdict[] = [];
+  if (spawns.length === 0) {
+    for (const source of sources) {
+      if (source.transient) continue;
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, verdict: "no-spawn", parts: 0 });
+    }
+    return { miners: [], verdicts };
+  }
 
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
@@ -215,15 +242,22 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
     // Net of the invader tax (spec 13): a remote's expected raid-defense
     // cost scales with what we harvest there, so it lands here - where both
     // the mine/don't-mine gate and the ranking read it.
-    const net = netEnergy(source.rate, near.distance) - (source.invaderTax ?? 0) * source.rate;
-    if (net <= 0) continue; // never mine a source that costs more than it yields
+    const tax = (source.invaderTax ?? 0) * source.rate;
+    const net = netEnergy(source.rate, near.distance) - tax;
+    const parts = spawnPartsFor(source.rate, near.distance);
+    if (net <= 0) {
+      // never mine a source that costs more than it yields - stamped, not silent
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "unprofitable" });
+      continue;
+    }
+    verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "over-budget" });
     candidates.push({
       source,
       spawn: near.spawn,
       distance: near.distance,
       rate: source.rate,
       net,
-      parts: spawnPartsFor(source.rate, near.distance)
+      parts
     });
   }
 
@@ -237,6 +271,9 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
   }
 
   const miners: CommissionedMiner[] = [];
+  // Profitable candidates were provisionally stamped "over-budget"; funding
+  // flips the stamp, so a candidate's final verdict is exactly its fate here.
+  const verdictById = new Map(verdicts.map(v => [v.sourceId, v]));
   for (const [, list] of bySpawn) {
     // value per build-part, then by source id for stable ties
     list.sort((a, b) => b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1));
@@ -246,6 +283,8 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
       // that, only take a source if its build-time fits the remaining budget.
       if (spent > 0 && spent + c.parts > budget) continue;
       spent += c.parts;
+      const v = verdictById.get(c.source.id);
+      if (v) v.verdict = "funded";
       miners.push({
         sourceId: c.source.id,
         nodeId: c.source.nodeId,
@@ -259,7 +298,7 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
       });
     }
   }
-  return miners;
+  return { miners, verdicts };
 }
 
 /** A unit of energy available to route: a staffed source or a scavengeable stock. */
@@ -374,7 +413,7 @@ function routeToSinks(
  * Pure and deterministic; see the module doc for the GOAP framing.
  */
 export function planColony(problem: ColonyProblem): ColonyPlan {
-  const miners = selectProducers(problem);
+  const { miners, verdicts: sourceVerdicts } = selectProducers(problem);
   // Supply = staffed sources + scavengeable transient stocks (no miner needed).
   const supply: SupplyPoint[] = [
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
@@ -401,6 +440,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     miners,
     haulers,
     sinks,
+    sourceVerdicts,
     totalProduced,
     totalDelivered,
     totalOverhead,

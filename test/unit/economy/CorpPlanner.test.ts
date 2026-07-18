@@ -500,3 +500,58 @@ describe("Invader tax on remote sources (spec 13 phase 5)", () => {
     expect(a.miners[0].netEnergy).to.be.closeTo(netEnergy(10, 10), 1e-9);
   });
 });
+
+/**
+ * Source verdicts (spec 14 phase 5 - planner exclusion stamps). selectProducers
+ * was the last silent decision in the economy: candidates dropped for
+ * unprofitability (incl. the invader tax) or budget were indistinguishable from
+ * ones never considered, which is exactly why "why are the remotes dead - tax
+ * overshoot or reservation deadlock?" could not be answered from a capture
+ * (live incident 2026-07-18: 5 remotes excluded across 2000+ ticks, cause
+ * undeterminable). Every non-transient candidate now gets a verdict with the
+ * pricing the decision read.
+ */
+describe("planColony source verdicts (exclusions stamped, spec 14 phase 5)", () => {
+  it("stamps funded, unprofitable (tax visible), and over-budget verdicts", () => {
+    const d = 10;
+    const heavyTax = (netEnergy(10, d) / 10) * 2; // tax term double the net -> clearly unprofitable
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [
+          source("good", d),
+          { ...source("taxed", d), invaderTax: heavyTax },
+          // enough profitable sources to exhaust the per-spawn mining budget
+          // (each costs ~MINER_PARTS/effectiveLife ~ 0.005 parts/tick vs 0.2)
+          ...Array.from({ length: 60 }, (_, i) => source(`b${i}`, d + 1 + i))
+        ],
+        sinks: [sink("ctrl", "controller", 0, 50, 500)]
+      })
+    );
+
+    const byId = new Map(plan.sourceVerdicts.map(v => [v.sourceId, v]));
+    expect(byId.get("good")!.verdict).to.equal("funded");
+    const taxed = byId.get("taxed")!;
+    expect(taxed.verdict).to.equal("unprofitable");
+    expect(taxed.tax).to.be.closeTo(heavyTax * 10, 1e-9); // the tax TERM (e/tick), readable
+    expect(taxed.net).to.be.lessThan(0);
+    // budget: some profitable source got dropped for build-time, with its price attached
+    const overBudget = plan.sourceVerdicts.filter(v => v.verdict === "over-budget");
+    expect(overBudget.length).to.be.greaterThan(0);
+    expect(overBudget[0].net).to.be.greaterThan(0); // dropped despite profit - the budget said no
+    // every funded verdict corresponds to a commissioned miner and vice versa
+    const funded = plan.sourceVerdicts.filter(v => v.verdict === "funded").map(v => v.sourceId).sort();
+    expect(funded).to.deep.equal(plan.miners.map(m => m.sourceId).sort());
+  });
+
+  it("transient stocks get no verdict (they are not mining candidates)", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("a", 10), stock("loot", 5, 4)],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    expect(plan.sourceVerdicts.map(v => v.sourceId)).to.deep.equal(["a"]);
+  });
+});

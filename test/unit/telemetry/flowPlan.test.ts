@@ -80,9 +80,22 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     expect(flow.sources[0].workParts).to.equal(5); // ceil(10 / 2 energy-per-WORK)
   });
 
-  it("bumps the flow segment version for the new plan fields", () => {
+  it("exports planner source verdicts verbatim as candidates (spec 14 phase 5)", () => {
+    const verdicts = [
+      { sourceId: "s1", rate: 10, distance: 12, net: 8.1, tax: 0, parts: 9, verdict: "funded" },
+      { sourceId: "remote", rate: 10, distance: 54, net: -1.2, tax: 6.5, parts: 12, verdict: "unprofitable" },
+      { sourceId: "far", rate: 10, distance: 30, net: 4.0, tax: 0, parts: 11, verdict: "over-budget" }
+    ];
+    new Telemetry().update(undefined, [], { ...solution, sourceVerdicts: verdicts });
+    const flow = JSON.parse(RawMemory.segments[6]);
+
+    expect(flow.candidates).to.deep.equal(verdicts); // verbatim - the pricing the decision read
+  });
+
+  it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(2);
+    expect(flow.version).to.equal(3); // v2 plan-side bodies; v3 source verdicts
+    expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 });
