@@ -54,6 +54,19 @@ export interface SerializedCorp {
  * Corp lifecycle (creation / retirement / removal) is driven by
  * materializeCommissions + hasLiveCreeps, NOT by any per-corp balance or ROI.
  */
+/**
+ * Inputs of a corp's most recent sizing decision, stamped at the decision site
+ * (getSpawnDemand) and exported verbatim by telemetry (spec 14 phase 2 -
+ * decision symmetry). Telemetry never recomputes these; the stamp IS the lens
+ * the decision read. `tick` discloses staleness (gated paths may skip a tick's
+ * stamp). Values are the decision's own units (energy/tick, counts); null
+ * means "unmeasurable this tick", which is a different fact from zero.
+ */
+export interface CorpSizingRecord {
+  tick: number;
+  [input: string]: number | boolean | null;
+}
+
 export abstract class Corp {
   /** Unique identifier for this corp */
   public readonly id: string;
@@ -66,6 +79,12 @@ export abstract class Corp {
 
   /** Tick when corp was created */
   public createdAt = 0;
+
+  /**
+   * Most recent sizing-decision inputs (spec 14 phase 2). Transient - never
+   * serialized; refreshed by getSpawnDemand each tick it runs to completion.
+   */
+  public lastSizing?: CorpSizingRecord;
 
   /** Last tick this corp performed work */
   public lastActivityTick = 0;
