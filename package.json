@@ -42,7 +42,8 @@
     "fixtures:index": "ts-node -P tsconfig.test.json scripts/fixture-index.ts",
     "sim:real": "ts-node -P tsconfig.test.json scripts/sim-real-rooms.ts",
     "sim:cop": "ts-node -P tsconfig.test.json scripts/corp-cop.ts",
-    "journey:capture": "ts-node -P tsconfig.test.json scripts/journey-capture.ts"
+    "journey:capture": "ts-node -P tsconfig.test.json scripts/journey-capture.ts",
+    "deploy": "ts-node -P tsconfig.test.json scripts/deploy-code.ts"
   },
   "repository": {
     "type": "git",
