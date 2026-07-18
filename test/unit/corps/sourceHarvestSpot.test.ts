@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
-import { setupGlobals, FIND_STRUCTURES, FIND_SOURCES, FIND_MINERALS, STRUCTURE_CONTAINER } from "../mock";
+import {
+  setupGlobals,
+  FIND_STRUCTURES,
+  FIND_SOURCES,
+  FIND_MINERALS,
+  STRUCTURE_CONTAINER,
+  STRUCTURE_LINK,
+} from "../mock";
 import { sourceHarvestSpot, bestAdjacentTile } from "../../../src/corps/nodeEnergy";
 
 const FIND_MY_CONSTRUCTION_SITES = 114;
@@ -145,5 +152,77 @@ describe("bestAdjacentTile (excludes source and mineral tiles)", () => {
     const spawnPos = { x: 1, y: 10, roomName: "W0N0" } as any;
     const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
     expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 10, y: 10 });
+  });
+});
+
+/**
+ * Engine rule (checkConstructionSite): a tile one step from the room edge
+ * (x or y == 1 or 48) can host most structures ONLY when all three edge tiles
+ * beside it are natural walls - an open exit tile there makes placement fail
+ * with ERR_INVALID_TARGET. Roads and containers are exempt. A picker that
+ * ignores this re-picks the SAME illegal tile every cooldown, so the structure
+ * never places (the W43N23 incident: a source pocketed against an open east
+ * exit, "[Construction] Failed to place link at W43N23 (48, 13): -7" forever).
+ */
+describe("bestAdjacentTile (exit-restricted structures shun the open-exit buffer)", () => {
+  beforeEach(() => setupGlobals());
+
+  /** Bare room: chosen walls, everything else plain - edge cols/rows open (exits). */
+  function roomWithWalls(walls: string[]): any {
+    const wallSet = new Set(walls);
+    return {
+      name: "W0N0",
+      getTerrain: () => ({ get: (x: number, y: number) => (wallSet.has(`${x},${y}`) ? 1 : 0) }),
+      find: () => [],
+    };
+  }
+
+  // The W43N23 pocket: spot at (47,13), every neighbour walled except the
+  // x=48 column, open exit tiles behind it at x=49.
+  const POCKET = ["46,12", "46,13", "46,14", "47,12", "47,14"];
+
+  it("returns null for a LINK when the only candidates sit beside an open exit (W43N23 repro)", () => {
+    const room = roomWithWalls(POCKET);
+    const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK);
+    expect(tile).to.equal(null);
+  });
+
+  it("still allows x=48 for a LINK when the edge tiles behind it are natural walls", () => {
+    // Same pocket, but the east edge is walled - no exit, so the engine allows it.
+    const room = roomWithWalls([...POCKET, "49,11", "49,12", "49,13", "49,14", "49,15"]);
+    const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 48, y: 12 });
+  });
+
+  it("skips the nearer buffer tile and picks the next-best LEGAL tile", () => {
+    // (47,12) open as an alternative; spawn placed so the buffer tile (48,14)
+    // is strictly nearest - the old picker chose it and looped on -7.
+    const room = roomWithWalls(["46,12", "46,13", "46,14", "47,14"]);
+    const spawnPos = { x: 48, y: 40, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 47, y: 12 });
+  });
+
+  it("containers are exempt - the engine allows them beside exits", () => {
+    const room = roomWithWalls(POCKET);
+    const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_CONTAINER)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 48, y: 12 });
+  });
+
+  it("stand-tile queries (no structure type) are unchanged - creeps may stand in the buffer", () => {
+    const room = roomWithWalls(POCKET);
+    const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 48, y: 12 });
+  });
+
+  it("applies the same rule on the y side (bottom edge)", () => {
+    const room = roomWithWalls(["12,46", "13,46", "14,46", "12,47", "14,47"]);
+    const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 13, y: 47 } as any, 1, spawnPos, STRUCTURE_LINK);
+    expect(tile).to.equal(null);
   });
 });

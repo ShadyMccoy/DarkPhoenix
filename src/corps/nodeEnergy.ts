@@ -100,12 +100,23 @@ export interface EnergySpot {
  * STAND), and - via {@link sourceHarvestSpot} - the drop pile, so all three
  * converge on ONE tile instead of three different ones. That convergence is what
  * stops a miner dropping energy on a tile the haulers never visit.
+ *
+ * `forStructure` applies the engine's placement legality for that structure
+ * type. Without it the tile is only guaranteed STANDABLE - fine for creeps,
+ * and for the exempt structures (roads, containers), but the engine refuses
+ * most structure types on a tile one step from the room edge unless every
+ * edge tile beside it is a natural wall (see {@link besideOpenExit}). Pass
+ * the type whenever the tile is for createConstructionSite, or the picker
+ * re-picks the same illegal tile every cooldown and the structure never
+ * places (the W43N23 link incident: a source pocketed against an open east
+ * exit, "Failed to place link at W43N23 (48, 13): -7" forever).
  */
 export function bestAdjacentTile(
   room: Room,
   target: RoomPosition,
   range: number,
-  spawnPos?: RoomPosition
+  spawnPos?: RoomPosition,
+  forStructure?: BuildableStructureConstant
 ): RoomPosition | null {
   const terrain = room.getTerrain();
   const occupied = new Set<string>();
@@ -120,6 +131,9 @@ export function bestAdjacentTile(
   for (const s of room.find(FIND_SOURCES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   for (const m of room.find(FIND_MINERALS)) occupied.add(`${m.pos.x},${m.pos.y}`);
 
+  const shunExitBuffer =
+    forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
+
   let best: { x: number; y: number; d: number } | null = null;
   for (let dx = -range; dx <= range; dx++) {
     for (let dy = -range; dy <= range; dy++) {
@@ -129,11 +143,32 @@ export function bestAdjacentTile(
       if (x < 1 || x > 48 || y < 1 || y > 48) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (occupied.has(`${x},${y}`)) continue;
+      if (shunExitBuffer && besideOpenExit(terrain, x, y)) continue;
       const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;
       if (!best || d < best.d) best = { x, y, d };
     }
   }
   return best ? new RoomPosition(best.x, best.y, room.name) : null;
+}
+
+/**
+ * The engine's exit-buffer rule (checkConstructionSite): a tile one step from
+ * the room edge (x or y == 1 or 48) can host a non-exempt structure only when
+ * all three edge tiles beside it are natural walls - one open exit tile there
+ * and createConstructionSite returns ERR_INVALID_TARGET. Only roads and
+ * containers are exempt. Mirrors the engine exactly, including its corner
+ * behaviour: the sequential ifs OVERWRITE, so a corner tile (e.g. x==48,
+ * y==48) is judged only by its last-matching side's edge tiles - the y-side
+ * list replaces the x-side one, same as the engine's checkConstructionSite.
+ */
+function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
+  let edge: [number, number][] | null = null;
+  if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];
+  if (x === 48) edge = [[49, y - 1], [49, y], [49, y + 1]];
+  if (y === 1) edge = [[x - 1, 0], [x, 0], [x + 1, 0]];
+  if (y === 48) edge = [[x - 1, 49], [x, 49], [x + 1, 49]];
+  if (!edge) return false;
+  return edge.some(([ex, ey]) => (terrain.get(ex, ey) & TERRAIN_MASK_WALL) === 0);
 }
 
 /**
