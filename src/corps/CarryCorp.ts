@@ -161,6 +161,43 @@ export function shouldDrainDedicatedSource(
 }
 
 /**
+ * Should an empty spawn-circuit hauler REFILL from the core depot (the degraded,
+ * tender-less bridge) instead of trekking to its own source this tick? Only when
+ * the depot is a real, NEARBY bank that is at least as close as the hauler's own
+ * source pickup.
+ *
+ * The depot short-circuit (see pickupEnergy) exists to save a spawn-side hauler a
+ * full source round-trip when the bank sits one tile from the spawn. Without a
+ * sense of distance it had none: an empty hauler out at - or walking toward - a
+ * far or remote source was hauled all the way back to the core depot every tick
+ * the home network was short, delivering already-home energy to the spawn while
+ * its source's pile stranded, and U-turning across the room border mid-route.
+ * That is the observed "empty hauler heading back home" symptom.
+ *
+ * `rangeToDepot` is Infinity when the depot is a room away (it lives beside the
+ * home spawn, so off-room it is never the near bank); `rangeToPickup` is Infinity
+ * when the source is out of the creep's room this tick, so a hauler AT HOME still
+ * tops up from the depot rather than run a whole remote round-trip. Pure so the
+ * locality rule is unit-testable.
+ */
+export function shouldRefillFromDepot(params: {
+  /** Energy banked in the core depot right now. */
+  depotEnergy: number;
+  /** Free energy capacity across the spawn network (capacity - available). */
+  networkNeed: number;
+  /** Tiles from the hauler to the depot, or Infinity when the depot is off-room. */
+  rangeToDepot: number;
+  /** Tiles from the hauler to its source pickup, or Infinity when off-room/unknown. */
+  rangeToPickup: number;
+}): boolean {
+  if (params.depotEnergy <= 0) return false; // nothing banked to lend
+  if (params.networkNeed <= 0) return false; // spawn network already full
+  // The depot must be a real, nearby bank (finite range) AND no farther than the
+  // source - otherwise the hauler just heads to its source and picks up as usual.
+  return Number.isFinite(params.rangeToDepot) && params.rangeToDepot <= params.rangeToPickup;
+}
+
+/**
  * Is the spawn network critically low ENOUGH to steal a controller-bound
  * hauler's trip, given the energy already aboard fleet-mates committed to the
  * spawn this trip? "Critical" must mean "and help is not already on the way":
@@ -528,6 +565,19 @@ export class CarryCorp extends Corp {
     // until the build finishes) so the construction tankers get its full output.
     if (this.yieldsToBuild()) return;
 
+    // Resolve this hauler's ONE pickup stop first: both the degraded-refill
+    // locality check below and the normal pickup leg need it, and getAssignedSource
+    // carries memory side effects that must run exactly once per tick.
+    const sources = room.find(FIND_SOURCES);
+    const assignedSource = this.getAssignedSource(creep, sources);
+    let targetPos: RoomPosition | null = null;
+    if (assignedSource) {
+      targetPos = assignedSource.pos;
+    } else if (creep.memory.assignedSourcePos) {
+      const p = creep.memory.assignedSourcePos;
+      targetPos = new RoomPosition(p.x, p.y, p.roomName);
+    }
+
     // DEGRADED-MODE REFILL (owner SLA 2026-07-10: extensions refill before the
     // draining spawn finishes): when NO tender is alive, the depot's bank is
     // otherwise invisible to refill - only tenders move depot -> extensions -
@@ -538,30 +588,38 @@ export class CarryCorp extends Corp {
     // stays the tender's exclusive reserve).
     // Unassigned haulers (pre-first-circuit) count as spawn-circuit here: the
     // earliest drains land exactly when nothing has flipped to working yet.
+    //
+    // LOCALITY GATE (fixes "an empty hauler heading back home"): this is a
+    // reload-from-the-NEARBY-bank shortcut, so it fires only when the depot is
+    // actually the shorter reload than the trek to this hauler's own source. The
+    // depot lives beside the home spawn, so its range only counts when the creep
+    // is in that room; a room away it is never the near bank. The source pickup
+    // range is Infinity when the source is out of the creep's room this tick, so a
+    // hauler AT HOME still tops up from the depot rather than run a whole remote
+    // round-trip - but one out at (or walking toward) its far/remote source is left
+    // to pick up there instead of being dragged home (see shouldRefillFromDepot).
     if ((creep.memory.homeSink ?? "spawn") === "spawn" && room.memory.extensionTenderActive !== true) {
-      const need = room.energyCapacityAvailable - room.energyAvailable;
-      if (need > 0) {
-        const depot = coreDepot(room);
-        if (depot && depot.store[RESOURCE_ENERGY] > 0) {
-          if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
-          }
-          return;
+      const depot = coreDepot(room);
+      const rangeToDepot = depot && creep.room.name === room.name ? creep.pos.getRangeTo(depot) : Infinity;
+      const rangeToPickup =
+        targetPos && targetPos.roomName === creep.room.name ? creep.pos.getRangeTo(targetPos) : Infinity;
+      if (
+        depot &&
+        shouldRefillFromDepot({
+          depotEnergy: depot.store[RESOURCE_ENERGY],
+          networkNeed: room.energyCapacityAvailable - room.energyAvailable,
+          rangeToDepot,
+          rangeToPickup
+        })
+      ) {
+        if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         }
+        return;
       }
     }
 
-    const sources = room.find(FIND_SOURCES);
-    const assignedSource = this.getAssignedSource(creep, sources);
-
     // The one fixed pickup stop on this hauler's bus route: its assigned source.
-    let targetPos: RoomPosition | null = null;
-    if (assignedSource) {
-      targetPos = assignedSource.pos;
-    } else if (creep.memory.assignedSourcePos) {
-      const p = creep.memory.assignedSourcePos;
-      targetPos = new RoomPosition(p.x, p.y, p.roomName);
-    }
     if (!targetPos) return;
 
     if (targetPos.roomName !== creep.room.name) {
