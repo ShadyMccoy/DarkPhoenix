@@ -92,6 +92,23 @@ at ~3 e/t while the plan allocated ~30 — cause invisible because the
 corps' shared `roomHasMiner` gate (which keys on live creep POSITIONS,
 a trap-list lens) stamped nothing. The gate stamps make the next
 capture name the blocking gate directly.
+**Verdict (post-deploy capture t72401512 + live spawnAgenda pull):** the
+gate stamps ACQUITTED `roomHasMiner` (`hasMiner: true`; tender
+`staffed`, feeder `gate: "demand"` - asking every tick, never funded).
+The spawnAgenda receipts + blackbox then convicted a **reserver
+purchase loop**: ReservationCorp's coverage lens is newborn-blind
+(`getActiveCreeps` excludes `creep.spawning` - a 24-tick build - and
+`covered` needs `memory.targetRoom`, assigned only after birth), so its
+value-115 banked demand re-fires during every build; measured 4x1300
+energy in ~90 ticks (vs 1/150t steady need), ~53% of spawn build-time,
+~58 e/t - saturating the spawn (103% measured vs 77% steady-state
+need), starving the feeder, and compounding the 570k warchest. The
+staffsPost-symmetry trap, verbatim, in the post-#108 covered-lens.
+Fix is deliberately NOT part of this spec (live spawn economics,
+owner-gated): mirror HarvestCorp.countStaffing in the coverage lens,
+red-first test, full regression gate. The audit chain that found it -
+capture -> anomaly -> stamp the invisible decision -> redeploy -> next
+capture names the cause - is the repeatable product of this spec.
 
 ### Phase 3 — spawn meter (the "what is spawn capacity at" question)
 
