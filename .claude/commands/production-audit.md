@@ -88,7 +88,28 @@ SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
 - Record the cycle verdict (fixed / instrumented / falsified) in
   docs/specs/14-telemetry-observability.md.
 
-## 5. Cadence
+## 5. Parallel local work (while prod verifies)
+
+Post-deploy verification is a ~30–60 min wait at ~1 tick/s. Never idle it and
+never poll it — schedule the check-in (send_later), then spend the wait on
+local dev, in this order:
+
+1. **Baseline-red grid cells nearest the changed subsystems** (`npm run grid
+   -- --cell <id>`; red cells listed in `test/grid/baseline.json`). A live fix
+   often moves a related red cell — e.g. a reserver-cadence fix touches
+   `plan-t5-remote-pipeline`. `npm run build` first; update the baseline in
+   the SAME commit as the bot change that earned it.
+2. **Pre-build the pending hypothesis' test**: whatever the prod check-in will
+   confirm or deny, author its red-first repro cell/test NOW (e.g. "tender
+   re-fields within N ticks of a rebuild wave" while waiting to see if the
+   tender self-heals). If prod confirms the problem, the fix starts from a red
+   test already written; if prod self-heals, keep it as a regression cell.
+3. Open spec work (docs/specs/README.md priority column) if time remains.
+
+Local results NEVER pre-empt the prod verdict: if the check-in contradicts a
+local conclusion, prod wins (sim blind spots are documented in CLAUDE.md).
+
+## 6. Cadence
 
 Single invocation = one cycle. For continuous monitoring run via `/loop`
 (30–60 min intervals; captures are cheap, prod moves ~1 tick/s) or a scheduled
