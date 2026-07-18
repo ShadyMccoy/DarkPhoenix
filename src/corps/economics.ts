@@ -67,6 +67,18 @@ export const CLAIM_LIFETIME = 600;
  */
 export const RESERVER_DUTY = 0.5;
 
+/**
+ * Banked-reservation floor (ticks) below which a target room asks for a fresh
+ * reserver. Covers the full delivery pipeline before the bank empties: queue
+ * wait behind income buys + 24-tick build + a <=150-tick walk at the 1.5x
+ * measured factor + margin. One 2-CLAIM stint nets ~+540 above the floor
+ * (add 2/tick, decay 1/tick, ~540 working ticks), then coasts back down -
+ * one stint per ~1080 ticks = the ~0.5 duty RESERVER_DUTY prices. The corp
+ * IMPLEMENTING the duty it is priced at is spec 15 P5; before this gate it
+ * re-staffed continuously (duty 1.0, 2x the priced spawn+energy cost).
+ */
+export const RESERVATION_REFRESH_FLOOR = 800;
+
 /** Energy cost of the smallest reserver that can hold a room: 1 CLAIM + 1 MOVE. */
 export const RESERVER_BODY_COST = 650;
 

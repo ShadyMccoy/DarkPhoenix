@@ -26,7 +26,8 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { hostileRooms, isReservableRoom } from "../utils/RoomDiscovery";
+import { RESERVATION_REFRESH_FLOOR } from "./economics";
+import { hostileRooms, isReservableRoom, myReservationTicksLeft } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { buildReserverBody } from "../spawn/BodyBuilder";
@@ -133,7 +134,15 @@ export class ReservationCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
 
-    const targets = this.reservableTargets(spawn.owner?.username);
+    // Needy rooms first (lowest banked reservation) so a freed/new reserver
+    // covers the room closest to losing its 3000 rate - same intel lens as
+    // the demand gate (duty cycle, spec 15 P5), so assignment can never
+    // prefer a room the buy side considers banked. Durable ordering: banks
+    // decay 1/tick for every room alike, so this never flaps on deaths.
+    const me = spawn.owner?.username;
+    const targets = this.reservableTargets(me).sort(
+      (a, b) => myReservationTicksLeft(a, me) - myReservationTicksLeft(b, me)
+    );
     const covered = new Set<string>();
 
     for (const creep of this.getActiveCreeps()) {
@@ -191,6 +200,19 @@ export class ReservationCorp extends Corp {
       return [];
     }
 
+    // THE DUTY CYCLE (spec 15 P5): a room whose banked reservation still sits
+    // above the refresh floor needs no reserver - reservation accumulates to
+    // 5000 and decays 1/tick, so the corp coasts on the bank and buys one
+    // stint per ~1080 ticks (the ~0.5 duty reserverTollPerRoom always priced).
+    // Read from the intel-stamped bound (exact while blind), never vision.
+    const banks: { [room: string]: number } = {};
+    for (const r of targets) banks[r] = myReservationTicksLeft(r, spawn.owner?.username);
+    const needy = targets.filter(r => banks[r] < RESERVATION_REFRESH_FLOOR);
+    if (needy.length === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "reservation-banked", targets: targets.length, banks };
+      return [];
+    }
+
     // Coverage by COUNT of every LIVING corp reserver - spawning newborns and
     // not-yet-assigned ones included. work() guarantees each living reserver
     // ends up covering one distinct target (it reassigns duplicates and
@@ -202,11 +224,13 @@ export class ReservationCorp extends Corp {
     const staffed = this.countLivingReservers();
     this.lastSizing = {
       tick: ctx.tick,
-      gate: staffed >= targets.length ? "staffed" : "demand",
+      gate: staffed >= needy.length ? "staffed" : "demand",
       targets: targets.length,
-      staffed
+      needy: needy.length,
+      staffed,
+      banks
     };
-    if (staffed >= targets.length) return [];
+    if (staffed >= needy.length) return [];
 
     const body = buildReserverBody(ctx.energyCapacity, 2);
     if (body.cost === 0) return []; // cannot afford a CLAIM yet

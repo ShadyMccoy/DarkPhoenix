@@ -66,7 +66,9 @@ export interface SerializedCorp {
  */
 export interface CorpSizingRecord {
   tick: number;
-  [input: string]: number | string | boolean | null;
+  /** Inputs verbatim; a nested map is allowed for per-room readings (e.g. the
+   * reservation banks) - telemetry exports the record as JSON either way. */
+  [input: string]: number | string | boolean | null | { [key: string]: number };
 }
 
 export abstract class Corp {

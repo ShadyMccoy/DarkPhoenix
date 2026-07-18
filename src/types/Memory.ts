@@ -46,6 +46,16 @@ declare global {
      */
     invaderReservedUntil?: number;
     /**
+     * A PLAYER reservation on this room's controller ends ~this tick, held by
+     * `reservedBy`. Unlike the invader bound this one is EXACT while blind:
+     * a reservation decays 1/tick, the same countdown the bound encodes, so
+     * only a hostile CLAIM grind diverges it (next sighting corrects). The
+     * ReservationCorp's duty cycle (spec 15 P5) coasts on it: no reserver is
+     * bought while our banked reservation sits above the refresh floor.
+     */
+    reservedUntil?: number;
+    reservedBy?: string;
+    /**
      * Energy OUR corps harvested in this room since the last observed raid -
      * a tick-exact mirror of the engine's per-room invader fuse (spec 13:
      * the engine fires a raid when its counter crosses a 70k-130k goal).

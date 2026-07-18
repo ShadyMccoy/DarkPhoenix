@@ -280,3 +280,71 @@ describe("ReservationCorp work (assignments survive miner death and vision loss)
     expect(reserved).to.deep.equal([controller]);
   });
 });
+
+/**
+ * The reserver duty cycle (spec 15 P5). A reservation BANKS: reserveController
+ * adds CLAIM parts of ticks per tick (cap 5000) while decay costs 1/tick, so a
+ * room holding a fat reservation needs no reserver until it runs down near the
+ * refresh floor. The corp priced this (reserverTollPerRoom x RESERVER_DUTY 0.5)
+ * but the demand gate re-staffed continuously - 2x the priced spawn+energy
+ * cost, and twice the 1300 holdToFund walls at the spawn (measured live: a
+ * 1000+ tick queue hold banking one). The gate now reads the intel-stamped
+ * reservation bound (durable: the bound counts down exactly as the reservation
+ * does, so it stays correct with zero vision).
+ */
+describe("reservation duty cycle (coast on the banked reservation)", () => {
+  const bank = (room: string, ticksLeft: number, by = "me"): void => {
+    (Memory as any).roomIntel[room].reservedUntil = tick + ticksLeft;
+    (Memory as any).roomIntel[room].reservedBy = by;
+  };
+
+  it("a target banked above the refresh floor asks for NO reserver", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 2000);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
+    expect((c as any).lastSizing.gate).to.equal("reservation-banked");
+  });
+
+  it("a target below the floor demands, and the sizing stamp carries the bank verbatim", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 300);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
+    const s = (c as any).lastSizing;
+    expect(s.gate).to.equal("demand");
+    expect(s.needy).to.equal(1);
+    expect(s.banks["W1N0"]).to.equal(300);
+  });
+
+  it("mixed targets: only the needy room is priced (banked one costs nothing)", () => {
+    const c = corp(["W1N0", "W2N1"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N1");
+    bank("W1N0", 4000);
+    bank("W2N1", 100);
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands).to.have.length(1);
+    const s = (c as any).lastSizing;
+    expect(s.targets).to.equal(2);
+    expect(s.needy).to.equal(1);
+  });
+
+  it("another player's reservation banks NOTHING for us (still needy)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 4000, "rival");
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
+  });
+
+  it("no stamp at all means needy (conservative: over-reserve, never lose the 3000 rate)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
+  });
+});

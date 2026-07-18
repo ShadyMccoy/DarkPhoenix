@@ -160,7 +160,22 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
 
   // ---- P5 price/behavior drift: reserver duty ----
   const res = corps.find(c => c.kind === "reservation");
-  if (res?.sizing) {
+  const dutyImplemented = res?.sizing && (res.sizing.banks !== undefined || res.sizing.gate === "reservation-banked");
+  if (dutyImplemented) {
+    const banks = res.sizing.banks ?? {};
+    rows.push({
+      id: "P5",
+      name: "reserver duty vs priced",
+      value: RESERVER_DUTY,
+      unit: "duty (gate reads reservation bank)",
+      verdict: "ok",
+      detail:
+        `gate ${res.sizing.gate}; banks ` +
+        (Object.entries(banks as Record<string, number>)
+          .map(([r, t]) => `${r}:${t}`)
+          .join(" ") || "(none stamped)")
+    });
+  } else if (res?.sizing) {
     const bres = (base.data.corps?.corps ?? []).find((c: any) => c.kind === "reservation");
     const duty =
       (res.sizing.staffed / Math.max(1, res.sizing.targets) +
