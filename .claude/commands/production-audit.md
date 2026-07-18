@@ -15,9 +15,17 @@ instrumental. Concretely, each cycle drives toward:
    broken, not that we're rich; expansion capex ready when GCL allows.
 3. **BOT LEVEL ratchet** (test/grid/baseline.json) rising on the dev side.
 
-A cycle SUCCEEDS if the measured progress rate was raised/restored, or a
-blocker was named with data. A cycle that produces activity without a progress
-delta is a failed cycle — say so in the report.
+**Current phase (owner directive 2026-07-18): waste elimination.** The
+colony's basic mechanics must sing: identify, measure, and eliminate/minimize
+every leak of CPU, energy, or spawn time, in planning and execution. The leak
+taxonomy and its measurements live in docs/specs/15-waste-ledger.md — each
+cycle computes the ledger from the fresh capture, ranks leaks by magnitude,
+and attacks the top line. A leak is eliminated only when its number reaches
+target AND a regression test pins it.
+
+A cycle SUCCEEDS if a ledger line went to target, the progress rate was
+raised/restored, or a blocker was named with data. A cycle that produces
+activity without a measured delta is a failed cycle — say so in the report.
 
 ## Method
 
