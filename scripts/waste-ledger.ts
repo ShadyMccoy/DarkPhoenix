@@ -266,7 +266,12 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   if (spawn && room) {
     const head = (agenda.queue ?? [])[0];
     const affordable = head && room.energyAvailable >= head.minCost;
-    const stalled = spawn.utilization < 0.5 && (agenda.queue ?? []).length > 0 && affordable;
+    // Staleness guard: the director republishes the agenda only on idle-spawn
+    // evaluation ticks, so a snapshot older than ~20 ticks means the spawn has
+    // been BUSY building since - the opposite of stalled (measured t72412472:
+    // 37-tick-stale agenda while a 1127-cost tanker built, false S3 FAIL).
+    const agendaFresh = agenda.tick !== undefined && cap.tick - agenda.tick <= 20;
+    const stalled = agendaFresh && spawn.utilization < 0.5 && (agenda.queue ?? []).length > 0 && affordable;
     rows.push({
       id: "S3",
       name: "scheduler stall",
@@ -275,7 +280,11 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       verdict: stalled ? "FAIL" : "ok",
       detail: head
         ? `util ${spawn.utilization.toFixed(2)}, head ${head.role}@${head.minCost} vs bank ${room.energyAvailable}` +
-          (affordable ? " AFFORDABLE+IDLE" : " (holding/funding - not a stall)")
+          (!agendaFresh
+            ? ` (agenda ${cap.tick - agenda.tick}t stale = spawn busy building - not a stall)`
+            : affordable
+            ? " AFFORDABLE+IDLE"
+            : " (holding/funding - not a stall)")
         : "queue empty"
     });
   }
