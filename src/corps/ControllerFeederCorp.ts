@@ -196,24 +196,52 @@ export class ControllerFeederCorp extends Corp {
    * the plan just scaled up).
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // Decision-symmetry stamp (spec 14 phase 2): for an infrastructure corp
+    // the GATES are the decision - "why zero feeders with a fat bank" is a
+    // gate verdict, so every return records which gate fired and what it read.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return [];
+    if (!spawn) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-spawn" };
+      return [];
+    }
     const room = spawn.room;
     const controller = room.controller;
-    if (!controller) return [];
-    if (!(room.storage && room.storage.my)) return []; // no bank yet -> haulers feed the controller directly
-    if (!this.roomHasMiner(room)) return []; // infrastructure follows income
+    if (!controller) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-controller" };
+      return [];
+    }
+    if (!(room.storage && room.storage.my)) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-storage" };
+      return []; // no bank yet -> haulers feed the controller directly
+    }
+    const banked = room.storage.store.energy ?? 0;
+    const hasMiner = this.roomHasMiner(room);
+    if (!hasMiner) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-miner", banked, hasMiner };
+      return []; // infrastructure follows income
+    }
 
     // Balanced 1:1 body sized to sustain the relay over the round trip (the
     // feeder travels, unlike the parked extension tender). The storage sits by
     // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    const banked = room.storage.store.energy ?? 0;
     const distance = spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
     const neededCarry = Math.max(1, Math.ceil(carryPartsFor(feederRelayRate(banked), distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
-    if (this.getFeeders().length >= wantedFeeders) return [];
+    const feeders = this.getFeeders().length;
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: feeders >= wantedFeeders ? "staffed" : "demand",
+      banked,
+      hasMiner,
+      relayRate: feederRelayRate(banked),
+      distance,
+      neededCarry,
+      wantedFeeders,
+      feeders
+    };
+    if (feeders >= wantedFeeders) return [];
     const carry = Math.min(neededCarry, maxCarry);
 
     return [

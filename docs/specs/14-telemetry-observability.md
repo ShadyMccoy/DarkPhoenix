@@ -81,6 +81,17 @@ asserts the corps segment carries the exact inputs the decision used
 concurrently landing field).
 **DONE** — `test/unit/telemetry/sizingRecord.test.ts` (stamp verbatim
 export + UpgradingCorp decision-site stamp on the plan-trusted path).
+**Extended 2026-07-18 (gate stamps):** ControllerFeederCorp +
+ExtensionTenderCorp stamp every `getSpawnDemand` return with the GATE
+that fired (`no-spawn`/`no-storage`/`no-miner`/`staffed`/`demand`) plus
+the inputs it read — for infrastructure corps the gate IS the decision.
+Driven by a live incident (first v4 captures, t72400561/t72400612):
+warchest 549k (~20× the 27.6k target) and growing ~70 e/t, feeder AND
+tender at 0 creeps across consecutive captures, upgrader stock-starved
+at ~3 e/t while the plan allocated ~30 — cause invisible because the
+corps' shared `roomHasMiner` gate (which keys on live creep POSITIONS,
+a trap-list lens) stamped nothing. The gate stamps make the next
+capture name the blocking gate directly.
 
 ### Phase 3 — spawn meter (the "what is spawn capacity at" question)
 
