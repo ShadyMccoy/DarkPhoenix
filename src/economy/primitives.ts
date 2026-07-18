@@ -26,6 +26,22 @@ export const CARRY_CAPACITY = 50;
 /** Energy/tick a standard source yields (3000 capacity / 300 regen). */
 export const SOURCE_RATE = 10;
 
+/** Energy/tick a single WORK part moves, by work class (Screeps *_POWER). */
+export const HARVEST_ENERGY_PER_WORK = 2; // HARVEST_POWER: 2 energy/tick per WORK
+export const UPGRADE_ENERGY_PER_WORK = 1; // UPGRADE_CONTROLLER_POWER: 1 energy/tick per WORK
+export const BUILD_ENERGY_PER_WORK = 5; // BUILD_POWER: 5 energy/tick per WORK
+
+/**
+ * WORK parts needed to move `energyPerTick` at `energyPerWork` energy/tick per
+ * WORK - the single conversion behind every "energy rate -> WORK body" figure
+ * (miner harvest, upgrader burn, builder burn). Rounded up: a fractional WORK
+ * cannot be spawned. Zero/negative rate -> 0 parts.
+ */
+export function workPartsForEnergyRate(energyPerTick: number, energyPerWork: number): number {
+  if (energyPerTick <= 0) return 0;
+  return Math.ceil(energyPerTick / energyPerWork);
+}
+
 /**
  * Effective working life (ticks) of a creep posted `distance` tiles from its
  * spawn. It spends ~`distance` ticks walking to its post before it can work or
