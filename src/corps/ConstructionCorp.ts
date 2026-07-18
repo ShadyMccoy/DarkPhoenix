@@ -887,7 +887,7 @@ export class ConstructionCorp extends Corp {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos);
+    const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, STRUCTURE_CONTAINER);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -910,7 +910,7 @@ export class ConstructionCorp extends Corp {
     if (hasTower) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos);
+    const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, STRUCTURE_TOWER);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -921,7 +921,7 @@ export class ConstructionCorp extends Corp {
     if (hasSite) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos);
+    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos, STRUCTURE_STORAGE);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -981,7 +981,7 @@ export class ConstructionCorp extends Corp {
 
     // 1) Core link beside the storage.
     if (!linkNear(storage.pos, 2)) {
-      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos);
+      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos, STRUCTURE_LINK);
       return tile ? { x: tile.x, y: tile.y } : null;
     }
 
@@ -993,7 +993,7 @@ export class ConstructionCorp extends Corp {
       .sort((a, b) => b.pos.getRangeTo(storage.pos) - a.pos.getRangeTo(storage.pos));
     for (const source of candidates) {
       const spot = sourceHarvestSpot(source, spawn?.pos);
-      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos);
+      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos, STRUCTURE_LINK);
       if (tile) return { x: tile.x, y: tile.y };
     }
     return null;
