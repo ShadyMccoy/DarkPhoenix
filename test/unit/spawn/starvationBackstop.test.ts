@@ -186,3 +186,29 @@ describe("demand age clock (unserved time, not time-since-first-request)", () =>
     }
   });
 });
+
+/**
+ * ACCEPTANCE SPECS for opportunistic reservation banking (task #11, owner
+ * 2026-07-18: idle spawn windows pump the controller bank - a spawn-time
+ * battery). SKIPPED until the feature lands; unskip as the red-first start.
+ */
+describe.skip("opportunistic demands (idle-window fillers, task #11)", () => {
+  it("never ages into the starved tier no matter how old", () => {
+    const d = demand({ buyerCorpId: "res-topup", role: "reserver", opportunistic: true, since: 1000 });
+    expect(effectivePriority(d, 99000)).to.be.lessThan(1_000_000); // stays at base value forever
+  });
+
+  it("never buys while a hold banks toward a must-fund body", () => {
+    const held = demand({ buyerCorpId: "mining-1", role: "miner", blocking: true, minCost: 700, since: 12990 });
+    const topup = demand({ buyerCorpId: "res-topup", role: "reserver", producesIncome: false, value: 5, opportunistic: true, minCost: 650, since: 12990 });
+    const result = scheduleSpawn([held, topup], { energyAvailable: 660, energyCapacity: 800, energyIncome: 10, tick: 13000 });
+    expect(result).to.equal(null); // the hold's bank is untouchable
+  });
+
+  it("buys when everything above it declined and energy is spare (the idle window)", () => {
+    const staffed = demand({ buyerCorpId: "mining-1", role: "miner", minCost: 5000, since: 12990 }); // unbuildable: capacity below
+    const topup = demand({ buyerCorpId: "res-topup", role: "reserver", producesIncome: false, value: 5, opportunistic: true, minCost: 650, since: 12990 });
+    const result = scheduleSpawn([staffed, topup], { energyAvailable: 1300, energyCapacity: 1800, energyIncome: 10, tick: 13000 });
+    expect(result?.demand.buyerCorpId).to.equal("res-topup");
+  });
+});

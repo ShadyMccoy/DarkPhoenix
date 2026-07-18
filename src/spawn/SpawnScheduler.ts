@@ -71,6 +71,14 @@ export interface SpawnDemand {
    * the delivery contract to reactive replacement plus a death-gap scramble.
    */
   replacement?: boolean;
+  /**
+   * An idle-window filler (task #11, owner 2026-07-18): bought ONLY when the
+   * walk reaches the bottom with nothing else to do - never ages into the
+   * starved tier, never buys during a hold. Reserved for opportunistic
+   * reservation banking; NO reader yet (schema staged ahead of the feature
+   * so its acceptance specs compile).
+   */
+  opportunistic?: boolean;
   /** True if this creep increases energy delivery (miner/hauler). */
   producesIncome: boolean;
   /**

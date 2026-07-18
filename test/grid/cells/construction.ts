@@ -304,7 +304,9 @@ export function buildConstructionT2Cells(): GridCell[] {
         eventually("a maintenance builder is fielded", (s) =>
           Object.entries(s.memory?.creeps ?? {}).some(
             ([, mem]: [string, any]) =>
-              mem?.workType === "build" && typeof mem?.corpId === "string" && mem.corpId.endsWith("-construction")
+              (mem?.workType === "build" || mem?.workType === "repair") &&
+              typeof mem?.corpId === "string" &&
+              mem.corpId.endsWith("-construction")
           )
         ),
         eventually("the 55% container is repaired", (s) => {
@@ -319,6 +321,45 @@ export function buildConstructionT2Cells(): GridCell[] {
           prevBHits = b.hits ?? 0;
           return !rose;
         }),
+      ],
+    },
+
+    {
+      // THE SPLIT (owner 2026-07-18: "repair and building can be completely
+      // separate functions - sites don't impact repair in any way"). Stage a
+      // decayed container AND unbuilt extensions: the build crew must raise
+      // extensions WHILE the standing repair detail heals the container - the
+      // old mode-switching pool did one or the other, never both.
+      id: "cons-t3-build-and-repair-concurrent",
+      tier: 3,
+      avenue: "construction",
+      window: 400,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // 45% container WITH energy: below the 60% start gate, above critical,
+        // self-fuels its repair detail.
+        { type: "container", x: 15, y: 29, energy: 1500, hits: 112500 },
+        { type: "container", x: 24, y: 24, energy: 0 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        // Only HALF the extension ring pre-built: the corp places and builds
+        // the rest, guaranteeing live construction through the window.
+        ...EXT_POS.slice(0, 5).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      assertions: [
+        eventually("construction is underway (a site stands)", (s) =>
+          s.objects().some((o) => o.type === "constructionSite")
+        ),
+        eventually("the decayed container is repaired past the start gate WHILE sites still exist", (s) => {
+          const a = s.objects().find((o) => o.type === "container" && o.x === 15 && o.y === 29);
+          const sites = s.objects().some((o) => o.type === "constructionSite");
+          return !!a && (a.hits ?? 0) > 150000 && sites;
+        }),
+        eventually("the build crew keeps building (a new extension completes)", (s) =>
+          s.objects().filter((o) => o.type === "extension").length > 5
+        ),
       ],
     },
 
