@@ -311,6 +311,15 @@ const STARVATION_THRESHOLD = 300;
 const STARVED_TIER = 3_000_000;
 
 /**
+ * Priority step per full STARVATION_THRESHOLD a starved demand has waited
+ * (see effectivePriority). Strictly larger than the maximum spawnPriority
+ * (income 1e6 + blocking 1e4 + started 1e3 + value ~110), so one whole
+ * bucket of extra starvation beats any value difference, while value still
+ * decides within a bucket.
+ */
+const STARVED_BUCKET_STEP = 2_000_000;
+
+/**
  * Anti-starvation boost for a demand the director has been seeing for too long.
  * `since` is the first tick the demand was observed (0 when unstamped - the pure
  * unit/harness paths leave it 0, so they are unaffected). Returns 0 until the
@@ -345,7 +354,21 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
  */
 export function effectivePriority(demand: SpawnDemand, tick: number): number {
   const starved = starvationBoost(demand, tick);
-  return starved > 0 ? starved + (tick - demand.since) : spawnPriority(demand);
+  if (starved === 0) return spawnPriority(demand);
+  // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
+  // longer than another outranks it outright; within the same bucket the value
+  // doctrine (income first, finish started sources) still orders the buys.
+  // Raw-age FIFO was measured WRONG on both ends (instrumented flow-handoff
+  // draw, agenda mirror): a cold start seeds every demand in the same tick, so
+  // raw age degenerates to collection order and round-robins miner buys across
+  // sources - no source ever COMPLETES its staffing, so withMinerPrecedence
+  // never unlocks a hauler (zero flow haulers by t600, control draw on the
+  // additive ranking green). Bucketing keeps the live guarantee that motivated
+  // FIFO (t72403765: tender age 1371 = bucket 4 outranks the hauler stream at
+  // <=1134 = bucket 3) while inside a bucket the started-source concentration
+  // that cold start depends on still applies.
+  const buckets = Math.floor((tick - demand.since) / STARVATION_THRESHOLD);
+  return starved + buckets * STARVED_BUCKET_STEP + spawnPriority(demand);
 }
 
 /**
@@ -399,30 +422,9 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // spawns, because at income 0 the consumer can never be afforded without
   // it (the cold-start deadlock).
   let holdStrict = false;
-  // A hold raised INSIDE the starved tier is deferred until the walk crosses
-  // the tier boundary. Within the tier no demand may wall out another: the
-  // backstop's bounded-time promise is per-STARVED-demand, and (measured:
-  // flow-handoff on the first FIFO build, zero flow creeps by t600) a cold
-  // start seeds every demand in the same tick, so the oldest unaffordable
-  // must-fund head hard-exited the walk while affordable starved demands sat
-  // behind it. The tier drains itself one purchase at a time - each buy
-  // resets that stream's clock (resetDemandClock) and drops it below the
-  // tier - so the deferred body's bank still accumulates once the tier empties.
-  let starvedHoldPending = false;
-  let starvedHoldStrict = false;
 
   for (const demand of ranked) {
     const starved = starvationBoost(demand, ctx.tick) > 0;
-    // Crossing the starved-tier boundary (ranking puts every starved demand
-    // first): a deferred starved hold becomes a real one here, protecting
-    // the accumulating bank from the fresh tiers exactly as a direct hold
-    // would have.
-    if (!starved && starvedHoldPending) {
-      starvedHoldPending = false;
-      if (ctx.energyIncome > 0) return null;
-      holdForBlocking = true;
-      holdStrict = holdStrict || starvedHoldStrict;
-    }
     if (ctx.energyAvailable >= demand.minCost) {
       // While holding for an unaffordable blocking demand, decline EVERY
       // lower-priority spend - blocking ones included. The old rule let any
@@ -474,20 +476,21 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
     const mustFund = demand.blocking || demand.replacement === true || fundableIncome;
     if (mustFund && canEverAfford) {
-      if (starved) {
-        // Defer: no walls inside the starved tier (see starvedHoldPending).
-        starvedHoldPending = true;
-        starvedHoldStrict = starvedHoldStrict || demand.producesIncome;
-      } else if (ctx.energyIncome > 0) {
+      if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand
         // instead of spending on something less important.
         return null;
-      } else {
-        // No income measured this tick: hold anyway. The dribble accumulates
-        // toward this body; lower demands wait (see the decline above).
-        holdForBlocking = true;
-        if (demand.producesIncome) holdStrict = true;
       }
+      // No income measured this tick: hold anyway. The dribble accumulates
+      // toward this body; lower demands wait (see the decline above). This
+      // wall applies INSIDE the starved tier too: a no-walls variant was
+      // tried and measured WRONG (instrumented flow-handoff draw: the tier's
+      // affordable builder ate the bank at 200 the moment the blocking hauler
+      // crossed the threshold at 300, receipts builder@325, hauler never) -
+      // in a poor cold start the whole demand set lives in the tier, and the
+      // wall IS how a blocking body ever funds.
+      holdForBlocking = true;
+      if (demand.producesIncome) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn.
   }
