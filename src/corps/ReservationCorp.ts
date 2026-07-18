@@ -112,6 +112,21 @@ export class ReservationCorp extends Corp {
     return this.targetRooms.filter(r => isReservableRoom(r, myUsername));
   }
 
+  /**
+   * Every living reserver this corp owns, INCLUDING spawning newborns and ones
+   * work() has not assigned yet. The demand lens - and only the demand lens -
+   * counts with this (work() correctly uses getActiveCreeps: a spawning creep
+   * cannot move). Excluding newborns here was the purchase loop.
+   */
+  private countLivingReservers(): number {
+    let n = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.corpId === this.id && c.memory.workType === "reserve") n++;
+    }
+    return n;
+  }
+
   public work(tick: number): void {
     this.lastActivityTick = tick;
 
@@ -171,14 +186,27 @@ export class ReservationCorp extends Corp {
     // Demand-side only: an already-fielded reserver runs out (v1 doctrine).
     const danger = hostileRooms();
     const targets = this.reservableTargets(spawn.owner?.username).filter(r => !danger.has(r));
-    if (targets.length === 0) return [];
+    if (targets.length === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-targets" };
+      return [];
+    }
 
-    const covered = new Set(
-      this.getActiveCreeps()
-        .map(c => c.memory.targetRoom)
-        .filter((r): r is string => !!r)
-    );
-    if (targets.every(t => covered.has(t))) return [];
+    // Coverage by COUNT of every LIVING corp reserver - spawning newborns and
+    // not-yet-assigned ones included. work() guarantees each living reserver
+    // ends up covering one distinct target (it reassigns duplicates and
+    // plan-orphans), so the count IS coverage. Counting only assigned actives
+    // here was the reserver purchase loop (live, t72401489+: the banked
+    // mustFund demand re-fired throughout every 24-tick build, 4x1300 energy
+    // in ~90t) - the staffsPost-symmetry trap: the demand lens must see the
+    // newborns its own purchases create.
+    const staffed = this.countLivingReservers();
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: staffed >= targets.length ? "staffed" : "demand",
+      targets: targets.length,
+      staffed
+    };
+    if (staffed >= targets.length) return [];
 
     const body = buildReserverBody(ctx.energyCapacity, 2);
     if (body.cost === 0) return []; // cannot afford a CLAIM yet

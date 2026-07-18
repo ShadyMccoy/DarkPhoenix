@@ -145,6 +145,56 @@ describe("ReservationCorp demand (reserve rooms the PLAN mines - no vision, no m
   });
 });
 
+/**
+ * The reserver purchase loop (live incident, shard1 t72401489-72401575: four
+ * 1300-energy reservers in ~90 ticks, ~53% of spawn build-time). The demand
+ * lens was newborn-blind twice over: getActiveCreeps excludes `spawning` (a
+ * 24-tick build) and `covered` required memory.targetRoom, assigned only after
+ * birth - so the banked mustFund demand re-fired during every build. The
+ * staffsPost-symmetry trap, verbatim. The demand lens must count every LIVING
+ * corp reserver - spawning and unassigned included - mirroring work()'s
+ * invariant that every living reserver ends up covering one target.
+ */
+describe("ReservationCorp demand counts newborns (purchase-loop regression)", () => {
+  it("a SPAWNING newborn already counts toward coverage - no re-demand during its build", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    expect(c.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("an active-but-unassigned newborn counts too (work() has not run yet)", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: false }
+    });
+    intel("W1N0");
+    expect(c.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("coverage is by COUNT: one newborn against two planned rooms still demands the second", () => {
+    const c = corp(["W1N0", "W2N1"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    intel("W2N1");
+    expect(c.getSpawnDemand(ctx)).to.have.length(1);
+  });
+
+  it("stamps its sizing record so the loop's absence is verifiable from telemetry", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    c.getSpawnDemand(ctx);
+    expect(c.lastSizing).to.deep.include({ gate: "staffed", targets: 1, staffed: 1 });
+  });
+});
+
 describe("ReservationCorp work (assignments survive miner death and vision loss)", () => {
   afterEach(() => {
     (global as any).Game = { ...MockGame, creeps: {}, time: tick };
