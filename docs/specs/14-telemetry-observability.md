@@ -269,6 +269,31 @@ fighters"): the raid post-mortem is currently unanswerable - blackbox ring
 Next: defense ledger line (meter + guard state export + mark-time
 post-mortem stamp); fold guards into the P4 infra deduction.
 
+### 2026-07-18 (night) — roads/surplus batch deployed (owner directive: build fast from the bank)
+
+Deployed 741099d as ONE batch (one global reset - the warmup-churn
+lesson): (1) construction burns the warchest - sink capacity includes the
+bank draw, P4 fill charges builder bodies (5x cheaper per e/t than
+upgrading), buildSideStock + the crew tanker read the spendable surplus
+through one lens; (2) sizing doctrine (owner): consumers size MAXIMALLY
+to their allocated flow - biggest bodies, relay sized to the CREW PLAN
+over the true fuel round-trip (storage in surplus regime), big shuttles
+(4->16 CARRY cap); the ledger shrinks the ALLOCATION when parts are
+scarce, never fields an undersized consumer; (3) paving unblocked - a
+warchest in surplus is a go signal (the full-bank tick never occurred
+while the spawn ran pinned: zero routes judged all session), feeder-trunk
+candidacy added (receipt "feeder", flow = live relay rate); (4) the
+planner's last silent skip stamped: verdict "unreachable" when no spawn
+paths to a source, nearestSpawn rejects non-finite distances.
+
+Predicted: road verdicts appear in roadRoutes receipts; construction sink
+absorbs the bank when sites exist (storage slope hard negative during
+builds, controller pauses near floor then recovers); the remote-drop
+cause discriminates (unreachable rows = path lens; absent rows = graph/
+intel exclusion - the open investigation). Gate: trio + 6 cells green on
+a clean host after an orphan-mockup storage crash was cleaned (restart-
+killed gates leave orphans - clean before rerunning).
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
