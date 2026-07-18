@@ -149,6 +149,13 @@ export interface AgendaEntry {
   desiredCost: number;
   mustFund: boolean;
   why: AgendaWhy;
+  /**
+   * First tick the director saw this demand (0 = unstamped). Exported so a
+   * capture can tell a starved-but-ignored demand (large age: ranking/buy
+   * failure) from a resetting clock (age never accrues: demand flicker) -
+   * the spec 15 S3 diagnosis.
+   */
+  since: number;
   /** "bank>=N" (head, unaffordable) or "after:<corpId>" (ordered behind). */
   precondition?: string;
 }
@@ -193,6 +200,7 @@ export function buildAgendaQueue(
       desiredCost: d.desiredCost,
       mustFund: d.blocking || d.replacement === true || d.holdToFund === true,
       why: agendaWhy(d),
+      since: d.since,
       ...(precondition ? { precondition } : {})
     };
   });

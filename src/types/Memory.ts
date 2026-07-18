@@ -253,6 +253,8 @@ declare global {
           minCost: number;
           desiredCost: number;
           mustFund: boolean;
+          /** First tick the director saw this demand (starvation-age export). */
+          since?: number;
           /** The transition this acquisition implements (spec 11 phase 3). */
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
