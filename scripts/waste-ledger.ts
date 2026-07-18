@@ -206,6 +206,12 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const bv = bverdicts.get(id);
     if (bv && bv !== v && (v === "funded" || bv === "funded")) flips.push(`${id.slice(-8)} ${bv}->${v}`);
   }
+  // A funded source VANISHING from the candidate list is the biggest flip of
+  // all (raid embargo pulls remotes from the problem entirely - measured
+  // t72415443: five funded remotes dropped, P1 read "0 flips").
+  for (const [id, bv] of bverdicts) {
+    if (bv === "funded" && !verdicts.has(id)) flips.push(`${id.slice(-8)} funded->DROPPED`);
+  }
   rows.push({
     id: "P1",
     name: "plan flap (funded flips)",
