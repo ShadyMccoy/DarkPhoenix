@@ -369,6 +369,16 @@ export class ConstructionCorp extends Corp {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
+    // Never take the LAST builder while sites exist: the +1 detail target
+    // means a second member is coming, and until it arrives the single creep
+    // builds (caught by cons-t3-build-and-repair-concurrent: a 1-creep cold
+    // ramp lost its only builder to the detail and construction starved).
+    // Criticals override - a structure about to expire outranks build tempo.
+    const sitesExist = room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
+    if (members.length < 2 && sitesExist && !this.wantsCriticalRecovery(room)) {
+      if (detail) delete detail.memory.repairDetail;
+      return;
+    }
     if (detail) return;
     const recruit = members[0];
     if (recruit) recruit.memory.repairDetail = true;
