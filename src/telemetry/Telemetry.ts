@@ -21,6 +21,22 @@
 import { Colony } from "../colony/Colony";
 import { Corp } from "../corps/Corp";
 import { FlowSolution } from "../flow/FlowTypes";
+import {
+  BUILD_ENERGY_PER_WORK,
+  HARVEST_ENERGY_PER_WORK,
+  UPGRADE_ENERGY_PER_WORK,
+  workPartsForEnergyRate
+} from "../economy/primitives";
+
+/**
+ * Energy/tick a single WORK part burns at a WORK-driven consumer sink, keyed by
+ * sink type. Sinks absent here are not WORK-driven, so they get no planned WORK
+ * figure (their plan currency is the energy allocation itself).
+ */
+const SINK_ENERGY_PER_WORK: Record<string, number> = {
+  controller: UPGRADE_ENERGY_PER_WORK,
+  construction: BUILD_ENERGY_PER_WORK
+};
 
 /**
  * One corp in the complete census (structurally compatible with
@@ -351,6 +367,29 @@ export interface FlowTelemetry {
     /** Distance from spawn */
     spawnDistance: number;
   }[];
+  /**
+   * PLANNED haulers (goal-plan side). Each solver hauler assignment with the
+   * CARRY parts it is sized to field - the plan-side analog to `sources[].
+   * workParts`. Compare `carryParts` here against the actual CARRY on the
+   * matching hauling corp in segment 4.
+   */
+  haulers: {
+    edgeId: string;
+    /** Energy source (fromId) */
+    sourceId: string;
+    /** Destination sink (toId) */
+    sinkId: string;
+    /** PLANNED CARRY parts the solver sized this route to */
+    carryParts: number;
+    /** Energy/tick transported */
+    flowRate: number;
+    /** Walking distance one way */
+    distance: number;
+    /** Spawn these haulers come from */
+    spawnId: string;
+    /** CARRY:MOVE ratio the variant optimizer chose ("2:1" paved, "1:1", "1:2") */
+    ratio?: string;
+  }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
     id: string;
@@ -360,6 +399,15 @@ export interface FlowTelemetry {
     allocated: number;
     unmet: number;
     priority: number;
+    /**
+     * PLANNED WORK parts implied by `allocated` for WORK-driven consumer sinks
+     * (controller=upgrade, construction=build); absent for non-WORK sinks
+     * (spawn/extension/tower/...). This is the GOAL-plan sizing - consumers are
+     * actually sized from live stock (sustainableConsumptionRate), so read it as
+     * a ramp gauge, and compare against the actual WORK on the matching upgrade/
+     * construction corp in segment 4.
+     */
+    workParts?: number;
   }[];
   /** Flow summary */
   summary: {
@@ -802,6 +850,7 @@ export class Telemetry {
   private updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // Build source data from miner assignments
     const sources: FlowTelemetry["sources"] = [];
+    const haulers: FlowTelemetry["haulers"] = [];
     const sinks: FlowTelemetry["sinks"] = [];
 
     if (flowSolution) {
@@ -811,17 +860,37 @@ export class Telemetry {
           id: miner.sourceId,
           nodeId: miner.nodeId || "",
           harvestRate: miner.harvestRate,
-          // PLANNED work parts, derived from the solver's harvest rate (2
-          // energy/tick per WORK part). The ACTUAL work parts spawned are the
-          // measured bodies on the matching harvest corp in segments 0/4.
-          workParts: Math.ceil(miner.harvestRate / 2),
+          // PLANNED work parts, from the solver's harvest rate via the shared
+          // energy-rate->WORK primitive (harvest = 2 energy/tick per WORK). The
+          // ACTUAL work parts spawned are the measured bodies on the matching
+          // harvest corp in segments 0/4.
+          workParts: workPartsForEnergyRate(miner.harvestRate, HARVEST_ENERGY_PER_WORK),
           efficiency: miner.efficiency,
           spawnDistance: miner.spawnDistance
         });
       }
 
+      // Collect PLANNED haulers - the plan-side carry-part budget per route, the
+      // analog of sources[].workParts for the hauling half of the economy.
+      for (const hauler of flowSolution.haulers) {
+        haulers.push({
+          edgeId: hauler.edgeId,
+          sourceId: hauler.fromId,
+          sinkId: hauler.toId,
+          carryParts: hauler.carryParts,
+          flowRate: hauler.flowRate,
+          distance: hauler.distance,
+          spawnId: hauler.spawnId,
+          ratio: hauler.haulerRatio
+        });
+      }
+
       // Collect sinks from sink allocations
       for (const sink of flowSolution.sinkAllocations) {
+        // WORK-driven consumers (upgrade/build) get a planned WORK figure derived
+        // from their energy allocation; others carry none (undefined is dropped
+        // from the JSON, keeping non-WORK sinks unchanged).
+        const perWork = SINK_ENERGY_PER_WORK[sink.sinkType];
         sinks.push({
           id: sink.sinkId,
           // nodeId not available in SinkAllocation - could be derived from sinkId if needed
@@ -829,15 +898,17 @@ export class Telemetry {
           demand: sink.demand,
           allocated: sink.allocated,
           unmet: sink.unmet,
-          priority: sink.priority
+          priority: sink.priority,
+          workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
         });
       }
     }
 
     const telemetry: FlowTelemetry = {
-      version: 1,
+      version: 2, // Version 2: added planned hauler carry + consumer WORK (full plan-side body)
       tick: Game.time,
       sources,
+      haulers,
       sinks,
       summary: flowSolution
         ? {
