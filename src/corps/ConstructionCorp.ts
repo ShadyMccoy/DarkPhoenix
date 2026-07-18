@@ -780,13 +780,18 @@ export class ConstructionCorp extends Corp {
         return;
       }
 
-      // Starting a NEW paving project yields to repair: placing sites pulls
-      // the builder off maintenance (repair only runs with zero sites), so
-      // wait until nothing wants a repairer - wantsMaintenance carries the
-      // hysteresis (a fielded builder keeps repairing to the 99% ceiling; a
-      // mid-repair room must not have its builder yanked onto roadworks the
-      // moment the worst structure crosses the 60% start gate).
-      if (this.wantsMaintenance(room)) return;
+      // Starting a NEW paving project yields only to CRITICAL repair (owner
+      // 2026-07-18: routine maintenance trickles forever - roads/containers
+      // decay continuously - so gating on wantsMaintenance serialized paving
+      // behind an effectively permanent condition). The economics are
+      // deterministic and lopsided: a room's standing decay costs a few e/t
+      // (container ~0.1, road tile ~0.01) against a bank-funded construction
+      // allocation of 100+, so energy always covers both. The real risk is
+      // crew exclusivity, and that is already handled: a structure entering
+      // the critical band is rescued EVEN WHILE sites are open
+      // (findCriticalRepairTarget preemption). Routine 60->99% top-ups
+      // resume when the project's sites clear.
+      if (this.wantsCriticalRecovery(room)) return;
 
       // Paving is a SURPLUS investment: in a demand-saturated room (organic
       // spawning consuming the whole income) a paving project tips the spawn
@@ -846,7 +851,8 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    if (this.wantsMaintenance(room)) return;
+    // Critical-only yield, same rationale as the source-route gate above.
+    if (this.wantsCriticalRecovery(room)) return;
     if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable)
       return;
 
