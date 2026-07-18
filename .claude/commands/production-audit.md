@@ -1,5 +1,26 @@
 # Production audit loop
 
+## The goal (what a cycle is FOR)
+
+**Maximize sustained controller/GCL progress — the game's score.** One point
+of RCL/GCL = one energy delivered to a controller; everything else here is
+instrumental. Concretely, each cycle drives toward:
+
+1. **Actual progress ≈ planned progress**: `rooms[].rclProgress` /
+   `gcl.progress` delta per tick between captures, within tolerance of the
+   plan's controller allocation (flow sink `allocated`). A gap IS the work
+   item.
+2. **Doctrine constraints held**: defense funded, warchest AT its target
+   (economy/bank.ts) — a warchest far above target means the spend path is
+   broken, not that we're rich; expansion capex ready when GCL allows.
+3. **BOT LEVEL ratchet** (test/grid/baseline.json) rising on the dev side.
+
+A cycle SUCCEEDS if the measured progress rate was raised/restored, or a
+blocker was named with data. A cycle that produces activity without a progress
+delta is a failed cycle — say so in the report.
+
+## Method
+
 Run one full audit cycle of the live DarkPhoenix economy: capture telemetry,
 triage against invariants, diagnose from decision stamps, fix what's proven,
 verify after deploy. This encodes the 2026-07-18 audit method (spec 14) —
