@@ -155,10 +155,15 @@ const FEEDER_NOMINAL_DISTANCE = 6;
  * frees the parts). Fed to the planner as ColonyProblem.infraPartsPerTick by
  * the flow adapter, so the sink fill spends only what is truly left.
  */
-export function infraSpawnLoad(relayRate: number, remoteRoomCount: number): number {
-  const feeder = (2 * carryPartsFor(relayRate, FEEDER_NOMINAL_DISTANCE)) / effectiveLife(FEEDER_NOMINAL_DISTANCE);
-  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body
-  const tender = TENDER_FLEET_PARTS / CREEP_LIFETIME;
+export function infraSpawnLoad(relayRate: number, depotRoomCount: number, remoteRoomCount: number): number {
+  // Feeder + tender are DEPOT movers: they exist only in rooms with a built
+  // storage (`depotRoomCount`). Charging them unconditionally taxed early
+  // worlds ~5-7% of the parts budget for infra that cannot exist there
+  // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
+  const feeder =
+    depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, FEEDER_NOMINAL_DISTANCE)) / effectiveLife(FEEDER_NOMINAL_DISTANCE) : 0;
+  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body, per depot room
+  const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
   const CLAIM_LIFETIME = 600;
   const RESERVER_WALK = 60; // nominal remote-controller walk

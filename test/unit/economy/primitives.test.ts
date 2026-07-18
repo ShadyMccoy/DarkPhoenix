@@ -14,7 +14,8 @@ import {
   miningBudgetPerSpawn,
   CREEP_LIFETIME,
   MINER_COST,
-  MINER_PARTS
+  MINER_PARTS,
+  infraSpawnLoad
 } from "../../../src/economy/primitives";
 
 // First-principles checks: every number is hand-derived from the game constants
@@ -180,5 +181,25 @@ describe("invader tax (spec 13 phase 5 - engine-fact derivation)", () => {
 
   it("stays under 1% of gross at the derived cost (a margin shift, not a rate change)", () => {
     expect(INVADER_TAX_PER_ENERGY).to.be.lessThan(0.01);
+  });
+});
+
+// Spec 15 P4: the standing-infra deduction the planner subtracts from its
+// spawn-parts ledger. Feeder + tender are DEPOT movers - they exist only once
+// a room has a storage. Charging them in storageless worlds taxed early game
+// ~5-7% of the parts budget for infra that cannot exist there (first P4 gate:
+// plan-t1-single-source-loop timed out under the phantom deduction).
+describe("infraSpawnLoad (the plan's standing-infra parts deduction)", () => {
+  it("charges NOTHING for depot infra in a storageless world", () => {
+    expect(infraSpawnLoad(15, 0, 0)).to.equal(0);
+  });
+  it("reservers charge per mined remote even without a depot", () => {
+    expect(infraSpawnLoad(15, 0, 4)).to.be.greaterThan(0);
+    expect(infraSpawnLoad(15, 0, 4)).to.be.closeTo((4 * 4) / 540, 1e-9);
+  });
+  it("a depot room adds the feeder shuttle (scaled to the relay) and the tender detail", () => {
+    const withDepot = infraSpawnLoad(115, 1, 0);
+    expect(withDepot).to.be.greaterThan(72 / 1500); // at least the tender fleet
+    expect(infraSpawnLoad(115, 1, 4)).to.be.closeTo(withDepot + (4 * 4) / 540, 1e-9);
   });
 });

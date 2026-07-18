@@ -358,7 +358,7 @@ export function buildColonyProblem(
   const remoteRooms = new Set(
     sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );
-  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, remoteRooms.size);
+  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, roomsWithStorage.size, remoteRooms.size);
 
   return { spawns, sources, sinks, dist, infraPartsPerTick };
 }
