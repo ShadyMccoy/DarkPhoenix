@@ -1,0 +1,325 @@
+/**
+ * @fileoverview Waste ledger (spec 15 phase 1) - every leak as a number.
+ *
+ * Reads two telemetry captures (fixtures) and prints the ledger: each row
+ * computed from data, ranked FAIL > WARN > ok. The audit loop runs this FIRST
+ * each cycle; any FAIL outranks the symptomatic triage checklist.
+ *
+ * Decision symmetry (spec 14): every economic constant here is IMPORTED from
+ * the module the bot runs - the ledger can only drift from the bot if the bot
+ * drifts from itself. Fleet body ratios are MEASURED from the capture's actual
+ * bodies where a fleet exists (fallback ratios only when a fleet is empty).
+ *
+ * Usage: npm run audit:ledger [-- --capture <path|latest> --baseline <path|prev>]
+ *
+ * @module scripts/waste-ledger
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import {
+  MINER_PARTS,
+  SPAWN_PARTS_PER_TICK,
+  carryPartsFor,
+  effectiveLife
+} from "../src/economy/primitives";
+import { WARCHEST_TARGET, feederRelayRate } from "../src/economy/bank";
+import { CLAIM_LIFETIME, RESERVER_DUTY } from "../src/corps/economics";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export interface LedgerRow {
+  id: string;
+  name: string;
+  value: number;
+  unit: string;
+  verdict: "FAIL" | "WARN" | "ok";
+  detail: string;
+}
+
+const FIXTURE_DIR = path.join(__dirname, "..", "test", "fixtures", "telemetry");
+
+function listFixtures(): string[] {
+  return fs
+    .readdirSync(FIXTURE_DIR)
+    .filter(f => /^shard1-t\d+\.json$/.test(f))
+    .sort((a, b) => Number(b.match(/t(\d+)/)![1]) - Number(a.match(/t(\d+)/)![1]))
+    .map(f => path.join(FIXTURE_DIR, f));
+}
+
+function loadCapture(spec: string, fallbackIndex: number): any {
+  if (spec !== "latest" && spec !== "prev") return JSON.parse(fs.readFileSync(spec, "utf8"));
+  const files = listFixtures();
+  const file = files[spec === "latest" ? 0 : fallbackIndex];
+  if (!file) throw new Error(`no fixture for --${spec === "latest" ? "capture" : "baseline"} in ${FIXTURE_DIR}`);
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+/** Measured parts-per-WORK from an actual upgrader body; 4/3 fallback (15W1C4M). */
+function upgraderPartsPerWork(corps: any[]): number {
+  for (const c of corps) {
+    if (c.kind === "upgrade" && c.bodyParts > 0 && (c.body.work ?? 0) > 0) return c.bodyParts / c.body.work;
+  }
+  return 4 / 3;
+}
+
+function fleetParts(corps: any[], kind: string, fallback: number): number {
+  for (const c of corps) if (c.kind === kind && c.creepCount > 0) return c.bodyParts / c.creepCount;
+  return fallback;
+}
+
+/**
+ * P4: the WHOLE plan's amortized spawn maintenance (parts/tick) vs the
+ * physical ceiling - including every line the planner's own mining budget
+ * never prices (transient-route haulers, consumers, infra). The plan is
+ * infeasible when this exceeds spawnCount * SPAWN_PARTS_PER_TICK: actuals
+ * then converge to the ceiling, never to the plan (measured 2026-07-18:
+ * 0.561 p/t vs 0.333, 168%, while progress ran at ~3 of a 115 e/t plan).
+ */
+export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, number, number]> } {
+  const flow = cap.data.flow;
+  const corps: any[] = cap.data.corps?.corps ?? [];
+  const rooms = cap.data.core?.rooms ?? [];
+  const banked = rooms[0]?.storageEnergy ?? 0;
+  const lines: Array<[string, number, number]> = []; // [name, parts, partsPerTick]
+
+  let p = 0,
+    l = 0;
+  for (const s of flow.sources ?? []) {
+    p += MINER_PARTS;
+    l += MINER_PARTS / effectiveLife(s.spawnDistance);
+  }
+  lines.push(["miners", p, l]);
+
+  let sp = 0,
+    sl = 0,
+    tp = 0,
+    tl = 0;
+  for (const h of flow.haulers ?? []) {
+    const parts = 2 * h.carryParts;
+    const load = parts / effectiveLife(h.distance);
+    const transient = h.sourceId.startsWith("scavenge") || h.sourceId.startsWith("bank");
+    if (transient) {
+      tp += parts;
+      tl += load;
+    } else {
+      sp += parts;
+      sl += load;
+    }
+  }
+  lines.push(["source-route haulers", sp, sl]);
+  lines.push(["transient-route haulers (unbudgeted)", tp, tl]);
+
+  const ctrl = (flow.sinks ?? []).find((s: any) => s.type === "controller");
+  if (ctrl?.workParts) {
+    const parts = ctrl.workParts * upgraderPartsPerWork(corps);
+    lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
+  }
+  const relay = feederRelayRate(banked);
+  const feederParts = 2 * carryPartsFor(relay, 6);
+  lines.push([`feeder @ relay ${Math.round(relay)}`, feederParts, feederParts / effectiveLife(6)]);
+
+  const tenderTarget = corps.find(c => c.kind === "tender")?.sizing?.target ?? 3;
+  const tenderBody = fleetParts(corps, "tender", 24);
+  lines.push(["tenders", tenderTarget * tenderBody, (tenderTarget * tenderBody) / 1500]);
+
+  const resTargets = corps.find(c => c.kind === "reservation")?.sizing?.targets ?? 0;
+  const resBody = fleetParts(corps, "reservation", 4);
+  const resLoad = (resTargets * resBody) / Math.max(1, CLAIM_LIFETIME - 60);
+  lines.push(["reservers (claim life)", resTargets * resBody, resLoad]);
+
+  const total = lines.reduce((s, [, , x]) => s + x, 0);
+  return { total, lines };
+}
+
+export function computeLedger(cap: any, base: any): LedgerRow[] {
+  const rows: LedgerRow[] = [];
+  const core = cap.data.core;
+  const bcore = base.data.core;
+  const dt = cap.tick - base.tick;
+  const flow = cap.data.flow;
+  const corps: any[] = cap.data.corps?.corps ?? [];
+
+  // ---- P4 plan spawn-feasibility (the audit gap of 2026-07-18) ----
+  const { total, lines } = planSpawnLoad(cap);
+  const ceiling = (core.spawns?.length ?? 1) * SPAWN_PARTS_PER_TICK;
+  const ratio = total / ceiling;
+  rows.push({
+    id: "P4",
+    name: "plan spawn-infeasibility",
+    value: ratio,
+    unit: "x ceiling",
+    verdict: ratio > 1 ? "FAIL" : ratio > 0.85 ? "WARN" : "ok",
+    detail:
+      `plan-implied ${total.toFixed(3)} parts/t vs ${ceiling.toFixed(3)} physical; ` +
+      lines
+        .filter(([, , x]) => x > 0.005)
+        .map(([n, p, x]) => `${n} ${Math.round(p)}p=${x.toFixed(3)}`)
+        .join(", ")
+  });
+
+  // ---- P5 price/behavior drift: reserver duty ----
+  const res = corps.find(c => c.kind === "reservation");
+  if (res?.sizing) {
+    const bres = (base.data.corps?.corps ?? []).find((c: any) => c.kind === "reservation");
+    const duty =
+      (res.sizing.staffed / Math.max(1, res.sizing.targets) +
+        (bres?.sizing ? bres.sizing.staffed / Math.max(1, bres.sizing.targets) : 0)) /
+      (bres?.sizing ? 2 : 1);
+    rows.push({
+      id: "P5",
+      name: "reserver duty vs priced",
+      value: 1.0,
+      unit: "gate duty (priced " + RESERVER_DUTY + ")",
+      verdict: "FAIL",
+      detail:
+        `corp gate re-staffs whenever staffed < targets (duty 1.0 by construction; ` +
+        `reservation bank to 5000 never read) while reserverTollPerRoom prices ${RESERVER_DUTY}; ` +
+        `staffing proxy across captures ${duty.toFixed(2)} (raid-distorted); ` +
+        `2x spawn+energy vs priced until the corp reads reservation.ticksToEnd`
+    });
+  }
+
+  // ---- E4 idle capital ----
+  const room = core.rooms?.[0];
+  if (room) {
+    const broom = (bcore.rooms ?? []).find((r: any) => r.name === room.name);
+    const slope = broom ? (room.storageEnergy - broom.storageEnergy) / dt : 0;
+    const excess = room.storageEnergy - WARCHEST_TARGET;
+    rows.push({
+      id: "E4",
+      name: "idle capital",
+      value: excess,
+      unit: "energy above warchest",
+      verdict: excess > WARCHEST_TARGET && slope >= 0 ? "FAIL" : excess > WARCHEST_TARGET ? "WARN" : "ok",
+      detail: `storage ${room.storageEnergy} vs target ${WARCHEST_TARGET}, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
+    });
+  }
+
+  // ---- P1/S2 plan flap: candidate verdict flips between captures ----
+  const verdicts = new Map<string, string>((flow.candidates ?? []).map((c: any) => [c.sourceId, c.verdict]));
+  const bverdicts = new Map<string, string>(
+    (base.data.flow?.candidates ?? []).map((c: any) => [c.sourceId, c.verdict])
+  );
+  const flips: string[] = [];
+  for (const [id, v] of verdicts) {
+    const bv = bverdicts.get(id);
+    if (bv && bv !== v && (v === "funded" || bv === "funded")) flips.push(`${id.slice(-8)} ${bv}->${v}`);
+  }
+  rows.push({
+    id: "P1",
+    name: "plan flap (funded flips)",
+    value: flips.length,
+    unit: "sources",
+    verdict: flips.length > 1 ? "FAIL" : flips.length === 1 ? "WARN" : "ok",
+    detail: flips.join(", ") || "stable vs baseline"
+  });
+
+  // ---- P2 micro-routes ----
+  const micro = (flow.haulers ?? []).filter((h: any) => h.carryParts < 3);
+  rows.push({
+    id: "P2",
+    name: "micro-routes (<3 CARRY planned)",
+    value: micro.length,
+    unit: `of ${(flow.haulers ?? []).length} routes`,
+    verdict: micro.length > (flow.haulers ?? []).length / 2 ? "WARN" : "ok",
+    detail: micro.map((h: any) => `${h.sourceId.slice(-8)} ${h.carryParts.toFixed(1)}c`).join(", ") || "none"
+  });
+
+  // ---- E2 stranded fleet: actual carry corps serving routes absent from plan ----
+  const planSuffixes = new Set(
+    (flow.haulers ?? []).map((h: any) => h.sourceId.replace(/^source-|^scavenge-|^bank-/, "").slice(-4))
+  );
+  let strandedParts = 0;
+  const strandedIds: string[] = [];
+  for (const c of corps) {
+    if (c.kind !== "carry" || c.creepCount === 0) continue;
+    const suffix = c.id.slice(-4);
+    if (!planSuffixes.has(suffix)) {
+      strandedParts += c.bodyParts;
+      strandedIds.push(c.id.replace(/^hauling-/, ""));
+    }
+  }
+  rows.push({
+    id: "E2",
+    name: "stranded fleet",
+    value: strandedParts,
+    unit: "body parts off-plan",
+    verdict: strandedParts > 60 ? "FAIL" : strandedParts > 20 ? "WARN" : "ok",
+    detail: strandedIds.join(", ") || "every fielded hauler serves a planned route"
+  });
+
+  // ---- E5 runt purchases ----
+  const agenda: any = Object.values(core.agenda ?? {})[0] ?? {};
+  const runts = (agenda.executed ?? []).filter((e: any) => e.cost < 300 && !["reserver", "scout"].includes(e.role));
+  rows.push({
+    id: "E5",
+    name: "runt purchases",
+    value: runts.length,
+    unit: "of last " + (agenda.executed ?? []).length + " receipts",
+    verdict: runts.length > 1 ? "WARN" : "ok",
+    detail: runts.map((e: any) => `${e.role}@${e.cost}`).join(", ") || "none"
+  });
+
+  // ---- S3 scheduler stall: idle spawn with an AFFORDABLE head ----
+  const spawn = core.spawns?.[0];
+  if (spawn && room) {
+    const head = (agenda.queue ?? [])[0];
+    const affordable = head && room.energyAvailable >= head.minCost;
+    const stalled = spawn.utilization < 0.5 && (agenda.queue ?? []).length > 0 && affordable;
+    rows.push({
+      id: "S3",
+      name: "scheduler stall",
+      value: stalled ? 1 : 0,
+      unit: "boolean",
+      verdict: stalled ? "FAIL" : "ok",
+      detail: head
+        ? `util ${spawn.utilization.toFixed(2)}, head ${head.role}@${head.minCost} vs bank ${room.energyAvailable}` +
+          (affordable ? " AFFORDABLE+IDLE" : " (holding/funding - not a stall)")
+        : "queue empty"
+    });
+  }
+
+  // ---- X3 census ----
+  rows.push({
+    id: "X3",
+    name: "untracked creeps",
+    value: core.creeps.untracked,
+    unit: "creeps",
+    verdict: core.creeps.untracked > 2 ? "FAIL" : "ok",
+    detail: `${core.creeps.tracked}/${core.creeps.total} tracked`
+  });
+
+  const rank = { FAIL: 0, WARN: 1, ok: 2 };
+  return rows.sort((a, b) => rank[a.verdict] - rank[b.verdict]);
+}
+
+export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: number): string {
+  const out: string[] = [`waste ledger  capture t${capTick}  baseline t${baseTick}  (dt ${capTick - baseTick})`];
+  for (const r of rows) {
+    out.push(
+      `  [${r.verdict.padEnd(4)}] ${r.id.padEnd(3)} ${r.name.padEnd(34)} ${
+        Number.isInteger(r.value) ? r.value : r.value.toFixed(2)
+      } ${r.unit}`
+    );
+    out.push(`         ${r.detail}`);
+  }
+  const fails = rows.filter(r => r.verdict === "FAIL");
+  out.push(
+    fails.length
+      ? `TOP LINE: ${fails[0].id} ${fails[0].name} - this is the cycle's work item`
+      : "no FAIL lines - attack the largest WARN or ship the backlog"
+  );
+  return out.join("\n");
+}
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const get = (flag: string, dflt: string): string => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? args[i + 1] : dflt;
+  };
+  const cap = loadCapture(get("--capture", "latest"), 0);
+  const base = loadCapture(get("--baseline", "prev"), 1);
+  console.log(formatLedger(computeLedger(cap, base), cap.tick, base.tick));
+}

@@ -39,6 +39,7 @@ One hypothesis at a time; design the next capture to falsify it.
 
 ```
 SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
+npm run audit:ledger        # spec 15: latest capture vs previous, every leak a number
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -56,8 +57,18 @@ SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
 
 ## 1. Triage checklist (fail ⇒ investigate; numbers from measured incidents)
 
+- **LEDGER FIRST**: `npm run audit:ledger` output outranks everything below.
+  Any FAIL line is the cycle's work item unless a live incident preempts; the
+  symptomatic checks below localize causes, the ledger finds the leak classes
+  (2026-07-18 lesson: plan spawn-infeasibility 1.68×, reserver duty 2× drift,
+  and 48 parts of stranded haulers were all invisible to the symptom checks —
+  the owner had to ask). Accounting invariants the ledger owns: P4 plan
+  parts/tick vs physical ceiling (ALL fleet classes, budgeted or not), P5
+  price-vs-behavior drift (every constant encoding a behavioral assumption —
+  duty cycles, ratios — checked against measured behavior), E2/E4/E5/P1/P2/
+  S3/X3 per spec 15.
 - **Spawn**: `utilization` vs steady-state need (Σ bodyParts/1500, reservers
-  /600). Saturation (>0.95) with steady-state <0.85 ⇒ a purchase loop or
+  /(600−travel)). Saturation (>0.95) with steady-state <0.85 ⇒ a purchase loop or
   rebuild churn; read `agenda.executed` role mix — no single role should eat
   >50% of build-time (reserver loop was 53%).
 - **Infra gates**: feeder/tender `sizing.gate` stuck at `"demand"` across two

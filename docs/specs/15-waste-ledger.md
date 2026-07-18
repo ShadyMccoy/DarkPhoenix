@@ -56,6 +56,8 @@ progress unconverted).
 | P1 | plan flap: sources/routes flipping funded↔excluded between solves | EXISTS: `candidates[]` diff between captures (flap rate, parts wasted → S2) |
 | P2 | micro-routes: planned flows below the 3-CARRY body floor, each forcing an over-built body | EXISTS: flow `haulers[].carryParts < 3` (measured: 7/10 routes, 6.5 planned carry → ≥21 fielded) |
 | P3 | budget-model divergence: planner `spawnPartsUsed` vs measured `partsPerTick` | EXISTS: both sides exported (plan spawnPartsUsed vs meter) |
+| P4 | plan spawn-infeasibility: the WHOLE plan's amortized maintenance (parts/tick, ALL fleet classes — transient routes, consumers, infra, budgeted or not) vs the physical `spawnCount × 1/3` ceiling. Above 1.0 actuals converge to the ceiling, never the plan (measured 2026-07-18: 1.68×; the queue-priority incidents were the symptom) | EXISTS: ledger `planSpawnLoad` from flow plan + measured body ratios |
+| P5 | price/behavior drift: a pricing constant encodes a behavioral assumption the executor doesn't implement (found: `RESERVER_DUTY = 0.5` priced while the corp gate re-staffs continuously, never reading the reservation bank — 2× the priced spawn+energy cost). Every such constant gets a ledger check | ledger: structural check + staffing proxy; exact once phase 2 exports `reservation.ticksToEnd` |
 
 ### Execution leaks
 
@@ -69,9 +71,18 @@ progress unconverted).
 
 1. **Ledger report (audit-side, no bot changes)** — a `scripts/waste-ledger.ts`
    that takes two captures and prints the ledger: every EXISTS row computed,
-   ranked by magnitude, with deltas vs the previous run. Acceptance: unit test
-   on fixture captures reproduces tonight's known numbers (E2 ≈ 56 CARRY at
-   t72402541; P2 = 7/10 routes).
+   ranked by magnitude, with deltas vs the previous run. **DONE 2026-07-18**
+   (`npm run audit:ledger`, wired into /production-audit §1 as the mandatory
+   first read). Acceptance retargeted to the v5 fixture pair
+   (t72404213/t72411542) in `test/unit/audit/wasteLedger.test.ts`: P4 FAIL
+   >1.2× with the unbudgeted transient line named, P5 FAIL until the corp
+   reads the reservation bank, E4 FAIL at 601k idle, E2 catches 48 parts of
+   stranded scavenge haulers, S3 discriminates a funding hold from a stall.
+   (The originally named t72402541 numbers predate the v5 schema; that
+   incident's mechanism is pinned by its own regression tests.) Origin of P4/
+   P5: the owner had to ask "is planning weighting effective ttl" and walk the
+   reserver arithmetic by hand — the audit must catch accounting invariants,
+   not only symptoms.
 2. **Execution counters in-bot** — X1/X2/X3 + E3 accumulated per corp
    (decision-symmetry: counted where the work happens), exported in sizing
    records / room ledger. Corps segment bump.

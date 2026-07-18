@@ -43,7 +43,8 @@
     "sim:real": "ts-node -P tsconfig.test.json scripts/sim-real-rooms.ts",
     "sim:cop": "ts-node -P tsconfig.test.json scripts/corp-cop.ts",
     "journey:capture": "ts-node -P tsconfig.test.json scripts/journey-capture.ts",
-    "deploy": "ts-node -P tsconfig.test.json scripts/deploy-code.ts"
+    "deploy": "ts-node -P tsconfig.test.json scripts/deploy-code.ts",
+    "audit:ledger": "ts-node -P tsconfig.test.json scripts/waste-ledger.ts"
   },
   "repository": {
     "type": "git",
