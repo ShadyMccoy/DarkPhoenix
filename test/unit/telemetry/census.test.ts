@@ -90,3 +90,83 @@ describe("Telemetry creep census (segments 0 & 4)", () => {
     expect(core.colony).to.not.have.property("averageROI");
   });
 });
+
+/**
+ * Actual body capture. "What creep body parts do we actually have" must be
+ * MEASURED from live Creep.body, not reconstructed from planner rates (the flow
+ * segment's workParts is the PLAN side; this is the ACTUAL side). Per corp so a
+ * dashboard can sit the planner's committed parts next to the parts actually
+ * walking around, and colony-wide so the plan-vs-actual gauge has one number.
+ */
+describe("Telemetry actual body capture (segments 0 & 4)", () => {
+  beforeEach(() => {
+    setupGlobals();
+    (global as any).RawMemory = RawMemory;
+    RawMemory.segments = {};
+    Game.rooms = {};
+    Game.time = 100;
+    (Game as any).gcl = { level: 1, progress: 0, progressTotal: 100 };
+    (Game as any).shard = { name: "shard1" };
+    // Real bodies, each owned by a corp via memory.corpId. `orphan` belongs to
+    // no census corp - it still has a body we are paying for, so the colony
+    // total must count it while no per-corp bucket claims it.
+    Game.creeps = {
+      miner1: { body: [{ type: "work" }, { type: "work" }, { type: "move" }], memory: { corpId: "harvest-s1" } },
+      miner2: { body: [{ type: "work" }, { type: "move" }], memory: { corpId: "harvest-s1" } },
+      hauler1: { body: [{ type: "carry" }, { type: "carry" }, { type: "move" }, { type: "move" }], memory: { corpId: "carry-s1" } },
+      orphan: { body: [{ type: "move" }], memory: { corpId: "ghost-x" } }
+    } as any;
+  });
+
+  const bodyCensus: CorpCensusEntry[] = [
+    {
+      corpId: "harvest-s1",
+      kind: "harvest",
+      corp: { id: "harvest-s1", type: "mining", nodeId: "W1N1-1-1", createdAt: 0, lastActivityTick: 0, getCreepCount: () => 2 } as any
+    },
+    {
+      corpId: "carry-s1",
+      kind: "carry",
+      corp: { id: "carry-s1", type: "hauling", nodeId: "W1N1-1-1", createdAt: 0, lastActivityTick: 0, getCreepCount: () => 1 } as any
+    }
+  ];
+
+  it("corps segment carries each corp's ACTUAL aggregate body, summed from Creep.body", () => {
+    new Telemetry().update(undefined, bodyCensus, undefined);
+    const corps = JSON.parse(RawMemory.segments[4]);
+
+    const harvest = corps.corps.find((c: any) => c.id === "harvest-s1");
+    // two miners: (2 work + 1 move) + (1 work + 1 move) => 3 work, 2 move
+    expect(harvest.bodyParts).to.equal(5);
+    expect(harvest.body).to.deep.equal({ work: 3, move: 2 });
+
+    const carry = corps.corps.find((c: any) => c.id === "carry-s1");
+    expect(carry.bodyParts).to.equal(4);
+    expect(carry.body).to.deep.equal({ carry: 2, move: 2 });
+  });
+
+  it("core segment totals ACTUAL body parts colony-wide, including orphans", () => {
+    new Telemetry().update(undefined, bodyCensus, undefined);
+    const core = JSON.parse(RawMemory.segments[0]);
+
+    // harvest (3w 2m) + carry (2c 2m) + orphan (1m) => work 3, carry 2, move 5
+    expect(core.bodyParts.total).to.equal(10);
+    expect(core.bodyParts.byPart).to.deep.equal({ work: 3, carry: 2, move: 5 });
+  });
+
+  it("a corp with no live creeps reports an empty actual body, never a reconstruction", () => {
+    const emptyCensus: CorpCensusEntry[] = [
+      {
+        corpId: "carry-empty",
+        kind: "carry",
+        corp: { id: "carry-empty", type: "hauling", nodeId: "W1N1", createdAt: 0, lastActivityTick: 0, getCreepCount: () => 0 } as any
+      }
+    ];
+    new Telemetry().update(undefined, emptyCensus, undefined);
+    const corps = JSON.parse(RawMemory.segments[4]);
+
+    const empty = corps.corps.find((c: any) => c.id === "carry-empty");
+    expect(empty.bodyParts).to.equal(0);
+    expect(empty.body).to.deep.equal({});
+  });
+});
