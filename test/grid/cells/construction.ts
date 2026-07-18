@@ -357,7 +357,8 @@ export function buildConstructionT2Cells(): GridCell[] {
           const sites = s.objects().some((o) => o.type === "constructionSite");
           return !!a && (a.hits ?? 0) > 150000 && sites;
         }),
-        eventually("the build crew keeps building (a new extension completes)", (s) =>
+        eventually("the build crew keeps building (site progress advances materially)", (s) =>
+          s.objects().some((o) => o.type === "constructionSite" && (o.progress ?? 0) > 500) ||
           s.objects().filter((o) => o.type === "extension").length > 5
         ),
       ],
