@@ -652,3 +652,25 @@ describe("unreachable sources get a verdict (no invisible decisions, spec 14)", 
     expect(plan.miners.map(m => m.sourceId)).to.deep.equal(["a"]);
   });
 });
+
+describe("the fill survives a failed path lens (live regression t72417871: planAllocated 97 -> 8.4)", () => {
+  const world = (badDist: number) =>
+    problem({
+      spawns: [spawn("S", 0)],
+      sources: [source("a", 10), source("bad", 30), source("c", 20)],
+      sinks: [sink("ctrl", "controller", 0, 50, 100)],
+      // The path lens fails for ONE source; the others are fine.
+      dist: (x, y) => (x.x === 30 || y.x === 30 ? badDist : manhattan(x, y))
+    });
+
+  for (const [name, bad] of [["Infinity", Number.POSITIVE_INFINITY], ["NaN", Number.NaN]] as const) {
+    it(`a ${name}-distance route neither aborts the sink fill nor poisons the ledger`, () => {
+      const plan = planColony(world(bad));
+      const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+      // The two healthy sources (20 e/t) must still route in full.
+      expect(ctrl.allocated).to.be.closeTo(20, 1e-6);
+      expect(Number.isFinite(ctrl.allocated)).to.equal(true);
+      for (const h of plan.haulers) expect(Number.isFinite(h.spawnParts)).to.equal(true);
+    });
+  }
+});

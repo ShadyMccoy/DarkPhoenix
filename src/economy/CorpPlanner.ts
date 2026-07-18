@@ -164,6 +164,9 @@ export interface CommissionedSink {
   demand: number;
   allocated: number;
   sources: { sourceId: string; amount: number; distance: number }[];
+  /** Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
+   * trace - why did filling stop: capacity met, pool dry, or ledger dry). */
+  partsLeft?: number;
 }
 
 /**
@@ -198,6 +201,9 @@ export interface ColonyPlan {
   totalOverhead: number;
   /** Build-time (parts/tick) committed per spawn. */
   spawnPartsUsed: Map<string, number>;
+  /** The fill's spawn-parts ledger, traced (spec 15 P4): what the budget was,
+   * what standing deductions took, what routing had to work with. */
+  partsLedger: { capacity: number; minerLoad: number; infra: number; budget: number };
   /** Sum of delivered energy weighted by sink value - the objective. */
   valueDelivered: number;
   /** delivered >= overhead: the income covers the creeps that earn it. */
@@ -450,6 +456,7 @@ function routeToSinks(
         ...(paved ? { paved } : {})
       });
     }
+    acc.partsLeft = partsRemaining;
   };
 
   // Reserve pre-pass: guarantee critical floors before value greed drains the pool.
@@ -481,6 +488,12 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   // currencies; routing and consumers spend what remains.
   const minerLoad = miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
   const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
+  const partsLedger = {
+    capacity: problem.spawns.length * SPAWN_PARTS_PER_TICK,
+    minerLoad,
+    infra: problem.infraPartsPerTick ?? 0,
+    budget: partsBudget
+  };
   const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
   const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
@@ -503,6 +516,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     haulers,
     sinks,
     sourceVerdicts,
+    partsLedger,
     totalProduced,
     totalDelivered,
     totalOverhead,
