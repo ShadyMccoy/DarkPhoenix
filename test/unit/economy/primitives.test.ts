@@ -195,11 +195,11 @@ describe("infraSpawnLoad (the plan's standing-infra parts deduction)", () => {
   });
   it("reservers charge per mined remote even without a depot", () => {
     expect(infraSpawnLoad(15, 0, 4)).to.be.greaterThan(0);
-    expect(infraSpawnLoad(15, 0, 4)).to.be.closeTo((4 * 4) / 540, 1e-9);
+    expect(infraSpawnLoad(15, 0, 4)).to.be.closeTo((0.5 * 4 * 4) / 540, 1e-9); // duty-priced (P5 shipped)
   });
   it("a depot room adds the feeder shuttle (scaled to the relay) and the tender detail", () => {
     const withDepot = infraSpawnLoad(115, 1, 0);
     expect(withDepot).to.be.greaterThan(72 / 1500); // at least the tender fleet
-    expect(infraSpawnLoad(115, 1, 4)).to.be.closeTo(withDepot + (4 * 4) / 540, 1e-9);
+    expect(infraSpawnLoad(115, 1, 4)).to.be.closeTo(withDepot + (0.5 * 4 * 4) / 540, 1e-9);
   });
 });

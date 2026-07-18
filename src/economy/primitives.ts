@@ -16,7 +16,7 @@
  */
 
 import { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../flow/FlowTypes";
-import { SPAWN_PARTS_PER_TICK } from "../corps/economics";
+import { RESERVER_DUTY, SPAWN_PARTS_PER_TICK } from "../corps/economics";
 
 export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS, SPAWN_PARTS_PER_TICK };
 
@@ -149,7 +149,7 @@ export function controllerWorkSpawnLoad(energyPerTick: number, distance: number)
  * a construction sink burns energy 5x more spawn-cheaply than a controller:
  * the same e/t needs one fifth the WORK bodies.
  */
-export const BUILDER_PARTS_PER_WORK = 2;
+export const BUILDER_PARTS_PER_WORK = 1.8; // measured: 5W1C3M = 9 parts / 5 WORK
 
 /**
  * Spawn build-time (parts/tick) to maintain the builder fleet burning
@@ -186,7 +186,13 @@ export function infraSpawnLoad(relayRate: number, depotRoomCount: number, remote
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
   const CLAIM_LIFETIME = 600;
   const RESERVER_WALK = 60; // nominal remote-controller walk
-  const reservers = (remoteRoomCount * RESERVER_PARTS_PER_ROOM) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
+  // corp coasts on the reservation bank, one stint per ~1080t. Holding this
+  // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
+  // reserves - defense preempts via priority when needed, it does not
+  // reserve capacity).
+  const reservers =
+    (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
   return feeder + tender + reservers;
 }
 
