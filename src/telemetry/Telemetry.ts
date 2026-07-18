@@ -19,7 +19,8 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { Corp } from "../corps/Corp";
+import { Corp, CorpSizingRecord } from "../corps/Corp";
+import { controllerSideStock } from "../corps/nodeEnergy";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -222,6 +223,17 @@ export interface CoreTelemetry {
     rclProgressTotal: number;
     energyAvailable: number;
     energyCapacity: number;
+    /**
+     * Room energy ledger (spec 14 phase 1) - the stocks decisions read, via
+     * the same lenses. null = no such store exists (a storage-less room and an
+     * empty storage are different facts).
+     */
+    /** Warchest balance: storage energy, or null when the room has no storage. */
+    storageEnergy: number | null;
+    /** Energy pooled at the controller side (controllerSideStock lens). */
+    controllerStock: number | null;
+    /** Is the controller feeder actively relaying storage -> controller? */
+    feederActive: boolean;
   }[];
 }
 
@@ -337,6 +349,11 @@ export interface CorpsTelemetry {
     bodyParts: number;
     /** ACTUAL body parts by type for this corp's live creeps; {} when it has none. */
     body: { [part: string]: number };
+    /**
+     * Inputs of the corp's last sizing decision, exported verbatim from the
+     * decision-site stamp (spec 14 phase 2). Absent for corps that don't stamp.
+     */
+    sizing?: CorpSizingRecord;
     createdAt: number;
     lastActivityTick: number;
   }[];
@@ -543,13 +560,16 @@ export class Telemetry {
           rclProgress: room.controller.progress,
           rclProgressTotal: room.controller.progressTotal,
           energyAvailable: room.energyAvailable,
-          energyCapacity: room.energyCapacityAvailable
+          energyCapacity: room.energyCapacityAvailable,
+          storageEnergy: room.storage?.my ? room.storage.store.energy ?? 0 : null,
+          controllerStock: controllerSideStock(room.controller),
+          feederActive: !!room.memory.controllerFeederActive
         });
       }
     }
 
     const telemetry: CoreTelemetry = {
-      version: 3, // Version 3: added actual body-parts capture (measured from Creep.body)
+      version: 4, // Version 4: room energy ledger (storage/controller stocks, feeder state)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -822,6 +842,7 @@ export class Telemetry {
         creepCount,
         bodyParts: body.total,
         body: body.byPart,
+        sizing: corp.lastSizing,
         createdAt: corp.createdAt,
         lastActivityTick: corp.lastActivityTick
       });
@@ -830,7 +851,7 @@ export class Telemetry {
     }
 
     const telemetry: CorpsTelemetry = {
-      version: 3, // Version 3: added actual body-parts capture (measured from Creep.body)
+      version: 4, // Version 4: sizing records (decision-site inputs, spec 14 phase 2)
       tick: Game.time,
       corps,
       summary: {

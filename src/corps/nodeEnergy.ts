@@ -419,3 +419,24 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
   else creep.drop(RESOURCE_ENERGY);
   return moved;
 }
+
+/**
+ * Energy actually pooled at the controller side: containers/storage within 4
+ * of the controller plus loose energy near the input spot. THE lens for
+ * stock-grounded upgrader sizing (UpgradingCorp) AND the telemetry room
+ * ledger (spec 14 phase 1) - both read this one function so the number a
+ * dashboard shows is the number the decision used.
+ */
+export function controllerSideStock(controller: StructureController): number {
+  const spot = controllerInputSpot(controller).pos;
+  let stock = 0;
+  for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
+    if (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) {
+      stock += (s as StructureContainer | StructureStorage).store[RESOURCE_ENERGY];
+    }
+  }
+  for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {
+    if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
+  }
+  return stock;
+}

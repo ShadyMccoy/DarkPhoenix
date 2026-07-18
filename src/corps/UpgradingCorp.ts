@@ -7,7 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { controllerInputSpot, controllerParkingTiles } from "./nodeEnergy";
+import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
@@ -70,15 +70,23 @@ export function upgraderTargetCount(
  * consumers scale up to eat it" - which a feeder-capped 2000 input stock
  * otherwise hides (measured live: 100k banked, upgraders sized to ~3.3 e/t).
  */
+export function upgraderSizing(
+  planAllocated: number,
+  stock: number | null,
+  bankedBehindFeeder: number | null
+): { allocated: number; inflow: number | null } {
+  if (stock === null) return { allocated: planAllocated, inflow: null };
+  const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
+  const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
+  return { allocated: Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, inflow))), inflow };
+}
+
 export function upgraderAllocation(
   planAllocated: number,
   stock: number | null,
   bankedBehindFeeder: number | null
 ): number {
-  if (stock === null) return planAllocated;
-  const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
-  const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
-  return Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, inflow)));
+  return upgraderSizing(planAllocated, stock, bankedBehindFeeder).allocated;
 }
 
 /**
@@ -413,7 +421,7 @@ export class UpgradingCorp extends Corp {
       spawn && spawn.room.memory.controllerFeederActive && spawn.room.storage?.my
         ? spawn.room.storage.store.energy ?? 0
         : null;
-    const allocated = upgraderAllocation(planAllocated, stock, bankedBehindFeeder);
+    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder);
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -429,6 +437,11 @@ export class UpgradingCorp extends Corp {
       ? controllerParkingTiles(controller, controllerInputSpot(controller).pos).length
       : UPGRADER_COUNT_CAP;
     const targetCount = upgraderTargetCount(allocated, affordableWork, parking, controller?.level);
+
+    // Decision-symmetry stamp (spec 14 phase 2): record the inputs THIS sizing
+    // read, for telemetry to export verbatim. Answers "why is the upgrader N
+    // WORK" from a capture: plan vs stock vs inflow vs what won.
+    this.lastSizing = { tick: ctx.tick, planAllocated, stock, banked: bankedBehindFeeder, inflow, allocated, targetCount };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
     // lead time (build + walk to the controller) keeps working but no longer
     // counts, so its successor spawns early enough for the controller's
@@ -514,17 +527,9 @@ export class UpgradingCorp extends Corp {
    * primitive piles and proper structures obey the same principle.
    */
   private controllerSideStock(controller: StructureController): number {
-    const spot = controllerInputSpot(controller).pos;
-    let stock = 0;
-    for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
-      if (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) {
-        stock += (s as StructureContainer | StructureStorage).store[RESOURCE_ENERGY];
-      }
-    }
-    for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {
-      if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
-    }
-    return stock;
+    // Shared lens (nodeEnergy.controllerSideStock): the telemetry room ledger
+    // reads the SAME function, so the dashboard number is the decision's number.
+    return controllerSideStock(controller);
   }
 
   private effectiveAllocated(room: Room, base: number): number {

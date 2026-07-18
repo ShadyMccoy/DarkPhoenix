@@ -1,7 +1,14 @@
 # 14 — Telemetry observability: answer the basic questions
 
-**Status:** proposed 2026-07-18. Phases 0 (actual bodies, PR #111) and 0b
-(plan-side bodies, PR #113) landed/in-review; phases 1–4 open.
+**Status:** phases 0/0b LANDED (PRs #111/#113); phases 1–2 implemented
+2026-07-18 (room energy ledger, core v4; sizing records, corps v4 — first
+stamper: UpgradingCorp via the shared `nodeEnergy.controllerSideStock`
+lens and `upgraderSizing`); phases 3–4 open.
+Deviation from the plan as written: phase 1 drops the
+`spawnEnergy`/`extensionEnergy` split — no decision reads a per-structure
+split (the lens decisions read is `energyAvailable`/`energyCapacity`,
+already exported), and the ledger carries only lenses decisions actually
+use.
 
 ## The problem, from evidence
 
@@ -56,6 +63,7 @@ Extend `CoreTelemetry.rooms[]` with the stocks decisions read:
 Acceptance (unit, census-test style): a mocked room with storage/container
 stocks lands each field in segment 0; a storage-less room reports nulls,
 not zeros. Core version 3 → 4.
+**DONE** — `test/unit/telemetry/roomLedger.test.ts`.
 
 ### Phase 2 — sizing records (the "why is it 2 WORK" question)
 
@@ -71,6 +79,8 @@ Acceptance: unit test drives `getSpawnDemand` with a known stock and
 asserts the corps segment carries the exact inputs the decision used
 (not recomputed values). Corps version 3 → 4 (one bump shared with any
 concurrently landing field).
+**DONE** — `test/unit/telemetry/sizingRecord.test.ts` (stamp verbatim
+export + UpgradingCorp decision-site stamp on the plan-trusted path).
 
 ### Phase 3 — spawn meter (the "what is spawn capacity at" question)
 
