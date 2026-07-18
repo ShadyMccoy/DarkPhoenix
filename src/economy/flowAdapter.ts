@@ -292,6 +292,14 @@ export function buildColonyProblem(
   // is a ground-stock-shaped supply at the storage position).
   sources.push(...transientSources, ...bankSources);
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
+  // The warchest surplus draw (spec 03). Unlike scavenge piles this is a
+  // DURABLE, tapered supply (bank.ts prices and bounds it), so standing
+  // fleets may size to it - it funds the controller today and, below,
+  // construction (owner 2026-07-18: "building takes priority over the
+  // upgrading... use all the energy in the storage as needed, same as for
+  // the upgrader" - the sink ladder already ranks construction 70 above
+  // controller 50, so opening the capacity valve is the whole change).
+  const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
 
   // Rooms whose bank is built: their controller stops mopping up the surplus so
   // the storage can soak it (see controllerRoutingCapacity / STORAGE_UPGRADE_TARGET).
@@ -338,10 +346,13 @@ export function buildColonyProblem(
             // flat 5 e/t cap was the measured RCL2->3 bottleneck: a 1-WORK
             // builder against 15k of extensions kept rooms at 300 capacity for
             // thousands of ticks (spec 10 G6, owner directive 2026-07-09).
-            // Bounded by MINED supply ("within reason"): transient stocks may
-            // still be routed here by the fill pass, but the standing builder
-            // fleet is never sized to one-off piles.
-            Math.max(minedSupply, 1)
+            // Bounded by MINED supply plus the BANK draw ("within reason"):
+            // scavenge piles stay excluded (one-off stocks must not size
+            // standing fleets), but the warchest surplus is durable and
+            // tapered, so construction may burn it - at 5 e/WORK-tick it
+            // turns the bank into finished roads/structures 5x more
+            // spawn-cheaply than upgrading burns the same energy.
+            Math.max(minedSupply + bankRate, 1)
           : kind === "storage"
           ? Math.max(totalSupply, 1) // soak excess
           : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage, surplusRooms), // controller: mops up the remainder, unless a still-filling storage banks the surplus
@@ -354,7 +365,6 @@ export function buildColonyProblem(
   // bodies the plan implies but never commissions through routeToSinks.
   // Deducted from the planner's spawn-parts ledger so the sink fill spends
   // only what the spawn can truly still build.
-  const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
   const remoteRooms = new Set(
     sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );

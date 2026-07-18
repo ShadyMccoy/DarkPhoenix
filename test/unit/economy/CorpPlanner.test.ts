@@ -11,6 +11,7 @@ import {
   carryPartsFor,
   miningBudgetPerSpawn,
   spawnPartsFor,
+  constructionWorkSpawnLoad,
   controllerWorkSpawnLoad,
   effectiveLife,
   MINER_PARTS,
@@ -92,6 +93,24 @@ describe("economy/CorpPlanner", () => {
       expect(sp.allocated).to.be.closeTo(20, 1e-9); // value 100 funds first, in full
       expect(ctrl.allocated).to.be.greaterThan(0); // residual parts still upgrade
       expect(ctrl.allocated).to.be.lessThan(210); // energy alone would give ~230 - the cap must bind
+    });
+
+    it("construction outranks the controller for the surplus and is charged in the ledger (5x cheaper per e/t)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("a", 10), stock("pile", 5, 150)],
+          sinks: [sink("build", "construction", 6, 70, 200), sink("ctrl", "controller", 8, 50, 500)],
+          infraPartsPerTick: 0.2
+        })
+      );
+      const build = plan.sinks.find(s => s.kind === "construction")!;
+      const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+      expect(build.allocated).to.be.greaterThan(ctrl.allocated); // sites first - the ladder unchanged
+      const miners = plan.miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
+      const haul = plan.haulers.reduce((s, h) => s + h.spawnParts, 0);
+      const work = controllerWorkSpawnLoad(ctrl.allocated, 8) + constructionWorkSpawnLoad(build.allocated, 6);
+      expect(miners + haul + work + 0.2).to.be.at.most(SPAWN_PARTS_PER_TICK + 1e-9);
     });
 
     it("with no infra load and light flows the cap is slack and allocations are untouched", () => {

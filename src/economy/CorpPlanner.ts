@@ -34,6 +34,7 @@ import {
   netEnergy,
   spawnPartsFor,
   carryPartsFor,
+  constructionWorkSpawnLoad,
   controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
@@ -397,8 +398,15 @@ function routeToSinks(
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
-    // Upgrader bodies for THIS sink (controllers only) walk from the nearest spawn.
-    const workPerUnit = sink.kind === "controller" ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos)) : 0;
+    // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
+    // a controller, builders at construction (5x cheaper per e/t - BUILD is
+    // 5 energy per WORK-tick). Spawn/storage sinks have no standing body.
+    const workPerUnit =
+      sink.kind === "controller"
+        ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        : sink.kind === "construction"
+        ? constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        : 0;
 
     for (const { id, d } of order) {
       if (acc.allocated >= target - 1e-9) break;

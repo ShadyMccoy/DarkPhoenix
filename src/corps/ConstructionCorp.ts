@@ -19,7 +19,7 @@ import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
-import { spendableBankSurplus } from "../economy/bank";
+import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
 
@@ -406,6 +406,13 @@ export class ConstructionCorp extends Corp {
     }
     const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
     if (site) around(site.pos, 3);
+    // The warchest SURPLUS is build fuel (owner 2026-07-18: "use all the
+    // energy in the storage as needed, same as for the upgrader") - the same
+    // spendable-surplus lens the whole spec-03 spend path uses, so the
+    // expansion warchest floor stays untouchable. Without this a road site
+    // near the spine saw no container and sized a 5 e/t token crew against a
+    // 600k bank.
+    if (room.storage?.my) stock += spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0);
     return stock;
   }
 
@@ -482,6 +489,19 @@ export class ConstructionCorp extends Corp {
       const stage = builders[0];
       if (stage && creep.pos.getRangeTo(stage) > 1) {
         creep.moveTo(stage, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      }
+      return;
+    }
+
+    // SURPLUS-SPEND REGIME: with the warchest full, the bank IS the build
+    // fuel - the tanker draws from storage directly (same spendable-surplus
+    // lens as buildSideStock, so sizing and fetching cannot disagree). This
+    // is what lets road projects burn banked energy instead of waiting on a
+    // committed source's trickle.
+    const bank = room.storage;
+    if (bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0) {
+      if (creep.withdraw(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(bank, { visualizePathStyle: { stroke: "#00ff00" } });
       }
       return;
     }
@@ -716,6 +736,14 @@ export class ConstructionCorp extends Corp {
       if (entry?.paved || entry?.declined) continue;
       if (this.hasContainerNear(room, source.pos, 1)) return true;
     }
+    // The feeder trunk counts as outstanding road work too (same gate the
+    // placement path uses: depot era, input container standing, no verdict).
+    const feeder = room.memory.roadRoutes?.["feeder"];
+    if (!feeder?.paved && !feeder?.declined && room.storage?.my) {
+      const ctrl = room.controller;
+      if (ctrl && ctrl.pos.findInRange(FIND_STRUCTURES, 3, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length > 0)
+        return true;
+    }
     return false;
   }
 
@@ -763,11 +791,13 @@ export class ConstructionCorp extends Corp {
       // Paving is a SURPLUS investment: in a demand-saturated room (organic
       // spawning consuming the whole income) a paving project tips the spawn
       // network into the critical failsafe and disrupts delivery (measured:
-      // the tender-bus T4 world). A full spawn bank is the cheap observable
-      // that income currently exceeds spawn demand; the placement cooldown
-      // retries every 10 ticks, so a healthy room catches a full-bank tick
-      // between spawns soon enough.
-      if (room.energyAvailable < room.energyCapacityAvailable) return;
+      // the tender-bus T4 world). Two surplus observables, either suffices:
+      // a full spawn bank (lean rooms between spawns), or a warchest in
+      // SURPLUS (owner 2026-07-18: a 600k bank is the surplus signal - the
+      // full-bank tick almost never occurred while the spawn ran pinned, so
+      // zero routes were ever judged despite the fattest bank all session).
+      const surplusBanked = room.storage?.my && spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0;
+      if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) return;
 
       const tiles = this.planRoadPath(room, source, depotPos, spawn.pos);
       if (!tiles) continue;
@@ -786,6 +816,62 @@ export class ConstructionCorp extends Corp {
       );
       return; // one route at a time - the builders finish this before the next
     }
+
+    // FEEDER TRUNK (owner 2026-07-18): the storage->controller-input lane
+    // carries the relay (upgrade target + the whole bank draw) - the highest
+    // flow in the colony - yet candidacy was home-source-only and it was
+    // never judged. Same verdict machinery, keyed "feeder".
+    this.tryPlaceFeederRoadRoute(room, routes);
+  }
+
+  /** Judge and pave the storage -> controller-input lane, receipt-keyed "feeder". */
+  private tryPlaceFeederRoadRoute(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    const entry = routes["feeder"];
+    if (entry?.paved || entry?.declined) return;
+    const bank = room.storage;
+    const ctrl = room.controller;
+    if (!bank?.my || !ctrl) return; // the lane exists only in the depot era
+    const input = ctrl.pos.findInRange(FIND_STRUCTURES, 3, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    })[0] as StructureContainer | undefined;
+    if (!input) return; // rung 1.7 builds the input container first
+
+    if (entry) {
+      if (this.roadTilesBuilt(room, entry.tiles)) {
+        entry.paved = true;
+        console.log(`[Construction] Feeder trunk fully paved`);
+        return;
+      }
+      this.placeMissingRoadSites(room, entry.tiles);
+      return;
+    }
+
+    if (this.wantsMaintenance(room)) return;
+    if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable)
+      return;
+
+    const result = PathFinder.search(
+      bank.pos,
+      { pos: input.pos, range: 1 },
+      { plainCost: 2, swampCost: 10, maxRooms: 1, roomCallback: () => this.roadPlanningCosts(room) }
+    );
+    if (result.incomplete || result.path.length === 0) return;
+    const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
+    // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
+    const spec = this.roadRouteSpec(room, tiles, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0));
+    const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+    if (!verdict.worthPaving) {
+      routes["feeder"] = { tiles: [], declined: true };
+      return;
+    }
+    const flat: number[] = [];
+    for (const t of tiles) flat.push(t.x, t.y);
+    routes["feeder"] = { tiles: flat };
+    const placed = this.placeMissingRoadSites(room, flat);
+    console.log(
+      `[Construction] Paving feeder trunk: ${tiles.length} tiles (${placed} sites), ` +
+        `payback ~${Math.round(verdict.paybackTicks)}t`
+    );
   }
 
   /**
@@ -827,13 +913,13 @@ export class ConstructionCorp extends Corp {
   }
 
   /** RoadRouteSpec for a planned path: swamp counted from terrain, flow = source rate. */
-  private roadRouteSpec(room: Room, tiles: { x: number; y: number }[]): RoadRouteSpec {
+  private roadRouteSpec(room: Room, tiles: { x: number; y: number }[], flow: number = SOURCE_RATE): RoadRouteSpec {
     const terrain = room.getTerrain();
     let swampTiles = 0;
     for (const t of tiles) {
       if (terrain.get(t.x, t.y) & TERRAIN_MASK_SWAMP) swampTiles++;
     }
-    return { plainTiles: tiles.length - swampTiles, swampTiles, flow: SOURCE_RATE };
+    return { plainTiles: tiles.length - swampTiles, swampTiles, flow };
   }
 
   /** Place road sites on planned tiles lacking both a road and a site. Returns count placed. */

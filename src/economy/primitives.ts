@@ -143,6 +143,25 @@ export function controllerWorkSpawnLoad(energyPerTick: number, distance: number)
   return (workParts * UPGRADER_PARTS_PER_WORK) / effectiveLife(distance);
 }
 
+/**
+ * Body parts per WORK of builder fleet (W-heavy build body: 5W1C3M = 1.8,
+ * rounded up for the shuttle tanker's share). With BUILD_ENERGY_PER_WORK = 5,
+ * a construction sink burns energy 5x more spawn-cheaply than a controller:
+ * the same e/t needs one fifth the WORK bodies.
+ */
+export const BUILDER_PARTS_PER_WORK = 2;
+
+/**
+ * Spawn build-time (parts/tick) to maintain the builder fleet burning
+ * `energyPerTick` at sites `distance` from the spawn - the construction-sink
+ * side of the plan's spawn-parts ledger (spec 15 P4), mirror of
+ * controllerWorkSpawnLoad. Continuous, like every planning formula here.
+ */
+export function constructionWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  const workParts = energyPerTick / BUILD_ENERGY_PER_WORK;
+  return (workParts * BUILDER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
 /** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
 const FEEDER_NOMINAL_DISTANCE = 6;
 
