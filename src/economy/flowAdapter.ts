@@ -23,7 +23,7 @@ import {
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { coreLink, sourceLink } from "../corps/nodeEnergy";
-import { INVADER_TAX_PER_ENERGY, haulerOverhead, minerOverhead } from "./primitives";
+import { INVADER_TAX_PER_ENERGY, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
@@ -349,7 +349,18 @@ export function buildColonyProblem(
     });
   }
 
-  return { spawns, sources, sinks, dist };
+  // Standing-infra spawn load (spec 15 P4): the feeder shuttle sized to the
+  // bank relay, the tender detail, one reserver per mined remote room - real
+  // bodies the plan implies but never commissions through routeToSinks.
+  // Deducted from the planner's spawn-parts ledger so the sink fill spends
+  // only what the spawn can truly still build.
+  const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
+  const remoteRooms = new Set(
+    sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
+  );
+  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, remoteRooms.size);
+
+  return { spawns, sources, sinks, dist, infraPartsPerTick };
 }
 
 /**

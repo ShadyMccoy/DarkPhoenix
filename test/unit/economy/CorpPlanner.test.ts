@@ -6,7 +6,16 @@ import {
   PlannerSink,
   PlannerSpawn
 } from "../../../src/economy/CorpPlanner";
-import { netEnergy, carryPartsFor, miningBudgetPerSpawn, spawnPartsFor } from "../../../src/economy/primitives";
+import {
+  netEnergy,
+  carryPartsFor,
+  miningBudgetPerSpawn,
+  spawnPartsFor,
+  controllerWorkSpawnLoad,
+  effectiveLife,
+  MINER_PARTS,
+  SPAWN_PARTS_PER_TICK
+} from "../../../src/economy/primitives";
 import { Position } from "../../../src/types/Position";
 
 // 1-D world: everything in one room, distance = |dx| + |dy|, so we can place a
@@ -46,6 +55,57 @@ const stock = (id: string, x: number, rate: number): PlannerSource => ({
 });
 
 describe("economy/CorpPlanner", () => {
+  describe("spawn-feasibility (spec 15 P4: the plan is an equilibrium, not a wish)", () => {
+    // Energy-abundant, spawn-scarce world: the energy side would happily
+    // allocate ~230 e/t to the controller, but the bodies to haul and burn it
+    // cost more parts/tick than one spawn can build. The plan must stop
+    // filling when the spawn's parts are spent - measured live 2026-07-18:
+    // an unconstrained plan implied 0.56 parts/t against the 0.333 physical
+    // ceiling and the colony self-limited via starvation queues instead.
+    const world = () =>
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("a", 10), source("b", 14), source("c", 18), stock("pile", 5, 200)],
+        sinks: [sink("sp", "spawn", 0, 100, 20), sink("ctrl", "controller", 8, 50, 500)],
+        infraPartsPerTick: 0.12
+      });
+
+    function impliedPartsPerTick(plan: ReturnType<typeof planColony>): number {
+      // Miner BODIES only - m.spawnParts is the budget-gate estimate that
+      // presumes a haul leg, and the plan's real haul is in plan.haulers.
+      const miners = plan.miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
+      const haulers = plan.haulers.reduce((s, h) => s + h.spawnParts, 0);
+      const ctrl = plan.sinks.find(s => s.kind === "controller");
+      const work = ctrl ? controllerWorkSpawnLoad(ctrl.allocated, 8) : 0;
+      return miners + haulers + work + 0.12;
+    }
+
+    it("never commissions more body maintenance than the spawn can build", () => {
+      const plan = planColony(world());
+      expect(impliedPartsPerTick(plan)).to.be.at.most(SPAWN_PARTS_PER_TICK + 1e-9);
+    });
+
+    it("the parts cap BINDS here (energy alone would allocate far more) and value order decides who gets parts", () => {
+      const plan = planColony(world());
+      const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+      const sp = plan.sinks.find(s => s.kind === "spawn")!;
+      expect(sp.allocated).to.be.closeTo(20, 1e-9); // value 100 funds first, in full
+      expect(ctrl.allocated).to.be.greaterThan(0); // residual parts still upgrade
+      expect(ctrl.allocated).to.be.lessThan(210); // energy alone would give ~230 - the cap must bind
+    });
+
+    it("with no infra load and light flows the cap is slack and allocations are untouched", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("a", 10)],
+          sinks: [sink("ctrl", "controller", 0, 50, 100)]
+        })
+      );
+      expect(plan.sinks.find(s => s.kind === "controller")!.allocated).to.be.closeTo(10, 1e-6);
+    });
+  });
+
   describe("Phase 1 - producer selection", () => {
     it("N=1: mines a single profitable source and sizes its hauler to the controller", () => {
       const plan = planColony(

@@ -34,10 +34,13 @@ import {
   netEnergy,
   spawnPartsFor,
   carryPartsFor,
+  controllerWorkSpawnLoad,
+  effectiveLife,
   minerOverhead,
   haulerOverhead,
   miningBudgetPerSpawn,
-  MINER_PARTS
+  MINER_PARTS,
+  SPAWN_PARTS_PER_TICK
 } from "./primitives";
 
 // =============================================================================
@@ -108,6 +111,13 @@ export interface ColonyProblem {
   sinks: PlannerSink[];
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
+  /**
+   * Spawn build-time (parts/tick) of standing infrastructure the plan implies
+   * but does not commission here (feeder shuttle, tender detail, reservers) -
+   * primitives.infraSpawnLoad, computed by the flow adapter. Deducted from
+   * the spawn-parts ledger before the sink fill spends the rest (spec 15 P4).
+   */
+  infraPartsPerTick?: number;
 }
 
 /** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
@@ -338,11 +348,26 @@ function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
  */
 function routeToSinks(
   problem: ColonyProblem,
-  supply: SupplyPoint[]
+  supply: SupplyPoint[],
+  partsBudget: number
 ): { haulers: CommissionedHauler[]; sinks: CommissionedSink[] } {
   const { sinks, dist } = problem;
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
   const spawnBySource = new Map(supply.map(s => [s.sourceId, s.spawnId]));
+
+  // THE SPAWN-PARTS LEDGER (spec 15 P4): every unit of energy allocated here
+  // implies standing bodies - the haulers that move it and, at a controller,
+  // the upgraders that burn it. The ledger starts at the spawn's physical
+  // build-rate minus what miners and standing infra already claim, and each
+  // allocation below spends it. When it runs dry the fill STOPS: the plan is
+  // an equilibrium the spawn can actually maintain, with the value order
+  // deciding who got the scarce parts (measured 2026-07-18: without this the
+  // plan implied 0.56 parts/t against the 0.333 ceiling and the colony
+  // self-limited via starvation queues instead of by value).
+  let partsRemaining = Math.max(0, partsBudget);
+  // A consumer sink's bodies walk from the spawn nearest it.
+  const nearestSpawnDist = (pos: Position): number =>
+    problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
   // Remaining gross energy each supply point can still ship.
   const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
@@ -372,17 +397,27 @@ function routeToSinks(
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
+    // Upgrader bodies for THIS sink (controllers only) walk from the nearest spawn.
+    const workPerUnit = sink.kind === "controller" ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos)) : 0;
+
     for (const { id, d } of order) {
       if (acc.allocated >= target - 1e-9) break;
       const avail = pool.get(id) ?? 0;
-      const take = Math.min(avail, target - acc.allocated);
-      if (take <= 1e-9) continue;
-      pool.set(id, avail - take);
-      acc.allocated += take;
-      acc.sources.push({ sourceId: id, amount: take, distance: d });
       // A paved route's 2:1 hauler needs 1.5 parts per CARRY, not 2 - the
       // spawn-budget payoff that makes roads worth building at all.
       const paved = sourceById.get(id)?.paved === true;
+      // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
+      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, d)) / effectiveLife(d) + workPerUnit;
+      const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
+      const take = Math.min(avail, target - acc.allocated, maxByParts);
+      if (take <= 1e-9) {
+        if (maxByParts <= 1e-9) return; // ledger dry - the fill is over for this sink
+        continue;
+      }
+      partsRemaining -= take * chargePerUnit;
+      pool.set(id, avail - take);
+      acc.allocated += take;
+      acc.sources.push({ sourceId: id, amount: take, distance: d });
       haulers.push({
         sourceId: id,
         sinkId: sink.id,
@@ -390,7 +425,7 @@ function routeToSinks(
         distance: d,
         flowRate: take,
         carryParts: carryPartsFor(take, d),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / Math.max(1, 1500 - d),
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / effectiveLife(d),
         ...(paved ? { paved } : {})
       });
     }
@@ -419,7 +454,13 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
     ...selectTransientSupply(problem)
   ];
-  const { haulers, sinks } = routeToSinks(problem, supply);
+  // The spawn-parts ledger for the sink fill: physical build-rate minus the
+  // committed miners and the standing infra (feeder/tender/reservers - see
+  // ColonyProblem.infraPartsPerTick). Production is funded first in BOTH
+  // currencies; routing and consumers spend what remains.
+  const minerLoad = miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
+  const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
+  const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
   const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
   const totalDelivered = sinks.reduce((s, k) => s + k.allocated, 0);
@@ -430,7 +471,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
 
   const spawnPartsUsed = new Map<string, number>();
   for (const m of miners) {
-    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / Math.max(1, 1500 - m.distance));
+    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / effectiveLife(m.distance));
   }
   for (const h of haulers) {
     spawnPartsUsed.set(h.spawnId, (spawnPartsUsed.get(h.spawnId) ?? 0) + h.spawnParts);

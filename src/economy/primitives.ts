@@ -118,6 +118,54 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
   return inflow + stock / CREEP_LIFETIME;
 }
 
+/**
+ * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
+ * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
+ * energy allocation into the standing bodies that burn it.
+ */
+export const UPGRADER_PARTS_PER_WORK = 4 / 3;
+
+/**
+ * Spawn build-time (parts/tick) to MAINTAIN the upgrader fleet burning
+ * `energyPerTick` at a controller `distance` tiles from its spawn. One WORK
+ * burns UPGRADE_ENERGY_PER_WORK (1) e/t, each WORK rides in a body of
+ * UPGRADER_PARTS_PER_WORK parts, amortized over the effective life. This is
+ * the consumer side of the plan's spawn-parts ledger (spec 15 P4): energy
+ * allocations are wishes until the bodies that burn them are affordable in
+ * the spawn's OTHER currency.
+ */
+export function controllerWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  // Continuous, like carryPartsFor: planning math stays fractional and the
+  // body sizer rounds (workPartsForEnergyRate ceils - correct for bodies,
+  // wrong for a ledger, where the ceil made charge and audit disagree by a
+  // fraction of one WORK body).
+  const workParts = energyPerTick / UPGRADE_ENERGY_PER_WORK;
+  return (workParts * UPGRADER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
+/** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
+const FEEDER_NOMINAL_DISTANCE = 6;
+
+/**
+ * Spawn build-time (parts/tick) of the standing infrastructure the plan
+ * implies but does not commission through routeToSinks: the storage->
+ * controller feeder shuttle sized to `relayRate`, the extension tender
+ * detail, and one reserver per remote room. Priced at CURRENT behavior
+ * (reserver duty 1.0 - spec 15 P5; when the duty cycle ships this halves and
+ * frees the parts). Fed to the planner as ColonyProblem.infraPartsPerTick by
+ * the flow adapter, so the sink fill spends only what is truly left.
+ */
+export function infraSpawnLoad(relayRate: number, remoteRoomCount: number): number {
+  const feeder = (2 * carryPartsFor(relayRate, FEEDER_NOMINAL_DISTANCE)) / effectiveLife(FEEDER_NOMINAL_DISTANCE);
+  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body
+  const tender = TENDER_FLEET_PARTS / CREEP_LIFETIME;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
+  const CLAIM_LIFETIME = 600;
+  const RESERVER_WALK = 60; // nominal remote-controller walk
+  const reservers = (remoteRoomCount * RESERVER_PARTS_PER_ROOM) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  return feeder + tender + reservers;
+}
+
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */
 export function minerOverhead(distance: number): number {
   return MINER_COST / effectiveLife(distance);
