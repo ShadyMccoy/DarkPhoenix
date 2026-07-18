@@ -366,6 +366,8 @@ export interface IntelTelemetry {
     invaderCorePresent?: boolean;
     raidDebt?: number;
     lastRaidSeen?: number;
+    reservedUntil?: number;
+    reservedBy?: string;
   }[];
 }
 
@@ -923,7 +925,11 @@ export class Telemetry {
           ...(intel.invaderReservedUntil !== undefined ? { invaderReservedUntil: intel.invaderReservedUntil } : {}),
           ...(intel.invaderCorePresent !== undefined ? { invaderCorePresent: intel.invaderCorePresent } : {}),
           ...(intel.raidDebt !== undefined ? { raidDebt: intel.raidDebt } : {}),
-          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {})
+          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {}),
+          // Our reservation bank (spec 15 P5): the duty-cycle lens, exported
+          // so a capture shows what the reserver gate coasts on.
+          ...(intel.reservedUntil !== undefined ? { reservedUntil: intel.reservedUntil } : {}),
+          ...(intel.reservedBy !== undefined ? { reservedBy: intel.reservedBy } : {})
         });
       }
     }
