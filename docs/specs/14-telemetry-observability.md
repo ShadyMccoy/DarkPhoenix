@@ -248,6 +248,27 @@ tail events; suspicion: time-varying effectivePriority lets the published
 head and the buy walk diverge across a bucket boundary, and tempo margins
 thinned).
 
+### 2026-07-18 (evening) — P5 reserver duty cycle deployed
+
+The last standing price/behavior drift closed: reservers now coast on the
+intel-stamped reservation bank (RoomDiscovery stamps reservedUntil/
+reservedBy - exact while blind; myReservationTicksLeft lens; demand gate
+buys only below RESERVATION_REFRESH_FLOOR 800; work() orders targets by
+lowest bank through the same lens). One 2-CLAIM stint nets ~+540 bank →
+one stint per ~1080t = the 0.5 duty reserverTollPerRoom always priced.
+Gate: trio green, def-t5 all asserts satisfied (the adjacent invader-
+reservation intel path verified), plan-t5 pre-existing-unchanged (task 9).
+Deployed 2574a68-era dist. Predicted: sizing stamps carry per-room banks,
+ledger P5 FAIL→ok, reserver cadence halves, remotes hold 3000 throughout.
+Marker-parse refinement learned: a PASSING --cell run prints satisfied
+asserts, not a [P] line - absence of [x]/[T] plus satisfied asserts = pass.
+
+Open observability item (owner question "I thought we handle raids with
+fighters"): the raid post-mortem is currently unanswerable - blackbox ring
+~180t, segment 3 exports no per-room harvestedSinceRaid or guard state.
+Next: defense ledger line (meter + guard state export + mark-time
+post-mortem stamp); fold guards into the P4 infra deduction.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
