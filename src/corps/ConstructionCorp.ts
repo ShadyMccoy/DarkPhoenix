@@ -147,6 +147,7 @@ export class ConstructionCorp extends Corp {
    * builder while the rest refuel.
    */
   private readonly tankers: Squad;
+  private readonly repairers: Squad;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("building", nodeId, customId);
@@ -169,6 +170,20 @@ export class ConstructionCorp extends Corp {
       producesIncome: false,
       blockingWhenEmpty: true, // the first feeder is essential
       usefulPart: CARRY
+    });
+    // REPAIR IS A SEPARATE FUNCTION (owner 2026-07-18: "the existence of
+    // construction sites doesn't have to impact the repair in any way").
+    // One standing small detail that ONLY repairs, fielded whenever any
+    // structure is below the maintenance start gate - regardless of sites.
+    // Builders never repair; paving never yields to repair.
+    this.repairers = new Squad({
+      corpId: this.id,
+      workType: "repair",
+      role: "builder", // census/cells count builders; the split is by workType
+      value: 66, // routine upkeep: below the build crew, above idle consumption
+      producesIncome: false,
+      blockingWhenEmpty: false,
+      usefulPart: WORK
     });
   }
 
@@ -219,9 +234,9 @@ export class ConstructionCorp extends Corp {
     }
     const constructionSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) {
-      // Nothing to build, but containers decay - keep one builder while any needs
-      // repair, so a finished (RCL-maxed) room still maintains its containers.
-      this.targetBuilders = this.wantsMaintenance(workRoom) ? 1 : 0;
+      // Nothing to build. Maintenance belongs to the repair detail (separate
+      // squad, runs regardless of sites) - the build crew stands down.
+      this.targetBuilders = 0;
       return;
     }
 
@@ -349,6 +364,8 @@ export class ConstructionCorp extends Corp {
     // builder or several, the relay of feeders, and any creep mid-recycle.
     this.builders.run(creep => this.runBuilder(creep, room), spawn);
     this.tankers.run(creep => this.runTanker(creep, room), spawn);
+    // The repair detail runs UNCONDITIONALLY - sites or no sites.
+    this.repairers.run(creep => this.doMaintenance(creep, room), spawn);
   }
 
   /**
@@ -780,18 +797,10 @@ export class ConstructionCorp extends Corp {
         return;
       }
 
-      // Starting a NEW paving project yields only to CRITICAL repair (owner
-      // 2026-07-18: routine maintenance trickles forever - roads/containers
-      // decay continuously - so gating on wantsMaintenance serialized paving
-      // behind an effectively permanent condition). The economics are
-      // deterministic and lopsided: a room's standing decay costs a few e/t
-      // (container ~0.1, road tile ~0.01) against a bank-funded construction
-      // allocation of 100+, so energy always covers both. The real risk is
-      // crew exclusivity, and that is already handled: a structure entering
-      // the critical band is rescued EVEN WHILE sites are open
-      // (findCriticalRepairTarget preemption). Routine 60->99% top-ups
-      // resume when the project's sites clear.
-      if (this.wantsCriticalRecovery(room)) return;
+      // No repair gate at all: repair is a separate standing detail (owner
+      // 2026-07-18) that runs regardless of sites, and room decay costs a
+      // few e/t against a bank-funded allocation - paving and upkeep never
+      // compete for energy or crew.
 
       // Paving is a SURPLUS investment: in a demand-saturated room (organic
       // spawning consuming the whole income) a paving project tips the spawn
@@ -851,8 +860,6 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // Critical-only yield, same rationale as the source-route gate above.
-    if (this.wantsCriticalRecovery(room)) return;
     if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable)
       return;
 
@@ -1404,33 +1411,11 @@ export class ConstructionCorp extends Corp {
   }
 
   private runBuilder(creep: Creep, room: Room): void {
-    // No construction sites: switch to container maintenance (fuel from + repair the
-    // most decayed container) instead of standing idle.
+    // Builders ONLY build (owner 2026-07-18: repair is a fully separate
+    // function - the repair detail owns ALL maintenance, critical included,
+    // sites or no sites). No mode switches, no diversions.
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) {
-      delete creep.memory.repairingCritical;
-      this.doMaintenance(creep, room);
-      return;
-    }
-
-    // EMERGENCY REPAIR outranks building: ordinary maintenance is gated off
-    // entirely while any site exists (the builder builds one site at a time and
-    // only maintains a fully-built room), so a structure that decays past the
-    // critical gate mid-build would head to expiry with nothing repairing it.
-    // Divert the crew to rescue it, latched with hysteresis (repair up out of the
-    // idle-maintenance band before resuming) so it doesn't thrash between a far
-    // site and the container each tick it dips past the start gate.
-    if (creep.memory.repairingCritical) {
-      if (this.wantsCriticalRecovery(room)) {
-        this.doMaintenance(creep, room);
-        return;
-      }
-      delete creep.memory.repairingCritical;
-    } else if (this.findCriticalRepairTarget(room)) {
-      creep.memory.repairingCritical = true;
-      this.doMaintenance(creep, room);
-      return;
-    }
+    if (sites.length === 0) return; // the squad plan retires the crew when nothing remains to build
 
     // A founding crew works OUT OF ITS SITE ROOM: the hauler founding lane
     // delivers energy at the site, not at the parent spawn, so walk over
@@ -1632,15 +1617,14 @@ export class ConstructionCorp extends Corp {
     const workRoom = this.workRoom(spawn);
     if (!workRoom) return [];
     const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
+    const repairerDemand = this.repairers.spawnDemand(this.repairerPlan(ctx, workRoom));
     if (sites.length === 0) {
-      // No sites, but containers decay: field one small builder to maintain them.
-      // It self-fuels at the container, so no tankers are needed (hence we return
-      // only the builder demand here, never the feeder demand below).
-      if (!this.wantsMaintenance(workRoom)) return [];
-      return this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
+      // No sites: only the standing repair detail may want staffing. It
+      // self-fuels at containers/storage, so it never needs tankers.
+      return repairerDemand;
     }
 
-    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
+    const builderDemand = [...this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom)), ...repairerDemand];
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
@@ -1659,6 +1643,18 @@ export class ConstructionCorp extends Corp {
    * always at a builder while the others refuel, sized to the builders' total
    * consumption and the refuel round-trip (see targetTankerCount).
    */
+  /** The standing repair detail: one small self-fueling W-heavy body while
+   * anything sits below the maintenance start gate. Independent of sites. */
+  private repairerPlan(ctx: SpawnDemandContext, room: Room): SquadPlan {
+    const body = buildUpgraderBody(Math.min(ctx.energyCapacity, 550), 2);
+    return {
+      target: this.wantsMaintenance(room) ? 1 : 0,
+      desiredCost: body.cost,
+      minCost: body.cost,
+      bodyParam: 2
+    };
+  }
+
   private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite): SquadPlan {
     // Big shuttles, few bodies (owner 2026-07-18: construction consumes 5x
     // more energy per WORK, so the DELIVERY side is the binding constraint -
