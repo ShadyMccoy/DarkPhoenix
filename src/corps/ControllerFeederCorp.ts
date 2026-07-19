@@ -28,6 +28,7 @@ import { feederRelayRate } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
+  controllerAllocation?: number;
 }
 
 /**
@@ -43,12 +44,24 @@ const CONTROLLER_FEED_TARGET = 2000;
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
  * while a bank surplus is being drawn down) that relays storage -> controller input.
  */
+/** Container-refill headroom the relay carries above the plan's controller
+ * flow: input-container decay plus a small buffer so the stock never starves
+ * between shuttle arrivals. */
+const FEEDER_STOCK_HEADROOM = 5;
+
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
+  /** The plan's controller-side flow (commission-owned, refreshed every round). */
+  private controllerAllocation?: number;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, customId);
     this.spawnId = spawnId;
+  }
+
+  /** The plan's controller allocation for this room - the relay's ceiling. */
+  public setControllerAllocation(v: number): void {
+    this.controllerAllocation = v;
   }
 
   public getSpawnId(): string {
@@ -227,7 +240,14 @@ export class ControllerFeederCorp extends Corp {
     const distance = spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
-    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(feederRelayRate(banked), distance) * 1.2));
+    // The relay serves the PLAN's controller flow, never the raw surplus
+    // formula: when construction preempts the bank the controller floors at
+    // ~2 e/t and relaying 115 into a full stock is 90+ wasted parts (owner
+    // t72421124). No allocation known (old commission) -> formula unclamped.
+    const surplusRate = feederRelayRate(banked);
+    const planFlow = this.controllerAllocation;
+    const relayRate = planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
     this.lastSizing = {
@@ -235,7 +255,9 @@ export class ControllerFeederCorp extends Corp {
       gate: feeders >= wantedFeeders ? "staffed" : "demand",
       banked,
       hasMiner,
-      relayRate: feederRelayRate(banked),
+      relayRate,
+      ...(planFlow !== undefined ? { planFlow } : {}),
+      surplusRate,
       distance,
       neededCarry,
       wantedFeeders,
@@ -262,11 +284,12 @@ export class ControllerFeederCorp extends Corp {
   }
 
   public serialize(): SerializedControllerFeederCorp {
-    return { ...super.serialize(), spawnId: this.spawnId };
+    return { ...super.serialize(), spawnId: this.spawnId, controllerAllocation: this.controllerAllocation };
   }
 
   public deserialize(data: SerializedControllerFeederCorp): void {
     super.deserialize(data);
+    this.controllerAllocation = data.controllerAllocation;
     this.spawnId = data.spawnId ?? this.spawnId;
   }
 }

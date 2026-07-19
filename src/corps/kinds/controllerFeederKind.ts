@@ -21,13 +21,30 @@ import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../Control
 export interface ControllerFeederAssignment {
   roomName: string;
   spawnId: string;
+  /**
+   * The plan's controller-side flow for this room (summed draft "upgrade"
+   * allocations). The feeder relays THIS, not the raw surplus formula - when
+   * construction preempts the bank the controller floor is ~2 e/t and a
+   * 115 e/t relay into a full stock is 90+ wasted parts (owner t72421124).
+   */
+  controllerAllocation: number;
 }
 
 export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
   kind: "controllerFeeder",
   runOrder: 41, // local mover, right after the extension tender (40)
 
-  propose(problem: ColonyProblem): Commission[] {
+  propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
+    // The plan's controller flow per room, from the draft's upgrade
+    // commissions - the same lens the upgraders size from (decision
+    // symmetry: the feeder must never relay more than the plan sends).
+    const ctrlFlowByRoom = new Map<string, number>();
+    for (const c of draft) {
+      if (c.kind !== "upgrade") continue;
+      const roomName = c.produces.at?.roomName;
+      if (!roomName) continue;
+      ctrlFlowByRoom.set(roomName, (ctrlFlowByRoom.get(roomName) ?? 0) + (c.consumes.energyRate ?? 0));
+    }
     const homeSpawnByRoom = new Map<string, string>();
     for (const s of problem.spawns) {
       if (!homeSpawnByRoom.has(s.pos.roomName)) {
@@ -42,7 +59,11 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
       // priced by the SpawnDirector's infrastructure tier, not the planner.
       consumes: { spawnPartsPerTick: 0 },
       produces: { valuePerTick: 0 },
-      assignment: { roomName, spawnId } as ControllerFeederAssignment
+      assignment: {
+        roomName,
+        spawnId,
+        controllerAllocation: ctrlFlowByRoom.get(roomName) ?? 0
+      } as ControllerFeederAssignment
     }));
   },
 
@@ -50,9 +71,12 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     const a = c.assignment as ControllerFeederAssignment;
     if (existing) {
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      existing.setControllerAllocation(a.controllerAllocation);
       return existing;
     }
-    return new ControllerFeederCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
+    const corp = new ControllerFeederCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
+    corp.setControllerAllocation(a.controllerAllocation);
+    return corp;
   },
 
   run(corp: ControllerFeederCorp, tick: number): void {
