@@ -633,6 +633,22 @@ source haulers APPEAR in the flow plan (P9 → ≥0.8×); E2 strands and E4
 drain ease as the mined energy finds a home; P4 ≤ 1.005×, no other
 movement (else rollback).
 
+**DEPLOYED c88898f (2026-07-19, overnight run).** Gate green: unit 952,
+build clean, trio (flow-handoff/runt-economy 12m/storage-depot) all 1
+passing, 13/15 batch grid cells `[P]`. The two non-pass cells were
+ATTRIBUTED against the pre-batch tree (76646e5, parent of roads-2, rebuilt):
+`plan-t5-remote-pipeline` fails the SAME refill-SLA invariant pre-batch
+(@1238) and post-batch (@1240) — pre-existing, tracked by #9, NOT this
+batch. `haul-t4-feeder-fields-for-bank` is a boundary straddle: its relay
+lands at t158–160 against a 160t window — pre-batch it passed @160 (the
+last tick), on the batch build it passed 1/3 re-draws (@158) and timed out
+2/3 (@160); tempo noise at a too-tight window, not a regression (the feeder
+fields @107 and its regime activates @143 every draw). Pre-deploy live
+baseline t72425884 (the "before" for verification): P9 0.20× (7 src / 70
+e/t produced, 14.1 routed), E4 479k @ −44.5/t (already DRAINING,
+feederActive true), E2 42 parts, P7 0.53×, P4 0.76×. Verification at the
+next audit loop (~200 ticks) against these numbers.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
