@@ -109,6 +109,30 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(sol.sinkAllocations.some(a => a.sinkType === "storage")).to.equal(false);
   });
 
+  it("sizes the hub to FUNDED mined income, not all candidate graph sources (phantom guard, live stall t72437535)", () => {
+    // 2 near sources are funded (~20 e/t); 3 FAR sources are unprofitable candidates
+    // selectProducers rejects. The bank/hub the consumers draw from must reflect the
+    // 20 FUNDED, never the 50 of all graph sources. Sizing the hub from all
+    // candidates (which is all the pre-selection adapter can see) sent phantom
+    // supply that construction over-drew, exhausting the parts ledger so real mined
+    // never banked - P9->0, controller starved, live stall t72437535.
+    const graph = graphOf([
+      homeNodeWithStorage(5),
+      sourceNode("near1", 15),
+      sourceNode("near2", 25),
+      sourceNode("far1", 325),
+      sourceNode("far2", 335),
+      sourceNode("far3", 345)
+    ]);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+    // only the 2 near sources are funded (far ones are unprofitable)
+    expect(sol.miners.map(m => m.sourceId).sort()).to.deep.equal(["source-near1", "source-near2"]);
+    // the hub feeds consumers ONLY the funded mined (~20 e/t), never the all-graph 50:
+    // total flow OUT of the bank/hub source must not exceed the funded income.
+    const bankOut = sol.haulers.filter(h => h.fromId.startsWith("bank-")).reduce((s, h) => s + h.flowRate, 0);
+    expect(bankOut, "hub outflow reflects funded mined, not the phantom all-graph sum").to.be.at.most(20 + 1e-6);
+  });
+
   it("skips a source whose real distance makes it unprofitable", () => {
     expect(netEnergy(10, 320)).to.be.lessThan(0);
     // s_far at x=325 is manhattan 320 from the spawn at x=5

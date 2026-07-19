@@ -393,54 +393,31 @@ export function buildColonyProblem(
   // defunded rather than rotted.
   const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
 
-  // HUB-AND-SPOKE hub sizing (owner 2026-07-19): the storage is the hub - all
-  // mined income banks to it and the consumers draw it back out. The bank/hub
-  // SOURCE that routeToSinks spends to the consumers must therefore carry the
-  // mined THROUGHPUT (income passing through the hub) PLUS the surplus draw, not
-  // the surplus alone - otherwise at/below the warchest target (surplus ~0) the
-  // consumers would have no source and starve. `bankRate`/`totalSupply` above
-  // stay the REAL supply (surplus only for the bank): the feeder/infra ledger,
-  // construction cap, and storage-full defund all read the true numbers. This
-  // bump is a pure ROUTING device, applied AFTER those are fixed; selectProducers
-  // ignores it (transient, maxMiners 0). Mined banks to its NEAREST storage,
-  // mirroring routeToSinks' deposit routing, so multi-hub colonies size each hub
-  // to the income that actually banks there.
+  // HUB-AND-SPOKE (owner 2026-07-19): the storage is the hub - mined income banks
+  // to it and consumers draw it back. The bank/hub SOURCE that routeToSinks spends
+  // to consumers must carry the mined THROUGHPUT plus the surplus, else at/below
+  // target (surplus ~0) consumers have no source and starve. But the mined part
+  // is the FUNDED income (~7 sources here), which the adapter CANNOT know - it
+  // runs before selectProducers. Sizing it here from all graph sources sent
+  // phantom supply (38 candidates = 380 e/t) that construction over-drew,
+  // exhausting the parts ledger so real mined never banked (P9->0 live stall
+  // t72437535). So the adapter ONLY guarantees a bank source EXISTS for every
+  // storage room (rate = its surplus draw, or 0 while filling); planColony adds
+  // the funded mined income once the funded set is known. `bankRate`/`totalSupply`
+  // stay the real supply (surplus only). selectProducers ignores the bank
+  // (transient, maxMiners 0).
   const storageSinkList = graph.getSinks().filter(s => s.type === "storage");
-  if (storageSinkList.length > 0) {
-    const minedInflow = new Map<string, number>();
-    for (const s of sources) {
-      if (s.transient) continue; // only mined income banks; transient stocks are one-off
-      let best = storageSinkList[0];
-      let bestD = Infinity;
-      for (const st of storageSinkList) {
-        const d = dist(s.haulPos ?? s.pos, st.position);
-        if (d < bestD) {
-          bestD = d;
-          best = st;
-        }
-      }
-      const room = best.position.roomName;
-      minedInflow.set(room, (minedInflow.get(room) ?? 0) + s.rate);
-    }
-    for (const st of storageSinkList) {
-      const room = st.position.roomName;
-      const inflow = minedInflow.get(room) ?? 0;
-      if (inflow <= 0) continue;
-      const idx = sources.findIndex(src => src.id === bankSourceId(room));
-      if (idx >= 0) {
-        // new object - never mutate the caller's bankSources array in place
-        sources[idx] = { ...sources[idx], rate: sources[idx].rate + inflow };
-      } else {
-        sources.push({
-          id: bankSourceId(room),
-          nodeId: `${room}-bank`,
-          pos: st.position,
-          rate: inflow,
-          maxMiners: 0,
-          transient: true
-        });
-      }
-    }
+  for (const st of storageSinkList) {
+    const room = st.position.roomName;
+    if (sources.some(src => src.id === bankSourceId(room))) continue; // surplus bank already emitted
+    sources.push({
+      id: bankSourceId(room),
+      nodeId: `${room}-bank`,
+      pos: st.position,
+      rate: 0, // filling: no surplus draw yet; planColony credits the funded mined income
+      maxMiners: 0,
+      transient: true
+    });
   }
 
   const sinks: PlannerSink[] = [];

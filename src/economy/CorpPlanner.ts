@@ -381,8 +381,13 @@ function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
     if (!source.transient) continue;
     const near = nearestSpawn(source.pos, spawns, dist);
     if (!near) continue;
-    const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
-    if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
+    // The bank/hub (storage) is NOT a scavenge pile: it always belongs in supply
+    // (planColony credits it the funded mined income), even at rate 0 while the
+    // warchest fills - the net filter below is only for one-off ground stocks.
+    if (!source.id.startsWith("bank-")) {
+      const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
+      if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
+    }
     supply.push({ sourceId: source.id, rate: source.rate, spawnId: near.spawn.id });
   }
   return supply;
@@ -540,10 +545,44 @@ function routeToSinks(
  */
 export function planColony(problem: ColonyProblem): ColonyPlan {
   const { miners, verdicts: sourceVerdicts } = selectProducers(problem);
-  // Supply = staffed sources + scavengeable transient stocks (no miner needed).
+  // HUB-AND-SPOKE hub sizing: the storage hub's bank source carries the FUNDED
+  // mined income (what actually banks) so consumers draw the real income through
+  // the hub. Sizing it from ALL candidate graph sources - which is all the
+  // pre-selection adapter can see - sent phantom supply (38 candidates -> 380 e/t
+  // hub) that construction over-drew, exhausting the parts ledger so real mined
+  // never reached storage (P9->0, controller starved, live stall t72437535). Here
+  // the funded set IS known: each funded source's rate is credited to its nearest
+  // storage hub's bank source. Filling-regime hubs start at rate 0 (adapter) and
+  // get exactly this income; surplus hubs get income + the surplus draw.
+  const isBankSource = (id: string): boolean => id.startsWith("bank-");
+  const sourceById = new Map(problem.sources.map(s => [s.id, s]));
+  const storageSinks = problem.sinks.filter(s => s.kind === "storage");
+  const fundedByHubRoom = new Map<string, number>();
+  for (const m of miners) {
+    if (storageSinks.length === 0) break;
+    const src = sourceById.get(m.sourceId);
+    const from = src?.haulPos ?? src?.pos;
+    if (!from) continue;
+    let best = storageSinks[0];
+    let bestD = Infinity;
+    for (const st of storageSinks) {
+      const d = problem.dist(from, st.pos);
+      if (d < bestD) {
+        bestD = d;
+        best = st;
+      }
+    }
+    fundedByHubRoom.set(best.pos.roomName, (fundedByHubRoom.get(best.pos.roomName) ?? 0) + m.rate);
+  }
+  // Supply = staffed sources + scavengeable transient stocks (no miner needed);
+  // each hub's bank source additionally carries the funded mined income banking there.
   const supply: SupplyPoint[] = [
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
-    ...selectTransientSupply(problem)
+    ...selectTransientSupply(problem).map(t =>
+      isBankSource(t.sourceId)
+        ? { ...t, rate: t.rate + (fundedByHubRoom.get(t.sourceId.slice("bank-".length)) ?? 0) }
+        : t
+    )
   ];
   // The spawn-parts ledger for the sink fill: physical build-rate minus the
   // committed miners and the standing infra (feeder/tender/reservers - see

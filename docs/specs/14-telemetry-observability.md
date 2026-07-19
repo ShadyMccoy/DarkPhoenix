@@ -1001,3 +1001,28 @@ DIRECTIONS once pinned: (a) skip the forced rebuild when nodes already carry
 resources; (b) persist territories compactly; (c) fast room-level re-claim from
 Memory.roomIntel post-reset. MITIGATION NOW: deploy less often - each deploy pays
 this ~40-min tax.
+
+**INCIDENT + FIX: HUB PHANTOM-SUPPLY STALL (t72437535) - a live-only regression
+from the hub-and-spoke deploy.** ~50 min post-deploy, once the reset transient
+healed (graph 38 sources), the economy STALLED: P9 0 (7 funded / 70 e/t, ZERO
+routed - mined ROTTING), controller 0.6 e/t (was 45.8), util 0.33 (was 0.87,
+fleet shrinking), warchest growth flat +0.4/t. ROOT CAUSE: the hub-bump sized the
+storage hub's bank source from `minedSupply` = ALL 38 candidate graph sources
+(~380 e/t), not the 7 FUNDED (~70). The adapter runs BEFORE selectProducers so it
+literally cannot know the funded set. The phantom 380 e/t hub let construction
+over-draw (hauler bank->construction 39.4 CARRY), exhausting the spawn-parts
+ledger before the storage deposit pass, so the real mined never banked (P9->0)
+and the controller starved. SIM BLIND SPOT (why the gate was green): grid cells
+have a handful of sources, so funded ~= all-graph and no phantom appears - it
+only manifests live where dozens of rooms are scouted (dozens of candidates).
+FIX: move hub sizing from the adapter to planColony, where the funded set IS
+known - credit each funded source's rate to its nearest storage hub's bank
+source; the adapter only guarantees a rate-0 bank source EXISTS per storage room;
+selectTransientSupply exempts the bank/hub from the scavenge net<=0 filter (it is
+the storage, not a lossy pile). Bank/totalSupply/construction-cap stay the real
+supply. REGRESSION TEST (now catches the sim blind spot in the UNIT suite):
+flowAdapter "sizes the hub to FUNDED mined income, not all candidate graph
+sources" - far unfunded sources present, bank outflow must be <= funded. Gate:
+unit 968 + phantom guard, grid fid-t4/bank-surplus-upgrades/storage-bank-and-spill
+[P], trio. Chose FIX-FORWARD over rollback: the fix is targeted + unit-pinned, a
+rollback costs the same global-reset stall (#22) AND un-does the warchest fix.
