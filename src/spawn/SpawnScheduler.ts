@@ -435,6 +435,12 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // spawns, because at income 0 the consumer can never be afforded without
   // it (the cold-start deadlock).
   let holdStrict = false;
+  // Set when we pass an unaffordable non-walling demand the room CAN
+  // eventually build: the bank below it is that body's accumulation runway.
+  // Opportunistic demands defer to it - "idle" means nobody above is
+  // accumulating, not merely nobody held (measured: the reservation topup
+  // soaked a recovering economy's accumulation windows - runt-economy red).
+  let pendingAffordable = false;
 
   for (const demand of ranked) {
     const starved = starvationBoost(demand, ctx.tick) > 0;
@@ -455,6 +461,7 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
       // hold (held demand is a consumer), a lower income PRODUCER still
       // spawns - see holdStrict above.
       if (holdForBlocking && (holdStrict || !demand.producesIncome)) continue;
+      if (demand.opportunistic && pendingAffordable) continue; // never soak an accumulation runway
       const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
       return {
         demand,
@@ -507,7 +514,9 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
     }
-    // Otherwise, let a lower-value but affordable demand have a turn.
+    // Otherwise, let a lower-value but affordable demand have a turn - but
+    // remember the runway: opportunistic demands below must not soak it.
+    if (canEverAfford) pendingAffordable = true;
   }
 
   return null;

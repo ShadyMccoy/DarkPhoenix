@@ -211,4 +211,15 @@ describe("opportunistic demands (idle-window fillers, task #11)", () => {
     const result = scheduleSpawn([staffed, topup], { energyAvailable: 1300, energyCapacity: 1800, energyIncome: 10, tick: 13000 });
     expect(result?.demand.buyerCorpId).to.equal("res-topup");
   });
+
+  it("defers to a PENDING-AFFORDABLE demand above (idle means nobody is accumulating, not just nobody held)", () => {
+    // A non-walling real demand that capacity CAN build but the bank cannot
+    // yet afford was accumulating energy de facto (nothing cheap sat below
+    // it). The topup must not soak that bank - a recovering economy's
+    // accumulation windows are load-bearing (the runt-economy draw).
+    const pending = demand({ buyerCorpId: "hauling-1", role: "hauler", producesIncome: true, minCost: 900, since: 12990 });
+    const topup = demand({ buyerCorpId: "res-topup", role: "reserver", producesIncome: false, value: 5, opportunistic: true, minCost: 650, since: 12990 });
+    const result = scheduleSpawn([pending, topup], { energyAvailable: 700, energyCapacity: 1800, energyIncome: 10, tick: 13000 });
+    expect(result, "the topup defers while a real body is accumulating").to.equal(null);
+  });
 });
