@@ -401,6 +401,15 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (marathon) — one-way batch DEPLOYED on a fully green gate
+
+Gate: trio green (flow-handoff 4m, runt-economy 12m, storage-depot 7s)
++ 4 cells pass (cons-link-core-first t60, concurrent t242 - identical
+to baseline, deterministic; spawn-reserver-started-income t353,
+def-t5-invader-reservation-defunds-remote t300). Deployed byte-verified
+with the telemetry riders (dry-exit partsLeft stamp, v6 site progress).
+The seven filed predictions (below) are checked by the next loop fires.
+
 ### 2026-07-19 (marathon, pre-deploy) — one-way reserver batch: predictions on file
 
 Batch under gate (trio + 4 cells): reservers one-way (latch for life,
