@@ -401,6 +401,26 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (cron cycle) — REMOTES BACK, lens live on the healed state; paving COMPLETE
+
+t72423161 (~250t post-batch-2): assembly {graphSources:38, mined:38,
+transient:1, bank:1} - the lens's first live read, on a HEALED plan: 37
+candidates, 7 funded (2 home + 5 remote), miners rebuilding (3),
+reserver re-fielding (1), untracked 10 -> 6 (re-adoption). Batch-2's
+own reset healed at the normal ~300t pace, so the 1300t-stuck window's
+mechanism stays unnamed - the lens now stands guard for the next
+occurrence (stuck-state read: graphSources=2 means the graph layer,
+38/2 means the assembly filter, full counts + 2 candidates means the
+solver). P8: sites 1 -> 0 - THE PAVING PROJECT IS COMPLETE (all 8 road
+tiles + the link built this session). Ledger FAILs are all the
+post-reset transition: E2 142p deploy-churn (decays ~1500t), X3 6
+(re-adopting), E4 slope +8.3/t and P7 0.23x = income recovered before
+the 1750-cost upgraders finish queueing (spawn 0.90 busy, head
+upgrader@1750 banking). Predictions carried to next fire: feeder stamp
+planFlow + shrunk wantedFeeders; P7 >= 0.75; E4 slope negative;
+opportunistic-topup gates once banks re-establish. Incident #18: the
+agenda-mirror stall diag (2 draws) running in parallel.
+
 ### 2026-07-19 (marathon) — batch-2 DEPLOYED after control acquittal; runt-stall incident opened
 
 runt-economy red on both batch-2 gate runs but GREEN twice earlier on
