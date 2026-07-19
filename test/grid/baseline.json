@@ -110,6 +110,7 @@
     "agenda-t2-receipts-match-head": "pass",
     "cons-repair-starts-below-60": "pass",
     "cons-repair-road-fraction": "pass",
+    "cons-tower-repairs-in-good-range": "pass",
     "haul-t4-refill-sla-under-churn": "pass",
     "spawn-reserver-yields-to-blocking-miner": "pass",
     "boot-real-open-w11n5": "pass",

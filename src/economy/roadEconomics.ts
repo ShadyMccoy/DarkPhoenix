@@ -42,6 +42,17 @@
  * total savings of a 50-tile plain road). A repairer's body time is charged
  * via REPAIR_OVERHEAD_FACTOR.
  *
+ * TOWER-SERVED TILES. In an owned room a tower now tops up decaying tiles
+ * within TOWER_REPAIR_RANGE (execution/TowerRunner) at ~0.8-0.65x a WORK part's
+ * energy efficiency but ZERO spawn/CPU cost - so the near-spawn portion of a
+ * home route is maintained off the tower's residual energy, not the builder
+ * fleet. This model deliberately keeps charging ALL tiles at the WORK rate
+ * (REPAIR_HITS_PER_ENERGY, plus the REPAIR_OVERHEAD_FACTOR body surcharge): it
+ * is a conservative simplification, not an oversight. Most route tiles lie
+ * beyond range 10, the in-range surcharge is small, and over-charging
+ * maintenance only UNDER-states the paving benefit - it never talks the planner
+ * into paving something that does not pay.
+ *
  * TUNNELS. A wall tile has no unpaved baseline (it is impassable), so
  * evaluateRoadRoute claims no fatigue savings for it - a tunnel pays only by
  * SHORTENING the route. Decide tunnels by comparing pavedRouteCostPerTick

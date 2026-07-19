@@ -253,8 +253,11 @@ export function buildConstructionT2Cells(): GridCell[] {
         // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
         // rung is already satisfied, so this cell keeps pinning its original
         // contract undisturbed. Placement itself is pinned by the def-* cells
-        // and the tower-defense integration test.
-        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // and the tower-defense integration test. Parked in the far corner,
+        // out of TOWER_REPAIR_RANGE of every decaying structure here, so the
+        // tower's peace-time repair pass leaves these builder-pinned
+        // observables untouched (tower-repair has its own cell below).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 0 },
         { type: "container", x: 35, y: 29, energy: 0 },
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -292,8 +295,11 @@ export function buildConstructionT2Cells(): GridCell[] {
         // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
         // rung is already satisfied, so this cell keeps pinning its original
         // contract undisturbed. Placement itself is pinned by the def-* cells
-        // and the tower-defense integration test.
-        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // and the tower-defense integration test. Parked in the far corner,
+        // out of TOWER_REPAIR_RANGE of every decaying structure here, so the
+        // tower's peace-time repair pass leaves these builder-pinned
+        // observables untouched (tower-repair has its own cell below).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 1000, hits: 137500 }, // A: 55%
         { type: "container", x: 35, y: 29, energy: 0, hits: 187500 }, // B: 75%
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -342,8 +348,11 @@ export function buildConstructionT2Cells(): GridCell[] {
         // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
         // rung is already satisfied, so this cell keeps pinning its original
         // contract undisturbed. Placement itself is pinned by the def-* cells
-        // and the tower-defense integration test.
-        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // and the tower-defense integration test. Parked in the far corner,
+        // out of TOWER_REPAIR_RANGE of every decaying structure here, so the
+        // tower's peace-time repair pass leaves these builder-pinned
+        // observables untouched (tower-repair has its own cell below).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
         { type: "container", x: 15, y: 29, energy: 1500, hits: 137500 }, // A: 55%
         { type: "container", x: 35, y: 29, energy: 0 },
         { type: "container", x: 24, y: 24, energy: 0 },
@@ -422,8 +431,11 @@ export function buildConstructionT2Cells(): GridCell[] {
         // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
         // rung is already satisfied, so this cell keeps pinning its original
         // contract undisturbed. Placement itself is pinned by the def-* cells
-        // and the tower-defense integration test.
-        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // and the tower-defense integration test. Parked in the far corner,
+        // out of TOWER_REPAIR_RANGE of every decaying structure here, so the
+        // tower's peace-time repair pass leaves these builder-pinned
+        // observables untouched (tower-repair has its own cell below).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
         { type: "container", x: HARVEST_SPOT.x, y: HARVEST_SPOT.y, energy: 2000 },
         { type: "container", x: DEPOT_TILE.x, y: DEPOT_TILE.y, energy: 1500 },
         { type: "container", x: 25, y: 12, energy: 0 },
@@ -462,8 +474,11 @@ export function buildConstructionT2Cells(): GridCell[] {
         // Tower pre-staged FULL (spec 13 towers-at-home): the RCL3+ tower
         // rung is already satisfied, so this cell keeps pinning its original
         // contract undisturbed. Placement itself is pinned by the def-* cells
-        // and the tower-defense integration test.
-        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // and the tower-defense integration test. Parked in the far corner,
+        // out of TOWER_REPAIR_RANGE of every decaying structure here, so the
+        // tower's peace-time repair pass leaves these builder-pinned
+        // observables untouched (tower-repair has its own cell below).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
         { type: "road", x: 25, y: 20, hits: 4500 }, // 90% - lowest ABSOLUTE hits
         // 55% - worst FRACTION; holds its own repair energy (the ~875 the
         // climb burns) so the 2-MOVE builder never leaves the tile mid-climb.
@@ -507,6 +522,81 @@ export function buildConstructionT2Cells(): GridCell[] {
           const road = s.objects().find((o: any) => o.type === "road" && o.x === 25 && o.y === 20);
           return !!road && (road.hits ?? 0) >= 4900;
         }),
+      ],
+    },
+
+    {
+      // TOWER PEACE-TIME REPAIR (owner directive 2026-07-19): a tower tops up
+      // decaying roads/containers within TOWER_REPAIR_RANGE (10) when the room
+      // holds no hostiles. Two decayed containers at 88% sit at range 5 (IN)
+      // and range 15 (OUT) of a full tower. A persistent extension site keeps
+      // ORDINARY MAINTENANCE gated off (the corp builds, never maintains, while
+      // a site exists) and both containers stay above the 0.6 builder-field
+      // gate - so NO builder ever repairs a container here, and the ONLY thing
+      // that can raise one is the tower. The discriminators: the in-range
+      // container climbs toward the ceiling; the out-of-range one never rises
+      // (the range gate); and the tower stops at REPAIR_TO, never topping to
+      // full.
+      id: "cons-tower-repairs-in-good-range",
+      tier: 2,
+      avenue: "construction",
+      window: 80,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "tower", x: 30, y: 14, energy: 1000 },
+        { type: "container", x: 25, y: 12, energy: 0, hits: 220000 }, // IN range (5): tower's target, 88%
+        { type: "container", x: 15, y: 29, energy: 2000, hits: 220000 }, // OUT of range (15): range-gate control, 88%
+        { type: "container", x: 35, y: 29, energy: 0 }, // other source container, full
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      creeps: quiet(),
+      async stage(ctx) {
+        // A persistent extension site so the room is unambiguously "building"
+        // for the whole window - ordinary maintenance stays gated, so any
+        // organic builder builds this site and never repairs a container.
+        await ctx.db["rooms.objects"].insert({
+          type: "constructionSite",
+          room: ctx.room(),
+          x: 27,
+          y: 29,
+          user: ctx.userId,
+          structureType: "extension",
+          progress: 0,
+          progressTotal: 30000,
+        });
+      },
+      assertions: [
+        // Non-vacuity: the room is building, so maintenance is gated and no
+        // builder repairs these containers - the tower is the only actor left.
+        eventually("the room is building (an extension site exists), gating maintenance", (s) =>
+          s.objects().some((o: any) => o.type === "constructionSite" && o.structureType === "extension")
+        ),
+        // THE WIN: the tower drives the in-range decayed container up.
+        eventually("the tower repairs the in-range container toward the ceiling", (s) => {
+          const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          return !!inRange && (inRange.hits ?? 0) >= 243000;
+        }),
+        // THE RANGE GATE: the out-of-range container is never reached - with
+        // maintenance gated and nobody else eligible, it can only decay.
+        always(
+          "the out-of-range container is never repaired (range gate holds)",
+          (s) => {
+            const outRange = s.objects().find((o: any) => o.type === "container" && o.x === 15 && o.y === 29);
+            return !!outRange && (outRange.hits ?? 0) <= 220000;
+          },
+          2 // staging settles
+        ),
+        // THE CEILING: the tower stops at REPAIR_TO, never topping to full.
+        always(
+          "the tower never over-repairs past the ceiling to full",
+          (s) => {
+            const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+            return !!inRange && (inRange.hits ?? 0) <= 248400; // 247500 ceiling + one 800 action of slack
+          },
+          2 // staging settles
+        ),
       ],
     },
 
