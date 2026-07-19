@@ -385,6 +385,30 @@ armed (task #15): next capture rides a NO-deploy window; clears = churn,
 persists = haulers need route reassignment on replan. Cycle verdict:
 verified + instrumented, deliberately no deploy.
 
+### 2026-07-19 (marathon, pre-deploy) — one-way reserver batch: predictions on file
+
+Batch under gate (trio + 4 cells): reservers one-way (latch for life,
+per-room demand coverage + wildcards), spawn-adjacency keep-clear
+(tower/storage/link generators), vision-march for cross-room builders,
+plus telemetry riders (partsLeft dry-exit stamp, v6 site progress,
+ledger P6/P7/P8). Predicted post-deploy deltas, checked by the next
+loop fires:
+
+1. The four idle remote builders MARCH within ~50t (positions leave the
+   Spawn1 cluster; by next capture in/near their corps' rooms).
+2. P6: no zero-pump rooms while claim parts are fielded (W43N24/W44N23
+   pump > 0 by the second post-deploy window).
+3. Reserver relief-churn ceases: no reserver leaves a post; no
+   back-to-back reserver purchases for already-assigned rooms.
+4. placeAttempt stamps never name a spawn-adjacent tile for
+   tower/storage/link.
+5. Core segment reads v6 (siteProgress/siteTotal/siteCount); P8 row
+   appears from the second v6 capture.
+6. Flow sinks' partsLeft is monotone with fill order (no stale
+   pre-pass values).
+7. No other behavior movement: P4 <= 1.005x, util comparable; movement
+   elsewhere = rollback signal.
+
 Toolchain finding (why "do NOT use push-main" in the loop doc): the
 container's registry mirror serves versions that do not exist upstream -
 rollup 2.80.0 (real 2.x ends 2.79.2) and picomatch 2.3.2 (real 2.x ends
