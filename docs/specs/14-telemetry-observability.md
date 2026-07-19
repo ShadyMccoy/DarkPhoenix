@@ -764,3 +764,15 @@ Phases touch telemetry only, but phase 2 adds a write inside
 `getSpawnDemand`: run the full gate (`npm run test-unit` + `flow-handoff`,
 `runt-economy`, `storage-depot`) for phase 2; unit suite alone suffices
 for 1, 3, 4 unless SpawnDirector is touched.
+
+**Audit cycle t72429334 (routine fire) — recovery CONFIRMED, no deploy.** The
+rollback colony is actively REBUILDING from the died-back state: executed
+receipts show builder+tanker+3 haulers+miner in ~140t, fleet 152 parts and
+growing, funded by the restored bank draw (eAvail 1011, bankHaul 2). Ledger
+top line P4 (137 e/t controller plan → infeasible) and S3 (head corp cd90
+unbuildable post-reset) and feederActive=false are transient re-forming
+artifacts, NOT the #18 basin — the spawn is demonstrably building. An active
+NPC raid (attack 5, guard campaign) is being handled. No fix, no deploy: the
+deployed code is proven-healthy pre-batch and the doctrine fix stays deferred
+to owner review. Monitor next cycle for return to the pre-batch level (7 src,
+util ~0.86, feeder on, storage draining).
