@@ -1022,6 +1022,13 @@ export class ConstructionCorp extends Corp {
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
+      if (result === ERR_INVALID_TARGET) {
+        // Permanently invalid for this tile (wall/occupant/near-exit rule the
+        // candidate generators can't see): blacklist it so they move on
+        // instead of retrying every cooldown forever (the eaten-ladder loop).
+        const dead = (room.memory.deadTiles = room.memory.deadTiles ?? {});
+        dead[`${x},${y}`] = Game.time;
+      }
       console.log(`[Construction] Failed to place ${type} at ${room.name} (${x}, ${y}): ${result}`);
     }
   }

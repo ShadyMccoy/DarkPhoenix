@@ -119,6 +119,10 @@ export function bestAdjacentTile(
   // spawn", producing a link site that fails to place every cooldown forever.
   for (const s of room.find(FIND_SOURCES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   for (const m of room.find(FIND_MINERALS)) occupied.add(`${m.pos.x},${m.pos.y}`);
+  // Tiles a placement already proved permanently invalid (-7): placeSite
+  // records them so the ladder stops retrying the same tile every cooldown
+  // (W43N23 link@48,13 looped ~forever before the stamp made it visible).
+  for (const key of Object.keys(room.memory?.deadTiles ?? {})) occupied.add(key);
 
   let best: { x: number; y: number; d: number } | null = null;
   for (let dx = -range; dx <= range; dx++) {
@@ -126,7 +130,10 @@ export function bestAdjacentTile(
       if (dx === 0 && dy === 0) continue;
       const x = target.x + dx;
       const y = target.y + dy;
-      if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      // 2..47, not 1..48: the engine rejects non-road structures on
+      // near-border tiles beside exits (ERR_INVALID_TARGET), and core infra
+      // never belongs there - stay conservative rather than model the rule.
+      if (x < 2 || x > 47 || y < 2 || y > 47) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (occupied.has(`${x},${y}`)) continue;
       const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;

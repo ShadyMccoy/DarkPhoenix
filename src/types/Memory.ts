@@ -341,6 +341,14 @@ declare global {
     nodeIds?: string[];
 
     /**
+     * Tiles createConstructionSite proved permanently invalid (-7), keyed
+     * "x,y" -> tick recorded. Written by placeSite, excluded by
+     * bestAdjacentTile so candidate generators stop proposing them (the
+     * eaten-ladder loop: one bad candidate retried every cooldown forever).
+     */
+    deadTiles?: { [key: string]: number };
+
+    /**
      * Cached refill bus circuit over spawn + extensions (corps/refillCircuit):
      * a stable tour refillers follow (skipping full stops) and spawning
      * drains in the same order. `sig` invalidates on structure-set changes.

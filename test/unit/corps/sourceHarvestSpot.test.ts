@@ -146,4 +146,26 @@ describe("bestAdjacentTile (excludes source and mineral tiles)", () => {
     const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
     expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 10, y: 10 });
   });
+
+  it("does not pick near-border tiles (1/48) the engine rejects for non-road structures", () => {
+    // W43N23 2026-07-19 live: the source-link candidate (48,13) drew -7
+    // (near-exit rule) every 10t cooldown forever, eating every rung below.
+    // Same class as the source-tile loop above, different engine rule; the
+    // generator stays conservative: core infra never belongs on 1/48 anyway.
+    const room = roomWith({});
+    const spawnPos = { x: 48, y: 13, roomName: "W0N0" } as any; // pulls the pick east
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos)!;
+    expect(tile.x).to.be.at.most(47);
+  });
+
+  it("does not pick a tile placement already proved dead (-7 blacklist in room memory)", () => {
+    // placeSite records permanently-invalid tiles (ERR_INVALID_TARGET) in
+    // room.memory.deadTiles; the generator must stop proposing them or the
+    // ladder retries the same tile forever.
+    const room = roomWith({});
+    (room as any).memory = { deadTiles: { "12,10": 1 } };
+    const spawnPos = { x: 13, y: 10, roomName: "W0N0" } as any; // (12,10) is nearest otherwise
+    const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 12, y: 10 });
+  });
 });
