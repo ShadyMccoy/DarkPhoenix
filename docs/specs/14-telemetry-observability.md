@@ -385,6 +385,22 @@ armed (task #15): next capture rides a NO-deploy window; clears = churn,
 persists = haulers need route reassignment on replan. Cycle verdict:
 verified + instrumented, deliberately no deploy.
 
+### 2026-07-19 (Routine cycle, clean window) — FIRST NO-FAIL LEDGER; delivery meters live
+
+t72421515 vs t72421124 (dt 391, no deploy in the window - the E2
+discriminator's clean read): NO FAIL LINES. P6's maiden cycle: all four
+rooms pumping (W42N22:426 W42N23:244 W43N24:514 W44N23:374, 1558 ticks
+banked/384t) - the zero-pump churn is intermittent; the gated one-way
+batch ends its mechanism. P7 maiden: 2.54x the floored plan (residual
+stock burning per doctrine). E2 DECAYING through the clean window
+(94 -> 88 -> 48 parts, fleets 4 -> 3): leaning churn-artifact; the
+stranded cohort's lifetimes expire ~t72422400 - E2 -> 0 without
+replacement closes #15 as churn. P4 0.67x, P5 staffed (banks all
+climbing), P1 stable. Road chain self-advancing: link@46,11 at
+4250/5000; completion opens the roads rung with nothing left in the
+way. Cycle verdict: verified; no fix needed from this capture; batch
+gate mid-run (deploy on its green).
+
 ### 2026-07-19 (marathon, pre-deploy) — one-way reserver batch: predictions on file
 
 Batch under gate (trio + 4 cells): reservers one-way (latch for life,
