@@ -438,7 +438,14 @@ function routeToSinks(
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
       const take = Math.min(avail, target - acc.allocated, maxByParts);
       if (take <= 1e-9) {
-        if (maxByParts <= 1e-9) return; // ledger dry - the fill is over for this sink
+        if (maxByParts <= 1e-9) {
+          // Ledger dry - the fill is over for this sink. Stamp BEFORE the
+          // early exit: skipping it left the sink wearing a stale pre-pass
+          // remainder (live t72420516: 0.105 of a budget it had drained),
+          // and the v4 trace lied about who spent the parts.
+          acc.partsLeft = partsRemaining;
+          return;
+        }
         continue;
       }
       partsRemaining -= take * chargePerUnit;

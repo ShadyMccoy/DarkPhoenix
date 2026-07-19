@@ -95,6 +95,20 @@ describe("economy/CorpPlanner", () => {
       expect(ctrl.allocated).to.be.lessThan(210); // energy alone would give ~230 - the cap must bind
     });
 
+    it("stamps partsLeft on the DRY exit too (live t72420516: a stale pre-pass stamp read 0.105 of a spent budget)", () => {
+      // The ledger-dry early return skipped the partsLeft stamp, so a sink
+      // whose value fill ran dry kept its pre-pass remainder (or none at
+      // all) - the v4 trace then showed a near-full budget on a sink that
+      // actually drained it. The stamp must tell the fill's truth at EVERY
+      // exit, and remain monotone with fill order.
+      const plan = planColony(world());
+      const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+      const sp = plan.sinks.find(s => s.kind === "spawn")!;
+      expect(ctrl.partsLeft, "dry-exit fill must stamp its remainder").to.not.equal(undefined);
+      expect(ctrl.partsLeft!).to.be.at.most((sp.partsLeft ?? Infinity) + 1e-9);
+      expect(ctrl.partsLeft!).to.be.closeTo(0, 1e-6); // it ran DRY - that is the story
+    });
+
     it("construction outranks the controller for the surplus and is charged in the ledger (5x cheaper per e/t)", () => {
       const plan = planColony(
         problem({
