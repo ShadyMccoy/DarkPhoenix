@@ -149,7 +149,11 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     name: "plan spawn-infeasibility",
     value: ratio,
     unit: "x ceiling",
-    verdict: ratio > 1 ? "FAIL" : ratio > 0.85 ? "WARN" : "ok",
+    // The fill runs budget-dry BY DESIGN, so an equilibrium plan sits AT the
+    // ceiling; this script recomputes each class independently and drifts
+    // ~0.1% from the planner's own ledger. 0.5% tolerance: smaller than any
+    // real fleet class (min ~3% of ceiling), bigger than arithmetic noise.
+    verdict: ratio > 1.005 ? "FAIL" : ratio > 0.85 ? "WARN" : "ok",
     detail:
       `plan-implied ${total.toFixed(3)} parts/t vs ${ceiling.toFixed(3)} physical; ` +
       lines

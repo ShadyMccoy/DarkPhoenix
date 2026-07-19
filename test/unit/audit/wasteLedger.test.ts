@@ -28,6 +28,19 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p4.detail).to.contain("unbudgeted"); // the transient-route line the mining budget never prices
   });
 
+  it("P4 does NOT fail a budget-dry plan on recompute noise (the fill stops AT the ceiling by design)", () => {
+    // t72420007: the P4 fill ran to budget-dry (its components sum to the
+    // capacity exactly); the script's independent recompute drifted +0.0002
+    // and tripped strict >1.0 - a false red that would persist at every
+    // equilibrium. Within 0.5% of the ceiling is arithmetic, not a leak
+    // (the smallest real fleet class is ~3% of ceiling).
+    const capBoundary = fixture("shard1-t72420007.json");
+    const rows2 = computeLedger(capBoundary, fixture("shard1-t72419708.json"));
+    const p4 = rows2.find(r => r.id === "P4")!;
+    expect(p4.value).to.be.greaterThan(0.99); // the boundary shape, not a slack plan
+    expect(p4.verdict).to.equal("WARN"); // hot, worth watching - but not a FAIL
+  });
+
   it("P4's load table includes every fleet class, producers AND consumers", () => {
     const { lines } = planSpawnLoad(cap);
     const names = lines.map(([n]) => n).join("|");
