@@ -900,3 +900,23 @@ feederRelayRate, both invariant to the routing change); spawn stays funded from
 the hub. REGRESSION RULE: controller score drops < ~35 e/t, OR spawn eAvail
 ~500 / bankHaul 0, OR warchest keeps draining hard (< -30/t = hub routing did
 not take) -> redeploy origin/master. Two-capture verify.
+
+**HUB-AND-SPOKE POST-DEPLOY CAPTURE t72436467 (8 min post-deploy) - ROUTING
+CONFIRMED, income crater is a RESET TRANSIENT (not a regression).** Snapshot
+metrics (reset-independent) confirm the refactor took: mined + scavenge haul to
+STORAGE (5 haulers ->storage), the bank/hub funds consumers (controller/spawn/
+construction), and P9 climbed 0.54 -> 1.0 (all funded mining routed via
+dedicated haulers). BUT the deploy's GLOBAL RESET wiped the in-heap node/intel
+cache: assembly.graphSources dropped 38 -> 2 (3 pre-deploy captures all pinned
+38), so only the 2 home sources remained in the graph and funded=7 -> 2,
+minerCount 7 -> 2 (harvestCorps still 7 - the miners are physically alive, their
+sources just dropped from the plan). This is the documented sim blind spot
+(sims never lose vision; global reset is LIVE-only) and recurs on EVERY deploy -
+prior deploys recovered to funded=7 within ~15 min. The remote haulers whose
+sources dropped stranded transiently (E2 70 -> 126, membership = the dropped
+remotes cee0/cd8e). P7 -2103 e/t is a metric artifact (controllerStock 1920 ->
+1970, "stock stood - the energy was there"). E4 slope -23.77/t is BLENDED across
+the deploy midpoint (uninterpretable). NO ROLLBACK: transient, warchest 172k is
+a huge buffer, controller holds ~24 e/t on stock. The clean warchest/controller
+measurement is DEFERRED to a post-recovery capture (graphSources back to ~38,
+funded ~7); until then hub-and-spoke's real E4/P7 effect cannot be read.
