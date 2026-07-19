@@ -716,6 +716,27 @@ test, fix, re-gate, redeploy only when a mockup confirms the spawn stays
 funded. The #19 batch (roads-2 + repair + part-2) rides with the part-1 fix
 on the next deploy.
 
+**MECHANISM CONFIRMED by faithful repro (`scripts/diag-bank-draw.ts`),
+correcting the parts-exhaustion guess above.** The naive shape (7 mined +
+home bank, no scavenge) does NOT reproduce — the planner correctly draws
+the bank for the residual (18 e/t) and fills the spawn. It reproduces only
+when the DROPPED energy of the un-hauled miners is added as co-located
+SCAVENGE supply: then the spawn fills from mined 55 + scavenge 20, the
+controller from mined+scavenge, and **bank draw → 0** (partsLeft 0.14, so
+NOT budget exhaustion). Root: 7 miners are funded but only ~3 get dedicated
+haulers; the other 4 drop, and the drop is re-counted as scavenge supply —
+a DOUBLE-COUNT (miner rate + its own drop) that inflates apparent
+production. Part-1's bank-last then makes the plan rely on that inflated
+(and lossy: decay + slow scavenge) supply instead of the reliable home
+bank, so the plan promises 88 e/t the execution delivers ~70 of → spawn
+starves. Pre-deploy nearest-first drew the reliable home bank first, so the
+plan was DELIVERABLE. The fix is doctrine-level (kill the drop/scavenge
+double-count, and/or make the bank a reliability backstop for the spawn,
+and/or the #21 controller cap so mined surplus has a real storage home
+instead of dropping) — overlaps the owner-flagged #21, so it is DEFERRED to
+owner review, not deployed autonomously overnight. The colony runs the
+known-good rollback in the meantime.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
