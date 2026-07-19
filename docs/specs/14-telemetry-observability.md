@@ -310,6 +310,45 @@ NO behavior deltas (stamps/exports only - movement = rollback signal).
 Fixture t72419708 pins the open W43N24 anomaly (raidDebt 136,860 >
 130k engine ceiling).
 
+Verified settled (t72420516, ~2100t post-deploy): v4 ledger live
+(capacity 0.333 / minerLoad 0.038 / infra 0.187 / budget 0.108),
+allocation back at 87.8 exactly (zero behavior movement - telemetry-only
+deploy confirmed), remotes re-funded post-warmup, util 0.39. P4's
+"FAIL 1.00x" from the warmup capture was the fill running budget-dry BY
+DESIGN vs the script's strict >1.0 on 0.2% recompute drift - tolerance
+1.005 shipped with the boundary capture pinned WARN (the 1.32x true-FAIL
+pin holds). OPEN: per-sink partsLeft values don't arithmetically match
+the charges the plan carries (controller partsLeft 0.105 of budget 0.108
+with 87.8 e/t allocated whose work-charge alone is ~0.097) - either the
+stamp records a pre-pass remainder or the controller charge misses the
+fill; needs a unit-level reproduction before the next planner change.
+
+### 2026-07-19 (later) — repair hysteresis fixed measured-first; placement ladder stamped; concurrent cell GREEN
+
+The concurrent cell's red third assert, instrumented (diag-concurrent):
+the LONE builder wore repairDetail t20-t260 with site progress 0,
+released exactly when the container crossed 60%. wantsCriticalRecovery
+was one-sided - anything below the 0.6 RELEASE band read as "critical",
+so the last-builder guard's emergency exception swallowed the rule for a
+routine 43% container. Fixed with the in-diversion state as an explicit
+input (start <0.3, hold-to-0.6 only once started); the guard override
+now uses the raw critical gate. Trio green. Cell recalibrated to its
+contract (staged 2-builder crew via OrphanRescue adoption + stocked
+depot - a +1 e/t drained ramp can never afford the detail member) and
+GREEN t242/400, baselined.
+
+Road silence root-out (three frames up from the feeder stamps): W43N23
+has 30/30 extensions + storage + NO controller container, zero sites,
+zero road verdicts across 2100t, governor UNARMED, bucket 10000. The
+placement pass's interior is invisible - placeSite logs failures only to
+console and a rung that fails every 10t cooldown eats every rung below
+it silently. Deployed (byte-verified): placeSite stamps every attempt
+verbatim (type@room:x,y + return code, governor-paused gate), road-scan
+energy wall stamped. Predicted: next capture's construction sizing names
+the eaten rung (likely a repeating failed controller-container attempt);
+lone-builder crews detailed on 30-60% structures release to build; no
+other fleet movement.
+
 Toolchain finding (why "do NOT use push-main" in the loop doc): the
 container's registry mirror serves versions that do not exist upstream -
 rollup 2.80.0 (real 2.x ends 2.79.2) and picomatch 2.3.2 (real 2.x ends
