@@ -295,6 +295,12 @@ export interface SinkAllocation {
   /** Sink receiving energy */
   sinkId: string;
 
+  /**
+   * Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
+   * trace) - why filling stopped: capacity met, pool dry, or ledger dry.
+   */
+  partsLeft?: number;
+
   /** Type of sink */
   sinkType: SinkType;
 
@@ -386,6 +392,12 @@ export const DEFAULT_CONSTRAINTS: FlowConstraints = {
 export interface FlowSolution {
   /** Miner assignments */
   miners: MinerAssignment[];
+
+  /**
+   * The plan's spawn-parts ledger, traced (spec 15 P4): capacity, standing
+   * deductions, and the routing budget the sink fill worked with.
+   */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
 
   /** Hauler assignments */
   haulers: HaulerAssignment[];

@@ -457,6 +457,8 @@ export interface FlowTelemetry {
     allocated: number;
     unmet: number;
     priority: number;
+    /** Spawn-parts ledger remaining when this sink's fill ended (spec 15 P4). */
+    partsLeft?: number;
     /**
      * PLANNED WORK parts implied by `allocated` for WORK-driven consumer sinks
      * (controller=upgrade, construction=build); absent for non-WORK sinks
@@ -1043,17 +1045,21 @@ export class Telemetry {
           allocated: sink.allocated,
           unmet: sink.unmet,
           priority: sink.priority,
+          ...(sink.partsLeft !== undefined ? { partsLeft: sink.partsLeft } : {}),
           workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
         });
       }
     }
 
     const telemetry: FlowTelemetry = {
-      version: 3, // Version 3: planner source verdicts (candidates) - why each source is in/out
+      // Version 4: the fill's spawn-parts ledger trace (partsLedger + per-sink
+      // partsLeft) - why an allocation stopped where it did (spec 15 P4).
+      version: 4,
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
       candidates: flowSolution?.sourceVerdicts ?? [],
       summary: flowSolution
         ? {

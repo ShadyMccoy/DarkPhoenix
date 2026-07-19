@@ -95,7 +95,35 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(3); // v2 plan-side bodies; v3 source verdicts
+    expect(flow.version).to.equal(4); // v2 plan-side bodies; v3 source verdicts; v4 parts ledger
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
+  });
+
+  it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4)", () => {
+    const ledger = { capacity: 3, minerLoad: 0.9, infra: 0.4, budget: 1.7 };
+    const withTrace = {
+      ...solution,
+      partsLedger: ledger,
+      sinkAllocations: solution.sinkAllocations.map((k: any) =>
+        k.sinkType === "controller" ? { ...k, partsLeft: 0.25 } : k
+      )
+    };
+    new Telemetry().update(undefined, [], withTrace);
+    const flow = JSON.parse(RawMemory.segments[6]);
+
+    // the ledger the fill decision read, verbatim - an allocation collapse is named in one capture
+    expect(flow.partsLedger).to.deep.equal(ledger);
+    const ctrl = flow.sinks.find((s: any) => s.type === "controller");
+    expect(ctrl.partsLeft).to.equal(0.25);
+    // sinks the fill never charged carry no partsLeft key at all
+    const spawn = flow.sinks.find((s: any) => s.type === "spawn");
+    expect(spawn).to.not.have.property("partsLeft");
+  });
+
+  it("omits the ledger entirely when the planner produced none (old plans stay readable)", () => {
+    new Telemetry().update(undefined, [], solution);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow).to.not.have.property("partsLedger");
+    for (const s of flow.sinks) expect(s).to.not.have.property("partsLeft");
   });
 });

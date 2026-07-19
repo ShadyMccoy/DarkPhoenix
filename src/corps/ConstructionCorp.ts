@@ -856,43 +856,66 @@ export class ConstructionCorp extends Corp {
 
   /** Judge and pave the storage -> controller-input lane, receipt-keyed "feeder". */
   private tryPlaceFeederRoadRoute(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    // Every exit stamps WHY (spec 14: no invisible decisions - roadRoutes sat
+    // EMPTY a full session because these returns were silent).
+    const gate = (reason: string): void => {
+      this.lastSizing = { tick: Game.time, roadGate: reason };
+    };
     const entry = routes["feeder"];
-    if (entry?.paved || entry?.declined) return;
+    if (entry?.paved || entry?.declined) {
+      gate(entry.paved ? "feeder-paved" : "feeder-declined");
+      return;
+    }
     const bank = room.storage;
     const ctrl = room.controller;
-    if (!bank?.my || !ctrl) return; // the lane exists only in the depot era
+    if (!bank?.my || !ctrl) {
+      gate("feeder-no-depot");
+      return; // the lane exists only in the depot era
+    }
     const input = ctrl.pos.findInRange(FIND_STRUCTURES, 3, {
       filter: s => s.structureType === STRUCTURE_CONTAINER
     })[0] as StructureContainer | undefined;
-    if (!input) return; // rung 1.7 builds the input container first
+    if (!input) {
+      gate("feeder-no-input-container");
+      return; // rung 1.7 builds the input container first
+    }
 
     if (entry) {
       if (this.roadTilesBuilt(room, entry.tiles)) {
         entry.paved = true;
         console.log(`[Construction] Feeder trunk fully paved`);
+        gate("feeder-paved");
         return;
       }
       this.placeMissingRoadSites(room, entry.tiles);
+      gate("feeder-building");
       return;
     }
 
-    if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable)
+    if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable) {
+      gate("feeder-no-surplus");
       return;
+    }
 
     const result = PathFinder.search(
       bank.pos,
       { pos: input.pos, range: 1 },
       { plainCost: 2, swampCost: 10, maxRooms: 1, roomCallback: () => this.roadPlanningCosts(room) }
     );
-    if (result.incomplete || result.path.length === 0) return;
+    if (result.incomplete || result.path.length === 0) {
+      gate("feeder-path-incomplete");
+      return;
+    }
     const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
     // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
     const spec = this.roadRouteSpec(room, tiles, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0));
     const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
     if (!verdict.worthPaving) {
       routes["feeder"] = { tiles: [], declined: true };
+      gate(`feeder-judged-declined-payback-${Math.round(verdict.paybackTicks)}t`);
       return;
     }
+    gate(`feeder-judged-paving-payback-${Math.round(verdict.paybackTicks)}t`);
     const flat: number[] = [];
     for (const t of tiles) flat.push(t.x, t.y);
     routes["feeder"] = { tiles: flat };

@@ -497,6 +497,7 @@ export function solveColony(
     demand: k.demand,
     unmet: Math.max(0, k.demand - k.allocated),
     priority: k.value,
+    ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
     sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
   }));
 
@@ -513,6 +514,7 @@ export function solveColony(
     miners,
     haulers,
     sinkAllocations,
+    partsLedger: plan.partsLedger,
     totalHarvest,
     miningOverhead,
     haulingOverhead,
