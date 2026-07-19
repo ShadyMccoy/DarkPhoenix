@@ -370,6 +370,21 @@ Same capture, ledger milestones: FIRST GREEN P4 (0.77x under the
 budget-dry tolerance) and green P5 at priced duty 0.50 with reservation
 banks read live (W42N22:279 W42N23:318 W43N24:167 W44N23:72).
 
+### 2026-07-19 (cron cycle) — dead-tile fix VERIFIED in prod; E2 discriminator armed; no deploy
+
+t72420978 (~50t post-deploy): placeAttempt link@W43N23:46,11 result 0 -
+the clamp rejected the cursed border tile, the generator proposed a
+legal one, the site PLACED. The eaten ladder is unstuck; road verdicts
+now sit behind one 5k link build (wantsLink -> false on completion,
+wantsRoadWork drives the pass to rung 4). P4 holds 0.77x; P5 banks
+GROWING (W42N22 279->609, W44N23 72->402 - reservers actively banking);
+P1 stable; storage -18/t. E2 88 parts / same 4 fleets as last capture -
+but three deploys in 90 min re-randomize route ids faster than hauler
+lifetimes, so the cohort may be deploy-cadence coupling. Discriminator
+armed (task #15): next capture rides a NO-deploy window; clears = churn,
+persists = haulers need route reassignment on replan. Cycle verdict:
+verified + instrumented, deliberately no deploy.
+
 Toolchain finding (why "do NOT use push-main" in the loop doc): the
 container's registry mirror serves versions that do not exist upstream -
 rollup 2.80.0 (real 2.x ends 2.79.2) and picomatch 2.3.2 (real 2.x ends
