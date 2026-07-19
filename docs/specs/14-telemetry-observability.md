@@ -798,3 +798,22 @@ stabilizes; controller progresses at the capped rate. REGRESSION RULE (last
 #19 deploy starved the spawn): if eAvail collapses to ~500 or bank haulers ->0
 or util craters, REDEPLOY 76646e5 immediately. Two-capture verify (that rule
 caught the last regression).
+
+**#19/#21 FIX VERIFIED (t72430762 -> t72430951, dt 189) - SUCCESS, no
+regression.** The two-capture rule (which caught the part-1 regression on its
+SECOND capture) confirms the spawn HOLDS funded: eAvail 512 -> 1100 (ROSE, not
+the stuck-504 starvation), bankHaul 3 both, util 0.71->0.44 (fleet near-complete,
+not idle-starved), 6 upgraders online. #21 working: controller plan 85->81
+(physical cap, never the 137). Controller progresses ~41 e/t (vs ~2 pre-fix) and
+the WARCHEST DRAINS -38/t (438826, E4 finally easing) - the capped controller
+lets the upgraders feasibly burn the surplus. Healthier than the rollback
+(ballooning warchest, +2 e/t) and the part-1 regression (starved spawn).
+RESIDUAL (follow-ups, not blockers): P9 0.33 - 4 of 7 FAR sources still
+drop-and-scavenge (nearest sources fill the capped controller first; the far
+ones lose the nearest-first race and the controller cap 85 > supply 70 so
+storage overflow never activates to route them). The energy is consumed via
+scavenge, not rotting - a decay-loss efficiency gap (the deferred double-count),
+not the acute #19 rot. S3 stall is the known false-positive (spawn funded at
+1100, building; near-equilibrium). Next: dedicated-haul the far sources (lower
+the controller cap toward true demand so mined surplus overflows to storage,
+OR kill the scavenge double-count so the far miners get haulers).
