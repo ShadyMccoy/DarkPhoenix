@@ -43,6 +43,7 @@ Conventions used by every spec:
 | 13 | [Invader economics: keep the remotes flowing](13-invader-economics.md) | **LANDED 2026-07-17** — scout-wipe fix, towers, raid meter + transit embargo, RaidGuardCorp (def-t4 green), CoreBusterCorp (def-t5 green), invader tax, BlackBox/intel telemetry; open: live tax calibration (≥15k-tick windows) | landed (calibration open) |
 | 14 | [Telemetry observability: answer the basic questions](14-telemetry-observability.md) | phases 0/0b landed (#111/#113); 1–2 implemented 2026-07-18 (room energy ledger core-v4, sizing records corps-v4); open: spawn meter, NOW-plan mirror | P1 |
 | 15 | [Source-Keeper mining](15-source-keeper-mining.md) | design overview only — not started (guarded-producer model + garrison tax primitive + KeeperGuardCorp) | P3 |
+| 16 | [CPU as a costed resource](16-cpu-as-costed-resource.md) | stub — deferred until CPU is the binding constraint (planner objective prices spawn-build-time + energy, not CPU) | P4 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot

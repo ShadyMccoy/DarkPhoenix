@@ -62,6 +62,35 @@ pending that pass.
 | Source Keeper | ~5000 hits, melee + ranged + self-heal, aggro radius small (~5) | A *persistent* threat, not TTL-bounded. Killing one buys ~300 ticks; then it respawns. The garrison is **standing overhead forever**, not a one-off CAPEX. This is the whole economic difference from spec 12's core-buster. |
 | Mineral | 1 per SK room | **Out of scope** — mineral/extractor/deposit economy is a separate producer class. This spec is energy-only; the mineral's lair is still a threat the guardian must suppress if it shares the miner's path. |
 
+## Strategic context: SK preference must be EMERGENT, not a flag
+
+Why chase the ring at all? Two scaling axes: **owned rooms scale with GCL**
+(slow, capped, CPU-heavy per unit output — upgrade/build/defend), while
+**harvest ops scale with CPU**, and SK rooms are *unclaimable* so they cost
+**zero GCL**. At the frontier the binding constraint is CPU per tick, so the
+real objective is **value per CPU** — and SK wins there precisely because its
+CPU-expensive part (the standing guardian's combat/pathing) **amortizes across a
+dense cluster**: one garrison holds ~3 sources (~40 e/tick) plus a mineral,
+versus a thin 1-source remote spending miner+hauler CPU for 10 e/tick. SK rooms
+are the densest harvest clusters in the game short of power/deposits.
+
+But the doctrine is **not** "only harvest SK rooms." SK rooms have no
+controller and no buildable structures — no spawn, storage, terminal, towers, or
+labs — so they are strictly **parasitic on owned cores**, and harvested energy
+is worthless without a sink (upgrade/build/factory→market). The real end state
+is *a few dense owned cores + maximal SK/remote fan-out, preferring SK for
+density* — spec 06's "spread like a disease" with SK as the densest target.
+
+Crucially, that preference must **fall out of the costing**, never be hardcoded.
+`netEnergy_SK` (below) is the whole mechanism: price the garrison tax honestly
+and the planner takes rich SK clusters and skips thin ones *on the math*, the
+same way sink values and `netEnergy` already drive every other placement
+decision. The value-per-CPU story above is not yet in the objective function —
+today the planner prices spawn-build-time and energy balance, not CPU (see the
+deferred [spec 16 — CPU as a costed resource](16-cpu-as-costed-resource.md)).
+When CPU is eventually costed, SK's ranking shifts further *emergently*; nothing
+here should anticipate it with a flag.
+
 ## The economic model (the real content)
 
 SK mining slots into the existing ontology as a **guarded producer**. The corp
