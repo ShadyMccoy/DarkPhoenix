@@ -942,3 +942,30 @@ clean re-read. NOTE (follow-up, pre-existing): every deploy triggers this
 terrain-rebuild income dip - a real per-deploy cost worth quantifying, and a
 plausible contributor to the historical warchest drain given this session's
 deploy frequency.
+
+**HUB-AND-SPOKE FULLY VERIFIED AT FULL INCOME (t72436969, ~40 min post-deploy).**
+The reset transient self-healed: graphSources 2 -> 38, funded 2 -> 7, minerCount
+7 (main.ts:264's forced terrain pass rebuilt the territories exactly as
+designed). storageE across the post-deploy window: 172257 -> 175250 -> 177521 =
+warchest GROWING (~+15-21/t) vs the -31.6/t pre-deploy bleed - confirmed now at
+full 7-source income, util 0.87. The owner's core goal (stop spending savings)
+is met and holds at full income.
+
+**PRE-STORAGE CONTAINER-HUB ATTEMPT - REVERTED (owner 2026-07-19 "central base
+accumulator").** Built the deposit side (FlowGraph promotes the central base
+container to a promotedHub storage-role sink when no real storage; adapter
+excludes promotedHub from the warchest save-regime/defund so a 2000-cap
+container can't pin the controller). Unit test green (mined banks to the
+container, not the controller). BUT the cold-start grid cell plan-t1-single-
+source-loop REGRESSED baseline-pass -> [T] timeout ("controller doesn't progress
+in the back half"): the SPEND leg (container -> consumer) is unstaffed pre-storage
+because the feeder/tender that relay storage->consumer at RCL8 do not exist
+early, and the system invariant is "bank flows are depot movers, never
+CarryCorps" (publishRoster skips bank haulers; the "bank flows never materialize
+as CarryCorp" test pins it). Reverted rather than ship the regression. To
+complete: staff the container->consumer spend leg through a REAL hauler
+pre-storage - either make publishRoster publish bank haulers as CarryCorps where
+no depot movers exist (needs the materialiser to withdraw a CarryCorp from a
+container/bank source), or route the spend leg through the scavenge mechanism
+(already real haulers). That is a change to a core invariant + likely the
+materialiser - a dedicated piece, not a tweak. DEFERRED to owner steer.
