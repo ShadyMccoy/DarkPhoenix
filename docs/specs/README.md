@@ -43,6 +43,7 @@ Conventions used by every spec:
 | 13 | [Invader economics: keep the remotes flowing](13-invader-economics.md) | **LANDED 2026-07-17** — scout-wipe fix, towers, raid meter + transit embargo, RaidGuardCorp (def-t4 green), CoreBusterCorp (def-t5 green), invader tax, BlackBox/intel telemetry; open: live tax calibration (≥15k-tick windows) | landed (calibration open) |
 | 14 | [Telemetry observability: answer the basic questions](14-telemetry-observability.md) | ALL PHASES implemented 2026-07-18 (bodies #111/#113, ledger+sizing #114, gate stamps, spawn meter + NOW-plan mirror core-v5); found+fixed the live reserver purchase loop | P1 |
 | 15 | [Waste ledger: make every leak a measured number](15-waste-ledger.md) | proposed 2026-07-18 — owner directive: identify/measure/eliminate CPU, energy, spawn-time waste in planning & execution; phase 1 = audit-side ledger over existing captures | P0 |
+| 16 | [Construction as projects](16-construction-projects.md) | proposed 2026-07-19 (owner design) — a builder corp is a spawn + a finite-cost project list; cross-room remote-source trunk paving + sum-of-projects sizing landed; founding-as-project forward-looking | P1 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
