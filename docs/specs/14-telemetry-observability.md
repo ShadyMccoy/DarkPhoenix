@@ -970,15 +970,19 @@ container/bank source), or route the spend leg through the scavenge mechanism
 (already real haulers). That is a change to a core invariant + likely the
 materialiser - a dedicated piece, not a tweak. DEFERRED to owner steer.
 
-**INCIDENT (new, scoped): DEPLOY/RESET REMOTE-MINING STALL - a chronic warchest
-drain.** Every global reset (FREQUENT on the live server, not just deploys)
-wipes the in-heap analysis cache; remote mining then STOPS for ~40 min while a
-forced terrain pass rebuilds. Measured this session (hub-and-spoke deploy):
-assembly.graphSources 38 -> 2 within 8 min, flat 2 through 19 min, recovered to
-38/7 by ~40 min. During the stall the colony coasts on ~2 home sources +
-scavenge, spending warchest to cover consumption - a real, recurring
-contributor to the "spending our savings" bleed the owner first flagged, AMPLIFIED
-by this session's deploy frequency.
+**INCIDENT (RE-SCOPED 2026-07-19 - see the "DEPLOY-CRASH NARRATIVE RETRACTED"
+correction below): INCONSISTENT, RECOVERABLE post-reset remote-mining DIP.**
+[Original framing "a chronic warchest drain ... every deploy pays a ~40-min tax"
+was WRONG and is retracted - see below. The re-scoped truth:] A global reset can
+land on the main.ts:264 path where the territory cache comes back empty and
+remote source-claiming pauses until a terrain pass rebuilds. Observed ONCE this
+session (hub-and-spoke deploy, t72435896->t72436467): assembly.graphSources
+38 -> 2, flat through 19 min, recovered to 38/7 by ~40 min. But it did NOT recur
+on the phantom-fix deploy (t72437535->t72437919: graphSources stayed 38), so it
+is INCONSISTENT - very possibly a NATURAL global reset that coincided with the
+hub-and-spoke deploy rather than the deploy causing it. It is RECOVERABLE (38
+came back) and is NOT a crash. It was NOT the cause of the fleet crash (that was
+the phantom code bug, which hit AFTER graphSources recovered to 38).
 CONFIRMED MECHANISM: restoreVisualizationCache (IncrementalAnalysis.ts:132)
 restores nodes+edges from Memory but with EMPTY territories ("Not needed for edge
 visualization"); main.ts:270-275 sees territories.size===0 -> forces
@@ -999,8 +1003,10 @@ test/unit/execution/refreshNodeResources.test.ts - the post-reset state IS
 unit-constructible even though a live global reset can't be simmed). FIX
 DIRECTIONS once pinned: (a) skip the forced rebuild when nodes already carry
 resources; (b) persist territories compactly; (c) fast room-level re-claim from
-Memory.roomIntel post-reset. MITIGATION NOW: deploy less often - each deploy pays
-this ~40-min tax.
+Memory.roomIntel post-reset. MITIGATION: none needed as a deploy gate - deploys
+do NOT reliably trigger this (the phantom-fix deploy did not), so "deploy less
+often" was the WRONG conclusion. Priority is LOW (inconsistent, recoverable);
+worth pinning with the instrument when convenient, not urgent.
 
 **INCIDENT + FIX: HUB PHANTOM-SUPPLY STALL (t72437535) - a live-only regression
 from the hub-and-spoke deploy.** ~50 min post-deploy, once the reset transient
@@ -1024,8 +1030,10 @@ supply. REGRESSION TEST (now catches the sim blind spot in the UNIT suite):
 flowAdapter "sizes the hub to FUNDED mined income, not all candidate graph
 sources" - far unfunded sources present, bank outflow must be <= funded. Gate:
 unit 968 + phantom guard, grid fid-t4/bank-surplus-upgrades/storage-bank-and-spill
-[P], trio. Chose FIX-FORWARD over rollback: the fix is targeted + unit-pinned, a
-rollback costs the same global-reset stall (#22) AND un-does the warchest fix.
+[P], trio. Chose FIX-FORWARD over rollback: the fix is targeted + unit-pinned and
+a rollback un-does the warchest fix. [The additional "rollback costs the same
+#22 reset-stall" argument I gave was based on the retracted deploy-crash
+narrative - see correction below; the decision stands on the two solid reasons.]
 
 **AUDIT CYCLE t72438635 - phantom-fix recovery progressing, depot-crash recovery-
 order BLOCKER named.** Phantom fix confirmed working (warchest growing +31.82/t,
@@ -1055,11 +1063,44 @@ builders). Builders idle (P8=0) - they cannot get energy with the feeder dead, s
 they block the queue while the feeder that would fix distribution never spawns.
 Production IS recovering (P9 0.42->0.54, fleet 19->22, warchest growing) so the
 queue SHOULD reach the feeder as production completes - but ~500 ticks stuck makes
-self-resolution uncertain. NO DEPLOY this cycle (deliberate): a feeder-priority
-fix would trigger a global reset -> another depot crash -> controller 0 during
-THAT recovery, likely slower to a scoring controller than letting the in-progress
-recovery finish. Colony safe (185k, no downgrade). WATCH: if the NEXT cycle shows
+self-resolution uncertain. NO DEPLOY this cycle - but for the RIGHT reason (see
+correction below): the recovery is self-resolving (P9 climbing) and no fix is
+built yet, NOT the WRONG reason I originally wrote here ("a deploy would trigger a
+global reset -> another depot crash"). CORRECTION 2026-07-19: deploying does NOT
+reliably cause a crash or even a reset dip (the phantom-fix deploy showed
+graphSources stay at 38); a global reset is harmless (creeps + Memory persist,
+plan re-solves). A correct, gated feeder fix could ship on green per standing
+auth - hold it only because the recovery is advancing on its own. Colony safe
+(185k, no downgrade). WATCH: if the NEXT cycle shows
 the controller still pinned at 0, it is genuinely stuck -> fix-forward the
 feeder/spend-path priority (prioritize energy-DISTRIBUTION recovery after a depot
 crash; relates to #22 blocker). Cycle verdict: DIAGNOSED (spend path down) + WATCH
 SET. Delta: P9 0.42->0.54 (production recovering).
+
+**CORRECTION 2026-07-19 - "DEPLOY-CRASH NARRATIVE" RETRACTED (owner-caught).**
+Across several entries above I asserted a causal chain "deploy -> global reset ->
+territory cache wiped -> remote mining stops ~40 min -> econ crash", and used it
+to justify decisions (defer the feeder fix, frame #22 as chronic). THAT WAS WRONG.
+The data (graphSources around this session's two deploys):
+  hub-and-spoke deploy (t72435896->t72436467): 38 -> 2  (dropped)
+  phantom-fix deploy  (t72437535->t72437919): 38 -> 38 (NO drop)
+Only ONE of two deploys showed the source-drop. If deploying reliably wiped the
+territory cache, both would. So:
+1. Deploying does NOT reliably cause a reset dip, let alone a crash. A deploy
+   causes a standard global RESET (VM re-init) which is HARMLESS: creeps persist
+   (game objects), Memory persists, the graph rebuilds from Memory, the plan
+   re-solves. This is the everyday behavior the owner has seen without crashes.
+2. The 38->2 dip (#22) is INCONSISTENT and RECOVERABLE - one observation, very
+   possibly a NATURAL global reset (frequent on the live server for many reasons)
+   coinciding with the hub-and-spoke deploy, not caused by it. Re-scoped to LOW
+   priority. NOT a crash.
+3. The ACTUAL fleet crash was the PHANTOM CODE BUG (hub sized to all 38 candidate
+   sources instead of 7 funded), which hit at FULL income AFTER graphSources had
+   recovered to 38 and the economy was healthy - unrelated to the act of
+   deploying. Fixed.
+CONSEQUENCE for decisions: "don't deploy X because it re-crashes the colony" is
+an invalid argument. A correct, gated fix may ship on green per standing auth;
+hold a fix only for real reasons (recovery self-resolving, fix not built/proven).
+Lesson: I built a causal narrative from a single correlated observation and
+propagated it into decisions before the second data point (the phantom-fix
+deploy) falsified it. One observation is a hypothesis, not a mechanism.
