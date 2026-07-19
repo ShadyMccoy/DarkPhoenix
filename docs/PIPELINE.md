@@ -123,6 +123,26 @@ Three independent clocks — don't conflate them:
   spread incrementally across ticks (`main.ts:210-256`), separate from the
   economy solve. Node-resource refresh is its own 50-tick clock.
 
+## Where roads come from (two signals)
+
+Road placement is fed by two independent inputs that answer different questions:
+
+- **A priori — `economy/roadEconomics.ts`.** A closed-form cost/benefit for a
+  KNOWN route with an ASSUMED flow. `ConstructionCorp.tryPlaceRoadRoute`
+  (`ConstructionCorp.ts:731`) uses it to decide whether to pave each
+  source→depot haul route and caches the verdict in `RoomMemory.roadRoutes`.
+- **Empirical — `economy/roadScoring.ts` + `execution/roadTracker.ts`.**
+  `trackRoadUsage` (every tick, `main.ts` EXECUTE phase) watches where our
+  creeps actually STEP on unpaved plain/swamp while paying move-fatigue, and
+  credits each tile the fatigue a road there would have saved
+  (`stepScore = fatigueParts × (terrainFatigue − 1)`; swamp 9×, plain 1×, empty
+  haulers 0). Scores accumulate in `RoomMemory.roadScores`, decay on a 3000-tick
+  cadence, and are read back — ranked — via `roadCandidateTiles` (console:
+  `global.roadHeatmap()`). This is a DURABLE statistical accumulator (thousands
+  of steps), not a position-keyed trigger, so it does not fall into the
+  flap-on-a-creep-death trap. Wiring these candidates into `ConstructionCorp`
+  placement (empirical flow instead of assumed `SOURCE_RATE`) is the next step.
+
 ## Current vocabulary (use these names)
 
 | Concept | What it is | Home |

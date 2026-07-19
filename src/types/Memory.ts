@@ -350,6 +350,20 @@ declare global {
     };
 
     /**
+     * Empirical road-usage heatmap (execution/roadTracker + economy/roadScoring).
+     * `scores` maps a packed tile index (x*50+y) to the accumulated move-fatigue
+     * a road on that tile would have saved the creeps that stepped on it - the
+     * MEASURED counterpart to roadEconomics's a-priori route pricing. Decays on a
+     * cadence so it tracks recent traffic, and is trimmed to the hottest tiles to
+     * stay bounded. `updated` is the last tick a step was credited. Read via
+     * roadCandidateTiles to rank where roads should go.
+     */
+    roadScores?: {
+      scores: { [packed: number]: number };
+      updated: number;
+    };
+
+    /**
      * True while a core depot exists AND a live extension tender is draining it.
      * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
      * source->depot bus instead of fanning across extensions; when the tender dies
