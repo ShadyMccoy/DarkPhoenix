@@ -776,3 +776,10 @@ NPC raid (attack 5, guard campaign) is being handled. No fix, no deploy: the
 deployed code is proven-healthy pre-batch and the doctrine fix stays deferred
 to owner review. Monitor next cycle for return to the pre-batch level (7 src,
 util ~0.86, feeder on, storage draining).
+
+**Audit cycle t72429680 — recovery ~complete, no deploy.** Producers rebuilt
+(2→7 sources, util 0.33→0.70, feeder back ON, ctrlStock 162→1014, P4/S3
+resolved). Consumers next: upgrader corp demands 4 (targetCount 4, alloc 45.8,
+banked 455k) but 0 fielded yet → P7 0 and E4 warchest +28/t are the transient
+tail of a producers-first rebuild (pre-batch the same code ran 6 upgraders and
+drained the warchest -44.5/t). Doctrine fix still owner-deferred.
