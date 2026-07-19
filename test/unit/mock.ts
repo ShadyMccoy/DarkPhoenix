@@ -179,6 +179,8 @@ export const STRUCTURE_EXTENSION = 'extension';
 export const STRUCTURE_STORAGE = 'storage';
 export const STRUCTURE_CONTAINER = 'container';
 export const STRUCTURE_CONTROLLER = 'controller';
+export const STRUCTURE_ROAD = 'road';
+export const STRUCTURE_LINK = 'link';
 
 export const OK = 0;
 export const ERR_NOT_IN_RANGE = -9;
@@ -225,6 +227,8 @@ export function setupGlobals(): void {
   (global as any).STRUCTURE_STORAGE = STRUCTURE_STORAGE;
   (global as any).STRUCTURE_CONTAINER = STRUCTURE_CONTAINER;
   (global as any).STRUCTURE_CONTROLLER = STRUCTURE_CONTROLLER;
+  (global as any).STRUCTURE_ROAD = STRUCTURE_ROAD;
+  (global as any).STRUCTURE_LINK = STRUCTURE_LINK;
 
   (global as any).OK = OK;
   (global as any).ERR_NOT_IN_RANGE = ERR_NOT_IN_RANGE;
