@@ -1044,3 +1044,22 @@ tender/feeder recovery (rebuild energy DISTRIBUTION first), or widen the bootstr
 trigger to "depot movers dead + spawn extensions starved". Not an emergency
 (warchest 181k, no downgrade risk, recovery advancing); no new deploy this cycle.
 Cycle verdict: FIX VERIFIED (working) + BLOCKER NAMED (depot-crash recovery order).
+
+**AUDIT CYCLE t72438709 - SPEND PATH DOWN (feeder deprioritized), self-resolution
+watch set.** Triage FAIL confirmed: warchest 185895 = 6.7x target, RISING +31/t,
+feederActive FALSE, controller 0 e/t (~5 captures now). Queue data (segment 0
+agenda) names it: the controllerFeeder (gate=demand, body=NONE) and upgrader
+(body=NONE) died in the phantom crash and sit BEHIND production in the spawn queue
+(queue head = builder/miner/hauler/hauler; recent executed = all miners/haulers/
+builders). Builders idle (P8=0) - they cannot get energy with the feeder dead, so
+they block the queue while the feeder that would fix distribution never spawns.
+Production IS recovering (P9 0.42->0.54, fleet 19->22, warchest growing) so the
+queue SHOULD reach the feeder as production completes - but ~500 ticks stuck makes
+self-resolution uncertain. NO DEPLOY this cycle (deliberate): a feeder-priority
+fix would trigger a global reset -> another depot crash -> controller 0 during
+THAT recovery, likely slower to a scoring controller than letting the in-progress
+recovery finish. Colony safe (185k, no downgrade). WATCH: if the NEXT cycle shows
+the controller still pinned at 0, it is genuinely stuck -> fix-forward the
+feeder/spend-path priority (prioritize energy-DISTRIBUTION recovery after a depot
+crash; relates to #22 blocker). Cycle verdict: DIAGNOSED (spend path down) + WATCH
+SET. Delta: P9 0.42->0.54 (production recovering).
