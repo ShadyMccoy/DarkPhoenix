@@ -391,17 +391,19 @@ export class ConstructionCorp extends Corp {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
-    // Never take the LAST builder while sites exist: the +1 detail target
-    // means a second member is coming, and until it arrives the single creep
-    // builds (caught by cons-t3-build-and-repair-concurrent: a 1-creep cold
-    // ramp lost its only builder to the detail and construction starved).
-    // A GENUINE critical (below the start gate, not the hold band) overrides -
-    // a structure about to expire outranks build tempo.
-    const sitesExist = room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
-    if (members.length < 2 && sitesExist && this.findCriticalRepairTarget(room) === null) {
-      if (detail) delete detail.memory.repairDetail;
-      return;
-    }
+    // Repair is DECOUPLED from building (owner 2026-07-18: "the existence of
+    // construction sites doesn't have to impact the repair in any way"). The
+    // maintenance detail is assigned whenever something wants maintenance,
+    // regardless of sites; the +1 detail target (builderPlanWithDetail) orders
+    // the second builder so construction is not starved. A former "never take
+    // the LAST builder while sites exist" guard VIOLATED this directive - it
+    // cleared an active repair detail the moment the corp placed a site, so a
+    // 1-builder room abandoned a below-gate container to chase construction
+    // forever (cons-repair-stops-at-99, root-caused via diag-repair-latch: 8
+    // sites placed at t20 -> detail cleared -> the 55% container never rose).
+    // The cold-ramp case that motivated it is covered by the 2-builder
+    // cons-t3 staging and by the fact that a real cold ramp's containers are
+    // full (no maintenance competition).
     if (detail) return;
     const recruit = members[0];
     if (recruit) recruit.memory.repairDetail = true;
