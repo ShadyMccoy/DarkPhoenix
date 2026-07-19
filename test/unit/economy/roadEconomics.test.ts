@@ -3,6 +3,9 @@ import {
   evaluateRoadRoute,
   pavedRouteCostPerTick,
   paveScore,
+  loadedTicksPerTile,
+  roundTripTicksForRoute,
+  bestHaulerRatio,
   ROAD_BUILD_COST,
   ROAD_DECAY_HITS,
   ROAD_HITS,
@@ -10,6 +13,7 @@ import {
   UNMAINTAINED_ROAD_LIFE,
   WALL_ROAD_MULTIPLIER
 } from "../../../src/economy/roadEconomics";
+import { roundTripTicks } from "../../../src/economy/primitives";
 
 /**
  * The road cost/benefit model. Hand-derived anchors:
@@ -139,5 +143,83 @@ describe("economy/roadEconomics", () => {
     const v = evaluateRoadRoute({ plainTiles: 0, swampTiles: 0, flow: 10 });
     expect(v.buildCost).to.equal(0);
     expect(v.worthPaving).to.equal(false);
+  });
+});
+
+/**
+ * Ticks, not tiles (owner directive 2026-07-19): a hauler's round trip is a
+ * TIME, and a body whose MOVE complement no longer clears the terrain at full
+ * speed crawls - so its round trip is LONGER than 2*tiles+2 even though the
+ * tile distance is identical. Every anchor here is hand-derived from the
+ * end-of-tick fatigue model: loaded ticks/tile = max(1, ceil(k*t/2)) for a
+ * k=CARRY:MOVE body on terrain move-cost t (plain 2, road 1, swamp 10); an
+ * EMPTY creep generates no fatigue and always moves 1 tile/tick.
+ */
+describe("economy/roadEconomics - ticks not tiles (hauler travel time)", () => {
+  describe("loadedTicksPerTile", () => {
+    it("1:1 clears road and plain at full speed, crawls on swamp (5x)", () => {
+      expect(loadedTicksPerTile(1, 1)).to.equal(1); // road
+      expect(loadedTicksPerTile(2, 1)).to.equal(1); // plain
+      expect(loadedTicksPerTile(10, 1)).to.equal(5); // swamp
+    });
+    it("2:1 is full speed ONLY on road; half speed on plain, 10x on swamp", () => {
+      expect(loadedTicksPerTile(1, 2)).to.equal(1); // road: the 2:1 body's home terrain
+      expect(loadedTicksPerTile(2, 2)).to.equal(2); // plain: half speed (the partial-road penalty)
+      expect(loadedTicksPerTile(10, 2)).to.equal(10); // swamp: a 2:1 hauler must not cross swamp
+    });
+  });
+
+  describe("roundTripTicksForRoute", () => {
+    it("a 1:1 body reproduces the tile-based round trip on plain/road (empty out, loaded back, +2)", () => {
+      // 10 plain tiles, 1:1: loaded 10*1 + empty 10 + 2 = 22 == roundTripTicks(10)
+      expect(roundTripTicksForRoute(0, 10, 0, 1)).to.equal(22);
+      expect(roundTripTicksForRoute(0, 10, 0, 1)).to.equal(roundTripTicks(10));
+      // all-road is identical for a 1:1 body (road and plain both clear at 1:1)
+      expect(roundTripTicksForRoute(10, 0, 0, 1)).to.equal(22);
+    });
+    it("a 2:1 body on FULLY PAVED road matches the tile round trip (no penalty)", () => {
+      // 20 road tiles, 2:1: loaded 20*1 + empty 20 + 2 = 42 == roundTripTicks(20)
+      expect(roundTripTicksForRoute(20, 0, 0, 2)).to.equal(42);
+      expect(roundTripTicksForRoute(20, 0, 0, 2)).to.equal(roundTripTicks(20));
+    });
+    it("a 2:1 body on UNPAVED plain crawls: the round trip is longer than 2*tiles+2", () => {
+      // 10 plain tiles, 2:1: loaded 10*2=20 + empty 10 + 2 = 32 (vs 22 tile-based)
+      expect(roundTripTicksForRoute(0, 10, 0, 2)).to.equal(32);
+      expect(roundTripTicksForRoute(0, 10, 0, 2)).to.be.greaterThan(roundTripTicks(10));
+    });
+    it("PARTIAL roads land between: a 2:1 body over 5 road + 5 plain", () => {
+      // loaded 5*1 + 5*2 = 15, empty 10, +2 = 27
+      expect(roundTripTicksForRoute(5, 5, 0, 2)).to.equal(27);
+    });
+  });
+
+  describe("bestHaulerRatio (choose the body by TOTAL parts from the tick round trip)", () => {
+    it("a fully paved route picks 2:1 - same round trip, but 1.5 parts/CARRY beats 2", () => {
+      const r = bestHaulerRatio(20, 0, 0, 10);
+      expect(r.carryPerMove).to.equal(2);
+      // RT 42 ticks, carry = 10*42/50 = 8.4, spawn parts = 8.4 * 1.5 = 12.6
+      expect(r.rtTicks).to.equal(42);
+      expect(r.carryParts).to.be.closeTo(8.4, 1e-9);
+      expect(r.spawnParts).to.be.closeTo(12.6, 1e-9);
+    });
+    it("an all-plain route picks 1:1 - the 2:1 crawl outweighs its cheaper MOVE", () => {
+      const r = bestHaulerRatio(0, 20, 0, 10);
+      expect(r.carryPerMove).to.equal(1);
+      // 1:1 RT 42, carry 8.4, parts 16.8; 2:1 RT 62, carry 12.4, parts 18.6 -> 1:1 wins
+      expect(r.rtTicks).to.equal(42);
+      expect(r.spawnParts).to.be.closeTo(16.8, 1e-9);
+    });
+    it("the break-even is plainTiles < 2*roadTiles + 2: half-and-half still picks 2:1", () => {
+      expect(bestHaulerRatio(10, 10, 0, 10).carryPerMove).to.equal(2); // 10 < 22
+      expect(bestHaulerRatio(1, 10, 0, 10).carryPerMove).to.equal(1); // 10 < 4 is false
+    });
+    it("a swamp-DOMINATED route picks 1:1 (a 2:1 body is 10x on swamp, 1:1 only 5x)", () => {
+      expect(bestHaulerRatio(0, 0, 5, 10).carryPerMove).to.equal(1); // all unpaved swamp
+      expect(bestHaulerRatio(4, 2, 4, 10).carryPerMove).to.equal(1); // swamp-heavy mix
+    });
+    it("but a mostly-ROAD route keeps 2:1 despite a little swamp (the trade is quantitative)", () => {
+      // 20 road + 3 swamp: 2:1 parts 22.5 < 1:1 parts 24 - the road tiles dominate
+      expect(bestHaulerRatio(20, 0, 3, 10).carryPerMove).to.equal(2);
+    });
   });
 });
