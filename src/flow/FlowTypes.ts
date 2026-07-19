@@ -295,6 +295,12 @@ export interface SinkAllocation {
   /** Sink receiving energy */
   sinkId: string;
 
+  /**
+   * Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
+   * trace) - why filling stopped: capacity met, pool dry, or ledger dry.
+   */
+  partsLeft?: number;
+
   /** Type of sink */
   sinkType: SinkType;
 
@@ -387,6 +393,14 @@ export interface FlowSolution {
   /** Miner assignments */
   miners: MinerAssignment[];
 
+  /**
+   * The plan's spawn-parts ledger, traced (spec 15 P4): capacity, standing
+   * deductions, and the routing budget the sink fill worked with.
+   */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (flow v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
+
   /** Hauler assignments */
   haulers: HaulerAssignment[];
 
@@ -422,6 +436,23 @@ export interface FlowSolution {
 
   /** Tick when this solution was computed */
   computedAt: number;
+
+  /**
+   * Per-candidate funding verdicts from producer selection (spec 14 phase 5) -
+   * why each non-transient source was funded or excluded (unprofitable /
+   * over-budget / no-spawn), with the net/tax pricing the decision read.
+   * Shape: economy/CorpPlanner.SourceVerdict[]. Optional: absent on legacy
+   * solutions.
+   */
+  sourceVerdicts?: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
+  }[];
 }
 
 // =============================================================================

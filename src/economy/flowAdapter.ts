@@ -22,8 +22,9 @@ import {
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { coreLink, sourceLink } from "../corps/nodeEnergy";
-import { INVADER_TAX_PER_ENERGY, haulerOverhead, minerOverhead } from "./primitives";
+import { coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { INVADER_TAX_PER_ENERGY, UPGRADE_ENERGY_PER_WORK, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
@@ -46,7 +47,7 @@ export const ANTI_DOWNGRADE_RESERVE = 2;
  * module); re-exported here for the existing import sites.
  */
 export { STORAGE_UPGRADE_TARGET } from "./bank";
-import { STORAGE_UPGRADE_TARGET, bankToTransientSource } from "./bank";
+import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId } from "./bank";
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
@@ -62,12 +63,50 @@ export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
   roomsWithStorage: ReadonlySet<string>,
-  surplusRooms: ReadonlySet<string> = new Set()
+  surplusRooms: ReadonlySet<string> = new Set(),
+  physicalUpgradeCap: number = Infinity
 ): number {
   if (roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
-  return Math.max(totalSupply, 1);
+  // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
+  // no faster than the upgrader fleet can PHYSICALLY burn it (parking tiles x
+  // affordable WORK - see controllerUpgradeCap). Surplus beyond the cap has no
+  // upgrader to consume it, so it overflows into the storage sink instead of
+  // publishing an infeasible upgrade plan that out-competes remote mining
+  // (live t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
+  return Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
+}
+
+/** UpgradingCorp's hard upgrader-count cap, mirrored (parking tiles are few). */
+const CONTROLLER_UPGRADER_CAP = 8;
+
+/**
+ * The controller's PHYSICAL upgrade capacity (energy/tick) for the #21 sink
+ * cap: how much the upgrader fleet can actually burn, bounded by the parking
+ * tiles ringing the controller input spot and each body's affordable WORK at
+ * the room's energy capacity (mirrors UpgradingCorp.upgraderTargetCount's
+ * parking bound so the sink and the fleet agree). Infinity when Game or the
+ * controller is unavailable, so unit/harness paths keep the uncapped default
+ * unless a cap is passed explicitly.
+ */
+export function controllerUpgradeCap(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
+  const controller = Game.rooms[roomName]?.controller;
+  if (!controller) return Infinity;
+  try {
+    // Best-effort physical estimate: any incomplete Game state (partial test
+    // mock, room we cannot fully resolve) falls back to the uncapped default
+    // rather than throwing - a missing cap is safe, it only reverts to old
+    // behavior; the parking lens needs the live pos/room lookForAt API.
+    const parking = controllerParkingTiles(controller, controllerInputSpot(controller).pos).length;
+    const spots = Math.min(parking || CONTROLLER_UPGRADER_CAP, CONTROLLER_UPGRADER_CAP);
+    const capacity = Game.rooms[roomName]?.energyCapacityAvailable ?? 300;
+    const affordableWork = Math.max(1, buildUpgraderBody(capacity, 99, "containerFed").workParts);
+    return spots * affordableWork * UPGRADE_ENERGY_PER_WORK;
+  } catch {
+    return Infinity;
+  }
 }
 
 /** Ticks over which the agenda's funding need amortizes into a flow rate. */
@@ -187,6 +226,15 @@ export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
   for (const roomName in Game.rooms) {
+    // FORGET SCAVENGERS FOR REMOTES (owner 2026-07-19): a remote source mines
+    // into its container, and detectRoomStocks sums that container into the
+    // ground pile - so the container's energy is planned as SCAVENGE supply and
+    // a scavenge hauler siphons it, stealing the energy from the source's own
+    // dedicated haul-home. The remote then "delivers" only a scavenge trickle
+    // while the colony burns its warchest. Scavenge ONLY owned rooms, where the
+    // controller-bucket overflow recapture is load-bearing (scavenge.ts); a
+    // remote source's energy is the miner's to haul home, not a scavenger's.
+    if (!Game.rooms[roomName].controller?.my) continue;
     for (const stock of detectRoomStocks(Game.rooms[roomName])) {
       out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
     }
@@ -235,6 +283,23 @@ export function detectBankSources(): PlannerSource[] {
     if (source) out.push(source);
   }
   return out;
+}
+
+/**
+ * Physical energy room remaining in a room's storage bank. Infinity when there
+ * is no live storage to read (harness/unit paths keep the old "soak totalSupply"
+ * behavior unchanged). This is the storage sink's true ceiling: while the bank
+ * has room it can soak any remote surplus (storage is the hub - owner 2026-07-19
+ * "consumption takes from the storage, so it IS a viable sink for remotes");
+ * once it reaches ~0 the warchest is topped out and mining beyond the other
+ * sinks' capacity has no home, which is exactly the owner's storage-full defund
+ * trigger (selectProducers drops whole corps when mining > total sink capacity).
+ */
+export function storageRoomRemaining(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
+  const storage = Game.rooms[roomName]?.storage;
+  if (!storage) return Infinity;
+  return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
 }
 
 /**
@@ -291,7 +356,25 @@ export function buildColonyProblem(
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
   // is a ground-stock-shaped supply at the storage position).
   sources.push(...transientSources, ...bankSources);
+  // Assembly counts (flow v5): which layer dropped the remotes - the graph
+  // (nodes), the problem (this assembly), or the solver (candidates) - has
+  // been un-nameable in every warmup remote-drop; these three numbers plus
+  // candidates[] name it in one capture.
+  const assembly = {
+    graphSources: graph.getSources().length,
+    mined: sources.length - transientSources.length - bankSources.length,
+    transient: transientSources.length,
+    bank: bankSources.length
+  };
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
+  // The warchest surplus draw (spec 03). Unlike scavenge piles this is a
+  // DURABLE, tapered supply (bank.ts prices and bounds it), so standing
+  // fleets may size to it - it funds the controller today and, below,
+  // construction (owner 2026-07-18: "building takes priority over the
+  // upgrading... use all the energy in the storage as needed, same as for
+  // the upgrader" - the sink ladder already ranks construction 70 above
+  // controller 50, so opening the capacity valve is the whole change).
+  const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
 
   // Rooms whose bank is built: their controller stops mopping up the surplus so
   // the storage can soak it (see controllerRoutingCapacity / STORAGE_UPGRADE_TARGET).
@@ -300,16 +383,47 @@ export function buildColonyProblem(
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
   }
   // Rooms whose bank is in SURPLUS (a bank source was emitted): the warchest is
-  // full, so the controller cap lifts AND - the structural anti-pump (spec 03) -
-  // the room's storage sink is dropped from this solve entirely. Withdrawing
-  // and depositing in the same plan is impossible by construction.
+  // over its target, so the controller cap lifts. The storage sink STAYS (owner
+  // 2026-07-19: consumers draw from storage, so it is a valid home for remote
+  // surplus - keeping it lets excess production bank instead of rotting at remote
+  // containers, #19). The anti-pump is now structural in routeToSinks: bank
+  // sources never fill the storage sink, so a solve can never both withdraw the
+  // warchest AND deposit to it. The storage sink's capacity is its physical room
+  // remaining, so a topped-out bank presents zero room and the surplus mining is
+  // defunded rather than rotted.
   const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
+
+  // HUB-AND-SPOKE (owner 2026-07-19): the storage is the hub - mined income banks
+  // to it and consumers draw it back. The bank/hub SOURCE that routeToSinks spends
+  // to consumers must carry the mined THROUGHPUT plus the surplus, else at/below
+  // target (surplus ~0) consumers have no source and starve. But the mined part
+  // is the FUNDED income (~7 sources here), which the adapter CANNOT know - it
+  // runs before selectProducers. Sizing it here from all graph sources sent
+  // phantom supply (38 candidates = 380 e/t) that construction over-drew,
+  // exhausting the parts ledger so real mined never banked (P9->0 live stall
+  // t72437535). So the adapter ONLY guarantees a bank source EXISTS for every
+  // storage room (rate = its surplus draw, or 0 while filling); planColony adds
+  // the funded mined income once the funded set is known. `bankRate`/`totalSupply`
+  // stay the real supply (surplus only). selectProducers ignores the bank
+  // (transient, maxMiners 0).
+  const storageSinkList = graph.getSinks().filter(s => s.type === "storage");
+  for (const st of storageSinkList) {
+    const room = st.position.roomName;
+    if (sources.some(src => src.id === bankSourceId(room))) continue; // surplus bank already emitted
+    sources.push({
+      id: bankSourceId(room),
+      nodeId: `${room}-bank`,
+      pos: st.position,
+      rate: 0, // filling: no surplus draw yet; planColony credits the funded mined income
+      maxMiners: 0,
+      transient: true
+    });
+  }
 
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
     if (!kind) continue;
-    if (kind === "storage" && surplusRooms.has(sink.position.roomName)) continue;
     sinks.push({
       id: sink.id,
       kind,
@@ -338,18 +452,45 @@ export function buildColonyProblem(
             // flat 5 e/t cap was the measured RCL2->3 bottleneck: a 1-WORK
             // builder against 15k of extensions kept rooms at 300 capacity for
             // thousands of ticks (spec 10 G6, owner directive 2026-07-09).
-            // Bounded by MINED supply ("within reason"): transient stocks may
-            // still be routed here by the fill pass, but the standing builder
-            // fleet is never sized to one-off piles.
-            Math.max(minedSupply, 1)
+            // Bounded by MINED supply plus the BANK draw ("within reason"):
+            // scavenge piles stay excluded (one-off stocks must not size
+            // standing fleets), but the warchest surplus is durable and
+            // tapered, so construction may burn it - at 5 e/WORK-tick it
+            // turns the bank into finished roads/structures 5x more
+            // spawn-cheaply than upgrading burns the same energy.
+            Math.max(minedSupply + bankRate, 1)
           : kind === "storage"
-          ? Math.max(totalSupply, 1) // soak excess
-          : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage, surplusRooms), // controller: mops up the remainder, unless a still-filling storage banks the surplus
+          ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
+            // a topped-out storage presents zero capacity, which is the owner's
+            // defund trigger (mining beyond total sink capacity has no home).
+            // While it has room this is min(totalSupply, huge) = totalSupply, so
+            // the old "soak excess" behavior is unchanged until the bank fills.
+            Math.max(0, Math.min(totalSupply, storageRoomRemaining(sink.position.roomName)))
+          : controllerRoutingCapacity(
+              sink,
+              totalSupply,
+              roomsWithStorage,
+              surplusRooms,
+              controllerUpgradeCap(sink.position.roomName)
+            ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
   }
 
-  return { spawns, sources, sinks, dist };
+  // Standing-infra spawn load (spec 15 P4): the feeder shuttle sized to the
+  // bank relay, the tender detail, one reserver per mined remote room - real
+  // bodies the plan implies but never commissions through routeToSinks.
+  // Deducted from the planner's spawn-parts ledger so the sink fill spends
+  // only what the spawn can truly still build.
+  const remoteRooms = new Set(
+    sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
+  );
+  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, roomsWithStorage.size, remoteRooms.size);
+
+  return {
+    assembly,
+    spawns,
+    sources, sinks, dist, infraPartsPerTick };
 }
 
 /**
@@ -476,6 +617,7 @@ export function solveColony(
     demand: k.demand,
     unmet: Math.max(0, k.demand - k.allocated),
     priority: k.value,
+    ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
     sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
   }));
 
@@ -492,6 +634,8 @@ export function solveColony(
     miners,
     haulers,
     sinkAllocations,
+    partsLedger: plan.partsLedger,
+    ...(problem.assembly ? { assembly: problem.assembly } : {}),
     totalHarvest,
     miningOverhead,
     haulingOverhead,
@@ -501,7 +645,8 @@ export function solveColony(
     unmetDemand,
     isSustainable: netEnergyTotal >= 0,
     warnings: [],
-    computedAt: tick
+    computedAt: tick,
+    sourceVerdicts: plan.sourceVerdicts
   };
   return { solution, commissions };
 }

@@ -15,6 +15,7 @@
  * @module corps/nodeEnergy
  */
 
+import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
@@ -116,6 +117,7 @@ export function bestAdjacentTile(
   target: RoomPosition,
   range: number,
   spawnPos?: RoomPosition,
+  avoid?: { x: number; y: number }[],
   forStructure?: BuildableStructureConstant
 ): RoomPosition | null {
   const terrain = room.getTerrain();
@@ -130,6 +132,10 @@ export function bestAdjacentTile(
   // spawn", producing a link site that fails to place every cooldown forever.
   for (const s of room.find(FIND_SOURCES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   for (const m of room.find(FIND_MINERALS)) occupied.add(`${m.pos.x},${m.pos.y}`);
+  // Tiles a placement already proved permanently invalid (-7): placeSite
+  // records them so the ladder stops retrying the same tile every cooldown
+  // (W43N23 link@48,13 looped ~forever before the stamp made it visible).
+  for (const key of Object.keys(room.memory?.deadTiles ?? {})) occupied.add(key);
 
   const shunExitBuffer =
     forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
@@ -140,7 +146,16 @@ export function bestAdjacentTile(
       if (dx === 0 && dy === 0) continue;
       const x = target.x + dx;
       const y = target.y + dy;
+      // 1..48: the engine allows a non-road structure on a near-border tile
+      // ONLY when every edge tile beside it is a natural wall; besideOpenExit
+      // (below) models that rule precisely for exit-restricted structures.
+      // (#116 - this REPLACES the old conservative 2..47 cutoff that rejected
+      // legal wall-backed border placements, the W43N23 link -7 loop.)
       if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      // Caller-marked keep-clear zones (owner 2026-07-19): an unwalkable
+      // structure on a spawn-adjacent tile can lock in freshly spawned units.
+      // Generators for towers/storage/links pass the room's spawn positions.
+      if (avoid?.some(p => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= 1)) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (occupied.has(`${x},${y}`)) continue;
       if (shunExitBuffer && besideOpenExit(terrain, x, y)) continue;

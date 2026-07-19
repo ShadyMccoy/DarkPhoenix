@@ -20,6 +20,7 @@ import {
   SpawnDemand,
   SpawnDemandContext,
   buildAgendaQueue,
+  effectivePriority,
   scheduleSpawn
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
@@ -81,21 +82,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
-      // Stamp each demand's first-seen tick (carrying forward a prior one) so
-      // the scheduler sees how long it has been waiting. Deliberately stamps
-      // precedence-FILTERED demands too: a route's clock starts when its
-      // demand appears, not when its miner lands, so a hauler whose source
-      // sat unhauled fires starved-lifted soon after the miner arrives. A
-      // freeze-while-filtered variant was tried and REVERTED: it delayed the
-      // d=22 loop's first hauler by ~300 ticks (grid cell
-      // plan-t1-single-source-loop went red) - the "aging while unspawnable"
-      // encodes the real starvation of the route's energy on the ground.
-      for (const d of demands) {
-        const key = `${spawn.id}:${d.buyerCorpId}:${d.role}`;
-        seenThisTick.add(key);
-        const first = firstSeen[key] ?? (firstSeen[key] = Game.time);
-        d.since = first;
-      }
+      stampDemandAges(demands, spawn.id, firstSeen, seenThisTick, Game.time);
       // THE NOW PLAN (spec 11): publish this spawn's ordered acquisition
       // queue - what the scheduler EXPECTS to buy, in rank order, with each
       // entry's TRANSITION label and precondition (phase 3) - plus the
@@ -118,7 +105,11 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         // demands that bought nothing is the wedge signature the incident
         // pipeline hunts - record WHAT was waiting and on how much bank.
         if (Game.time % 25 === 0) {
-          const head = [...demands].sort((a, b) => b.value - a.value)[0];
+          // Record the head by the scheduler's OWN ranking (effectivePriority),
+          // not raw value - a hold's cause is whatever the walk saw first.
+          const head = [...demands].sort(
+            (a, b) => effectivePriority(b, Game.time) - effectivePriority(a, Game.time)
+          )[0];
           blackBox("hold", {
             spawn: spawn.id,
             role: head.role,
@@ -146,6 +137,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       if (spawned) {
         recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
         blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
+        resetDemandClock(firstSeen, spawn.id, d.buyerCorpId, d.role);
       }
     }
   }
@@ -157,6 +149,62 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const spawnId = key.slice(0, key.indexOf(":"));
     if (evaluatedSpawns.has(spawnId) && !seenThisTick.has(key)) delete firstSeen[key];
   }
+}
+
+/** Clock key for a demand stream at a spawn - one clock per spawn+corp+role. */
+function demandClockKey(spawnId: string, buyerCorpId: string, role: string): string {
+  return `${spawnId}:${buyerCorpId}:${role}`;
+}
+
+/**
+ * Stamp each demand's first-seen tick (carrying forward a prior one) so the
+ * scheduler sees how long it has been waiting. Deliberately stamps
+ * precedence-FILTERED demands too: a route's clock starts when its demand
+ * appears, not when its miner lands, so a hauler whose source sat unhauled
+ * fires starved-lifted soon after the miner arrives. A freeze-while-filtered
+ * variant was tried and REVERTED: it delayed the d=22 loop's first hauler by
+ * ~300 ticks (grid cell plan-t1-single-source-loop went red) - the "aging
+ * while unspawnable" encodes the real starvation of the route's energy on
+ * the ground.
+ *
+ * Exported (with {@link resetDemandClock}) so the clock's semantics are
+ * unit-pinned: age measures UNSERVED waiting.
+ */
+export function stampDemandAges(
+  demands: SpawnDemand[],
+  spawnId: string,
+  firstSeen: { [key: string]: number },
+  seenThisTick: Set<string>,
+  tick: number
+): void {
+  for (const d of demands) {
+    const key = demandClockKey(spawnId, d.buyerCorpId, d.role);
+    seenThisTick.add(key);
+    const first = firstSeen[key] ?? (firstSeen[key] = tick);
+    d.since = first;
+  }
+}
+
+/**
+ * Reset a demand stream's age clock after its spawn bought it a creep: age
+ * must measure UNSERVED waiting, not time-since-first-request. A standing
+ * multi-creep demand (a scaling hauler fleet, a 3-tanker tender) keeps its
+ * key alive across purchases, so without the reset its clock is "the whole
+ * era" and - under FIFO-among-starved - a stream that is being served every
+ * ~100 ticks permanently outranks a demand that has NEVER been served (live
+ * incident t72403765: four hauler buys in ~160t while the tender, age 1371,
+ * and the upgrader, age 1023, starved behind them; sim: flow-handoff's
+ * bootstrap-era demands walled out the whole flow fleet). The reset restores
+ * STARVED_TIER's documented one-shot contract: served means the meter starts
+ * over.
+ */
+export function resetDemandClock(
+  firstSeen: { [key: string]: number },
+  spawnId: string,
+  buyerCorpId: string,
+  role: string
+): void {
+  delete firstSeen[demandClockKey(spawnId, buyerCorpId, role)];
 }
 
 /**

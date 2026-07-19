@@ -16,7 +16,7 @@
  */
 
 import { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../flow/FlowTypes";
-import { SPAWN_PARTS_PER_TICK } from "../corps/economics";
+import { RESERVER_DUTY, SPAWN_PARTS_PER_TICK } from "../corps/economics";
 
 export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS, SPAWN_PARTS_PER_TICK };
 
@@ -116,6 +116,84 @@ export function staffsPost(ttl: number | undefined, bodyParts: number, travelTic
  */
 export function sustainableConsumptionRate(stock: number, inflow = 0): number {
   return inflow + stock / CREEP_LIFETIME;
+}
+
+/**
+ * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
+ * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
+ * energy allocation into the standing bodies that burn it.
+ */
+export const UPGRADER_PARTS_PER_WORK = 4 / 3;
+
+/**
+ * Spawn build-time (parts/tick) to MAINTAIN the upgrader fleet burning
+ * `energyPerTick` at a controller `distance` tiles from its spawn. One WORK
+ * burns UPGRADE_ENERGY_PER_WORK (1) e/t, each WORK rides in a body of
+ * UPGRADER_PARTS_PER_WORK parts, amortized over the effective life. This is
+ * the consumer side of the plan's spawn-parts ledger (spec 15 P4): energy
+ * allocations are wishes until the bodies that burn them are affordable in
+ * the spawn's OTHER currency.
+ */
+export function controllerWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  // Continuous, like carryPartsFor: planning math stays fractional and the
+  // body sizer rounds (workPartsForEnergyRate ceils - correct for bodies,
+  // wrong for a ledger, where the ceil made charge and audit disagree by a
+  // fraction of one WORK body).
+  const workParts = energyPerTick / UPGRADE_ENERGY_PER_WORK;
+  return (workParts * UPGRADER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
+/**
+ * Body parts per WORK of builder fleet (W-heavy build body: 5W1C3M = 1.8,
+ * rounded up for the shuttle tanker's share). With BUILD_ENERGY_PER_WORK = 5,
+ * a construction sink burns energy 5x more spawn-cheaply than a controller:
+ * the same e/t needs one fifth the WORK bodies.
+ */
+export const BUILDER_PARTS_PER_WORK = 1.8; // measured: 5W1C3M = 9 parts / 5 WORK
+
+/**
+ * Spawn build-time (parts/tick) to maintain the builder fleet burning
+ * `energyPerTick` at sites `distance` from the spawn - the construction-sink
+ * side of the plan's spawn-parts ledger (spec 15 P4), mirror of
+ * controllerWorkSpawnLoad. Continuous, like every planning formula here.
+ */
+export function constructionWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  const workParts = energyPerTick / BUILD_ENERGY_PER_WORK;
+  return (workParts * BUILDER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
+/** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
+const FEEDER_NOMINAL_DISTANCE = 6;
+
+/**
+ * Spawn build-time (parts/tick) of the standing infrastructure the plan
+ * implies but does not commission through routeToSinks: the storage->
+ * controller feeder shuttle sized to `relayRate`, the extension tender
+ * detail, and one reserver per remote room. Priced at CURRENT behavior
+ * (reserver duty 1.0 - spec 15 P5; when the duty cycle ships this halves and
+ * frees the parts). Fed to the planner as ColonyProblem.infraPartsPerTick by
+ * the flow adapter, so the sink fill spends only what is truly left.
+ */
+export function infraSpawnLoad(relayRate: number, depotRoomCount: number, remoteRoomCount: number): number {
+  // Feeder + tender are DEPOT movers: they exist only in rooms with a built
+  // storage (`depotRoomCount`). Charging them unconditionally taxed early
+  // worlds ~5-7% of the parts budget for infra that cannot exist there
+  // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
+  const feeder =
+    depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, FEEDER_NOMINAL_DISTANCE)) / effectiveLife(FEEDER_NOMINAL_DISTANCE) : 0;
+  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body, per depot room
+  const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
+  const CLAIM_LIFETIME = 600;
+  const RESERVER_WALK = 60; // nominal remote-controller walk
+  // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
+  // corp coasts on the reservation bank, one stint per ~1080t. Holding this
+  // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
+  // reserves - defense preempts via priority when needed, it does not
+  // reserve capacity).
+  const reservers =
+    (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  return feeder + tender + reservers;
 }
 
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */

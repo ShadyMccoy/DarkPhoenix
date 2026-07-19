@@ -46,11 +46,17 @@ export const WARCHEST_TARGET = EXPANSION_CAPEX + 2 * EXPANSION_SAFETY_RESERVE;
 export const SURPLUS_DRAIN_TICKS = 150;
 
 /**
- * Cap on the surplus draw (energy/tick) so a 100k bank doesn't commission an
- * absurd consumer fleet - mirrors MAX_SCAVENGE_RATE. A capped draw just takes
- * more solves to drain; the bank persists and is re-detected each cycle.
+ * Runaway GUARD on the surplus draw (energy/tick) - NOT a pacer (owner
+ * doctrine 2026-07-18: the bot's goal is to FOCUS energy; surge the current
+ * objective - upgrading, construction - as fast as it can physically absorb.
+ * A max draw that binds below the absorption ceiling counteracts the bot's
+ * whole purpose; measured: at 20 it capped the relay at 35 e/t against a
+ * 105 e/t plan while 570k sat banked). Set ABOVE any realistic controller-
+ * side absorption (parking tiles x per-body WORK tops out well under 100
+ * e/t at mid-game) so it only bounds degenerate fleet math - a 570k bank
+ * uncapped would ask the feeder for a ~3800 e/t relay (~107 bodies).
  */
-export const MAX_SURPLUS_DRAW = 20;
+export const MAX_SURPLUS_DRAW = 100;
 
 /**
  * Energy/tick the planner keeps routing to the controller ONCE THE ROOM HAS A

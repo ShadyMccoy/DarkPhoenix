@@ -25,9 +25,13 @@ import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
+  SPAWN_PARTS_PER_TICK,
   UPGRADE_ENERGY_PER_WORK,
   workPartsForEnergyRate
 } from "../economy/primitives";
+
+/** Spawn-meter window length: one creep lifetime, the economy's natural period. */
+const SPAWN_METER_WINDOW = 1500;
 
 /**
  * Energy/tick a single WORK part burns at a WORK-driven consumer sink, keyed by
@@ -215,6 +219,41 @@ export interface CoreTelemetry {
    * measured "what we have" for the plan-vs-actual body-parts gauge.
    */
   bodyParts: BodyAggregate;
+  /**
+   * Spawn meter (spec 14 phase 3): MEASURED utilization per spawn over a
+   * rolling ~1500-tick window. Every busy tick builds exactly 1/3 part, so
+   * `partsPerTick = utilization / 3` - no spawn-start detection, no receipt
+   * arithmetic. `ceiling` is the physical limit (SPAWN_PARTS_PER_TICK) so
+   * "X% of ceiling" is a read, not a derivation.
+   */
+  spawns: {
+    id: string;
+    name: string;
+    /** Observed ticks in the current window. */
+    windowTicks: number;
+    /** busyTicks / windowTicks (0 when nothing observed yet). */
+    utilization: number;
+    /** Actual parts/tick built = utilization / 3. */
+    partsPerTick: number;
+    /** Physical ceiling (SPAWN_PARTS_PER_TICK = 1/3). */
+    ceiling: number;
+    /** Current agenda queue length for this spawn (0 when no agenda). */
+    queueDepth: number;
+  }[];
+  /**
+   * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
+   * 4, VERBATIM) + executed receipts per spawn, so actual-vs-NOW is a
+   * telemetry read instead of a /user/memory pull. Absent when no agenda.
+   */
+  agenda?: {
+    [spawnId: string]: {
+      tick: number;
+      fundingNeed: number;
+      queueDepth: number;
+      queue: unknown[];
+      executed: unknown[];
+    };
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -234,6 +273,15 @@ export interface CoreTelemetry {
     controllerStock: number | null;
     /** Is the controller feeder actively relaying storage -> controller? */
     feederActive: boolean;
+    /**
+     * Construction delivery inputs (v6, ledger P8 "builders not building"):
+     * my sites' summed progress / progressTotal and count. A window where
+     * sites stand, allocation flows, and siteProgress is FLAT = build crew
+     * idle (completions read ambiguous and are skipped by the meter).
+     */
+    siteProgress: number;
+    siteTotal: number;
+    siteCount: number;
   }[];
 }
 
@@ -327,6 +375,8 @@ export interface IntelTelemetry {
     invaderCorePresent?: boolean;
     raidDebt?: number;
     lastRaidSeen?: number;
+    reservedUntil?: number;
+    reservedBy?: string;
   }[];
 }
 
@@ -373,6 +423,10 @@ export interface CorpsTelemetry {
 export interface FlowTelemetry {
   version: number;
   tick: number;
+  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget. */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   /** Source nodes (energy producers) */
   sources: {
     id: string;
@@ -416,6 +470,8 @@ export interface FlowTelemetry {
     allocated: number;
     unmet: number;
     priority: number;
+    /** Spawn-parts ledger remaining when this sink's fill ended (spec 15 P4). */
+    partsLeft?: number;
     /**
      * PLANNED WORK parts implied by `allocated` for WORK-driven consumer sinks
      * (controller=upgrade, construction=build); absent for non-WORK sinks
@@ -425,6 +481,21 @@ export interface FlowTelemetry {
      * construction corp in segment 4.
      */
     workParts?: number;
+  }[];
+  /**
+   * Planner funding verdicts for every non-transient mining candidate (spec 14
+   * phase 5), VERBATIM from producer selection: why each source is in or out
+   * of the plan (funded / unprofitable / over-budget / no-spawn) with the
+   * net/tax pricing the decision read. "Why are the remotes dead" is a read.
+   */
+  candidates: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
   }[];
   /** Flow summary */
   summary: {
@@ -484,6 +555,10 @@ export class Telemetry {
     // Request segments we'll be writing to
     RawMemory.setActiveSegments(PUBLIC_SEGMENTS);
 
+    // Spawn meter accumulates EVERY observed tick, before the interval gate -
+    // sampling busy state on an interval would systematically undercount.
+    this.meterSpawns();
+
     // Check if we should update based on interval
     const shouldUpdate = this.config.updateInterval === 0 || Game.time % this.config.updateInterval === 0;
 
@@ -510,6 +585,27 @@ export class Telemetry {
 
     // Update flow telemetry (sources, sinks, allocations)
     this.updateFlowTelemetry(flowSolution);
+  }
+
+  /**
+   * Accumulate the spawn meter: one observation per spawn per tick (the `last`
+   * guard makes a second update() call in the same tick a no-op). Windows roll
+   * after SPAWN_METER_WINDOW ticks.
+   */
+  private meterSpawns(): void {
+    const spawns = Game.spawns ?? {};
+    const meter = (Memory.spawnMeter = Memory.spawnMeter ?? {});
+    for (const name in spawns) {
+      const s = spawns[name];
+      let w = meter[s.id];
+      if (!w || Game.time - w.t0 >= SPAWN_METER_WINDOW) {
+        w = meter[s.id] = { t0: Game.time, last: -1, ticks: 0, busy: 0 };
+      }
+      if (w.last === Game.time) continue;
+      w.last = Game.time;
+      w.ticks++;
+      if (s.spawning) w.busy++;
+    }
   }
 
   /**
@@ -563,13 +659,57 @@ export class Telemetry {
           energyCapacity: room.energyCapacityAvailable,
           storageEnergy: room.storage?.my ? room.storage.store.energy ?? 0 : null,
           controllerStock: controllerSideStock(room.controller),
-          feederActive: !!room.memory.controllerFeederActive
+          feederActive: !!room.memory.controllerFeederActive,
+          ...(() => {
+            const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+            return {
+              siteProgress: sites.reduce((a, st) => a + (st.progress ?? 0), 0),
+              siteTotal: sites.reduce((a, st) => a + (st.progressTotal ?? 0), 0),
+              siteCount: sites.length
+            };
+          })()
         });
       }
     }
 
+    // Spawn meter readout (phase 3): measured utilization from the Memory windows.
+    const spawns: CoreTelemetry["spawns"] = [];
+    const gameSpawns = Game.spawns ?? {};
+    for (const name in gameSpawns) {
+      const s = gameSpawns[name];
+      const w = Memory.spawnMeter?.[s.id];
+      const ticks = w?.ticks ?? 0;
+      const busy = w?.busy ?? 0;
+      const utilization = ticks > 0 ? busy / ticks : 0;
+      spawns.push({
+        id: s.id,
+        name,
+        windowTicks: ticks,
+        utilization,
+        partsPerTick: utilization * SPAWN_PARTS_PER_TICK,
+        ceiling: SPAWN_PARTS_PER_TICK,
+        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0
+      });
+    }
+
+    // NOW-plan mirror (phase 4): agenda heads + receipts, verbatim.
+    let agenda: CoreTelemetry["agenda"];
+    if (Memory.spawnAgenda) {
+      agenda = {};
+      for (const spawnId in Memory.spawnAgenda) {
+        const a = Memory.spawnAgenda[spawnId];
+        agenda[spawnId] = {
+          tick: a.tick,
+          fundingNeed: a.fundingNeed,
+          queueDepth: a.queue.length,
+          queue: a.queue.slice(0, 4),
+          executed: a.executed ?? []
+        };
+      }
+    }
+
     const telemetry: CoreTelemetry = {
-      version: 4, // Version 4: room energy ledger (storage/controller stocks, feeder state)
+      version: 6, // v5 spawn meter + NOW-plan mirror; v6 site progress (ledger P8)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -590,6 +730,8 @@ export class Telemetry {
       },
       creeps,
       bodyParts,
+      spawns,
+      agenda,
       rooms
     };
 
@@ -806,7 +948,11 @@ export class Telemetry {
           ...(intel.invaderReservedUntil !== undefined ? { invaderReservedUntil: intel.invaderReservedUntil } : {}),
           ...(intel.invaderCorePresent !== undefined ? { invaderCorePresent: intel.invaderCorePresent } : {}),
           ...(intel.raidDebt !== undefined ? { raidDebt: intel.raidDebt } : {}),
-          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {})
+          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {}),
+          // Our reservation bank (spec 15 P5): the duty-cycle lens, exported
+          // so a capture shows what the reserver gate coasts on.
+          ...(intel.reservedUntil !== undefined ? { reservedUntil: intel.reservedUntil } : {}),
+          ...(intel.reservedBy !== undefined ? { reservedBy: intel.reservedBy } : {})
         });
       }
     }
@@ -920,17 +1066,25 @@ export class Telemetry {
           allocated: sink.allocated,
           unmet: sink.unmet,
           priority: sink.priority,
+          ...(sink.partsLeft !== undefined ? { partsLeft: sink.partsLeft } : {}),
           workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
         });
       }
     }
 
     const telemetry: FlowTelemetry = {
-      version: 2, // Version 2: added planned hauler carry + consumer WORK (full plan-side body)
+      // v4: the fill's spawn-parts ledger trace (partsLedger + per-sink
+      // partsLeft). v5: problem-assembly counts (graphSources/mined/
+      // transient/bank) - names the layer that dropped sources in one
+      // capture (the warmup remote-drop lens).
+      version: 5,
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
+      ...(flowSolution?.assembly ? { assembly: flowSolution.assembly } : {}),
+      candidates: flowSolution?.sourceVerdicts ?? [],
       summary: flowSolution
         ? {
             totalHarvest: flowSolution.totalHarvest,

@@ -34,10 +34,14 @@ import {
   netEnergy,
   spawnPartsFor,
   carryPartsFor,
+  constructionWorkSpawnLoad,
+  controllerWorkSpawnLoad,
+  effectiveLife,
   minerOverhead,
   haulerOverhead,
   miningBudgetPerSpawn,
-  MINER_PARTS
+  MINER_PARTS,
+  SPAWN_PARTS_PER_TICK
 } from "./primitives";
 
 // =============================================================================
@@ -103,11 +107,20 @@ export interface PlannerSink {
 }
 
 export interface ColonyProblem {
+  /** Assembly counts (flow v5): how many sources each layer contributed. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   spawns: PlannerSpawn[];
   sources: PlannerSource[];
   sinks: PlannerSink[];
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
+  /**
+   * Spawn build-time (parts/tick) of standing infrastructure the plan implies
+   * but does not commission here (feeder shuttle, tender detail, reservers) -
+   * primitives.infraSpawnLoad, computed by the flow adapter. Deducted from
+   * the spawn-parts ledger before the sink fill spends the rest (spec 15 P4).
+   */
+  infraPartsPerTick?: number;
 }
 
 /** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
@@ -153,12 +166,35 @@ export interface CommissionedSink {
   demand: number;
   allocated: number;
   sources: { sourceId: string; amount: number; distance: number }[];
+  /** Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
+   * trace - why did filling stop: capacity met, pool dry, or ledger dry). */
+  partsLeft?: number;
+}
+
+/**
+ * The pricing verdict for one non-transient mining candidate (spec 14 phase 5
+ * - decision symmetry for the planner). selectProducers was the last silent
+ * decision in the economy: a source absent from the plan was indistinguishable
+ * from one priced out by the invader tax or dropped for build-time budget.
+ * `net` and `tax` are the exact terms the funding decision compared;
+ * `tax` is the invader-tax TERM in energy/tick (invaderTax * rate).
+ */
+export interface SourceVerdict {
+  sourceId: string;
+  rate: number;
+  distance: number;
+  net: number;
+  tax: number;
+  parts: number;
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink";
 }
 
 export interface ColonyPlan {
   miners: CommissionedMiner[];
   haulers: CommissionedHauler[];
   sinks: CommissionedSink[];
+  /** Per-candidate funding verdicts for every non-transient source. */
+  sourceVerdicts: SourceVerdict[];
   /** Gross energy/tick produced by selected sources. */
   totalProduced: number;
   /** Energy/tick actually delivered to sinks. */
@@ -167,6 +203,9 @@ export interface ColonyPlan {
   totalOverhead: number;
   /** Build-time (parts/tick) committed per spawn. */
   spawnPartsUsed: Map<string, number>;
+  /** The fill's spawn-parts ledger, traced (spec 15 P4): what the budget was,
+   * what standing deductions took, what routing had to work with. */
+  partsLedger: { capacity: number; minerLoad: number; infra: number; budget: number };
   /** Sum of delivered energy weighted by sink value - the objective. */
   valueDelivered: number;
   /** delivered >= overhead: the income covers the creeps that earn it. */
@@ -191,6 +230,10 @@ function nearestSpawn(pos: Position, spawns: PlannerSpawn[], dist: ColonyProblem
   let best: { spawn: PlannerSpawn; distance: number } | null = null;
   for (const spawn of spawns) {
     const d = dist(pos, spawn.pos);
+    // A non-finite distance is a failed path lens, not a far spawn: letting
+    // it through produced an "unprofitable at distance Infinity" verdict with
+    // garbage per-part math. Unreachable spawns simply don't compete.
+    if (!Number.isFinite(d)) continue;
     if (!best || d < best.distance || (d === best.distance && spawn.id < best.spawn.id)) {
       best = { spawn, distance: d };
     }
@@ -203,27 +246,50 @@ function nearestSpawn(pos: Position, spawns: PlannerSpawn[], dist: ColonyProblem
  * unprofitable ones, and per spawn keep sources by net-energy-per-build-part until
  * the spawn's mining budget is spent.
  */
-function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
+function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[]; verdicts: SourceVerdict[] } {
   const { sources, spawns, dist } = problem;
-  if (spawns.length === 0) return [];
+  const verdicts: SourceVerdict[] = [];
+  if (spawns.length === 0) {
+    for (const source of sources) {
+      if (source.transient) continue;
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, verdict: "no-spawn", parts: 0 });
+    }
+    return { miners: [], verdicts };
+  }
 
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
     const near = nearestSpawn(source.pos, spawns, dist);
-    if (!near) continue;
+    if (!near) {
+      // The formerly verdict-LESS skip (spec 14: no invisible decisions).
+      // Spawns exist but none is reachable: the path lens failed for this
+      // source. Measured live t72416041+: five worked, reserved, mark-free
+      // remotes silently absent from candidates for 1000+ ticks while their
+      // miners kept mining - without this row the drop cause was guesswork
+      // between graph exclusion and path failure.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, verdict: "unreachable", parts: 0 });
+      continue;
+    }
     // Net of the invader tax (spec 13): a remote's expected raid-defense
     // cost scales with what we harvest there, so it lands here - where both
     // the mine/don't-mine gate and the ranking read it.
-    const net = netEnergy(source.rate, near.distance) - (source.invaderTax ?? 0) * source.rate;
-    if (net <= 0) continue; // never mine a source that costs more than it yields
+    const tax = (source.invaderTax ?? 0) * source.rate;
+    const net = netEnergy(source.rate, near.distance) - tax;
+    const parts = spawnPartsFor(source.rate, near.distance);
+    if (net <= 0) {
+      // never mine a source that costs more than it yields - stamped, not silent
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "unprofitable" });
+      continue;
+    }
+    verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "over-budget" });
     candidates.push({
       source,
       spawn: near.spawn,
       distance: near.distance,
       rate: source.rate,
       net,
-      parts: spawnPartsFor(source.rate, near.distance)
+      parts
     });
   }
 
@@ -237,6 +303,9 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
   }
 
   const miners: CommissionedMiner[] = [];
+  // Profitable candidates were provisionally stamped "over-budget"; funding
+  // flips the stamp, so a candidate's final verdict is exactly its fate here.
+  const verdictById = new Map(verdicts.map(v => [v.sourceId, v]));
   for (const [, list] of bySpawn) {
     // value per build-part, then by source id for stable ties
     list.sort((a, b) => b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1));
@@ -246,6 +315,8 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
       // that, only take a source if its build-time fits the remaining budget.
       if (spent > 0 && spent + c.parts > budget) continue;
       spent += c.parts;
+      const v = verdictById.get(c.source.id);
+      if (v) v.verdict = "funded";
       miners.push({
         sourceId: c.source.id,
         nodeId: c.source.nodeId,
@@ -259,7 +330,33 @@ function selectProducers(problem: ColonyProblem): CommissionedMiner[] {
       });
     }
   }
-  return miners;
+
+  // STORAGE-FULL DEFUND (owner 2026-07-19: "if we top out the storage... the
+  // whole corp is defunded, not just the hauler"). The all-or-nothing rule:
+  // mine a source iff its energy has a home. When total sink capacity cannot
+  // absorb the funded mining, the surplus would rot at remote containers (#19),
+  // so drop whole corps - removing the miner starves its hauler/reserver/
+  // container downstream (supply is built from `miners`). This is naturally
+  // gated by the sink capacities: with a storage sink soaking `totalSupply`
+  // there is always room, so it fires only once storage tops out (flowAdapter
+  // drops its capacity to physical room-remaining, ~0 when full) and the
+  // controller is at its spot cap. Worst net-per-part first; keep at least one
+  // so the colony never strands itself.
+  const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
+  let minedRate = miners.reduce((sum, m) => sum + m.rate, 0);
+  if (minedRate > sinkCapacity + 1e-9) {
+    const byWorst = [...miners].sort(
+      (a, b) => a.netEnergy / a.spawnParts - b.netEnergy / b.spawnParts || (a.sourceId < b.sourceId ? -1 : 1)
+    );
+    for (const m of byWorst) {
+      if (minedRate <= sinkCapacity + 1e-9 || miners.length <= 1) break;
+      miners.splice(miners.indexOf(m), 1);
+      minedRate -= m.rate;
+      const v = verdictById.get(m.sourceId);
+      if (v) v.verdict = "no-sink";
+    }
+  }
+  return { miners, verdicts };
 }
 
 /** A unit of energy available to route: a staffed source or a scavengeable stock. */
@@ -284,8 +381,13 @@ function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
     if (!source.transient) continue;
     const near = nearestSpawn(source.pos, spawns, dist);
     if (!near) continue;
-    const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
-    if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
+    // The bank/hub (storage) is NOT a scavenge pile: it always belongs in supply
+    // (planColony credits it the funded mined income), even at rate 0 while the
+    // warchest fills - the net filter below is only for one-off ground stocks.
+    if (!source.id.startsWith("bank-")) {
+      const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
+      if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
+    }
     supply.push({ sourceId: source.id, rate: source.rate, spawnId: near.spawn.id });
   }
   return supply;
@@ -299,17 +401,41 @@ function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
  */
 function routeToSinks(
   problem: ColonyProblem,
-  supply: SupplyPoint[]
+  supply: SupplyPoint[],
+  partsBudget: number
 ): { haulers: CommissionedHauler[]; sinks: CommissionedSink[] } {
   const { sinks, dist } = problem;
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
   const spawnBySource = new Map(supply.map(s => [s.sourceId, s.spawnId]));
+
+  // THE SPAWN-PARTS LEDGER (spec 15 P4): every unit of energy allocated here
+  // implies standing bodies - the haulers that move it and, at a controller,
+  // the upgraders that burn it. The ledger starts at the spawn's physical
+  // build-rate minus what miners and standing infra already claim, and each
+  // allocation below spends it. When it runs dry the fill STOPS: the plan is
+  // an equilibrium the spawn can actually maintain, with the value order
+  // deciding who got the scarce parts (measured 2026-07-18: without this the
+  // plan implied 0.56 parts/t against the 0.333 ceiling and the colony
+  // self-limited via starvation queues instead of by value).
+  let partsRemaining = Math.max(0, partsBudget);
+  // A consumer sink's bodies walk from the spawn nearest it.
+  const nearestSpawnDist = (pos: Position): number =>
+    problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
   // Remaining gross energy each supply point can still ship.
   const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
+
+  const isBank = (id: string): boolean => id.startsWith("bank-");
+  // Hub-and-spoke roles (owner 2026-07-19): when a storage HUB exists, mined and
+  // scavenge are DEPOSIT sources - their only home is the hub, so each gets its
+  // haul-home and the warchest becomes the true income buffer; the bank/hub is
+  // the SPEND source that funds consumers. Pre-storage there is no hub, so
+  // nothing is a deposit and mined feeds consumers directly (old model).
+  const hasStorageSink = sinks.some(s => s.kind === "storage");
+  const isDeposit = (id: string): boolean => hasStorageSink && !isBank(id);
 
   const fill = (sink: PlannerSink, target: number): void => {
     const acc = out.get(sink.id) ?? {
@@ -322,28 +448,71 @@ function routeToSinks(
     };
     out.set(sink.id, acc);
 
-    // Sources with energy left, nearest to this sink first (ties by id). A
-    // source's output is hauled from its haulPos (the core link for a
+    // HUB-AND-SPOKE fill (owner 2026-07-19). Each sink pulls NEAREST-FIRST (ties
+    // by id) from only the sources its ROLE allows:
+    //   - the STORAGE hub soaks DEPOSIT sources (mined + scavenge) - their
+    //     haul-home. The bank/hub is never a deposit, so it can never pump into
+    //     its own store: the structural anti-pump (spec 03) now falls out of the
+    //     roles instead of a special-case filter.
+    //   - CONSUMERS (spawn, controller, construction, new spawn sites) draw the
+    //     SPEND source (the bank/hub), which the adapter sizes to the mined
+    //     throughput + surplus - so the warchest funds them and they are sized to
+    //     it (owner: "size the consumers to the warchest"). Mined never routes to
+    //     a consumer directly; it banks and is drawn back through the hub, which
+    //     makes the warchest the true income buffer (the hybrid hauled mined
+    //     straight to the controller, so storage saw ~0 income and bled feeding
+    //     the spawn - t72434228->t72435669, "spending our savings").
+    // Pre-storage (no hub) NOTHING is a deposit, so mined feeds consumers
+    // directly - hub-and-spoke needs a hub. This REPLACES the production-first /
+    // nearest-first regime gates (the bank-last experiment and its #21 partner):
+    // one uniform rule, no filling-vs-surplus switch (owner: "the routing doesn't
+    // change the overall energy flow balance ... probably better that way").
+    // A source's output is hauled from its haulPos (the core link for a
     // link-served source), not necessarily the source tile itself.
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
+      .filter(id => (sink.kind === "storage" ? isDeposit(id) : !isDeposit(id)))
       .map(id => {
         const s = sourceById.get(id)!;
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
+    // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
+    // a controller, builders at construction (5x cheaper per e/t - BUILD is
+    // 5 energy per WORK-tick). Spawn/storage sinks have no standing body.
+    const workPerUnit =
+      sink.kind === "controller"
+        ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        : sink.kind === "construction"
+        ? constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        : 0;
+
     for (const { id, d } of order) {
       if (acc.allocated >= target - 1e-9) break;
       const avail = pool.get(id) ?? 0;
-      const take = Math.min(avail, target - acc.allocated);
-      if (take <= 1e-9) continue;
-      pool.set(id, avail - take);
-      acc.allocated += take;
-      acc.sources.push({ sourceId: id, amount: take, distance: d });
       // A paved route's 2:1 hauler needs 1.5 parts per CARRY, not 2 - the
       // spawn-budget payoff that makes roads worth building at all.
       const paved = sourceById.get(id)?.paved === true;
+      // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
+      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, d)) / effectiveLife(d) + workPerUnit;
+      const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
+      const take = Math.min(avail, target - acc.allocated, maxByParts);
+      if (take <= 1e-9) {
+        if (maxByParts <= 1e-9) {
+          // Ledger dry - the fill is over for this sink. Stamp BEFORE the
+          // early exit: skipping it left the sink wearing a stale pre-pass
+          // remainder (live t72420516: 0.105 of a budget it had drained),
+          // and the v4 trace lied about who spent the parts.
+          acc.partsLeft = partsRemaining;
+          return;
+        }
+        continue;
+      }
+      partsRemaining -= take * chargePerUnit;
+      pool.set(id, avail - take);
+      acc.allocated += take;
+      acc.sources.push({ sourceId: id, amount: take, distance: d });
       haulers.push({
         sourceId: id,
         sinkId: sink.id,
@@ -351,10 +520,11 @@ function routeToSinks(
         distance: d,
         flowRate: take,
         carryParts: carryPartsFor(take, d),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / Math.max(1, 1500 - d),
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / effectiveLife(d),
         ...(paved ? { paved } : {})
       });
     }
+    acc.partsLeft = partsRemaining;
   };
 
   // Reserve pre-pass: guarantee critical floors before value greed drains the pool.
@@ -374,13 +544,59 @@ function routeToSinks(
  * Pure and deterministic; see the module doc for the GOAP framing.
  */
 export function planColony(problem: ColonyProblem): ColonyPlan {
-  const miners = selectProducers(problem);
-  // Supply = staffed sources + scavengeable transient stocks (no miner needed).
+  const { miners, verdicts: sourceVerdicts } = selectProducers(problem);
+  // HUB-AND-SPOKE hub sizing: the storage hub's bank source carries the FUNDED
+  // mined income (what actually banks) so consumers draw the real income through
+  // the hub. Sizing it from ALL candidate graph sources - which is all the
+  // pre-selection adapter can see - sent phantom supply (38 candidates -> 380 e/t
+  // hub) that construction over-drew, exhausting the parts ledger so real mined
+  // never reached storage (P9->0, controller starved, live stall t72437535). Here
+  // the funded set IS known: each funded source's rate is credited to its nearest
+  // storage hub's bank source. Filling-regime hubs start at rate 0 (adapter) and
+  // get exactly this income; surplus hubs get income + the surplus draw.
+  const isBankSource = (id: string): boolean => id.startsWith("bank-");
+  const sourceById = new Map(problem.sources.map(s => [s.id, s]));
+  const storageSinks = problem.sinks.filter(s => s.kind === "storage");
+  const fundedByHubRoom = new Map<string, number>();
+  for (const m of miners) {
+    if (storageSinks.length === 0) break;
+    const src = sourceById.get(m.sourceId);
+    const from = src?.haulPos ?? src?.pos;
+    if (!from) continue;
+    let best = storageSinks[0];
+    let bestD = Infinity;
+    for (const st of storageSinks) {
+      const d = problem.dist(from, st.pos);
+      if (d < bestD) {
+        bestD = d;
+        best = st;
+      }
+    }
+    fundedByHubRoom.set(best.pos.roomName, (fundedByHubRoom.get(best.pos.roomName) ?? 0) + m.rate);
+  }
+  // Supply = staffed sources + scavengeable transient stocks (no miner needed);
+  // each hub's bank source additionally carries the funded mined income banking there.
   const supply: SupplyPoint[] = [
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
-    ...selectTransientSupply(problem)
+    ...selectTransientSupply(problem).map(t =>
+      isBankSource(t.sourceId)
+        ? { ...t, rate: t.rate + (fundedByHubRoom.get(t.sourceId.slice("bank-".length)) ?? 0) }
+        : t
+    )
   ];
-  const { haulers, sinks } = routeToSinks(problem, supply);
+  // The spawn-parts ledger for the sink fill: physical build-rate minus the
+  // committed miners and the standing infra (feeder/tender/reservers - see
+  // ColonyProblem.infraPartsPerTick). Production is funded first in BOTH
+  // currencies; routing and consumers spend what remains.
+  const minerLoad = miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
+  const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
+  const partsLedger = {
+    capacity: problem.spawns.length * SPAWN_PARTS_PER_TICK,
+    minerLoad,
+    infra: problem.infraPartsPerTick ?? 0,
+    budget: partsBudget
+  };
+  const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
   const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
   const totalDelivered = sinks.reduce((s, k) => s + k.allocated, 0);
@@ -391,7 +607,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
 
   const spawnPartsUsed = new Map<string, number>();
   for (const m of miners) {
-    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / Math.max(1, 1500 - m.distance));
+    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / effectiveLife(m.distance));
   }
   for (const h of haulers) {
     spawnPartsUsed.set(h.spawnId, (spawnPartsUsed.get(h.spawnId) ?? 0) + h.spawnParts);
@@ -401,6 +617,8 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     miners,
     haulers,
     sinks,
+    sourceVerdicts,
+    partsLedger,
     totalProduced,
     totalDelivered,
     totalOverhead,

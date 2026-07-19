@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
+import { solveWithCorpPlanner, controllerRoutingCapacity } from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
 import { PlannerSource } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";
@@ -73,10 +73,13 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(sol.isSustainable).to.equal(true);
   });
 
-  it("banks the surplus in storage instead of the controller once a storage exists", () => {
-    // 3 sources = 30 e/tick. spawn takes its ~10 overhead; the controller is now
-    // capped at STORAGE_UPGRADE_TARGET (15) because the room has a storage bank, so
-    // the remaining ~5 banks in storage rather than piling at the controller.
+  it("hub-and-spoke: ALL mined banks to the storage hub, the controller draws the hub capped", () => {
+    // 3 sources = 30 e/tick, a storage HUB exists. Hub-and-spoke (owner 2026-07-19):
+    // ALL 30 mined banks to the hub (the warchest is the income buffer), and the
+    // consumers draw the hub back out - the controller capped at
+    // STORAGE_UPGRADE_TARGET (15), the spawn its ~10 overhead. Net storage change
+    // is 30 in - 25 out = 5, but the sink DEPOSIT is the whole 30 (this is the
+    // accounting shift from the hybrid, which banked only the 5 surplus).
     const graph = graphOf([
       homeNodeWithStorage(5),
       sourceNode("s1", 15),
@@ -87,10 +90,12 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
 
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
-    expect(ctrl.allocated).to.be.closeTo(15, 1e-9); // capped at the upgrade target
-    expect(store.allocated).to.be.closeTo(5, 1e-9); // the surplus banks
-    // a hauler actually carries energy into the storage bank
-    expect(sol.haulers.some(h => h.toId.startsWith("storage-"))).to.equal(true);
+    expect(ctrl.allocated).to.be.closeTo(15, 1e-9); // capped at the upgrade target, drawn from the hub
+    expect(store.allocated).to.be.closeTo(30, 1e-9); // ALL mined banks to the hub
+    // real mined->storage haul-home legs exist (the deposit into the hub)
+    expect(sol.haulers.some(h => h.toId.startsWith("storage-") && h.fromId.startsWith("source-"))).to.equal(true);
+    // the controller is fed by the hub (bank), never mined directly
+    expect(sol.haulers.some(h => h.fromId.startsWith("source-") && h.toId.startsWith("ctrl-"))).to.equal(false);
   });
 
   it("leaves the controller mopping up the surplus when there is no storage", () => {
@@ -102,6 +107,30 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     expect(ctrl.allocated).to.be.closeTo(20, 1e-9); // 30 supply - 10 spawn overhead
     expect(sol.sinkAllocations.some(a => a.sinkType === "storage")).to.equal(false);
+  });
+
+  it("sizes the hub to FUNDED mined income, not all candidate graph sources (phantom guard, live stall t72437535)", () => {
+    // 2 near sources are funded (~20 e/t); 3 FAR sources are unprofitable candidates
+    // selectProducers rejects. The bank/hub the consumers draw from must reflect the
+    // 20 FUNDED, never the 50 of all graph sources. Sizing the hub from all
+    // candidates (which is all the pre-selection adapter can see) sent phantom
+    // supply that construction over-drew, exhausting the parts ledger so real mined
+    // never banked - P9->0, controller starved, live stall t72437535.
+    const graph = graphOf([
+      homeNodeWithStorage(5),
+      sourceNode("near1", 15),
+      sourceNode("near2", 25),
+      sourceNode("far1", 325),
+      sourceNode("far2", 335),
+      sourceNode("far3", 345)
+    ]);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+    // only the 2 near sources are funded (far ones are unprofitable)
+    expect(sol.miners.map(m => m.sourceId).sort()).to.deep.equal(["source-near1", "source-near2"]);
+    // the hub feeds consumers ONLY the funded mined (~20 e/t), never the all-graph 50:
+    // total flow OUT of the bank/hub source must not exceed the funded income.
+    const bankOut = sol.haulers.filter(h => h.fromId.startsWith("bank-")).reduce((s, h) => s + h.flowRate, 0);
+    expect(bankOut, "hub outflow reflects funded mined, not the phantom all-graph sum").to.be.at.most(20 + 1e-6);
   });
 
   it("skips a source whose real distance makes it unprofitable", () => {
@@ -153,12 +182,42 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
   });
 });
 
+// #21 (owner 2026-07-19): the surplus controller mops up the warchest, but
+// bounded by the fleet's PHYSICAL upgrade rate (parking tiles x affordable
+// WORK). Live t72429680: the uncapped controller planned 137 e/t against a
+// fleet that could field ~4 upgraders - infeasible (P4), and it out-competed
+// remote mined production for the bank. The cap makes the surplus that exceeds
+// what upgraders can burn overflow into STORAGE instead.
+describe("economy/flowAdapter - controllerRoutingCapacity physical cap (#21)", () => {
+  const ctrlSink = { position: { x: 0, y: 0, roomName: "W0N0" } };
+  const withStorage = new Set(["W0N0"]);
+  const inSurplus = new Set(["W0N0"]);
+
+  it("while the warchest FILLS (not surplus), the controller stays at the save target (15)", () => {
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, new Set())).to.equal(15);
+  });
+
+  it("in SURPLUS with no cap given, it mops up totalSupply (unchanged default)", () => {
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus)).to.equal(200);
+  });
+
+  it("in SURPLUS, the PHYSICAL cap binds so the excess overflows to storage (#21)", () => {
+    // a fleet that can burn only 40 e/t caps the sink at 40; the other 160 of a
+    // 200 surplus lands in STORAGE, not an infeasible upgrade plan
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus, 40)).to.equal(40);
+    // ...but never caps BELOW the real supply when the fleet can burn it all
+    expect(controllerRoutingCapacity(ctrlSink, 30, withStorage, inSurplus, 40)).to.equal(30);
+  });
+});
+
 // Spec 03 storage draw-down, the SURPLUS half: once a room's bank holds the
 // expansion warchest, the surplus becomes SUPPLY (a miner-less bank source at
 // the storage) and the controller reverts to mopping up - the save-regime
 // STORAGE_UPGRADE_TARGET cap only applies while the warchest is filling.
-// Anti-pump is STRUCTURAL: a room with a bank source has no storage sink in
-// the same solve, so bank->storage circulation is impossible by construction
+// Anti-pump is STRUCTURAL (owner 2026-07-19): the storage sink STAYS open in a
+// surplus room (consumers draw from storage, so it is a valid home for remote
+// surplus), but bank sources are excluded from filling it - bank->storage
+// circulation is impossible by construction because the bank IS the storage
 // (these tests fail against a naive "just lower the storage value" tuning).
 describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)", () => {
   const g = globalThis as unknown as { Game?: any; Memory?: any };
@@ -200,13 +259,21 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(sol.miners.map(m => m.sourceId)).to.not.include("bank-W0N0");
   });
 
-  it("anti-pump is structural: the surplus room's storage sink is dropped from the solve", () => {
+  it("anti-pump is structural: mined banks to the hub but the bank never pumps into its own store", () => {
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(10)]);
 
-    // the sink is ABSENT - not merely allocated zero
-    expect(sol.sinkAllocations.some(a => a.sinkType === "storage")).to.equal(false);
-    expect(sol.haulers.some(h => h.toId.startsWith("storage-"))).to.equal(false);
+    // the storage sink is present (the hub) and ALL mined banks into it
+    // (hub-and-spoke: the warchest is the income buffer, owner 2026-07-19)...
+    const store = sol.sinkAllocations.find(a => a.sinkType === "storage");
+    expect(store, "the storage hub sink is present").to.not.equal(undefined);
+    expect(store!.allocated, "all mined deposits into the hub").to.be.closeTo(20, 1e-9);
+    // ...but the bank/hub is stored IN it, so it never pumps back: no bank->storage
+    // hauler is ever commissioned (the anti-pump is structural, from the roles).
+    expect(
+      sol.haulers.some(h => h.fromId === "bank-W0N0" && h.toId.startsWith("storage-")),
+      "no bank->storage circulation"
+    ).to.equal(false);
   });
 
   it("bank flows never materialize as CarryCorp commissions (the depot movers own those legs)", async () => {
@@ -226,9 +293,11 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(roster.corps.some(c => c.kind === "haul" && c.fromId === "bank-W0N0")).to.equal(false);
   });
 
-  it("a filling warchest keeps today's save regime: cap 15, surplus banks", () => {
-    // No bank source injected (bank below the warchest target): behavior is
-    // EXACTLY the pinned deposit half - controller capped, storage soaks.
+  it("a filling warchest keeps today's save regime: controller capped at 15, ALL mined banks", () => {
+    // No bank source injected (bank below the warchest target). Save regime: the
+    // controller is capped at STORAGE_UPGRADE_TARGET (15) and draws it from the
+    // hub; ALL 30 mined banks (hub-and-spoke), so the warchest fills at the full
+    // mined rate minus the 15+10 the consumers draw back out.
     const graph = graphOf([
       homeNodeWithStorage(5),
       sourceNode("s1", 15),
@@ -240,7 +309,7 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
     expect(ctrl.allocated).to.be.closeTo(15, 1e-9);
-    expect(store.allocated).to.be.closeTo(5, 1e-9);
+    expect(store.allocated).to.be.closeTo(30, 1e-9);
   });
 
   it("detectBankSources reads live storages: surplus rooms emit, filling rooms don't", async () => {

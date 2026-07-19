@@ -19,7 +19,7 @@ import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
-import { spendableBankSurplus } from "../economy/bank";
+import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
 
@@ -106,6 +106,16 @@ const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
  * the corp can read the planner's actual marginal un-staffed source.
  */
 const ROAD_SPAWN_PART_VALUE = 100;
+/**
+ * Ticks over which a construction project should burn down (owner 2026-07-19:
+ * size the builder corp to the SUM of its projects). A crew is never sized to
+ * consume more energy per tick than finishes the room's outstanding site work
+ * in this horizon - so a nearly-done room fields a small crew instead of a
+ * full-allocation one for scraps, and a big project stays allocation-sized
+ * (30k of work / 100t = 300 e/t, well above any real allocation). Short, so
+ * roads still build fast (owner: "the roads got built quicker").
+ */
+const PROJECT_BUILD_HORIZON = 100;
 
 /**
  * Horizon a road route must repay its build cost within: the wall-clock life
@@ -124,6 +134,7 @@ export class ConstructionCorp extends Corp {
 
   /** Last tick we attempted to place extensions */
   private lastPlacementAttempt = 0;
+  private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
 
   /** Target number of builders (computed during planning) */
   private targetBuilders = 0;
@@ -219,9 +230,9 @@ export class ConstructionCorp extends Corp {
     }
     const constructionSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (constructionSites.length === 0) {
-      // Nothing to build, but containers decay - keep one builder while any needs
-      // repair, so a finished (RCL-maxed) room still maintains its containers.
-      this.targetBuilders = this.wantsMaintenance(workRoom) ? 1 : 0;
+      // Nothing to build. Maintenance belongs to the repair detail (separate
+      // squad, runs regardless of sites) - the build crew stands down.
+      this.targetBuilders = 0;
       return;
     }
 
@@ -254,7 +265,18 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return;
 
     const room = this.workRoom(spawn);
-    if (!room) return; // cross-room corp without vision this tick
+    if (!room) {
+      // Cross-room corp without vision: demand saw the room (intel/vision at
+      // order time) but an idle member at the home spawn provides no vision -
+      // a deadlock only the member's own travel can break (measured
+      // 2026-07-19: four remote builders idled ~600t at Spawn1). March them;
+      // arrival restores vision and the full work loop.
+      const targetRoom = this.nodeId.replace(/-construction$/, "");
+      this.builders.run(creep => {
+        travelTo(creep, new RoomPosition(25, 25, targetRoom));
+      }, spawn);
+      return;
+    }
     const controller = room.controller;
     if (!controller) return;
 
@@ -347,8 +369,44 @@ export class ConstructionCorp extends Corp {
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
-    this.builders.run(creep => this.runBuilder(creep, room), spawn);
+    this.assignRepairDetail(room);
+    this.builders.run(
+      creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
+      spawn
+    );
     this.tankers.run(creep => this.runTanker(creep, room), spawn);
+  }
+
+  /**
+   * Keep exactly one crew member flagged as the REPAIR DETAIL while anything
+   * wants maintenance (owner 2026-07-18: repair and building are separate
+   * functions - sites never impact repair). Sticky: the flag lives on the
+   * creep for life; a new one is assigned only when none exists. With nothing
+   * to maintain the flag clears so the member rejoins the build crew.
+   */
+  private assignRepairDetail(room: Room): void {
+    const members = this.builders.members();
+    const detail = members.find(c => c.memory.repairDetail);
+    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room, detail !== undefined)) {
+      if (detail) delete detail.memory.repairDetail;
+      return;
+    }
+    // Repair is DECOUPLED from building (owner 2026-07-18: "the existence of
+    // construction sites doesn't have to impact the repair in any way"). The
+    // maintenance detail is assigned whenever something wants maintenance,
+    // regardless of sites; the +1 detail target (builderPlanWithDetail) orders
+    // the second builder so construction is not starved. A former "never take
+    // the LAST builder while sites exist" guard VIOLATED this directive - it
+    // cleared an active repair detail the moment the corp placed a site, so a
+    // 1-builder room abandoned a below-gate container to chase construction
+    // forever (cons-repair-stops-at-99, root-caused via diag-repair-latch: 8
+    // sites placed at t20 -> detail cleared -> the 55% container never rose).
+    // The cold-ramp case that motivated it is covered by the 2-builder
+    // cons-t3 staging and by the fact that a real cold ramp's containers are
+    // full (no maintenance competition).
+    if (detail) return;
+    const recruit = members[0];
+    if (recruit) recruit.memory.repairDetail = true;
   }
 
   /**
@@ -406,7 +464,28 @@ export class ConstructionCorp extends Corp {
     }
     const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
     if (site) around(site.pos, 3);
+    // The warchest SURPLUS is build fuel (owner 2026-07-18: "use all the
+    // energy in the storage as needed, same as for the upgrader") - the same
+    // spendable-surplus lens the whole spec-03 spend path uses, so the
+    // expansion warchest floor stays untouchable. Without this a road site
+    // near the spine saw no container and sized a 5 e/t token crew against a
+    // 600k bank.
+    if (room.storage?.my) stock += spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0);
     return stock;
+  }
+
+  /**
+   * Energy still needed to finish every construction site in the room - the
+   * SUM of this corp's projects (owner 2026-07-19). Each site's remaining cost
+   * is progressTotal - progress (build progress is 1:1 with energy). Under the
+   * distributed trunk model a corp's remote-trunk tiles are ordinary road
+   * sites in the rooms they cross, each owned and built by that room's corp,
+   * so summing THIS room's sites is the whole of this corp's outstanding work.
+   */
+  private siteWorkRemaining(room: Room): number {
+    let energy = 0;
+    for (const s of room.find(FIND_MY_CONSTRUCTION_SITES)) energy += s.progressTotal - s.progress;
+    return energy;
   }
 
   private builderPlan(energyCapacity: number, room: Room): SquadPlan {
@@ -433,7 +512,18 @@ export class ConstructionCorp extends Corp {
     // (plus a 6-tanker relay) fed ~4 e/t. Under-fueled sites keep the crew
     // small and the spawn on the supply side; accumulated stock scales it up.
     const fuel = this.buildSideStock(room);
-    buildEnergy = Math.max(5, Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5)));
+    buildEnergy = Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5));
+    // SUM OF PROJECTS (owner 2026-07-19): a construction project is a finite
+    // tile list with a computable total cost, so never size the crew to burn
+    // more per tick than finishes the room's outstanding site work over the
+    // build horizon. ONLY when there IS build work to cap: a repair-only crew
+    // (no sites) sizes by its own path, and capping it to 0/H = 5 starved the
+    // repairer (cons-repair-stops-at-99). Under the distributed trunk model
+    // each room's corp owns its segment, so "sum of THIS corp's projects" is
+    // exactly its room's remaining site work.
+    const siteWork = this.siteWorkRemaining(room);
+    if (siteWork > 0) buildEnergy = Math.min(buildEnergy, Math.max(5, siteWork / PROJECT_BUILD_HORIZON));
+    buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.
     const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
@@ -482,6 +572,19 @@ export class ConstructionCorp extends Corp {
       const stage = builders[0];
       if (stage && creep.pos.getRangeTo(stage) > 1) {
         creep.moveTo(stage, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      }
+      return;
+    }
+
+    // SURPLUS-SPEND REGIME: with the warchest full, the bank IS the build
+    // fuel - the tanker draws from storage directly (same spendable-surplus
+    // lens as buildSideStock, so sizing and fetching cannot disagree). This
+    // is what lets road projects burn banked energy instead of waiting on a
+    // committed source's trickle.
+    const bank = room.storage;
+    if (bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0) {
+      if (creep.withdraw(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(bank, { visualizePathStyle: { stroke: "#00ff00" } });
       }
       return;
     }
@@ -716,6 +819,19 @@ export class ConstructionCorp extends Corp {
       if (entry?.paved || entry?.declined) continue;
       if (this.hasContainerNear(room, source.pos, 1)) return true;
     }
+    // The feeder trunk counts as outstanding road work too (same gate the
+    // placement path uses: depot era, input container standing, no verdict).
+    // Unverdicted or unfinished TRUNKS are outstanding road work too.
+    for (const trunk of this.remoteTrunks) {
+      const e = room.memory.roadRoutes?.[trunk.sourceId.replace(/^source-/, "")];
+      if (!e?.paved && !e?.declined) return true;
+    }
+    const feeder = room.memory.roadRoutes?.["feeder"];
+    if (!feeder?.paved && !feeder?.declined && room.storage?.my) {
+      const ctrl = room.controller;
+      if (ctrl && ctrl.pos.findInRange(FIND_STRUCTURES, 3, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length > 0)
+        return true;
+    }
     return false;
   }
 
@@ -752,22 +868,26 @@ export class ConstructionCorp extends Corp {
         return;
       }
 
-      // Starting a NEW paving project yields to repair: placing sites pulls
-      // the builder off maintenance (repair only runs with zero sites), so
-      // wait until nothing wants a repairer - wantsMaintenance carries the
-      // hysteresis (a fielded builder keeps repairing to the 99% ceiling; a
-      // mid-repair room must not have its builder yanked onto roadworks the
-      // moment the worst structure crosses the 60% start gate).
-      if (this.wantsMaintenance(room)) return;
+      // No repair gate at all: repair is a separate standing detail (owner
+      // 2026-07-18) that runs regardless of sites, and room decay costs a
+      // few e/t against a bank-funded allocation - paving and upkeep never
+      // compete for energy or crew.
 
       // Paving is a SURPLUS investment: in a demand-saturated room (organic
       // spawning consuming the whole income) a paving project tips the spawn
       // network into the critical failsafe and disrupts delivery (measured:
-      // the tender-bus T4 world). A full spawn bank is the cheap observable
-      // that income currently exceeds spawn demand; the placement cooldown
-      // retries every 10 ticks, so a healthy room catches a full-bank tick
-      // between spawns soon enough.
-      if (room.energyAvailable < room.energyCapacityAvailable) return;
+      // the tender-bus T4 world). Two surplus observables, either suffices:
+      // a full spawn bank (lean rooms between spawns), or a warchest in
+      // SURPLUS (owner 2026-07-18: a 600k bank is the surplus signal - the
+      // full-bank tick almost never occurred while the spawn ran pinned, so
+      // zero routes were ever judged despite the fattest bank all session).
+      const surplusBanked = room.storage?.my && spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0;
+      if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) {
+        // The last silent exit in the road scan (spec 14): an unjudged source
+        // behind this wall blocks the feeder trunk below it every pass.
+        this.lastSizing = { tick: Game.time, roadGate: `road-wall-energy-${source.id.slice(-4)}` };
+        return;
+      }
 
       const tiles = this.planRoadPath(room, source, depotPos, spawn.pos);
       if (!tiles) continue;
@@ -786,6 +906,213 @@ export class ConstructionCorp extends Corp {
       );
       return; // one route at a time - the builders finish this before the next
     }
+
+    // FEEDER TRUNK (owner 2026-07-18): the storage->controller-input lane
+    // carries the relay (upgrade target + the whole bank draw) - the highest
+    // flow in the colony - yet candidacy was home-source-only and it was
+    // never judged. Same verdict machinery, keyed "feeder".
+    this.tryPlaceFeederRoadRoute(room, routes);
+    this.tryPlaceTrunkRoutes(room, routes);
+  }
+
+  /**
+   * Judge and pave CROSS-ROOM trunks to the plan's funded remote sources
+   * (owner 2026-07-19: the corp has a spawn, not a room - a route is a
+   * string of construction sites wherever they lead). Sites are placed
+   * progressively in rooms with vision; the remote rooms' own construction
+   * corps field the builders (their plan() counts any site in their room,
+   * and cross-room builders march since the vision-march fix). The paved
+   * receipt reprices the source's haulers at 2:1 via detectPavedSources.
+   */
+  private tryPlaceTrunkRoutes(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    const gate = (reason: string): void => {
+      this.lastSizing = { tick: Game.time, roadGate: reason };
+    };
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return;
+    const depotPos = room.storage?.pos ?? spawn.pos;
+
+    for (const trunk of this.remoteTrunks) {
+      const key = trunk.sourceId.replace(/^source-/, "");
+      const entry = routes[key];
+      if (entry?.paved || entry?.declined) continue;
+
+      if (entry?.tiles3 && entry.rooms) {
+        // In-progress trunk: place what vision allows; receipt when all built.
+        if (this.trunkBuilt(entry.rooms, entry.tiles3)) {
+          entry.paved = true;
+          gate("trunk-paved");
+          console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
+          continue;
+        }
+        const placed = this.placeTrunkSites(entry.rooms, entry.tiles3);
+        gate(placed > 0 ? `trunk-placing-${placed}` : "trunk-waiting-vision");
+        return; // one project at a time
+      }
+
+      // Unjudged trunk: cross-room path + roadEconomics verdict.
+      const path = this.planTrunkPath(trunk.pos, depotPos);
+      if (!path) {
+        gate("trunk-path-incomplete");
+        continue;
+      }
+      const spec = this.trunkSpec(path, trunk.flow);
+      const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+      if (!verdict.worthPaving) {
+        routes[key] = { tiles: [], declined: true };
+        gate(`trunk-declined-payback-${Math.round(verdict.paybackTicks)}t`);
+        continue;
+      }
+      const roomsTable: string[] = [];
+      const tiles3: number[] = [];
+      for (const p of path) {
+        let ri = roomsTable.indexOf(p.roomName);
+        if (ri === -1) {
+          ri = roomsTable.length;
+          roomsTable.push(p.roomName);
+        }
+        tiles3.push(p.x, p.y, ri);
+      }
+      routes[key] = { tiles: [], tiles3, rooms: roomsTable };
+      const placed = this.placeTrunkSites(roomsTable, tiles3);
+      gate(`trunk-judged-paving-${Math.round(verdict.paybackTicks)}t`);
+      console.log(
+        `[Construction] TRUNK to ${key}: ${tiles3.length / 3} tiles across ${roomsTable.length} rooms ` +
+          `(${placed} sites placed), payback ~${Math.round(verdict.paybackTicks)}t`
+      );
+      return; // one project at a time
+    }
+  }
+
+  /** Cross-room road path: visible rooms use live costs, blind rooms terrain-only. */
+  private planTrunkPath(origin: Position, depotPos: RoomPosition): RoomPosition[] | null {
+    const result = PathFinder.search(
+      new RoomPosition(origin.x, origin.y, origin.roomName),
+      { pos: depotPos, range: 1 },
+      {
+        plainCost: 2,
+        swampCost: 10,
+        maxRooms: 4,
+        roomCallback: (name: string): CostMatrix | boolean => {
+          const r = Game.rooms[name];
+          // No vision: allow the room at terrain-only costs (an empty matrix).
+          return r ? this.roadPlanningCosts(r) : new PathFinder.CostMatrix();
+        }
+      }
+    );
+    if (result.incomplete || result.path.length === 0) return null;
+    return result.path;
+  }
+
+  /** Route spec across rooms - Game.map terrain needs no vision. */
+  private trunkSpec(path: RoomPosition[], flow: number): RoadRouteSpec {
+    let swampTiles = 0;
+    for (const p of path) {
+      if (Game.map.getRoomTerrain(p.roomName).get(p.x, p.y) & TERRAIN_MASK_SWAMP) swampTiles++;
+    }
+    return { plainTiles: path.length - swampTiles, swampTiles, flow };
+  }
+
+  /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
+  private placeTrunkSites(roomsTable: string[], tiles3: number[]): number {
+    if (governorPlan().pauseConstruction) return 0;
+    let placed = 0;
+    for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
+      if (!r) continue; // no vision this pass
+      const x = tiles3[i];
+      const y = tiles3[i + 1];
+      const covered =
+        r.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD) ||
+        r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD);
+      if (covered) continue;
+      if (r.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) placed++;
+    }
+    return placed;
+  }
+
+  /** All trunk tiles verifiably built - a blind room cannot verify, so false. */
+  private trunkBuilt(roomsTable: string[], tiles3: number[]): boolean {
+    for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
+      if (!r) return false;
+      if (!r.lookForAt(LOOK_STRUCTURES, tiles3[i], tiles3[i + 1]).some(s => s.structureType === STRUCTURE_ROAD)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Judge and pave the storage -> controller-input lane, receipt-keyed "feeder". */
+  private tryPlaceFeederRoadRoute(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    // Every exit stamps WHY (spec 14: no invisible decisions - roadRoutes sat
+    // EMPTY a full session because these returns were silent).
+    const gate = (reason: string): void => {
+      this.lastSizing = { tick: Game.time, roadGate: reason };
+    };
+    const entry = routes["feeder"];
+    if (entry?.paved || entry?.declined) {
+      gate(entry.paved ? "feeder-paved" : "feeder-declined");
+      return;
+    }
+    const bank = room.storage;
+    const ctrl = room.controller;
+    if (!bank?.my || !ctrl) {
+      gate("feeder-no-depot");
+      return; // the lane exists only in the depot era
+    }
+    const input = ctrl.pos.findInRange(FIND_STRUCTURES, 3, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    })[0] as StructureContainer | undefined;
+    if (!input) {
+      gate("feeder-no-input-container");
+      return; // rung 1.7 builds the input container first
+    }
+
+    if (entry) {
+      if (this.roadTilesBuilt(room, entry.tiles)) {
+        entry.paved = true;
+        console.log(`[Construction] Feeder trunk fully paved`);
+        gate("feeder-paved");
+        return;
+      }
+      this.placeMissingRoadSites(room, entry.tiles);
+      gate("feeder-building");
+      return;
+    }
+
+    if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable) {
+      gate("feeder-no-surplus");
+      return;
+    }
+
+    const result = PathFinder.search(
+      bank.pos,
+      { pos: input.pos, range: 1 },
+      { plainCost: 2, swampCost: 10, maxRooms: 1, roomCallback: () => this.roadPlanningCosts(room) }
+    );
+    if (result.incomplete || result.path.length === 0) {
+      gate("feeder-path-incomplete");
+      return;
+    }
+    const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
+    // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
+    const spec = this.roadRouteSpec(room, tiles, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0));
+    const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+    if (!verdict.worthPaving) {
+      routes["feeder"] = { tiles: [], declined: true };
+      gate(`feeder-judged-declined-payback-${Math.round(verdict.paybackTicks)}t`);
+      return;
+    }
+    gate(`feeder-judged-paving-payback-${Math.round(verdict.paybackTicks)}t`);
+    const flat: number[] = [];
+    for (const t of tiles) flat.push(t.x, t.y);
+    routes["feeder"] = { tiles: flat };
+    const placed = this.placeMissingRoadSites(room, flat);
+    console.log(
+      `[Construction] Paving feeder trunk: ${tiles.length} tiles (${placed} sites), ` +
+        `payback ~${Math.round(verdict.paybackTicks)}t`
+    );
   }
 
   /**
@@ -827,13 +1154,13 @@ export class ConstructionCorp extends Corp {
   }
 
   /** RoadRouteSpec for a planned path: swamp counted from terrain, flow = source rate. */
-  private roadRouteSpec(room: Room, tiles: { x: number; y: number }[]): RoadRouteSpec {
+  private roadRouteSpec(room: Room, tiles: { x: number; y: number }[], flow: number = SOURCE_RATE): RoadRouteSpec {
     const terrain = room.getTerrain();
     let swampTiles = 0;
     for (const t of tiles) {
       if (terrain.get(t.x, t.y) & TERRAIN_MASK_SWAMP) swampTiles++;
     }
-    return { plainTiles: tiles.length - swampTiles, swampTiles, flow: SOURCE_RATE };
+    return { plainTiles: tiles.length - swampTiles, swampTiles, flow };
   }
 
   /** Place road sites on planned tiles lacking both a road and a site. Returns count placed. */
@@ -866,11 +1193,25 @@ export class ConstructionCorp extends Corp {
   private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant): void {
     // CPU governor (spec 09 ph5): under austere degradation, NEW investment
     // pauses - existing sites keep building, the income core keeps running.
-    if (governorPlan().pauseConstruction) return;
+    // Every outcome stamps (spec 14): a placeSite that fails every cooldown is
+    // an invisible infinite loop that eats the whole placement ladder below
+    // its rung (W43N23 2026-07-19: zero sites, zero road verdicts, no trace).
+    if (governorPlan().pauseConstruction) {
+      this.lastSizing = { tick: Game.time, placeGate: "governor-paused" };
+      return;
+    }
     const result = room.createConstructionSite(x, y, type);
+    this.lastSizing = { tick: Game.time, placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result };
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
+      if (result === ERR_INVALID_TARGET) {
+        // Permanently invalid for this tile (wall/occupant/near-exit rule the
+        // candidate generators can't see): blacklist it so they move on
+        // instead of retrying every cooldown forever (the eaten-ladder loop).
+        const dead = (room.memory.deadTiles = room.memory.deadTiles ?? {});
+        dead[`${x},${y}`] = Game.time;
+      }
       console.log(`[Construction] Failed to place ${type} at ${room.name} (${x}, ${y}): ${result}`);
     }
   }
@@ -887,7 +1228,7 @@ export class ConstructionCorp extends Corp {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, STRUCTURE_CONTAINER);
+    const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, undefined, STRUCTURE_CONTAINER);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -910,7 +1251,7 @@ export class ConstructionCorp extends Corp {
     if (hasTower) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, STRUCTURE_TOWER);
+    const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, [spawn.pos], STRUCTURE_TOWER);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -921,7 +1262,7 @@ export class ConstructionCorp extends Corp {
     if (hasSite) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
-    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos, STRUCTURE_STORAGE);
+    const tile = bestAdjacentTile(room, spawn.pos, 2, spawn.pos, [spawn.pos], STRUCTURE_STORAGE);
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
@@ -981,7 +1322,7 @@ export class ConstructionCorp extends Corp {
 
     // 1) Core link beside the storage.
     if (!linkNear(storage.pos, 2)) {
-      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos, STRUCTURE_LINK);
+      const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos, room.find(FIND_MY_SPAWNS).map(s => s.pos), STRUCTURE_LINK);
       return tile ? { x: tile.x, y: tile.y } : null;
     }
 
@@ -993,7 +1334,7 @@ export class ConstructionCorp extends Corp {
       .sort((a, b) => b.pos.getRangeTo(storage.pos) - a.pos.getRangeTo(storage.pos));
     for (const source of candidates) {
       const spot = sourceHarvestSpot(source, spawn?.pos);
-      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos, STRUCTURE_LINK);
+      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos, room.find(FIND_MY_SPAWNS).map(s => s.pos), STRUCTURE_LINK);
       if (tile) return { x: tile.x, y: tile.y };
     }
     return null;
@@ -1240,9 +1581,9 @@ export class ConstructionCorp extends Corp {
     return pickCriticalRepairTarget(this.roomRepairables(room));
   }
 
-  /** Whether a mid-diversion builder should keep repairing (see wantsCriticalRecovery). */
-  private wantsCriticalRecovery(room: Room): boolean {
-    return wantsCriticalRecovery(this.roomRepairables(room));
+  /** Whether emergency repair outranks construction (see wantsCriticalRecovery). */
+  private wantsCriticalRecovery(room: Room, inDiversion: boolean): boolean {
+    return wantsCriticalRecovery(this.roomRepairables(room), inDiversion);
   }
 
   /**
@@ -1312,33 +1653,11 @@ export class ConstructionCorp extends Corp {
   }
 
   private runBuilder(creep: Creep, room: Room): void {
-    // No construction sites: switch to container maintenance (fuel from + repair the
-    // most decayed container) instead of standing idle.
+    // Builders ONLY build (owner 2026-07-18: repair is a fully separate
+    // function - the repair detail owns ALL maintenance, critical included,
+    // sites or no sites). No mode switches, no diversions.
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) {
-      delete creep.memory.repairingCritical;
-      this.doMaintenance(creep, room);
-      return;
-    }
-
-    // EMERGENCY REPAIR outranks building: ordinary maintenance is gated off
-    // entirely while any site exists (the builder builds one site at a time and
-    // only maintains a fully-built room), so a structure that decays past the
-    // critical gate mid-build would head to expiry with nothing repairing it.
-    // Divert the crew to rescue it, latched with hysteresis (repair up out of the
-    // idle-maintenance band before resuming) so it doesn't thrash between a far
-    // site and the container each tick it dips past the start gate.
-    if (creep.memory.repairingCritical) {
-      if (this.wantsCriticalRecovery(room)) {
-        this.doMaintenance(creep, room);
-        return;
-      }
-      delete creep.memory.repairingCritical;
-    } else if (this.findCriticalRepairTarget(room)) {
-      creep.memory.repairingCritical = true;
-      this.doMaintenance(creep, room);
-      return;
-    }
+    if (sites.length === 0) return; // the squad plan retires the crew when nothing remains to build
 
     // A founding crew works OUT OF ITS SITE ROOM: the hauler founding lane
     // delivers energy at the site, not at the parent spawn, so walk over
@@ -1541,14 +1860,12 @@ export class ConstructionCorp extends Corp {
     if (!workRoom) return [];
     const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
-      // No sites, but containers decay: field one small builder to maintain them.
-      // It self-fuels at the container, so no tankers are needed (hence we return
-      // only the builder demand here, never the feeder demand below).
-      if (!this.wantsMaintenance(workRoom)) return [];
-      return this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
+      // No sites: only the standing repair detail may want staffing. It
+      // self-fuels at containers/storage, so it never needs tankers.
+      return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
     }
 
-    const builderDemand = this.builders.spawnDemand(this.builderPlan(ctx.energyCapacity, workRoom));
+    const builderDemand = this.builders.spawnDemand(this.builderPlanWithDetail(ctx, workRoom));
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
@@ -1567,9 +1884,34 @@ export class ConstructionCorp extends Corp {
    * always at a builder while the others refuel, sized to the builders' total
    * consumption and the refuel round-trip (see targetTankerCount).
    */
+  /** Crew plan plus the standing repair detail (owner 2026-07-18: repair is a
+   * separate FUNCTION - one crew member is permanently assigned to repair,
+   * sites or no sites; see assignRepairDetail). */
+  private builderPlanWithDetail(ctx: SpawnDemandContext, room: Room): SquadPlan {
+    const plan = this.builderPlan(ctx.energyCapacity, room);
+    if (this.wantsMaintenance(room)) plan.target += 1; // the detail rides along
+    return plan;
+  }
+
+  /** The standing repair detail: one small self-fueling W-heavy body while
+   * anything sits below the maintenance start gate. Independent of sites. */
+  private repairerPlan(ctx: SpawnDemandContext, room: Room): SquadPlan {
+    const body = buildUpgraderBody(Math.min(ctx.energyCapacity, 550), 2);
+    return {
+      target: this.wantsMaintenance(room) ? 1 : 0,
+      desiredCost: body.cost,
+      minCost: body.cost,
+      bodyParam: 2
+    };
+  }
+
   private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite): SquadPlan {
-    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 4));
-    const target = this.targetTankerCount(room, site, this.builders.members(), perTanker);
+    // Big shuttles, few bodies (owner 2026-07-18: construction consumes 5x
+    // more energy per WORK, so the DELIVERY side is the binding constraint -
+    // "we actually need the haulers to be bigger"). The old 4-CARRY cap
+    // forced 200-capacity shuttles out of an 1800-capacity room.
+    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
+    const target = this.targetTankerCount(room, site, perTanker, ctx);
     const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
     const min = buildTankerBody(1, ctx.energyCapacity, false);
     return {
@@ -1582,18 +1924,25 @@ export class ConstructionCorp extends Corp {
 
   /**
    * How many tankers the relay needs: enough CARRY in flight to sustain the
-   * builder's consumption over the refuel round-trip, never fewer than two so
-   * there is always one staged for a seamless hot swap.
+   * CREW PLAN's consumption over the refuel round-trip, never fewer than two
+   * so there is always one staged for a seamless hot swap. Sized to the PLAN
+   * (builderPlan's buildEnergy), not the fielded builders - the relay must
+   * arrive WITH the crew, not lag it (consumers size to their allocated flow;
+   * the ledger shrinks the ALLOCATION when parts are scarce, never the crew
+   * against a funded flow). The round-trip endpoint is the SAME lens the
+   * tanker fetch uses: the storage in the surplus regime, the nearest source
+   * otherwise - sizing and fetching cannot disagree.
    */
-  private targetTankerCount(room: Room, site: ConstructionSite, builders: Creep[], perTanker: number): number {
-    const work = builders.reduce((sum, b) => sum + b.getActiveBodyparts(WORK), 0);
-    const consumption = Math.max(5, work * 5); // energy/tick the builder eats
-    const source = site.pos.findClosestByRange(FIND_SOURCES);
-    const dist = source ? site.pos.getRangeTo(source) : 8;
+  private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
+    const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
+    const bank = room.storage;
+    const surplusBanked = bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0;
+    const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
+    const dist = fuelPos ? site.pos.getRangeTo(fuelPos) : 8;
     // CARRY needed in flight to sustain consumption over the round trip, with a
     // 1.5x margin: a tanker also spends ticks transferring at the builder and
-    // withdrawing at the source, so the bare round-trip figure under-delivers and
-    // a far site starves its builder. The margin scales the relay with distance.
+    // withdrawing at the fuel point, so the bare round-trip figure under-delivers
+    // and a far site starves its builder. The margin scales the relay with distance.
     const carryNeeded = Math.ceil(carryPartsFor(consumption, dist) * 1.5);
     return Math.max(2, Math.ceil(carryNeeded / perTanker));
   }
@@ -1606,6 +1955,15 @@ export class ConstructionCorp extends Corp {
    * Set construction allocations from FlowEconomy.
    * Each allocation specifies energy rate for a construction site.
    */
+  /**
+   * Remote trunk candidates (owner 2026-07-19: routes are site strings, not
+   * rooms) - the plan's funded remote harvests staffed from this corp's
+   * spawn. Commission-owned, refreshed by materialize every round.
+   */
+  public setRemoteTrunks(trunks: { sourceId: string; pos: Position; flow: number }[]): void {
+    this.remoteTrunks = trunks;
+  }
+
   public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
     // Adjust target builders based on total allocated energy

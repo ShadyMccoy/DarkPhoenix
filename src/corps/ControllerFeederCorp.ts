@@ -28,6 +28,7 @@ import { feederRelayRate } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
+  controllerAllocation?: number;
 }
 
 /**
@@ -43,12 +44,24 @@ const CONTROLLER_FEED_TARGET = 2000;
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
  * while a bank surplus is being drawn down) that relays storage -> controller input.
  */
+/** Container-refill headroom the relay carries above the plan's controller
+ * flow: input-container decay plus a small buffer so the stock never starves
+ * between shuttle arrivals. */
+const FEEDER_STOCK_HEADROOM = 5;
+
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
+  /** The plan's controller-side flow (commission-owned, refreshed every round). */
+  private controllerAllocation?: number;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, customId);
     this.spawnId = spawnId;
+  }
+
+  /** The plan's controller allocation for this room - the relay's ceiling. */
+  public setControllerAllocation(v: number): void {
+    this.controllerAllocation = v;
   }
 
   public getSpawnId(): string {
@@ -196,24 +209,61 @@ export class ControllerFeederCorp extends Corp {
    * the plan just scaled up).
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // Decision-symmetry stamp (spec 14 phase 2): for an infrastructure corp
+    // the GATES are the decision - "why zero feeders with a fat bank" is a
+    // gate verdict, so every return records which gate fired and what it read.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return [];
+    if (!spawn) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-spawn" };
+      return [];
+    }
     const room = spawn.room;
     const controller = room.controller;
-    if (!controller) return [];
-    if (!(room.storage && room.storage.my)) return []; // no bank yet -> haulers feed the controller directly
-    if (!this.roomHasMiner(room)) return []; // infrastructure follows income
+    if (!controller) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-controller" };
+      return [];
+    }
+    if (!(room.storage && room.storage.my)) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-storage" };
+      return []; // no bank yet -> haulers feed the controller directly
+    }
+    const banked = room.storage.store.energy ?? 0;
+    const hasMiner = this.roomHasMiner(room);
+    if (!hasMiner) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-miner", banked, hasMiner };
+      return []; // infrastructure follows income
+    }
 
     // Balanced 1:1 body sized to sustain the relay over the round trip (the
     // feeder travels, unlike the parked extension tender). The storage sits by
     // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    const banked = room.storage.store.energy ?? 0;
     const distance = spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
-    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(feederRelayRate(banked), distance) * 1.2));
+    // The relay serves the PLAN's controller flow, never the raw surplus
+    // formula: when construction preempts the bank the controller floors at
+    // ~2 e/t and relaying 115 into a full stock is 90+ wasted parts (owner
+    // t72421124). No allocation known (old commission) -> formula unclamped.
+    const surplusRate = feederRelayRate(banked);
+    const planFlow = this.controllerAllocation;
+    const relayRate = planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
-    if (this.getFeeders().length >= wantedFeeders) return [];
+    const feeders = this.getFeeders().length;
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: feeders >= wantedFeeders ? "staffed" : "demand",
+      banked,
+      hasMiner,
+      relayRate,
+      ...(planFlow !== undefined ? { planFlow } : {}),
+      surplusRate,
+      distance,
+      neededCarry,
+      wantedFeeders,
+      feeders
+    };
+    if (feeders >= wantedFeeders) return [];
     const carry = Math.min(neededCarry, maxCarry);
 
     return [
@@ -234,11 +284,12 @@ export class ControllerFeederCorp extends Corp {
   }
 
   public serialize(): SerializedControllerFeederCorp {
-    return { ...super.serialize(), spawnId: this.spawnId };
+    return { ...super.serialize(), spawnId: this.spawnId, controllerAllocation: this.controllerAllocation };
   }
 
   public deserialize(data: SerializedControllerFeederCorp): void {
     super.deserialize(data);
+    this.controllerAllocation = data.controllerAllocation;
     this.spawnId = data.spawnId ?? this.spawnId;
   }
 }

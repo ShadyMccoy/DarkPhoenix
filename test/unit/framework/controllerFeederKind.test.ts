@@ -122,7 +122,8 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(f).to.have.length(1);
     expect(f[0].corpId).to.equal("controllerFeeder-W1N1");
     expect(f[0].shape).to.equal("auxiliary");
-    expect(f[0].assignment).to.deep.equal({ roomName: HOME, spawnId: "spawn1" });
+    expect(f[0].assignment).to.include({ roomName: HOME, spawnId: "spawn1" });
+    expect((f[0].assignment as { controllerAllocation: number }).controllerAllocation).to.be.a("number");
   });
 
   it("rung 3 - BIND: materialize keeps the LEGACY moving-corp id", () => {
@@ -171,6 +172,40 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(demands[0].bodyParam).to.equal(expected);
   });
 
+  it("clamps the relay to the PLAN's controller flow when construction preempts the bank (owner incident t72421124)", async () => {
+    // Live: controller floored at 2 e/t (construction absorbed the surplus)
+    // while the feeder fielded 3 shuttles / 94 parts relaying 115 e/t into a
+    // FULL 2000 stock. The feeder must serve the plan's controller-side flow
+    // (its allocation + refill headroom), not the raw surplus formula - two
+    // consumers cannot both be sized for the same bank draw.
+    const { WARCHEST_TARGET } = await import("../../../src/economy/bank");
+    const { carryPartsFor } = await import("../../../src/economy/primitives");
+    const store: CorpStore = new Map();
+    materializeCommissions(planCommissions(world).commissions, store);
+    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+
+    installRoom(true, true);
+    (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = WARCHEST_TARGET + 100_000;
+
+    corp.setControllerAllocation(2); // the plan's floored controller sink
+    const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
+    expect(demands).to.have.length(1);
+    // Sized for ~2+headroom e/t over the 15-range leg - ONE small shuttle,
+    // nowhere near the 13-CARRY surplus body (needed 35+ carry for 115 e/t).
+    const clampedMax = Math.ceil(carryPartsFor(2 + 5, 15) * 1.2);
+    expect(demands[0].bodyParam).to.be.at.most(clampedMax);
+  });
+
+  it("rung 2 - PLAN: propose threads the draft's controller allocation into the assignment", () => {
+    const { commissions } = planCommissions(world);
+    const f = commissions.find(c => c.kind === "controllerFeeder")!;
+    const a = f.assignment as { controllerAllocation?: number };
+    // world's plan allocates the controller sink (capacity 1000, one source
+    // at 10 e/t) - whatever it funds, the feeder assignment must carry it.
+    expect(a.controllerAllocation, "assignment carries the plan's controller flow").to.be.a("number");
+    expect(a.controllerAllocation!).to.be.greaterThan(0);
+  });
+
   it("scales the relay (more feeders) once the bank is in surplus", async () => {
     const { WARCHEST_TARGET, feederRelayRate } = await import("../../../src/economy/bank");
     const { carryPartsFor } = await import("../../../src/economy/primitives");
@@ -181,6 +216,9 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     installRoom(true, true);
     const banked = WARCHEST_TARGET + 100_000; // deep surplus: draw at its cap
     (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = banked;
+    // Post-clamp contract: the feeder scales only for flow the PLAN sends to
+    // the controller - state a surplus-era plan that allocates the full draw.
+    corp.setControllerAllocation(feederRelayRate(banked));
 
     // needed carry across the relay exceeds one max body (13 CARRY at 1300
     // capacity), so the corp fields a second (and third) feeder rather than

@@ -22,6 +22,7 @@
 import { Commission, corpIdFor } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
+import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
 import { buildUpgraderBody } from "../../spawn/BodyBuilder";
@@ -35,6 +36,13 @@ export interface ConstructionAssignment {
   roomName: string;
   spawnId: string;
   allocations: SinkAllocation[];
+  /**
+   * Remote trunk candidates (owner 2026-07-19: a route is a string of sites,
+   * not a room): the draft's FUNDED remote harvests staffed from this room's
+   * spawn. The corp judges each with roadEconomics and paves the winners
+   * cross-room; the paved receipt reprices that source's haulers at 2:1.
+   */
+  remoteTrunks?: { sourceId: string; pos: Position; flow: number }[];
 }
 
 /**
@@ -98,6 +106,22 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     for (const s of problem.spawns) {
       if (!homeSpawnByRoom.has(s.pos.roomName)) homeSpawnByRoom.set(s.pos.roomName, s.id);
     }
+    // Remote trunk candidates (owner 2026-07-19): each FUNDED harvest whose
+    // source lies OUTSIDE its staffing spawn's room. The trunk belongs to the
+    // spawn's room corp - the home end of the route.
+    const spawnRoomById = new Map(problem.spawns.map(s => [s.id, s.pos.roomName]));
+    const trunksByRoom = new Map<string, { sourceId: string; pos: Position; flow: number }[]>();
+    for (const c of draft) {
+      if (c.kind !== "harvest") continue;
+      const at = c.produces.at;
+      if (!at) continue;
+      const m = c.assignment as { sourceId?: string; spawnId?: string; rate?: number };
+      const homeRoom = (m.spawnId && spawnRoomById.get(m.spawnId)) ?? [...spawnRoomById.values()][0];
+      if (!homeRoom || at.roomName === homeRoom) continue; // home sources: the in-room scan covers them
+      const list = trunksByRoom.get(homeRoom) ?? [];
+      list.push({ sourceId: m.sourceId ?? c.corpId.replace(/^harvest-/, ""), pos: at, flow: c.produces.energyRate ?? 0 });
+      trunksByRoom.set(homeRoom, list);
+    }
     // A room with build allocations but NO spawn of its own (the expansion
     // founding: spec 06 audit "attribute the new room's corps to the PARENT
     // spawn until the new spawn stands") still gets its construction corp,
@@ -134,7 +158,12 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
           spawnPartsPerTick: 0
         },
         produces: { valuePerTick: 0 },
-        assignment: { roomName, spawnId, allocations } as ConstructionAssignment
+        assignment: {
+          roomName,
+          spawnId,
+          allocations,
+          ...(trunksByRoom.has(roomName) ? { remoteTrunks: trunksByRoom.get(roomName) } : {})
+        } as ConstructionAssignment
       };
     });
   },
@@ -144,6 +173,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     if (existing) {
       existing.setConstructionAllocations(a.allocations);
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      existing.setRemoteTrunks(a.remoteTrunks ?? []);
       return existing;
     }
     // liveProblem (the host's auxiliary world) carries REAL game spawn ids, so no
@@ -151,6 +181,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // (`building-${room}-construction`) so live builders' memory.corpId resolves.
     const corp = new ConstructionCorp(`${a.roomName}-construction`, a.spawnId);
     corp.setConstructionAllocations(a.allocations);
+    corp.setRemoteTrunks(a.remoteTrunks ?? []);
     return corp;
   },
 

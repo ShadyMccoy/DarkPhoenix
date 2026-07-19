@@ -123,7 +123,8 @@
     "boot-real-maze-w1n6": "pass",
     "fid-t4-synthetic-steady-state": "pass",
     "fid-t5-real-maze-steady-state": "pass",
-    "plan-t5-remote-pipeline": "fail",
-    "exp-t5-founding-funnels-to-completion": "timeout"
+    "plan-t5-remote-pipeline": "pass",
+    "exp-t5-founding-funnels-to-completion": "timeout",
+    "cons-t3-build-and-repair-concurrent": "pass"
   }
 }

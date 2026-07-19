@@ -46,6 +46,16 @@ declare global {
      */
     invaderReservedUntil?: number;
     /**
+     * A PLAYER reservation on this room's controller ends ~this tick, held by
+     * `reservedBy`. Unlike the invader bound this one is EXACT while blind:
+     * a reservation decays 1/tick, the same countdown the bound encodes, so
+     * only a hostile CLAIM grind diverges it (next sighting corrects). The
+     * ReservationCorp's duty cycle (spec 15 P5) coasts on it: no reserver is
+     * bought while our banked reservation sits above the refresh floor.
+     */
+    reservedUntil?: number;
+    reservedBy?: string;
+    /**
      * Energy OUR corps harvested in this room since the last observed raid -
      * a tick-exact mirror of the engine's per-room invader fuse (spec 13:
      * the engine fires a raid when its counter crosses a 70k-130k goal).
@@ -234,6 +244,15 @@ declare global {
      * agenda-fidelity cell asserts spawns match the head, and the flow
      * adapter (phase 2) routes fundingNeed toward the spawn network.
      */
+    /**
+     * Spawn-meter windows (spec 14 phase 3): measured busy ticks per spawn
+     * over a rolling ~1500-tick window, accumulated every observed tick by
+     * telemetry. `last` guards against double-counting a tick.
+     */
+    spawnMeter?: {
+      [spawnId: string]: { t0: number; last: number; ticks: number; busy: number };
+    };
+
     spawnAgenda?: {
       [spawnId: string]: {
         tick: number;
@@ -244,6 +263,8 @@ declare global {
           minCost: number;
           desiredCost: number;
           mustFund: boolean;
+          /** First tick the director saw this demand (starvation-age export). */
+          since?: number;
           /** The transition this acquisition implements (spec 11 phase 3). */
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
@@ -320,6 +341,14 @@ declare global {
     nodeIds?: string[];
 
     /**
+     * Tiles createConstructionSite proved permanently invalid (-7), keyed
+     * "x,y" -> tick recorded. Written by placeSite, excluded by
+     * bestAdjacentTile so candidate generators stop proposing them (the
+     * eaten-ladder loop: one bad candidate retried every cooldown forever).
+     */
+    deadTiles?: { [key: string]: number };
+
+    /**
      * Cached refill bus circuit over spawn + extensions (corps/refillCircuit):
      * a stable tour refillers follow (skipping full stops) and spawning
      * drains in the same order. `sig` invalidates on structure-set changes.
@@ -346,7 +375,20 @@ declare global {
      * not-worth-paving verdict so the route is not re-evaluated every cooldown.
      */
     roadRoutes?: {
-      [sourceId: string]: { tiles: number[]; paved?: boolean; declined?: boolean };
+      [sourceId: string]: {
+        /** In-room route: flat (x,y) pairs in THIS room (legacy format). */
+        tiles: number[];
+        /**
+         * Cross-room TRUNK route (owner 2026-07-19): flat (x,y,roomIdx)
+         * triples indexed into `rooms`. Present only on trunk routes; such
+         * routes keep `tiles` empty.
+         */
+        tiles3?: number[];
+        /** Room-name table for tiles3 roomIdx values. */
+        rooms?: string[];
+        paved?: boolean;
+        declined?: boolean;
+      };
     };
 
     /**
@@ -469,6 +511,9 @@ declare global {
      * topping up neither. Cleared when the target reaches the ceiling or is gone.
      */
     repairTargetId?: string;
+    /** This crew member IS the standing repair detail (owner 2026-07-18:
+     * repair and building are separate functions). Sticky for life. */
+    repairDetail?: boolean;
 
     /**
      * ID of the SpawningCorp that spawned this creep.

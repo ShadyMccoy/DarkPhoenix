@@ -88,6 +88,76 @@ export const MOVE_PER_CARRY_PLAIN = 1;
 export const MOVE_PER_CARRY_SWAMP = 5;
 export const MOVE_PER_CARRY_ROAD = 0.5;
 
+/**
+ * Loaded travel time (ticks) to cross ONE tile of terrain move-cost
+ * `terrainCost` (plain 2, road 1, swamp 10) for a hauler at `carryPerMove`
+ * CARRY:MOVE. The end-of-tick fatigue model: a loaded creep adds
+ * carryPerMove*terrainCost fatigue per MOVE-worth and clears 2 per MOVE/tick,
+ * giving max(1, ceil(carryPerMove*terrainCost/2)) ticks per tile. So 1:1
+ * clears plain AND road at 1 tick/tile (crawls swamp at 5); 2:1 clears road at
+ * 1 but plain at 2 (half speed) and swamp at 10. An EMPTY creep generates no
+ * fatigue and always moves 1 tile/tick - only the LOADED leg pays this.
+ */
+export function loadedTicksPerTile(terrainCost: number, carryPerMove: number): number {
+  return Math.max(1, Math.ceil((carryPerMove * terrainCost) / 2));
+}
+
+/**
+ * Round-trip TIME in ticks for a hauler at `carryPerMove` over a route of
+ * roadTiles/plainTiles/swampTiles: EMPTY out (1 tick/tile, always), LOADED back
+ * (terrain- and ratio-dependent via loadedTicksPerTile), plus 2 to load+unload.
+ * This is the tick-accurate round trip that CARRY sizing must use once a body's
+ * MOVE ratio no longer clears the terrain at full speed - the owner's
+ * ticks-not-tiles: the SAME tile distance is a different TIME (so a different
+ * CARRY count) on a 2:1 body over unpaved ground. For a 1:1 body on plain/road,
+ * or a 2:1 body on fully paved road, it equals primitives.roundTripTicks(tiles).
+ * `roadTiles` are tiles with a BUILT road (cost 1 regardless of underlying
+ * terrain); plain/swamp are the still-unpaved remainder.
+ */
+export function roundTripTicksForRoute(
+  roadTiles: number,
+  plainTiles: number,
+  swampTiles: number,
+  carryPerMove: number
+): number {
+  const tiles = roadTiles + plainTiles + swampTiles;
+  const loadedBack =
+    roadTiles * loadedTicksPerTile(1, carryPerMove) +
+    plainTiles * loadedTicksPerTile(2, carryPerMove) +
+    swampTiles * loadedTicksPerTile(10, carryPerMove);
+  return tiles + loadedBack + 2;
+}
+
+/**
+ * The cheaper hauler CARRY:MOVE ratio (1 or 2) for a route, chosen by TOTAL
+ * spawn parts (CARRY + its MOVE complement) sized from the tick-accurate round
+ * trip. The 2:1 road body is 1.5 parts/CARRY but sizes MORE CARRY on any
+ * unpaved stretch (its loaded leg crawls); the 1:1 body is 2 parts/CARRY at
+ * full speed on plain and road. On an all-plain/road split the break-even is
+ * plainTiles < 2*roadTiles + 2; this evaluates it exactly from the tick model,
+ * so partially-paved routes (owner: "some routes may have partial roads") get
+ * the ratio that actually costs the fewest spawn parts - not an all-or-nothing
+ * paved flag. Ties go to 1:1 (the robust body: full speed on any non-swamp).
+ */
+export function bestHaulerRatio(
+  roadTiles: number,
+  plainTiles: number,
+  swampTiles: number,
+  flow: number
+): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } {
+  const size = (carryPerMove: number): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } => {
+    const rtTicks = roundTripTicksForRoute(roadTiles, plainTiles, swampTiles, carryPerMove);
+    const carryParts = (flow * rtTicks) / CARRY_CAPACITY;
+    // parts per CARRY = 1 (the CARRY) + 1/carryPerMove (its MOVE share): 2 at
+    // 1:1, 1.5 at 2:1 - the exact ratio the planner charges (see header).
+    const spawnParts = carryParts * (1 + 1 / carryPerMove);
+    return { carryPerMove, rtTicks, carryParts, spawnParts };
+  };
+  const oneToOne = size(1);
+  const twoToOne = size(2);
+  return twoToOne.spawnParts < oneToOne.spawnParts ? twoToOne : oneToOne;
+}
+
 /** A haul route as the road planner sees it. */
 export interface RoadRouteSpec {
   /** One-way path length in tiles (the actual path, not chebyshev). */

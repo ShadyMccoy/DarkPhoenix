@@ -360,8 +360,13 @@ export class ExtensionTenderCorp extends Corp {
    * works in bursts).
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // Decision-symmetry gate stamps (spec 14 phase 2) - same contract as the
+    // controller feeder: every return records the gate that fired.
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return [];
+    if (!spawn) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-spawn" };
+      return [];
+    }
     const room = spawn.room;
 
     // No depot required (refill SLA, owner 2026-07-10): the tender IS the
@@ -372,11 +377,18 @@ export class ExtensionTenderCorp extends Corp {
     // idles by the spawn; the extensionTenderActive regime flag still keys
     // on the depot, so haulers keep fanning alongside it until one exists.
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
-    if (extensions.length === 0) return [];
+    if (extensions.length === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-extensions" };
+      return [];
+    }
 
     // Infrastructure follows income: don't spawn a tender before the room has a
     // miner, or it takes the first spawn slot and delays the economy it depends on.
-    if (!this.roomHasMiner(room)) return [];
+    const hasMiner = this.roomHasMiner(room);
+    if (!hasMiner) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-miner", extensions: extensions.length, hasMiner };
+      return [];
+    }
 
     // DELIVERY CONTRACT (staffsPost, same as miners/haulers): an incumbent
     // inside its replacement lead time no longer counts as staffing, so the
@@ -404,6 +416,15 @@ export class ExtensionTenderCorp extends Corp {
     const bankCapacity = 300 + 50 * extensions.length;
     const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
     const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: staffing >= target ? "staffed" : "demand",
+      extensions: extensions.length,
+      hasMiner,
+      clusters: clusters.length,
+      staffing,
+      target
+    };
     if (staffing >= target) return [];
 
     // Carry enough to refill the LARGEST cluster in roughly one trip; the
