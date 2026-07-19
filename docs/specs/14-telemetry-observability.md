@@ -401,6 +401,21 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (Routine cycle) — recovery COMPLETE; E2 decaying on a stable plan
+
+t72424403 (batch-2 build; roads-2 not yet deployed - its gate still
+running): the colony is fully recovered. Upgraders 2 -> 6 (full fleet),
+controller progress +32,385 over the window, P7 ramping 0.37 -> 0.46 as
+the fresh upgraders bite (stock 1882 -> 1435 burning). Reservation
+economy healthy: P5 banks all high (775/813/771/619), P6 all four
+pumping hard (5949 banked/870t). Assembly stable 38/38, P1 0 flips,
+S3 queue empty, storage draining -36.7/t. The ONE FAIL is E2 (90 parts,
+7 fleets) - DOWN from 186 two cycles ago on a now-stable plan: the
+home-only->remotes-back transition strands aging out, not regenerating.
+PREDICTION (falsifiable): next capture E2 < 90; if it plateaus/grows on
+a stable plan it is a real hauler-rebind gap and #15 reopens. No fix
+this cycle - verified.
+
 ### 2026-07-19 (cron cycle, post-marathon) — recovery on script; E2 decay prediction armed
 
 t72423594: P7 0.23 -> 0.34 -> 0.37 (upgraders 2/6 fielded, stock
