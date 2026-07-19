@@ -322,6 +322,44 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("production-first routing (owner 2026-07-19: mine iff there's a home; the bank is the residual)", () => {
+    // Live t72425058: 7 funded mining sources, ZERO mined-source haulers - the
+    // 555k bank surplus sits ON the home sinks (nearest) and the value fill,
+    // being nearest-first, drained it to fill the controller while the mined
+    // energy rotted at remote containers. Production over consumption: real
+    // production fills consumers first; the bank draws only the residual.
+    it("fills a consumer from real MINED production before the NEARER bank surplus", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // mined source far from the sink@30; the bank sits right on it (dist 2) and is huge
+          sources: [source("mined", 5, 10), stock("bank-home", 28, 100)],
+          sinks: [sink("ctrl", "controller", 30, 50, 10)]
+        })
+      );
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      const minedAmt = ctrl.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
+      const bankAmt = ctrl.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
+      expect(minedAmt, "mined production fills the sink first, though it is farther").to.be.closeTo(10, 1e-6);
+      expect(bankAmt, "the bank is untouched while mining covers demand").to.be.closeTo(0, 1e-6);
+    });
+
+    it("draws the bank only for the residual consumers cannot get from production", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("mined", 5, 10), stock("bank-home", 28, 100)],
+          sinks: [sink("ctrl", "controller", 30, 50, 15)] // wants 15; mining gives 10; bank covers 5
+        })
+      );
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      const minedAmt = ctrl.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
+      const bankAmt = ctrl.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
+      expect(minedAmt, "all mined production is used").to.be.closeTo(10, 1e-6);
+      expect(bankAmt, "the bank fills only the residual").to.be.closeTo(5, 1e-6);
+    });
+  });
+
   describe("scavenging - transient sources", () => {
     it("hauls a ground stock to a sink WITHOUT commissioning a miner", () => {
       const plan = planColony(
