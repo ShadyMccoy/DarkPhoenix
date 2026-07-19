@@ -314,6 +314,68 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- P6 reservation pump (owner marathon: "reservers not reserving") ----
+  // pump_r = bank2 - (bank1 - stampDt): what the fielded reservers actually
+  // ADDED per room, decay netted out. Zero pump on a needy room with claim
+  // parts fielded = a reserver walking / blocked / dead - the delivery gap
+  // no other line sees. Stamp ticks, not capture ticks: banks are read at
+  // sizing time.
+  {
+    const res = (cap.data.corps?.corps ?? []).find((c: any) => c.kind === "reservation");
+    const bres = (base.data.corps?.corps ?? []).find((c: any) => c.kind === "reservation");
+    const banks1 = bres?.sizing?.banks;
+    const banks2 = res?.sizing?.banks;
+    const stampDt = res?.sizing?.tick && bres?.sizing?.tick ? res.sizing.tick - bres.sizing.tick : dt;
+    if (banks1 && banks2 && stampDt > 0) {
+      const rooms = Object.keys(banks2).filter(r => r in banks1);
+      const pumps = rooms.map(r => [r, Math.round(banks2[r] - (banks1[r] - stampDt))] as [string, number]);
+      const zero = pumps.filter(([, p]) => p <= 0);
+      const fielded = (res?.bodyParts ?? 0) > 0 && (bres?.bodyParts ?? 0) > 0;
+      const totalPump = pumps.reduce((a, [, p]) => a + Math.max(0, p), 0);
+      rows.push({
+        id: "P6",
+        name: "reservation pump (delivered bank)",
+        value: totalPump,
+        unit: `ticks banked over ${stampDt}t`,
+        verdict:
+          fielded && rooms.length > 0 && zero.length === rooms.length
+            ? "FAIL"
+            : fielded && zero.length >= rooms.length / 2
+            ? "WARN"
+            : "ok",
+        detail: pumps.map(([r, p]) => `${r}:${p}`).join(" ") + (fielded ? "" : " (no reservers fielded)")
+      });
+    }
+  }
+
+  // ---- P7 controller delivery (owner marathon: "upgraders not upgrading") ----
+  // Actual rclProgress delta vs the LOWER of the two endpoint plans (a plan
+  // that legitimately moved mid-window - construction preempt - must not
+  // false-fail). FAIL only when a stable-ish plan went undelivered WITH
+  // stock standing at the controller: energy was there, upgraders were not.
+  {
+    const allocOf = (f: any): number =>
+      (f?.sinks ?? []).filter((s: any) => s.type === "controller").reduce((a: number, s: any) => a + (+s.allocated || 0), 0);
+    const alloc = Math.min(allocOf(base.data.flow), allocOf(flow));
+    const prog1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
+    const prog2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
+    const actual = dt > 0 ? (prog2 - prog1) / dt : 0;
+    const stock1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
+    const stock2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
+    const stocked = stock1 > 500 && stock2 > 500;
+    const ratio = alloc > 0 ? actual / alloc : 1;
+    rows.push({
+      id: "P7",
+      name: "controller delivery vs plan",
+      value: +ratio.toFixed(2),
+      unit: "x lower-endpoint plan",
+      verdict: alloc > 0 && stocked && ratio < 0.5 ? "FAIL" : alloc > 0 && ratio < 0.75 ? "WARN" : "ok",
+      detail:
+        `actual ${actual.toFixed(1)} e/t vs plan ${alloc.toFixed(1)} (lower endpoint); ` +
+        `stock ${stock1}->${stock2}${stocked ? " (stock stood - the energy was there)" : ""}`
+    });
+  }
+
   // ---- X3 census ----
   rows.push({
     id: "X3",

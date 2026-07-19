@@ -49,6 +49,39 @@ describe("waste ledger (spec 15 phase 1)", () => {
     }
   });
 
+  it("P6 measures per-room reservation PUMP from the bank stamps (reservers not reserving)", () => {
+    // t72420978 -> t72421124 (owner marathon directive): stamp-window dt=156,
+    // pump_r = bank2 - (bank1 - dt). Two of four needy rooms saw ZERO pump
+    // with claim parts fielded - the one-way-violation churn, measurable.
+    const rows2 = computeLedger(fixture("shard1-t72421124.json"), fixture("shard1-t72420978.json"));
+    const p6 = rows2.find(r => r.id === "P6")!;
+    expect(p6.verdict).to.equal("WARN"); // >= half the rooms pumped nothing while staffed
+    expect(p6.detail).to.contain("W43N24:0");
+    expect(p6.detail).to.contain("W42N23:66");
+  });
+
+  it("P7 does not fail a window whose plan legitimately dropped (construction preempt)", () => {
+    // Same pair: allocation fell 86.3 -> 2.0 by doctrine; actual 14.35 e/t is
+    // the old upgraders burning residual stock - MORE than the surviving
+    // plan asks. Compare against the LOWER endpoint plan: ok, not a failure.
+    const rows2 = computeLedger(fixture("shard1-t72421124.json"), fixture("shard1-t72420978.json"));
+    const p7 = rows2.find(r => r.id === "P7")!;
+    expect(p7.verdict).to.equal("ok");
+    expect(p7.value).to.be.greaterThan(1); // actual over the (floored) plan
+  });
+
+  it("P7 FAILS when a STABLE plan goes undelivered with stock standing (upgraders not upgrading)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    // stable plan 86.3 both ends, stock present both ends, actual ~2 e/t
+    capA.data.flow.sinks.find((s: any) => s.type === "controller").allocated = 86.3;
+    capA.data.core.rooms[0].rclProgress = capB.data.core.rooms[0].rclProgress + 300; // 300/146t ~ 2 e/t
+    const rows2 = computeLedger(capA, capB);
+    const p7 = rows2.find(r => r.id === "P7")!;
+    expect(p7.verdict).to.equal("FAIL");
+    expect(p7.detail).to.contain("stock"); // the discriminator: energy WAS there
+  });
+
   it("P5 flags the reserver duty price/behavior drift until the corp reads the reservation bank", () => {
     const p5 = row("P5");
     expect(p5.verdict).to.equal("FAIL");

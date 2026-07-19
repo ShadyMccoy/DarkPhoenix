@@ -134,29 +134,34 @@ export class ReservationCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
 
-    // Needy rooms first (lowest banked reservation) so a freed/new reserver
-    // covers the room closest to losing its 3000 rate - same intel lens as
-    // the demand gate (duty cycle, spec 15 P5), so assignment can never
-    // prefer a room the buy side considers banked. Durable ordering: banks
-    // decay 1/tick for every room alike, so this never flaps on deaths.
+    // ONE-WAY MISSION (owner 2026-07-19): a reserver is assigned ONCE - to
+    // the neediest (lowest-bank) room no other assignment covers - and holds
+    // that post for its remaining CLAIM life. NO reassignment, ever: not for
+    // plan moves, intel flickers, or duplicates. Retargeting burned walk
+    // ticks off <=600t lives and the abandoned post bought a relief spawn
+    // (measured live: reserver walked off mid-bank, replacement ordered).
+    // A plan-dropped post keeps banking (the bank holds 5000t and P1 plan
+    // flaps return); a rival-taken post idles out a bounded remainder.
+    // Duplicates double-pump toward the 5000 cap - better than walking.
     const me = spawn.owner?.username;
     const targets = this.reservableTargets(me).sort(
       (a, b) => myReservationTicksLeft(a, me) - myReservationTicksLeft(b, me)
     );
-    const covered = new Set<string>();
+    const assigned = new Set<string>();
+    for (const creep of this.getActiveCreeps()) {
+      if (creep.memory.targetRoom) assigned.add(creep.memory.targetRoom);
+    }
 
     for (const creep of this.getActiveCreeps()) {
       let target = creep.memory.targetRoom;
-      // (Re)assign only when the PLAN moved: the creep has no target, its
-      // target left the plan / became unreservable per intel, or another
-      // reserver already covers it. A miner dying or vision dropping does NOT
-      // change `targets`, so an in-flight reserver keeps its assignment.
-      if (!target || !targets.includes(target) || covered.has(target)) {
-        target = targets.find(r => !covered.has(r));
+      if (!target) {
+        // Spread new creeps across uncovered targets first; if every target
+        // is covered, reinforce the neediest (double-pump beats idling).
+        target = targets.find(r => !assigned.has(r)) ?? targets[0];
+        if (!target) continue; // no reservable target exists - idle until one does
         creep.memory.targetRoom = target;
+        assigned.add(target);
       }
-      if (!target) continue; // nothing to reserve right now - idle until reassigned
-      covered.add(target);
       this.runReserver(creep, target);
     }
   }
@@ -213,24 +218,31 @@ export class ReservationCorp extends Corp {
       return [];
     }
 
-    // Coverage by COUNT of every LIVING corp reserver - spawning newborns and
-    // not-yet-assigned ones included. work() guarantees each living reserver
-    // ends up covering one distinct target (it reassigns duplicates and
-    // plan-orphans), so the count IS coverage. Counting only assigned actives
-    // here was the reserver purchase loop (live, t72401489+: the banked
-    // mustFund demand re-fired throughout every 24-tick build, 4x1300 energy
-    // in ~90t) - the staffsPost-symmetry trap: the demand lens must see the
-    // newborns its own purchases create.
-    const staffed = this.countLivingReservers();
+    // PER-ROOM coverage (one-way era): a fielded reserver can never be
+    // re-spread, so a living one only covers the room it is LATCHED to.
+    // Unassigned livings - spawning newborns included (the purchase-loop
+    // trap, live t72401489+: the demand lens must see the newborns its own
+    // purchases create) - are wildcards work() will spread across uncovered
+    // needy rooms on their first active tick.
+    const assignedRooms = new Set<string>();
+    let wildcards = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.corpId !== this.id || c.memory.workType !== "reserve") continue;
+      if (c.memory.targetRoom) assignedRooms.add(c.memory.targetRoom);
+      else wildcards++;
+    }
+    const uncovered = needy.filter(r => !assignedRooms.has(r));
+    const staffed = needy.length - uncovered.length + wildcards;
     this.lastSizing = {
       tick: ctx.tick,
-      gate: staffed >= needy.length ? "staffed" : "demand",
+      gate: uncovered.length <= wildcards ? "staffed" : "demand",
       targets: targets.length,
       needy: needy.length,
       staffed,
       banks
     };
-    if (staffed >= needy.length) return [];
+    if (uncovered.length <= wildcards) return [];
 
     const body = buildReserverBody(ctx.energyCapacity, 2);
     if (body.cost === 0) return []; // cannot afford a CLAIM yet

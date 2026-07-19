@@ -242,24 +242,48 @@ describe("ReservationCorp work (assignments survive miner death and vision loss)
     expect(creep.moves).to.have.length.greaterThan(0);
   });
 
-  it("revokes the assignment when the room leaves the plan", () => {
+  it("holds its post when the room leaves the plan (one-way mission, owner 2026-07-19)", () => {
+    // Retargeting a fielded reserver burns walk-ticks off a <=600t CLAIM life
+    // and the abandoned post buys a relief - the measured churn. A plan-drop
+    // is often a flap (P1 watches funded flips); the bank it keeps pumping
+    // holds 5000t. One-way: assignment survives EVERYTHING for the creep's
+    // remaining life.
     const c = corp([]);
     setWorld();
     const creep = reserverCreep(c, "W1N0");
     Game.creeps.r1 = creep;
     c.work(tick);
-    expect(creep.memory.targetRoom).to.equal(undefined);
-    expect(creep.moves).to.have.length(0);
+    expect(creep.memory.targetRoom, "one-way: plan moves never revoke").to.equal("W1N0");
+    expect(creep.moves, "still marching at its post").to.have.length.greaterThan(0);
   });
 
-  it("revokes the assignment when intel says another player took the controller", () => {
-    const c = corp(["W1N0"]);
+  it("holds its post even when intel says a rival took it (loss bounded by CLAIM life)", () => {
+    const c = corp(["W1N0", "W2N0"]);
     setWorld();
     intel("W1N0", { controllerOwner: "rival" });
+    intel("W2N0");
     const creep = reserverCreep(c, "W1N0");
     Game.creeps.r1 = creep;
     c.work(tick);
-    expect(creep.memory.targetRoom).to.equal(undefined);
+    expect(creep.memory.targetRoom, "one-way: never walks off to another post").to.equal("W1N0");
+  });
+
+  it("never steals a duplicate to another room (the relief-churn incident, owner 2026-07-19)", () => {
+    // Two reservers latched to the same room (restart artifact): the old code
+    // re-spread the second to the next target mid-life - it walked off, the
+    // room read uncovered, a relief spawned. Double-pumping banks toward the
+    // 5000 cap; walking wastes the clock. Both STAY.
+    const c = corp(["W1N0", "W2N0"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N0");
+    const a = reserverCreep(c, "W1N0");
+    const b = { ...reserverCreep(c, "W1N0"), name: "r2" };
+    Game.creeps.r1 = a;
+    Game.creeps.r2 = b;
+    c.work(tick);
+    expect(a.memory.targetRoom).to.equal("W1N0");
+    expect(b.memory.targetRoom, "duplicates are never re-spread").to.equal("W1N0");
   });
 
   it("reserves the controller once in the target room", () => {
@@ -317,6 +341,23 @@ describe("reservation duty cycle (coast on the banked reservation)", () => {
     expect(s.gate).to.equal("demand");
     expect(s.needy).to.equal(1);
     expect(s.banks["W1N0"]).to.equal(300);
+  });
+
+  it("a reserver latched to a HEALTHY room does not cover a needy one (per-room coverage, one-way era)", () => {
+    // One-way missions mean a fielded reserver can never be re-spread, so the
+    // blunt living-count lens goes blind: 1 living >= 1 needy said "staffed"
+    // while the living one was latched elsewhere for life. Coverage is now
+    // per-room (assigned) plus wildcards (unassigned newborns).
+    const c = corp(["W1N0", "W2N0"]);
+    const latched = { memory: { corpId: c.id, workType: "reserve", targetRoom: "W1N0" }, spawning: false };
+    setWorld({ r1: latched });
+    intel("W1N0");
+    intel("W2N0");
+    bank("W1N0", 4000); // healthy - its reserver holds this post regardless
+    bank("W2N0", 200); // needy - no assignment, no wildcard
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands, "the latched reserver cannot serve W2N0 - buy one").to.have.length(1);
+    expect((c as any).lastSizing.gate).to.equal("demand");
   });
 
   it("mixed targets: only the needy room is priced (banked one costs nothing)", () => {

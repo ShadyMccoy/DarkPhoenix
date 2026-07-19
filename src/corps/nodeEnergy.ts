@@ -15,6 +15,7 @@
  * @module corps/nodeEnergy
  */
 
+import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
@@ -105,7 +106,8 @@ export function bestAdjacentTile(
   room: Room,
   target: RoomPosition,
   range: number,
-  spawnPos?: RoomPosition
+  spawnPos?: RoomPosition,
+  avoid?: { x: number; y: number }[]
 ): RoomPosition | null {
   const terrain = room.getTerrain();
   const occupied = new Set<string>();
@@ -134,6 +136,10 @@ export function bestAdjacentTile(
       // near-border tiles beside exits (ERR_INVALID_TARGET), and core infra
       // never belongs there - stay conservative rather than model the rule.
       if (x < 2 || x > 47 || y < 2 || y > 47) continue;
+      // Caller-marked keep-clear zones (owner 2026-07-19): an unwalkable
+      // structure on a spawn-adjacent tile can lock in freshly spawned units.
+      // Generators for towers/storage/links pass the room's spawn positions.
+      if (avoid?.some(p => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= 1)) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (occupied.has(`${x},${y}`)) continue;
       const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;

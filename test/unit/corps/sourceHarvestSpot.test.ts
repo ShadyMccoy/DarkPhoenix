@@ -158,6 +158,19 @@ describe("bestAdjacentTile (excludes source and mineral tiles)", () => {
     expect(tile.x).to.be.at.most(47);
   });
 
+  it("keeps clear of caller-marked positions (unwalkable structures beside a spawn lock in units)", () => {
+    // Owner 2026-07-19: a tower/storage/link on a spawn-adjacent tile can trap
+    // freshly spawned creeps. Generators for unwalkable structures pass the
+    // room's spawn positions; tiles within range 1 of any are never proposed.
+    const room = roomWith({});
+    const spawnPos = { x: 10, y: 10, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, spawnPos, 2, spawnPos, [spawnPos])!;
+    expect(
+      Math.max(Math.abs(tile.x - 10), Math.abs(tile.y - 10)),
+      "no tile within range 1 of the avoided spawn"
+    ).to.be.greaterThan(1);
+  });
+
   it("does not pick a tile placement already proved dead (-7 blacklist in room memory)", () => {
     // placeSite records permanently-invalid tiles (ERR_INVALID_TARGET) in
     // room.memory.deadTiles; the generator must stop proposing them or the
