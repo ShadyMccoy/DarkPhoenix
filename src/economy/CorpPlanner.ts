@@ -186,7 +186,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink";
 }
 
 export interface ColonyPlan {
@@ -330,6 +330,32 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
       });
     }
   }
+
+  // STORAGE-FULL DEFUND (owner 2026-07-19: "if we top out the storage... the
+  // whole corp is defunded, not just the hauler"). The all-or-nothing rule:
+  // mine a source iff its energy has a home. When total sink capacity cannot
+  // absorb the funded mining, the surplus would rot at remote containers (#19),
+  // so drop whole corps - removing the miner starves its hauler/reserver/
+  // container downstream (supply is built from `miners`). This is naturally
+  // gated by the sink capacities: with a storage sink soaking `totalSupply`
+  // there is always room, so it fires only once storage tops out (flowAdapter
+  // drops its capacity to physical room-remaining, ~0 when full) and the
+  // controller is at its spot cap. Worst net-per-part first; keep at least one
+  // so the colony never strands itself.
+  const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
+  let minedRate = miners.reduce((sum, m) => sum + m.rate, 0);
+  if (minedRate > sinkCapacity + 1e-9) {
+    const byWorst = [...miners].sort(
+      (a, b) => a.netEnergy / a.spawnParts - b.netEnergy / b.spawnParts || (a.sourceId < b.sourceId ? -1 : 1)
+    );
+    for (const m of byWorst) {
+      if (minedRate <= sinkCapacity + 1e-9 || miners.length <= 1) break;
+      miners.splice(miners.indexOf(m), 1);
+      minedRate -= m.rate;
+      const v = verdictById.get(m.sourceId);
+      if (v) v.verdict = "no-sink";
+    }
+  }
   return { miners, verdicts };
 }
 
@@ -421,6 +447,11 @@ function routeToSinks(
     const isBank = (id: string): boolean => id.startsWith("bank-");
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
+      // Structural anti-pump (spec 03): the bank is stored IN the storage, so a
+      // bank->storage flow withdraws the warchest only to deposit it right back.
+      // Excluding bank sources from the storage sink lets the sink stay OPEN for
+      // real remote surplus (production-first) without ever pumping the bank.
+      .filter(id => !(sink.kind === "storage" && isBank(id)))
       .map(id => {
         const s = sourceById.get(id)!;
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };

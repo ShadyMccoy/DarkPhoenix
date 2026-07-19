@@ -591,6 +591,48 @@ this cycle. Supply-chain provenance flagged to owner: install from a
 trusted network before relying on this container's node_modules for
 anything security-sensitive.
 
+### 2026-07-19 (marathon) — #19 mining-not-routed: production-first + storage-as-hub batch
+
+Owner-caught (image): "miner + complete container, no haulers" at remote
+sources. Root-caused from the live plan (t72425058/t72424537): 7 funded
+mined sources = 70 e/t produced, ZERO mined-source haulers, only bank +
+scavenge routes. The 555k bank surplus sits ON the home sinks (distance
+~0), and the value fill was nearest-first, so it drained the bank to feed
+the controller while the funded mined energy rotted at remote containers.
+The leak had NO ledger line — it scattered across E2 (strands), E4 (idle
+capital, −63/t) and P7 (0.59× controller). The fix, three interlocking
+parts (owner reframed the design mid-cycle: "consumption takes from the
+storage, so it IS a viable sink for remotes"):
+
+1. **Production-first routing** (CorpPlanner routeToSinks): bank sources
+   (`bank-` prefix) sort LAST in the per-sink fill, so real production
+   fills every consumer before the warchest draw. This alone restores the
+   mined-source haulers #19 was missing.
+2. **Storage-as-hub** (flowAdapter): the storage sink STAYS open in a
+   surplus room (was dropped whole) so remote surplus banks instead of
+   rotting; its capacity is the bank's physical room-remaining. The
+   anti-pump is now STRUCTURAL — bank sources are excluded from the storage
+   sink (the bank IS the storage; withdraw-then-deposit is impossible by
+   construction), replacing the old "drop the sink" hack.
+3. **Storage-full defund** (selectProducers): the all-or-nothing rule —
+   when total sink capacity cannot absorb the funded mining, whole corps
+   are dropped (worst net-per-part first, keep ≥1), stamped `no-sink`.
+   Naturally gated by (2): with a storage sink soaking `totalSupply` there
+   is always room, so it fires only once storage tops out. NOTE: in the
+   current model the surplus-controller is uncapped (`totalSupply`), so
+   (2)/(3) stay DORMANT on plan-allocation until the controller gains a
+   physical upgrade-spot bound (the owner's separately-flagged "upgrading
+   is spot-capped") — that bound is the keystone follow-up (#21) and is NOT
+   in this batch. What ships LIVE here is (1): #19's observed remote rot.
+
+Verification metric added: **ledger P9** (mined-produced vs mined-routed).
+On the #19 fixtures it reads 0.00 (7 src / 70 e/t, 0 routed) and LEADS the
+ledger as the top line — the leak is now caught by `audit:ledger`, not by
+an owner's eye. Predicted post-deploy deltas (checked next loop): mined-
+source haulers APPEAR in the flow plan (P9 → ≥0.8×); E2 strands and E4
+drain ease as the mined energy finds a home; P4 ≤ 1.005×, no other
+movement (else rollback).
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the

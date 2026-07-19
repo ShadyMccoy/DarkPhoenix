@@ -416,6 +416,37 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     }
   }
 
+  // ---- P9 mined-production rot (owner-caught #19, 2026-07-19) ----
+  // The plan self-consistency invariant that had NO ledger line: a funded miner
+  // whose output the plan never routes. Live t72425058/t72424537: 7 funded mined
+  // sources = 70 e/t produced, ZERO mined-source haulers, 0 e/t routed - the 555k
+  // bank surplus out-competed real production at the nearest-first fill, so the
+  // mined energy rotted at remote containers while the plan still paid to mine
+  // it. The leak was invisible: it scattered across E2 (strands), E4 (idle
+  // capital) and P7 (starved controller) with no single line naming it. Mined
+  // sources carry the "source-" prefix; scavenge/bank ("scavenge-"/"bank-") are
+  // free/transient and excluded. Production-first routing + the storage-as-hub
+  // sink (this cycle) restore routed ~= produced.
+  if (flow?.sources && flow?.haulers) {
+    const isMined = (id: any): boolean => typeof id === "string" && id.startsWith("source-");
+    const produced = (flow.sources as any[]).reduce((a, s) => a + (+s.harvestRate || 0), 0);
+    const minedHaulers = (flow.haulers as any[]).filter(h => isMined(h.sourceId));
+    const routed = minedHaulers.reduce((a, h) => a + (+h.flowRate || 0), 0);
+    const ratio = produced > 0 ? routed / produced : 1;
+    const meaningful = produced > 5; // no verdict on a colony with no remote mining
+    rows.push({
+      id: "P9",
+      name: "mined production routed (rot detector)",
+      value: +ratio.toFixed(2),
+      unit: "x of funded mining",
+      verdict: meaningful && ratio < 0.5 ? "FAIL" : meaningful && ratio < 0.8 ? "WARN" : "ok",
+      detail:
+        `funded mining ${(flow.sources as any[]).length} src / ${produced.toFixed(1)} e/t; ` +
+        `routed ${routed.toFixed(1)} e/t via ${minedHaulers.length} mined-source haulers` +
+        (meaningful && ratio < 0.5 ? " - MINED PRODUCTION ROTTING (funded but unrouted, #19)" : "")
+    });
+  }
+
   // ---- X3 census ----
   rows.push({
     id: "X3",

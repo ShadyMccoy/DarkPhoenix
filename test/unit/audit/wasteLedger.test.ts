@@ -110,6 +110,26 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("completion window");
   });
 
+  it("P9 catches mined production that is funded but never routed (#19, owner-caught 2026-07-19)", () => {
+    // Live t72425058/t72424537: 7 funded mined sources = 70 e/t produced, ZERO
+    // mined-source haulers, 0 routed. The leak that had NO ledger line - it
+    // scattered across E2/E4/P7 until the owner asked. P9 names it directly.
+    const rows2 = computeLedger(fixture("shard1-t72425058.json"), fixture("shard1-t72424537.json"));
+    const p9 = rows2.find(r => r.id === "P9")!;
+    expect(p9.verdict).to.equal("FAIL");
+    expect(p9.value).to.be.lessThan(0.5);
+    expect(p9.detail).to.contain("ROTTING");
+    // and it leads the ledger: the rot is the cycle's work item, not X3 noise
+    expect(rows2[0].id).to.equal("P9");
+  });
+
+  it("P9 stays ok when a colony has no meaningful remote mining (no false alarm)", () => {
+    const cap2: any = JSON.parse(JSON.stringify(fixture("shard1-t72425058.json")));
+    cap2.data.flow.sources = []; // no funded mining => nothing to route => not a leak
+    const p9 = computeLedger(cap2, fixture("shard1-t72424537.json")).find(r => r.id === "P9")!;
+    expect(p9.verdict).to.equal("ok");
+  });
+
   it("P5 flags the reserver duty price/behavior drift until the corp reads the reservation bank", () => {
     const p5 = row("P5");
     expect(p5.verdict).to.equal("FAIL");

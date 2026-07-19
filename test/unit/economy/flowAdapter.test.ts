@@ -157,8 +157,10 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
 // expansion warchest, the surplus becomes SUPPLY (a miner-less bank source at
 // the storage) and the controller reverts to mopping up - the save-regime
 // STORAGE_UPGRADE_TARGET cap only applies while the warchest is filling.
-// Anti-pump is STRUCTURAL: a room with a bank source has no storage sink in
-// the same solve, so bank->storage circulation is impossible by construction
+// Anti-pump is STRUCTURAL (owner 2026-07-19): the storage sink STAYS open in a
+// surplus room (consumers draw from storage, so it is a valid home for remote
+// surplus), but bank sources are excluded from filling it - bank->storage
+// circulation is impossible by construction because the bank IS the storage
 // (these tests fail against a naive "just lower the storage value" tuning).
 describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)", () => {
   const g = globalThis as unknown as { Game?: any; Memory?: any };
@@ -200,12 +202,17 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(sol.miners.map(m => m.sourceId)).to.not.include("bank-W0N0");
   });
 
-  it("anti-pump is structural: the surplus room's storage sink is dropped from the solve", () => {
+  it("anti-pump is structural: the storage sink stays OPEN but the bank never pumps into it", () => {
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(10)]);
 
-    // the sink is ABSENT - not merely allocated zero
-    expect(sol.sinkAllocations.some(a => a.sinkType === "storage")).to.equal(false);
+    // the sink is PRESENT now (owner 2026-07-19: remote surplus banks to storage)...
+    const store = sol.sinkAllocations.find(a => a.sinkType === "storage");
+    expect(store, "the storage sink is no longer dropped in surplus").to.not.equal(undefined);
+    // ...but the bank is stored IN it, so nothing pumps back: here all 20 mined +
+    // 10 bank are consumed by the spawn and mopping controller, so storage nets zero
+    // and no bank->storage hauler is ever commissioned.
+    expect(store!.allocated).to.be.closeTo(0, 1e-9);
     expect(sol.haulers.some(h => h.toId.startsWith("storage-"))).to.equal(false);
   });
 

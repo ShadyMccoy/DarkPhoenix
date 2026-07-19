@@ -238,6 +238,23 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
+ * Physical energy room remaining in a room's storage bank. Infinity when there
+ * is no live storage to read (harness/unit paths keep the old "soak totalSupply"
+ * behavior unchanged). This is the storage sink's true ceiling: while the bank
+ * has room it can soak any remote surplus (storage is the hub - owner 2026-07-19
+ * "consumption takes from the storage, so it IS a viable sink for remotes");
+ * once it reaches ~0 the warchest is topped out and mining beyond the other
+ * sinks' capacity has no home, which is exactly the owner's storage-full defund
+ * trigger (selectProducers drops whole corps when mining > total sink capacity).
+ */
+export function storageRoomRemaining(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
+  const storage = Game.rooms[roomName]?.storage;
+  if (!storage) return Infinity;
+  return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
+}
+
+/**
  * Sources whose haul route ConstructionCorp has fully paved, by GAME id (the
  * `paved` receipt in room memory - see RoomMemory.roadRoutes). Graph source ids
  * carry a "source-" prefix, so callers match with stripFlowId. Live default for
@@ -318,16 +335,20 @@ export function buildColonyProblem(
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
   }
   // Rooms whose bank is in SURPLUS (a bank source was emitted): the warchest is
-  // full, so the controller cap lifts AND - the structural anti-pump (spec 03) -
-  // the room's storage sink is dropped from this solve entirely. Withdrawing
-  // and depositing in the same plan is impossible by construction.
+  // over its target, so the controller cap lifts. The storage sink STAYS (owner
+  // 2026-07-19: consumers draw from storage, so it is a valid home for remote
+  // surplus - keeping it lets excess production bank instead of rotting at remote
+  // containers, #19). The anti-pump is now structural in routeToSinks: bank
+  // sources never fill the storage sink, so a solve can never both withdraw the
+  // warchest AND deposit to it. The storage sink's capacity is its physical room
+  // remaining, so a topped-out bank presents zero room and the surplus mining is
+  // defunded rather than rotted.
   const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
 
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
     if (!kind) continue;
-    if (kind === "storage" && surplusRooms.has(sink.position.roomName)) continue;
     sinks.push({
       id: sink.id,
       kind,
@@ -364,7 +385,12 @@ export function buildColonyProblem(
             // spawn-cheaply than upgrading burns the same energy.
             Math.max(minedSupply + bankRate, 1)
           : kind === "storage"
-          ? Math.max(totalSupply, 1) // soak excess
+          ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
+            // a topped-out storage presents zero capacity, which is the owner's
+            // defund trigger (mining beyond total sink capacity has no home).
+            // While it has room this is min(totalSupply, huge) = totalSupply, so
+            // the old "soak excess" behavior is unchanged until the bank fills.
+            Math.max(0, Math.min(totalSupply, storageRoomRemaining(sink.position.roomName)))
           : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage, surplusRooms), // controller: mops up the remainder, unless a still-filling storage banks the surplus
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });

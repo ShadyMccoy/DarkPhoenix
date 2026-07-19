@@ -358,6 +358,82 @@ describe("economy/CorpPlanner", () => {
       expect(minedAmt, "all mined production is used").to.be.closeTo(10, 1e-6);
       expect(bankAmt, "the bank fills only the residual").to.be.closeTo(5, 1e-6);
     });
+
+    it("banks remote SURPLUS to storage but never pumps the bank into it (structural anti-pump)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("mined", 5, 10), stock("bank-home", 2, 100)],
+          sinks: [
+            sink("ctrl", "controller", 8, 50, 5), // consumes 5
+            sink("store", "storage", 2, 1, 1000) // soaks the rest
+          ]
+        })
+      );
+      const store = plan.sinks.find(s => s.sinkId === "store")!;
+      const storedMined = store.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
+      const storedBank = store.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
+      expect(storedMined, "the 5/tick of mined surplus banks to storage").to.be.closeTo(5, 1e-6);
+      expect(storedBank, "the bank is stored IN the storage - it never deposits back").to.equal(0);
+      const bankAnywhere = plan.sinks.reduce(
+        (sum, k) => sum + (k.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0),
+        0
+      );
+      expect(bankAnywhere, "mined production covered every consumer; the bank stays put").to.be.closeTo(0, 1e-6);
+    });
+  });
+
+  describe("storage-full defund (owner 2026-07-19: top out the storage -> defund the WHOLE corp)", () => {
+    // The all-or-nothing rule. A remote source is fully funded (miner + hauler
+    // + reserver + container) or fully defunded - never a miner mining into a
+    // complete container with no hauler (#19). The trigger is "no home for the
+    // energy": total sink capacity < total mined production. In the live
+    // economy this only bites once storage tops out (part 2A drops its
+    // capacity to physical room-remaining, ~0 when full) and the controller is
+    // at its spot cap - otherwise a sink always has room and remotes keep
+    // running ("generally we want our remotes running"). Worst net-per-part
+    // first, keep at least one so the colony never strands itself.
+    it("defunds the worst-density source whole-corp when sink capacity cannot absorb the mining", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // both profitable and within one spawn's mining budget; near out-densities far
+          sources: [source("near", 5, 10), source("far", 40, 10)],
+          sinks: [sink("ctrl", "controller", 0, 50, 10)] // room for only 10/tick; mining wants 20
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "far is defunded - its energy has no home").to.deep.equal(["near"]);
+      const farVerdict = plan.sourceVerdicts.find(v => v.sourceId === "far")!;
+      expect(farVerdict.verdict, "the drop is stamped, not silent").to.equal("no-sink");
+      // whole corp, not just the hauler: no miner => no supply => no hauler routed
+      expect(plan.haulers.some(h => h.sourceId === "far")).to.equal(false);
+      // the surviving corp fully feeds the only home
+      expect(plan.sinks.find(s => s.sinkId === "ctrl")!.allocated).to.be.closeTo(10, 1e-6);
+    });
+
+    it("keeps at least one source even when nothing has a home (never strands the colony)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("near", 5, 10), source("far", 40, 10)],
+          sinks: [sink("ctrl", "controller", 0, 50, 0)] // storage full, controller capped: zero room
+        })
+      );
+      expect(plan.miners.length, "one survivor - the densest").to.equal(1);
+      expect(plan.miners[0].sourceId).to.equal("near");
+    });
+
+    it("does NOT defund when a sink can still absorb the mining (remotes keep running)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("near", 5, 10), source("far", 40, 10)],
+          sinks: [sink("ctrl", "controller", 0, 50, 1000)] // plenty of room - the common case
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId).sort()).to.deep.equal(["far", "near"]);
+      expect(plan.sourceVerdicts.every(v => v.verdict !== "no-sink")).to.equal(true);
+    });
   });
 
   describe("scavenging - transient sources", () => {
