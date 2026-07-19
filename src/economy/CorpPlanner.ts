@@ -107,6 +107,8 @@ export interface PlannerSink {
 }
 
 export interface ColonyProblem {
+  /** Assembly counts (flow v5): how many sources each layer contributed. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   spawns: PlannerSpawn[];
   sources: PlannerSource[];
   sinks: PlannerSink[];

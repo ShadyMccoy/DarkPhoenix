@@ -291,6 +291,16 @@ export function buildColonyProblem(
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
   // is a ground-stock-shaped supply at the storage position).
   sources.push(...transientSources, ...bankSources);
+  // Assembly counts (flow v5): which layer dropped the remotes - the graph
+  // (nodes), the problem (this assembly), or the solver (candidates) - has
+  // been un-nameable in every warmup remote-drop; these three numbers plus
+  // candidates[] name it in one capture.
+  const assembly = {
+    graphSources: graph.getSources().length,
+    mined: sources.length - transientSources.length - bankSources.length,
+    transient: transientSources.length,
+    bank: bankSources.length
+  };
   const totalSupply = sources.reduce((sum, s) => sum + s.rate, 0);
   // The warchest surplus draw (spec 03). Unlike scavenge piles this is a
   // DURABLE, tapered supply (bank.ts prices and bounds it), so standing
@@ -370,7 +380,10 @@ export function buildColonyProblem(
   );
   const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, roomsWithStorage.size, remoteRooms.size);
 
-  return { spawns, sources, sinks, dist, infraPartsPerTick };
+  return {
+    assembly,
+    spawns,
+    sources, sinks, dist, infraPartsPerTick };
 }
 
 /**
@@ -515,6 +528,7 @@ export function solveColony(
     haulers,
     sinkAllocations,
     partsLedger: plan.partsLedger,
+    ...(problem.assembly ? { assembly: problem.assembly } : {}),
     totalHarvest,
     miningOverhead,
     haulingOverhead,

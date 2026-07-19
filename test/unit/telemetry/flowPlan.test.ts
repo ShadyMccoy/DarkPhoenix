@@ -95,7 +95,7 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(4); // v2 plan-side bodies; v3 source verdicts; v4 parts ledger
+    expect(flow.version).to.equal(5); // v3 verdicts; v4 parts ledger; v5 assembly counts
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 
@@ -118,6 +118,19 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     // sinks the fill never charged carry no partsLeft key at all
     const spawn = flow.sinks.find((s: any) => s.type === "spawn");
     expect(spawn).to.not.have.property("partsLeft");
+  });
+
+  it("threads the problem-assembly counts verbatim (v5: names the warmup remote-drop layer)", () => {
+    const withAssembly = { ...solution, assembly: { graphSources: 9, mined: 7, transient: 1, bank: 1 } };
+    new Telemetry().update(undefined, [], withAssembly);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow.assembly).to.deep.equal({ graphSources: 9, mined: 7, transient: 1, bank: 1 });
+  });
+
+  it("omits assembly when the solution predates it", () => {
+    new Telemetry().update(undefined, [], solution);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow).to.not.have.property("assembly");
   });
 
   it("omits the ledger entirely when the planner produced none (old plans stay readable)", () => {

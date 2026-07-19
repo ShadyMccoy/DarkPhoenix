@@ -398,6 +398,8 @@ export interface FlowSolution {
    * deductions, and the routing budget the sink fill worked with.
    */
   partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (flow v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
 
   /** Hauler assignments */
   haulers: HaulerAssignment[];

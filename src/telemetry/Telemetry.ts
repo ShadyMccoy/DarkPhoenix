@@ -423,6 +423,10 @@ export interface CorpsTelemetry {
 export interface FlowTelemetry {
   version: number;
   tick: number;
+  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget. */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   /** Source nodes (energy producers) */
   sources: {
     id: string;
@@ -1069,14 +1073,17 @@ export class Telemetry {
     }
 
     const telemetry: FlowTelemetry = {
-      // Version 4: the fill's spawn-parts ledger trace (partsLedger + per-sink
-      // partsLeft) - why an allocation stopped where it did (spec 15 P4).
-      version: 4,
+      // v4: the fill's spawn-parts ledger trace (partsLedger + per-sink
+      // partsLeft). v5: problem-assembly counts (graphSources/mined/
+      // transient/bank) - names the layer that dropped sources in one
+      // capture (the warmup remote-drop lens).
+      version: 5,
       tick: Game.time,
       sources,
       haulers,
       sinks,
       ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
+      ...(flowSolution?.assembly ? { assembly: flowSolution.assembly } : {}),
       candidates: flowSolution?.sourceVerdicts ?? [],
       summary: flowSolution
         ? {
