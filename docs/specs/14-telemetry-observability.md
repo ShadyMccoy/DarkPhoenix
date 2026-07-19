@@ -694,6 +694,28 @@ sustained spend-path starvation (fix the bank draw so it funds the spawn
 when real production is short); if the queue drains / controller keeps
 climbing → benign equilibrium. One hypothesis, next capture decides.
 
+**ROLLED BACK to 76646e5 (pre-batch) — part-1 is a spawn-starvation
+regression.** The 2nd capture t72429045 (dt 131) DECIDED it: eAvail stuck
+504→504, queueDepth stuck 8→8, storage FLAT (444183→444258, +0.6/t — bank
+draw is ~0), ctrlStock draining 1231→812, util falling 0.29→0.26. Not a
+benign equilibrium — a sustained stall. The attribution is a clean A/B on
+`bankHaul` (planned bank→sink haulers in flow seg 6): pre-deploy t72425884
+had **2 bank haulers, eAvail 1186, util 0.86, queue 2** (bank feeding
+sinks, spawn BUILDING — the owner's "great" humming state); post-deploy
+**0 bank haulers, eAvail 504, util 0.26, queue 8** (bank draw killed, spawn
+starved). Production-first (part-1) sorts `bank-` sources LAST, and the
+stabilized plan then never commissions a bank hauler at all — so the 444k
+surplus stops funding the spawn's 75 e/t alloc, which real production
+(remote, dropping to scavenge) can't cover. The #19 rot fix was only
+partial (P9 0.43) and cost the spend path; net-negative. Per the regression
+rule, redeployed the known-good pre-batch bundle (restores 2 bank haulers /
+util 0.86). NEXT: fix part-1 red-first — the bank must still FILL a sink's
+deficit after real production (bank-last ≠ bank-never); reproduce the
+"0 bank haulers when the spawn under-fills" shape in a routeToSinks unit
+test, fix, re-gate, redeploy only when a mockup confirms the spawn stays
+funded. The #19 batch (roads-2 + repair + part-2) rides with the part-1 fix
+on the next deploy.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
