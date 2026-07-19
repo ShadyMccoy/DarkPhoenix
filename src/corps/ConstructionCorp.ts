@@ -106,6 +106,16 @@ const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
  * the corp can read the planner's actual marginal un-staffed source.
  */
 const ROAD_SPAWN_PART_VALUE = 100;
+/**
+ * Ticks over which a construction project should burn down (owner 2026-07-19:
+ * size the builder corp to the SUM of its projects). A crew is never sized to
+ * consume more energy per tick than finishes the room's outstanding site work
+ * in this horizon - so a nearly-done room fields a small crew instead of a
+ * full-allocation one for scraps, and a big project stays allocation-sized
+ * (30k of work / 100t = 300 e/t, well above any real allocation). Short, so
+ * roads still build fast (owner: "the roads got built quicker").
+ */
+const PROJECT_BUILD_HORIZON = 100;
 
 /**
  * Horizon a road route must repay its build cost within: the wall-clock life
@@ -462,6 +472,20 @@ export class ConstructionCorp extends Corp {
     return stock;
   }
 
+  /**
+   * Energy still needed to finish every construction site in the room - the
+   * SUM of this corp's projects (owner 2026-07-19). Each site's remaining cost
+   * is progressTotal - progress (build progress is 1:1 with energy). Under the
+   * distributed trunk model a corp's remote-trunk tiles are ordinary road
+   * sites in the rooms they cross, each owned and built by that room's corp,
+   * so summing THIS room's sites is the whole of this corp's outstanding work.
+   */
+  private siteWorkRemaining(room: Room): number {
+    let energy = 0;
+    for (const s of room.find(FIND_MY_CONSTRUCTION_SITES)) energy += s.progressTotal - s.progress;
+    return energy;
+  }
+
   private builderPlan(energyCapacity: number, room: Room): SquadPlan {
     // Energy the crew should consume: the flow's construction allocation, OR -
     // when a whole source is reserved for the builder - that source's full output
@@ -486,7 +510,15 @@ export class ConstructionCorp extends Corp {
     // (plus a 6-tanker relay) fed ~4 e/t. Under-fueled sites keep the crew
     // small and the spawn on the supply side; accumulated stock scales it up.
     const fuel = this.buildSideStock(room);
-    buildEnergy = Math.max(5, Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5)));
+    // SUM OF PROJECTS (owner 2026-07-19): a construction project is a finite
+    // tile list with a computable total cost, so never size the crew to burn
+    // more per tick than finishes the room's outstanding site work over the
+    // build horizon. This is the work-side cap; the allocation and fuel caps
+    // (supply-side) still bind for a genuinely large project. Under the
+    // distributed trunk model each room's corp owns its own segment, so
+    // "sum of THIS corp's projects" is exactly its room's remaining site work.
+    const workCap = Math.max(5, this.siteWorkRemaining(room) / PROJECT_BUILD_HORIZON);
+    buildEnergy = Math.max(5, Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5), workCap));
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.
     const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
