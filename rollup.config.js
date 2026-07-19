@@ -26,7 +26,14 @@ export default {
     clear({ targets: ["dist"] }),
     resolve({ rootDir: "src" }),
     commonjs(),
-    typescript({tsconfig: "./tsconfig.json"}),
+    // Plain globs, not rpt2's extglob defaults (*.ts+(|x)): some picomatch
+    // builds reject extglobs with an empty alternative, silently excluding
+    // every file and breaking the bundle at "Unexpected token: declare".
+    typescript({
+      tsconfig: "./tsconfig.json",
+      include: ["*.ts", "**/*.ts", "*.tsx", "**/*.tsx"],
+      exclude: ["*.d.ts", "**/*.d.ts"]
+    }),
     screeps({config: cfg, dryRun: cfg == null})
   ]
 }

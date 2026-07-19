@@ -294,6 +294,36 @@ intel exclusion - the open investigation). Gate: trio + 6 cells green on
 a clean host after an orphan-mockup storage crash was cleaned (restart-
 killed gates leave orphans - clean before rerunning).
 
+### 2026-07-19 — road-gate stamps + fill trace (segment 6 v4) deployed; toolchain root-caused
+
+Cycle t72419708: allocation HOLDS at 87.8 post-batch (the 97 -> 6.4
+collapse died with the deploy, attribution still open), but roadRoutes
+EMPTY persists through every capture despite containersOpen=true at
+RCL5 - tryPlaceFeederRoadRoute's early returns were the last verdict-less
+exits in the road pipeline. Deployed a4db5bd (telemetry-only gate: 911
+unit + build): every exit stamps lastSizing.roadGate (9 reasons), and
+task #12 closes - partsLedger/partsLeft threaded planner -> adapter ->
+segment 6, version 3 -> 4, pinned by flowPlan tests (ledger verbatim,
+absent-ledger omission). Predicted: next capture names the feeder
+blocker in one read; a fill-collapse recurrence is named in one read;
+NO behavior deltas (stamps/exports only - movement = rollback signal).
+Fixture t72419708 pins the open W43N24 anomaly (raidDebt 136,860 >
+130k engine ceiling).
+
+Toolchain finding (why "do NOT use push-main" in the loop doc): the
+container's registry mirror serves versions that do not exist upstream -
+rollup 2.80.0 (real 2.x ends 2.79.2) and picomatch 2.3.2 (real 2.x ends
+2.3.1) - and the fake picomatch REJECTS extglobs with an empty
+alternative, so rpt2's default include (*.ts+(|x)) matched nothing and
+rollup hit raw TS ("Unexpected token: declare"). Proven by probe: rollup
+calls transform; rpt2's createFilter returns false; picomatch.isMatch
+('main.ts', '*.ts+(|x)') === false. rollup.config.js now passes plain
+globs (workaround, committed). Deploys ship the TESTED webpack bundle to
+the ACTIVE branch (master) via the code API - byte-verified round-trip
+this cycle. Supply-chain provenance flagged to owner: install from a
+trusted network before relying on this container's node_modules for
+anything security-sensitive.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
