@@ -375,7 +375,20 @@ declare global {
      * not-worth-paving verdict so the route is not re-evaluated every cooldown.
      */
     roadRoutes?: {
-      [sourceId: string]: { tiles: number[]; paved?: boolean; declined?: boolean };
+      [sourceId: string]: {
+        /** In-room route: flat (x,y) pairs in THIS room (legacy format). */
+        tiles: number[];
+        /**
+         * Cross-room TRUNK route (owner 2026-07-19): flat (x,y,roomIdx)
+         * triples indexed into `rooms`. Present only on trunk routes; such
+         * routes keep `tiles` empty.
+         */
+        tiles3?: number[];
+        /** Room-name table for tiles3 roomIdx values. */
+        rooms?: string[];
+        paved?: boolean;
+        declined?: boolean;
+      };
     };
 
     /**

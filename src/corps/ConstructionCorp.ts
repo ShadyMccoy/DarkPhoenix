@@ -124,6 +124,7 @@ export class ConstructionCorp extends Corp {
 
   /** Last tick we attempted to place extensions */
   private lastPlacementAttempt = 0;
+  private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
 
   /** Target number of builders (computed during planning) */
   private targetBuilders = 0;
@@ -783,6 +784,11 @@ export class ConstructionCorp extends Corp {
     }
     // The feeder trunk counts as outstanding road work too (same gate the
     // placement path uses: depot era, input container standing, no verdict).
+    // Unverdicted or unfinished TRUNKS are outstanding road work too.
+    for (const trunk of this.remoteTrunks) {
+      const e = room.memory.roadRoutes?.[trunk.sourceId.replace(/^source-/, "")];
+      if (!e?.paved && !e?.declined) return true;
+    }
     const feeder = room.memory.roadRoutes?.["feeder"];
     if (!feeder?.paved && !feeder?.declined && room.storage?.my) {
       const ctrl = room.controller;
@@ -869,6 +875,135 @@ export class ConstructionCorp extends Corp {
     // flow in the colony - yet candidacy was home-source-only and it was
     // never judged. Same verdict machinery, keyed "feeder".
     this.tryPlaceFeederRoadRoute(room, routes);
+    this.tryPlaceTrunkRoutes(room, routes);
+  }
+
+  /**
+   * Judge and pave CROSS-ROOM trunks to the plan's funded remote sources
+   * (owner 2026-07-19: the corp has a spawn, not a room - a route is a
+   * string of construction sites wherever they lead). Sites are placed
+   * progressively in rooms with vision; the remote rooms' own construction
+   * corps field the builders (their plan() counts any site in their room,
+   * and cross-room builders march since the vision-march fix). The paved
+   * receipt reprices the source's haulers at 2:1 via detectPavedSources.
+   */
+  private tryPlaceTrunkRoutes(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    const gate = (reason: string): void => {
+      this.lastSizing = { tick: Game.time, roadGate: reason };
+    };
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return;
+    const depotPos = room.storage?.pos ?? spawn.pos;
+
+    for (const trunk of this.remoteTrunks) {
+      const key = trunk.sourceId.replace(/^source-/, "");
+      const entry = routes[key];
+      if (entry?.paved || entry?.declined) continue;
+
+      if (entry?.tiles3 && entry.rooms) {
+        // In-progress trunk: place what vision allows; receipt when all built.
+        if (this.trunkBuilt(entry.rooms, entry.tiles3)) {
+          entry.paved = true;
+          gate("trunk-paved");
+          console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
+          continue;
+        }
+        const placed = this.placeTrunkSites(entry.rooms, entry.tiles3);
+        gate(placed > 0 ? `trunk-placing-${placed}` : "trunk-waiting-vision");
+        return; // one project at a time
+      }
+
+      // Unjudged trunk: cross-room path + roadEconomics verdict.
+      const path = this.planTrunkPath(trunk.pos, depotPos);
+      if (!path) {
+        gate("trunk-path-incomplete");
+        continue;
+      }
+      const spec = this.trunkSpec(path, trunk.flow);
+      const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+      if (!verdict.worthPaving) {
+        routes[key] = { tiles: [], declined: true };
+        gate(`trunk-declined-payback-${Math.round(verdict.paybackTicks)}t`);
+        continue;
+      }
+      const roomsTable: string[] = [];
+      const tiles3: number[] = [];
+      for (const p of path) {
+        let ri = roomsTable.indexOf(p.roomName);
+        if (ri === -1) {
+          ri = roomsTable.length;
+          roomsTable.push(p.roomName);
+        }
+        tiles3.push(p.x, p.y, ri);
+      }
+      routes[key] = { tiles: [], tiles3, rooms: roomsTable };
+      const placed = this.placeTrunkSites(roomsTable, tiles3);
+      gate(`trunk-judged-paving-${Math.round(verdict.paybackTicks)}t`);
+      console.log(
+        `[Construction] TRUNK to ${key}: ${tiles3.length / 3} tiles across ${roomsTable.length} rooms ` +
+          `(${placed} sites placed), payback ~${Math.round(verdict.paybackTicks)}t`
+      );
+      return; // one project at a time
+    }
+  }
+
+  /** Cross-room road path: visible rooms use live costs, blind rooms terrain-only. */
+  private planTrunkPath(origin: Position, depotPos: RoomPosition): RoomPosition[] | null {
+    const result = PathFinder.search(
+      new RoomPosition(origin.x, origin.y, origin.roomName),
+      { pos: depotPos, range: 1 },
+      {
+        plainCost: 2,
+        swampCost: 10,
+        maxRooms: 4,
+        roomCallback: (name: string): CostMatrix | boolean => {
+          const r = Game.rooms[name];
+          // No vision: allow the room at terrain-only costs (an empty matrix).
+          return r ? this.roadPlanningCosts(r) : new PathFinder.CostMatrix();
+        }
+      }
+    );
+    if (result.incomplete || result.path.length === 0) return null;
+    return result.path;
+  }
+
+  /** Route spec across rooms - Game.map terrain needs no vision. */
+  private trunkSpec(path: RoomPosition[], flow: number): RoadRouteSpec {
+    let swampTiles = 0;
+    for (const p of path) {
+      if (Game.map.getRoomTerrain(p.roomName).get(p.x, p.y) & TERRAIN_MASK_SWAMP) swampTiles++;
+    }
+    return { plainTiles: path.length - swampTiles, swampTiles, flow };
+  }
+
+  /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
+  private placeTrunkSites(roomsTable: string[], tiles3: number[]): number {
+    if (governorPlan().pauseConstruction) return 0;
+    let placed = 0;
+    for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
+      if (!r) continue; // no vision this pass
+      const x = tiles3[i];
+      const y = tiles3[i + 1];
+      const covered =
+        r.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD) ||
+        r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD);
+      if (covered) continue;
+      if (r.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) placed++;
+    }
+    return placed;
+  }
+
+  /** All trunk tiles verifiably built - a blind room cannot verify, so false. */
+  private trunkBuilt(roomsTable: string[], tiles3: number[]): boolean {
+    for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
+      if (!r) return false;
+      if (!r.lookForAt(LOOK_STRUCTURES, tiles3[i], tiles3[i + 1]).some(s => s.structureType === STRUCTURE_ROAD)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Judge and pave the storage -> controller-input lane, receipt-keyed "feeder". */
@@ -1783,6 +1918,15 @@ export class ConstructionCorp extends Corp {
    * Set construction allocations from FlowEconomy.
    * Each allocation specifies energy rate for a construction site.
    */
+  /**
+   * Remote trunk candidates (owner 2026-07-19: routes are site strings, not
+   * rooms) - the plan's funded remote harvests staffed from this corp's
+   * spawn. Commission-owned, refreshed by materialize every round.
+   */
+  public setRemoteTrunks(trunks: { sourceId: string; pos: Position; flow: number }[]): void {
+    this.remoteTrunks = trunks;
+  }
+
   public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
     // Adjust target builders based on total allocated energy

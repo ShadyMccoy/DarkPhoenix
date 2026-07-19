@@ -25,6 +25,7 @@ import {
 import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
 import { constructionKind, ConstructionAssignment } from "../../../src/corps/kinds/constructionKind";
 import { describeCorpKindConformance } from "./conformance";
+import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 const ROOM = "W1N1";
 
@@ -119,6 +120,38 @@ describe("construction kind on the corp framework (rungs 2-4)", () => {
     expect(out[0].consumes.energyRate).to.equal(5); // summed
   });
 
+  it("rung 2 - PLAN: threads REMOTE trunk candidates from the draft's harvest commissions (owner: routes are site strings, not rooms)", () => {
+    // The corp paves what the plan MINES: funded remote sources become trunk
+    // candidates (sourceId, pos, flow) on the home corp's assignment. Home
+    // sources are excluded - the in-room scan already covers them.
+    const draft = [
+      {
+        corpId: "harvest-src-home",
+        kind: "harvest",
+        shape: "produce",
+        consumes: { spawnPartsPerTick: 0.1 },
+        produces: { energyRate: 10, at: { x: 20, y: 20, roomName: "W1N1" } },
+        assignment: { sourceId: "src-home", rate: 10, distance: 12 }
+      },
+      {
+        corpId: "harvest-src-remote",
+        kind: "harvest",
+        shape: "produce",
+        consumes: { spawnPartsPerTick: 0.1 },
+        produces: { energyRate: 10, at: { x: 30, y: 15, roomName: "W2N1" } },
+        assignment: { sourceId: "src-remote", rate: 10, distance: 55 }
+      }
+    ] as never[];
+    const out = constructionKind.propose(world, draft);
+    const a = out[0].assignment as ConstructionAssignment & {
+      remoteTrunks?: { sourceId: string; pos: { x: number; y: number; roomName: string }; flow: number }[];
+    };
+    expect(a.remoteTrunks, "remote harvest -> trunk candidate").to.have.length(1);
+    expect(a.remoteTrunks![0].sourceId).to.equal("src-remote");
+    expect(a.remoteTrunks![0].pos.roomName).to.equal("W2N1");
+    expect(a.remoteTrunks![0].flow).to.equal(10);
+  });
+
   it("rung 3 - BIND: materialize sets the allocations and preserves the legacy id", () => {
     const store: CorpStore = new Map();
     materializeCommissions([constructionCommission], store);
@@ -191,5 +224,39 @@ describe("construction kind rung 1", () => {
     problem: world,
     commission: constructionCommission,
     expectedSpawnPartsPerTick: 0
+  });
+});
+
+describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)", () => {
+  beforeEach(() => {
+    resetCorpKinds();
+    resetWorld();
+    resetGovernor(); // module-level governor state leaks across test files
+  });
+
+  const mkRoom = (roads: Set<string>): any => ({
+    lookForAt: (_l: number, x: number, y: number) =>
+      roads.has(`${x},${y}`) ? [{ structureType: "road" }] : [],
+    createConstructionSite: () => 0
+  });
+
+  it("places trunk sites ONLY in rooms with vision (blind stretches wait for walkers)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set()) } as any; // W2N1 blind
+    const placed = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 10, 10, 1, 11, 10, 1]);
+    expect(placed, "two visible-room tiles placed; two blind-room tiles skipped").to.equal(2);
+  });
+
+  it("never declares a trunk paved while any room is blind (unverifiable != built)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])) } as any; // W2N1 blind
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 10, 10, 1])).to.equal(false);
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 10, 10, 1])).to.equal(true);
   });
 });
