@@ -401,6 +401,26 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (marathon) — batch-2 DEPLOYED after control acquittal; runt-stall incident opened
+
+runt-economy red on both batch-2 gate runs but GREEN twice earlier on
+the deployed dist - then a CONTROL draw on the deployed commit (93fcca3
+src, current tests) reproduced the red with the IDENTICAL signature:
+one 2-WORK miner the whole 1200t, second source never staffed, no
+recycle ever. Identical-failure-pre/post acquits the batch (protocol);
+the stall is a pre-existing draw-dependent basin on the DEPLOYED build
+(4R/~5G today) - incident #18, agenda-mirror instrumented draw queued,
+NOT deploy-gating. Batch-2 deployed byte-verified: feeder relay clamped
+to the plan's controller flow (stamp gains planFlow/surplusRate),
+opportunistic reservation banking (never-walling never-starving topup,
+accumulation-runway deferral), flow v5 assembly counts. Predicted:
+feeder wantedFeeders tracks the controller allocation (3 -> fewer while
+construction preempts); opportunistic-topup gates appear only in idle
+windows once remotes return; THE KEY ONE - the next capture carries
+assembly {graphSources, mined, transient, bank} and NAMES the layer
+dropping the remotes (still home-only at +1300t, four reservations
+expired, ~20-40 e/t bleeding).
+
 ### 2026-07-19 (Routine cycle, +750t) — E2 CLOSED as churn; ROADS BUILT; the remote-drop persists past its heal window
 
 t72422418 vs t72421818 (dt 600): E2 -> 0 ("every fielded hauler serves
