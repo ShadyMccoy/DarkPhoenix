@@ -401,6 +401,24 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (marathon, +143t) — ROADS PLACED; tick-rate correction; warmup reframe
+
+t72421818, 143t after the one-way deploy (server at ~4s/tick tonight -
+verification windows stretch 4x; the loop cadence in TICKS is what
+matters, ~450t per 30min fire). CONFIRMED: core v6 live (siteProgress/
+siteTotal/siteCount), partsLeft now truthful (controller 0.014 of a
+drained budget - the dry-exit stamp working), and EIGHT ROAD SITES
+standing (siteTotal 2400 = 8 x 300): the link completed and the roads
+rung finally judged and placed a route. Home builder corps rebuilt
+114 parts (runt self-heal worked). The 37->2 candidate collapse +
+reservation "no-targets" + miners 7->2 is the DOCUMENTED post-reset
+warmup remote-drop at +143t, not a regression - durable predictions
+(builders march, P6 pump, relief-churn gone) wait for the settled
+capture. OPEN (instrument next telemetry batch): stamp problem-assembly
+counts (graph sources vs problem sources vs candidates) so the warmup
+remote-drop mechanism itself gets named - it is the last recurring
+invisible transition.
+
 ### 2026-07-19 (marathon) — one-way batch DEPLOYED on a fully green gate
 
 Gate: trio green (flow-handoff 4m, runt-economy 12m, storage-depot 7s)
