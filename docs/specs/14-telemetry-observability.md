@@ -401,6 +401,33 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (Routine cycle, +750t) — E2 CLOSED as churn; ROADS BUILT; the remote-drop persists past its heal window
+
+t72422418 vs t72421818 (dt 600): E2 -> 0 ("every fielded hauler serves
+a planned route") - the stranded cohort expired with no replacements
+through clean windows; task #15 closed, deploy-cadence churn confirmed,
+no route-reassignment gap exists. P8's first live read: completion
+window, sites 8 -> 1 - SEVEN ROAD TILES BUILT (the owner's roads are on
+the ground); the ambiguity guard worked (skipped, no false alarm).
+Upgrader allocation healed to 53.5 as construction wound down
+(targetCount 4, stock 2959); P7's 0.0 read spans the construction-peak
+floor + a 1-upgrader fleet trough - next window is the meaningful read.
+
+THE FINDING: the warmup remote-drop did NOT heal this time (+750t vs
+the usual ~300t): candidates still home-only (2), reservation
+"no-targets", reservers 0, the four remote reservations now EXPIRED,
+10 orphaned remote-fleet creeps untracked (X3 FAIL), 4x hauler@100
+runts (E5, micro-route minimums from a drained spawn), transient
+scavenge at 202p (eating the dead remotes' piles). P5's structural FAIL
+is the same signature (no banks stamp without targets). Colony
+contracting to home-only at ~-20-40 e/t opportunity cost. The v5
+assembly lens (graphSources/mined/transient/bank counts) is BUILT and
+sits behind the batch-2 gate - the very next capture after its deploy
+names the dropping layer. Attribution note: the first batch-2 gate red
+(runt-economy) did not reproduce on rerun - draw variance or my own
+mid-gate dist rebuild; the pending-affordable deferral fix stays on its
+unit-proven merits and the clean gate (dist frozen) decides the deploy.
+
 ### 2026-07-19 (marathon, +143t) — ROADS PLACED; tick-rate correction; warmup reframe
 
 t72421818, 143t after the one-way deploy (server at ~4s/tick tonight -
