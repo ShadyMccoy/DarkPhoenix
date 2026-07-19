@@ -833,3 +833,36 @@ remote energy reaches the controller, warchest bleed SLOWS (remote income now
 offsets consumption instead of pure savings-spend). REGRESSION RULE: spawn
 eAvail ~500 / bankHaul 0 / util crater -> redeploy prior bundle. Two-capture
 verify.
+
+**REMOTES-DELIVER-HOME FIX VERIFIED (t72434228 -> t72435669, dt 1441) —
+SUCCESS, direction confirmed, no regression.** The fix delivers exactly its
+predicted deltas:
+- **P9 CLIMBED**: carry corps 6 -> 9; dedicated source-haulers now serve 5
+  mined sources (cd92, cd90, cee0, cd8e, cedc) vs 2 pre-fix. Remotes deliver
+  home — the acute owner complaint ("we're not getting energy home from our
+  remotes") is resolved.
+- **Scavenge siphon dead**: the scavenge-W42N22 hauler (9 carry stealing a
+  remote's own energy via the container double-count) is GONE from the plan.
+- **Controller progresses**: GCL/RCL progress +60645 over 1441t = **+42 e/t
+  actual** into the controller (real score).
+- **Spawn stays funded**: util 0.76 -> 0.94 (high, NOT the cratered ~0 of the
+  part-1 regression), bank->spawn hauler present, feederActive true. The
+  regression rule (eAvail ~500 / bankHaul 0 / util crater) did NOT trip.
+- **Warchest 248k -> 193k (-38/t)**: bleed SLOWED vs the pre-fix short-window
+  (-59/t). Still draining the 165k surplus toward the 27.6k target. This
+  residual drain IS the hybrid routing artifact: the deployed plan hauls mined
+  DIRECTLY to the controller (all 5 source-haulers target controller-cd91), so
+  storage sees ~0 mining income and drains feeding the spawn. True hub-and-spoke
+  (mined -> storage -> consumers) routes income THROUGH storage, making the
+  warchest the true net buffer. That is the next refactor (owner directive).
+- **Transient noted**: colony claim 10 -> 0 (reservation corp INTACT at 1, its
+  creep mid-rebuild), which depressed totalHarvest 270 -> 170 in this one
+  capture. CPU/bucket healthy (10000, used 75/300). Second capture pending to
+  confirm harvest recovers as the reserver respawns.
+
+Verdict: **FIXED** (remotes deliver home, no regression). Follow-up (owner
+2026-07-19): refactor to clean hub-and-spoke — all mined -> storage hub, all
+consumers sized to and drawn from the warchest, drop the production-first /
+filling-vs-surplus regime gates. This makes the warchest the true income buffer
+(mining surplus banks instead of bypassing storage) and removes the special
+cases.
