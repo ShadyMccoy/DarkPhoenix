@@ -1119,3 +1119,26 @@ upgraders rebuild; routine monitoring continues. PHANTOM FIX fully validated;
 colony recovered from the crash it caused. Cycle verdict: WATCH RESOLVED (self-
 heal confirmed). Delta: feederActive false->true, controller 0->1.4, warchest
 ballooning->flat.
+
+**AUDIT CYCLE t72439560 - RECOVERY COMPLETE; next bottleneck = controller
+under-upgrading (#21 cap ~2). Also: room is RCL6, not RCL8 (my error all
+session).** Recovery from the phantom crash is DONE (measured delta vs t72438909):
+feederActive true (holding), creeps 26->34, work 47->53, P7 controller delivery
+1x (delivery meets plan). The acute incident is over. NEXT BOTTLENECK (core goal):
+the controller draws only 2 e/t despite a 186k warchest (6.7x target). NOT a
+supply/feeder problem - the hub has supply (spawn 10 + construction 158 + storage
+62 all filled) but the controller sink is CAPPED at 2 (alloc 2, unmet 126). The
+plan wants targetCount=1 upgrader at 2 WORK (segment 4: upgrading planAllocated=1,
+allocated=2 floor). So the controller sink cap (controllerRoutingCapacity ->
+controllerUpgradeCap = parkingTiles x affordableWork) computed ~2, vs ~45 that
+produced 6 upgraders pre-crash at the SAME RCL6. Construction soaks the residual
+(alloc 158) but builds 0 (P8=0, siteProgress 200/3000), so the surplus banks
+(warchest +1.5/t). CAUSE INVISIBLE from telemetry: parkingTiles is terrain-based
+(not creep-blocked - ruled out the position trap), energyCapacity=1950 stable, so
+why the cap is ~2 vs ~45 needs the cap breakdown STAMPED (parking count,
+affordableWork, whether controllerUpgradeCap threw->Infinity vs returned a value).
+This is task #21's domain. NO fix rushed this cycle (enormous session; controller-
+at-2 is a chronic inefficiency, colony safe + progressing, not a crisis). Cycle
+verdict: RECOVERY VERIFIED COMPLETE + #21 controller-cap bottleneck DIAGNOSED,
+instrument-next handed to #21. Correction: I called the room RCL8 repeatedly this
+session - it is RCL6 (energyCapacity 1950).
