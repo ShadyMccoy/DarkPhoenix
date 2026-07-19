@@ -42,6 +42,7 @@ Conventions used by every spec:
 | 12 | [Invader protocols: flight, and eventually fight](12-invader-protocols.md) | phase 1 (flight) **LANDED 2026-07-16**, stays as the fallback layer; phase 2 **LANDED 2026-07-17** via spec 13's CoreBusterCorp (kill + strip, corrected math), def-t5-core-buster cell green | landed |
 | 13 | [Invader economics: keep the remotes flowing](13-invader-economics.md) | **LANDED 2026-07-17** — scout-wipe fix, towers, raid meter + transit embargo, RaidGuardCorp (def-t4 green), CoreBusterCorp (def-t5 green), invader tax, BlackBox/intel telemetry; open: live tax calibration (≥15k-tick windows) | landed (calibration open) |
 | 14 | [Telemetry observability: answer the basic questions](14-telemetry-observability.md) | phases 0/0b landed (#111/#113); 1–2 implemented 2026-07-18 (room energy ledger core-v4, sizing records corps-v4); open: spawn meter, NOW-plan mirror | P1 |
+| 15 | [Source-Keeper mining](15-source-keeper-mining.md) | design overview only — not started (guarded-producer model + garrison tax primitive + KeeperGuardCorp) | P3 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
