@@ -26,7 +26,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { RESERVATION_REFRESH_FLOOR } from "./economics";
+import { RESERVATION_REFRESH_FLOOR, RESERVATION_BANK_CAP, OPPORTUNISTIC_BANK_HEADROOM } from "./economics";
 import { hostileRooms, isReservableRoom, myReservationTicksLeft } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
@@ -214,6 +214,43 @@ export class ReservationCorp extends Corp {
     for (const r of targets) banks[r] = myReservationTicksLeft(r, spawn.owner?.username);
     const needy = targets.filter(r => banks[r] < RESERVATION_REFRESH_FLOOR);
     if (needy.length === 0) {
+      // OPPORTUNISTIC TOPUP (owner idea, task #11): every bank is above the
+      // refresh floor - no real demand - but the lowest still has >=1000
+      // ticks of headroom to the 5000 cap. Offer a bottom-value,
+      // never-walling, never-starving reserver the scheduler may buy in an
+      // idle spawn window: banking ahead cuts the future refresh spawn out
+      // of a busy window. One wildcard at a time (an unassigned corp
+      // reserver - spawning included - is already headed for the lowest
+      // bank, work()'s one-way latch).
+      const hasWildcard = ((): boolean => {
+        for (const name in Game.creeps) {
+          const cr = Game.creeps[name];
+          if (cr.memory.corpId === this.id && cr.memory.workType === "reserve" && !cr.memory.targetRoom) return true;
+        }
+        return false;
+      })();
+      const minBank = Math.min(...targets.map(r => banks[r]));
+      const worthBanking = minBank < RESERVATION_BANK_CAP - OPPORTUNISTIC_BANK_HEADROOM;
+      if (!hasWildcard && worthBanking) {
+        const body = buildReserverBody(ctx.energyCapacity, 2);
+        if (body.cost > 0) {
+          this.lastSizing = { tick: ctx.tick, gate: "opportunistic-topup", targets: targets.length, banks };
+          return [
+            {
+              buyerCorpId: this.id,
+              role: "reserver",
+              value: 5, // the bottom of the ladder: idle windows only
+              blocking: false,
+              producesIncome: false,
+              opportunistic: true,
+              desiredCost: body.cost,
+              minCost: body.cost,
+              since: 0,
+              bodyParam: body.claimParts
+            }
+          ];
+        }
+      }
       this.lastSizing = { tick: ctx.tick, gate: "reservation-banked", targets: targets.length, banks };
       return [];
     }

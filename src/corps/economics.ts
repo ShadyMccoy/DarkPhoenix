@@ -79,6 +79,17 @@ export const RESERVER_DUTY = 0.5;
  */
 export const RESERVATION_REFRESH_FLOOR = 800;
 
+/** The engine's reservation accumulation ceiling (ticks). */
+export const RESERVATION_BANK_CAP = 5000;
+
+/**
+ * Opportunistic-topup threshold (task #11, owner idea): only offer an
+ * idle-window reserver when the lowest bank has at least this much headroom
+ * to the cap - a 2-CLAIM stint pumps ~+1/tick net, so less headroom than
+ * this wastes most of the body's remaining life at the ceiling.
+ */
+export const OPPORTUNISTIC_BANK_HEADROOM = 1000;
+
 /** Energy cost of the smallest reserver that can hold a room: 1 CLAIM + 1 MOVE. */
 export const RESERVER_BODY_COST = 650;
 

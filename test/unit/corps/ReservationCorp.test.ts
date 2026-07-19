@@ -322,13 +322,17 @@ describe("reservation duty cycle (coast on the banked reservation)", () => {
     (Memory as any).roomIntel[room].reservedBy = by;
   };
 
-  it("a target banked above the refresh floor asks for NO reserver", () => {
+  it("a target banked above the refresh floor asks for NO real reserver (topup offer is opportunistic-only)", () => {
     const c = corp(["W1N0"]);
     setWorld();
     intel("W1N0");
     bank("W1N0", 2000);
-    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
-    expect((c as any).lastSizing.gate).to.equal("reservation-banked");
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    // The duty cycle coasts: nothing that walls, holds, or ages upward. The
+    // one thing on offer is the idle-window topup (task #11) - bottom value,
+    // opportunistic, ignorable by a busy spawn forever.
+    expect(demands.filter(d => !d.opportunistic)).to.have.length(0);
+    expect(demands.every(d => d.opportunistic && !d.blocking && d.holdToFund !== true)).to.equal(true);
   });
 
   it("a target below the floor demands, and the sizing stamp carries the bank verbatim", () => {
@@ -358,6 +362,43 @@ describe("reservation duty cycle (coast on the banked reservation)", () => {
     const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
     expect(demands, "the latched reserver cannot serve W2N0 - buy one").to.have.length(1);
     expect((c as any).lastSizing.gate).to.equal("demand");
+  });
+
+  it("emits an OPPORTUNISTIC topup when banked-but-below-cap (owner idea: bank reserve in idle windows)", () => {
+    // All targets above the refresh floor (no needy demand) but the lowest
+    // bank has >=1000 ticks of headroom to the 5000 cap: offer a bottom-value
+    // opportunistic reserver the scheduler may buy in an idle window. It
+    // never walls, never starves upward, and work() latches it one-way to
+    // the lowest bank.
+    const c = corp(["W1N0", "W2N0"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N0");
+    bank("W1N0", 3000);
+    bank("W2N0", 2000); // headroom 3000 to cap - worth banking
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands).to.have.length(1);
+    expect(demands[0].opportunistic).to.equal(true);
+    expect(demands[0].blocking).to.not.equal(true);
+    expect((c as any).lastSizing.gate).to.equal("opportunistic-topup");
+  });
+
+  it("no topup when every bank is near the cap (nothing worth banking)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 4500); // headroom 500 < the 1000 threshold
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
+    expect((c as any).lastSizing.gate).to.equal("reservation-banked");
+  });
+
+  it("no topup while an unassigned corp reserver exists (one wildcard at a time)", () => {
+    const c = corp(["W1N0"]);
+    const wildcard = { memory: { corpId: c.id, workType: "reserve" }, spawning: true };
+    setWorld({ w1: wildcard });
+    intel("W1N0");
+    bank("W1N0", 2000);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
   });
 
   it("mixed targets: only the needy room is priced (banked one costs nothing)", () => {

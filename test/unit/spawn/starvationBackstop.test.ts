@@ -192,7 +192,7 @@ describe("demand age clock (unserved time, not time-since-first-request)", () =>
  * 2026-07-18: idle spawn windows pump the controller bank - a spawn-time
  * battery). SKIPPED until the feature lands; unskip as the red-first start.
  */
-describe.skip("opportunistic demands (idle-window fillers, task #11)", () => {
+describe("opportunistic demands (idle-window fillers, task #11)", () => {
   it("never ages into the starved tier no matter how old", () => {
     const d = demand({ buyerCorpId: "res-topup", role: "reserver", opportunistic: true, since: 1000 });
     expect(effectivePriority(d, 99000)).to.be.lessThan(1_000_000); // stays at base value forever

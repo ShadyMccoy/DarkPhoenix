@@ -361,6 +361,11 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
  * bounded time.
  */
 export function effectivePriority(demand: SpawnDemand, tick: number): number {
+  // Opportunistic demands (task #11: idle-window fillers like the reservation
+  // topup) live at their base value FOREVER: they exist to soak spawn windows
+  // nothing else wants, so aging one into the starved tier would invert the
+  // whole idea - it must never outrank real work no matter how long it waits.
+  if (demand.opportunistic) return spawnPriority(demand);
   const starved = starvationBoost(demand, tick);
   if (starved === 0) return spawnPriority(demand);
   // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
@@ -482,7 +487,9 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     // A/B: it parks the spawn for 700-cost miner top-ups that fleet-first
     // tempo should not wait on.
     const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
-    const mustFund = demand.blocking || demand.replacement === true || fundableIncome;
+    // An opportunistic demand NEVER walls the spawn (it soaks idle windows;
+    // holding for one would manufacture the idleness it exists to fill).
+    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome);
     if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand
