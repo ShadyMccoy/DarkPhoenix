@@ -649,6 +649,25 @@ e/t produced, 14.1 routed), E4 479k @ −44.5/t (already DRAINING,
 feederActive true), E2 42 parts, P7 0.53×, P4 0.76×. Verification at the
 next audit loop (~200 ticks) against these numbers.
 
+**VERIFIED t72428914 (dt 3030) — partial success, net-positive, NO
+rollback.** P9 0.20→**0.43×** (routed 14→30 e/t via 2→3 mined-source
+haulers: the fix routes real production, directionally confirmed, but 4 of
+7 sources still rot — consumer sinks total ~30 e/t and storage-as-hub is
+DORMANT as predicted, so the residual 40 e/t has no plan sink → keystone
+#21). P7 0.53→**1.41×** (actual controller 18.3 e/t — delivery recovered
+hard). E4 still draining (−11.8/t, decelerating). P4 0.78× stable (the
+plan now carries a budgeted `source-route haulers` line). The game score
+(controller progress) IMPROVED — not a harmful regression. FALSIFIED
+prediction (recorded per epistemic honesty): **E2 did NOT ease — it grew
+42→82 parts** and is the new top line. E2 growth tracks P9's rise (more
+remote haulers fielded to route the newly-funded production); with plan
+flap P1=0 (stable plan) it is a plan-vs-actual accounting lag or a real
+remote strand, not oscillation — the next cycle's work item (incident
+#15). The residual P9 rot and E2 both point at the same root: mined
+production still exceeds the plan's consumer sinks, so keystone #21
+(cap surplus-controller → activate storage-as-hub soak) is the follow-up
+that closes both.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
