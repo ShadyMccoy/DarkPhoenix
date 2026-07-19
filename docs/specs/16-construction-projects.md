@@ -69,13 +69,33 @@ you sum **closed integrals, not open flows**.
   never-nudge-a-sink-value-in-isolation rule; needs its own gate).
 - **Founding as a project** (owner, forward-looking — we are NOT expanding yet,
   basics first). A spawn in a claimed room is the extreme project: the hauling
-  term dominates because there is no existing route to scavenge. Today founding
-  is a *bespoke* path — the claim campaign (spec 06) + a `NEW_SPAWN_SITE_VALUE`
-  sink + a CarryCorp founding lane (flow-share staffed, cross-border delivery,
-  since no tanker ferries across a border) + the claimed room's own
-  construction corp (the room is owned before the spawn stands). Unifying it
-  under "just another project" would fold the founding funnel into the
-  sum-of-projects sizing and the delivery into a distance-aware hauling term.
+  term dominates because there is no existing route to scavenge. The *build
+  execution already fits the model* — the founding room gets an ordinary
+  per-room `ConstructionCorp` (`constructionKind` adds "spawnless" claimed
+  rooms, staffed from the nearest parent spawn; cross-room builders march).
+  What is bespoke is the *orchestration*, smeared across three hand-synchronized
+  subsystems rather than owned by one project:
+  1. **Claim** — `ClaimCorp` (`claimKind`), a held-funded CLAIM+MOVE gated on
+     `Memory.expansion`.
+  2. **Place the spawn site** — done by the campaign state machine
+     (`updateExpansionCampaign`) calling `createConstructionSite` *directly*,
+     **divorced from the corp that builds it**: if the tile is blocked only the
+     campaign's next pass retries; the builder corp cannot recover the site.
+  3. **Price the funnel** — a magic per-instance constant
+     `NEW_SPAWN_SITE_VALUE = 85`, a bare rung in the fragile sink ladder (spawn
+     100 > new-spawn-site 85 > controller ≤80 > construction 70). *This is the
+     90-vs-85 founding incident*: nudging it to 90 let a fresh L1 controller
+     outrank the site and zeroed colony-wide construction. Not derived from the
+     project — a hand-held constant.
+
+  Timeout-desync risk: claim + the founding-sink anchor are gated on
+  `Memory.expansion`, but the 85 price and the construction commission are not
+  (they key off `structureType==="spawn"` / live allocations). If
+  `EXPAND_TIMEOUT` (20k ticks) fires before the spawn stands, the campaign is
+  deleted while a half-built spawn site remains — nothing models "this spawn is
+  60% built, carry it to completion regardless of the clock." Unifying founding
+  as *just another project* would give the site one owner that places, prices
+  (from the project's own value, not a magic rung), funds, and finishes it.
   Acceptance: `exp-t5-founding-funnels-to-completion` (a standing BOT LEVEL 5
   blocker). Deferred until the basics sing.
 
