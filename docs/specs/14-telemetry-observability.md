@@ -401,6 +401,23 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (marathon close) — stall basin instrumented: the frozen-bank hold (incident #18 narrowed)
+
+diag-runt-stall, two draws, one of each basin. STALLED draw: from t375
+the head is miner@400! (the upsize, correctly holding) while spawnE sits
+FROZEN at exactly 200 for 825 ticks - income flowing, one hauler
+fielded, nothing spawning, and the bank never moves. HEALTHY draw:
+identical to t450, then one delivery surge crosses 400 -> upsize buys
+t460 -> runt recycles -> cascade to a full economy by t700. The graph
+plans a flat 10 e/t spawn-sink demand (FlowGraph:156), so a frozen bank
+means DELIVERY stopped, not the plan: two checkable candidates - (a)
+the single funded hauler binds the UNSTAFFED source's route (zero
+pickups forever; draw-dependent by binding), (b) the hauler serves the
+controller while miner self-delivery equilibrates at 200. Next
+instrument: positions + corpId in the diag creep tags; one red draw
+names it. Pre-existing, non-gating; evidence: task output b2uwp6el7,
+scripts/diag-runt-stall.ts committed.
+
 ### 2026-07-19 (Routine cycle) — FEEDER CLAMP VERIFIED LIVE; transition tracking predicted
 
 t72423329: the feeder stamp carries the clamp's full arithmetic -
