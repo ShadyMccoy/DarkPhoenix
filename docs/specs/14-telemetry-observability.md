@@ -817,3 +817,19 @@ not the acute #19 rot. S3 stall is the known false-positive (spawn funded at
 1100, building; near-equilibrium). Next: dedicated-haul the far sources (lower
 the controller cap toward true demand so mined surplus overflows to storage,
 OR kill the scavenge double-count so the far miners get haulers).
+
+**REMOTES-DELIVER-HOME FIX DEPLOYED (2026-07-19, owner directive).** Gate
+green: unit 966, build clean, grid 8/9 (home scavenge cells churn-retiring-
+scavenge-corp + haul-t2-scavenge-threshold PASS - only remote scavenge removed;
+fid-t4 fidelity + surplus/storage cells pass; the 1 red is plan-t5 pre-existing
+refill-SLA #9), trio (flow-handoff/runt-economy 13m/storage-depot) 1 passing
+each. The fix (owner: stop overcomplicating): (1) scavenge OWNED rooms only -
+a remote container was being summed into a scavenge stock and siphoned, so the
+remote never got its own haul-home; (2) production-first for CONSUMER sinks so
+remote mined delivers to the controller instead of losing the nearest-first
+race to the home bank. Spawn stays nearest-first on the near bank (no starve).
+PREDICTED live deltas: P9 up (dedicated source-haulers for remotes appear),
+remote energy reaches the controller, warchest bleed SLOWS (remote income now
+offsets consumption instead of pure savings-spend). REGRESSION RULE: spawn
+eAvail ~500 / bankHaul 0 / util crater -> redeploy prior bundle. Two-capture
+verify.
