@@ -737,6 +737,18 @@ instead of dropping) — overlaps the owner-flagged #21, so it is DEFERRED to
 owner review, not deployed autonomously overnight. The colony runs the
 known-good rollback in the meantime.
 
+**ROLLBACK VERIFIED t72429276 (~230t post-redeploy).** The two regression
+indicators reversed cleanly: eAvail 504→**1250** (spawn funded again),
+bankHaul 0→**2** (bank draw restored) — a clean A/B/A that confirms part-1
+as the cause and the rollback as the cure. util is still climbing back
+(0.30 vs the settled 0.86) as the fleet, died-back over ~3000 starved
+ticks, rebuilds after the global reset; the cron monitors recovery. Root
+cause fully diagnosed and reproduced; the doctrine-level fix awaits owner
+review. flowAdapter:302-305 already flags the same "unhauled piles
+inflating supply" class (it guards FLEET SIZING via minedSupply but the
+transient stocks still join the ROUTING supply at :310, which is what
+suppresses the bank) — the double-count fix belongs there.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
