@@ -969,3 +969,35 @@ no depot movers exist (needs the materialiser to withdraw a CarryCorp from a
 container/bank source), or route the spend leg through the scavenge mechanism
 (already real haulers). That is a change to a core invariant + likely the
 materialiser - a dedicated piece, not a tweak. DEFERRED to owner steer.
+
+**INCIDENT (new, scoped): DEPLOY/RESET REMOTE-MINING STALL - a chronic warchest
+drain.** Every global reset (FREQUENT on the live server, not just deploys)
+wipes the in-heap analysis cache; remote mining then STOPS for ~40 min while a
+forced terrain pass rebuilds. Measured this session (hub-and-spoke deploy):
+assembly.graphSources 38 -> 2 within 8 min, flat 2 through 19 min, recovered to
+38/7 by ~40 min. During the stall the colony coasts on ~2 home sources +
+scavenge, spending warchest to cover consumption - a real, recurring
+contributor to the "spending our savings" bleed the owner first flagged, AMPLIFIED
+by this session's deploy frequency.
+CONFIRMED MECHANISM: restoreVisualizationCache (IncrementalAnalysis.ts:132)
+restores nodes+edges from Memory but with EMPTY territories ("Not needed for edge
+visualization"); main.ts:270-275 sees territories.size===0 -> forces
+resetAnalysis()+runIncrementalAnalysis() (a full, multi-tick incremental terrain
+pass); refreshNodeResourcesFromCache - the source claimer - no-ops without
+territories, so newly/again-needed sources aren't claimed until the pass finishes.
+ROOT CAUSE IS INVISIBLE TO READING (do NOT guess a fix): node.resources IS
+serialized (SerializedNode, Node.ts:187/263/282); resetAnalysis (89-93) only
+nulls module caches, never node resources; refreshNodeResources (300) SKIPS
+empty-territory nodes rather than clearing them (populateNodeResources' node.resources=[]
+at 576 runs only for nodes it processes). So no read-path explains why the
+restored nodes lose their 36 remote sources. INSTRUMENT FIRST (audit method):
+add colony.getNodes() source-count to the core telemetry segment next to
+flow.assembly.graphSources - if colonyNodes=38 while graphSources=2 the FlowGraph
+build filters; if colonyNodes=2 the persist/restore dropped them. Then fix
+red-first against a constructed post-reset unit state (extend
+test/unit/execution/refreshNodeResources.test.ts - the post-reset state IS
+unit-constructible even though a live global reset can't be simmed). FIX
+DIRECTIONS once pinned: (a) skip the forced rebuild when nodes already carry
+resources; (b) persist territories compactly; (c) fast room-level re-claim from
+Memory.roomIntel post-reset. MITIGATION NOW: deploy less often - each deploy pays
+this ~40-min tax.
