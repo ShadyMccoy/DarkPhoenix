@@ -322,77 +322,85 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
-  describe("spend path: mined banks to storage, the warchest funds consumers (#19/#21, owner 2026-07-19)", () => {
-    // Live t72425058: 7 funded mining sources, ZERO mined-source haulers - the
-    // UNCAPPED controller absorbed the whole bank surplus while remote mined
-    // energy rotted (no storage home). The marathon "bank-last" experiment
-    // (production-first) fixed the rot but STARVED the spawn: it made the plan
-    // lean on lossy drop-and-scavenge supply instead of the reliable home bank
-    // (measured t72429045: spawn eAvail 504, bank haulers 2->0). The correct
-    // fix gives mined production a home WITHOUT touching the spawn's funding:
-    // cap the controller at its PHYSICAL upgrade rate (#21) so mined surplus
-    // overflows into STORAGE, and keep the nearest home bank funding the spawn
-    // (nearest-first). Production banks to the warchest; consumers burn it.
-    it("a capped controller overflows mined surplus into storage instead of over-upgrading (#21)", () => {
+  describe("hub-and-spoke: mined DEPOSITS to storage, the hub SPENDS to consumers (owner 2026-07-19)", () => {
+    // Owner's model, replacing the production-first/nearest-first regime gates:
+    // when a storage HUB exists, mined (and scavenge) is a DEPOSIT source - its
+    // only home is the storage, so every funded source gets its haul-home (the
+    // miner+hauler package deal), and the warchest becomes the true income
+    // buffer. The bank/hub is the SPEND source - consumers draw the warchest,
+    // sized to it. No source ever routes both ways; the physical anti-pump
+    // (bank never deposits to its own store) falls out of the roles. Live
+    // motivation (t72434228->t72435669): the hybrid hauled mined DIRECTLY to
+    // the controller, so storage saw ~0 income and bled feeding the spawn -
+    // "we're spending our savings" even though remotes now deliver. Routing
+    // income THROUGH the hub stops the bleed without changing the total balance
+    // (owner: "the routing doesn't change the overall energy flow balance").
+    it("routes mined to the STORAGE hub, never directly to a consumer", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          // 3 remote mined sources (30 e/t) + a huge home bank on the storage
-          sources: [source("m1", 20), source("m2", 25), source("m3", 30), stock("bank-home", 2, 200)],
+          // 2 mined sources (20 e/t) + the hub carrying mined-throughput+surplus (the
+          // adapter bumps the bank rate to minedSupply+surplus; here 100 stands in)
+          sources: [source("m1", 20), source("m2", 25), stock("bank-home", 2, 100)],
           sinks: [
-            sink("spawn-S", "spawn", 0, 100, 20), // spawn wants 20 (highest value)
-            sink("ctrl", "controller", 5, 50, 8), // controller CAPPED at 8 (the #21 physical cap)
-            sink("store", "storage", 2, 1, 1000) // storage open + large: mined's home
+            sink("spawn-S", "spawn", 0, 100, 8),
+            sink("ctrl", "controller", 5, 50, 30),
+            sink("store", "storage", 2, 1, 1000) // the hub: mined's only home
           ]
         })
       );
       const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
       const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
       const store = plan.sinks.find(s => s.sinkId === "store")!;
-      // the spawn is FULLY funded - no starvation (the regression's failure mode)
-      expect(spawnSink.allocated, "spawn fully funded, not starved").to.be.closeTo(20, 1e-6);
-      // ...from the reliable home bank (nearest-first fills the home sink from the nearest source)
-      const spawnFromBank = spawnSink.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
-      expect(spawnFromBank, "the reliable home bank funds the spawn").to.be.greaterThan(0);
-      // the capped controller consumes only its cap (8) of real production...
-      expect(ctrl.allocated, "controller consumes only its physical cap").to.be.closeTo(8, 1e-6);
-      // ...and the EXCESS mined production (30 - 8 = 22) overflows into storage,
-      // not an infeasible over-upgrade plan (#21) - and it is ROUTED, not rotting (#19)
+      // ALL mined banks to the hub (both sources, 10+10), not just an overflow
       const minedToStore = store.sources.filter(s => s.sourceId.startsWith("m")).reduce((a, s) => a + s.amount, 0);
-      expect(minedToStore, "the excess mined surplus banks to storage").to.be.closeTo(22, 1e-6);
+      expect(minedToStore, "all mined production banks to the storage hub").to.be.closeTo(20, 1e-6);
+      // consumers draw the HUB (bank), never mined directly
+      expect(ctrl.sources.every(s => s.sourceId === "bank-home"), "controller drawn only from the hub").to.equal(true);
+      expect(ctrl.allocated, "controller filled to its capacity from the hub").to.be.closeTo(30, 1e-6);
+      expect(spawnSink.sources.every(s => s.sourceId === "bank-home"), "spawn drawn only from the hub").to.equal(true);
+      expect(spawnSink.allocated, "spawn fully funded from the hub").to.be.closeTo(8, 1e-6);
+      // no mined->consumer hauler is ever commissioned (hub-and-spoke)
+      expect(
+        plan.haulers.some(h => h.sourceId.startsWith("m") && (h.sinkId === "ctrl" || h.sinkId === "spawn-S")),
+        "no mined->consumer hauler (mined only hauls home to the hub)"
+      ).to.equal(false);
+      // each mined source DOES get its dedicated haul-home to the hub (package deal)
+      expect(plan.haulers.some(h => h.sourceId === "m1" && h.sinkId === "store"), "m1 hauls home to the hub").to.equal(true);
+      expect(plan.haulers.some(h => h.sourceId === "m2" && h.sinkId === "store"), "m2 hauls home to the hub").to.equal(true);
     });
 
-    it("delivers FAR mined production to the controller before the nearer home bank - remotes are not out-competed (owner: get energy home from remotes)", () => {
+    it("a FAR remote gets its dedicated haul HOME to the hub (miner+hauler package, owner)", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          // a FAR remote source + a huge home bank sitting right on the controller
+          // a FAR remote source + the hub; the controller sits in the home room
           sources: [source("remote", 40, 10), stock("bank-home", 5, 300)],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 5),
-            sink("ctrl", "controller", 6, 50, 100) // production-first: mined before the near bank
+            sink("ctrl", "controller", 6, 50, 100),
+            sink("store", "storage", 5, 1, 1000) // the hub, beside the controller (home)
           ]
         })
       );
+      // the remote hauls HOME to the hub (not to the controller directly)
+      expect(plan.haulers.some(h => h.sourceId === "remote" && h.sinkId === "store"), "remote hauls home to the hub").to.equal(true);
+      expect(plan.haulers.some(h => h.sourceId === "remote" && h.sinkId === "ctrl"), "no direct remote->controller hauler").to.equal(false);
+      const store = plan.sinks.find(s => s.sinkId === "store")!;
+      expect(store.sources.find(s => s.sourceId === "remote")?.amount ?? 0, "the remote's full output banks").to.be.closeTo(10, 1e-6);
+      // the controller and spawn draw the hub (the warchest income)
       const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
-      // the remote's energy is DELIVERED to the controller (production-first), not
-      // out-competed by the nearer bank and left to drop/scavenge
-      expect(ctrl.sources.find(s => s.sourceId === "remote")?.amount ?? 0, "remote mined delivers to the controller").to.be.closeTo(10, 1e-6);
-      expect(plan.haulers.some(h => h.sourceId === "remote" && h.sinkId === "ctrl"), "a dedicated remote->controller hauler exists").to.equal(true);
-      // ...while the SPAWN is still funded from the NEAR bank (never the slow far mined)
-      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
-      expect(spawnSink.allocated, "spawn funded").to.be.closeTo(5, 1e-6);
-      expect(spawnSink.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0, "spawn drawn from the near bank").to.be.greaterThan(0);
+      expect(ctrl.sources.every(s => s.sourceId === "bank-home") && ctrl.allocated > 0, "controller drawn from the hub").to.equal(true);
     });
 
-    it("the bank never pumps into storage - it IS the storage (structural anti-pump, part-2A)", () => {
+    it("the hub never deposits into storage - it IS the storage (structural anti-pump)", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
           sources: [source("mined", 5, 10), stock("bank-home", 2, 100)],
           sinks: [
             sink("ctrl", "controller", 8, 50, 5),
-            sink("store", "storage", 2, 1, 1000) // soaks the mined surplus
+            sink("store", "storage", 2, 1, 1000)
           ]
         })
       );
@@ -400,8 +408,28 @@ describe("economy/CorpPlanner", () => {
       expect(store.sources.find(s => s.sourceId === "mined")?.amount ?? 0, "mined banks to storage").to.be.greaterThan(0);
       expect(
         store.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0,
-        "the bank never deposits back into storage"
+        "the hub never deposits back into its own store"
       ).to.equal(0);
+    });
+
+    it("PRE-storage (no hub): mined feeds consumers directly - hub-and-spoke needs a hub", () => {
+      // RCL<4: no storage, therefore no bank source (the storage IS the bank), so
+      // the nearest-first race the production-first gate once guarded never
+      // arises - mined is the only supply and feeds the consumers straight.
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("remote", 40, 10)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 5),
+            sink("ctrl", "controller", 6, 50, 100)
+          ]
+        })
+      );
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      // with no hub, the remote's energy is delivered straight to the consumers
+      expect(ctrl.sources.find(s => s.sourceId === "remote")?.amount ?? 0, "remote mined delivers to the controller").to.be.greaterThan(0);
+      expect(plan.haulers.some(h => h.sourceId === "remote" && h.sinkId === "ctrl"), "a direct remote->controller hauler exists pre-storage").to.equal(true);
     });
   });
 

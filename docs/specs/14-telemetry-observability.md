@@ -866,3 +866,37 @@ consumers sized to and drawn from the warchest, drop the production-first /
 filling-vs-surplus regime gates. This makes the warchest the true income buffer
 (mining surplus banks instead of bypassing storage) and removes the special
 cases.
+
+**HUB-AND-SPOKE REFACTOR (2026-07-19, owner directive).** Replaces the
+production-first / filling-vs-surplus routing gates in routeToSinks with ONE
+uniform rule keyed on source ROLE (owner: "it can still be hub and spoke and
+probably it's better that way", "size the consumers to the warchest", "the
+routing doesn't change the overall energy flow balance"):
+- when a storage HUB exists, mined + scavenge are DEPOSIT sources - their only
+  home is the storage sink, so each funded source gets its haul-home (the
+  miner+hauler package deal) and the warchest becomes the true income buffer;
+- the bank/hub is the SPEND source - consumers (spawn/controller/construction)
+  draw the warchest, sized to it. Mined never routes to a consumer directly;
+- pre-storage (RCL<4, no hub) nothing is a deposit and mined feeds consumers
+  directly - the old model, preserved (there is no bank source without storage).
+The structural anti-pump (bank never deposits to its own store) now falls out
+of the roles instead of a special-case filter. flowAdapter bumps the bank/hub
+SOURCE rate to minedSupply + surplus (income passing THROUGH the hub) so
+consumers are fed even at/below target where the surplus alone is ~0;
+bankRate/totalSupply stay the REAL supply (surplus only) for infra/construction
+sizing and the storage-full defund. WHY: the hybrid hauled mined DIRECTLY to
+the controller, so storage saw ~0 income and bled feeding the spawn - the
+warchest drained (-31/t at t72435896) even though remotes now deliver. Routing
+income through the hub makes the warchest reflect true net (income - consumed)
+without changing the total balance.
+GATE: unit 967, build clean, trio (flow-handoff 4m / storage-depot / runt-
+economy) pass, routing cells [P] (bank-surplus-upgrades, storage-bank-and-spill,
+ctrl-container-surplus-first, feeder-fields-for-bank, fid-t4-preramped all 1/1).
+PREDICTED live deltas: mined haulers now target STORAGE (flow haulers source-*
+-> storage-*, not -> controller-*); bank/hub source rate inflates; warchest
+FLIPS from draining to holding/growing (mined banks instead of bypassing);
+controller actual ~unchanged (upgraderSizing reads controller-side stock +
+feederRelayRate, both invariant to the routing change); spawn stays funded from
+the hub. REGRESSION RULE: controller score drops < ~35 e/t, OR spawn eAvail
+~500 / bankHaul 0, OR warchest keeps draining hard (< -30/t = hub routing did
+not take) -> redeploy origin/master. Two-capture verify.
