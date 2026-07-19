@@ -1104,3 +1104,18 @@ hold a fix only for real reasons (recovery self-resolving, fix not built/proven)
 Lesson: I built a causal narrative from a single correlated observation and
 propagated it into decisions before the second data point (the phantom-fix
 deploy) falsified it. One observation is a hypothesis, not a mechanism.
+
+**AUDIT CYCLE t72438909 - WATCH RESOLVED: depot-crash recovery SELF-RESOLVED, no
+fix needed.** Last cycle set a watch: controller still pinned at 0 -> fix-forward
+the feeder priority; climbing -> self-resolved. Data says SELF-RESOLVED. The
+production-first recovery completed enough for the feeder/upgrader to finally get
+spawn priority: feederActive false -> TRUE, controller 0 -> 1.4 e/t (climbing off
+0), ctrlStock 358 -> 1414 (energy accumulating at the controller now the feeder
+delivers), warchest +31/t (ballooning) -> -3.7/t (flat - spend path back up, E4
+FAIL->WARN), fleet 22 -> 26, work 34 -> 47. So the feeder/spend-path priority fix
+I was ready to build is NOT needed - the recovery self-resolved as the P9-climbing
+trend predicted. Controller still ramping toward its pre-crash ~45 e/t as
+upgraders rebuild; routine monitoring continues. PHANTOM FIX fully validated;
+colony recovered from the crash it caused. Cycle verdict: WATCH RESOLVED (self-
+heal confirmed). Delta: feederActive false->true, controller 0->1.4, warchest
+ballooning->flat.
