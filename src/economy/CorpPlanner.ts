@@ -434,31 +434,32 @@ function routeToSinks(
     };
     out.set(sink.id, acc);
 
-    // PRODUCTION-FIRST (owner 2026-07-19: "mine iff there's a home; the bank
-    // is the residual"). Real production fills a sink before the warchest bank
-    // draw: bank sources sort LAST, everything else nearest-first (ties by id).
-    // Without this the 555k bank sat ON the home sinks (distance ~0) and the
-    // nearest-first fill drained it to feed the controller while 7 funded
-    // mining sources went unrouted and rotted (live t72425058). It also makes
-    // the storage anti-pump automatic: the bank is only drawn once production
-    // is exhausted, so a solve never both deposits to storage AND withdraws
-    // from the bank. A source's output is hauled from its haulPos (the core
-    // link for a link-served source), not necessarily the source tile itself.
+    // NEAREST-FIRST fill (ties by id). The reliable home bank fills the home
+    // sinks (spawn, controller) because it is nearest and cheapest to haul, so
+    // the SPAWN is always funded from the durable warchest - never from lossy
+    // remote drop-and-scavenge. Mined production reaches its home through the
+    // STORAGE sink: production banks to the warchest, consumers burn it (the
+    // macro doctrine). The "bank-last" experiment (production-first) is REVERTED
+    // here - it starved the spawn by making the plan lean on the phantom
+    // scavenge double-count instead of the bank (marathon regression t72429045:
+    // spawn eAvail 504, bank haulers 2->0). Mined production is instead given a
+    // real home by capping the controller (#21, flowAdapter.controllerRouting
+    // Capacity) so its surplus overflows into storage rather than rotting.
+    // A source's output is hauled from its haulPos (the core link for a
+    // link-served source), not necessarily the source tile itself.
     const isBank = (id: string): boolean => id.startsWith("bank-");
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
       // Structural anti-pump (spec 03): the bank is stored IN the storage, so a
       // bank->storage flow withdraws the warchest only to deposit it right back.
       // Excluding bank sources from the storage sink lets the sink stay OPEN for
-      // real remote surplus (production-first) without ever pumping the bank.
+      // real remote surplus without ever pumping the bank into its own store.
       .filter(id => !(sink.kind === "storage" && isBank(id)))
       .map(id => {
         const s = sourceById.get(id)!;
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
       })
-      .sort(
-        (a, b) => Number(isBank(a.id)) - Number(isBank(b.id)) || a.d - b.d || (a.id < b.id ? -1 : 1)
-      );
+      .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
     // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
     // a controller, builders at construction (5x cheaper per e/t - BUILD is

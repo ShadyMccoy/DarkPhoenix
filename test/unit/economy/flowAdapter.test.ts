@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
+import { solveWithCorpPlanner, controllerRoutingCapacity } from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
 import { PlannerSource } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";
@@ -150,6 +150,34 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     const ctrlAlloc = sol.sinkAllocations.find(a => a.sinkType === "controller");
     expect(ctrlAlloc, "controller is present").to.not.be.undefined;
     expect(ctrlAlloc!.allocated).to.be.greaterThan(1.9); // reserve protected even vs the spawn
+  });
+});
+
+// #21 (owner 2026-07-19): the surplus controller mops up the warchest, but
+// bounded by the fleet's PHYSICAL upgrade rate (parking tiles x affordable
+// WORK). Live t72429680: the uncapped controller planned 137 e/t against a
+// fleet that could field ~4 upgraders - infeasible (P4), and it out-competed
+// remote mined production for the bank. The cap makes the surplus that exceeds
+// what upgraders can burn overflow into STORAGE instead.
+describe("economy/flowAdapter - controllerRoutingCapacity physical cap (#21)", () => {
+  const ctrlSink = { position: { x: 0, y: 0, roomName: "W0N0" } };
+  const withStorage = new Set(["W0N0"]);
+  const inSurplus = new Set(["W0N0"]);
+
+  it("while the warchest FILLS (not surplus), the controller stays at the save target (15)", () => {
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, new Set())).to.equal(15);
+  });
+
+  it("in SURPLUS with no cap given, it mops up totalSupply (unchanged default)", () => {
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus)).to.equal(200);
+  });
+
+  it("in SURPLUS, the PHYSICAL cap binds so the excess overflows to storage (#21)", () => {
+    // a fleet that can burn only 40 e/t caps the sink at 40; the other 160 of a
+    // 200 surplus lands in STORAGE, not an infeasible upgrade plan
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus, 40)).to.equal(40);
+    // ...but never caps BELOW the real supply when the fleet can burn it all
+    expect(controllerRoutingCapacity(ctrlSink, 30, withStorage, inSurplus, 40)).to.equal(30);
   });
 });
 

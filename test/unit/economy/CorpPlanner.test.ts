@@ -322,64 +322,59 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
-  describe("production-first routing (owner 2026-07-19: mine iff there's a home; the bank is the residual)", () => {
+  describe("spend path: mined banks to storage, the warchest funds consumers (#19/#21, owner 2026-07-19)", () => {
     // Live t72425058: 7 funded mining sources, ZERO mined-source haulers - the
-    // 555k bank surplus sits ON the home sinks (nearest) and the value fill,
-    // being nearest-first, drained it to fill the controller while the mined
-    // energy rotted at remote containers. Production over consumption: real
-    // production fills consumers first; the bank draws only the residual.
-    it("fills a consumer from real MINED production before the NEARER bank surplus", () => {
+    // UNCAPPED controller absorbed the whole bank surplus while remote mined
+    // energy rotted (no storage home). The marathon "bank-last" experiment
+    // (production-first) fixed the rot but STARVED the spawn: it made the plan
+    // lean on lossy drop-and-scavenge supply instead of the reliable home bank
+    // (measured t72429045: spawn eAvail 504, bank haulers 2->0). The correct
+    // fix gives mined production a home WITHOUT touching the spawn's funding:
+    // cap the controller at its PHYSICAL upgrade rate (#21) so mined surplus
+    // overflows into STORAGE, and keep the nearest home bank funding the spawn
+    // (nearest-first). Production banks to the warchest; consumers burn it.
+    it("a capped controller overflows mined surplus into storage instead of over-upgrading (#21)", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          // mined source far from the sink@30; the bank sits right on it (dist 2) and is huge
-          sources: [source("mined", 5, 10), stock("bank-home", 28, 100)],
-          sinks: [sink("ctrl", "controller", 30, 50, 10)]
+          // 3 remote mined sources (30 e/t) + a huge home bank on the storage
+          sources: [source("m1", 20), source("m2", 25), source("m3", 30), stock("bank-home", 2, 200)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 20), // spawn wants 20 (highest value)
+            sink("ctrl", "controller", 5, 50, 8), // controller CAPPED at 8 (the #21 physical cap)
+            sink("store", "storage", 2, 1, 1000) // storage open + large: mined's home
+          ]
         })
       );
-      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
-      const minedAmt = ctrl.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
-      const bankAmt = ctrl.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
-      expect(minedAmt, "mined production fills the sink first, though it is farther").to.be.closeTo(10, 1e-6);
-      expect(bankAmt, "the bank is untouched while mining covers demand").to.be.closeTo(0, 1e-6);
+      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      const store = plan.sinks.find(s => s.sinkId === "store")!;
+      // the spawn is FULLY funded - no starvation (the regression's failure mode)
+      expect(spawnSink.allocated, "spawn fully funded, not starved").to.be.closeTo(20, 1e-6);
+      // ...from the reliable home bank (nearest-first fills the home sink from the nearest source)
+      const spawnFromBank = spawnSink.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
+      expect(spawnFromBank, "the reliable home bank funds the spawn").to.be.greaterThan(0);
+      // mined production is ROUTED - it banks to storage, not rotting (#19)
+      const minedToStore = store.sources.filter(s => s.sourceId.startsWith("m")).reduce((a, s) => a + s.amount, 0);
+      expect(minedToStore, "all 30 e/t of mined surplus banks to storage").to.be.closeTo(30, 1e-6);
     });
 
-    it("draws the bank only for the residual consumers cannot get from production", () => {
-      const plan = planColony(
-        problem({
-          spawns: [spawn("S", 0)],
-          sources: [source("mined", 5, 10), stock("bank-home", 28, 100)],
-          sinks: [sink("ctrl", "controller", 30, 50, 15)] // wants 15; mining gives 10; bank covers 5
-        })
-      );
-      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
-      const minedAmt = ctrl.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
-      const bankAmt = ctrl.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
-      expect(minedAmt, "all mined production is used").to.be.closeTo(10, 1e-6);
-      expect(bankAmt, "the bank fills only the residual").to.be.closeTo(5, 1e-6);
-    });
-
-    it("banks remote SURPLUS to storage but never pumps the bank into it (structural anti-pump)", () => {
+    it("the bank never pumps into storage - it IS the storage (structural anti-pump, part-2A)", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
           sources: [source("mined", 5, 10), stock("bank-home", 2, 100)],
           sinks: [
-            sink("ctrl", "controller", 8, 50, 5), // consumes 5
-            sink("store", "storage", 2, 1, 1000) // soaks the rest
+            sink("ctrl", "controller", 8, 50, 5),
+            sink("store", "storage", 2, 1, 1000) // soaks the mined surplus
           ]
         })
       );
       const store = plan.sinks.find(s => s.sinkId === "store")!;
-      const storedMined = store.sources.find(s => s.sourceId === "mined")?.amount ?? 0;
-      const storedBank = store.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
-      expect(storedMined, "the 5/tick of mined surplus banks to storage").to.be.closeTo(5, 1e-6);
-      expect(storedBank, "the bank is stored IN the storage - it never deposits back").to.equal(0);
-      const bankAnywhere = plan.sinks.reduce(
-        (sum, k) => sum + (k.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0),
-        0
-      );
-      expect(bankAnywhere, "mined production covered every consumer; the bank stays put").to.be.closeTo(0, 1e-6);
+      expect(store.sources.find(s => s.sourceId === "mined")?.amount ?? 0, "mined banks to storage").to.be.greaterThan(0);
+      expect(
+        store.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0,
+        "the bank never deposits back into storage"
+      ).to.equal(0);
     });
   });
 

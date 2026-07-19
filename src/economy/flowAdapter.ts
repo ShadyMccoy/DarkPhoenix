@@ -22,8 +22,9 @@ import {
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { coreLink, sourceLink } from "../corps/nodeEnergy";
-import { INVADER_TAX_PER_ENERGY, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
+import { coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import { buildUpgraderBody } from "../spawn/BodyBuilder";
+import { INVADER_TAX_PER_ENERGY, UPGRADE_ENERGY_PER_WORK, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
@@ -62,12 +63,50 @@ export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
   roomsWithStorage: ReadonlySet<string>,
-  surplusRooms: ReadonlySet<string> = new Set()
+  surplusRooms: ReadonlySet<string> = new Set(),
+  physicalUpgradeCap: number = Infinity
 ): number {
   if (roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
-  return Math.max(totalSupply, 1);
+  // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
+  // no faster than the upgrader fleet can PHYSICALLY burn it (parking tiles x
+  // affordable WORK - see controllerUpgradeCap). Surplus beyond the cap has no
+  // upgrader to consume it, so it overflows into the storage sink instead of
+  // publishing an infeasible upgrade plan that out-competes remote mining
+  // (live t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
+  return Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
+}
+
+/** UpgradingCorp's hard upgrader-count cap, mirrored (parking tiles are few). */
+const CONTROLLER_UPGRADER_CAP = 8;
+
+/**
+ * The controller's PHYSICAL upgrade capacity (energy/tick) for the #21 sink
+ * cap: how much the upgrader fleet can actually burn, bounded by the parking
+ * tiles ringing the controller input spot and each body's affordable WORK at
+ * the room's energy capacity (mirrors UpgradingCorp.upgraderTargetCount's
+ * parking bound so the sink and the fleet agree). Infinity when Game or the
+ * controller is unavailable, so unit/harness paths keep the uncapped default
+ * unless a cap is passed explicitly.
+ */
+export function controllerUpgradeCap(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
+  const controller = Game.rooms[roomName]?.controller;
+  if (!controller) return Infinity;
+  try {
+    // Best-effort physical estimate: any incomplete Game state (partial test
+    // mock, room we cannot fully resolve) falls back to the uncapped default
+    // rather than throwing - a missing cap is safe, it only reverts to old
+    // behavior; the parking lens needs the live pos/room lookForAt API.
+    const parking = controllerParkingTiles(controller, controllerInputSpot(controller).pos).length;
+    const spots = Math.min(parking || CONTROLLER_UPGRADER_CAP, CONTROLLER_UPGRADER_CAP);
+    const capacity = Game.rooms[roomName]?.energyCapacityAvailable ?? 300;
+    const affordableWork = Math.max(1, buildUpgraderBody(capacity, 99, "containerFed").workParts);
+    return spots * affordableWork * UPGRADE_ENERGY_PER_WORK;
+  } catch {
+    return Infinity;
+  }
 }
 
 /** Ticks over which the agenda's funding need amortizes into a flow rate. */
@@ -391,7 +430,13 @@ export function buildColonyProblem(
             // While it has room this is min(totalSupply, huge) = totalSupply, so
             // the old "soak excess" behavior is unchanged until the bank fills.
             Math.max(0, Math.min(totalSupply, storageRoomRemaining(sink.position.roomName)))
-          : controllerRoutingCapacity(sink, totalSupply, roomsWithStorage, surplusRooms), // controller: mops up the remainder, unless a still-filling storage banks the surplus
+          : controllerRoutingCapacity(
+              sink,
+              totalSupply,
+              roomsWithStorage,
+              surplusRooms,
+              controllerUpgradeCap(sink.position.roomName)
+            ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
   }
