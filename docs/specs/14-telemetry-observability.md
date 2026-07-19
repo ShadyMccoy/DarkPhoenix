@@ -783,3 +783,18 @@ resolved). Consumers next: upgrader corp demands 4 (targetCount 4, alloc 45.8,
 banked 455k) but 0 fielded yet → P7 0 and E4 warchest +28/t are the transient
 tail of a producers-first rebuild (pre-batch the same code ran 6 upgraders and
 drained the warchest -44.5/t). Doctrine fix still owner-deferred.
+
+**#19/#21 FIX DEPLOYED (2026-07-19, owner "Yes go").** Gate green: unit 965,
+build clean, trio (flow-handoff/runt-economy 11m/storage-depot) 1 passing each,
+8/10 targeted grid cells [P] (haul-t4-bank-surplus-upgrades + storage-bank-and-
+spill + plan-t2 sink-source all green; the 2 non-pass are the pre-existing
+plan-t5 refill-SLA (#9) and the 160t-boundary feeder cell, both acquitted).
+The fix = the proven-healthy ROLLBACK routing (nearest-first) + #21 controller
+cap + part-2A storage-open + roads-2 + repair. PREDICTED live deltas vs the
+rollback: spawn STAYS FUNDED (eAvail healthy, NOT 504 - same nearest-first as
+rollback); mined production routes to STORAGE (P9 high, mined->storage haulers);
+P4 FEASIBLE (controller capped at ~physical rate, no 137 e/t plan); warchest
+stabilizes; controller progresses at the capped rate. REGRESSION RULE (last
+#19 deploy starved the spawn): if eAvail collapses to ~500 or bank haulers ->0
+or util craters, REDEPLOY 76646e5 immediately. Two-capture verify (that rule
+caught the last regression).
