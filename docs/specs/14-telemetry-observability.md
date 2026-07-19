@@ -349,6 +349,27 @@ the eaten rung (likely a repeating failed controller-container attempt);
 lone-builder crews detailed on 30-60% structures release to build; no
 other fleet movement.
 
+### 2026-07-19 (Routine cycle) — stamp prediction verified in ONE capture; eaten-ladder loop fixed and deployed
+
+t72420637 (80t post-stamps-deploy): the placeSite stamp named the rung
+immediately - link@W43N23:48,13 -> -7 (near-exit rule) retried every
+10t cooldown, the invisible loop that starved every rung below (zero
+road verdicts in 2100t downstream of it). Fixed red-first and deployed
+(byte-verified): bestAdjacentTile clamps to 2..47 (engine rejects
+non-road structures on near-border tiles beside exits; core infra never
+belongs there), and placeSite blacklists ERR_INVALID_TARGET tiles in
+room.memory.deadTiles which the generator excludes - the second instance
+of the bad-candidate-retry class (source tiles bit identically before);
+the backstop ends the class. Gate: 916 unit, trio green, cons-link-core-
+first pass@60 under the clamp, concurrent cell pass@242 (same tick as
+its baseline run). Predicted next capture: no link@48,13 repeats; W43N23
+shows either a legal link placement or road verdicts (the scan finally
+running); E2's 94 stranded parts (deploy-reset churn) clears.
+
+Same capture, ledger milestones: FIRST GREEN P4 (0.77x under the
+budget-dry tolerance) and green P5 at priced duty 0.50 with reservation
+banks read live (W42N22:279 W42N23:318 W43N24:167 W44N23:72).
+
 Toolchain finding (why "do NOT use push-main" in the loop doc): the
 container's registry mirror serves versions that do not exist upstream -
 rollup 2.80.0 (real 2.x ends 2.79.2) and picomatch 2.3.2 (real 2.x ends
