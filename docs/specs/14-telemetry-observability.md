@@ -401,6 +401,18 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (cron cycle, post-marathon) — recovery on script; E2 decay prediction armed
+
+t72423594: P7 0.23 -> 0.34 -> 0.37 (upgraders 2/6 fielded, stock
+BURNING 2367 -> 1882), E4 slope -34.3/t, P6 all four rooms pumping
+(1201 banked/219t), P5 staffed 4/4 banks rebuilding, X3 2, E5 0, P4
+0.78. E2 GREW 142 -> 186 (9 fleets) - but the ids are transition-era
+(the plan churned home-only -> re-funded -> equilibrium; each shift
+manufactures strands). Plan now STABLE (P1 0 flips, 87.8 equilibrium):
+PREDICTION - E2 decays by next fire, or hauler rebind-on-replan
+(revisiting #15's close with better data) becomes a work item. No fix
+this cycle.
+
 ### 2026-07-19 (marathon close) — stall basin instrumented: the frozen-bank hold (incident #18 narrowed)
 
 diag-runt-stall, two draws, one of each basin. STALLED draw: from t375
