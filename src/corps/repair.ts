@@ -55,15 +55,21 @@ export function pickCriticalRepairTarget<T extends Repairable>(structures: T[]):
 }
 
 /**
- * Whether a builder mid-diversion should keep repairing rather than resume
- * building: it started on a critical structure and holds the diversion until
- * nothing is left in the idle-maintenance band (REPAIR_SPAWN_BELOW), comfortably
- * clear of the critical gate. The hysteresis (start at REPAIR_CRITICAL, release
- * at REPAIR_SPAWN_BELOW) stops the crew thrashing between a far site and the
- * container each time the structure dips a hair past the start gate.
+ * Whether emergency repair outranks construction. Hysteresis with BOTH sides
+ * explicit: a diversion STARTS only when a structure drops below the critical
+ * gate (REPAIR_CRITICAL); once started (`inDiversion`), it holds until nothing
+ * is left in the idle-maintenance band (REPAIR_SPAWN_BELOW), comfortably clear
+ * of the gate, so the crew doesn't thrash between a far site and the container
+ * each time the structure dips a hair past the start gate.
+ *
+ * The in-diversion state is the CALLER's (a repair-detail flag, a latched
+ * target): implemented one-sided from structures alone (2026-07-19 measured),
+ * a routine 43% container read as "critical" and the last-builder guard held
+ * the lone builder on maintenance for 240 ticks while a site sat untouched.
  */
-export function wantsCriticalRecovery(structures: Repairable[]): boolean {
-  return structures.some(s => s.hits < s.hitsMax * REPAIR_SPAWN_BELOW);
+export function wantsCriticalRecovery(structures: Repairable[], inDiversion: boolean): boolean {
+  const gate = inDiversion ? REPAIR_SPAWN_BELOW : REPAIR_CRITICAL;
+  return structures.some(s => s.hits < s.hitsMax * gate);
 }
 
 interface Repairable {

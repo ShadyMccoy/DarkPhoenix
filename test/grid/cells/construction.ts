@@ -342,11 +342,24 @@ export function buildConstructionT2Cells(): GridCell[] {
         // 45% container WITH energy: below the 60% start gate, above critical,
         // self-fuels its repair detail.
         { type: "container", x: 15, y: 29, energy: 1500, hits: 112500 },
-        { type: "container", x: 24, y: 24, energy: 0 },
+        // Spawn-adjacent depot WITH stock: the concurrency contract needs an
+        // economy that can AFFORD two creeps (builder + detail). With the
+        // last-builder guard fixed (one-sided hysteresis, 2026-07-19), a
+        // drained cold ramp legitimately builds-first forever - the second
+        // member the +1 detail target orders must be buyable in-window.
+        { type: "container", x: 24, y: 24, energy: 1500 },
         { type: "container", x: 25, y: 12, energy: 0 },
         // Only HALF the extension ring pre-built: the corp places and builds
         // the rest, guaranteeing live construction through the window.
         ...EXT_POS.slice(0, 5).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      // The concurrency contract is CREW-FUNCTION independence, not cold-start
+      // affordability (the ramp cells own that): a drained T2 spawn (+1 e/t)
+      // never fields the +1 detail member in-window, so the crew is staged.
+      // Orphan corpIds - OrphanRescue re-homes both into the building corp.
+      creeps: [
+        { name: "cb1", x: 26, y: 25, body: ["work", "work", "carry", "move"], energy: 0, memory: { workType: "build", corpId: "staged-building" } },
+        { name: "cb2", x: 17, y: 28, body: ["work", "work", "carry", "move"], energy: 50, memory: { workType: "build", corpId: "staged-building" } },
       ],
       assertions: [
         eventually("construction is underway (a site stands)", (s) =>

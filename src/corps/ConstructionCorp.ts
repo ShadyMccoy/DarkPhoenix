@@ -365,7 +365,7 @@ export class ConstructionCorp extends Corp {
   private assignRepairDetail(room: Room): void {
     const members = this.builders.members();
     const detail = members.find(c => c.memory.repairDetail);
-    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room)) {
+    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room, detail !== undefined)) {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
@@ -373,9 +373,10 @@ export class ConstructionCorp extends Corp {
     // means a second member is coming, and until it arrives the single creep
     // builds (caught by cons-t3-build-and-repair-concurrent: a 1-creep cold
     // ramp lost its only builder to the detail and construction starved).
-    // Criticals override - a structure about to expire outranks build tempo.
+    // A GENUINE critical (below the start gate, not the hold band) overrides -
+    // a structure about to expire outranks build tempo.
     const sitesExist = room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
-    if (members.length < 2 && sitesExist && !this.wantsCriticalRecovery(room)) {
+    if (members.length < 2 && sitesExist && this.findCriticalRepairTarget(room) === null) {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
@@ -827,7 +828,12 @@ export class ConstructionCorp extends Corp {
       // full-bank tick almost never occurred while the spawn ran pinned, so
       // zero routes were ever judged despite the fattest bank all session).
       const surplusBanked = room.storage?.my && spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0;
-      if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) return;
+      if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) {
+        // The last silent exit in the road scan (spec 14): an unjudged source
+        // behind this wall blocks the feeder trunk below it every pass.
+        this.lastSizing = { tick: Game.time, roadGate: `road-wall-energy-${source.id.slice(-4)}` };
+        return;
+      }
 
       const tiles = this.planRoadPath(room, source, depotPos, spawn.pos);
       if (!tiles) continue;
@@ -1004,8 +1010,15 @@ export class ConstructionCorp extends Corp {
   private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant): void {
     // CPU governor (spec 09 ph5): under austere degradation, NEW investment
     // pauses - existing sites keep building, the income core keeps running.
-    if (governorPlan().pauseConstruction) return;
+    // Every outcome stamps (spec 14): a placeSite that fails every cooldown is
+    // an invisible infinite loop that eats the whole placement ladder below
+    // its rung (W43N23 2026-07-19: zero sites, zero road verdicts, no trace).
+    if (governorPlan().pauseConstruction) {
+      this.lastSizing = { tick: Game.time, placeGate: "governor-paused" };
+      return;
+    }
     const result = room.createConstructionSite(x, y, type);
+    this.lastSizing = { tick: Game.time, placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result };
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
@@ -1378,9 +1391,9 @@ export class ConstructionCorp extends Corp {
     return pickCriticalRepairTarget(this.roomRepairables(room));
   }
 
-  /** Whether a mid-diversion builder should keep repairing (see wantsCriticalRecovery). */
-  private wantsCriticalRecovery(room: Room): boolean {
-    return wantsCriticalRecovery(this.roomRepairables(room));
+  /** Whether emergency repair outranks construction (see wantsCriticalRecovery). */
+  private wantsCriticalRecovery(room: Room, inDiversion: boolean): boolean {
+    return wantsCriticalRecovery(this.roomRepairables(room), inDiversion);
   }
 
   /**
