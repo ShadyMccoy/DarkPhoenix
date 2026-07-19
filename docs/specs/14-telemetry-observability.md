@@ -668,6 +668,32 @@ production still exceeds the plan's consumer sinks, so keystone #21
 (cap surplus-controller → activate storage-as-hub soak) is the follow-up
 that closes both.
 
+**Deeper read of t72428914 (segment 6 + spawn meter) — the spend-path
+hypothesis (needs a 2nd capture to confirm).** The plan sinks are
+controller 12.99, **spawn 75**, storage 0 (storage-as-hub dormant). So the
+plan DOES route all 70 e/t (spawn+controller demand 88 ≥ 70) — P9 rot is an
+EXECUTION gap, not planning. Only 3 dedicated `source-` haulers exist; the
+other 4 sources drop and 5 SCAVENGE haulers pick up (carry 7.9/12.8/12.9/
+17.6) — so P9 (counts only `source-` haulers) OVER-reports rot: the energy
+moves via drop-and-scavenge, not dedicated routes (a real inefficiency —
+decay loss + hops — but not zero-routing). The live anomaly: spawn util
+0.29 over 1070t, queueDepth 8, **eAvail 504** while **storage 444k** drains
+only −11.8/t. The flow plan has NO `bank-` source and NO bank→spawn hauler,
+so the 444k surplus is NOT drawn to fund the spawn's 75 e/t alloc; the only
+storage outflow is the feeder's ~13/t controller relay (ControllerFeederCorp
+clamps the relay to the PLAN's controller flow by design). Pre-deploy the
+bank drained −44.5/t; post-deploy (part-1 sorts `bank-` LAST) −11.8/t.
+HYPOTHESIS: part-1 correctly deprioritizes the bank, but real production
+execution-lags (remote, dropping to scavenge), so the spawn under-fills and
+idles at 504 while 444k sits idle — a spend-path throttle, possibly a part-1
+interaction. COUNTER: controller delivery ROSE (P7 1.41) and the game score
+climbs, so it may be a benign built-out near-equilibrium (low util is fine
+when little is blocking). FALSIFYING 2nd capture (~200t): if eAvail stays
+~500, queueDepth stays 8, storage barely drains, and P9 stays ~0.43 →
+sustained spend-path starvation (fix the bank draw so it funds the spawn
+when real production is short); if the queue drains / controller keeps
+climbing → benign equilibrium. One hypothesis, next capture decides.
+
 ## Non-goals
 
 - No new segments (0–6 have room; segment size is not a constraint — the
