@@ -401,6 +401,20 @@ climbing), P1 stable. Road chain self-advancing: link@46,11 at
 way. Cycle verdict: verified; no fix needed from this capture; batch
 gate mid-run (deploy on its green).
 
+### 2026-07-19 (Routine cycle) — FEEDER CLAMP VERIFIED LIVE; transition tracking predicted
+
+t72423329: the feeder stamp carries the clamp's full arithmetic -
+planFlow 68.3 (the controller allocation), surplusRate 115, relayRate
+73.3 = min(surplus, plan+5), wantedFeeders 2 and TRACKING the plan as
+the allocation recovers. Task #16 verified in prod. E4 slope negative
+again (-6.4/t, prediction landed); untracked 6 -> 3; P7 0.23 -> 0.34
+with upgraders queued behind the remote rebuild (S3 watch: head
+upgrader@1750 AFFORDABLE+IDLE at util 0.91 - if upgraders have not
+fielded by next capture, S3 escalates); reservation network rebuilding
+from zero banks (gate demand, staffed 1/4). Assembly stable 38/38,
+7 funded, P1 stable. Cycle verdict: verified, no fix; stall diag
+(incident #18) draw 2 in flight.
+
 ### 2026-07-19 (cron cycle) — REMOTES BACK, lens live on the healed state; paving COMPLETE
 
 t72423161 (~250t post-batch-2): assembly {graphSources:38, mined:38,
