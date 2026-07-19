@@ -142,6 +142,37 @@ describe("construction kind on the corp framework (rungs 2-4)", () => {
     expect(second.getTotalAllocatedEnergy()).to.equal(0);
   });
 
+  it("rung 3 - EXECUTE: a cross-room corp with NO vision marches members toward the work room", () => {
+    // Live incident 2026-07-19: four remote-room builders idled at the home
+    // spawn for ~600t. Demand saw the remote sites (intel/vision at order
+    // time); work() gated on vision EVERY tick and an idle member at the home
+    // spawn provides none - a deadlock only the member's own travel can break.
+    const store: CorpStore = new Map();
+    const remote = {
+      ...constructionCommission,
+      corpId: "construction-W9N9",
+      assignment: { ...constructionCommission.assignment, roomName: "W9N9", allocations: [] }
+    };
+    materializeCommissions([remote], store);
+    const spawnStub = { id: "spawn1", room: { name: ROOM }, pos: { x: 25, y: 25, roomName: ROOM } };
+    Game.getObjectById = (() => spawnStub) as never;
+    Game.rooms = {}; // no vision anywhere - especially not W9N9
+    const moves: unknown[][] = [];
+    (Game.creeps as Record<string, unknown>).mb1 = {
+      name: "mb1",
+      spawning: false,
+      memory: { corpId: "building-W9N9-construction", workType: "build" },
+      pos: { x: 26, y: 25, roomName: ROOM, isEqualTo: () => false, isNearTo: () => false, getRangeTo: () => 99, inRangeTo: () => false },
+      store: { getFreeCapacity: () => 50, getUsedCapacity: () => 0, energy: 0 },
+      moveTo: (...a: unknown[]) => { moves.push(a); return 0; },
+      move: (...a: unknown[]) => { moves.push(a); return 0; },
+      say: () => 0
+    };
+    runCommissionedCorps(store, Game.time);
+    expect(moves.length, "vision-less member must be ORDERED to travel, not left idle").to.be.greaterThan(0);
+    expect(JSON.stringify(moves[0])).to.contain("W9N9"); // marched at the work room
+  });
+
   it("rung 3 - EXECUTE/PERSIST: run() never throws with no vision; store round-trips allocations", () => {
     const store: CorpStore = new Map();
     materializeCommissions([constructionCommission], store);

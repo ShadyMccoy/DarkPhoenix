@@ -254,7 +254,18 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return;
 
     const room = this.workRoom(spawn);
-    if (!room) return; // cross-room corp without vision this tick
+    if (!room) {
+      // Cross-room corp without vision: demand saw the room (intel/vision at
+      // order time) but an idle member at the home spawn provides no vision -
+      // a deadlock only the member's own travel can break (measured
+      // 2026-07-19: four remote builders idled ~600t at Spawn1). March them;
+      // arrival restores vision and the full work loop.
+      const targetRoom = this.nodeId.replace(/-construction$/, "");
+      this.builders.run(creep => {
+        travelTo(creep, new RoomPosition(25, 25, targetRoom));
+      }, spawn);
+      return;
+    }
     const controller = room.controller;
     if (!controller) return;
 
