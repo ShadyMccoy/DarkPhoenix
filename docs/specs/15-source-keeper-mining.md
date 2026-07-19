@@ -230,9 +230,24 @@ earns the new cells (the workflow rule).
   own — every SK grid cell stages them by insert, and green sims do **not**
   prove live-readiness against real keeper AI. Flag this loudly at build time.
 
+## Natural follow-up: mineral harvesting rides the same garrison
+
+Out of scope for *this* spec (energy-only), but the design makes it the obvious
+next step, and cheaply so. The expensive part of an SK room — the standing
+guardian — is a **sunk cost the moment the room is held for energy**. A mineral
+op in an already-garrisoned room therefore pays a *marginal* cost of only an
+extractor + a mineral-hauler, with **no new military**: the guardian already
+suppresses the mineral's lair on its patrol. So the sequencing is deliberate —
+land energy SK mining first, and mineral harvesting becomes a near-free rider on
+the garrison it already funds (its own spec, its own producer class, but gated
+on the same `keeperHeldUntil` mark and reusing the same guardian). Worth pricing
+that shared-garrison discount when the mineral spec is written: the mineral's
+admission bar is far lower in a room we already hold than in one we don't.
+
 ## Non-goals
 
-- Mineral / extractor / deposit harvesting in SK rooms (separate producer class).
+- Mineral / extractor / deposit harvesting in SK rooms (separate producer class,
+  but a cheap follow-up on a held room — see above).
 - Center `(5,5)` rooms, portals, power banks, strongholds (levels 1–5) — all
   different weight classes.
 - Kiting/boost micro in phase 1 (park-and-kill first).
