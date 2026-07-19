@@ -920,3 +920,25 @@ the deploy midpoint (uninterpretable). NO ROLLBACK: transient, warchest 172k is
 a huge buffer, controller holds ~24 e/t on stock. The clean warchest/controller
 measurement is DEFERRED to a post-recovery capture (graphSources back to ~38,
 funded ~7); until then hub-and-spoke's real E4/P7 effect cannot be read.
+
+**HUB-AND-SPOKE VERIFIED (t72436467 -> t72436606, post-transient window dt 139)
+- WARCHEST FLIPS TO GROWING.** The core owner goal ("stop spending our
+savings") is met: storageE slope 172257 -> 175250 = **+21.5/t GROWING** (vs the
+pre-deploy -31.6/t bleed). Routing holds (mined + scavenge -> storage, bank/hub
+-> consumers), P9 0.54 -> 1.0. Measured DURING the post-reset transient (only 2
+graph sources), so the flip is if anything understated - at full income it grows
+faster. The controller still progresses (~12.9 e/t in-window, income-limited by
+the 2-source transient), controllerStock stood (1920 -> 1970). NO REGRESSION.
+GRAPH-AT-2 EXPLAINED (not hub-and-spoke, not new): the deploy's global reset
+wiped the territory cache -> main.ts:264-274's documented "remote mining
+silently stops" state -> the forced terrain pass rebuilds territories and
+re-claims the remote sources over the analysis window. graphSources 38 -> 2,
+flat across two captures (8 & 19 min); 7 harvest corps + scout + reserver all
+alive (Memory-persisted), the 5 orphaned miners' output reaches storage via
+scavenge (why the warchest grows despite "2 funded"). Self-healing; a
+recovery-trend capture (~40 min post-deploy) confirms graphSources climbing back
+toward 38, at which point the full-income warchest slope + controller e/t get a
+clean re-read. NOTE (follow-up, pre-existing): every deploy triggers this
+terrain-rebuild income dip - a real per-deploy cost worth quantifying, and a
+plausible contributor to the historical warchest drain given this session's
+deploy frequency.
