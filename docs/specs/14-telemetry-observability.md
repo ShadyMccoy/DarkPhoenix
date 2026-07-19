@@ -1026,3 +1026,21 @@ sources" - far unfunded sources present, bank outflow must be <= funded. Gate:
 unit 968 + phantom guard, grid fid-t4/bank-surplus-upgrades/storage-bank-and-spill
 [P], trio. Chose FIX-FORWARD over rollback: the fix is targeted + unit-pinned, a
 rollback costs the same global-reset stall (#22) AND un-does the warchest fix.
+
+**AUDIT CYCLE t72438635 - phantom-fix recovery progressing, depot-crash recovery-
+order BLOCKER named.** Phantom fix confirmed working (warchest growing +31.82/t,
+plan-side healthy). Colony in SLOW doctrine-ordered recovery from the depot crash
+the phantom stall caused: util recovered 0.21->0.97 (spawn building hard), fleet
+16->19. BUT controller 0 e/t / feederActive false persist because the upgrader
+AND controllerFeeder creeps DIED in the crash (segment 4: both body=none) and are
+queued BEHIND the production rebuild (agenda: hauler->upgrader->tanker->builder;
+recent executed = all haulers+miners). Production-first is doctrine-correct in
+steady state but WRONG after a DEPOT crash: without the feeder/tender the spawn
+stays energy-limited (extensions empty) so the whole rebuild crawls and the
+controller scores 0 the entire time. BootstrapCorp can't rescue it (fires only on
+no-creeps+low-energy; here 19 creeps + 181k warchest). BLOCKER (follow-up, recurs
+on every reset/crash - relates to #22): after a depot-fleet crash, prioritize
+tender/feeder recovery (rebuild energy DISTRIBUTION first), or widen the bootstrap
+trigger to "depot movers dead + spawn extensions starved". Not an emergency
+(warchest 181k, no downgrade risk, recovery advancing); no new deploy this cycle.
+Cycle verdict: FIX VERIFIED (working) + BLOCKER NAMED (depot-crash recovery order).
