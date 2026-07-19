@@ -82,6 +82,34 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p7.detail).to.contain("stock"); // the discriminator: energy WAS there
   });
 
+  it("P8 skips gracefully when captures predate the site fields (no row)", () => {
+    const rows2 = computeLedger(fixture("shard1-t72421124.json"), fixture("shard1-t72420978.json"));
+    expect(rows2.find(r => r.id === "P8")).to.equal(undefined);
+  });
+
+  it("P8 FAILS a flat-progress window with sites standing and construction funded (builders not building)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    // fund construction at BOTH endpoints (t72421124 already carries 90.1)
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 90 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("FAIL");
+    expect(p8.detail).to.contain("CREW IDLE");
+  });
+
+  it("P8 treats a completion window as ambiguous, never a failure", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 2, siteProgress: 2900, siteTotal: 8000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 100, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 90 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("ok");
+    expect(p8.detail).to.contain("completion window");
+  });
+
   it("P5 flags the reserver duty price/behavior drift until the corp reads the reservation bank", () => {
     const p5 = row("P5");
     expect(p5.verdict).to.equal("FAIL");

@@ -273,6 +273,15 @@ export interface CoreTelemetry {
     controllerStock: number | null;
     /** Is the controller feeder actively relaying storage -> controller? */
     feederActive: boolean;
+    /**
+     * Construction delivery inputs (v6, ledger P8 "builders not building"):
+     * my sites' summed progress / progressTotal and count. A window where
+     * sites stand, allocation flows, and siteProgress is FLAT = build crew
+     * idle (completions read ambiguous and are skipped by the meter).
+     */
+    siteProgress: number;
+    siteTotal: number;
+    siteCount: number;
   }[];
 }
 
@@ -646,7 +655,15 @@ export class Telemetry {
           energyCapacity: room.energyCapacityAvailable,
           storageEnergy: room.storage?.my ? room.storage.store.energy ?? 0 : null,
           controllerStock: controllerSideStock(room.controller),
-          feederActive: !!room.memory.controllerFeederActive
+          feederActive: !!room.memory.controllerFeederActive,
+          ...(() => {
+            const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+            return {
+              siteProgress: sites.reduce((a, st) => a + (st.progress ?? 0), 0),
+              siteTotal: sites.reduce((a, st) => a + (st.progressTotal ?? 0), 0),
+              siteCount: sites.length
+            };
+          })()
         });
       }
     }
@@ -688,7 +705,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 5, // Version 5: spawn meter + NOW-plan mirror (spec 14 phases 3-4)
+      version: 6, // v5 spawn meter + NOW-plan mirror; v6 site progress (ledger P8)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {

@@ -376,6 +376,46 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- P8 build delivery (owner marathon: "builders not building") ----
+  // Sites standing at BOTH endpoints, construction allocated, and summed site
+  // progress FLAT = the build crew idled a whole window. A completion makes
+  // progress vanish (site removed), so any drop in count/total reads
+  // ambiguous and is skipped - no false alarms on finished builds.
+  {
+    const sum = (c: any, f: string): number => (c.rooms ?? []).reduce((a: number, r: any) => a + (r[f] ?? 0), 0);
+    const hasFields = (core.rooms ?? []).some((r: any) => r.siteCount !== undefined) &&
+      (bcore.rooms ?? []).some((r: any) => r.siteCount !== undefined);
+    if (hasFields) {
+      const consAlloc = Math.min(
+        (base.data.flow?.sinks ?? []).filter((s: any) => s.type === "construction").reduce((a: number, s: any) => a + (+s.allocated || 0), 0),
+        (flow?.sinks ?? []).filter((s: any) => s.type === "construction").reduce((a: number, s: any) => a + (+s.allocated || 0), 0)
+      );
+      const count1 = sum(bcore, "siteCount");
+      const count2 = sum(core, "siteCount");
+      const prog1 = sum(bcore, "siteProgress");
+      const prog2 = sum(core, "siteProgress");
+      const total1 = sum(bcore, "siteTotal");
+      const total2 = sum(core, "siteTotal");
+      const completion = count2 < count1 || total2 < total1;
+      const standing = count1 > 0 && count2 > 0;
+      const delivered = prog2 - prog1;
+      const flat = standing && !completion && delivered <= 0;
+      rows.push({
+        id: "P8",
+        name: "build delivery (site progress)",
+        value: dt > 0 ? +(Math.max(0, delivered) / dt).toFixed(2) : 0,
+        unit: "e/t built",
+        verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
+        detail: completion
+          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped`
+          : standing
+          ? `sites ${count1}->${count2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+            (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
+          : "no sites standing across the window"
+      });
+    }
+  }
+
   // ---- X3 census ----
   rows.push({
     id: "X3",

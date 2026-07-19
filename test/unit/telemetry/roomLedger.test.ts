@@ -72,12 +72,35 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(5); // v4 added the ledger; v5 added spawn meter + agenda mirror
+    expect(core.version).to.equal(6); // v4 ledger; v5 spawn meter + agenda; v6 site progress (P8)
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
     expect(room.controllerStock).to.equal(1750);
     expect(room.feederActive).to.equal(true);
+  });
+
+  it("exports my construction sites' progress sums (v6, ledger P8 'builders not building')", () => {
+    const container = { structureType: "container", store: { energy: 0 } };
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
+    Game.rooms = {
+      W1N1: {
+        name: "W1N1",
+        controller: mkController([container], []),
+        memory: {},
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        find: (t: number) =>
+          t === 114 ? [{ progress: 500, progressTotal: 3000 }, { progress: 100, progressTotal: 5000 }] : []
+      }
+    } as any;
+
+    new Telemetry().update(undefined, [], undefined);
+    const room = JSON.parse(RawMemory.segments[0]).rooms[0];
+
+    expect(room.siteProgress).to.equal(600);
+    expect(room.siteTotal).to.equal(8000);
+    expect(room.siteCount).to.equal(2);
   });
 
   it("reports null (not zero) when a room has no storage, and 0 stock for a bare controller", () => {
