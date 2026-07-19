@@ -347,15 +347,42 @@ describe("economy/CorpPlanner", () => {
         })
       );
       const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
       const store = plan.sinks.find(s => s.sinkId === "store")!;
       // the spawn is FULLY funded - no starvation (the regression's failure mode)
       expect(spawnSink.allocated, "spawn fully funded, not starved").to.be.closeTo(20, 1e-6);
       // ...from the reliable home bank (nearest-first fills the home sink from the nearest source)
       const spawnFromBank = spawnSink.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0;
       expect(spawnFromBank, "the reliable home bank funds the spawn").to.be.greaterThan(0);
-      // mined production is ROUTED - it banks to storage, not rotting (#19)
+      // the capped controller consumes only its cap (8) of real production...
+      expect(ctrl.allocated, "controller consumes only its physical cap").to.be.closeTo(8, 1e-6);
+      // ...and the EXCESS mined production (30 - 8 = 22) overflows into storage,
+      // not an infeasible over-upgrade plan (#21) - and it is ROUTED, not rotting (#19)
       const minedToStore = store.sources.filter(s => s.sourceId.startsWith("m")).reduce((a, s) => a + s.amount, 0);
-      expect(minedToStore, "all 30 e/t of mined surplus banks to storage").to.be.closeTo(30, 1e-6);
+      expect(minedToStore, "the excess mined surplus banks to storage").to.be.closeTo(22, 1e-6);
+    });
+
+    it("delivers FAR mined production to the controller before the nearer home bank - remotes are not out-competed (owner: get energy home from remotes)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // a FAR remote source + a huge home bank sitting right on the controller
+          sources: [source("remote", 40, 10), stock("bank-home", 5, 300)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 5),
+            sink("ctrl", "controller", 6, 50, 100) // production-first: mined before the near bank
+          ]
+        })
+      );
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      // the remote's energy is DELIVERED to the controller (production-first), not
+      // out-competed by the nearer bank and left to drop/scavenge
+      expect(ctrl.sources.find(s => s.sourceId === "remote")?.amount ?? 0, "remote mined delivers to the controller").to.be.closeTo(10, 1e-6);
+      expect(plan.haulers.some(h => h.sourceId === "remote" && h.sinkId === "ctrl"), "a dedicated remote->controller hauler exists").to.equal(true);
+      // ...while the SPAWN is still funded from the NEAR bank (never the slow far mined)
+      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      expect(spawnSink.allocated, "spawn funded").to.be.closeTo(5, 1e-6);
+      expect(spawnSink.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0, "spawn drawn from the near bank").to.be.greaterThan(0);
     });
 
     it("the bank never pumps into storage - it IS the storage (structural anti-pump, part-2A)", () => {

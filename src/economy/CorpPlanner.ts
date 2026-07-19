@@ -423,6 +423,8 @@ function routeToSinks(
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
 
+  const isBank = (id: string): boolean => id.startsWith("bank-");
+
   const fill = (sink: PlannerSink, target: number): void => {
     const acc = out.get(sink.id) ?? {
       sinkId: sink.id,
@@ -447,7 +449,15 @@ function routeToSinks(
     // Capacity) so its surplus overflows into storage rather than rotting.
     // A source's output is hauled from its haulPos (the core link for a
     // link-served source), not necessarily the source tile itself.
-    const isBank = (id: string): boolean => id.startsWith("bank-");
+    // Production-first for CONSUMER sinks (controller, construction): a real
+    // mined source sorts BEFORE the warchest bank, so remote income is DELIVERED
+    // to the consumer instead of losing the nearest-first race to the home bank
+    // and dropping (owner 2026-07-19: "we're not getting energy home from our
+    // remotes ... we're just spending our savings"). The SPAWN and storage stay
+    // pure nearest-first: the spawn draws the reliable NEAR bank (never the slow
+    // FAR mined that starves it - the bank-last regression t72429045), and the
+    // storage sink already excludes the bank below.
+    const consumerSink = sink.kind === "controller" || sink.kind === "construction";
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
       // Structural anti-pump (spec 03): the bank is stored IN the storage, so a
@@ -459,7 +469,12 @@ function routeToSinks(
         const s = sourceById.get(id)!;
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
       })
-      .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
+      .sort(
+        (a, b) =>
+          (consumerSink ? Number(isBank(a.id)) - Number(isBank(b.id)) : 0) ||
+          a.d - b.d ||
+          (a.id < b.id ? -1 : 1)
+      );
 
     // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
     // a controller, builders at construction (5x cheaper per e/t - BUILD is

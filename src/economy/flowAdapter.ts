@@ -226,6 +226,15 @@ export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
   for (const roomName in Game.rooms) {
+    // FORGET SCAVENGERS FOR REMOTES (owner 2026-07-19): a remote source mines
+    // into its container, and detectRoomStocks sums that container into the
+    // ground pile - so the container's energy is planned as SCAVENGE supply and
+    // a scavenge hauler siphons it, stealing the energy from the source's own
+    // dedicated haul-home. The remote then "delivers" only a scavenge trickle
+    // while the colony burns its warchest. Scavenge ONLY owned rooms, where the
+    // controller-bucket overflow recapture is load-bearing (scavenge.ts); a
+    // remote source's energy is the miner's to haul home, not a scavenger's.
+    if (!Game.rooms[roomName].controller?.my) continue;
     for (const stock of detectRoomStocks(Game.rooms[roomName])) {
       out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
     }
