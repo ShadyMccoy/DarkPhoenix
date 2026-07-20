@@ -205,7 +205,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted";
 }
 
 export interface ColonyPlan {
@@ -550,12 +550,35 @@ function routeToSinks(
     acc.partsLeft = partsRemaining;
   };
 
+  const byValueThenId = (a: PlannerSink, b: PlannerSink): number =>
+    b.value - a.value || (a.id < b.id ? -1 : 1);
   // Reserve pre-pass: guarantee critical floors before value greed drains the pool.
-  for (const sink of [...sinks].filter(s => (s.reserve ?? 0) > 0).sort((a, b) => b.value - a.value)) {
+  for (const sink of [...sinks].filter(s => (s.reserve ?? 0) > 0).sort(byValueThenId)) {
     fill(sink, Math.min(sink.reserve!, sink.capacity));
   }
-  // Value pass: highest value first, up to capacity.
-  for (const sink of [...sinks].sort((a, b) => b.value - a.value || (a.id < b.id ? -1 : 1))) {
+  // PRODUCTION-FIRST LEDGER ORDER (macro doctrine; prod t72445337): the pure
+  // value pass filled consumers first, and because deposits (mined -> hub)
+  // sit at storage's value 1 they were LAST - one solve's consumer routes +
+  // upgrade WORK charges drained the ledger to partsLeft 0.0 and all SEVEN
+  // funded sources got zero haul routes: 70 e/t of funded mining, 0 routed,
+  // income rotting at the containers while the plan read as feasible. The
+  // energy pools were never the conflict (consumers draw the bank, deposits
+  // fill the hub - disjoint by role); the PARTS ledger was. So parts now
+  // follow the doctrine: spawn overhead first (production's own financing),
+  // then the funded income's haul-home, then consumers burn the residual.
+  // Consumer ALLOCATIONS shrink when parts bind - execution already sizes
+  // real consumers from actual stock (sustainableConsumptionRate), so the
+  // burn continues from standing stock while the plan stops promising
+  // routes the spawn cannot maintain.
+  for (const sink of [...sinks].filter(s => s.kind === "spawn").sort(byValueThenId)) {
+    fill(sink, sink.capacity);
+  }
+  for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
+    fill(sink, sink.capacity);
+  }
+  // Value pass: highest value first, up to capacity (spawn/storage are
+  // already at target - their re-fill is a no-op).
+  for (const sink of [...sinks].sort(byValueThenId)) {
     fill(sink, sink.capacity);
   }
 
@@ -621,15 +644,44 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   };
   const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
-  const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
+  // FUNDED => ROUTED (leak #19 in plan form): in the hub era a funded source
+  // whose deposit routing got ZERO parts would field a miner for pure rot -
+  // the exact fantasy the fill order above exists to prevent, surviving only
+  // on the tail when even production-first parts run out. Demote it to an
+  // "unrouted" verdict and drop its miner; the freed build-time re-enters
+  // the equilibrium next solve. (Partial routing stays funded - a source
+  // shipping some of its rate is income, not rot.) NOTE: the hub bank credit
+  // above was computed pre-routing, so a demoted source's rate inflates the
+  // consumer spend pool by its rate for THIS solve - bounded to the demoted
+  // tail and visible via the verdict.
+  const hasHub = storageSinks.length > 0;
+  let plannedMiners = miners;
+  if (hasHub) {
+    const routedSources = new Set<string>();
+    for (const k of sinks) {
+      for (const sf of k.sources) {
+        if (sf.amount > 1e-9) routedSources.add(sf.sourceId);
+      }
+    }
+    const unroutedIds = new Set(miners.filter(m => !routedSources.has(m.sourceId)).map(m => m.sourceId));
+    if (unroutedIds.size > 0) {
+      plannedMiners = miners.filter(m => !unroutedIds.has(m.sourceId));
+      for (const v of sourceVerdicts) {
+        if (unroutedIds.has(v.sourceId) && v.verdict === "funded") v.verdict = "unrouted";
+      }
+    }
+  }
+
+  const demotedRate = miners.reduce((s, m) => s + m.rate, 0) - plannedMiners.reduce((s, m) => s + m.rate, 0);
+  const totalProduced = supply.reduce((s, p) => s + p.rate, 0) - demotedRate;
   const totalDelivered = sinks.reduce((s, k) => s + k.allocated, 0);
-  const miningOverhead = miners.reduce((s, m) => s + minerOverhead(m.distance), 0);
+  const miningOverhead = plannedMiners.reduce((s, m) => s + minerOverhead(m.distance), 0);
   const haulOverhead = haulers.reduce((s, h) => s + haulerOverhead(h.carryParts, h.distance), 0);
   const totalOverhead = miningOverhead + haulOverhead;
   const valueDelivered = sinks.reduce((s, k) => s + k.allocated * k.value, 0);
 
   const spawnPartsUsed = new Map<string, number>();
-  for (const m of miners) {
+  for (const m of plannedMiners) {
     spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / effectiveLife(m.distance));
   }
   for (const h of haulers) {
@@ -637,7 +689,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   }
 
   return {
-    miners,
+    miners: plannedMiners,
     haulers,
     sinks,
     sourceVerdicts,

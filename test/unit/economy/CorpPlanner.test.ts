@@ -433,6 +433,65 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("production-first parts ledger (prod t72445337: 70 e/t funded, 0 routed)", () => {
+    // The pure value pass filled consumers first; deposits (mined -> hub) sat
+    // at storage's value 1 and got the ledger's LEAVINGS - one live solve's
+    // bank->consumer routes plus upgrade WORK charges drained partsLeft to
+    // 0.0 and all seven funded sources got zero haul routes: the plan read
+    // feasible while 70 e/t of income rotted at the containers. Parts now
+    // follow the macro doctrine: spawn overhead, then the funded income's
+    // haul-home, then consumers burn the residual.
+    it("routes the funded deposit BEFORE consumer draws when parts bind (the incident)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("remote", 40, 10), stock("bank-home", 2, 200)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 5),
+            sink("ctrl", "controller", 5, 50, 200),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
+          // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
+          // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
+          infraPartsPerTick: 0.297
+        })
+      );
+      const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
+      expect(deposit, "the funded source's haul-home exists even under consumer pressure").to.not.equal(undefined);
+      expect(deposit!.flowRate, "the deposit routes the FULL rate").to.be.closeTo(10, 1e-6);
+      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      expect(spawnSink.allocated, "spawn overhead still funded first").to.be.closeTo(5, 1e-6);
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      expect(ctrl.allocated, "the consumer burns the RESIDUAL parts").to.be.greaterThan(1);
+      expect(ctrl.allocated, "not the deposit's share").to.be.lessThan(15);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "remote")!.verdict).to.equal("funded");
+    });
+
+    it("FUNDED => ROUTED: a source whose deposit gets ZERO parts demotes to 'unrouted' (no miner for rot)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // A (closer to the hub) partially routes and exhausts the ledger;
+          // B's deposit gets nothing - a B miner would mine for pure rot.
+          sources: [source("A", 30, 20), source("B", 45, 10), stock("bank-home", 2, 200)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 1),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          infraPartsPerTick: 0.302
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "A")!.verdict, "partial routing stays funded").to.equal("funded");
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "B")!.verdict).to.equal("unrouted");
+      const aDeposit = plan.haulers.find(h => h.sourceId === "A" && h.sinkId === "store");
+      expect(aDeposit!.flowRate, "A ships what the ledger affords").to.be.greaterThan(5);
+      expect(aDeposit!.flowRate).to.be.lessThan(19);
+      expect(plan.haulers.some(h => h.sourceId === "B"), "no phantom B route").to.equal(false);
+    });
+  });
+
   describe("storage-full defund (owner 2026-07-19: top out the storage -> defund the WHOLE corp)", () => {
     // The all-or-nothing rule. A remote source is fully funded (miner + hauler
     // + reserver + container) or fully defunded - never a miner mining into a

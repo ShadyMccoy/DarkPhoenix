@@ -183,6 +183,12 @@ export interface CoreTelemetry {
     tracked: number;
     untracked: number;
     /**
+     * Creeps whose memory.corpId matches NO census corp (id-match lens,
+     * distinct from the count-difference lens above) - the X3 leak, named.
+     * Capped at 8 rows; absent when empty.
+     */
+    unattributed?: { name: string; corpId: string | null; workType?: string; ttl?: number }[];
+    /**
      * Creep counts keyed by commission KIND (harvest/carry/...), derived from
      * the census generically: a registered kind whose corps expose
      * getCreepCount is counted by construction (the hand-maintained bucket
@@ -623,6 +629,26 @@ export class Telemetry {
       creeps.tracked += n;
     }
     creeps.untracked = Math.max(0, creeps.total - creeps.tracked);
+    // NAME the leak (X3 sat at 3-4 for days with no names): creeps whose
+    // memory.corpId resolves to NO census corp, listed with the id they
+    // claim. This is its OWN lens (id-match), deliberately separate from the
+    // count difference above (corp-side getCreepCount) - the two disagreeing
+    // is itself a diagnostic (a corp counting creeps it doesn't own, or one
+    // owning creeps it doesn't count).
+    const censusIds = new Set(census.map(c => (c.corp as unknown as { id?: string }).id).filter(Boolean));
+    const unattributed: NonNullable<CoreTelemetry["creeps"]["unattributed"]> = [];
+    for (const name in Game.creeps) {
+      const m = (Game.creeps[name].memory ?? {}) as { corpId?: string; workType?: string };
+      if (m.corpId && censusIds.has(m.corpId)) continue;
+      if (unattributed.length >= 8) break;
+      unattributed.push({
+        name,
+        corpId: m.corpId ?? null,
+        ...(m.workType ? { workType: m.workType } : {}),
+        ...(Game.creeps[name].ticksToLive !== undefined ? { ttl: Game.creeps[name].ticksToLive } : {})
+      });
+    }
+    if (unattributed.length > 0) creeps.unattributed = unattributed;
 
     // Get colony stats
     const stats = colony?.getStats() || {
