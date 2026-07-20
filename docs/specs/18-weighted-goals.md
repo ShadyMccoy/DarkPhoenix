@@ -113,6 +113,19 @@ the rejected-for-now alternative.
 
 ## Node grain: the de-rooming inventory
 
+**Prerequisite — node identity stability (owner principle 2026-07-20: "nodes
+should be stable because the world terrain is stable").** Terrain IS static,
+so stability is enforceable - but today node ids are positional
+(`${room}-${peakX}-${peakY}`, nodes/Node.ts) and the analysis window is a
+7x7 box around OWNED rooms (IncrementalAnalysis.ts), so claiming a room can
+shift edge peaks and rename nodes exactly at expansion moments. Before any
+funding seam keys on nodes: (a) persist-and-match identity - re-analysis
+matches peaks/territories to EXISTING nodes by terrain-stable anchors
+(source/controller ids, peak-within-old-territory) and keeps their ids;
+only new territory mints ids; (b) the invariant as a unit test - analyzing
+a grown window never renames a node interior to the old one. Same medicine
+as the roomIntel.sourceIds churn fix.
+
 Rooms leak into the funding seams today; each moves to node/path grain as
 the search lands (rooms stay as constraint annotations only):
 
