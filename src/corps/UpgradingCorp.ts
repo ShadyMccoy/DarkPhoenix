@@ -78,7 +78,18 @@ export function upgraderSizing(
   if (stock === null) return { allocated: planAllocated, inflow: null };
   const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
   const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
-  return { allocated: Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, inflow))), inflow };
+  const sustainable = sustainableConsumptionRate(stock, inflow);
+  // In SURPLUS the plan is NOT a cap (prod t72448020: planAllocated pinned
+  // at the reserve 2 by a parts-exhausted fill while stock 2000 + relay 115
+  // + 234k banked stood ready - the goal-plan cap held the burn at 2 e/t
+  // forever, the exact trap the macro doctrine names: consumers are "sized
+  // from ACTUAL stock at their work site, never from the goal plan"). The
+  // NOW-walk arbitrates spawn time (consume ranks below production; the
+  // starvation backstop buys on idle+affordable - the owner's
+  // idle-harvesting), so an actuals-sized demand cannot displace producers.
+  // While the warchest FILLS, the plan-capped sip remains the pinned save
+  // regime.
+  return { allocated: Math.max(2, surplusRelay ? sustainable : Math.min(planAllocated, sustainable)), inflow };
 }
 
 export function upgraderAllocation(
