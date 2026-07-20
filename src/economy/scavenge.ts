@@ -124,7 +124,11 @@ export function stockToTransientSource(stock: GroundStock, nodeId: string): Plan
  * energy. Thin wrapper over the room API; the thresholding/rate logic is the pure
  * functions above.
  */
-export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): GroundStock[] {
+export function detectRoomStocks(
+  room: Room,
+  threshold = SCAVENGE_THRESHOLD,
+  includeContainers = true
+): GroundStock[] {
   let finds: EnergyFind[] = [];
 
   for (const r of room.find(FIND_DROPPED_RESOURCES)) {
@@ -156,11 +160,16 @@ export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): Gr
   // container is a single quantity of energy for planning - the container's
   // contents join the pile's find so thresholding and drain-rate sizing see
   // the true stock (execution drains the decaying pile first; nodeEnergy).
-  for (const find of finds) {
-    const pos = new RoomPosition(find.pos.x, find.pos.y, find.pos.roomName);
-    for (const s of pos.findInRange(FIND_STRUCTURES, 0)) {
-      if (s.structureType === STRUCTURE_CONTAINER) {
-        find.energy += (s as StructureContainer).store[RESOURCE_ENERGY];
+  // REMOTE callers pass includeContainers=false: the container is a route's
+  // own supply (scavenging it was the 2026-07-19 warchest-bleed siphon), so
+  // remote stocks are DROPPED-ONLY - the spill that decays if nobody comes.
+  if (includeContainers) {
+    for (const find of finds) {
+      const pos = new RoomPosition(find.pos.x, find.pos.y, find.pos.roomName);
+      for (const s of pos.findInRange(FIND_STRUCTURES, 0)) {
+        if (s.structureType === STRUCTURE_CONTAINER) {
+          find.energy += (s as StructureContainer).store[RESOURCE_ENERGY];
+        }
       }
     }
   }

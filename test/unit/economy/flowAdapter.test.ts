@@ -404,6 +404,87 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
   });
 });
 
+/**
+ * Remote scavenge is SPILL-ONLY (refining the owner's 2026-07-19 ruling;
+ * prod t72446738): the original siphon incident came from summing a remote
+ * CONTAINER into the pile - scavengers stole the route's own supply. The
+ * container stays structurally un-scavengeable in remote rooms, but DROPPED
+ * piles there decay at ceil(amount/1000)/t with nobody coming (measured:
+ * 25k standing at four remote mouths, ~19 e/t bleeding - the largest live
+ * leak). Dropped-only + a 1000 threshold recovers the spill without ever
+ * touching what the haul-home owns.
+ */
+describe("economy/flowAdapter - remote scavenge is spill-only (prod t72446738)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    (global as any).FIND_DROPPED_RESOURCES = 106;
+    (global as any).FIND_TOMBSTONES = 118;
+    (global as any).FIND_RUINS = 123;
+    (global as any).FIND_STRUCTURES = 107;
+    (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).__mockTiles = {};
+    (global as any).RoomPosition = class {
+      public constructor(public x: number, public y: number, public roomName: string) {}
+      public findInRange(): any[] {
+        return (global as any).__mockTiles[`${this.roomName}:${this.x},${this.y}`] ?? [];
+      }
+    };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const mkRoom = (name: string, owned: boolean, dropped: number, containerEnergy: number): any => {
+    const pile = { resourceType: "energy", amount: dropped, pos: { x: 20, y: 20, roomName: name } };
+    const container = {
+      structureType: "container",
+      store: { energy: containerEnergy },
+      pos: { x: 20, y: 20, roomName: name }
+    };
+    // the pile sits ON the container tile: findInRange(0) from a minted
+    // RoomPosition at (20,20) must find it - register in the tile registry
+    (global as any).__mockTiles[`${name}:20,20`] = [container];
+    return {
+      name,
+      controller: owned ? { my: true, pos: { x: 40, y: 40, roomName: name } } : { my: false },
+      memory: {},
+      find: (t: number) => (t === 106 && dropped > 0 ? [pile] : t === 107 ? [container] : [])
+    };
+  };
+
+  it("a remote DROPPED spill becomes scavenge supply - the container's energy does NOT", async () => {
+    const { detectTransientSources } = await import("../../../src/economy/flowAdapter");
+    const { detectRoomStocks } = await import("../../../src/economy/scavenge");
+    g.Game = { rooms: { W9N9: mkRoom("W9N9", false, 8000, 2000) }, creeps: {}, getObjectById: () => null };
+    const out = detectTransientSources();
+    expect(out, "one spill stock").to.have.length(1);
+    // The stock AMOUNT is dropped-only (8000), never dropped+container
+    // (10000) - the container is the haul-home's, structurally.
+    const room = g.Game.rooms.W9N9;
+    expect(detectRoomStocks(room, 1000, false)[0].amount, "spill-only lens").to.equal(8000);
+    expect(detectRoomStocks(room, 1000, true)[0].amount, "the summed lens would have siphoned").to.equal(10000);
+  });
+
+  it("remote sub-threshold jitter fields nothing; owned rooms keep the summed-stock rule", async () => {
+    const { detectTransientSources, REMOTE_SPILL_THRESHOLD } = await import("../../../src/economy/flowAdapter");
+    expect(REMOTE_SPILL_THRESHOLD).to.equal(1000);
+    g.Game = { rooms: { W9N9: mkRoom("W9N9", false, 500, 2000) }, creeps: {}, getObjectById: () => null };
+    expect(detectTransientSources(), "500 dropped remote = jitter, no scavenger").to.have.length(0);
+    // owned: container SUMS into the stock (the 2026-07-10 rule, unchanged)
+    g.Game = { rooms: { W1N1: mkRoom("W1N1", true, 400, 1800) }, creeps: {}, getObjectById: () => null };
+    const owned = detectTransientSources();
+    expect(owned, "owned pile+container above threshold together").to.have.length(1);
+  });
+});
+
 describe("economy/flowAdapter - paved-source detection", () => {
   const g = globalThis as unknown as { Game?: unknown };
   let savedGame: unknown;

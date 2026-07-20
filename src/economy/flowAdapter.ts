@@ -238,21 +238,31 @@ export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
   for (const roomName in Game.rooms) {
-    // FORGET SCAVENGERS FOR REMOTES (owner 2026-07-19): a remote source mines
-    // into its container, and detectRoomStocks sums that container into the
-    // ground pile - so the container's energy is planned as SCAVENGE supply and
-    // a scavenge hauler siphons it, stealing the energy from the source's own
-    // dedicated haul-home. The remote then "delivers" only a scavenge trickle
-    // while the colony burns its warchest. Scavenge ONLY owned rooms, where the
-    // controller-bucket overflow recapture is load-bearing (scavenge.ts); a
-    // remote source's energy is the miner's to haul home, not a scavenger's.
-    if (!Game.rooms[roomName].controller?.my) continue;
-    for (const stock of detectRoomStocks(Game.rooms[roomName])) {
+    // REMOTE SCAVENGE IS SPILL-ONLY (refining the 2026-07-19 ruling): the
+    // original incident was detectRoomStocks summing a remote CONTAINER into
+    // the pile, so scavengers siphoned the route's own supply and the colony
+    // burned its warchest while the remote "delivered" a trickle. The
+    // container stays structurally un-scavengeable here (includeContainers
+    // false) - but DROPPED piles in remote rooms are energy nobody's route
+    // will ever haul (a demoted source has no route at all; a funded route's
+    // spill exceeds its flow-sized haulers) and they DECAY at
+    // ceil(amount/1000)/t: measured t72446738, 25k standing at four remote
+    // mouths bleeding ~19 e/t - the colony's largest live leak. Threshold
+    // 1000 keeps the fleet off harvest jitter; only real spills qualify.
+    const owned = !!Game.rooms[roomName].controller?.my;
+    const stocks = owned
+      ? detectRoomStocks(Game.rooms[roomName])
+      : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
+    for (const stock of stocks) {
       out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
     }
   }
   return out;
 }
+
+/** Remote dropped piles must exceed this to field a scavenger (real spills
+ * decay ~1+/t at this size; harvest jitter stays below it). */
+export const REMOTE_SPILL_THRESHOLD = 1000;
 
 /**
  * Detect link-served sources across visible rooms: a source with its own link
