@@ -136,9 +136,10 @@ the search lands (rooms stay as constraint annotations only):
 
 ## Acceptance tests (the spec is DONE when these pass)
 
-1. **Default pin:** `planColony(problem)` with no goal and no search produces
-   plans deep-equal to today's over the golden worlds — landing the seams
-   changes nothing until a goal/search is engaged.
+1. **Default pin:** under the DEFAULT goal with the searcher LIVE (the only
+   code path - no bypass exists), plans over the golden worlds deep-equal
+   today's: the decision rule keeps status quo wherever nothing strictly
+   beats it net of transition costs and noise floor.
 2. **Compiler invariants (property test):** randomized profile blends can
    never express a forbidden ladder ordering (the 90-vs-85 class).
 3. **Profile semantics (pure):** "found-room(W)" shifts allocation toward W's
