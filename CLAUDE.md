@@ -53,6 +53,18 @@ whose operators are corps. Read order for architecture truth:
 
 ## Trap list (each of these has burned a session)
 
+- **Bandaid rules: question the mechanism, not just its failure** (owner
+  2026-07-20): a rule whose distress response is REVOCATION — retire
+  commissions, strand the standing fleet — is the wrong class regardless of
+  its trigger. Standing assets keep working their profitable routes; scarcity
+  acts at the SPAWN (defund: no NEW bodies, via priority), and the planner
+  prices — it doesn't gate. The retired remote gate took TWO patches (sticky
+  window, then agenda reads) across two incidents (t72444963, t72448082: 238
+  parts stranded, income 46→20, a 2150 hauler bought for an already-dropped
+  route) before the rule itself was questioned. If you are writing the SECOND
+  patch on the same mechanism, the mechanism is the bug — stop and interrogate
+  it. (Correct-class contrast already in-tree: the hostile-route rule spawns
+  no new haulers but strands nobody.)
 - **Recycling counts as staffing**: do NOT exclude `recycling` creeps from
   staffing counts — the pounce-recycle path orders its own successor;
   excluding them double-orders (measured collapse to a 7-runt fleet).
