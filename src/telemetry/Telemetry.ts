@@ -257,6 +257,13 @@ export interface CoreTelemetry {
    * rooms with vision contribute.
    */
   sourceBuffers?: { [idTail: string]: number };
+  /**
+   * Our construction sites in visible UNOWNED rooms (v9): the owned-room
+   * ledger's siteCount misses cross-room trunk paving entirely - the P8
+   * owned-room blindness (owner 2026-07-20). Keyed by room name; rooms with
+   * zero sites are omitted.
+   */
+  remoteSites?: { [roomName: string]: number };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -732,6 +739,23 @@ export class Telemetry {
       }
     }
 
+    // Remote construction sites (v9): the rooms[] ledger below covers OWNED
+    // rooms only, which left the P8 build read blind to cross-room trunk
+    // paving - a healthy remote build looked like "no sites standing"
+    // (owner 2026-07-20). Visible unowned rooms with our sites, counted.
+    const remoteSites: NonNullable<CoreTelemetry["remoteSites"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (room.controller?.my) continue;
+      let count = 0;
+      try {
+        count = room.find(FIND_MY_CONSTRUCTION_SITES).length;
+      } catch {
+        continue; // partial mocks
+      }
+      if (count > 0) remoteSites[roomName] = count;
+    }
+
     // Spawn meter readout (phase 3): measured utilization from the Memory windows.
     const spawns: CoreTelemetry["spawns"] = [];
     const gameSpawns = Game.spawns ?? {};
@@ -769,7 +793,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 8, // v7 remoteGate decision record; v8 gate RETIRED (owner: revocation is a bandaid - sequencing lives in spawn priority)
+      version: 9, // v8 gate retired; v9 remoteSites (P8's owned-room blindness - trunk builds were invisible)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -793,6 +817,7 @@ export class Telemetry {
       spawns,
       agenda,
       ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
+      ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
       rooms
     };
 

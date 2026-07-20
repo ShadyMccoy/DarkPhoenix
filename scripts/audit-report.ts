@@ -167,6 +167,22 @@ function main(): void {
   console.log(
     `FLEET  ${core.creeps?.total ?? "-"} creeps (${kindStr})  untracked ${core.creeps?.untracked ?? "-"}`
   );
+  // ROADS (v9): the trunk program's gate stamp + our sites in unowned rooms
+  // (the owned-room ledger is blind to cross-room paving - owner 2026-07-20).
+  const remoteSites = core.remoteSites as { [room: string]: number } | undefined;
+  const roadGate = (cur.data.corps?.corps as { sizing?: { roadGate?: string } }[] | undefined)
+    ?.map(c => c.sizing?.roadGate)
+    .find(g => typeof g === "string");
+  if (remoteSites || roadGate) {
+    const siteStr = remoteSites
+      ? Object.entries(remoteSites)
+          .sort((a, b) => b[1] - a[1])
+          .map(([r, n]) => `${r}:${n}`)
+          .join(" ")
+      : "";
+    const totalSites = remoteSites ? Object.values(remoteSites).reduce((s, n) => s + n, 0) : 0;
+    console.log(`ROADS  gate ${roadGate ?? "-"}  remote sites ${totalSites}${siteStr ? ` (${siteStr})` : ""}`);
+  }
   // PARTS: the colony's standing body inventory - the thing the spawn's
   // 0.333/t actually buys - with composition and the fleet-growth band.
   const bp = core.bodyParts?.byPart ?? {};

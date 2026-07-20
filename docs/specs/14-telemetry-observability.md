@@ -168,6 +168,29 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +473t) — trunk stamp disambiguated; the ledger learns to see remote sites (v9)
+
+Scoreboard: burn 50.0 e/t (still climbing; 3 upgraders / 97 WORK), BANK
+-13.4/t, income 0.99x, no FAIL lines. Two remote buffers near-full
+(cedc 3.1k, cbd5 2.3k) - under-haul watch.
+
+Shipped task #20 (observability, owner-driven): the owner refuted the
+"trunk-waiting-vision" reading - the remotes are MINED, vision was never
+the blocker; the stamp fired on placed=0 which conflates "tiles in a
+blind room" with "fully placed, crews building". placeTrunkSites now
+returns a pass survey (placed/built/total/blind[]) and the gate stamps
+trunk-placing-N / trunk-blind-<rooms> / trunk-building-X/Y
+(trunkGateFromSurvey, pinned). Telemetry v9 adds remoteSites (our sites
+in visible unowned rooms) - P8's owned-room ledger was blind to
+cross-room paving; audit:report gains the ROADS line.
+
+Predictions for the next capture: the ROADS line names the true trunk
+state - expected trunk-building-X/Y with remoteSites>0 in the trunk
+rooms (the building-in-progress hypothesis); trunk-blind-<rooms> would
+instead confirm a genuinely blind corridor and name it. Either way the
+next fix is data-driven (builder throughput vs scout-on-demand vs the
+one-project serialization). Cycle verdict: instrumented.
+
 ### 2026-07-20 (cron cycle, cont.) — task #16 FALSIFIED as a regression: the cell is draw-marginal; baseline corrected
 
 Bisection of plan-t5-remote-pipeline's extensions-refill invariant: RED at

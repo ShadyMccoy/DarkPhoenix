@@ -119,6 +119,27 @@ const ROAD_SPAWN_PART_VALUE = 100;
  */
 const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
 
+/** One placement pass over a trunk's tiles: what stands, what was added,
+ * which rooms could not be read. */
+export interface TrunkSurvey {
+  placed: number;
+  built: number;
+  total: number;
+  blind: string[];
+}
+
+/**
+ * The trunk gate stamp from a pass survey - each zero-placement state gets
+ * its own name (owner 2026-07-20: a single "waiting-vision" stamp conflated
+ * "tiles in a blind room" with "fully placed, crews building" and misread a
+ * healthy build as stalled for a whole day).
+ */
+export function trunkGateFromSurvey(s: TrunkSurvey): string {
+  if (s.placed > 0) return `trunk-placing-${s.placed}`;
+  if (s.blind.length > 0) return `trunk-blind-${s.blind.join("+")}`;
+  return `trunk-building-${s.built}/${s.total}`;
+}
+
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
  */
@@ -1021,8 +1042,11 @@ export class ConstructionCorp extends Corp {
           console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
           continue;
         }
-        const placed = this.placeTrunkSites(entry.rooms, entry.tiles3);
-        gate(placed > 0 ? `trunk-placing-${placed}` : "trunk-waiting-vision");
+        // The stamp names WHICH state a zero-placement pass is (owner
+        // 2026-07-20: "waiting-vision" stamped all day while the true state
+        // was fully-placed-and-building - the remotes are mined, vision was
+        // never the blocker; the ambiguity was).
+        gate(trunkGateFromSurvey(this.placeTrunkSites(entry.rooms, entry.tiles3)));
         return; // one project at a time
       }
 
@@ -1090,21 +1114,28 @@ export class ConstructionCorp extends Corp {
   }
 
   /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
-  private placeTrunkSites(roomsTable: string[], tiles3: number[]): number {
-    if (governorPlan().pauseConstruction) return 0;
-    let placed = 0;
+  private placeTrunkSites(roomsTable: string[], tiles3: number[]): TrunkSurvey {
+    const survey: TrunkSurvey = { placed: 0, built: 0, total: tiles3.length / 3, blind: [] };
+    const blind = new Set<string>();
+    const paused = governorPlan().pauseConstruction;
     for (let i = 0; i + 2 < tiles3.length; i += 3) {
-      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
-      if (!r) continue; // no vision this pass
+      const roomName = roomsTable[tiles3[i + 2]];
+      const r = Game.rooms[roomName];
+      if (!r) {
+        blind.add(roomName); // no vision this pass
+        continue;
+      }
       const x = tiles3[i];
       const y = tiles3[i + 1];
-      const covered =
-        r.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD) ||
-        r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD);
-      if (covered) continue;
-      if (r.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) placed++;
+      if (r.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) {
+        survey.built++;
+        continue;
+      }
+      if (r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) continue;
+      if (!paused && r.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) survey.placed++;
     }
-    return placed;
+    survey.blind = [...blind];
+    return survey;
   }
 
   /** All trunk tiles verifiably built - a blind room cannot verify, so false. */
