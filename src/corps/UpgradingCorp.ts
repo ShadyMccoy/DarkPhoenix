@@ -464,6 +464,7 @@ export class UpgradingCorp extends Corp {
       inflow,
       allocated,
       targetCount,
+      parking,
       cap: ctx.energyCapacity,
       demand: "demanded"
     };

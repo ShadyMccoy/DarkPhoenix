@@ -168,6 +168,31 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +653t) — P4's FIRST FAIL: tender mass tipped the plan; per-slot bodies land
+
+Scoreboard: burn 33.4 (upgrader generation dip - staffing back to 1 of 6,
+replacement demanded@2300), BANK -9.2/t, income 1.00x, ROADS
+trunk-building-32/38 (+1 tile, 4 sites left in W43N24).
+
+P4 FAILED for the first time: 1.05x ceiling, and the breakdown names the
+driver - tenders 138p = 0.092 parts/t (3x46p bodies, each sized to the
+BIGGEST cluster for a 2300 bank at maxCarry 23). The design's two
+measured incidents (per-cluster deadlines; one-wave coverage) never had a
+budget term, and capacity growth inflated every body to near-max. FIX
+(red-first, tenderSlotCarry pure seam): slot k sized for ITS cluster
+(clusters[k % len], the same pairing runTenders walks) with an
+equal-share-of-one-wave floor - live shape 22/9/9 -> carries 23/16/16 =
+110p (0.073), plan back under ceiling (~0.99x). Both incident guarantees
+pinned (one-trip-per-cluster, combined >= bank).
+
+Input-election verify (t72459426): INCONCLUSIVE-leaning-correct - home
+siteCount 0, stock/burn continuous, no adverse effects; either the
+hysteresis kept a good-enough incumbent (ring within 1 of best) or the
+container budget blocks. `parking` joins the upgrader stamp (ride-along)
+- next capture reads 8 (migrated/kept-good) vs 6 (kept-clipped = election
+bug) directly. Gate: unit 1087, trio green. Cycle verdict: fixed (P4,
+pending verification) + instrumented (parking).
+
 ### 2026-07-20 (cron cycle, +560t) — ROADS ANSWERED: trunk-building-31/38, zero blind rooms; spec 24 rung 1 SHIPPED
 
 Verification of the v9 observability on its first capture: ROADS gate

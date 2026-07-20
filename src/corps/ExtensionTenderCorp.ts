@@ -41,6 +41,27 @@ export function towerNeedsFill(energy: number, capacity: number): boolean {
   return energy < capacity * 0.5;
 }
 
+/**
+ * CARRY parts for the tender filling fleet slot `staffing` (pure, unit-tested).
+ * The slot serves clusters[staffing % len] - one trip covers ITS cluster
+ * (cluster size + the spawn's tile), floored at an equal share of one full
+ * bank wave (ceil(bankCapacity / target / 50)) so the fleet's combined carry
+ * still covers a whole drain, capped at what the room can afford. Sizing
+ * every body to the BIGGEST cluster instead fielded 3 near-max bodies for a
+ * 2300 bank (t72459426: 138p, 0.092 parts/t - the P4 ceiling breach).
+ */
+export function tenderSlotCarry(
+  clusterSizes: number[],
+  staffing: number,
+  target: number,
+  bankCapacity: number,
+  maxCarry: number
+): number {
+  const slotSize = clusterSizes.length > 0 ? clusterSizes[staffing % clusterSizes.length] : 0;
+  const shareFloor = Math.ceil(bankCapacity / Math.max(1, target) / 50);
+  return Math.max(1, Math.min(Math.max(slotSize + 1, shareFloor), maxCarry));
+}
+
 export class ExtensionTenderCorp extends Corp {
   private spawnId: string;
 
@@ -427,10 +448,19 @@ export class ExtensionTenderCorp extends Corp {
     };
     if (staffing >= target) return [];
 
-    // Carry enough to refill the LARGEST cluster in roughly one trip; the
-    // scheduler scales the body down to the energy on hand if it can't afford it all.
-    const biggest = clusters.reduce((m, c) => Math.max(m, c.length), extensions.length);
-    const carry = Math.max(1, Math.min(biggest + 1, maxCarry));
+    // Per-SLOT body (P4 tip t72459426: sizing every tender to the biggest
+    // cluster fielded 3x46p = 138p for a 2300 bank - 0.092 parts/t, the plan's
+    // first ceiling breach). Slot k serves clusters[k % len] (the same
+    // pairing runTenders walks), floored at an equal share of one full bank
+    // wave so combined carry still covers a whole drain (the RCL2-3 coverage
+    // incident, pipeline t=1553).
+    const carry = tenderSlotCarry(
+      clusters.map(c => c.length),
+      staffing,
+      target,
+      bankCapacity,
+      maxCarry
+    );
 
     return [
       {
