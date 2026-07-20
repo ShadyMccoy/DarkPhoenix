@@ -290,6 +290,19 @@ declare global {
      * reconcile it against the loop's whole-tick usage to see the
      * infrastructure residual (planner solve, host, telemetry).
      */
+    /**
+     * P-CPU meter (spec 23 step 1): moveTo CPU per corp FAMILY this tick,
+     * the measured BEFORE number for the cached-routes doctrine. Written by
+     * corps/movement.meteredMoveTo, reset on tick change, exported in core
+     * telemetry (v10).
+     */
+    pathMeter?: {
+      tick: number;
+      calls: number;
+      cpu: number;
+      byCorp: { [family: string]: { calls: number; cpu: number } };
+    };
+
     corpCpu?: {
       tick: number;
       corpsTotal: number;

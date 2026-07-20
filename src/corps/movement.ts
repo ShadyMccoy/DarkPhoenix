@@ -38,6 +38,36 @@ function stepDirection(dx: number, dy: number): DirectionConstant {
 }
 
 /**
+ * P-CPU meter (spec 23 step 1, observability only): the measured BEFORE
+ * number for the cached-routes doctrine. Every metered moveTo's CPU delta
+ * accumulates per corp FAMILY (the corpId's first segment - mining/hauling/
+ * moving/upgrading/building) in Memory.pathMeter, reset each tick. moveTo
+ * includes the path search when the cached path is stale - exactly the cost
+ * the RouteCache will delete; the per-family split names the top offender.
+ */
+export function meteredMoveTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const cpuApi = typeof Game !== "undefined" ? Game.cpu : undefined;
+  if (typeof Memory === "undefined" || !cpuApi || typeof cpuApi.getUsed !== "function") {
+    return creep.moveTo(target as RoomPosition, opts); // harness/mocks: no meter
+  }
+  const before = cpuApi.getUsed();
+  const result = creep.moveTo(target as RoomPosition, opts);
+  const spent = cpuApi.getUsed() - before;
+  let meter = Memory.pathMeter;
+  if (!meter || meter.tick !== Game.time) {
+    meter = { tick: Game.time, calls: 0, cpu: 0, byCorp: {} };
+    Memory.pathMeter = meter;
+  }
+  meter.calls++;
+  meter.cpu += spent;
+  const family = (creep.memory?.corpId ?? "unattributed").split("-")[0] || "unattributed";
+  const slot = (meter.byCorp[family] ??= { calls: 0, cpu: 0 });
+  slot.calls++;
+  slot.cpu += spent;
+  return result;
+}
+
+/**
  * Move a creep toward a target, robust against the room-border bounce. A drop-in
  * replacement for `creep.moveTo(target, opts)` that additionally forces an inward
  * step when the creep is stuck on an exit tile of its target's room.
@@ -57,7 +87,7 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
     return creep.move(stepDirection(dx, dy));
   }
 
-  return creep.moveTo(target as RoomPosition, opts);
+  return meteredMoveTo(creep, target, opts);
 }
 
 /**

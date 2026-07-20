@@ -264,6 +264,17 @@ export interface CoreTelemetry {
    * zero sites are omitted.
    */
   remoteSites?: { [roomName: string]: number };
+  /**
+   * P-CPU meter snapshot (v10): last tick's moveTo CPU per corp family
+   * (Memory.pathMeter verbatim) - the BEFORE number for spec 23's cached
+   * routes, naming the top pathing spender.
+   */
+  pathMeter?: {
+    tick: number;
+    calls: number;
+    cpu: number;
+    byCorp: { [family: string]: { calls: number; cpu: number } };
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -793,7 +804,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 9, // v8 gate retired; v9 remoteSites (P8's owned-room blindness - trunk builds were invisible)
+      version: 10, // v9 remoteSites; v10 pathMeter (spec 23 step 1 - the pathing BEFORE number)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -818,6 +829,7 @@ export class Telemetry {
       agenda,
       ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
       ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+      ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
       rooms
     };
 

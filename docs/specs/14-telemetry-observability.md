@@ -168,6 +168,25 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +287t) — link-site watch armed; P-CPU meter ships (task #12, the last backlog instrument)
+
+Post-link-deploy first look: burn 39.5, BANK -30.8/t (251.9k, 9.1xT),
+income 0.99x, SRCBUF drained to 1.5k colony-wide, NO FAIL lines - P4
+dropped off the WARN list entirely (the tender fix's full effect). The
+controller link SITE is not yet placed at +287t (home siteCount 0) -
+transient-until-two-captures per protocol; next capture classifies it
+(if still absent: read the ladder's gate order - the link rung may sit
+behind a surplus/containersOpen gate).
+
+SHIPPED task #12 (observability): meteredMoveTo wraps travelTo's moveTo
+- CPU delta per corp FAMILY into Memory.pathMeter (tick-reset), core
+telemetry v10, scoreboard PATH line (calls, cpu/t, top-3 families).
+This is spec 23's measured BEFORE number; the RouteCache rung starts
+from whatever family this names as the top spender. Same-behavior
+wrapper (identical moveTo, identical opts) - but after the empty-lane
+lesson the cold-start canary ran anyway: flow-handoff green. Unit 1093.
+Cycle verdict: instrumented; link verification pending next capture.
+
 ### 2026-07-20 (cron cycle, +2954t) — tender fix + parking VERIFIED; CONTROLLER LINK ships (spec 24 rung 3)
 
 Verify-first: per-slot tender bodies landed - P4 tender line 138p -> 62p

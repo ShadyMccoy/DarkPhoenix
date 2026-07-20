@@ -183,6 +183,18 @@ function main(): void {
     const totalSites = remoteSites ? Object.values(remoteSites).reduce((s, n) => s + n, 0) : 0;
     console.log(`ROADS  gate ${roadGate ?? "-"}  remote sites ${totalSites}${siteStr ? ` (${siteStr})` : ""}`);
   }
+  // PATH (v10): last tick's moveTo CPU per corp family - spec 23's BEFORE number.
+  const pm = core.pathMeter as
+    | { calls: number; cpu: number; byCorp: { [f: string]: { calls: number; cpu: number } } }
+    | undefined;
+  if (pm) {
+    const top = Object.entries(pm.byCorp)
+      .sort((a, b) => b[1].cpu - a[1].cpu)
+      .slice(0, 3)
+      .map(([f, v]) => `${f}:${v.cpu.toFixed(1)}`)
+      .join(" ");
+    console.log(`PATH   ${pm.calls} moves ~${pm.cpu.toFixed(1)} cpu/t  top ${top}`);
+  }
   // PARTS: the colony's standing body inventory - the thing the spawn's
   // 0.333/t actually buys - with composition and the fleet-growth band.
   const bp = core.bodyParts?.byPart ?? {};
