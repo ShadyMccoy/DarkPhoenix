@@ -70,13 +70,14 @@ export interface EnergyFind {
  * mining. Especially if it's closer" - the energy is already extracted, so a
  * stock competes with mined routes on plain route economics, not behind
  * them. But the FLEET is sized waste-free like every other crew: "size the
- * scavenger fleet to work through the pile in effective ttl. It's a bit
- * tricky since the pile degrades during that time so we can estimate as the
- * halfway point" - a dropped pile decays ceil(amount/1000)/t while it
- * drains, so the fleet plans against the HALFWAY amount over the crew's
- * effective life. What decay takes anyway was never recoverable at this
- * pace; a right-sized fleet cannot crowd standing production out of the
- * parts ledger (the t72447104 displacement came from the old 150-tick
+ * scavenger fleet to work through the pile in effective ttl", planning
+ * against the pile as it stands at the drain's TEMPORAL MIDPOINT (owner:
+ * "750 tick decay") - ground decay is proportional to the standing amount
+ * (ceil(amount/1000)/t, ~an exponential at 1/1000), so ~750 ticks into a
+ * ~1500-tick drain the pile sits at A*e^(-0.75) ~ 0.47*A; amount/2 is that
+ * midpoint within 6%. What decay takes anyway was never recoverable at
+ * this pace; a right-sized fleet cannot crowd standing production out of
+ * the parts ledger (the t72447104 displacement came from the old 150-tick
  * burst target asking 20 e/t per pile). MAX_SCAVENGE_RATE stays as the
  * absurdity cap. If a marginal remote still yields a route to a closer
  * stock, that is the correct trade (owner: "not necessarily wrong - we
