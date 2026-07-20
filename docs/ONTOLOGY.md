@@ -248,6 +248,8 @@ layer (`ChainEvaluator`/`ColonyEconomy`), per-corp money accounting,
 mirrors (SpawnDirector blocks, OrphanRescue lists, SpawningCorp's role switch,
 telemetry bucket maps), and the duplicate formula call-sites. The
 `FlowGraph`/`FlowSolution` shapes survive only as the world-translation layer
-and the legacy telemetry DTO. Residual dead code tracked in spec 17 P5
-(PriorityManager's second ladder, NodeFlow, FlowEconomy's dead query API,
-survey vestiges, `plan:budget`).
+and the legacy telemetry DTO. The spec 17 P5 sweep (2026-07-20) deleted the
+residuals: PriorityManager's second ladder, NodeFlow, FlowEconomy's dead
+query API, the survey/market vestiges and the always-empty `Node.corps` web,
+the NodeSurveyor ROI estimators, EdgeVariant beyond the body vocabulary, and
+the broken `plan:budget` script.

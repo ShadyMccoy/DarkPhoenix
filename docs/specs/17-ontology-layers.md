@@ -1,7 +1,8 @@
 # 17 — Ontology layers: registration-only kinds, prescriptive NOW plan
 
-**Status:** P0–P4 LANDED (this branch, 2026-07-20); P5 (dead code) and the
-remaining P6 polish tracked below. Landed: contract v2 + registration-only
+**Status:** P0–P5 LANDED (this branch, 2026-07-20 — the P5 sweep deleted
+the second sink ladder, NodeFlow, FlowEconomy's dead API, the survey/market
+vestiges, the Node.corps web, and the dead ROI/variant layers). Landed: contract v2 + registration-only
 plumbing (P1), the prescriptive NOW planner (P2), propose purity + the
 expansion split + host-assembled problem facts (P3), truthful consume
 envelopes (P4), and the enforcement suite (purity ratchet, registration-only

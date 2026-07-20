@@ -51,7 +51,9 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
 
 3. **FlowGraph → ColonyProblem.** `economy/flowAdapter.ts` → `buildColonyProblem`
    flattens the graph into a pure, `Game`-free `ColonyProblem`
-   (`{spawns, sources, sinks, dist}`). It also injects **scavenge** sources
+   (`{spawns, sources, sinks, dist}`), pricing every sink from the compiled
+   GOAL valuation (spec 18: `economy/goals.ts`, default = the measured
+   ladder; `Memory.goal` via `global.setGoal`). It also injects **scavenge** sources
    (`economy/scavenge.ts`, stocks ≥ 750; feeder-bucket stocks excluded),
    **bank** sources (spec 03 draw-down: storage above `WARCHEST_TARGET`
    becomes a transient source — `economy/bank.ts`), and **link `haulPos`**
@@ -59,8 +61,12 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    `perInstanceSinkValue` over `DEFAULT_SINK_VALUE` (the ladder, ONTOLOGY §7);
    controllers carry the anti-downgrade `reserve`.
 
-4. **ColonyProblem → ColonyPlan.** `economy/CorpPlanner.ts` → `planColony`,
-   all math from **`economy/primitives.ts`**:
+4. **ColonyProblem → ColonyPlan.** The strategic searcher runs first
+   (spec 18: `economy/strategy.ts` — `searchStructure` may pin budget-dropped
+   sources to spawns with slack, margin-gated, `planColony` as its
+   evaluator), then the final structure's plan is the GOAL plan.
+   `economy/CorpPlanner.ts` → `planColony`, all math from
+   **`economy/primitives.ts`**:
    - `selectProducers` — assign each source to its nearest spawn, drop
      net-negative sources (`netEnergy`), fill each spawn's build-time budget
      (`miningBudgetPerSpawn`), ranking by net-energy-per-build-part.
@@ -144,11 +150,16 @@ Three independent clocks — don't conflate them:
   `FlowMaterializer`, the chain/ROI layer, per-corp money accounting,
   SpawningCorp's role switch, OrphanRescue's kind/role lists, SpawnDirector's
   per-kind demand blocks, telemetry's kind→bucket map.
-- **Vestigial (deletion tracked in spec 17 P5):** `flow/PriorityManager.ts` +
-  `FlowGraph.calculateSinkPriority` (a second, disagreeing sink ladder still
-  computed each solve), `flow/NodeFlow.ts`, most of the `FlowEconomy` query
-  API, `framework/EdgeVariant.ts` beyond `HaulerRatio`, the NodeSurveyor ROI
-  model, `scripts/plan-budget.ts` (broken import).
+- **Also deleted (spec 17 P5 sweep, 2026-07-20):** `flow/PriorityManager.ts`
+  + the dynamic sink-priority recalc (the second ladder), `flow/NodeFlow.ts`,
+  the `FlowEconomy` query/metrics/preset API (the façade is five live
+  methods), the FlowSolver input machinery (`getFlowProblem`/`FlowProblem`/
+  `FlowConstraints`), the survey/market console vestiges (`global.survey`,
+  `global.marketStatus`, `runSurveyPhase`/`runPlanningPhase`/
+  `runExecutionPhase`), the always-empty `Node.corps` web, the NodeSurveyor
+  ROI estimators, `framework/EdgeVariant` beyond `HaulerRatio`/`MiningMode`,
+  and `scripts/plan-budget.ts`. `FlowSink.priority` survives only as a
+  telemetry passthrough (default 0).
 - **Not yet ported to the framework:** `BootstrapCorp` and `SpawningCorp`
   (infrastructure; folded into the census by `completeCensus`).
 
