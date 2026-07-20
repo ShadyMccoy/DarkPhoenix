@@ -287,6 +287,10 @@ declare global {
       byKind: { [kind: string]: number };
       /** Worst offenders by ~100-tick EMA, dashboard-sized. */
       top: { corpId: string; kind: string; cpu: number; avg: number }[];
+      /** Named infrastructure buckets (spec 20 P2): the bulkheaded phases. */
+      infra?: { [bucket: string]: number };
+      /** Whole-tick CPU at publish - the reconciliation anchor. */
+      wholeTick?: number;
     };
 
     /**

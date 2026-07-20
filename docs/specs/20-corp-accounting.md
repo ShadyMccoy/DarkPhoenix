@@ -1,7 +1,9 @@
 # 20 — Corp resource accounting: everything the bot does is a corp running
 
-**Status:** phase 1 LANDED 2026-07-20 (per-corp CPU metering at the dispatch
-seam); the everything-is-a-corp migration is the program below.
+**Status:** phases 1-2 LANDED 2026-07-20 (per-corp CPU metering at the
+dispatch seam; named infrastructure buckets via the bulkhead wrapper +
+whole-tick reconciliation anchor on Memory.corpCpu); phase 3 (migrate
+towers/links/bootstrap/spawning to kinds) is the remaining program.
 **Priority:** P1 — the runtime half of spec 15 (waste ledger), organized by
 corp. **Depends on:** spec 17 (pure dispatch, registration-only kinds).
 

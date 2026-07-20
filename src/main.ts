@@ -147,13 +147,40 @@ const corps: CorpRegistry = createCorpRegistry();
  * loop moves on.
  */
 function bulkhead(name: string, fn: () => void): void {
+  // spec 20 P2: every bulkheaded phase is a named INFRASTRUCTURE bucket in
+  // the CPU ledger - the residual the corp accounting can't attribute is
+  // named, never hidden (the reconciliation invariant).
+  const before = typeof Game !== "undefined" && Game.cpu?.getUsed ? Game.cpu.getUsed() : null;
   try {
     fn();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[Bulkhead:${name}] ${msg}\n${e instanceof Error ? e.stack ?? "" : ""}`);
     blackBoxRecord("err", { phase: name, msg });
+  } finally {
+    if (before !== null) infraCpu[name] = (infraCpu[name] ?? 0) + (Game.cpu.getUsed() - before);
   }
+}
+
+/** This tick's named infrastructure CPU buckets (reset each loop). */
+let infraCpu: { [bucket: string]: number } = {};
+
+/**
+ * Publish the infrastructure half of the CPU ledger beside the host's
+ * per-corp half (spec 20 P2): Memory.corpCpu.infra + wholeTick complete the
+ * reconciliation - wholeTick - corpsTotal - Σinfra = the still-unnamed
+ * remainder (governor, cleanup, planning-phase work outside bulkheads).
+ */
+function publishInfraCpu(): void {
+  if (typeof Memory === "undefined" || typeof Game === "undefined" || !Game.cpu?.getUsed) return;
+  const ledger = Memory.corpCpu;
+  if (ledger && ledger.tick === Game.time) {
+    const rounded: { [bucket: string]: number } = {};
+    for (const bucket in infraCpu) rounded[bucket] = Number(infraCpu[bucket].toFixed(3));
+    ledger.infra = rounded;
+    ledger.wholeTick = Number(Game.cpu.getUsed().toFixed(3));
+  }
+  infraCpu = {};
 }
 
 export const loop = ErrorMapper.wrapLoop(() => {
@@ -406,6 +433,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (Game.time % 100 === 0) {
     logStats(colony, corps);
   }
+
+  // The CPU ledger's infrastructure half + whole-tick reconciliation anchor.
+  publishInfraCpu();
 });
 
 // =============================================================================
