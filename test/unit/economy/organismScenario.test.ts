@@ -172,4 +172,81 @@ describe("the organism scenario: founding B pulls the west economy (owner 2026-0
       }
     });
   });
+
+  /**
+   * THE SPAWN ANNEX (owner 2026-07-20): "A lot of times we run into spawn
+   * shortage. We could use more energy but we can't spawn enough. The
+   * colony could claim a room next door and build a spawn and extensions
+   * there. The room itself might have no good energy supply. We don't
+   * necessarily need to mine there. It's just extra spawn capacity."
+   *
+   * The fixture makes A parts-BOUND: heavy standing infra + far remotes,
+   * so with one spawn the ledger cannot route every profitable source (the
+   * live 'unrouted' demotion - the demand curve for spawn time). The annex
+   * room X (due west, NO sources of its own) then stands a bare spawn. The
+   * parts ledger scales with spawn count, so the SAME world with the annex
+   * must fund and ROUTE more mining - the annex converts to income without
+   * mining a single tile of its own room - and the annex spawn's refill is
+   * financed from A's bank like any consumer (energy walks to the annex).
+   */
+  describe("phase 3 - the spawn annex: an empty room's spawn converts to routed income", () => {
+    function annexWorld(annexStands: boolean): ColonyProblem {
+      const spawns = [
+        { id: "spawnA", pos: at("A", 25, 25) },
+        ...(annexStands ? [{ id: "spawnX", pos: at("W", 40, 25) }] : [])
+      ];
+      return {
+        spawns,
+        sources: [
+          { id: "srcA1", nodeId: "nA1", pos: at("A", 10, 20), rate: 10, maxMiners: 1 },
+          // FAR remotes: expensive haul routes - the parts pressure
+          { id: "srcN", nodeId: "nN", pos: at("N", 25, 5), rate: 10, maxMiners: 1 },
+          { id: "srcE", nodeId: "nE", pos: at("E", 45, 25), rate: 10, maxMiners: 1 },
+          { id: "srcS", nodeId: "nS", pos: at("S", 25, 45), rate: 10, maxMiners: 1 },
+          { id: "srcW", nodeId: "nW", pos: at("W", 5, 25), rate: 10, maxMiners: 1 },
+          { id: "bank-A", nodeId: "A-bank", pos: at("A", 24, 25), rate: 60, maxMiners: 0, transient: true }
+        ],
+        sinks: [
+          { id: "spawn-A", kind: "spawn", pos: at("A", 25, 25), value: V.spawn, capacity: 10 },
+          ...(annexStands
+            ? [{ id: "spawn-X", kind: "spawn" as const, pos: at("W", 40, 25), value: V.spawn, capacity: 6 }]
+            : []),
+          { id: "ctrl-A", kind: "controller", pos: at("A", 40, 10), value: V.controllerMin, capacity: 60, reserve: 2 },
+          { id: "store-A", kind: "storage", pos: at("A", 24, 25), value: V.storage, capacity: 1000 }
+        ],
+        // Heavy standing infra (feeder/tenders/reservers of a mature room):
+        // with ONE spawn this leaves too few parts to route every remote.
+        infraPartsPerTick: 0.22,
+        dist
+      };
+    }
+
+    const routedRate = (plan: ReturnType<typeof planColony>): number =>
+      plan.haulers.filter(h => !h.sourceId.startsWith("bank-")).reduce((s, h) => s + h.flowRate, 0);
+
+    it("parts-bound with one spawn: profitable mining goes unrouted (the shortage, made visible)", () => {
+      const plan = planColony(annexWorld(false));
+      const unrouted = plan.sourceVerdicts.filter(v => v.verdict === "unrouted" || v.verdict === "over-budget");
+      expect(unrouted.length, "the single-spawn ledger cannot carry every profitable source").to.be.greaterThan(0);
+    });
+
+    it("the annex spawn converts to ROUTED income without mining its own room", () => {
+      const without = planColony(annexWorld(false));
+      const withAnnex = planColony(annexWorld(true));
+      expect(routedRate(withAnnex), "more mined e/t actually moves").to.be.greaterThan(routedRate(without));
+      expect(withAnnex.miners.length, "more sources staffed").to.be.greaterThan(without.miners.length);
+      // the annex itself mines nothing - it has no sources; its value is the ledger
+      expect(withAnnex.partsLedger.capacity).to.be.closeTo(without.partsLedger.capacity * 2, 1e-9);
+    });
+
+    it("energy walks to the annex: its spawn refill is financed from A's economy", () => {
+      const withAnnex = planColony(annexWorld(true));
+      const annexSink = withAnnex.sinks.find(s => s.sinkId === "spawn-X")!;
+      expect(annexSink.allocated, "the annex spawn is fed").to.be.greaterThan(0);
+      expect(
+        annexSink.sources.every(s => s.sourceId === "bank-A"),
+        "fed from the hub, like any consumer"
+      ).to.equal(true);
+    });
+  });
 });
