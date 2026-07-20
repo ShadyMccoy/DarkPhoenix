@@ -27,7 +27,6 @@
     "sim:carry": "ts-node -P tsconfig.test.json scripts/carry-efficiency.ts",
     "sim:energy": "ts-node -P tsconfig.test.json scripts/effective-energy.ts",
     "snapshot": "ts-node -P tsconfig.test.json scripts/snapshot.ts",
-    "plan:budget": "ts-node -P tsconfig.test.json scripts/plan-budget.ts",
     "plan:placement": "ts-node -P tsconfig.test.json scripts/probe-spawn-placement.ts",
     "watch-main": "rollup -cw --environment DEST:main",
     "watch-pserver": "rollup -cw --environment DEST:pserver",
