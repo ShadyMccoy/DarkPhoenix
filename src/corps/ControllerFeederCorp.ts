@@ -21,7 +21,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
-import { CoreDepot, coreDepot, controllerInputSpot } from "./nodeEnergy";
+import { CoreDepot, controllerLink, coreDepot, coreLink, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
@@ -175,6 +175,28 @@ export class ControllerFeederCorp extends Corp {
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
+      // LINK RELAY (spec 24 rung 3): with a controller link built, the long
+      // leg belongs to the link network - the feeder's whole route becomes
+      // storage -> core link, one tile. The LinkRunner fires core -> controller
+      // link; upgraders draw from the link (the input election prefers it).
+      const ctrlLink = controllerLink(creep.room);
+      const core = ctrlLink ? coreLink(creep.room) : null;
+      if (ctrlLink && core) {
+        if (core.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+          if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
+          return; // network saturated: hold the load beside the core
+        }
+        if (creep.pos.getRangeTo(core.pos) > 1) {
+          travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          return;
+        }
+        const moved = Math.min(creep.store[RESOURCE_ENERGY], core.store.getFreeCapacity(RESOURCE_ENERGY));
+        if (creep.transfer(core, RESOURCE_ENERGY) === OK) {
+          this.recordProduction(moved);
+          creep.memory.lastDeliver = { to: "core-link", amount: moved, tick: Game.time };
+        }
+        return;
+      }
       const input = controllerInputSpot(controller);
       // Topped up: hold the load near the input so the next drain is served at once
       // (do not overfill - a bare pile would otherwise grow without bound).
@@ -261,7 +283,11 @@ export class ControllerFeederCorp extends Corp {
     // Balanced 1:1 body sized to sustain the relay over the round trip (the
     // feeder travels, unlike the parked extension tender). The storage sits by
     // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    const distance = spawn.pos.getRangeTo(controller.pos);
+    // Link-fed rooms shrink the shuttle leg to storage -> core link (spec 24
+    // rung 3): the same relay rate needs ~1/6th the CARRY, and the plan's
+    // feeder pricing reads the same lens (infraSpawnLoad linkFedRoomCount).
+    const linkFed = !!controllerLink(spawn.room);
+    const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
     // The relay serves the PLAN's controller flow, never the raw surplus
@@ -283,6 +309,7 @@ export class ControllerFeederCorp extends Corp {
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
       distance,
+      ...(linkFed ? { linkFed: true } : {}),
       neededCarry,
       wantedFeeders,
       feeders

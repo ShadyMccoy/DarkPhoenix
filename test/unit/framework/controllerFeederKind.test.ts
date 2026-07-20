@@ -71,11 +71,11 @@ function installRoom(withStorage: boolean, withMiner: boolean): void {
     ? {
         structureType: "storage",
         my: true,
-        pos: { x: 26, y: 25, roomName: HOME },
+        pos: { x: 26, y: 25, roomName: HOME, findInRange: () => [] },
         store: { energy: 5000, getFreeCapacity: () => 995000, getUsedCapacity: () => 5000 }
       }
     : undefined;
-  const controllerPos = { x: 40, y: 25, roomName: HOME };
+  const controllerPos = { x: 40, y: 25, roomName: HOME, findInRange: () => [] };
   const controller = { my: true, level: 4, pos: controllerPos };
   const spawnPos = {
     x: 25,

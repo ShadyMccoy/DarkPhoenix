@@ -61,6 +61,24 @@ export function coreLink(room: Room): StructureLink | null {
 }
 
 /**
+ * The room's CONTROLLER link: a built link within upgrade range (3) of the
+ * controller, excluding the core link (a storage parked next to the
+ * controller needs no second link). THE link-fed lens (spec 24 rung 3,
+ * owner 2026-07-20): the feeder corp's retask, the plan's feeder pricing,
+ * the LinkRunner's send rule, and the input election all read THIS function
+ * - one lens, no drift.
+ */
+export function controllerLink(room: Room): StructureLink | null {
+  const ctrl = room.controller;
+  if (!ctrl || !ctrl.my) return null;
+  const core = coreLink(room);
+  const link = ctrl.pos.findInRange(FIND_MY_STRUCTURES, 3, {
+    filter: s => s.structureType === STRUCTURE_LINK && s.id !== core?.id
+  })[0] as StructureLink | undefined;
+  return link ?? null;
+}
+
+/**
  * A source's link: a link within 2 of the source (close enough that the miner
  * standing on its harvest tile can feed it), excluding the core link itself
  * (a source right beside the storage needs no link at all).
@@ -506,8 +524,12 @@ export function controllerSideStock(controller: StructureController): number {
   const spot = controllerInputSpot(controller).pos;
   let stock = 0;
   for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
-    if (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) {
-      stock += (s as StructureContainer | StructureStorage).store[RESOURCE_ENERGY];
+    if (
+      s.structureType === STRUCTURE_CONTAINER ||
+      s.structureType === STRUCTURE_STORAGE ||
+      s.structureType === STRUCTURE_LINK // the controller link IS the input once built (spec 24 rung 3)
+    ) {
+      stock += (s as StructureContainer | StructureStorage | StructureLink).store[RESOURCE_ENERGY] ?? 0;
     }
   }
   for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {

@@ -12,7 +12,7 @@
  * @module execution/LinkRunner
  */
 
-import { coreLink } from "../corps/nodeEnergy";
+import { controllerLink, coreLink } from "../corps/nodeEnergy";
 
 /**
  * Don't fire a dribble: wait until the source link holds at least this much, so
@@ -34,12 +34,27 @@ export function runLinks(): void {
       filter: s => s.structureType === STRUCTURE_LINK
     }) as StructureLink[];
 
+    // The controller link is a SINK (spec 24 rung 3): the core fires INTO it
+    // (the feeder loads the core from storage one tile away), and it must
+    // never fire back at the core - a two-link ping-pong burns 3% per hop.
+    const ctrl = controllerLink(room);
+
     for (const link of links) {
       if (link.id === core.id) continue;
+      if (ctrl && link.id === ctrl.id) continue; // sink, never a sender
       if (link.cooldown > 0) continue;
       if (link.store[RESOURCE_ENERGY] < LINK_FIRE_THRESHOLD) continue;
       if (core.store.getFreeCapacity(RESOURCE_ENERGY) === 0) continue;
       link.transferEnergy(core);
+    }
+
+    if (
+      ctrl &&
+      core.cooldown === 0 &&
+      core.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD &&
+      ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
+    ) {
+      core.transferEnergy(ctrl);
     }
   }
 }

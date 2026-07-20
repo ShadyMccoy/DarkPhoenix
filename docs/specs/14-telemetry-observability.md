@@ -168,6 +168,38 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +2954t) — tender fix + parking VERIFIED; CONTROLLER LINK ships (spec 24 rung 3)
+
+Verify-first: per-slot tender bodies landed - P4 tender line 138p -> 62p
+(0.092 -> 0.041), the FAIL cleared (0.90x). Upgrader stamp parking: 8 -
+the input election is correct (the earlier "6" inference was the
+co-bound targetCount, allocation/20W = 6 explains it alone). Task #18
+closed verified. Income 1.00x through ANOTHER deep generation trough
+(fleet 21, harv 2 mid-rebuild). ROADS 32/38, sites now visible in three
+remote rooms via remoteSites.
+
+SHIPPED task #21 (owner go-ahead): the controller link slice, all halves
+in one gated deploy so a built link can never strand the (link-preferring)
+input election: controllerLink lens (nodeEnergy - built link <=3 of
+controller, never the core; read by ALL consumers); LinkRunner - core
+fires INTO the controller link, the sink never sends (no 3%/hop
+ping-pong), source links unchanged; feeder RETASK - link-fed rooms
+shuttle storage -> core link (distance 1, ~1/6th CARRY; mode stamped
+linkFed) instead of the 6-tile controller walk, retirement by shrinkage
+not revocation; plan pricing - infraSpawnLoad gains linkFedRoomCount,
+adapter counts link-fed depots via the same lens; ladder - controller
+link placed between core and source links at the best structure-free
+range-2 park-ring tile; controllerSideStock counts link stores (upgrader
+sizing reads the link as stock). Pins: 4 network + harness. Unit 1091,
+trio green.
+
+Predictions (the link needs ~5k build after placement, so staged):
+next capture - a link SITE within range 2 of the controller (ladder);
+after build - feeder stamp linkFed:true/distance 1, P4 feeder line
+64p -> ~22p, controller stock reads the link, burn continuity through
+the input handover (upgraders re-ring the link tile). Cycle verdict:
+verified (tender, parking) + fixed-pending-verification (link).
+
 ### 2026-07-20 (cron cycle, +653t) — P4's FIRST FAIL: tender mass tipped the plan; per-slot bodies land
 
 Scoreboard: burn 33.4 (upgrader generation dip - staffing back to 1 of 6,

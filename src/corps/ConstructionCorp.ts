@@ -1446,6 +1446,18 @@ export class ConstructionCorp extends Corp {
       return tile ? { x: tile.x, y: tile.y } : null;
     }
 
+    // 1.5) Controller link (spec 24 rung 3, owner 2026-07-20): retires the
+    // long feeder leg - worth more than any source link (64p of feeder plan
+    // pricing vs ~10-30p of haul). Placed at the best structure-free
+    // range-2 tile by the SAME park-ring metric the input election uses;
+    // once built, controllerInputSpot prefers it and the container decays
+    // via the displaced rule.
+    const ctrl = room.controller;
+    if (ctrl?.my && !linkNear(ctrl.pos, 3)) {
+      const tile = this.bestControllerLinkTile(room, ctrl);
+      if (tile) return tile;
+    }
+
     // 2) Source links, farthest first; nearby sources aren't worth one.
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     const candidates = room
@@ -1458,6 +1470,46 @@ export class ConstructionCorp extends Corp {
       if (tile) return { x: tile.x, y: tile.y };
     }
     return null;
+  }
+
+  /**
+   * Best tile for the CONTROLLER LINK: a walkable, structure-and-site-free
+   * range-2 tile maximizing the same park ring the input election scores
+   * (walkable neighbours within upgrade range, controller tile excluded).
+   * The link is unwalkable, so it must not steal the container's tile - any
+   * other full-ring tile serves (open terrain has several).
+   */
+  private bestControllerLinkTile(room: Room, ctrl: StructureController): { x: number; y: number } | null {
+    const terrain = room.getTerrain();
+    const cx = ctrl.pos.x;
+    const cy = ctrl.pos.y;
+    const walkable = (x: number, y: number): boolean =>
+      x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
+    const inRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
+    const occupied = (x: number, y: number): boolean =>
+      room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+    let best: { x: number; y: number; score: number } | null = null;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if ((dx === 0 && dy === 0) || !walkable(x, y) || occupied(x, y)) continue;
+        let score = 0;
+        for (let ex = -1; ex <= 1; ex++) {
+          for (let ey = -1; ey <= 1; ey++) {
+            if (ex === 0 && ey === 0) continue;
+            const nx = x + ex;
+            const ny = y + ey;
+            if (nx === cx && ny === cy) continue;
+            if (walkable(nx, ny) && inRange(nx, ny)) score++;
+          }
+        }
+        if (!best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)))) {
+          best = { x, y, score };
+        }
+      }
+    }
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   /**

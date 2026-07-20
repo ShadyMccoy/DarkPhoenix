@@ -23,7 +23,7 @@ import {
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   INVADER_TAX_PER_ENERGY,
@@ -570,7 +570,16 @@ export function buildColonyProblem(
     prevBankDraw !== undefined
       ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))
       : STORAGE_UPGRADE_TARGET + bankRate;
-  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size);
+  // Link-fed depots price the feeder at the storage->core-link leg (spec 24
+  // rung 3) - the SAME controllerLink lens the corp's sizing reads.
+  let linkFedRooms = 0;
+  if (typeof Game !== "undefined" && Game.rooms) {
+    for (const roomName of roomsWithStorage) {
+      const room = Game.rooms[roomName];
+      if (room && controllerLink(room)) linkFedRooms++;
+    }
+  }
+  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
 
   return {
     assembly,
