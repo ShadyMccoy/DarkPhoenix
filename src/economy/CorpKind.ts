@@ -250,12 +250,33 @@ export function materializeCommissions(
   return result;
 }
 
+/**
+ * Per-corp resource metering (spec 20): the corp is the ACCOUNTING boundary -
+ * everything the bot does should be attributable to a corp, so its resource
+ * usage (CPU here; energy and spawn build-time already flow through the
+ * commission envelope) can be tracked and pulled through the audit layer.
+ * The dispatch is pure (this module never reads Game), so the CLOCK is
+ * injected by the host: `now` is Game.cpu.getUsed live, a fake in tests.
+ */
+export interface CorpRunMeter {
+  /** Monotonic CPU reading (Game.cpu.getUsed live). */
+  now(): number;
+  /** Called once per corp run with the CPU it consumed this tick. */
+  record(kind: string, corpId: string, cpu: number): void;
+}
+
 /** Run every commissioned corp, kinds in execution order, stable within a kind. */
-export function runCommissionedCorps(store: CorpStore, tick: number): void {
+export function runCommissionedCorps(store: CorpStore, tick: number, meter?: CorpRunMeter): void {
   for (const kind of listCorpKinds()) {
-    for (const [, entry] of store) {
+    for (const [corpId, entry] of store) {
       if (entry.kind !== kind.kind) continue;
+      if (!meter) {
+        kind.run(entry.corp, tick);
+        continue;
+      }
+      const before = meter.now();
       kind.run(entry.corp, tick);
+      meter.record(entry.kind, corpId, meter.now() - before);
     }
   }
 }

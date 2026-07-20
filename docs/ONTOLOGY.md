@@ -18,7 +18,7 @@ walkthrough is [PIPELINE.md](./PIPELINE.md); the work items are
 |---|---|---|---|
 | **PLAN** (pure) | `economy/` core — CorpPlanner, primitives, Commission, CorpKind (contract+registry+dispatch), commissionPlan, siteValue, bank, roadEconomics; `spawn/SpawnScheduler` (the NOW planner); every kind's `propose()` | its arguments: `ColonyProblem`, draft commissions, demands+context | `Game`, `Memory`, `execution/`, live creep positions or room vision |
 | **EXECUTE** (dumb) | `corps/`, `corps/kinds/` (materialize/run/body), `execution/` (CommissionHost, SpawnDirector, OrphanRescue, runners) | Game, plus its commission's assignment — "follow your assignment" | invent policy the plan owns; read another kind's naming conventions instead of a shared lens |
-| **AUDIT** (passive, pullable) | variance meters (`Memory.corpVariance`), telemetry segments, the spawn agenda + receipts (`Memory.spawnAgenda`), BlackBox flight recorder | everything, generically via the census | feed back into decisions; enumerate kinds by hand |
+| **AUDIT** (passive, pullable) | variance meters (`Memory.corpVariance`), the per-corp CPU ledger (`Memory.corpCpu`), telemetry segments, the spawn agenda + receipts (`Memory.spawnAgenda`), BlackBox flight recorder | everything, generically via the census | feed back into decisions; enumerate kinds by hand |
 
 Two world-adapter modules are the sanctioned PLAN↔world boundary:
 `economy/flowAdapter.ts` and `economy/scavenge.ts` read the live world (behind
@@ -216,6 +216,13 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   degenerate toward their primitive (`harvest(source)`) and travel logic
   leaves the work corps. Creeps-as-cargo (pull convoys, zero-MOVE workers) is
   the deferred end state behind the same handover seam.
+- **The accounting boundary** ([spec 20](specs/20-corp-accounting.md)):
+  everything the bot does trends toward "a corp running", so every resource -
+  energy, spawn build-time, and CPU - is attributable per corp and pullable.
+  The dispatch meters every `kind.run` (clock injected; the dispatch stays
+  pure); the un-attributed remainder is the named infrastructure residual,
+  reconciled against the whole tick so nothing hides. Towers/links/bootstrap/
+  spawning migrate into kinds under this spec.
 - **Known coupling debt:** the RoomMemory regime flags
   (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next

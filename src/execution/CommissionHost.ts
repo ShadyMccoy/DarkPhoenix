@@ -142,9 +142,66 @@ export function runCommissionHost(
   let removed = 0;
   for (const id of beforeIds) if (!liveStore.has(id)) removed++;
   if (created > 0 || removed > 0) blackBox("churn", { created, removed });
-  runCommissionedCorps(liveStore, tick);
+  runCommissionedCorps(liveStore, tick, corpCpuMeter());
 
+  publishCorpCpu(tick);
   Memory.commissionedCorps = serializeStore(liveStore);
+}
+
+// =============================================================================
+// PER-CORP CPU LEDGER (spec 20) - the corp is the accounting boundary
+// =============================================================================
+
+/** This tick's raw per-corp CPU (rebuilt each host run). */
+let cpuThisTick = new Map<string, { kind: string; cpu: number }>();
+/** Exponential moving average per corp, surviving between ticks (heap only). */
+const cpuEma = new Map<string, number>();
+/** EMA smoothing: ~100-tick horizon, matching the corp variance rate window. */
+const CPU_EMA_ALPHA = 0.02;
+/** Rows published per tick - enough for a dashboard, small enough for Memory. */
+const CPU_TOP_ROWS = 12;
+
+/** The dispatch meter, or undefined outside a live tick (unit/pure paths). */
+function corpCpuMeter(): { now(): number; record(kind: string, corpId: string, cpu: number): void } | undefined {
+  if (typeof Game === "undefined" || !Game.cpu?.getUsed) return undefined;
+  cpuThisTick = new Map();
+  return {
+    now: () => Game.cpu.getUsed(),
+    record: (kind, corpId, cpu) => {
+      const row = cpuThisTick.get(corpId);
+      if (row) row.cpu += cpu;
+      else cpuThisTick.set(corpId, { kind, cpu });
+    }
+  };
+}
+
+/**
+ * Publish the per-corp CPU ledger (Memory.corpCpu, pullable via the telemetry
+ * API like corpVariance): per-KIND totals for this tick plus the top per-corp
+ * EMA rows. `corpsTotal` is the sum over every commissioned corp, so audit
+ * consumers can reconcile corp-attributed CPU against the loop's whole-tick
+ * budget - the same tracked-vs-total discipline as the creep census.
+ */
+function publishCorpCpu(tick: number): void {
+  if (typeof Memory === "undefined" || cpuThisTick.size === 0) return;
+  const byKind: { [kind: string]: number } = {};
+  let corpsTotal = 0;
+  for (const [corpId, row] of cpuThisTick) {
+    byKind[row.kind] = (byKind[row.kind] ?? 0) + row.cpu;
+    corpsTotal += row.cpu;
+    cpuEma.set(corpId, (cpuEma.get(corpId) ?? row.cpu) * (1 - CPU_EMA_ALPHA) + row.cpu * CPU_EMA_ALPHA);
+  }
+  // Drop EMA rows for corps that vanished (demobilized) so the map stays bounded.
+  for (const corpId of cpuEma.keys()) {
+    if (!cpuThisTick.has(corpId) && !ensureStore().has(corpId)) cpuEma.delete(corpId);
+  }
+  const top = [...cpuThisTick.entries()]
+    .map(([corpId, row]) => ({ corpId, kind: row.kind, cpu: Number(row.cpu.toFixed(3)), avg: Number((cpuEma.get(corpId) ?? row.cpu).toFixed(3)) }))
+    .sort((a, b) => b.avg - a.avg)
+    .slice(0, CPU_TOP_ROWS);
+  const rounded: { [kind: string]: number } = {};
+  for (const kind in byKind) rounded[kind] = Number(byKind[kind].toFixed(3));
+  Memory.corpCpu = { tick, corpsTotal: Number(corpsTotal.toFixed(3)), byKind: rounded, top };
 }
 
 /** True if any creep (alive or still spawning) is assigned to this corp id. */

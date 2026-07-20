@@ -269,10 +269,27 @@ declare global {
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
           precondition?: string;
+          /** The decision walk's verdict on this entry (spec 17: "buy" IS the action). */
+          gate?: string;
         }[];
         /** Execution receipts (actual-vs-NOW): the last ~8 spawns bought here. */
         executed?: { tick: number; role: string; corp: string; cost: number }[];
       };
+    };
+
+    /**
+     * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
+     * CPU joins energy and spawn build-time as a metered, pullable resource.
+     * `corpsTotal` is the sum over every commissioned corp this tick -
+     * reconcile it against the loop's whole-tick usage to see the
+     * infrastructure residual (planner solve, host, telemetry).
+     */
+    corpCpu?: {
+      tick: number;
+      corpsTotal: number;
+      byKind: { [kind: string]: number };
+      /** Worst offenders by ~100-tick EMA, dashboard-sized. */
+      top: { corpId: string; kind: string; cpu: number; avg: number }[];
     };
 
     /**

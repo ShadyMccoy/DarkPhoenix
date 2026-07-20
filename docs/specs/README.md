@@ -47,6 +47,7 @@ Conventions used by every spec:
 | 17 | [Ontology layers](17-ontology-layers.md) | IN PROGRESS 2026-07-20 — P0-P2 + enforcement landed (registration-only kinds, prescriptive NOW plan, purity ratchet); P3 (propose purity/host problem), P4 (envelope honesty), P5 (dead code) open | P0 |
 | 18 | [Weighted goals](18-weighted-goals.md) | PROPOSED 2026-07-20 (owner direction) — the objective becomes a planner input: goal profiles compiled onto the ladder, invariants preserved; organism-phase assignment relaxation | P1 |
 | 19 | [Delivery contract](19-delivery-contract.md) | PROPOSED 2026-07-20 (owner design) — spawning delivers newborns to each corp's declared delivery location; work functions assume on-post; creeps-as-cargo deferred | P2 |
+| 20 | [Corp accounting](20-corp-accounting.md) | phase 1 LANDED 2026-07-20 (owner directive: everything is a corp running) — per-corp CPU metering at the pure dispatch seam, Memory.corpCpu ledger; phases 2-3: name the residual, migrate towers/links/bootstrap/spawning to kinds | P1 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
