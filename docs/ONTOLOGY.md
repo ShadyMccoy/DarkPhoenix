@@ -205,11 +205,15 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   into `planColony` by expressing its `propose()` trigger as an operator
   precondition, its envelope as cost, and its output as effect. The declarative
   contract in §5 is already that shape.
-- **Weighted goals** ([spec 18](specs/18-weighted-goals.md)): the objective
-  becomes `planColony(problem, goal)` — named goal profiles compiled onto the
-  sink ladder with the measured ordering invariants preserved; relaxing the
-  nearest-spawn assignment under goal pressure yields the colony-as-organism
-  behavior (east rooms fund west goals) as an emergent plan.
+- **Strategy: goals + the supply-chain search** ([spec 18](specs/18-weighted-goals.md)):
+  the objective becomes an input (goal profiles compiled onto the ladder,
+  invariants preserved), and the supply-chain STRUCTURE becomes the searched
+  decision — structural events (sources/sinks changing) trigger a
+  transition-costed re-search; `planColony` is the millisecond evaluator and
+  the NOW plan the transition executor. The grain is the NODE within one
+  colony, never the room (rooms are engine constraint annotations); warfare
+  is priced as economics — military operators are income-delta corps paid in
+  the three currencies (spec 20).
 - **The delivery contract** ([spec 19](specs/19-delivery-contract.md)):
   spawning delivers newborns to each corp's DECLARED delivery location
   (miners: the mining post; scouts: self-deploying), so work functions
