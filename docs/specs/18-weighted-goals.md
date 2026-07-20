@@ -100,6 +100,38 @@ NOW plan — planAcquisitions: the transition, bought one body at a time
 - Re-search triggers: the source/sink set changed (assembly delta), a
   structural investment completed, a goal changed. NOT per tick.
 
+## The fidelity ladder (owner doctrine, 2026-07-20)
+
+> Over time what we are chasing is both planner and execution fidelity.
+> When those diverge, we investigate to identify root causes - better
+> approximate the world with our plans, and better execute the plans
+> faithfully. If it just can't be reconciled, we include it as a measured
+> k-factor in the planner.
+
+The search ranks candidate structures by the evaluator, so evaluator bias
+that CORRELATES with candidate type (remote vs home chains) systematically
+misleads it - fidelity is a prerequisite of trustworthy search, and the
+response to a gap is a LADDER, strictly in order:
+
+1. **Decompose** - the spec 15 waste/overhead ledger splits every gap into
+   named terms (measured today on fid-t4: of 20 e/t mined, 5.4 decayed on
+   the ground, 2.8 in transit, spawn idle 73% - a 64% gross realization).
+2. **Root-cause and fix** - each term is an investigation lead: either the
+   PLAN approximates the world badly (e.g. no decay physics in the model)
+   or EXECUTION is unfaithful (e.g. haulers not pacing the piles). Fix the
+   side that is wrong; the grid ratchets the reclaim.
+3. **k-factor as the measured residual, LAST** - only what investigation
+   shows irreducible enters the planner as a calibration input (the invader
+   tax is the existing pattern: world-derived, slowly varying, assembled by
+   the adapter as problem data).
+
+**k-factor governance** (the purity-debt ratchet pattern): every k-factor
+is named with its suspected cause, dated, measured over long windows, and
+listed as debt to SHRINK - a test fails if a k-factor's measured basis
+disappears (the gap closed) while the factor lives on. A calibration
+constant reached for too early papers over fixable defects and silently
+rots as the bot changes; the ladder exists to make that impossible.
+
 ## Goal model: profiles, compiled — not raw weights
 
 A **GoalProfile** is a named, pre-tested objective ("grow-controller",
