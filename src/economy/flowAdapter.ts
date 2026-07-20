@@ -374,7 +374,16 @@ export function buildColonyProblem(
   // construction absorb rate to them publishes fantasy plans (measured on
   // the shard1 stress fixture: unhauled piles grew, inflating supply until
   // the plan wanted build 140 e/t / 316 CARRY against 20 e/t of mining).
-  const minedSupply = sources.reduce((sum, s) => sum + s.rate, 0);
+  // PHANTOM GUARD (t72444684 review finding): intel-only PROSPECTS - rooms
+  // scouted before their source ids were ever recorded - are not income
+  // (live: 31 of 38 candidates were "source-intel-*", 285 e/t of phantom
+  // inflating this valve term to 455). Prospects scouted WITH real ids
+  // still count (indistinguishable from mined by id alone - an accepted
+  // residual, bounded by the fill's bank-pool cap which is funded-credit
+  // sized post-solve either way).
+  const minedSupply = sources
+    .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"))
+    .reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging), and so
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
   // is a ground-stock-shaped supply at the storage position).

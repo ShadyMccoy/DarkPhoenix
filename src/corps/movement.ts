@@ -57,7 +57,72 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
     return creep.move(stepDirection(dx, dy));
   }
 
+  // EMPTY-LANE PATHING (owner 2026-07-20): an empty pure-hauler generates no
+  // fatigue, so terrain is free (swamp = plain = 1) and the geometric line is
+  // the fastest path - while every step on a road still wears it by
+  // body.length (measured: game-physics probe, 6/step for a 6-part body,
+  // load-independent). Empty haulers therefore path terrain-blind with roads
+  // PENALIZED: they cut straight across swamp belts the road detours around
+  // (a shorter empty leg = fewer CARRY in flight), skip road upkeep, and
+  // split traffic into a two-lane flow (loaded on the road, empty beside it)
+  // that dissolves single-lane swap jams. Loaded legs and any creep with
+  // working parts (a miner's WORK always weighs) keep the default
+  // road-preferring costs. Caller opts win on conflicts.
+  if (creep.store && creep.body && isFatigueFreeWhenEmpty(creep)) {
+    return creep.moveTo(target as RoomPosition, { ...emptyLaneOpts(), ...opts });
+  }
+
   return creep.moveTo(target as RoomPosition, opts);
+}
+
+/** Fatigue-free right now: empty, and every non-MOVE part is CARRY (empty
+ * CARRY is weightless; WORK/ATTACK/etc always weigh). Pure predicate -
+ * part types compare as their string values ("carry"/"move" === the game
+ * constants), so this runs identically in-game and under unit mocks. */
+export function isFatigueFreeWhenEmpty(creep: {
+  store: { getUsedCapacity: () => number };
+  body: { type: string }[];
+}): boolean {
+  if (creep.store.getUsedCapacity() > 0) return false;
+  for (const part of creep.body) {
+    if (part.type !== "carry" && part.type !== "move") return false;
+  }
+  return creep.body.length > 0;
+}
+
+/** Road cost on the empty lane: above plain/swamp (1) so the line avoids
+ * pavement when a parallel tile exists, below blockers. */
+export const EMPTY_LANE_ROAD_COST = 2;
+/** Road-position cache TTL (roads change slowly; a stale lane is harmless). */
+const EMPTY_LANE_CACHE_TTL = 200;
+const roadTileCache = new Map<string, { tick: number; tiles: { x: number; y: number }[] }>();
+
+/** moveTo options for the empty lane: terrain-blind, roads penalized. */
+export function emptyLaneOpts(): MoveToOpts {
+  return {
+    plainCost: 1,
+    swampCost: 1,
+    ignoreRoads: true,
+    costCallback: (roomName: string, matrix: CostMatrix): void => {
+      const room = Game.rooms[roomName];
+      if (!room) return; // blind rooms: terrain-only is already the lane
+      let cached = roadTileCache.get(roomName);
+      if (!cached || Game.time - cached.tick >= EMPTY_LANE_CACHE_TTL) {
+        cached = {
+          tick: Game.time,
+          tiles: room
+            .find(FIND_STRUCTURES)
+            .filter(s => s.structureType === STRUCTURE_ROAD)
+            .map(s => ({ x: s.pos.x, y: s.pos.y }))
+        };
+        roadTileCache.set(roomName, cached);
+      }
+      for (const t of cached.tiles) {
+        // only RAISE plain-cost tiles - never overwrite a blocker (255)
+        if (matrix.get(t.x, t.y) < EMPTY_LANE_ROAD_COST) matrix.set(t.x, t.y, EMPTY_LANE_ROAD_COST);
+      }
+    }
+  };
 }
 
 /**

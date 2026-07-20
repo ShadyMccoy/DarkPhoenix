@@ -373,6 +373,26 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     transient: true
   });
 
+  it("PHANTOM GUARD: intel-only prospects never inflate the construction valve (t72444684 review)", () => {
+    // 2 real sources (20 e/t) + 3 intel-only prospects (30 e/t of phantom)
+    // + a 40 e/t bank draw, and a build-out big enough that the absorb cap
+    // does not bind (15k at ~4 travel -> ~15 e/t... use a huge site so the
+    // valve term is what shows). The construction sink's demand must be
+    // real-mined + bank (60), never phantom-inflated (90).
+    const graph = graphOf([
+      homeNodeWithStorage(5),
+      sourceNode("s1", 15),
+      sourceNode("s2", 25),
+      sourceNode("intel-W9N9-10-10", 30),
+      sourceNode("intel-W9N9-20-20", 35),
+      sourceNode("intel-W9N9-30-30", 40)
+    ]);
+    graph.addConstructionSite("bigbuild", "home", at(9), 200_000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    expect(build.demand, "valve = real mined (20) + bank (40), phantom excluded").to.be.closeTo(60, 1e-6);
+  });
+
   it("a nearly-done site absorbs its work rate, NOT the whole bank draw - the controller mops up", () => {
     // 20 e/t mined + 40 e/t surplus draw; one extension with 455 build energy
     // remaining (the live incident's site). Absorbable: max(5, 455/100) = 5.
