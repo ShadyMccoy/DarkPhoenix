@@ -168,6 +168,42 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle) — REMOTE-DROP #2: the gate flapped on a lifecycle-clustered wave; queued orders now count as staffing
+
+Verify-first (t72448186 vs t72448020, dt 166): the actuals-sizing deploy
+VERIFIED plan-side - controller sink demand 2 -> 121.6 e/t, allocated 63
+WORK (the goal-plan cap is gone) - but execution has not followed (1
+upgrader, burn 2.0/t, BANK +21.6/t) because the window's live incident
+preempted it: P1 FAIL 5 sources funded->DROPPED, E2 FAIL 238 parts
+stranded, income 46 -> 20 e/t (2 home sources only).
+
+Full chain from stamps (agenda receipts + remoteGate): last fully-staffed
+tick t72447582 (gate `until` 72448082 - 500); both home miners AND the
+cd90 micro-hauler hit end-of-life within ~100t (lifecycle clustering);
+the re-staffing wave interleaved a guard@650 and a starved-tier
+(age 306 >= 300) remote cee0 scale hauler @2150 with a 129-tick build -
+bought at t72448101, ~20t AFTER the sticky expiry, for a route already
+being dropped - while the blocking cd90 hauler @100 (mustFund, since
+t72448044) waited behind it. Wave exceeded the 500t sticky window ->
+gate relocked -> all 5 remotes dropped. The recurrence risk is
+structural: the home fleet is born in waves, so every ~1500t generation
+boundary threatens a repeat.
+
+FIX (this cycle, red-first in refreshNodeResources.test.ts): the gate's
+staffing lens also reads Memory.spawnAgenda queues - a source whose
+mining/hauling corp has a QUEUED order is mid-replacement, not dark
+(trap-list: durable signals; same family as recycling-counts-as-
+staffing). Corp ids resolved via new harvestCorpId/carryCorpId exports
+(single naming source). Guard pin: foreign orders do not satisfy the
+gate. Predicted deltas: gate saturated:true through the next wave, P1
+back to 0 flips, E2 drains as stranded corps re-attach, income ~46 e/t,
+and the upgrader ramp (still pending verification) proceeds on the
+refunded plan. Watch items: starved-tier one-shot can still spend a
+2150/129t body ahead of blocking income (own cycle if it recurs);
+prod self-heal of THIS instance expected ~t72448260 even unfixed (cee0's
+dropped corp stops demanding, cd90 hauler reaches head). Cycle verdict:
+fixed (pending post-deploy verification).
+
 ### 2026-07-20 (cycle 3, cron loop) — X3 CLOSED: the tankers were invisible; sizing deploy verified
 
 Verify-first (t72446096, +279t over the sizing deploy's reset): routing held

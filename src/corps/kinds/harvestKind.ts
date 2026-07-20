@@ -58,6 +58,17 @@ function legacyNodeId(roomName: string, sourceId: string): string {
   return `${roomName}-harvest-${sourceId.slice(-4)}`;
 }
 
+/**
+ * The full corp id (`mining-${nodeId}`) for the source's mining corp - THE
+ * naming convention, exported so other lenses (the remote gate's
+ * mid-replacement check reads Memory.spawnAgenda entries by corp id) resolve
+ * the same id the kind materializes. A rename here without the consumers is
+ * the corp-id-prefix trap.
+ */
+export function harvestCorpId(roomName: string, sourceId: string): string {
+  return `mining-${legacyNodeId(roomName, sourceId)}`;
+}
+
 export const harvestKind: CorpKind<HarvestCorp> = {
   kind: "harvest",
   runOrder: 10, // produce before transport (20), consume (30), auxiliary (40)

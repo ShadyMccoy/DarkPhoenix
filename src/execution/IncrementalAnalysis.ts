@@ -19,6 +19,8 @@ import {
 } from "../spatial";
 import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
+import { harvestCorpId } from "../corps/kinds/harvestKind";
+import { carryCorpId } from "../corps/kinds/carryKind";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
@@ -554,6 +556,24 @@ function homeEconomySaturated(): boolean {
     }
   }
 
+  // Mid-replacement counts as staffed: a queued order in the published
+  // NOW-plan (Memory.spawnAgenda, spec 11 - the durable receipt) means the
+  // post is being served, not dark. Without this the lens is pure live-creep
+  // census and a lifecycle-clustered replacement wave that outlives the
+  // sticky window relocks ALL remotes mid-wave (prod t72448082: the wave
+  // took >500t because a starved-tier remote scale hauler's 129-tick build
+  // jumped the blocking 100-cost home hauler; five funded sources dropped,
+  // 238 body parts stranded, income 46 -> 20 e/t - while the cd90 hauler's
+  // mustFund order sat in the agenda the whole time).
+  const pendingOrderCorps = new Set<string>();
+  if (typeof Memory !== "undefined" && Memory.spawnAgenda) {
+    for (const spawnId in Memory.spawnAgenda) {
+      for (const entry of Memory.spawnAgenda[spawnId].queue ?? []) {
+        pendingOrderCorps.add(entry.corp);
+      }
+    }
+  }
+
   // Collect EVERY unsatisfied home source (not first-miss early return): the
   // stamp below is the gate's decision record (spec 14 - no invisible
   // decisions), and prod t72445210 needed exactly this: the plan showed both
@@ -564,8 +584,8 @@ function homeEconomySaturated(): boolean {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
     for (const source of room.find(FIND_SOURCES)) {
-      const miner = minedSources.has(source.id);
-      const hauler = hauledSources.has(source.id);
+      const miner = minedSources.has(source.id) || pendingOrderCorps.has(harvestCorpId(roomName, source.id));
+      const hauler = hauledSources.has(source.id) || pendingOrderCorps.has(carryCorpId(roomName, source.id));
       if (!miner || !hauler) missing.push({ source: source.id.slice(-6), room: roomName, miner, hauler });
     }
   }
