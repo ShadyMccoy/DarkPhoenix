@@ -1,10 +1,12 @@
 import { expect } from "chai";
 import {
+  declinedVerdictStands,
   evaluateRoadRoute,
   pavedRouteCostPerTick,
   paveScore,
   loadedTicksPerTile,
   roundTripTicksForRoute,
+  REJUDGE_FLOW_FACTOR,
   ROAD_BUILD_COST,
   ROAD_DECAY_HITS,
   ROAD_HITS,
@@ -142,6 +144,38 @@ describe("economy/roadEconomics", () => {
     const v = evaluateRoadRoute({ plainTiles: 0, swampTiles: 0, flow: 10 });
     expect(v.buildCost).to.equal(0);
     expect(v.worthPaving).to.equal(false);
+  });
+});
+
+/**
+ * Declined-verdict staleness (the remote-trunk fix, owner 2026-07-20): a
+ * not-worth-paving verdict was PERMANENT, so a trunk judged at the
+ * pre-reservation 5 e/t was never re-judged after reservation doubled the
+ * source to 10 e/t - remote roads never got built. The verdict now records
+ * its judged flow and stands only while live flow stays under 1.5x it.
+ */
+describe("economy/roadEconomics - declinedVerdictStands (re-judge on flow rise)", () => {
+  it("stands at the judged flow and under modest jitter", () => {
+    expect(declinedVerdictStands(10, 10)).to.equal(true);
+    expect(declinedVerdictStands(10, 12)).to.equal(true);
+    expect(declinedVerdictStands(10, 15)).to.equal(true); // exactly at the bar: stands
+  });
+
+  it("THE CANONICAL RISE: reservation's 5 -> 10 doubling voids the verdict", () => {
+    expect(declinedVerdictStands(5, 10)).to.equal(false);
+    expect(REJUDGE_FLOW_FACTOR).to.be.lessThan(2); // the doubling must clear the bar
+  });
+
+  it("falling or flat flow never re-judges (the cache keeps its purpose)", () => {
+    expect(declinedVerdictStands(10, 5)).to.equal(true);
+    expect(declinedVerdictStands(10, 0)).to.equal(true);
+  });
+
+  it("legacy entries (no recorded flow) earn one re-judge against any live flow", () => {
+    expect(declinedVerdictStands(undefined, 5)).to.equal(false);
+    expect(declinedVerdictStands(undefined, 0.001)).to.equal(false);
+    // ...but a dead route (zero flow) stays settled even for legacy entries
+    expect(declinedVerdictStands(undefined, 0)).to.equal(true);
   });
 });
 

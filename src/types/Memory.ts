@@ -354,7 +354,11 @@ declare global {
      * is the planned route as flat [x0,y0,x1,y1,...]. `paved` is the receipt that
      * every tile has a built road - read by flowAdapter.detectPavedSources to
      * stamp the route's haulers with the 2:1 road body ratio. `declined` caches a
-     * not-worth-paving verdict so the route is not re-evaluated every cooldown.
+     * not-worth-paving verdict AT the flow it was judged with (`judgedFlow`) so
+     * the route is not re-evaluated every cooldown - but the verdict is VOIDED
+     * and re-judged when live flow rises materially past the judged level
+     * (roadEconomics.declinedVerdictStands; reservation's 5->10 doubling of a
+     * remote source clears the bar by design).
      */
     roadRoutes?: {
       [sourceId: string]: {
@@ -370,6 +374,8 @@ declare global {
         rooms?: string[];
         paved?: boolean;
         declined?: boolean;
+        /** Flow (e/t) the declined verdict was judged at (absent on legacy entries). */
+        judgedFlow?: number;
       };
     };
 

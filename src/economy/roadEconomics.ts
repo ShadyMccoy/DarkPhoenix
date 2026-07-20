@@ -252,6 +252,26 @@ export function evaluateRoadRoute(
 }
 
 /**
+ * Flow rise that voids a cached `declined` verdict. A route judged
+ * not-worth-paving at some flow stays declined while flow holds near that
+ * level (the cache exists so routes are not re-planned every cooldown), but
+ * a MATERIAL rise re-opens the question: reservation doubles a remote source
+ * (5 -> 10 e/t), clearing this 1.5x bar by design; solver jitter does not.
+ */
+export const REJUDGE_FLOW_FACTOR = 1.5;
+
+/**
+ * Does a cached not-worth-paving verdict still stand at the current flow?
+ * Stands while currentFlow <= judgedFlow * REJUDGE_FLOW_FACTOR. A verdict
+ * with NO recorded flow (legacy entries predating the stamp) never stands
+ * against a live flow - it earns exactly one re-judge, which records
+ * judgedFlow for every verdict after it.
+ */
+export function declinedVerdictStands(judgedFlow: number | undefined, currentFlow: number): boolean {
+  return currentFlow <= (judgedFlow ?? 0) * REJUDGE_FLOW_FACTOR;
+}
+
+/**
  * Total recurring e/t of operating the route ONCE PAVED: hauler bodies at the
  * 2:1 road ratio plus road maintenance. This is the number to compare between
  * route candidates - e.g. a tunneled shortcut vs the long way around - since

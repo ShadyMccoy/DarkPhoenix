@@ -20,7 +20,7 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
-import { evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
 
 /**
@@ -809,14 +809,30 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
+   * A route entry that needs no further work: paved, or declined at a flow
+   * that still stands (declinedVerdictStands). The work() gate and the
+   * placement path MUST read this same lens - if the gate thinks a stale
+   * declined verdict is settled while the placement path would re-judge it,
+   * work() never routes here and the re-judge never runs.
+   */
+  private routeSettled(
+    entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined,
+    currentFlow: number
+  ): boolean {
+    if (!entry) return false;
+    if (entry.paved) return true;
+    return !!entry.declined && declinedVerdictStands(entry.judgedFlow, currentFlow);
+  }
+
+  /**
    * Cheap gate for work(): is there road work outstanding - a source with a
-   * container (a stable route endpoint) whose route has no paving verdict yet,
-   * or a planned route whose tiles are not all built?
+   * container (a stable route endpoint) whose route has no paving verdict yet
+   * (or a declined verdict its risen flow has voided), or a planned route
+   * whose tiles are not all built?
    */
   private wantsRoadWork(room: Room): boolean {
     for (const source of room.find(FIND_SOURCES)) {
-      const entry = room.memory.roadRoutes?.[source.id];
-      if (entry?.paved || entry?.declined) continue;
+      if (this.routeSettled(room.memory.roadRoutes?.[source.id], SOURCE_RATE)) continue;
       if (this.hasContainerNear(room, source.pos, 1)) return true;
     }
     // The feeder trunk counts as outstanding road work too (same gate the
@@ -824,10 +840,11 @@ export class ConstructionCorp extends Corp {
     // Unverdicted or unfinished TRUNKS are outstanding road work too.
     for (const trunk of this.remoteTrunks) {
       const e = room.memory.roadRoutes?.[trunk.sourceId.replace(/^source-/, "")];
-      if (!e?.paved && !e?.declined) return true;
+      if (!this.routeSettled(e, trunk.flow)) return true;
     }
     const feeder = room.memory.roadRoutes?.["feeder"];
-    if (!feeder?.paved && !feeder?.declined && room.storage?.my) {
+    const feederFlow = room.storage?.my ? feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0) : 0;
+    if (!this.routeSettled(feeder, feederFlow) && room.storage?.my) {
       const ctrl = room.controller;
       if (ctrl && ctrl.pos.findInRange(FIND_STRUCTURES, 3, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length > 0)
         return true;
@@ -852,7 +869,11 @@ export class ConstructionCorp extends Corp {
 
     for (const source of room.find(FIND_SOURCES)) {
       if (!this.hasContainerNear(room, source.pos, 1)) continue;
-      const entry = routes[source.id];
+      let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes[source.id];
+      if (entry?.declined && !declinedVerdictStands(entry.judgedFlow, SOURCE_RATE)) {
+        delete routes[source.id]; // flow outgrew the cached verdict - re-judge from scratch
+        entry = undefined;
+      }
       if (entry?.paved || entry?.declined) continue;
 
       if (entry) {
@@ -891,9 +912,10 @@ export class ConstructionCorp extends Corp {
 
       const tiles = this.planRoadPath(room, source, depotPos, spawn.pos);
       if (!tiles) continue;
-      const verdict = evaluateRoadRoute(this.roadRouteSpec(room, tiles), ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
+      const spec = this.roadRouteSpec(room, tiles);
+      const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
       if (!verdict.worthPaving) {
-        routes[source.id] = { tiles: [], declined: true };
+        routes[source.id] = { tiles: [], declined: true, judgedFlow: spec.flow };
         continue;
       }
       const flat: number[] = [];
@@ -934,7 +956,16 @@ export class ConstructionCorp extends Corp {
 
     for (const trunk of this.remoteTrunks) {
       const key = trunk.sourceId.replace(/^source-/, "");
-      const entry = routes[key];
+      let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes[key];
+      if (entry?.declined && !declinedVerdictStands(entry.judgedFlow, trunk.flow)) {
+        // The plan's flow outgrew the cached verdict (reservation doubling a
+        // remote source is the canonical rise) - void it and re-judge below.
+        console.log(
+          `[Construction] TRUNK to ${key}: flow rose ${entry.judgedFlow ?? "?"}->${trunk.flow}, re-judging`
+        );
+        delete routes[key];
+        entry = undefined;
+      }
       if (entry?.paved || entry?.declined) continue;
 
       if (entry?.tiles3 && entry.rooms) {
@@ -959,7 +990,7 @@ export class ConstructionCorp extends Corp {
       const spec = this.trunkSpec(path, trunk.flow);
       const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
       if (!verdict.worthPaving) {
-        routes[key] = { tiles: [], declined: true };
+        routes[key] = { tiles: [], declined: true, judgedFlow: trunk.flow };
         gate(`trunk-declined-payback-${Math.round(verdict.paybackTicks)}t`);
         continue;
       }
@@ -1050,12 +1081,20 @@ export class ConstructionCorp extends Corp {
     const gate = (reason: string): void => {
       this.lastSizing = { tick: Game.time, roadGate: reason };
     };
-    const entry = routes["feeder"];
+    let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes["feeder"];
+    const bank = room.storage;
+    if (
+      entry?.declined &&
+      bank?.my &&
+      !declinedVerdictStands(entry.judgedFlow, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0))
+    ) {
+      delete routes["feeder"]; // the relay rate outgrew the cached verdict - re-judge
+      entry = undefined;
+    }
     if (entry?.paved || entry?.declined) {
       gate(entry.paved ? "feeder-paved" : "feeder-declined");
       return;
     }
-    const bank = room.storage;
     const ctrl = room.controller;
     if (!bank?.my || !ctrl) {
       gate("feeder-no-depot");
@@ -1100,7 +1139,7 @@ export class ConstructionCorp extends Corp {
     const spec = this.roadRouteSpec(room, tiles, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0));
     const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
     if (!verdict.worthPaving) {
-      routes["feeder"] = { tiles: [], declined: true };
+      routes["feeder"] = { tiles: [], declined: true, judgedFlow: spec.flow };
       gate(`feeder-judged-declined-payback-${Math.round(verdict.paybackTicks)}t`);
       return;
     }
