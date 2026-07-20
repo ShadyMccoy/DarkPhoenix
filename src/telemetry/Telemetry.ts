@@ -234,6 +234,19 @@ export interface CoreTelemetry {
       executed: unknown[];
     };
   };
+  /**
+   * The home-first remote gate's decision record (v7), copied verbatim from
+   * Memory.remoteGate: whether remotes are unlocked, and when not, exactly
+   * which home source the live lens found unstaffed (miner/hauler halves
+   * named). The warmup remote-drop class is diagnosed from THIS, not from
+   * inferring creep assignments out of the census.
+   */
+  remoteGate?: {
+    tick: number;
+    saturated: boolean;
+    until?: number;
+    missing?: { source: string; room: string; miner: boolean; hauler: boolean }[];
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -682,7 +695,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 6, // v5 spawn meter + NOW-plan mirror; v6 site progress (ledger P8)
+      version: 7, // v6 site progress (ledger P8); v7 remoteGate decision record
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -705,6 +718,7 @@ export class Telemetry {
       bodyParts,
       spawns,
       agenda,
+      ...(Memory.remoteGate ? { remoteGate: Memory.remoteGate } : {}),
       rooms
     };
 

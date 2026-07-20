@@ -534,8 +534,10 @@ function homeEconomySaturated(): boolean {
   if (Game.time === saturationTick) return saturationValue;
   saturationTick = Game.time;
   const persistedUntil = typeof Memory !== "undefined" ? Memory.remotesUnlockedUntil ?? -1 : -1;
-  if (Game.time <= Math.max(remotesUnlockedUntil, persistedUntil)) {
+  const stickyUntil = Math.max(remotesUnlockedUntil, persistedUntil);
+  if (Game.time <= stickyUntil) {
     saturationValue = true;
+    stampRemoteGate(true, [], stickyUntil);
     return saturationValue;
   }
 
@@ -552,22 +554,43 @@ function homeEconomySaturated(): boolean {
     }
   }
 
-  saturationValue = true;
+  // Collect EVERY unsatisfied home source (not first-miss early return): the
+  // stamp below is the gate's decision record (spec 14 - no invisible
+  // decisions), and prod t72445210 needed exactly this: the plan showed both
+  // home sources routed while this lens stayed false ~700 ticks, and nothing
+  // named WHICH source - or which half, miner vs hauler - the lens missed.
+  const missing: NonNullable<NonNullable<Memory["remoteGate"]>["missing"]> = [];
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
     for (const source of room.find(FIND_SOURCES)) {
-      if (!minedSources.has(source.id) || !hauledSources.has(source.id)) {
-        saturationValue = false;
-        return saturationValue;
-      }
+      const miner = minedSources.has(source.id);
+      const hauler = hauledSources.has(source.id);
+      if (!miner || !hauler) missing.push({ source: source.id.slice(-6), room: roomName, miner, hauler });
     }
   }
+  saturationValue = missing.length === 0;
   if (saturationValue) {
     remotesUnlockedUntil = Game.time + REMOTE_UNLOCK_STICKY_TICKS;
     if (typeof Memory !== "undefined") Memory.remotesUnlockedUntil = remotesUnlockedUntil;
   }
+  stampRemoteGate(saturationValue, missing, saturationValue ? remotesUnlockedUntil : undefined);
   return saturationValue;
+}
+
+/** The home-first gate's decision record, exported verbatim (telemetry core v7). */
+function stampRemoteGate(
+  saturated: boolean,
+  missing: NonNullable<NonNullable<Memory["remoteGate"]>["missing"]>,
+  until?: number
+): void {
+  if (typeof Memory === "undefined") return;
+  Memory.remoteGate = {
+    tick: Game.time,
+    saturated,
+    ...(until !== undefined ? { until } : {}),
+    ...(missing.length > 0 ? { missing } : {})
+  };
 }
 
 /**

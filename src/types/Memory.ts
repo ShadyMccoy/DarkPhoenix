@@ -285,6 +285,23 @@ declare global {
     remotesUnlockedUntil?: number;
 
     /**
+     * The home-first gate's decision record (IncrementalAnalysis.
+     * homeEconomySaturated, spec 14 - no invisible decisions): what the gate
+     * read the last tick it evaluated. `missing` names each home source the
+     * live lens found unstaffed and WHICH half (miner/hauler) was absent -
+     * the exact fact prod t72445210 could not see while remotes stayed
+     * locked against a plan that showed every home source routed. Surfaced
+     * in telemetry core v7.
+     */
+    remoteGate?: {
+      tick: number;
+      saturated: boolean;
+      /** Sticky-unlock expiry when saturated (heap+Memory receipt). */
+      until?: number;
+      missing?: { source: string; room: string; miner: boolean; hauler: boolean }[];
+    };
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

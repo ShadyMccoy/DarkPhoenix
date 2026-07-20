@@ -364,4 +364,41 @@ describe("homeEconomySaturated - the remote unlock is durable across resets", ()
       "an expired/absent window with an unstaffed home keeps remotes closed"
     ).to.have.length(0);
   });
+
+  it("STAMPS its decision (spec 14): the relock names WHICH source and WHICH half is missing", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 60_000;
+    const { colony, result } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(60_000, 25, 25) as never;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (Memory as any).remotesUnlockedUntil;
+
+    refreshNodeResources(colony, result);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gate = (Memory as any).remoteGate;
+    expect(gate, "the gate must export its read").to.not.equal(undefined);
+    expect(gate.tick).to.equal(60_000);
+    expect(gate.saturated).to.equal(false);
+    expect(gate.missing, "the unstaffed home source is named").to.deep.equal([
+      { source: "c-home", room: "W0N0", miner: false, hauler: false }
+    ]);
+  });
+
+  it("STAMPS the sticky window when riding it (saturated true, until exported)", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 80_000;
+    const { colony, result } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(80_000, 25, 25) as never;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Memory as any).remotesUnlockedUntil = 80_040;
+
+    refreshNodeResources(colony, result);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gate = (Memory as any).remoteGate;
+    expect(gate.saturated).to.equal(true);
+    expect(gate.until).to.equal(80_040);
+    expect(gate.missing).to.equal(undefined);
+  });
 });
