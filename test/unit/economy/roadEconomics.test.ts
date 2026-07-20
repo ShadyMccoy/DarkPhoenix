@@ -5,7 +5,6 @@ import {
   paveScore,
   loadedTicksPerTile,
   roundTripTicksForRoute,
-  bestHaulerRatio,
   ROAD_BUILD_COST,
   ROAD_DECAY_HITS,
   ROAD_HITS,
@@ -193,33 +192,4 @@ describe("economy/roadEconomics - ticks not tiles (hauler travel time)", () => {
     });
   });
 
-  describe("bestHaulerRatio (choose the body by TOTAL parts from the tick round trip)", () => {
-    it("a fully paved route picks 2:1 - same round trip, but 1.5 parts/CARRY beats 2", () => {
-      const r = bestHaulerRatio(20, 0, 0, 10);
-      expect(r.carryPerMove).to.equal(2);
-      // RT 42 ticks, carry = 10*42/50 = 8.4, spawn parts = 8.4 * 1.5 = 12.6
-      expect(r.rtTicks).to.equal(42);
-      expect(r.carryParts).to.be.closeTo(8.4, 1e-9);
-      expect(r.spawnParts).to.be.closeTo(12.6, 1e-9);
-    });
-    it("an all-plain route picks 1:1 - the 2:1 crawl outweighs its cheaper MOVE", () => {
-      const r = bestHaulerRatio(0, 20, 0, 10);
-      expect(r.carryPerMove).to.equal(1);
-      // 1:1 RT 42, carry 8.4, parts 16.8; 2:1 RT 62, carry 12.4, parts 18.6 -> 1:1 wins
-      expect(r.rtTicks).to.equal(42);
-      expect(r.spawnParts).to.be.closeTo(16.8, 1e-9);
-    });
-    it("the break-even is plainTiles < 2*roadTiles + 2: half-and-half still picks 2:1", () => {
-      expect(bestHaulerRatio(10, 10, 0, 10).carryPerMove).to.equal(2); // 10 < 22
-      expect(bestHaulerRatio(1, 10, 0, 10).carryPerMove).to.equal(1); // 10 < 4 is false
-    });
-    it("a swamp-DOMINATED route picks 1:1 (a 2:1 body is 10x on swamp, 1:1 only 5x)", () => {
-      expect(bestHaulerRatio(0, 0, 5, 10).carryPerMove).to.equal(1); // all unpaved swamp
-      expect(bestHaulerRatio(4, 2, 4, 10).carryPerMove).to.equal(1); // swamp-heavy mix
-    });
-    it("but a mostly-ROAD route keeps 2:1 despite a little swamp (the trade is quantitative)", () => {
-      // 20 road + 3 swamp: 2:1 parts 22.5 < 1:1 parts 24 - the road tiles dominate
-      expect(bestHaulerRatio(20, 0, 3, 10).carryPerMove).to.equal(2);
-    });
-  });
 });

@@ -1,4 +1,3 @@
-import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { CorpRegistry } from "../execution/CorpRunner";
 import { completeCensus } from "../execution/CommissionHost";
 import { Node } from "../nodes/Node";
@@ -56,7 +55,6 @@ export class Colony {
   private nodes: Node[] = [];
 
   /** Node surveyor for finding opportunities */
-  private surveyor: NodeSurveyor;
 
   /** Colony configuration */
   private config: ColonyConfig;
@@ -76,7 +74,6 @@ export class Colony {
 
   public constructor(config: Partial<ColonyConfig> = {}) {
     this.config = { ...DEFAULT_COLONY_CONFIG, ...config };
-    this.surveyor = new NodeSurveyor();
   }
 
   /**
@@ -95,9 +92,6 @@ export class Colony {
     if (!this.bootstrapped) {
       this.bootstrap();
     }
-
-    // Survey nodes for new opportunities (ROI calculation)
-    this.surveyNodes();
 
     // Update stats
     this.updateStats(corpRegistry);
@@ -140,25 +134,6 @@ export class Colony {
    */
   public getNode(nodeId: string): Node | undefined {
     return this.nodes.find(n => n.id === nodeId);
-  }
-
-  /**
-   * Survey all nodes for potential corps
-   */
-  private surveyNodes(): void {
-    for (const node of this.nodes) {
-      const result = this.surveyor.survey(node, this.currentTick);
-      this.processSurveyResult(result);
-    }
-  }
-
-  /**
-   * Process survey result and potentially create corps
-   */
-  private processSurveyResult(_result: SurveyResult): void {
-    // For now, log potential corps
-    // In full implementation, would create corps based on ROI
-    // and available treasury funds
   }
 
   /**

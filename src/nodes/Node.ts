@@ -163,8 +163,6 @@ export interface Node {
   spansRooms: string[];
 
   /** Corps operating in this node */
-  corps: Corp[];
-
   /** Resources available in this territory */
   resources: NodeResource[];
 
@@ -185,7 +183,6 @@ export interface SerializedNode {
   territorySize: number;
   spansRooms: string[];
   resources: NodeResource[];
-  corpIds: string[];
   createdAt: number;
   roi?: NodeROI;
 }
@@ -214,7 +211,6 @@ export function createNode(
     peakPosition,
     territorySize,
     spansRooms: spansRooms.length > 0 ? spansRooms : [roomName],
-    corps: [],
     resources: [],
     createdAt: currentTick
   };
@@ -223,10 +219,6 @@ export function createNode(
 /**
  * Get corps of a specific type from a node
  */
-export function getCorpsByType(node: Node, type: CorpType): Corp[] {
-  return node.corps.filter(corp => corp.type === type);
-}
-
 /**
  * Get resources of a specific type from a node
  */
@@ -242,15 +234,6 @@ export function hasResourceType(node: Node, type: NodeResourceType): boolean {
 }
 
 /**
- * Check if a node has a corp for a specific resource
- */
-export function hasCorpForResource(node: Node, _resourceId: string): boolean {
-  // Corps would need to track their resource IDs for this to work
-  // For now, check by type matching
-  return node.corps.length > 0;
-}
-
-/**
  * Serialize a node for persistence
  */
 export function serializeNode(node: Node): SerializedNode {
@@ -261,7 +244,6 @@ export function serializeNode(node: Node): SerializedNode {
     territorySize: node.territorySize,
     spansRooms: node.spansRooms,
     resources: node.resources,
-    corpIds: node.corps.map(c => c.id),
     createdAt: node.createdAt,
     roi: node.roi
   };
@@ -278,7 +260,6 @@ export function deserializeNode(data: SerializedNode): Node {
     peakPosition: data.peakPosition,
     territorySize: data.territorySize,
     spansRooms: data.spansRooms,
-    corps: [], // Corps are restored separately
     resources: data.resources,
     createdAt: data.createdAt,
     roi: data.roi

@@ -7,8 +7,7 @@
 
 // Position type (shared across modules)
 export { Position } from "../types/Position";
-// Import EdgeVariant types for route optimization
-import { EdgeVariant, HaulerRatio, MiningMode, TerrainProfile } from "../framework/EdgeVariant";
+import { HaulerRatio } from "../framework/EdgeVariant";
 import { Position } from "../types/Position";
 
 // =============================================================================
@@ -172,7 +171,6 @@ export interface FlowEdge {
   // === Terrain-aware routing (optional, for EdgeVariant optimization) ===
 
   /** Terrain profile of the route (road/plain/swamp tile counts) */
-  terrain?: TerrainProfile;
 }
 
 // =============================================================================
@@ -216,16 +214,11 @@ export interface MinerAssignment {
    */
   efficiency: number;
 
-  // === EdgeVariant optimization (optional) ===
 
-  /** Mining infrastructure mode selected by variant optimizer */
-  miningMode?: MiningMode;
 
   /** CARRY parts for harvester (affects decay for drop mining) */
   harvesterCarryParts?: number;
 
-  /** Selected EdgeVariant for this mining assignment */
-  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -256,16 +249,13 @@ export interface HaulerAssignment {
   /** Nearest spawn for these haulers */
   spawnId: string;
 
-  // === EdgeVariant optimization (optional) ===
 
   /** Terrain profile for this route */
-  terrain?: TerrainProfile;
 
   /** Hauler CARRY:MOVE ratio selected by variant optimizer */
   haulerRatio?: HaulerRatio;
 
   /** Selected EdgeVariant for this hauler assignment */
-  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -450,5 +440,5 @@ export function createEdgeId(fromId: string, toId: string): string {
 // Re-export distance functions from shared Position module
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
 
-// Re-export EdgeVariant types for convenience
-export { EdgeVariant, TerrainProfile, HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+// Re-export body-shape vocabulary for convenience
+export { HaulerRatio, MiningMode } from "../framework/EdgeVariant";

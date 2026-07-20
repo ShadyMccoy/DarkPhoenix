@@ -23,7 +23,6 @@
  * - FlowEconomy: Solver for optimal energy routing
  *
  * ## Console Commands
- * - global.survey() - Force run survey phase
  * - global.plan() - Force run flow economy planning
  * - global.status() - Show orchestration status
  * - global.flowStatus() - Show flow economy details
@@ -68,9 +67,7 @@ import { FlowEconomy } from "./flow";
 import {
   PLANNING_INTERVAL,
   initCorps,
-  runSurveyPhase,
   setLastPlanningTick,
-  setLastSurveyTick,
   shouldRunPlanning
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
@@ -94,7 +91,6 @@ declare global {
       flowEconomy: FlowEconomy | undefined;
       nodeNavigator: NodeNavigator | undefined;
       // Orchestration commands
-      survey: () => void;
       plan: () => void;
       status: () => void;
       flowStatus: () => void;
@@ -104,7 +100,6 @@ declare global {
       showNodes: () => void;
       exportNodes: () => string;
       clearSpawnQueue: () => void;
-      marketStatus: () => void;
       forceBootstrap: () => void;
       sourceEfficiency: () => void;
     }
@@ -672,33 +667,6 @@ function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
 // ORCHESTRATION COMMANDS
 // -----------------------------------------------------------------------------
 
-/**
- * Run survey phase to create corps from node resources.
- * Call from console: `global.survey()`
- *
- * Survey examines all nodes and creates corps based on resources:
- * - Source -> MiningCorp
- * - Spawn -> SpawningCorp
- * - Owned room -> HaulingCorp, UpgradingCorp
- */
-global.survey = () => {
-  if (!colony) {
-    console.log("[Survey] No colony exists. Run global.recalculateTerrain() first.");
-    return;
-  }
-
-  const result = runSurveyPhase(colony, corps, Game.time);
-  setLastSurveyTick(Game.time);
-
-  console.log("\n=== Survey Results ===");
-  console.log(`Nodes surveyed: ${result.nodesSurveyed}`);
-  console.log(
-    `Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`
-  );
-  console.log(
-    `Corps created: ${result.corpsCreated.harvest} harvest, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`
-  );
-};
 
 /**
  * Force run flow economy planning phase.
@@ -1033,127 +1001,3 @@ global.clearSpawnQueue = () => {
   console.log(`[GodMode] Cleared ${totalCleared} total pending spawn orders`);
 };
 
-/**
- * Show current economy status for debugging.
- * Call from console: `global.marketStatus()`
- */
-/**
- * Force bootstrap corps to activate immediately.
- * Call from console: `global.forceBootstrap()`
- *
- * This bypasses the normal starvation detection by setting the starvation
- * start tick to a time in the past, making the bootstrap think it's been
- * starving long enough to activate.
- */
-global.forceBootstrap = () => {
-  let activated = 0;
-
-  for (const roomName in corps.bootstrapCorps) {
-    const bootstrap = corps.bootstrapCorps[roomName];
-    // Set starvation start tick to force activation (access private field)
-    (bootstrap as unknown as { starvationStartTick: number }).starvationStartTick = Game.time - 100;
-    activated++;
-    console.log(`[GodMode] Forced bootstrap activation for ${roomName}`);
-  }
-
-  if (activated === 0) {
-    console.log(`[GodMode] No bootstrap corps found. They will be created automatically.`);
-  } else {
-    console.log(`[GodMode] Activated ${activated} bootstrap corps. They will spawn jacks on next tick.`);
-  }
-};
-
-/**
- * Show all sources with their efficiency scores.
- * Call from console: `global.sourceEfficiency()`
- *
- * Displays:
- * - Source ID and node
- * - Harvest rate
- * - Distance from spawn
- * - Efficiency percentage (net energy / harvest rate)
- */
-global.sourceEfficiency = () => {
-  if (!flowEconomy) {
-    console.log("[Sources] Flow economy not initialized.");
-    return;
-  }
-
-  const solution = flowEconomy.getSolution();
-  if (!solution) {
-    console.log("[Sources] No solution computed. Run global.plan() first.");
-    return;
-  }
-
-  if (solution.miners.length === 0) {
-    console.log("[Sources] No miners assigned.");
-    return;
-  }
-
-  // Sort by efficiency descending
-  const sortedMiners = [...solution.miners].sort((a, b) => b.efficiency - a.efficiency);
-
-  console.log("\n=== Source Efficiency Scores ===\n");
-  console.log("Source ID         | Node               | Harvest | Dist | Efficiency");
-  console.log("------------------|--------------------|---------+------+-----------");
-
-  for (const miner of sortedMiners) {
-    const sourceShort = miner.sourceId.replace("source-", "").slice(-12);
-    const nodeShort = miner.nodeId?.slice(0, 18) || "unknown";
-    const effStr = miner.efficiency.toFixed(1).padStart(5) + "%";
-    const distStr = miner.spawnDistance.toString().padStart(4);
-    const harvestStr = miner.harvestRate.toFixed(1).padStart(5);
-
-    console.log(`${sourceShort.padEnd(17)} | ${nodeShort.padEnd(18)} | ${harvestStr} | ${distStr} | ${effStr}`);
-  }
-
-  // Summary stats
-  const avgEfficiency = sortedMiners.reduce((sum, m) => sum + m.efficiency, 0) / sortedMiners.length;
-  const minEff = sortedMiners[sortedMiners.length - 1].efficiency;
-  const maxEff = sortedMiners[0].efficiency;
-
-  console.log("\n=== Summary ===");
-  console.log(`Total sources: ${sortedMiners.length}`);
-  console.log(`Avg efficiency: ${avgEfficiency.toFixed(1)}%`);
-  console.log(`Min efficiency: ${minEff.toFixed(1)}%`);
-  console.log(`Max efficiency: ${maxEff.toFixed(1)}%`);
-  console.log(`Total harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
-  console.log(`Net energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
-};
-
-global.marketStatus = () => {
-  console.log("\n=== Economy Status ===\n");
-
-  // Show corp stats
-  console.log("=== Corps ===");
-  const showCorpStats = (
-    name: string,
-    corpMap: { [id: string]: { id: string; getCreepCount?: () => number; getPendingOrderCount?: () => number } }
-  ) => {
-    const count = Object.keys(corpMap).length;
-    if (count === 0) return;
-
-    let totalCreeps = 0;
-    for (const id in corpMap) {
-      const corp = corpMap[id];
-      if (typeof corp.getCreepCount === "function") totalCreeps += corp.getCreepCount();
-      else if (typeof corp.getPendingOrderCount === "function") totalCreeps += corp.getPendingOrderCount();
-    }
-    console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps`);
-  };
-
-  const corpsByKind: { [kind: string]: { [id: string]: { id: string; getCreepCount?: () => number; getPendingOrderCount?: () => number } } } = {};
-  for (const entry of completeCensus(corps)) {
-    (corpsByKind[entry.kind] ??= {})[entry.corpId] = entry.corp;
-  }
-  for (const kind of Object.keys(corpsByKind).sort()) showCorpStats(kind, corpsByKind[kind]);
-
-  // Show spawn queue status
-  console.log("\n=== Spawn Queues ===");
-  for (const id in corps.spawningCorps) {
-    const sc = corps.spawningCorps[id];
-    console.log(`  ${sc.id}: ${sc.getPendingOrderCount()} pending orders`);
-  }
-
-  console.log("");
-};

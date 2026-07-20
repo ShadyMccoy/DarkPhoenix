@@ -7,17 +7,7 @@
  * @module types/Memory
  */
 
-import {
-  SerializedBootstrapCorp,
-  SerializedCarryCorp,
-  SerializedConstructionCorp,
-  SerializedExtensionTenderCorp,
-  SerializedHarvestCorp,
-  SerializedReservationCorp,
-  SerializedScoutCorp,
-  SerializedSpawningCorp,
-  SerializedUpgradingCorp
-} from "../corps";
+import { SerializedBootstrapCorp, SerializedSpawningCorp } from "../corps";
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 
@@ -298,24 +288,6 @@ declare global {
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
 
     /**
-     * @deprecated Harvest/carry/upgrade corps live in commissionedCorps since
-     * the framework cutover; these keys are no longer written and exist only in
-     * old saves.
-     */
-    harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
-    /** @deprecated see harvestCorps. */
-    haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-    /** @deprecated see harvestCorps. */
-    upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
-
-    /**
-     * Serialized scout corps by room name.
-     * @deprecated Scout corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    scoutCorps?: { [roomName: string]: SerializedScoutCorp };
-
-    /**
      * The commissioned-corp store (execution/CommissionHost): every corp of a
      * REGISTERED kind, keyed by commission corpId, with its commission and
      * kind-serialized state. Grows kind by kind as the framework port
@@ -324,28 +296,10 @@ declare global {
     commissionedCorps?: import("../economy/CorpKind").SerializedCorpStore;
 
     /**
-     * Serialized construction corps by room name.
-     */
-    constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
-
-    /**
-     * Serialized reservation corps by room name.
-     * @deprecated Reservation corps live in commissionedCorps since the
-     * framework port; this key is no longer written and exists only in old saves.
-     */
-    reservationCorps?: { [roomName: string]: SerializedReservationCorp };
-
-    /**
-     * Serialized spawning corps by spawn ID.
+     * Serialized spawning corps by spawn ID (one of the two legacy-registry
+     * kinds still outside the commission store - see completeCensus).
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
-
-    /**
-     * Serialized extension tender corps (local movers) by room name.
-     * @deprecated Tender corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }
 
   /**

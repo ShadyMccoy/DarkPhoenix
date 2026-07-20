@@ -128,35 +128,6 @@ export function roundTripTicksForRoute(
   return tiles + loadedBack + 2;
 }
 
-/**
- * The cheaper hauler CARRY:MOVE ratio (1 or 2) for a route, chosen by TOTAL
- * spawn parts (CARRY + its MOVE complement) sized from the tick-accurate round
- * trip. The 2:1 road body is 1.5 parts/CARRY but sizes MORE CARRY on any
- * unpaved stretch (its loaded leg crawls); the 1:1 body is 2 parts/CARRY at
- * full speed on plain and road. On an all-plain/road split the break-even is
- * plainTiles < 2*roadTiles + 2; this evaluates it exactly from the tick model,
- * so partially-paved routes (owner: "some routes may have partial roads") get
- * the ratio that actually costs the fewest spawn parts - not an all-or-nothing
- * paved flag. Ties go to 1:1 (the robust body: full speed on any non-swamp).
- */
-export function bestHaulerRatio(
-  roadTiles: number,
-  plainTiles: number,
-  swampTiles: number,
-  flow: number
-): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } {
-  const size = (carryPerMove: number): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } => {
-    const rtTicks = roundTripTicksForRoute(roadTiles, plainTiles, swampTiles, carryPerMove);
-    const carryParts = (flow * rtTicks) / CARRY_CAPACITY;
-    // parts per CARRY = 1 (the CARRY) + 1/carryPerMove (its MOVE share): 2 at
-    // 1:1, 1.5 at 2:1 - the exact ratio the planner charges (see header).
-    const spawnParts = carryParts * (1 + 1 / carryPerMove);
-    return { carryPerMove, rtTicks, carryParts, spawnParts };
-  };
-  const oneToOne = size(1);
-  const twoToOne = size(2);
-  return twoToOne.spawnParts < oneToOne.spawnParts ? twoToOne : oneToOne;
-}
 
 /** A haul route as the road planner sees it. */
 export interface RoadRouteSpec {
