@@ -52,7 +52,15 @@ export class FlowEconomy {
     // The goal is EXECUTION-owned state (Memory.goal, set by the operator via
     // global.setGoal); the pure layers only ever receive it as an argument.
     const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
-    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal);
+    // The previous solve's realized bank draw (consumer allocations drawn
+    // from the hub) - the feeder-pricing signal that breaks the starvation
+    // loop (see buildColonyProblem). Undefined on the first solve.
+    const prevBankDraw = this.solution
+      ? this.solution.sinkAllocations
+          .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
+          .reduce((sum, a) => sum + a.allocated, 0)
+      : undefined;
+    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw);
     this.solution = result.solution;
     this.commissions = result.commissions;
     if (result.adopted.length > 0) {

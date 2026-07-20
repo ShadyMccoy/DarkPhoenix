@@ -367,7 +367,8 @@ export function buildColonyProblem(
   pavedSources: Set<string> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
-  valuation: SinkValuation = DEFAULT_VALUATION
+  valuation: SinkValuation = DEFAULT_VALUATION,
+  prevBankDraw?: number
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -551,7 +552,21 @@ export function buildColonyProblem(
   const remoteRooms = new Set(
     sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );
-  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, roomsWithStorage.size, remoteRooms.size);
+  // FEEDER PRICED AT THE REALIZED DRAW (prod t72447444, the starvation
+  // loop): pricing the relay at the FULL surplus (15 + bankRate = 115 live)
+  // charged 64p of infra for a relay whose actual consumers - starved by
+  // that very charge - drew ~2 e/t. Self-fulfilling: feeder priced for big
+  // consumers is WHY consumers stay small. The relay now prices at the
+  // PREVIOUS solve's realized bank draw, floored at STORAGE_UPGRADE_TARGET
+  // (so it can ratchet UP from the floor: cheap feeder -> parts free ->
+  // bigger consumer allocation -> next solve prices the feeder for it;
+  // converges in <=2 solves both directions). No history (first solve,
+  // harness, golden master) keeps the old full-surplus pricing.
+  const pricedRelay =
+    prevBankDraw !== undefined
+      ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))
+      : STORAGE_UPGRADE_TARGET + bankRate;
+  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size);
 
   return {
     assembly,
@@ -640,7 +655,8 @@ export function solveColony(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
   bankSources: PlannerSource[] = detectBankSources(),
-  goal?: Goal
+  goal?: Goal,
+  prevBankDraw?: number
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
   const baseProblem = buildColonyProblem(
     graph,
@@ -650,7 +666,8 @@ export function solveColony(
     detectPavedSources(),
     bankSources,
     INVADER_TAX_PER_ENERGY,
-    compileGoal(goal)
+    compileGoal(goal),
+    prevBankDraw
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with

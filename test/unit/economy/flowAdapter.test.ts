@@ -505,6 +505,52 @@ describe("economy/flowAdapter - remote scavenge is spill-only (prod t72446738)",
   });
 });
 
+/**
+ * Feeder priced at the REALIZED draw (prod t72447444, the starvation loop):
+ * pricing the relay at the full surplus (115 e/t) charged 64p of infra for
+ * consumers that - starved by that very charge - drew 2 e/t. With history,
+ * the relay prices at the previous solve's bank draw (floored at the upgrade
+ * target), freeing the phantom infra so consumers actually grow; without
+ * history the old full-surplus pricing holds (first solve / golden master).
+ */
+describe("economy/flowAdapter - feeder priced at realized draw (prod t72447444)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {}, spawns: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const bank = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("a starved-history solve frees the phantom feeder infra and the consumers GROW", async () => {
+    const { buildColonyProblem, solveColony } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const noHistory = buildColonyProblem(graph, manhattan, [], new Map(), new Set(), [bank(100)]);
+    const starvedHistory = buildColonyProblem(
+      graph, manhattan, [], new Map(), new Set(), [bank(100)], undefined, undefined, 2
+    );
+    expect(starvedHistory.infraPartsPerTick!, "the relay re-prices to the floor, not the full surplus").to.be.lessThan(
+      noHistory.infraPartsPerTick!
+    );
+    // and the freed parts reach the consumers in the actual solve
+    const without = solveColony(graph, 0, manhattan, [], [bank(100)]).solution;
+    const withHist = solveColony(graph, 0, manhattan, [], [bank(100)], undefined, 2).solution;
+    const ctrl = (s: any): number => s.sinkAllocations.find((a: any) => a.sinkType === "controller")?.allocated ?? 0;
+    expect(ctrl(withHist), "consumers grow when the feeder stops charging phantom relay").to.be.at.least(ctrl(without));
+  });
+});
+
 describe("economy/flowAdapter - paved-source detection", () => {
   const g = globalThis as unknown as { Game?: unknown };
   let savedGame: unknown;
