@@ -119,6 +119,34 @@ const ROAD_SPAWN_PART_VALUE = 100;
  */
 const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
 
+/**
+ * The colony's BUILD POOL (owner 2026-07-20: "It basically just doesn't
+ * matter which room the construction is in"): every room with our
+ * construction sites, home room first then nearest, each with its remaining
+ * work. ONE spawn-scoped crew is sized against the whole pool and marches
+ * wherever the work is - the room enters the math only as travel distance.
+ * This retires the distributed trunk model (each room's corp owned its
+ * segment), whose empty-room corps fielded self-ferrying 1-WORK runts:
+ * trunk stalled at 32/38 for ~4300 ticks, measured.
+ */
+export function buildPool(homeRoomName: string): { room: Room; work: number }[] {
+  const entries: { room: Room; work: number }[] = [];
+  if (typeof Game === "undefined" || !Game.rooms) return entries;
+  for (const roomName in Game.rooms) {
+    const r = Game.rooms[roomName];
+    let work = 0;
+    try {
+      for (const s of r.find(FIND_MY_CONSTRUCTION_SITES)) work += s.progressTotal - s.progress;
+    } catch {
+      continue; // partial mocks
+    }
+    if (work > 0) entries.push({ room: r, work });
+  }
+  const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
+  entries.sort((a, b) => rank(a.room.name) - rank(b.room.name));
+  return entries;
+}
+
 /** One placement pass over a trunk's tiles: what stands, what was added,
  * which rooms could not be read. */
 export interface TrunkSurvey {
@@ -246,17 +274,19 @@ export class ConstructionCorp extends Corp {
       this.targetBuilders = 0;
       return;
     }
-    const constructionSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
-    if (constructionSites.length === 0) {
+    // ONE BUILD POOL (owner 2026-07-20): the home corp counts the colony's
+    // whole outstanding site work; remote corps count nothing (their sites
+    // belong to the pool, their builders age out).
+    const isHome = spawn.pos.roomName === workRoom.name;
+    const totalWorkRemaining = isHome
+      ? buildPool(spawn.pos.roomName).reduce((s, e) => s + e.work, 0)
+      : 0;
+    if (totalWorkRemaining === 0) {
       // Nothing to build. Maintenance belongs to the repair detail (separate
       // squad, runs regardless of sites) - the build crew stands down.
       this.targetBuilders = 0;
       return;
     }
-
-    const totalWorkRemaining = constructionSites.reduce((sum, site) => {
-      return sum + (site.progressTotal - site.progress);
-    }, 0);
 
     const buildersNeeded = Math.min(MAX_BUILDERS, Math.ceil(totalWorkRemaining / 50000));
     this.targetBuilders = Math.max(1, buildersNeeded);
@@ -403,8 +433,14 @@ export class ConstructionCorp extends Corp {
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
     this.assignRepairDetail(room);
+    // ONE BUILD POOL (owner 2026-07-20): the crew works the pool's head room
+    // - home first, else the nearest room with sites (its trunk tiles, a
+    // founding site two rooms over, wherever). runBuilder already drives and
+    // refuels in whatever room it is handed (the remote rung proved it).
+    const poolHead = buildPool(spawn.pos.roomName)[0];
+    const buildRoom = poolHead?.room ?? room;
     this.builders.run(
-      creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
+      creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom)),
       spawn
     );
     this.tankers.run(creep => this.runTanker(creep, room), spawn);
@@ -554,20 +590,38 @@ export class ConstructionCorp extends Corp {
     // repairer (cons-repair-stops-at-99). Under the distributed trunk model
     // each room's corp owns its segment, so "sum of THIS corp's projects" is
     // exactly its room's remaining site work.
-    const siteWork = this.siteWorkRemaining(room);
-    if (siteWork > 0) {
-      // Horizon = buffered EFFECTIVE life: a crew building a couple rooms
-      // over spends lifetime walking there, so the same work justifies a
-      // bigger crew (owner 2026-07-20: "based on effective ttl ... not a
-      // hard constant").
-      const spawnForTravel = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    // ONE BUILD POOL (owner 2026-07-20: "it basically just doesn't matter
+    // which room the construction is in"): the home corp sizes against the
+    // colony's WHOLE outstanding site work - room only enters as travel.
+    // Remote corps keep their per-room read for their aging-out legacy crews.
+    const spawnForTravel = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const isHome = spawnForTravel ? spawnForTravel.pos.roomName === room.name : true;
+    let siteWork: number;
+    let travel = 0;
+    if (isHome && spawnForTravel) {
+      const pool = buildPool(spawnForTravel.pos.roomName);
+      siteWork = pool.reduce((s, e) => s + e.work, 0);
+      // Horizon travel = the FARTHEST pool room (the crew must finish the
+      // whole pool within its buffered effective life - owner: "based on
+      // effective ttl ... not a hard constant").
+      for (const e of pool) {
+        const t =
+          e.room.name === room.name
+            ? spawnForTravel.pos.getRangeTo(room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? spawnForTravel.pos)
+            : roomLinearDistance(spawnForTravel.pos.roomName, e.room.name) * 50;
+        if (t > travel) travel = t;
+      }
+    } else {
+      siteWork = this.siteWorkRemaining(room);
       const firstSite = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
-      const travel =
+      travel =
         spawnForTravel && firstSite
           ? spawnForTravel.pos.roomName === room.name
             ? spawnForTravel.pos.getRangeTo(firstSite.pos)
             : roomLinearDistance(spawnForTravel.pos.roomName, room.name) * 50
           : 0;
+    }
+    if (siteWork > 0) {
       buildEnergy = Math.min(buildEnergy, projectAbsorbRate(siteWork, travel));
     }
     buildEnergy = Math.max(5, buildEnergy);
@@ -2079,10 +2133,19 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return [];
     const workRoom = this.workRoom(spawn);
     if (!workRoom) return [];
-    const sites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) {
-      // No sites: only the standing repair detail may want staffing. It
-      // self-fuels at containers/storage, so it never needs tankers.
+
+    // ONE BUILD POOL PER SPAWN (owner 2026-07-20): remote corps field NO
+    // builders - their room's sites belong to the home corp's pool crew.
+    // They keep the standing repair detail (their containers still decay)
+    // and their placement duties; legacy builders age out by attrition.
+    if (this.isRemoteWorkRoom(workRoom)) {
+      return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
+    }
+
+    const poolWork = buildPool(spawn.pos.roomName).reduce((s, e) => s + e.work, 0);
+    if (poolWork === 0) {
+      // No sites anywhere: only the standing repair detail may want staffing.
+      // It self-fuels at containers/storage, so it never needs tankers.
       return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
     }
 
@@ -2091,12 +2154,13 @@ export class ConstructionCorp extends Corp {
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
 
-    // A remote workRoom never fields feeders: the builder eats the source
-    // pile at the site, and a tanker's home-side refuel loop would just walk
-    // energy across the border that the pile already provides for free.
-    if (this.isRemoteWorkRoom(workRoom)) return builderDemand;
+    // Tankers serve the crew only while it works HOME sites; abroad the
+    // builders eat the route's source containers (a tanker's home-side
+    // refuel loop would walk energy the remote piles provide for free).
+    const homeSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
+    if (homeSites.length === 0) return builderDemand;
 
-    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, sites[0]));
+    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, homeSites[0]));
     return [...builderDemand, ...tankerDemand];
   }
 

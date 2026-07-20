@@ -168,6 +168,33 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (owner-directed, immediate) — ROOM-AGNOSTIC CONSTRUCTION: one build pool per spawn
+
+Owner: "we need them to build quicker. It's an investment... why not also
+just build these roads the 'normal' way just like the ones in the owned
+room?" then the principle: "It basically just doesn't matter which room
+the construction is in." The distributed trunk model (each room's corp
+owns its segment - the code's own comments) produced the measured stall:
+empty-room corps sized 1W1C1M runts against tiny local inventories,
+self-ferrying 50 energy per trip; trunk frozen at 32/38 for ~4300t.
+
+SHIPPED task #22: buildPool(homeRoom) - every room with our sites, home
+first then nearest, one work list. The home corp SIZES against the whole
+pool (builderPlan: pool work, horizon travel = farthest pool room -
+lifetime-completion math unchanged, just fed the true inventory), DRIVES
+its crew to the pool's head room (runBuilder already handles any room -
+the remote rung proved it; refuel from the route's source containers),
+and demands tankers only while working home sites. Remote corps field NO
+builders (repair detail + placement only; legacy runts age out by
+attrition - correct class). Pins: pool ordering/summing, empty-home ->
+remote head (the un-stall shape), empty pool. Unit 1096; trio green.
+
+Predictions: builder receipts jump from @200-300 runts to proper bodies
+within ~1 generation; trunk 32/38 -> 38/38 within ~1-2k ticks of the
+crew landing; trunk-paved receipt -> W43N24 haulers reprice 2:1; then
+trunk #2 places with a working build machine. Cycle verdict: fixed
+(pending verification).
+
 ### 2026-07-20 (cron cycle, +287t) — link-site watch armed; P-CPU meter ships (task #12, the last backlog instrument)
 
 Post-link-deploy first look: burn 39.5, BANK -30.8/t (251.9k, 9.1xT),
