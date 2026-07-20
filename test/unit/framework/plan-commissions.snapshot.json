@@ -86,7 +86,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.005387
       },
       "produces": {
         "at": {
@@ -133,7 +133,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.001203
       },
       "produces": {
         "at": {
@@ -314,7 +314,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.008097
       },
       "produces": {
         "at": {
@@ -441,7 +441,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.005442
       },
       "produces": {
         "at": {

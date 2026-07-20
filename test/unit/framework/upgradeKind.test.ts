@@ -27,6 +27,7 @@ import { planCommissions } from "../../../src/economy/commissionPlan";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { upgradeKind, sinkAllocationFromCommissioned } from "../../../src/corps/kinds/upgradeKind";
 import { describeCorpKindConformance } from "./conformance";
+import { controllerWorkSpawnLoad } from "../../../src/economy/primitives";
 
 const ROOM = "W1N1";
 
@@ -62,11 +63,16 @@ const sink: CommissionedSink = {
   sources: [{ sourceId: "source-abcd1234", amount: 9, distance: 40 }]
 };
 
+// The envelope carries the SAME charge the planner's parts ledger paid for
+// this sink (spec 17 P4): controllerWorkSpawnLoad at the nearest-spawn
+// distance (spawn at x=0, sink at x=40 - the fixture world's dist).
+const upgradeSpawnParts = controllerWorkSpawnLoad(9, 40);
+
 const upgradeCommission = {
   corpId: "upgrade-sink-ctrl",
   kind: "upgrade",
   shape: "consume" as const,
-  consumes: { energyRate: 9, at: at(40), spawnPartsPerTick: 0 },
+  consumes: { energyRate: 9, at: at(40), spawnPartsPerTick: upgradeSpawnParts },
   produces: { valuePerTick: 9 * DEFAULT_SINK_VALUE.controller, at: at(40) },
   // spawnId is the flow sink id ("spawn-<gameId>"), as commissionsFromPlan carries it
   assignment: { sink, spawnId: "spawn-game1" } as ConsumeAssignment
@@ -206,6 +212,6 @@ describe("upgrade kind rung 1", () => {
   describeCorpKindConformance(upgradeKind as never, {
     problem: world,
     commission: upgradeCommission,
-    expectedSpawnPartsPerTick: 0 // consumer build-time not yet budgeted by the solver
+    expectedSpawnPartsPerTick: controllerWorkSpawnLoad(9, 40) // the ledger charge, from primitives
   });
 });
