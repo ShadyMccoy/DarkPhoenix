@@ -143,8 +143,19 @@ function main(): void {
     `SPAWN  util ${fmt(sp.utilization, 2)}  parts ${fmt(sp.partsPerTick, 3)}/${fmt(sp.ceiling, 3)}  queue ${sp.queueDepth ?? "-"}`
   );
   console.log(
-    `FLEET  ${core.creeps?.total ?? "-"} creeps (${kindStr})  untracked ${core.creeps?.untracked ?? "-"}` +
-      `  parts ${core.bodyParts?.total ?? "-"}`
+    `FLEET  ${core.creeps?.total ?? "-"} creeps (${kindStr})  untracked ${core.creeps?.untracked ?? "-"}`
+  );
+  // PARTS: the colony's standing body inventory - the thing the spawn's
+  // 0.333/t actually buys - with composition and the fleet-growth band.
+  const bp = core.bodyParts?.byPart ?? {};
+  const partOrder = ["work", "carry", "move", "attack", "heal", "claim", "tough", "ranged_attack"];
+  const partStr = partOrder
+    .filter(p => (bp[p] ?? 0) > 0)
+    .map(p => `${bp[p]} ${p === "ranged_attack" ? "ra" : p.slice(0, 4)}`)
+    .join(" ");
+  const partsRate = band(rates(caps, c => c.data.core?.bodyParts?.total), 2);
+  console.log(
+    `PARTS  ${core.bodyParts?.total ?? "-"} (${partStr})  ${partsRate.latest}/t ${partsRate.band}`
   );
   console.log(`CPU    ${fmt(core.cpu?.used, 1)}/${core.cpu?.limit ?? "-"}  bucket ${((core.cpu?.bucket ?? 0) / 1000).toFixed(1)}k`);
 }
