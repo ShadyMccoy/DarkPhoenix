@@ -36,9 +36,9 @@ import { Colony, createColony } from "./colony";
 import { updateExpansionCampaign } from "./economy/expansion";
 import {
   CorpRegistry,
-  CorpCensusEntry,
   allCommissionedCorps,
   cleanupDeadCreeps,
+  completeCensus,
   commissionedCorpsOfKind,
   createCorpRegistry,
   getAnalysisCache,
@@ -294,11 +294,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // than waiting for the first cadence tick. Without this, a fresh colony has
   // no miners/upgraders until tick PLANNING_INTERVAL and never bootstraps.
 
+  const economyHasProducers = allCommissionedCorps().some(e => e.commissionShape === "produce");
   const economyNeedsBootstrap =
-    colony.getNodes().length > 0 &&
-    Object.keys(commissionedCorpsOfKind("harvest")).length === 0 &&
-    !isAnalysisInProgress() &&
-    Game.time % 10 === 0;
+    colony.getNodes().length > 0 && !economyHasProducers && !isAnalysisInProgress() && Game.time % 10 === 0;
 
   // Re-solve the flow economy on a light cadence so it adapts to changes the
   // initial solve couldn't see: RCL-ups, new construction sites, etc. Without
@@ -680,15 +678,9 @@ function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
  */
 function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void {
   const telemetry = getTelemetry();
-  // Complete corp census: every commissioned kind + the two legacy-registry
-  // kinds (bootstrap, spawning), mirroring OrphanRescue.liveCorpIds. This is
-  // the single source of truth so no creep-owning kind is left uncounted.
-  const census: CorpCensusEntry[] = [
-    ...allCommissionedCorps(),
-    ...Object.entries(activeCorps.bootstrapCorps).map(([corpId, corp]) => ({ corpId, kind: "bootstrap", corp })),
-    ...Object.entries(activeCorps.spawningCorps).map(([corpId, corp]) => ({ corpId, kind: "spawning", corp }))
-  ];
-  telemetry.update(activeColony, census, flowEconomy?.getSolution() ?? undefined);
+  // The complete corp census (store + legacy registry kinds), folded in ONE
+  // place - completeCensus - so no consumer maintains its own append.
+  telemetry.update(activeColony, completeCensus(activeCorps), flowEconomy?.getSolution() ?? undefined);
 }
 
 /**
@@ -858,13 +850,11 @@ global.status = () => {
   console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
 
   console.log("\n=== Corps ===");
-  console.log(`Mining: ${Object.keys(commissionedCorpsOfKind("harvest")).length}`);
-  console.log(`Hauling: ${Object.keys(commissionedCorpsOfKind("carry")).length}`);
-  console.log(`Upgrading: ${Object.keys(commissionedCorpsOfKind("upgrade")).length}`);
-  console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
-  console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
-  console.log(`Scout: ${Object.keys(commissionedCorpsOfKind("scout")).length}`);
-  console.log(`Construction: ${Object.keys(commissionedCorpsOfKind("construction")).length}`);
+  const corpCountByKind: { [kind: string]: number } = {};
+  for (const { kind } of completeCensus(corps)) corpCountByKind[kind] = (corpCountByKind[kind] ?? 0) + 1;
+  for (const kind of Object.keys(corpCountByKind).sort()) {
+    console.log(`${kind}: ${corpCountByKind[kind]}`);
+  }
 
   if (colony) {
     console.log("\n=== Colony ===");
@@ -1221,13 +1211,11 @@ global.marketStatus = () => {
     console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps`);
   };
 
-  showCorpStats("Mining", commissionedCorpsOfKind("harvest"));
-  showCorpStats("Hauling", commissionedCorpsOfKind("carry"));
-  showCorpStats("Upgrading", commissionedCorpsOfKind("upgrade"));
-  showCorpStats("Spawning", corps.spawningCorps);
-  showCorpStats("Construction", commissionedCorpsOfKind("construction"));
-  showCorpStats("Scout", commissionedCorpsOfKind("scout"));
-  showCorpStats("Bootstrap", corps.bootstrapCorps);
+  const corpsByKind: { [kind: string]: { [id: string]: { id: string; getCreepCount?: () => number; getPendingOrderCount?: () => number } } } = {};
+  for (const entry of completeCensus(corps)) {
+    (corpsByKind[entry.kind] ??= {})[entry.corpId] = entry.corp;
+  }
+  for (const kind of Object.keys(corpsByKind).sort()) showCorpStats(kind, corpsByKind[kind]);
 
   // Show spawn queue status
   console.log("\n=== Spawn Queues ===");

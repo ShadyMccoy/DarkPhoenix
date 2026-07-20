@@ -40,6 +40,13 @@ export interface RoleSpec {
    * rescued by the tender kind, preserving the pre-spec-17 ROLE_KIND mapping).
    */
   readopt?: boolean;
+  /**
+   * This role's creeps deliver energy into the spawn network - they count in
+   * the director's income estimate (the scheduler's "is it safe to wait for a
+   * blocking demand" signal). Today only the flow hauler declares it; tender/
+   * feeder movers deliberately do not (pinned pre-spec-17 behavior).
+   */
+  deliversEnergy?: boolean;
 }
 
 /**

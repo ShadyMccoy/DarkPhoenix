@@ -421,29 +421,14 @@ declare global {
     corpId?: string;
 
     /**
-     * The type of work this creep performs.
-     * - harvest: Mining energy from sources
-     * - haul: Edge-based transport (source to sink via paths)
-     * - tank: Node-based local distribution (fill extensions/spawns)
-     * - upgrade: Controller upgrading
-     * - build: Construction
-     * - repair: Structure repair
-     * - scout: Room scouting
+     * The type of work this creep performs. Values are DECLARED by each corp
+     * kind (CorpKind.roles[].workType - e.g. harvest/haul/tank/feed/upgrade/
+     * build/scout/reserve/claim/guard/buster/strike), not enumerated here: a
+     * closed union at this distance was an undeclared second registration
+     * point every new kind had to find (spec 17). Validity is enforced by the
+     * kind-conformance suite against the registry's declarations.
      */
-    workType?:
-      | "harvest"
-      | "haul"
-      | "tank"
-      | "feed"
-      | "upgrade"
-      | "build"
-      | "repair"
-      | "scout"
-      | "reserve"
-      | "claim"
-      | "guard"
-      | "buster"
-      | "strike";
+    workType?: string;
 
     /**
      * Target ID for current task.

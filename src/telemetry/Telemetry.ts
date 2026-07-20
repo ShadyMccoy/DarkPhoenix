@@ -54,25 +54,6 @@ export interface CorpCensusEntry {
   corp: Corp;
 }
 
-/**
- * Map from a corp's commission `kind` to the human creep-role bucket in the
- * core telemetry census. Every creep-owning kind appears here; `spawning` is
- * intentionally absent (it spawns other corps' creeps and is tracked by
- * pending orders, not by a creep count of its own).
- */
-const KIND_TO_CREEP_BUCKET: Record<string, keyof CoreTelemetry["creeps"]> = {
-  bootstrap: "bootstrap",
-  harvest: "miners",
-  carry: "haulers",
-  upgrade: "upgraders",
-  construction: "builders",
-  scout: "scouts",
-  reservation: "reservers",
-  tender: "tankers",
-  controllerFeeder: "feeders",
-  claim: "claimers"
-};
-
 /** Live creep count for any corp, whichever accessor it exposes. */
 function corpCreepCount(corp: Corp): number {
   const c = corp as unknown as { getCreepCount?: () => number; getPendingOrderCount?: () => number };
@@ -201,16 +182,15 @@ export interface CoreTelemetry {
     total: number;
     tracked: number;
     untracked: number;
-    bootstrap: number;
-    miners: number;
-    haulers: number;
-    upgraders: number;
-    scouts: number;
-    builders: number;
-    reservers: number;
-    tankers: number;
-    feeders: number;
-    claimers: number;
+    /**
+     * Creep counts keyed by commission KIND (harvest/carry/...), derived from
+     * the census generically: a registered kind whose corps expose
+     * getCreepCount is counted by construction (the hand-maintained bucket
+     * map this replaces had already silently dropped raidGuard + coreBuster).
+     * `spawning` never appears (it spawns other corps' creeps and exposes
+     * pending orders, not a creep count).
+     */
+    byKind: { [kind: string]: number };
   };
   /**
    * ACTUAL body parts across every live creep, measured from `Creep.body` (not
@@ -612,28 +592,21 @@ export class Telemetry {
    * Updates core telemetry (Segment 0).
    */
   private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[], bodyParts: BodyAggregate): void {
-    // Creep census: one bucket per creep-owning kind, summed from the complete
-    // corp list so every kind is counted (no more silent undercount).
+    // Creep census keyed by kind, summed generically from the complete corp
+    // list: every creep-owning kind is counted by construction. Only corps
+    // that expose getCreepCount contribute (spawning tracks pending orders,
+    // not creeps of its own).
     const creeps: CoreTelemetry["creeps"] = {
       total: Object.keys(Game.creeps).length,
       tracked: 0,
       untracked: 0,
-      bootstrap: 0,
-      miners: 0,
-      haulers: 0,
-      upgraders: 0,
-      scouts: 0,
-      builders: 0,
-      reservers: 0,
-      tankers: 0,
-      feeders: 0,
-      claimers: 0
+      byKind: {}
     };
     for (const { kind, corp } of census) {
-      const bucket = KIND_TO_CREEP_BUCKET[kind];
-      if (!bucket) continue; // spawning (and any non-creep kind) is not a creep bucket
-      const n = corpCreepCount(corp);
-      creeps[bucket] += n;
+      const counter = corp as unknown as { getCreepCount?: () => number };
+      if (typeof counter.getCreepCount !== "function") continue;
+      const n = counter.getCreepCount();
+      creeps.byKind[kind] = (creeps.byKind[kind] ?? 0) + n;
       creeps.tracked += n;
     }
     creeps.untracked = Math.max(0, creeps.total - creeps.tracked);

@@ -56,7 +56,7 @@ function legacyNodeId(roomName: string, sourceId: string): string {
 export const carryKind: CorpKind<CarryCorp> = {
   kind: "carry",
   runOrder: 20, // transport, after produce (10), before consume (30)
-  roles: { hauler: { workType: "haul" } },
+  roles: { hauler: { workType: "haul", deliversEnergy: true } },
 
   // Solver-backed: planColony emits carry commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {

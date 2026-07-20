@@ -1,6 +1,6 @@
 import { NodeSurveyor, SurveyResult } from "../nodes/NodeSurveyor";
 import { CorpRegistry } from "../execution/CorpRunner";
-import { allCommissionedCorps } from "../execution/CommissionHost";
+import { completeCensus } from "../execution/CommissionHost";
 import { Node } from "../nodes/Node";
 
 /**
@@ -165,24 +165,20 @@ export class Colony {
    * Update colony statistics
    */
   private updateStats(corpRegistry: CorpRegistry): void {
-    // Complete census: every commissioned kind + the two legacy-registry kinds.
-    // Using the census (not a hand-picked per-kind list) keeps totals honest as
-    // new corp kinds are added - the old list silently missed reservation /
-    // tender / controllerFeeder / claim.
+    // The complete census (store + legacy kinds) via the one shared fold.
+    // A corp is "active" when it has creeps; spawning corps count as active by
+    // existing (they hold no creeps of their own).
     let totalCorps = 0;
     let activeCorps = 0;
-    for (const { corp } of allCommissionedCorps()) {
+    for (const { kind, corp } of completeCensus(corpRegistry)) {
       totalCorps++;
+      if (kind === "spawning") {
+        activeCorps++;
+        continue;
+      }
       const counter = corp as unknown as { getCreepCount?: () => number };
       if (typeof counter.getCreepCount === "function" && counter.getCreepCount() > 0) activeCorps++;
     }
-    for (const corp of Object.values(corpRegistry.bootstrapCorps)) {
-      totalCorps++;
-      if (corp.getCreepCount() > 0) activeCorps++;
-    }
-    // Spawning corps are active if they exist (they hold no creeps of their own)
-    totalCorps += Object.keys(corpRegistry.spawningCorps).length;
-    activeCorps += Object.keys(corpRegistry.spawningCorps).length;
 
     this.stats = {
       nodeCount: this.nodes.length,

@@ -50,18 +50,18 @@ let store: CorpStore | null = null;
 /** Every ported kind. New ports add one line here - the host body never changes. */
 const KINDS: CorpKind[] = [
   // Solver-backed (commissions come from FlowEconomy.getCommissions):
-  harvestKind as never,
-  carryKind as never,
-  upgradeKind as never,
+  harvestKind as CorpKind,
+  carryKind as CorpKind,
+  upgradeKind as CorpKind,
   // Self-proposing (auxiliary, or hybrid like construction which reads the draft):
-  scoutKind as never,
-  reservationKind as never,
-  raidGuardKind as never,
-  coreBusterKind as never,
-  claimKind as never,
-  extensionTenderKind as never,
-  controllerFeederKind as never,
-  constructionKind as never
+  scoutKind as CorpKind,
+  reservationKind as CorpKind,
+  raidGuardKind as CorpKind,
+  coreBusterKind as CorpKind,
+  claimKind as CorpKind,
+  extensionTenderKind as CorpKind,
+  controllerFeederKind as CorpKind,
+  constructionKind as CorpKind
 ];
 
 function registerKinds(): void {
@@ -194,21 +194,39 @@ export interface CorpCensusEntry {
   corpId: string;
   kind: string;
   corp: Corp;
+  /** The commission's declared shape (absent for the legacy registry kinds). */
+  commissionShape?: Commission["shape"];
 }
 
 /**
  * Every corp in the commission store, of every kind, with its kind label - the
- * single source of truth for a complete census (telemetry, stats). This covers
- * all framework kinds (harvest/carry/upgrade/scout/reservation/claim/tender/
- * controllerFeeder/construction); the two legacy-registry kinds (bootstrap,
- * spawning) live outside the store and must be appended by the caller (mirrors
- * OrphanRescue.liveCorpIds). Prefer this over hand-picked per-kind maps, which
- * have repeatedly drifted out of sync as new kinds were added.
+ * store half of the census. Prefer {@link completeCensus} for consumers that
+ * must see EVERY corp: it folds in the two legacy-registry kinds (bootstrap,
+ * spawning) exactly once, so no caller maintains its own append.
  */
 export function allCommissionedCorps(): CorpCensusEntry[] {
   const out: CorpCensusEntry[] = [];
   for (const [corpId, entry] of ensureStore()) {
-    out.push({ corpId, kind: entry.kind, corp: entry.corp });
+    out.push({ corpId, kind: entry.kind, corp: entry.corp, commissionShape: entry.commission.shape });
+  }
+  return out;
+}
+
+/**
+ * The COMPLETE corp census: the commission store plus the two legacy-registry
+ * kinds that predate the framework (bootstrap - the cold-start fallback, and
+ * spawning - infrastructure). This is the ONLY place their kind labels are
+ * hand-written; every census consumer (telemetry, variance, stats, orphan
+ * rescue, console) iterates this instead of remembering the append. When those
+ * two finally port to the framework, this collapses into allCommissionedCorps.
+ */
+export function completeCensus(registry: CorpRegistry): CorpCensusEntry[] {
+  const out = allCommissionedCorps();
+  for (const room in registry.bootstrapCorps) {
+    out.push({ corpId: registry.bootstrapCorps[room].id, kind: "bootstrap", corp: registry.bootstrapCorps[room] });
+  }
+  for (const spawnId in registry.spawningCorps) {
+    out.push({ corpId: registry.spawningCorps[spawnId].id, kind: "spawning", corp: registry.spawningCorps[spawnId] });
   }
   return out;
 }
