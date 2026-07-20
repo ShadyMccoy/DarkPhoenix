@@ -30,6 +30,21 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
       const a = kind.propose(fx.problem, []);
       const b = kind.propose(fx.problem, []);
       expect(a).to.deep.equal(b);
+      // PURITY (spec 17 P3): propose is a function of (problem, draft) ONLY.
+      // With the Screeps globals removed it must return the same commissions -
+      // triggers that steal facts from Game/Memory (the stranded-reserver
+      // class) fail here instead of flapping live.
+      const g = global as { Game?: unknown; Memory?: unknown };
+      const savedGame = g.Game;
+      const savedMemory = g.Memory;
+      delete g.Game;
+      delete g.Memory;
+      try {
+        expect(kind.propose(fx.problem, []), "propose must not read Game/Memory").to.deep.equal(a);
+      } finally {
+        g.Game = savedGame;
+        g.Memory = savedMemory;
+      }
       const ids = a.map(c => c.corpId);
       expect(new Set(ids).size).to.equal(ids.length);
       for (const c of a) {

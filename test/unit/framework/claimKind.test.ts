@@ -37,38 +37,24 @@ const commission: Commission = {
   assignment: { roomName: "W3N3", spawnId: "spawn1" }
 };
 
-describe("claimKind propose (campaign-gated)", () => {
-  afterEach(() => {
-    delete (Memory as { expansion?: unknown }).expansion;
-  });
-
+describe("claimKind propose (campaign-gated, pure)", () => {
   it("proposes nothing while no expansion campaign is live", () => {
-    delete (Memory as { expansion?: unknown }).expansion;
     expect(claimKind.propose(world, [])).to.deep.equal([]);
   });
 
-  it("commissions ONE claim corp for the campaign target, bound to a colony spawn", () => {
-    (Memory as { expansion?: { roomName: string } }).expansion = { roomName: "W3N3" };
-    const proposals = claimKind.propose(world, []);
+  it("commissions ONE claim corp for the campaign target, bound to the nearest colony spawn", () => {
+    // The campaign fact arrives ON THE PROBLEM (host-assembled, spec 17 P3).
+    const proposals = claimKind.propose({ ...world, expansion: { roomName: "W3N3" } }, []);
     expect(proposals).to.have.length(1);
     expect(proposals[0].corpId).to.equal("claim-W3N3");
     expect((proposals[0].assignment as { spawnId: string }).spawnId).to.equal("spawn1");
   });
 });
 
-// Rung 1: the standard conformance suite, with the campaign live so propose()
-// has something to do (the harness requires a working fixture world).
-describe("claimKind conformance harness setup", () => {
-  before(() => {
-    (Memory as { expansion?: { roomName: string } }).expansion = { roomName: "W3N3" };
-  });
-  after(() => {
-    delete (Memory as { expansion?: unknown }).expansion;
-  });
-
-  describeCorpKindConformance(claimKind as CorpKind, {
-    problem: world,
-    commission,
-    expectedSpawnPartsPerTick: 0
-  });
+// Rung 1: the standard conformance suite, with the campaign live on the
+// problem so propose() has something to do.
+describeCorpKindConformance(claimKind as CorpKind, {
+  problem: { ...world, expansion: { roomName: "W3N3" } },
+  commission,
+  expectedSpawnPartsPerTick: 0
 });

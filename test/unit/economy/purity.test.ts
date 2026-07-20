@@ -32,18 +32,20 @@ const PURE: string[] = [
   "commissionPlan.ts",
   "siteValue.ts",
   "roadEconomics.ts",
-  "bank.ts"
+  "bank.ts",
+  "expansion.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
 const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts"];
 
 /**
- * Explicit debt: economy/ files known to violate purity, tracked for the
- * spec 17 P3 split (expansion.ts issues game intents + Memory writes from the
- * planning directory). Shrink this list as the cleanup lands - never grow it.
+ * Explicit debt: economy/ files known to violate purity. EMPTY since the
+ * spec 17 P3 split moved the expansion campaign driver (game intents, Memory
+ * writes) to execution/ExpansionCampaign.ts. Never grow this list - classify
+ * new files PURE or ADAPTER, or split them like expansion was.
  */
-const KNOWN_IMPURE: string[] = ["expansion.ts"];
+const KNOWN_IMPURE: string[] = [];
 
 /** Strip line and block comments so doc references to Game don't count. */
 function stripComments(src: string): string {

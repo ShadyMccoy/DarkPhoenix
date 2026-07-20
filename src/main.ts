@@ -33,7 +33,7 @@
 
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
-import { updateExpansionCampaign } from "./economy/expansion";
+import { updateExpansionCampaign } from "./execution/ExpansionCampaign";
 import {
   CorpRegistry,
   allCommissionedCorps,

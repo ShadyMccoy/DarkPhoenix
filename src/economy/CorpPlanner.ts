@@ -121,6 +121,18 @@ export interface ColonyProblem {
    * the spawn-parts ledger before the sink fill spends the rest (spec 15 P4).
    */
   infraPartsPerTick?: number;
+  /**
+   * Execution-context facts for auxiliary propose() triggers, assembled by
+   * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
+   * anything a trigger used to steal from Game/Memory/execution state rides
+   * on the problem instead. Absent = the fact is false/unknown.
+   */
+  /** A live expansion campaign (claimKind's trigger). Host: Memory.expansion. */
+  expansion?: { roomName: string };
+  /** CPU-governor degradation freezes (scoutKind's gate). Host: CpuGovernor. */
+  freezes?: { scouting?: boolean };
+  /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
+  hostileRooms?: readonly string[];
 }
 
 /** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */

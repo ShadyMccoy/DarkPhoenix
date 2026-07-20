@@ -42,6 +42,8 @@ import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
 import { constructionKind } from "../corps/kinds/constructionKind";
 import { record as blackBox } from "../telemetry/BlackBox";
+import { plan as governorPlan } from "./CpuGovernor";
+import { hostileRooms } from "../utils/RoomDiscovery";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -72,7 +74,11 @@ function registerKinds(): void {
 
 /**
  * The live world as a ColonyProblem, restricted to what registered kinds
- * read. Sources/sinks stay empty until solver-backed kinds register.
+ * read: fresh spawns, plus the execution-context facts propose() triggers
+ * need (spec 17 P3 - the HOST owns the impure reads; propose stays a pure
+ * function of the problem). Sources/sinks stay empty (self-proposing kinds
+ * read spawns + draft only); dist is same-room Chebyshev and NOT
+ * cross-room-safe - kinds needing room distance use roomLinearDistance.
  */
 function liveProblem(): ColonyProblem {
   const spawns: ColonyProblem["spawns"] = [];
@@ -80,13 +86,15 @@ function liveProblem(): ColonyProblem {
     const s = Game.spawns[name];
     spawns.push({ id: s.id, pos: { x: s.pos.x, y: s.pos.y, roomName: s.pos.roomName } });
   }
+  const expansionRoom = typeof Memory !== "undefined" ? Memory.expansion?.roomName : undefined;
   return {
     spawns,
     sources: [],
     sinks: [],
-    // Same-room Chebyshev; good enough for the auxiliary kinds, replaced by
-    // the real path-distance provider when the solver port lands.
-    dist: (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
+    dist: (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)),
+    ...(expansionRoom ? { expansion: { roomName: expansionRoom } } : {}),
+    freezes: { scouting: governorPlan().freezeScouting },
+    hostileRooms: [...hostileRooms()]
   };
 }
 
