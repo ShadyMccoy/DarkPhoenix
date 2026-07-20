@@ -168,6 +168,26 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +1004t) — BANK SLOPE NEGATIVE: the consumption chain is whole; generation boundary passed clean
+
+Verification of the feeder deploy, final: burn 19.0 e/t (predicted 18+),
+controller stock 2000 -> 2000 under that burn (relay pacing exactly),
+feeder 2 shuttles / relayRate 115 / staffed, upgraders 2x(20W,15W) = 35
+WORK with demand "demanded" toward targetCount 6. BANK -2.8/t over 1004
+ticks - the first draining window since the loop began; E4 no longer
+FAILs (slope condition). SCORE 2.0 -> 19.0 e/t across the three-cycle
+chain (goal-plan cap -> feeder clamp -> ramp). A lifecycle generation
+boundary passed mid-window (22 creeps from 33, same mass in bigger
+bodies) with ZERO remote drop - the gate retirement verified in live
+fire against the exact scenario of both incidents. NOTE: targetCount 6
+is co-bound (parking 6 AND ceil(116/20W) = 6) - spec 24 rung 1 buys
+overlap headroom near-term, not count; scheduled, not urgent (~1500t).
+
+No FAIL lines. Cycle verdict: verified (chain closed); work item = the
+backlog's standing regression, task #16 plan-t5-remote-pipeline
+extensions-refill invariant (red on deployed HEAD, ratchet violation) -
+bisection this cycle.
+
 ### 2026-07-20 (cron cycle, +356t) — FEEDER FIX VERIFIED: relay 7 -> 115, stock refilled; burn ramp in flight
 
 Verify-first on the feeder surplus deploy (~t72455600, capture t72455711):
