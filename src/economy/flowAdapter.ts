@@ -479,7 +479,15 @@ export function buildColonyProblem(
             // the warchest climbed to 8.3x target while upgrading starved.
             Math.min(
               Math.max(minedSupply + bankRate, 1),
-              sink.progressRemaining !== undefined ? projectAbsorbRate(sink.progressRemaining) : Number.POSITIVE_INFINITY
+              // Horizon = the crew's buffered EFFECTIVE life: travel to the
+              // site (a founding a couple rooms over) shortens the working
+              // window, so the same work sizes a bigger crew there.
+              sink.progressRemaining !== undefined
+                ? projectAbsorbRate(
+                    sink.progressRemaining,
+                    spawns.length === 0 ? 0 : Math.min(...spawns.map(sp => dist(sp.pos, sink.position)))
+                  )
+                : Number.POSITIVE_INFINITY
             )
           : kind === "storage"
           ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:

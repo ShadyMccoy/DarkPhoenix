@@ -119,35 +119,43 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
 }
 
 /**
- * Horizon (ticks) a construction crew's sizing amortizes over: the crew's OWN
- * LIFETIME (owner 2026-07-20: "limit the builders to the size that would
- * complete the whole construction project during their lifetime ... the plan
- * should take the minimum of the two [that and the available energy]; the
- * rest flows back to upgrading"). A crew sized remaining/LIFETIME finishes
- * exactly as it dies - zero spawned WORK-ticks ever idle, the waste-free
- * point. Bigger buys speed with wasted spawn time; the un-claimed energy
- * scores at the controller instead (the value pass hands it the residual).
- * This deliberately paces big build-outs (~a lifetime, not a burst) and
- * supersedes the earlier 100-tick burst horizon AND the spec-10 G6 burst
- * reading - G6's real harm was the flat cap STARVING the build-out while
- * the freed energy vanished; under lifetime sizing it scores.
+ * Fraction of a crew's EFFECTIVE life (lifetime minus travel) a project
+ * should complete within (owner 2026-07-20: "limit the builders to the size
+ * that would complete the whole construction project during their lifetime
+ * ... Let's have a bit of a buffer. We don't want it 99% finished. And
+ * there's travel time. We can aim for around 1,000 but in any case it
+ * should be based on effective ttl (i.e. excluding travel time) not a hard
+ * constant. Since we might, for example, be trying to build up a spawn in a
+ * couple rooms over."). 2/3 of a full 1500 life = the owner's ~1000 at zero
+ * travel; a build site 100 tiles out gets 2/3 of 1400.
  */
-export const PROJECT_BUILD_HORIZON = CREEP_LIFETIME;
+export const PROJECT_COMPLETION_FRACTION = 2 / 3;
+
+/** The sizing horizon for a crew working `travelDistance` from its spawn. */
+export function projectBuildHorizon(travelDistance: number): number {
+  return Math.max(1, PROJECT_COMPLETION_FRACTION * effectiveLife(travelDistance));
+}
 
 /**
  * The energy/tick a body of construction WORK can usefully absorb: finish the
- * outstanding site work over one crew lifetime, floored at one small builder
- * (5 e/t = 1 WORK - the granularity floor). The SUM-OF-PROJECTS lens (owner
+ * outstanding site work within the buffered effective life of the crew,
+ * floored at one small builder (5 e/t = 1 WORK - the granularity floor). A
+ * crew sized this way finishes with margin before it dies - no 99%-stranded
+ * projects, no spawned WORK-ticks idling long after completion; the
+ * un-claimed energy scores at the controller via the value pass ("the rest
+ * flows back to upgrading in the planner"). The SUM-OF-PROJECTS lens (owner
  * 2026-07-19: "a construction project is a finite tile list with a computable
  * total cost"), shared by the EXECUTION crew sizing (ConstructionCorp.
  * builderPlan) and the PLAN's construction-sink capacity (flowAdapter) - the
  * two MUST read the same formula, or the plan allocates energy the crew will
  * never burn (measured prod t72444684: a 455-energy extension site was
  * granted 124 e/t of bank draw, actual burn 0.45 e/t, warchest +7.66/t to
- * 8.3x target while the controller got 2 e/t).
+ * 8.3x target while the controller got 2 e/t). Batching a structure SET into
+ * visible sites raises `remainingWork` and with it the crew cap - the
+ * owner's focused-burst lever under this rule.
  */
-export function projectAbsorbRate(remainingWork: number): number {
-  return Math.max(5, remainingWork / PROJECT_BUILD_HORIZON);
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0): number {
+  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance));
 }
 
 /**

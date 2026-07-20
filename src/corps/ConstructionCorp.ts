@@ -22,6 +22,7 @@ import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRa
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
+import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -515,7 +516,21 @@ export class ConstructionCorp extends Corp {
     // each room's corp owns its segment, so "sum of THIS corp's projects" is
     // exactly its room's remaining site work.
     const siteWork = this.siteWorkRemaining(room);
-    if (siteWork > 0) buildEnergy = Math.min(buildEnergy, projectAbsorbRate(siteWork));
+    if (siteWork > 0) {
+      // Horizon = buffered EFFECTIVE life: a crew building a couple rooms
+      // over spends lifetime walking there, so the same work justifies a
+      // bigger crew (owner 2026-07-20: "based on effective ttl ... not a
+      // hard constant").
+      const spawnForTravel = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+      const firstSite = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+      const travel =
+        spawnForTravel && firstSite
+          ? spawnForTravel.pos.roomName === room.name
+            ? spawnForTravel.pos.getRangeTo(firstSite.pos)
+            : roomLinearDistance(spawnForTravel.pos.roomName, room.name) * 50
+          : 0;
+      buildEnergy = Math.min(buildEnergy, projectAbsorbRate(siteWork, travel));
+    }
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.

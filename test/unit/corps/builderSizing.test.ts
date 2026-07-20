@@ -60,13 +60,13 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     expect(light.partsNeeded, "a ~400-energy tail never fields a big crew").to.be.at.most(2);
   });
 
-  it("LIFETIME-COMPLETION sizing (owner 2026-07-20): the crew finishes the project as it dies", () => {
-    // 30k of work / one 1500-tick crew lifetime = 20 e/t = 4 WORK - the
-    // waste-free crew (zero spawned WORK-ticks idle). The 100 e/t allocation
-    // is NOT the binding cap any more; the ~80 e/t residual flows back to
-    // upgrading in the planner (the value pass hands the controller what
-    // construction's capacity does not claim).
+  it("LIFETIME-COMPLETION sizing (owner 2026-07-20): finish within the buffered effective life", () => {
+    // Horizon = 2/3 of effective life ("aim for around 1,000 ... a bit of a
+    // buffer. We don't want it 99% finished"): 30k / 1000t = 30 e/t = 6 WORK.
+    // The 100 e/t allocation is NOT the binding cap; the ~70 e/t residual
+    // flows back to upgrading in the planner (the value pass hands the
+    // controller what construction's capacity does not claim).
     const heavy = planFor(30_000);
-    expect(heavy.partsNeeded, "30k project -> 4 WORK (finishes in one lifetime)").to.equal(4);
+    expect(heavy.partsNeeded, "30k project -> 6 WORK (done in ~2/3 of a life)").to.equal(6);
   });
 });
