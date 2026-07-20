@@ -168,6 +168,27 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cycle 3, cron loop) — X3 CLOSED: the tankers were invisible; sizing deploy verified
+
+Verify-first (t72446096, +279t over the sizing deploy's reset): routing held
+(P9 0.91x, P1 stable 0 - the durable receipt carried remotes through their
+SECOND live reset), E4 -11.45/t sustained (storage 210.4k), the extension
+closed 180->2970 at 10 e/t from stock with plan alloc 0.0 - consumers
+priced out by parts while actual build ran from build-side stock, the
+doctrine working as designed. Zero runt receipts.
+
+countMismatch's FIRST capture named X3 exactly: building-W43N23-construction
+claimed 4 / counted 2 - ConstructionCorp.getCreepCount returned only the
+builders squad; its TANKER detail (same corpId, workType "tank") was
+invisible to the census. Fixed census-only (demand sizing reads the squads
+directly - caller audit: only Telemetry + Colony.getStats consume it),
+pinned in builderSizing.test.ts. The second row (hauling-W44N23-cbd5
+claimed 2/counted 1) is BENIGN: Squad.members() excludes mid-spawn creeps,
+so a replacement in the spawn shows +-1 for its build duration - expected
+census noise, not a leak. Predicted post-deploy: untracked 3 -> 0 (with
+transient +-1 during spawns), countMismatch rows only for in-flight
+replacements. Verdict: **fixed** (X3), sizing deploy **verified**.
+
 ### 2026-07-20 (cycle 2, cron loop) — production-first parts ledger: VERIFIED; X3 narrowed to a counting lens
 
 Cycle t72445337: the fresh solve after the absorb-cap deploy exposed the

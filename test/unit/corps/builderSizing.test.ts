@@ -53,6 +53,21 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     return (corp as any).builderPlan(1300, mkRoom([site(remaining)]));
   };
 
+  it("census counts the WHOLE corp: builders AND the tanker detail (X3, countMismatch t72446096)", () => {
+    // The tankers carry this corp's id but were invisible to getCreepCount
+    // (builders squad only) - the census read "untracked 3" for a day while
+    // every creep's corpId resolved. Squad.members() scans Game.creeps by
+    // corpId+workType, so the pin just stages one of each.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    const cid = (corp as any).id;
+    Game.creeps = {
+      b1: { memory: { corpId: cid, workType: "build" }, spawning: false } as any,
+      t1: { memory: { corpId: cid, workType: "tank" }, spawning: false } as any,
+      other: { memory: { corpId: "someone-else", workType: "tank" }, spawning: false } as any
+    };
+    expect(corp.getCreepCount(), "builder + tanker both counted; strangers not").to.equal(2);
+  });
+
   it("fields a SMALLER crew for a nearly-finished project than a work-heavy one at the same allocation", () => {
     const heavy = planFor(30_000); // a fresh extension/storage set
     const light = planFor(400); // one road tile's worth of work left

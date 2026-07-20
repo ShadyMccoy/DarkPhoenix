@@ -1866,10 +1866,14 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Get number of active builder creeps.
+   * Number of creeps this corp OWNS: builders AND the tanker detail. The
+   * tankers were invisible to the census (X3 sat at "untracked 3" for a full
+   * day; countMismatch t72446096 named it: claimed 4, counted 2 - the two
+   * missing were this corp's own tankers). Census-only lens: demand sizing
+   * reads the squads directly, so widening this cannot change spawning.
    */
   public getCreepCount(): number {
-    return this.builders.members().length;
+    return this.builders.members().length + this.tankers.members().length;
   }
 
   /**
