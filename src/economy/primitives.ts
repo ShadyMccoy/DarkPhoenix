@@ -119,23 +119,32 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
 }
 
 /**
- * Horizon (ticks) a construction project should finish within - short, so
- * roads still build fast (owner: "the roads got built quicker"), long enough
- * that a big build-out sizes a real crew rather than a swarm.
+ * Horizon (ticks) a construction crew's sizing amortizes over: the crew's OWN
+ * LIFETIME (owner 2026-07-20: "limit the builders to the size that would
+ * complete the whole construction project during their lifetime ... the plan
+ * should take the minimum of the two [that and the available energy]; the
+ * rest flows back to upgrading"). A crew sized remaining/LIFETIME finishes
+ * exactly as it dies - zero spawned WORK-ticks ever idle, the waste-free
+ * point. Bigger buys speed with wasted spawn time; the un-claimed energy
+ * scores at the controller instead (the value pass hands it the residual).
+ * This deliberately paces big build-outs (~a lifetime, not a burst) and
+ * supersedes the earlier 100-tick burst horizon AND the spec-10 G6 burst
+ * reading - G6's real harm was the flat cap STARVING the build-out while
+ * the freed energy vanished; under lifetime sizing it scores.
  */
-export const PROJECT_BUILD_HORIZON = 100;
+export const PROJECT_BUILD_HORIZON = CREEP_LIFETIME;
 
 /**
  * The energy/tick a body of construction WORK can usefully absorb: finish the
- * outstanding site work over the build horizon, floored at one small builder
- * (5 e/t = 1 WORK). The SUM-OF-PROJECTS lens (owner 2026-07-19: "a
- * construction project is a finite tile list with a computable total cost"),
- * shared by the EXECUTION crew sizing (ConstructionCorp.builderPlan) and the
- * PLAN's construction-sink capacity (flowAdapter) - the two MUST read the
- * same formula, or the plan allocates energy the crew will never burn
- * (measured prod t72444684: a 455-energy extension site was granted 124 e/t
- * of bank draw, actual burn 0.45 e/t, warchest +7.66/t to 8.3x target while
- * the controller got 2 e/t).
+ * outstanding site work over one crew lifetime, floored at one small builder
+ * (5 e/t = 1 WORK - the granularity floor). The SUM-OF-PROJECTS lens (owner
+ * 2026-07-19: "a construction project is a finite tile list with a computable
+ * total cost"), shared by the EXECUTION crew sizing (ConstructionCorp.
+ * builderPlan) and the PLAN's construction-sink capacity (flowAdapter) - the
+ * two MUST read the same formula, or the plan allocates energy the crew will
+ * never burn (measured prod t72444684: a 455-energy extension site was
+ * granted 124 e/t of bank draw, actual burn 0.45 e/t, warchest +7.66/t to
+ * 8.3x target while the controller got 2 e/t).
  */
 export function projectAbsorbRate(remainingWork: number): number {
   return Math.max(5, remainingWork / PROJECT_BUILD_HORIZON);

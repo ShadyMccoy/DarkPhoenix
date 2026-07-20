@@ -387,16 +387,19 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(ctrl.allocated, "controller mops up the freed draw").to.be.greaterThan(build.allocated);
   });
 
-  it("a REAL build-out keeps the valve open (spec 10 G6: no return of the flat-5 bottleneck)", () => {
-    // 15k of extension work remaining: absorb rate max(5, 150) = 150 e/t -
-    // far above this world's supply, so construction still takes everything
-    // the ladder gives it, exactly as before the cap.
+  it("a REAL build-out sizes to LIFETIME COMPLETION; the residual upgrades (owner 2026-07-20)", () => {
+    // 15k of extension work / one 1500-tick crew lifetime = 10 e/t - the
+    // waste-free crew, above the G6 flat-5 floor (the build-out is never
+    // starved) but no burst: the surplus the burst would have claimed flows
+    // to the controller instead of idling in spawned WORK-ticks.
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     graph.addConstructionSite("bigbuild", "home", at(9), 15000);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
 
     const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
-    expect(build.allocated, "big project still absorbs the surplus").to.be.greaterThan(20);
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(build.allocated, "lifetime-completion rate, above the G6 floor").to.be.closeTo(10, 1e-6);
+    expect(ctrl.allocated, "the un-claimed surplus scores at the controller").to.be.greaterThan(build.allocated);
   });
 });
 
