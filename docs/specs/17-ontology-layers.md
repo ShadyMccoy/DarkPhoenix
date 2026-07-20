@@ -1,6 +1,13 @@
 # 17 — Ontology layers: registration-only kinds, prescriptive NOW plan
 
-**Status:** in progress (this branch).
+**Status:** P0–P4 LANDED (this branch, 2026-07-20); P5 (dead code) and the
+remaining P6 polish tracked below. Landed: contract v2 + registration-only
+plumbing (P1), the prescriptive NOW planner (P2), propose purity + the
+expansion split + host-assembled problem facts (P3), truthful consume
+envelopes (P4), and the enforcement suite (purity ratchet, registration-only
+proof, propose-purity conformance, behavior pins). Follow-on specs from the
+owner vision: [18 weighted goals](18-weighted-goals.md),
+[19 delivery contract](19-delivery-contract.md).
 **Priority:** P0 — this is the "increase future velocity" spec: every future kind
 (spec 02 link hauler, minerals/labs, market, military campaigns) gets cheaper
 once it lands.
