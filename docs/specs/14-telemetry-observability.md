@@ -168,6 +168,27 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, cont.) — task #16 FALSIFIED as a regression: the cell is draw-marginal; baseline corrected
+
+Bisection of plan-t5-remote-pipeline's extensions-refill invariant: RED at
+HEAD (@1233/1239/1285), RED at 82c212c (@1118), RED at 7efe6c2 (@1292),
+and RED AT THE RATCHET COMMIT 3a9116c ITSELF (@1199). Five draws, four
+commits, one invariant - there is no first-bad commit; the baseline's
+"pass" was a fail-tail draw recorded as truth (the multi-draw rule
+applied to grid ratchets: an always:-invariant near its tempo margin is
+NOT grid-pinned-deterministic). Earlier framing ("regression on deployed
+HEAD", the retirement cycle) is corrected: acquittal of the retirement
+stands, but nothing regressed - the cell was never reliably green.
+
+Baseline: plan-t5-remote-pipeline pass -> fail (honest ratchet; BOT LEVEL
+unchanged at 4 - T5 was already the frontier). The REAL work item filed:
+the T5 world's extension-refill tempo is genuinely marginal (~t1200
+failure across all draws - tender fleet lags the draining spawn once the
+extension set grows). Either raise the tempo (tender sizing/timing at
+that stage) or give the invariant a doctrine-justified refill-lag
+tolerance - a design decision, not a patch. Cycle verdict: verified
+(feeder chain closed, bank draining) + falsified (#16-as-regression).
+
 ### 2026-07-20 (cron cycle, +1004t) — BANK SLOPE NEGATIVE: the consumption chain is whole; generation boundary passed clean
 
 Verification of the feeder deploy, final: burn 19.0 e/t (predicted 18+),
