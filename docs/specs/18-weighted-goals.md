@@ -7,7 +7,13 @@ source->spawn reassignment operator over budget-dropped sources, evaluator =
 planColony, margin-gated adoption, positive-proof + status-quo-pin tests),
 wired live through solveColony under the compiled goal valuation
 (flowAdapter prices every sink from it), goal source = Memory.goal via
-global.setGoal. P2+ (more profiles/operators, de-rooming, organism grid
+global.setGoal. P2 LANDED 2026-07-20: foundRoom + warchest profiles
+(warchest banks by pricing marginal consumers out - I4 keeps storage the
+bottom, never a chased sink), acceptance test 3 asserted on
+ColonyPlan.sinks (goalPlanSemantics.test.ts: foundRoom flips the
+build-vs-nearly-done-level contest, growController lifts the mid-grind
+above construction; spawn overhead holds byte-for-byte). The console/Memory
+goal seam shipped in P1. P3+ (more operators, de-rooming, organism grid
 cell) open.
 **Priority:** P1 — the strategic planner: the "colony as one organism" thesis.
 **Depends on:** spec 17 (pure planner core, enforcement) — landed; spec 20

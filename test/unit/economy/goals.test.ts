@@ -72,4 +72,27 @@ describe("economy/goals - the objective as input (spec 18 P1)", () => {
     expect(v.newSpawnSite).to.be.greaterThan(v.construction);
     expect(v.storage).to.be.lessThan(v.controllerMin);
   });
+
+  it("foundRoom (P2) reverses the ceiling: construction outranks even a nearly-done level", () => {
+    const v = compileGoal({ blend: { foundRoom: 1 } });
+    // under DEFAULT a controller at its ceiling (80) outranks construction
+    // (70); a founding push flips that class ordering wholesale
+    expect(DEFAULT_VALUATION.controllerMax).to.be.greaterThan(DEFAULT_VALUATION.construction);
+    expect(v.construction).to.be.greaterThan(v.controllerMax);
+    // the founding site closes on spawn overhead but never touches I1
+    expect(v.newSpawnSite).to.be.greaterThan(DEFAULT_VALUATION.newSpawnSite);
+    expect(v.spawn).to.be.greaterThan(v.newSpawnSite);
+  });
+
+  it("warchest (P2) lowers every consumer band; the frame (spawn/founding/storage) holds", () => {
+    const v = compileGoal({ blend: { warchest: 1 } });
+    // I4 pins storage strictly bottom - banking can never be a chased sink -
+    // so the profile banks by pricing marginal CONSUMERS out instead
+    expect(v.controllerMax).to.be.lessThan(DEFAULT_VALUATION.controllerMax);
+    expect(v.construction).to.be.lessThan(DEFAULT_VALUATION.construction);
+    expect(v.controllerStatic).to.be.lessThan(DEFAULT_VALUATION.controllerStatic);
+    expect(v.spawn).to.equal(DEFAULT_VALUATION.spawn);
+    expect(v.newSpawnSite).to.equal(DEFAULT_VALUATION.newSpawnSite);
+    expect(v.storage).to.equal(DEFAULT_VALUATION.storage);
+  });
 });

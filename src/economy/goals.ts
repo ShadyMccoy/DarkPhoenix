@@ -63,6 +63,18 @@ export const DEFAULT_VALUATION: SinkValuation = {
  * - growController: controller progress is the objective - the controller
  *   band rises toward its ceiling and ordinary construction yields to it
  *   (still above the controller floor; founding sites still outrank both).
+ * - foundRoom:      a founding push (spec 18 P2). The build set is the
+ *   objective: construction rises past the controller CEILING (under default
+ *   a nearly-done level's 80 outranks construction's 70; here that reverses)
+ *   and the founding site itself closes on spawn overhead. WHICH room is
+ *   founded is not the profile's business - founding sinks are instances in
+ *   the target room (the expansion campaign places them); the profile only
+ *   re-prices the classes.
+ * - warchest:       banking is the objective. Invariant I4 pins storage
+ *   strictly bottom - the bank can never be a sink to CHASE - so the profile
+ *   LOWERS the consumer bands instead: fewer marginal consumer chains clear
+ *   their transport cost, and the un-consumed residual banks (the macro
+ *   doctrine: fund producers, bank the rest, consumers burn residual).
  */
 export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
   default: DEFAULT_VALUATION,
@@ -73,6 +85,24 @@ export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
     construction: 60,
     controllerStatic: 65,
     controllerMin: 55,
+    storage: 1
+  },
+  foundRoom: {
+    spawn: 100,
+    newSpawnSite: 95,
+    controllerMax: 70,
+    construction: 80,
+    controllerStatic: 50,
+    controllerMin: 40,
+    storage: 1
+  },
+  warchest: {
+    spawn: 100,
+    newSpawnSite: 85,
+    controllerMax: 60,
+    construction: 55,
+    controllerStatic: 48,
+    controllerMin: 42,
     storage: 1
   }
 };
