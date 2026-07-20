@@ -1,14 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
-import {
-  EMPTY_LANE_ROAD_COST,
-  emptyLaneOpts,
-  isFatigueFreeWhenEmpty,
-  shouldQueueBehind,
-  travelTo,
-  travelToBypass,
-  travelToQueued
-} from "../../../src/corps/movement";
+import { shouldQueueBehind, travelTo, travelToBypass, travelToQueued } from "../../../src/corps/movement";
 
 // Screeps direction constants (globals in-game).
 const DIRS: Record<string, number> = {
@@ -343,83 +335,5 @@ describe("shouldQueueBehind (queue gate)", () => {
   it("does NOT queue behind a fatigued/spawning creep (handed to the force-swap gate)", () => {
     expect(shouldQueueBehind(make({ fatigue: 2 }) as any, CREEP_RANGE, target as any)).to.equal(false);
     expect(shouldQueueBehind(make({ spawning: true }) as any, CREEP_RANGE, target as any)).to.equal(false);
-  });
-});
-
-/**
- * The empty lane (owner 2026-07-20): an empty pure-hauler is fatigue-free,
- * so it paths terrain-blind (swamp = plain = 1) with roads PENALIZED - the
- * geometric shortest line, no road wear (measured: wear = body.length per
- * step, load-independent), two-lane traffic. Anything with working parts,
- * or anything carrying, keeps the road-preferring defaults.
- */
-describe("empty-lane pathing (terrain-blind empty haulers)", () => {
-  const hauler = (used: number, body: string[]) => ({
-    store: { getUsedCapacity: () => used },
-    body: body.map(type => ({ type }))
-  });
-
-  it("gates on fatigue-free: empty pure-hauler yes; loaded, mixed-body, or empty-bodied no", () => {
-    expect(isFatigueFreeWhenEmpty(hauler(0, ["carry", "carry", "move"]))).to.equal(true);
-    expect(isFatigueFreeWhenEmpty(hauler(50, ["carry", "carry", "move"])), "loaded weighs").to.equal(false);
-    expect(isFatigueFreeWhenEmpty(hauler(0, ["work", "carry", "move"])), "WORK always weighs").to.equal(false);
-    expect(isFatigueFreeWhenEmpty(hauler(0, [])), "no body, no lane").to.equal(false);
-  });
-
-  it("lane opts are terrain-blind with roads raised to EMPTY_LANE_ROAD_COST (blockers kept)", () => {
-    (global as any).Game = {
-      time: 1000,
-      rooms: {
-        W5N5: {
-          find: () => [
-            { structureType: "road", pos: { x: 10, y: 10 } },
-            { structureType: "road", pos: { x: 11, y: 10 } },
-            { structureType: "spawn", pos: { x: 20, y: 20 } }
-          ]
-        }
-      }
-    };
-    (global as any).FIND_STRUCTURES = 107;
-    (global as any).STRUCTURE_ROAD = "road";
-    const opts = emptyLaneOpts();
-    expect(opts.plainCost).to.equal(1);
-    expect(opts.swampCost).to.equal(1);
-    expect(opts.ignoreRoads).to.equal(true);
-    const cells = new Map<string, number>();
-    const matrix = {
-      get: (x: number, y: number) => cells.get(`${x},${y}`) ?? 0,
-      set: (x: number, y: number, v: number) => cells.set(`${x},${y}`, v)
-    };
-    cells.set("11,10", 255); // a blocked road tile must STAY blocked
-    (opts.costCallback as any)("W5N5", matrix);
-    expect(matrix.get(10, 10), "road raised for the empty lane").to.equal(EMPTY_LANE_ROAD_COST);
-    expect(matrix.get(11, 10), "blockers never lowered").to.equal(255);
-    expect(matrix.get(20, 20), "non-road tiles untouched").to.equal(0);
-  });
-
-  it("travelTo routes an empty pure-hauler through the lane; a loaded one keeps defaults", () => {
-    const target = { x: 30, y: 30, roomName: "W5N5", isEqualTo: () => false };
-    const mk = (used: number) => {
-      const calls: any = { opts: undefined };
-      return {
-        calls,
-        creep: {
-          pos: { x: 25, y: 25, roomName: "W5N5", isEqualTo: () => false },
-          store: { getUsedCapacity: () => used },
-          body: [{ type: "carry" }, { type: "move" }],
-          move: () => 0,
-          moveTo: (_t: any, opts: any) => {
-            calls.opts = opts;
-            return 0;
-          }
-        }
-      };
-    };
-    const empty = mk(0);
-    travelTo(empty.creep as any, target as any);
-    expect(empty.calls.opts?.plainCost, "empty hauler gets the lane").to.equal(1);
-    const loaded = mk(50);
-    travelTo(loaded.creep as any, target as any);
-    expect(loaded.calls.opts?.plainCost, "loaded hauler keeps defaults").to.equal(undefined);
   });
 });
