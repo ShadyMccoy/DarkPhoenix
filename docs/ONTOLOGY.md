@@ -205,6 +205,12 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   into `planColony` by expressing its `propose()` trigger as an operator
   precondition, its envelope as cost, and its output as effect. The declarative
   contract in §5 is already that shape.
+- **Day-one goal direction** ([spec 18](specs/18-weighted-goals.md)): the
+  bot is goal-directed from the first commit that lands the strategy layer -
+  every plan is the output of goal + search, today's behavior is the DEFAULT
+  goal profile (one point in goal space, not a legacy bypass), and the
+  searcher's adoptions are gated by a strictly-beats-status-quo-net-of-
+  transition-costs rule at the measured noise floor.
 - **Strategy: goals + the supply-chain search** ([spec 18](specs/18-weighted-goals.md)):
   the objective becomes an input (goal profiles compiled onto the ladder,
   invariants preserved), and the supply-chain STRUCTURE becomes the searched

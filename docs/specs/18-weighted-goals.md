@@ -40,6 +40,34 @@ Four commitments fall out of this:
    income); the search weighs it like any other operator. We win by
    bringing more resources to bear, measurably.
 
+## The day-one principle (owner, 2026-07-20)
+
+> I'm happy to listen to the right way to solve this, but I want to make
+> sure it's a principle and an ABILITY from day one.
+
+Two consequences, binding on the build order:
+
+1. **No non-goal code path.** From the first landed commit, every plan is
+   the output of goal + search: `planColony` is called with the DEFAULT
+   GOAL everywhere, and the searcher runs live. Today's behavior is
+   re-expressed as one point in goal space (the default profile + a
+   status-quo-favoring decision rule), never preserved as a bypass beside
+   the new machinery. There is nothing to "switch on" later.
+2. **Vertical slice first, then widen.** The first phase ships the WHOLE
+   loop thin - a goal input, two real profiles, a searcher with at least
+   one real restructuring operator, transition costing, live behind the
+   decision rule - and every later phase only WIDENS the live loop
+   (more operators, more profiles, de-rooming). No phase ships types or
+   seams that nothing exercises.
+
+**The decision rule that reconciles "live from day one" with the behavior
+pins:** the searcher adopts a candidate structure only when it strictly
+beats the status quo by more than the measured noise floor (the multi-draw
+±20-30% doctrine), NET of transition costs. On the golden worlds nothing
+beats status quo, so every pin holds; the first world where something does
+is the ability working - and the grid ratchet is the arbiter of every such
+adoption.
+
 ## Architecture: searcher, evaluator, executor
 
 ```
@@ -130,18 +158,25 @@ the search lands (rooms stay as constraint annotations only):
 7. **Purity:** searcher, compiler, operators, and effects join the PLAN
    layer's purity ratchet.
 
-## Phases
+## Phases (walking skeleton: the ability ships in P1, later phases widen it)
 
-- **P1** Goal types + profile compiler + `planColony(problem, goal?)` seam;
-  default pinned (tests 1, 2, 7).
-- **P2** first profiles (grow-controller, found-room, warchest) + goal
-  plumbing from FlowEconomy (test 3).
-- **P3** operator catalog: chain restructurings + investments as pure
-  precondition/cost/effect functions; transition-cost model from the NOW
-  plan's own pricing (test 4).
-- **P4** the searcher: event-triggered, anytime/beam, CPU-governed; emits
-  the GOAL plan's commissions (tests 4, 6).
-- **P5** de-rooming the funding seams per the inventory (test 5, the
-  organism cell).
-- **P6** the goal source (operator console + Memory; a higher-level director
-  stays future work).
+- **P1 — the vertical slice, LIVE.** Goal type + compiler with TWO real
+  profiles (default = today's ladder, grow-controller), the searcher with
+  ONE real restructuring operator (candidate: activate/deactivate a source
+  chain when the set changes) + transition costing + the noise-floor
+  decision rule, wired into the live solve path. Default behavior pinned
+  bit-for-bit by the golden worlds (tests 1, 2, 7, and a thin test 4).
+  After P1 there is no non-goal code path.
+- **P2 — widen profiles:** found-room(target), warchest; goal set from the
+  operator console + Memory (test 3).
+- **P3 — widen operators:** the investment catalog (claim, storage,
+  reserve, links, paving) as pure precondition/cost/effect functions
+  (test 4 in full).
+- **P4 — widen the search:** beam/anytime under the CPU governor; military
+  mission operators priced by income delta (test 6).
+- **P5 — de-room the funding seams** per the inventory (test 5, the
+  organism cell - staged red first).
+
+The old bottom-up order (types -> profiles -> operators -> searcher) is
+explicitly REJECTED: it delivers the ability last, which is how a capability
+becomes permanent scaffolding.
