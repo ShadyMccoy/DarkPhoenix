@@ -168,6 +168,55 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle) — GATE RETIRED (owner doctrine); empty-lane pathing reverted by bisection; gate-runner masking incident
+
+VERIFY-FIRST (t72448496 vs t72448186, dt 310): the queued-orders gate fix
+RECOVERED PROD in one window - income 20 -> 70 e/t funded, routed 69.1
+(0.99x, all 7 sources), P1 0 flips, E2 238 -> 52 parts (only the four
+pre-existing scavenge micro-corps), fleet +0.14 p/t. Verdict on the
+previous cycle: fixed AND verified.
+
+OWNER (mid-cycle): "Shutting down remote mining doesn't help. Maybe
+defunding it (not spawning more creeps for it) but this type of rule you're
+explaining tends to backfire. It's a bandaid." Concur - two incidents
+(t72444963, t72448082) both trace to the gate's REVOCATION semantics, and
+both fixes patched the rule rather than the harm. THE GATE IS RETIRED:
+remote sources enter the pool unconditionally; home-first sequencing lives
+where it already works (spawnPriority strict tiers - blocking home income
+outranks remote scaling, so a distressed home starves remote SPAWNING
+without touching remote operations). Removed: homeEconomySaturated, the
+500t sticky window, Memory.remotesUnlockedUntil, Memory.remoteGate,
+telemetry core v7 gate record (v8). Pinned: remote claims survive a fully
+unstaffed home (refreshNodeResources.test.ts); cold-start breadth tax
+pinned by plan-t5-remote-pipeline.
+
+INCIDENT (found by this cycle's gate run): flow-handoff RED - and
+attribution showed it red on DEPLOYED HEAD too. Root cause of the mask:
+every deploy chain today gated on `mocha | tail -N` - the PIPE's exit
+code, not mocha's - so integration failures shipped silently. Fixed
+process: `set -o pipefail` on every gate chain from now on. Bisection
+(880a191 GREEN -> 82c212c GREEN -> c81a34c RED, phantom-guard half
+acquitted by surgical file revert): the EMPTY-LANE travelTo branch
+deterministically prevents a newly spawned hauler from completing its
+maiden trip (green t500: hauling 4/10, energy 110; red t500: hauling
+0/10, energy 37 - same world shape, same exec cadence). REVERTED. The
+doctrine (measured physics: wear = body.length/step load-independent,
+swamp free when empty) stands and returns as spec 23 RouteCache lanes
+with a mockup-verified implementation.
+
+ACQUITTED-BUT-OPEN: plan-t5-remote-pipeline [x] @~1233/1800
+always:"extensions refill before the draining spawn finishes" -
+IDENTICAL on unmodified HEAD, so it is a pre-existing regression of a
+deployed build (baseline says pass; one of today's earlier deploys or an
+older ratchet gap). Filed as its own incident - next cycle's candidate
+work item.
+
+Cycle verdict: fixed (gate retirement + lane revert deployed together);
+predictions - cold-start hand-off restored (trio green pre-deploy), prod
+steady-state unchanged (the removal is inert while home is staffed:
+verified plan identical in the probe), no remote-drop class recurrence at
+generation boundaries (the class is structurally gone).
+
 ### 2026-07-20 (cron cycle) — REMOTE-DROP #2: the gate flapped on a lifecycle-clustered wave; queued orders now count as staffing
 
 Verify-first (t72448186 vs t72448020, dt 166): the actuals-sizing deploy

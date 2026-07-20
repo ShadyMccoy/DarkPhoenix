@@ -278,21 +278,24 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
 });
 
 /**
- * The remote unlock survives a global reset (prod incident t72444963, the
- * first NAMED warmup remote-drop): homeEconomySaturated's 500-tick sticky
- * unlock lived only in the heap, so a deploy's global reset re-evaluated the
- * home-first gate cold - and because it reads LIVE creep assignments (the
- * documented creep-position trap class), a single mid-replacement home hauler
- * gap (the agenda was already buying it) relocked ALL remotes: graphSources
- * 38 -> 2, five funded sources dropped, 94 body parts stranded. The sticky
- * now persists in Memory.remotesUnlockedUntil, so a reset inside the window
- * keeps remotes open exactly as an uninterrupted heap would have.
- *
- * These tests use HIGH, distinct Game.time values: the module memoizes per
- * tick and earlier tests in this file arm the heap sticky at time 100+500 -
- * times far beyond both make each check evaluate cold, like a fresh global.
+ * Remote sources enter the pool UNCONDITIONALLY (owner 2026-07-20: "Shutting
+ * down remote mining doesn't help. Maybe defunding it (not spawning more
+ * creeps for it) but this type of rule you're explaining tends to backfire.
+ * It's a bandaid."). The home-first gate that lived here caused two measured
+ * remote-drop incidents (t72444963, t72448082): its response to a home
+ * staffing gap was to REVOKE remote commissions - stranding the standing
+ * fleet (238 body parts, income 46 -> 20 e/t in #2) - and each incident was
+ * then patched with another layer (sticky window, agenda reads) on a rule
+ * whose core action is never the right response. The correct home-first
+ * mechanism is DEFUNDING through spawn priority, and it already exists:
+ * blocking home income outranks remote scaling in spawnPriority's strict
+ * tiers, so a distressed home starves remote SPAWNING while the standing
+ * remote fleet keeps working its profitable routes. The cold-start breadth
+ * tax the gate was built for (a remote opening against an unstaffed home)
+ * is pinned by the plan-t5-remote-pipeline grid cell, which must stay green
+ * without it.
  */
-describe("homeEconomySaturated - the remote unlock is durable across resets", () => {
+describe("remote sources are claimed regardless of home staffing (the gate is retired)", () => {
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).FIND_SOURCES = FIND_SOURCES;
@@ -306,8 +309,8 @@ describe("homeEconomySaturated - the remote unlock is durable across resets", ()
     (global as any).Memory = { creeps: {}, rooms: {}, roomIntel: {} };
   });
 
-  /** An OWNED home room whose single source has NO live miner/hauler (the
-   * staffing gap): the live-scan lens says unsaturated. */
+  /** An OWNED home room whose single source has NO live miner/hauler - the
+   * staffing-gap world that used to relock remotes. */
   function gappedHome(): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).Game.creeps = {};
@@ -332,178 +335,34 @@ describe("homeEconomySaturated - the remote unlock is durable across resets", ()
     return { colony, result, node };
   }
 
-  it("a persisted unlock window keeps remotes open through a reset + staffing gap", () => {
+  it("claims a remote source while the home is fully unstaffed - the revocation shape, retired", () => {
     gappedHome();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 20_000; // fresh-heap regime: beyond every prior sticky/memo
+    (global as any).Game.time = 200_000; // beyond every historical sticky/memo regime
     const { colony, result, node } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(20_000, 25, 25) as never;
-    // The durable receipt a pre-reset global wrote while remotes ran:
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (Memory as any).remotesUnlockedUntil = 20_050;
+    Memory.roomIntel!["W1N0"] = intelWithSource(200_000, 25, 25) as never;
+    // No live staff, no queued orders, no sticky window - the exact world
+    // that used to drop five funded sources. The planner's economics and the
+    // spawn-priority tiers own the sequencing now; claiming must not flinch.
 
     refreshNodeResources(colony, result);
     expect(
       node.resources.filter(r => r.type === "source"),
-      "reset inside the persisted window must not relock remotes"
+      "an unstaffed home must not revoke remote claims"
     ).to.have.length(1);
   });
 
-  it("without a persisted window the home-first gate still relocks (the gate itself stands)", () => {
+  it("writes no gate stamp - the decision record retires with the decision", () => {
     gappedHome();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 40_000; // beyond the previous test's window AND its re-armed sticky
-    const { colony, result, node } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(40_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (Memory as any).remotesUnlockedUntil;
-
-    refreshNodeResources(colony, result);
-    expect(
-      node.resources.filter(r => r.type === "source"),
-      "an expired/absent window with an unstaffed home keeps remotes closed"
-    ).to.have.length(0);
-  });
-
-  it("STAMPS its decision (spec 14): the relock names WHICH source and WHICH half is missing", () => {
-    gappedHome();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 60_000;
+    (global as any).Game.time = 220_000;
     const { colony, result } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(60_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (Memory as any).remotesUnlockedUntil;
+    Memory.roomIntel!["W1N0"] = intelWithSource(220_000, 25, 25) as never;
 
     refreshNodeResources(colony, result);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gate = (Memory as any).remoteGate;
-    expect(gate, "the gate must export its read").to.not.equal(undefined);
-    expect(gate.tick).to.equal(60_000);
-    expect(gate.saturated).to.equal(false);
-    expect(gate.missing, "the unstaffed home source is named").to.deep.equal([
-      { source: "c-home", room: "W0N0", miner: false, hauler: false }
-    ]);
-  });
-
-  it("STAMPS the sticky window when riding it (saturated true, until exported)", () => {
-    gappedHome();
+    expect((Memory as any).remoteGate, "no relock decision exists to record").to.equal(undefined);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 80_000;
-    const { colony, result } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(80_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (Memory as any).remotesUnlockedUntil = 80_040;
-
-    refreshNodeResources(colony, result);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gate = (Memory as any).remoteGate;
-    expect(gate.saturated).to.equal(true);
-    expect(gate.until).to.equal(80_040);
-    expect(gate.missing).to.equal(undefined);
-  });
-
-  /**
-   * Mid-replacement counts as staffed (prod incident t72448082: a
-   * lifecycle-clustered home replacement wave - both miners plus the cd90
-   * hauler dying within ~100t of each other - took >500 ticks to re-staff
-   * because a starved-tier remote scale hauler @2150 with a 129-tick build
-   * jumped the blocking 100-cost home hauler in the walk. The sticky window
-   * expired mid-wave, the gate relocked, FIVE funded remote sources DROPPED,
-   * 238 body parts stranded, income 46 -> 20 e/t - while the "missing"
-   * hauler's replacement sat as a mustFund order in the published agenda the
-   * whole time). The NOW-plan queue (Memory.spawnAgenda, spec 11) is the
-   * durable signal the trap list demands: a source whose mining/hauling corp
-   * has a queued order is being served, not dark.
-   */
-  it("counts a QUEUED replacement order as staffing - the incident's exact shape", () => {
-    gappedHome();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 100_000;
-    // The prod final state: miner respawned and live, hauler order queued.
-    // src-home slice(-4) = "home" -> corp ids per the kinds' naming convention.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.creeps = {
-      m1: { memory: { assignedSourceId: "src-home", workType: "harvest", corpId: "mining-W0N0-harvest-home" } }
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (Memory as any).spawnAgenda = {
-      s1: {
-        tick: 99_950,
-        fundingNeed: 100,
-        queue: [{ role: "hauler", corp: "hauling-W0N0-hauling-home", minCost: 100, desiredCost: 100, mustFund: true }]
-      }
-    };
-    const { colony, result, node } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(100_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (Memory as any).remotesUnlockedUntil; // sticky expired mid-wave, like prod
-
-    refreshNodeResources(colony, result);
-    expect(
-      node.resources.filter(r => r.type === "source"),
-      "a queued hauler replacement must keep remotes open (mid-replacement != dark)"
-    ).to.have.length(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((Memory as any).remoteGate.saturated).to.equal(true);
-  });
-
-  it("a full replacement wave (miner AND hauler both queued, none live) stays open", () => {
-    gappedHome();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 120_000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (Memory as any).spawnAgenda = {
-      s1: {
-        tick: 119_950,
-        fundingNeed: 800,
-        queue: [
-          { role: "miner", corp: "mining-W0N0-harvest-home", minCost: 300, desiredCost: 700, mustFund: true },
-          { role: "hauler", corp: "hauling-W0N0-hauling-home", minCost: 100, desiredCost: 100, mustFund: true }
-        ]
-      }
-    };
-    const { colony, result, node } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(120_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (Memory as any).remotesUnlockedUntil;
-
-    refreshNodeResources(colony, result);
-    expect(
-      node.resources.filter(r => r.type === "source"),
-      "a fully queued replacement wave must not relock remotes"
-    ).to.have.length(1);
-  });
-
-  it("orders for OTHER corps do not satisfy the gate (id-exact, the gate still stands)", () => {
-    gappedHome();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).Game.time = 140_000;
-    // Orders exist, but for a different source's route and a consumer - the
-    // home source itself has neither live staff nor a pending order.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (Memory as any).spawnAgenda = {
-      s1: {
-        tick: 139_950,
-        fundingNeed: 0,
-        queue: [
-          { role: "hauler", corp: "hauling-W1N0-hauling-ce55", minCost: 300, desiredCost: 1500, mustFund: false },
-          { role: "upgrader", corp: "upgrading-W0N0-upgrading", minCost: 200, desiredCost: 1000, mustFund: false }
-        ]
-      }
-    };
-    const { colony, result, node } = remoteWorld();
-    Memory.roomIntel!["W1N0"] = intelWithSource(140_000, 25, 25) as never;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (Memory as any).remotesUnlockedUntil;
-
-    refreshNodeResources(colony, result);
-    expect(
-      node.resources.filter(r => r.type === "source"),
-      "unrelated orders must not hold the gate open"
-    ).to.have.length(0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((Memory as any).remoteGate.missing).to.deep.equal([
-      { source: "c-home", room: "W0N0", miner: false, hauler: false }
-    ]);
+    expect((Memory as any).remotesUnlockedUntil, "no sticky window survives").to.equal(undefined);
   });
 });

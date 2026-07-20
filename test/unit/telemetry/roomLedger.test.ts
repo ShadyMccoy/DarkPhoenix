@@ -76,7 +76,7 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(7); // v5 spawn meter + agenda; v6 site progress (P8); v7 remoteGate
+    expect(core.version).to.equal(8); // v6 site progress (P8); v7 remoteGate; v8 gate retired (revocation -> defund-by-priority)
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot

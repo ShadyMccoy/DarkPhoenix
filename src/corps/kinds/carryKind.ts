@@ -53,17 +53,6 @@ function legacyNodeId(roomName: string, sourceId: string): string {
   return `${roomName}-hauling-${sourceId.slice(-4)}`;
 }
 
-/**
- * The full corp id (`hauling-${nodeId}`) for the source's hauling corp - THE
- * naming convention, exported so other lenses (the remote gate's
- * mid-replacement check reads Memory.spawnAgenda entries by corp id) resolve
- * the same id the kind materializes. A rename here without the consumers is
- * the corp-id-prefix trap.
- */
-export function carryCorpId(roomName: string, sourceId: string): string {
-  return `hauling-${legacyNodeId(roomName, sourceId)}`;
-}
-
 export const carryKind: CorpKind<CarryCorp> = {
   kind: "carry",
   runOrder: 20, // transport, after produce (10), before consume (30)

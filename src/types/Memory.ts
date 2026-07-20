@@ -275,16 +275,6 @@ declare global {
     goal?: { blend: { [profileName: string]: number } };
 
     /**
-     * The remote-unlock sticky window's durable receipt (IncrementalAnalysis.
-     * homeEconomySaturated): the tick until which remotes stay open without
-     * re-checking the home-first gate. Persisted because the heap copy dies
-     * with every global reset - a deploy landing inside an ordinary home
-     * staffing gap relocked ALL remotes (the named warmup remote-drop,
-     * prod t72444963: graphSources 38 -> 2, 94 body parts stranded).
-     */
-    remotesUnlockedUntil?: number;
-
-    /**
      * The last solve's realized bank draw (controller + construction
      * allocations) - the feeder-pricing signal (flowAdapter, the starvation
      * loop). In Memory because the FlowEconomy instance is replaced on every
@@ -292,23 +282,6 @@ declare global {
      * (prod t72447816).
      */
     lastBankDraw?: number;
-
-    /**
-     * The home-first gate's decision record (IncrementalAnalysis.
-     * homeEconomySaturated, spec 14 - no invisible decisions): what the gate
-     * read the last tick it evaluated. `missing` names each home source the
-     * live lens found unstaffed and WHICH half (miner/hauler) was absent -
-     * the exact fact prod t72445210 could not see while remotes stayed
-     * locked against a plan that showed every home source routed. Surfaced
-     * in telemetry core v7.
-     */
-    remoteGate?: {
-      tick: number;
-      saturated: boolean;
-      /** Sticky-unlock expiry when saturated (heap+Memory receipt). */
-      until?: number;
-      missing?: { source: string; room: string; miner: boolean; hauler: boolean }[];
-    };
 
     /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so

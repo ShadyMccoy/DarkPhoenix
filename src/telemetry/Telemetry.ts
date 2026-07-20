@@ -248,19 +248,6 @@ export interface CoreTelemetry {
     };
   };
   /**
-   * The home-first remote gate's decision record (v7), copied verbatim from
-   * Memory.remoteGate: whether remotes are unlocked, and when not, exactly
-   * which home source the live lens found unstaffed (miner/hauler halves
-   * named). The warmup remote-drop class is diagnosed from THIS, not from
-   * inferring creep assignments out of the census.
-   */
-  remoteGate?: {
-    tick: number;
-    saturated: boolean;
-    until?: number;
-    missing?: { source: string; room: string; miner: boolean; hauler: boolean }[];
-  };
-  /**
    * Per-source BUFFER levels (v7 additive): energy standing at each visible
    * source's mouth - container store within range 1 plus dropped piles
    * within range 1 - keyed by the source id's last 6 chars. The over/under
@@ -782,7 +769,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 7, // v6 site progress (ledger P8); v7 remoteGate decision record
+      version: 8, // v7 remoteGate decision record; v8 gate RETIRED (owner: revocation is a bandaid - sequencing lives in spawn priority)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -805,7 +792,6 @@ export class Telemetry {
       bodyParts,
       spawns,
       agenda,
-      ...(Memory.remoteGate ? { remoteGate: Memory.remoteGate } : {}),
       ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
       rooms
     };

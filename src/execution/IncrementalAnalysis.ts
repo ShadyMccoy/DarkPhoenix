@@ -19,8 +19,6 @@ import {
 } from "../spatial";
 import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
-import { harvestCorpId } from "../corps/kinds/harvestKind";
-import { carryCorpId } from "../corps/kinds/carryKind";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
@@ -512,108 +510,6 @@ function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void
 }
 
 /**
- * True when every owned-room source has a live flow miner assigned AND a
- * live flow hauler on its route - the "home first" gate for opening remote
- * sources. Memoized per tick (called once per node during a resource
- * refresh).
- */
-let saturationTick = -1;
-let saturationValue = false;
-/** Hysteresis: once remotes unlock they stay unlocked for a while, so a
- * transient assignedSourceId flicker cannot close remotes at a refresh
- * boundary and churn the plan (retiring remote corps mid-life). The window
- * is PERSISTED (Memory.remotesUnlockedUntil) because the heap copy dies
- * with every global reset: a deploy landing inside an ordinary staffing gap
- * (a home hauler mid-replacement, already queued) re-evaluated this gate
- * cold and relocked ALL remotes - the first NAMED warmup remote-drop
- * (prod t72444963: graphSources 38 -> 2, five funded sources dropped, 94
- * body parts stranded until the gap closed). Heap stays the fast path; the
- * Memory receipt is the reset-survivor.
- */
-let remotesUnlockedUntil = -1;
-const REMOTE_UNLOCK_STICKY_TICKS = 500;
-function homeEconomySaturated(): boolean {
-  if (Game.time === saturationTick) return saturationValue;
-  saturationTick = Game.time;
-  const persistedUntil = typeof Memory !== "undefined" ? Memory.remotesUnlockedUntil ?? -1 : -1;
-  const stickyUntil = Math.max(remotesUnlockedUntil, persistedUntil);
-  if (Game.time <= stickyUntil) {
-    saturationValue = true;
-    stampRemoteGate(true, [], stickyUntil);
-    return saturationValue;
-  }
-
-  const minedSources = new Set<string>();
-  const hauledSources = new Set<string>();
-  for (const name in Game.creeps) {
-    const memory = Game.creeps[name].memory;
-    if (!memory.assignedSourceId) continue;
-    if (memory.workType === "harvest" && memory.corpId?.startsWith("mining-")) {
-      minedSources.add(String(memory.assignedSourceId));
-    }
-    if (memory.workType === "haul" && memory.corpId?.startsWith("hauling-")) {
-      hauledSources.add(String(memory.assignedSourceId));
-    }
-  }
-
-  // Mid-replacement counts as staffed: a queued order in the published
-  // NOW-plan (Memory.spawnAgenda, spec 11 - the durable receipt) means the
-  // post is being served, not dark. Without this the lens is pure live-creep
-  // census and a lifecycle-clustered replacement wave that outlives the
-  // sticky window relocks ALL remotes mid-wave (prod t72448082: the wave
-  // took >500t because a starved-tier remote scale hauler's 129-tick build
-  // jumped the blocking 100-cost home hauler; five funded sources dropped,
-  // 238 body parts stranded, income 46 -> 20 e/t - while the cd90 hauler's
-  // mustFund order sat in the agenda the whole time).
-  const pendingOrderCorps = new Set<string>();
-  if (typeof Memory !== "undefined" && Memory.spawnAgenda) {
-    for (const spawnId in Memory.spawnAgenda) {
-      for (const entry of Memory.spawnAgenda[spawnId].queue ?? []) {
-        pendingOrderCorps.add(entry.corp);
-      }
-    }
-  }
-
-  // Collect EVERY unsatisfied home source (not first-miss early return): the
-  // stamp below is the gate's decision record (spec 14 - no invisible
-  // decisions), and prod t72445210 needed exactly this: the plan showed both
-  // home sources routed while this lens stayed false ~700 ticks, and nothing
-  // named WHICH source - or which half, miner vs hauler - the lens missed.
-  const missing: NonNullable<NonNullable<Memory["remoteGate"]>["missing"]> = [];
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room.controller?.my) continue;
-    for (const source of room.find(FIND_SOURCES)) {
-      const miner = minedSources.has(source.id) || pendingOrderCorps.has(harvestCorpId(roomName, source.id));
-      const hauler = hauledSources.has(source.id) || pendingOrderCorps.has(carryCorpId(roomName, source.id));
-      if (!miner || !hauler) missing.push({ source: source.id.slice(-6), room: roomName, miner, hauler });
-    }
-  }
-  saturationValue = missing.length === 0;
-  if (saturationValue) {
-    remotesUnlockedUntil = Game.time + REMOTE_UNLOCK_STICKY_TICKS;
-    if (typeof Memory !== "undefined") Memory.remotesUnlockedUntil = remotesUnlockedUntil;
-  }
-  stampRemoteGate(saturationValue, missing, saturationValue ? remotesUnlockedUntil : undefined);
-  return saturationValue;
-}
-
-/** The home-first gate's decision record, exported verbatim (telemetry core v7). */
-function stampRemoteGate(
-  saturated: boolean,
-  missing: NonNullable<NonNullable<Memory["remoteGate"]>["missing"]>,
-  until?: number
-): void {
-  if (typeof Memory === "undefined") return;
-  Memory.remoteGate = {
-    tick: Game.time,
-    saturated,
-    ...(until !== undefined ? { until } : {}),
-    ...(missing.length > 0 ? { missing } : {})
-  };
-}
-
-/**
  * Populates a node's resources from room intel or live game data.
  *
  * Only resources within the node's territory are included. Resources on wall
@@ -669,13 +565,14 @@ function populateNodeResources(
 
   // Get my username for ownership checks
   const myUsername = Object.values(Game.spawns)[0]?.owner?.username;
-  // Remote sources only enter the pool once the home economy is SATURATED
-  // (every owned-room source has a live flow miner AND a live hauler on its
-  // route). Opening a 50-tile remote before that taxes the very economy it
-  // depends on - measured in the grid T5 pipeline world: the remote opened
-  // at t~200 against a single 2W home runt with no hauler, and the home
-  // room never stabilized (the cross-room breadth tax, spec 01).
-  const remotesUnlocked = homeEconomySaturated();
+  // Remote sources enter the pool UNCONDITIONALLY (owner 2026-07-20). The
+  // home-first gate that stood here caused two measured remote-drop
+  // incidents (t72444963, t72448082): its response to a home staffing gap
+  // was to REVOKE remote commissions - stranding the standing fleet - when
+  // the correct home-first mechanism is DEFUNDING through spawn priority,
+  // which already exists (blocking home income outranks remote scaling in
+  // spawnPriority's strict tiers). The cold-start breadth tax the gate was
+  // built for is pinned by the plan-t5-remote-pipeline grid cell.
   // Home energy capacity gates whether we can afford a reserver (RCL3+). Hoisted
   // out of the per-room loop so both the live-vision and intel branches apply the
   // same reservable-source lift (see couldReserve below).
@@ -697,11 +594,8 @@ function populateNodeResources(
       // the same predicate, so valuation and execution cannot disagree.
       const couldReserveLive = isReservableRoom(roomName, myUsername) && homeCapacity >= RESERVER_BODY_COST;
 
-      // Add sources within territory. Remote (unowned-room) sources wait for
-      // home saturation - see remotesUnlocked above.
-      const roomIsOwned = !!room.controller?.my;
+      // Add sources within territory.
       for (const source of room.find(FIND_SOURCES)) {
-        if (!roomIsOwned && !remotesUnlocked) continue;
         if (shouldClaimResource(source.pos.x, source.pos.y, roomName)) {
           node.resources.push({
             type: "source",
@@ -787,11 +681,8 @@ function populateNodeResources(
         // Source capacity: 3000 for owned/reserved/reservable rooms, 1500 otherwise.
         const sourceCapacity = isOwnedRoom || isReservedByUs || couldReserve ? 3000 : 1500;
 
-        // Add sources from intel within territory. Intel-only rooms are by
-        // definition not owned (no vision), so they are all remote - gated
-        // on home saturation like the live branch.
+        // Add sources from intel within territory.
         (intel.sourcePositions || []).forEach((sourcePos, i) => {
-          if (!isOwnedRoom && !remotesUnlocked) return;
           if (shouldClaimResource(sourcePos.x, sourcePos.y, roomName)) {
             // Identity must be STABLE across vision flips: prefer the real game
             // id intel captured while the room was visible. Minting a positional
