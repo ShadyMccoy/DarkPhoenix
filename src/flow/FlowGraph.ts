@@ -7,15 +7,10 @@
  * This replaces the Market's role in connecting producers and consumers.
  */
 import {
-  DEFAULT_CONSTRAINTS,
-  DEFAULT_SINK_PRIORITIES,
-  FlowConstraints,
   FlowEdge,
-  FlowProblem,
   FlowSink,
   FlowSource,
   Position,
-  PriorityContext,
   SOURCE_ENERGY_PER_TICK,
   SinkType,
   createEdgeId,
@@ -255,85 +250,7 @@ export class FlowGraph {
   // PRIORITY MANAGEMENT
   // ===========================================================================
 
-  /**
-   * Update sink priorities based on game context.
-   * Called when game state changes (RCL up, attack, etc.)
-   *
-   * @param context - Current game state context
-   */
-  public updatePriorities(context: PriorityContext): void {
-    for (const sink of this.sinks.values()) {
-      sink.priority = this.calculateSinkPriority(sink, context);
-    }
-  }
-
-  /**
-   * Calculate priority for a specific sink based on context.
-   */
-  private calculateSinkPriority(sink: FlowSink, context: PriorityContext): number {
-    let priority = DEFAULT_SINK_PRIORITIES[sink.type];
-
-    switch (sink.type) {
-      case "spawn":
-        // Spawn is always critical
-        priority = 100;
-        break;
-
-      case "extension":
-        // High priority when spawn queue is waiting
-        if (context.spawnQueueSize > 0 && context.extensionEnergy < context.extensionCapacity * 0.5) {
-          priority = 95;
-        } else {
-          priority = 50;
-        }
-        break;
-
-      case "tower":
-        // Critical during attack, low otherwise
-        if (context.underAttack || context.hostileCreeps > 0) {
-          priority = 98;
-        } else {
-          priority = 30;
-        }
-        break;
-
-      case "construction":
-        // High priority after RCL up
-        if (context.constructionSites > 0) {
-          // Higher priority for more recent RCL ups
-          if (context.ticksSinceRclUp < 10000) {
-            priority = 85;
-          } else {
-            priority = 70;
-          }
-        } else {
-          priority = 0;
-        }
-        break;
-
-      case "controller":
-        // Low during construction, normal otherwise
-        if (context.constructionSites > 0) {
-          priority = 15; // Just enough to prevent downgrade
-        } else {
-          priority = 65;
-        }
-        break;
-
-      case "storage":
-        // Lowest priority - only takes excess
-        priority = 5;
-        break;
-
-      default:
-        // Use default
-        break;
-    }
-
-    return priority;
-  }
-
-  // ===========================================================================
+    // ===========================================================================
   // DYNAMIC SINK MANAGEMENT
   // ===========================================================================
 
@@ -369,51 +286,6 @@ export class FlowGraph {
       priority
     );
     sink.progressRemaining = progressRemaining;
-    this.sinks.set(sink.id, sink);
-  }
-
-  /**
-   * Remove a construction site sink (when complete or cancelled).
-   */
-  public removeConstructionSite(id: string): void {
-    const sinkId = `construction-${id}`;
-    this.sinks.delete(sinkId);
-
-    // Remove edges to this sink
-    for (const [edgeId, edge] of this.edges) {
-      if (edge.toId === sinkId) {
-        this.edges.delete(edgeId);
-      }
-    }
-  }
-
-  /**
-   * Add an extension sink.
-   */
-  public addExtension(id: string, nodeId: string, position: Position): void {
-    const sink = createFlowSink(
-      "extension",
-      id,
-      nodeId,
-      position,
-      50, // Extensions need filling for spawning
-      50 // Extension capacity
-    );
-    this.sinks.set(sink.id, sink);
-  }
-
-  /**
-   * Add a tower sink.
-   */
-  public addTower(id: string, nodeId: string, position: Position): void {
-    const sink = createFlowSink(
-      "tower",
-      id,
-      nodeId,
-      position,
-      10, // Tower base energy need
-      1000 // Tower capacity
-    );
     this.sinks.set(sink.id, sink);
   }
 
@@ -535,28 +407,6 @@ export class FlowGraph {
     }
 
     return nearest;
-  }
-
-  // ===========================================================================
-  // SOLVER INTERFACE
-  // ===========================================================================
-
-  /**
-   * Get the flow problem for the solver.
-   * Returns all sources, sinks (sorted by priority), edges, and constraints.
-   *
-   * @param constraints - Optional constraint overrides
-   */
-  public getFlowProblem(constraints?: Partial<FlowConstraints>): FlowProblem {
-    return {
-      sources: this.getSources(),
-      sinks: this.getSinksByPriority(),
-      edges: this.getEdges(),
-      constraints: {
-        ...DEFAULT_CONSTRAINTS,
-        ...constraints
-      }
-    };
   }
 
   // ===========================================================================

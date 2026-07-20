@@ -64,7 +64,7 @@ import {
   startSpawnPlacement
 } from "./execution";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager } from "./flow";
+import { FlowEconomy } from "./flow";
 import {
   PLANNING_INTERVAL,
   initCorps,
@@ -347,9 +347,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       global.nodeNavigator = nodeNavigator;
       global.flowEconomy = flowEconomy;
 
-      // Build priority context from game state
-      const context = buildPriorityContext(corps);
-      flowEconomy.update(context, true); // Force update during planning
+      flowEconomy.update(Game.time); // Force update during planning
 
       // Log flow economy status
       const solution = flowEconomy.getSolution();
@@ -588,8 +586,7 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
 
     // Run initial solve if we have sources (don't wait for planning cycle)
     if (economy.getFlowGraph().getSources().length > 0) {
-      const context = buildPriorityContext(corps);
-      economy.update(context, true);
+      economy.update(Game.time);
 
       // Corps come from the solve's commissions via CommissionHost; no separate
       // materialize step.
@@ -603,70 +600,6 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
   }
 
   return { navigator, economy };
-}
-
-/**
- * Builds a PriorityContext from current game state.
- *
- * This context is used by the flow economy to calculate dynamic
- * sink priorities (e.g., higher priority for towers during attack).
- */
-function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
-  // Find the first owned room to use as context
-  let targetRoom: Room | undefined;
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (room.controller?.my) {
-      targetRoom = room;
-      break;
-    }
-  }
-
-  if (!targetRoom) {
-    // Return mock context if no owned rooms
-    return PriorityManager.createMockContext({ tick: Game.time });
-  }
-
-  const controller = targetRoom.controller;
-  const storage = targetRoom.storage;
-  const hostiles = targetRoom.find(FIND_HOSTILE_CREEPS);
-  const sites = targetRoom.find(FIND_CONSTRUCTION_SITES);
-
-  // Calculate extension energy
-  const extensions = targetRoom.find(FIND_MY_STRUCTURES, {
-    filter: s => s.structureType === STRUCTURE_EXTENSION
-  }) as StructureExtension[];
-
-  let extensionEnergy = 0;
-  let extensionCapacity = 0;
-  for (const ext of extensions) {
-    extensionEnergy += ext.store[RESOURCE_ENERGY];
-    extensionCapacity += ext.store.getCapacity(RESOURCE_ENERGY);
-  }
-
-  // Calculate spawn queue size from spawning corps
-  let spawnQueueSize = 0;
-  for (const spawnId in activeCorps.spawningCorps) {
-    spawnQueueSize += activeCorps.spawningCorps[spawnId].getPendingOrderCount();
-  }
-
-  // Track RCL upgrade time (using memory if available)
-  const lastRclUpTick = Memory.lastRclUpTick ?? 0;
-  const ticksSinceRclUp = Game.time - lastRclUpTick;
-
-  return {
-    tick: Game.time,
-    rcl: controller?.level ?? 0,
-    rclProgress: controller ? controller.progress / controller.progressTotal : 0,
-    constructionSites: sites.length,
-    hostileCreeps: hostiles.length,
-    storageEnergy: storage?.store[RESOURCE_ENERGY] ?? 0,
-    spawnQueueSize,
-    underAttack: hostiles.length > 0,
-    ticksSinceRclUp,
-    extensionEnergy,
-    extensionCapacity
-  };
 }
 
 // =============================================================================
@@ -800,9 +733,7 @@ global.plan = () => {
     global.nodeNavigator = nodeNavigator;
     global.flowEconomy = flowEconomy;
 
-    // Build priority context from game state
-    const context = buildPriorityContext(corps);
-    flowEconomy.update(context, true); // Force update
+    flowEconomy.update(Game.time); // Force update
 
     // Get solution and show results
     const solution = flowEconomy.getSolution();
