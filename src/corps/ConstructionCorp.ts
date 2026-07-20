@@ -1682,13 +1682,33 @@ export class ConstructionCorp extends Corp {
    */
   /** Everything the corp maintains: containers plus roads (both decay) -
    * MINUS containers a link has superseded (owner 2026-07-20: "we keep
-   * repairing the container even though we don't use it anymore"). */
+   * repairing the container even though we don't use it anymore") and MINUS
+   * a displaced controller input container (spec 24 rung 1: the input spot
+   * migrated to a better park ring; the legacy container decays to dust). */
   private roomRepairables(room: Room): (StructureContainer | StructureRoad)[] {
     return (
       room.find(FIND_STRUCTURES, {
         filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_ROAD
       }) as (StructureContainer | StructureRoad)[]
-    ).filter(s => !this.supersededByLink(room, s));
+    )
+      .filter(s => !this.supersededByLink(room, s))
+      .filter(s => !this.displacedInputContainer(room, s));
+  }
+
+  /** A controller-range container that is NOT the current input spot: the
+   * picker migrated off it, nothing reads it, it must not be maintained. */
+  private displacedInputContainer(room: Room, s: { structureType: string; pos: RoomPosition }): boolean {
+    if (s.structureType !== STRUCTURE_CONTAINER) return false;
+    const ctrl = room.controller;
+    if (!ctrl?.my) return false;
+    if (Math.max(Math.abs(ctrl.pos.x - s.pos.x), Math.abs(ctrl.pos.y - s.pos.y)) > 3) return false;
+    // Source containers can sit within range 3 of a controller on tight maps -
+    // only a container that LOST the input election is displaced.
+    for (const source of room.find(FIND_SOURCES)) {
+      if (Math.max(Math.abs(source.pos.x - s.pos.x), Math.abs(source.pos.y - s.pos.y)) <= 1) return false;
+    }
+    const input = controllerInputSpot(ctrl);
+    return !(input.pos.x === s.pos.x && input.pos.y === s.pos.y);
   }
 
   /**

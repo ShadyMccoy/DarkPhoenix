@@ -55,6 +55,44 @@ describe("controllerInputSpot / controllerParkingTiles", () => {
     (global as any).STRUCTURE_LINK = STRUCTURE_LINK;
   });
 
+  it("MIGRATES off a clipped-ring legacy container when a full-ring tile exists (spec 24 rung 1)", () => {
+    // Open terrain, container at range 3: its ring loses 3 tiles to upgrade
+    // range (the x = cx+4 column is range 4) - park ring 5. Every range-2
+    // tile scores 8. Live cost measured (t72455711): parking 6 of a possible
+    // 8 = 30 e/t of burn ceiling lost to position alone. The picker must
+    // return the better FRESH tile (no structure), not the legacy container.
+    const ctrl = controllerWith({ cx: 25, cy: 25, buffers: [{ x: 28, y: 25 }] });
+    const spot = controllerInputSpot(ctrl);
+    expect(spot.structure, "a clipped legacy container is not the input").to.equal(undefined);
+    expect(cheb(spot.pos, { x: 25, y: 25 }), "the fresh spot is a range-2 tile").to.be.at.most(2);
+  });
+
+  it("KEEPS an existing container whose ring is within 1 of the best (no churn on near-ties)", () => {
+    // Container at range 2 in open terrain: full 8-ring, exactly the best -
+    // stays. The hysteresis (accept within best-1) prevents migration flap.
+    const ctrl = controllerWith({ cx: 25, cy: 25, buffers: [{ x: 27, y: 25 }] });
+    const spot = controllerInputSpot(ctrl);
+    expect(spot.structure, "a well-placed container is kept").to.not.equal(undefined);
+    expect(spot.pos.x).to.equal(27);
+  });
+
+  it("prefers the BEST-ringed container while old and new coexist mid-migration", () => {
+    // Both the clipped range-3 legacy and the fresh range-2 container stand
+    // (the migration window): the picker anchors on the better one, so the
+    // fleet re-homes once and the old container decays unmaintained.
+    const ctrl = controllerWith({
+      cx: 25,
+      cy: 25,
+      buffers: [
+        { x: 28, y: 25 },
+        { x: 23, y: 25 }
+      ]
+    });
+    const spot = controllerInputSpot(ctrl);
+    expect(spot.pos.x, "the range-2 container wins").to.equal(23);
+    expect(spot.structure).to.not.equal(undefined);
+  });
+
   it("uses an existing container within range 3 as the input spot", () => {
     const c = controllerWith({ cx: 25, cy: 10, buffers: [{ x: 25, y: 12 }] });
     const spot = controllerInputSpot(c);

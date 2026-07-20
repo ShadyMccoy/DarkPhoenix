@@ -168,6 +168,34 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +560t) — ROADS ANSWERED: trunk-building-31/38, zero blind rooms; spec 24 rung 1 SHIPPED
+
+Verification of the v9 observability on its first capture: ROADS gate
+trunk-building-31/38, remoteSites W43N24:5, NO blind rooms - the owner's
+objection fully validated; the first trunk is 82% built with crews
+working, and "waiting-vision" was pure misnomer. Task #20 closed.
+Scoreboard: burn 47.6 held through another generation trough (fleet 20,
+mass 0.82), BANK -37.4/t, income 1.00x, the cedc under-haul self-
+resolved (3.1k -> 0). No FAIL lines.
+
+SHIPPED task #18 (spec 24 rung 1, live-behavior, full gate): the input
+election. controllerInputSpot now scores an existing container's park
+ring against the best fresh range-2 candidate and keeps it only within
+1 tile (hysteresis); links are never migrated from; among coexisting
+containers the best ring wins (no flap mid-migration). A displaced
+controller container leaves the maintenance rolls (displacedInputContainer,
+mirroring link-superseded; source containers on tight maps exempted).
+findMissingControllerContainer already wants the container at the
+migrated bare spot - the ladder places it, the fleet re-anchors pile-fed
+meanwhile. Pins: 3 election + 1 rolls; unit 1083; trio green (pipefail).
+
+Predictions (next capture): home siteCount +1 (the new container at a
+range-2 tile), upgrader stamp parking 6 -> 8 (count stays 6 - allocation
+co-binds at ceil(116/20)), burn continuity through the re-anchor (a
+transient dip during the pile transition is acceptable; a sustained drop
+is a regression -> revert), legacy container unmaintained. Cycle
+verdict: verified (#20) + fixed-pending-verification (#18).
+
 ### 2026-07-20 (cron cycle, +473t) — trunk stamp disambiguated; the ledger learns to see remote sites (v9)
 
 Scoreboard: burn 50.0 e/t (still climbing; 3 upgraders / 97 WORK), BANK

@@ -133,4 +133,41 @@ describe("ConstructionCorp ignores link-superseded source containers", () => {
     expect((corp as any).roomRepairables(linkedRoom(true)), "superseded: off the rolls").to.have.length(0);
     expect((corp as any).roomRepairables(linkedRoom(false)), "no link: still maintained").to.have.length(1);
   });
+
+  /** A controller container the input election migrated OFF (spec 24 rung 1)
+   * decays to dust like a link-superseded one; the election WINNER stays
+   * maintained. Open terrain: a range-3 container's park ring (5) loses to
+   * the fresh range-2 best (8), so it is displaced; a range-2 container's
+   * ring ties the best and it holds the input. */
+  function controllerRoom(containerX: number): any {
+    const container = {
+      structureType: "container",
+      hits: 100_000,
+      hitsMax: 250_000,
+      pos: { x: containerX, y: 25, roomName: "W1N1" }
+    };
+    const room: any = {
+      name: "W1N1",
+      getTerrain: () => ({ get: () => 0 }),
+      find: (t: number) => (t === 107 ? [container] : [])
+    };
+    room.controller = {
+      my: true,
+      room,
+      pos: {
+        x: 25,
+        y: 25,
+        roomName: "W1N1",
+        findInRange: (_t: number, range: number) =>
+          Math.abs(containerX - 25) <= range ? [container] : []
+      }
+    };
+    return room;
+  }
+
+  it("a DISPLACED controller container (input migrated to a better ring) leaves the rolls", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    expect((corp as any).roomRepairables(controllerRoom(28)), "range-3 clipped ring: displaced").to.have.length(0);
+    expect((corp as any).roomRepairables(controllerRoom(27)), "range-2 full ring: still the input").to.have.length(1);
+  });
 });
