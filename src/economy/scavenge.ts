@@ -48,6 +48,19 @@ export const CONTROLLER_BUCKET_RANGE = 3;
 /** Cap on a single stock's drain rate so we never over-provision scavengers. */
 export const MAX_SCAVENGE_RATE = 20;
 
+/**
+ * A stock fields a DEDICATED corp only when its sized drain rate clears this
+ * (owner 2026-07-20, the micro-route sweep): below it, the planned route is
+ * sub-1-CARRY, and the corp lifecycle costs more than it recovers - measured
+ * as the E2/E5 churn loop (a 100-cost runt spawns for a pile that decays
+ * away before the runt's life ends; the corp strands ~40 parts of fleet).
+ * Sub-floor stocks stay covered by opportunistic pickup (sourcePickupSpot),
+ * exactly like sub-threshold ones - the fid-t4 recapture class (real
+ * overflow piles, 2k+ near the controller) sizes ~0.7 e/t and stays above
+ * the floor.
+ */
+export const SCAVENGE_RATE_FLOOR = 0.5;
+
 /** A scavengeable ground energy stock (dropped pile, tombstone, or ruin). */
 export interface GroundStock {
   /** Stable id derived from the game object: "scavenge-<objectId>". */

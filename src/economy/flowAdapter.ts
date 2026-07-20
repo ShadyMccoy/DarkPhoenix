@@ -33,7 +33,7 @@ import {
   minerOverhead,
   projectAbsorbRate
 } from "./primitives";
-import { detectRoomStocks, stockToTransientSource } from "./scavenge";
+import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
   DEFAULT_SINK_VALUE,
@@ -255,7 +255,11 @@ export function detectTransientSources(): PlannerSource[] {
       ? detectRoomStocks(Game.rooms[roomName])
       : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
     for (const stock of stocks) {
-      out.push(stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos)));
+      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos));
+      // Micro-route floor (owner 2026-07-20): a sub-floor rate plans a
+      // sub-1-CARRY route whose corp lifecycle costs more than it recovers
+      // (the E2/E5 churn loop) - leave those piles to opportunistic pickup.
+      if (src.rate >= SCAVENGE_RATE_FLOOR) out.push(src);
     }
   }
   return out;
