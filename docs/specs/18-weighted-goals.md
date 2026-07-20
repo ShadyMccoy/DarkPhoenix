@@ -38,7 +38,11 @@ Four commitments fall out of this:
    restore income streams. A military operator's effect is an income delta
    (spec 13 already prices raids as a tax and the guard by protected
    income); the search weighs it like any other operator. We win by
-   bringing more resources to bear, measurably.
+   bringing more resources to bear, measurably. Peace is the DEFAULT
+   strategy — offense exists only as the conquest exception with hard
+   preconditions and a pre-committed abort ([spec 21](21-conquest.md));
+   quiet-neighborhood preference in expansion scoring is the defense
+   budget we don't spend, spent as position.
 
 ## The day-one principle (owner, 2026-07-20)
 

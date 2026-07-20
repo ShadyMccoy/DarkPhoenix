@@ -47,6 +47,7 @@ Conventions used by every spec:
 | 17 | [Ontology layers](17-ontology-layers.md) | IN PROGRESS 2026-07-20 — P0-P2 + enforcement landed (registration-only kinds, prescriptive NOW plan, purity ratchet); P3 (propose purity/host problem), P4 (envelope honesty), P5 (dead code) open | P0 |
 | 18 | [Strategy: weighted goals + supply-chain search](18-weighted-goals.md) | PROPOSED 2026-07-20 (owner strategy thesis, revised) — the chain STRUCTURE is the searched decision (event-triggered, transition-costed), planColony is the evaluator, the NOW plan the transition executor; node grain not room grain; warfare priced as economics | P1 |
 | 19 | [Delivery contract](19-delivery-contract.md) | PROPOSED 2026-07-20 (owner design) — spawning delivers newborns to each corp's declared delivery location; work functions assume on-post; creeps-as-cargo deferred | P2 |
+| 21 | [Conquest](21-conquest.md) | PROPOSED 2026-07-20 (owner doctrine) — peace as the default strategy; conquest a narrow economic exception: probe→assess→harass→siege→claim ladder against measured-weak owners of desirable rooms when claims are scarce, with a pre-committed abort rule | P3 |
 | 20 | [Corp accounting](20-corp-accounting.md) | phase 1 LANDED 2026-07-20 (owner directive: everything is a corp running) — per-corp CPU metering at the pure dispatch seam, Memory.corpCpu ledger; phases 2-3: name the residual, migrate towers/links/bootstrap/spawning to kinds | P1 |
 
 Recently completed (for context): economy consolidation onto
