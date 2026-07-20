@@ -139,9 +139,31 @@ function main(): void {
   console.log(
     `BANK   ${bankNow === null ? "-" : (bankNow / 1000).toFixed(1) + "k"} (${bankNow === null ? "-" : fmt(bankNow / WARCHEST_TARGET, 1)}xT)  ${bankRate.latest}/t ${bankRate.band}`
   );
+  // FLEET-MASS CROSS-CHECK (owner 2026-07-20): at this utilization the
+  // spawn sustains util*ceiling*1500 standing parts if every part lived a
+  // full life. actual/expected below ~0.8 = the lifetime taxes (travel,
+  // short-lived CLAIM bodies, recycled runts, premature deaths) are eating
+  // spawn output - a churn flag, not just a number.
+  const expectedParts = (sp.utilization ?? 0) * (sp.ceiling ?? 0) * 1500;
+  const massRatio = expectedParts > 0 ? (core.bodyParts?.total ?? 0) / expectedParts : null;
   console.log(
-    `SPAWN  util ${fmt(sp.utilization, 2)}  parts ${fmt(sp.partsPerTick, 3)}/${fmt(sp.ceiling, 3)}  queue ${sp.queueDepth ?? "-"}`
+    `SPAWN  util ${fmt(sp.utilization, 2)}  parts ${fmt(sp.partsPerTick, 3)}/${fmt(sp.ceiling, 3)}  queue ${sp.queueDepth ?? "-"}` +
+      `  sustains ~${fmt(expectedParts, 0)}p  mass ${fmt(massRatio, 2)}`
   );
+  // SRCBUF: per-source mouth stocks (container+pile). Pinned near 2000 =
+  // under-hauled (rot); ~0 everywhere = hauling has headroom.
+  const buf = core.sourceBuffers as { [id: string]: number } | undefined;
+  if (buf) {
+    const entries = Object.entries(buf).sort((a, b) => b[1] - a[1]);
+    const total = entries.reduce((s, [, v]) => s + v, 0);
+    const hot = entries.filter(([, v]) => v >= 1500).length;
+    console.log(
+      `SRCBUF ${entries.length} sources, ${(total / 1000).toFixed(1)}k standing, ${hot} near-full  ` +
+        entries.slice(0, 6).map(([id, v]) => `${id}:${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v}`).join(" ")
+    );
+  } else {
+    console.log("SRCBUF (not in this capture - deploy pending)");
+  }
   console.log(
     `FLEET  ${core.creeps?.total ?? "-"} creeps (${kindStr})  untracked ${core.creeps?.untracked ?? "-"}`
   );

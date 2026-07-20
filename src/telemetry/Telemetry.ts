@@ -260,6 +260,16 @@ export interface CoreTelemetry {
     until?: number;
     missing?: { source: string; room: string; miner: boolean; hauler: boolean }[];
   };
+  /**
+   * Per-source BUFFER levels (v7 additive): energy standing at each visible
+   * source's mouth - container store within range 1 plus dropped piles
+   * within range 1 - keyed by the source id's last 6 chars. The over/under
+   * haul diagnostic (owner 2026-07-20): a buffer pinned near container cap
+   * (2000) means mining outruns hauling (rot); chronically ~0 with an
+   * active miner means hauling has headroom (or over-provision). Only
+   * rooms with vision contribute.
+   */
+  sourceBuffers?: { [idTail: string]: number };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -710,6 +720,31 @@ export class Telemetry {
       }
     }
 
+    // Source buffers (owner 2026-07-20): container + pile at each visible
+    // source's mouth - the over/under-haul read.
+    const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      let sources: Source[] = [];
+      try {
+        sources = room.find(FIND_SOURCES);
+      } catch {
+        continue; // partial mocks without FIND_SOURCES wired
+      }
+      for (const source of sources) {
+        let stock = 0;
+        for (const s of source.pos.findInRange(FIND_STRUCTURES, 1)) {
+          if (s.structureType === STRUCTURE_CONTAINER) {
+            stock += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
+          }
+        }
+        for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+          if (r.resourceType === RESOURCE_ENERGY) stock += r.amount ?? 0;
+        }
+        sourceBuffers[source.id.slice(-6)] = stock;
+      }
+    }
+
     // Spawn meter readout (phase 3): measured utilization from the Memory windows.
     const spawns: CoreTelemetry["spawns"] = [];
     const gameSpawns = Game.spawns ?? {};
@@ -771,6 +806,7 @@ export class Telemetry {
       spawns,
       agenda,
       ...(Memory.remoteGate ? { remoteGate: Memory.remoteGate } : {}),
+      ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
       rooms
     };
 
