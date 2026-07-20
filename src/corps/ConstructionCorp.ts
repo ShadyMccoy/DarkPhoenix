@@ -18,7 +18,7 @@ import { pickCriticalRepairTarget, wantsCriticalRecovery, wantsMaintenanceBuilde
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { carryPartsFor, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
+import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
@@ -106,16 +106,9 @@ const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
  * the corp can read the planner's actual marginal un-staffed source.
  */
 const ROAD_SPAWN_PART_VALUE = 100;
-/**
- * Ticks over which a construction project should burn down (owner 2026-07-19:
- * size the builder corp to the SUM of its projects). A crew is never sized to
- * consume more energy per tick than finishes the room's outstanding site work
- * in this horizon - so a nearly-done room fields a small crew instead of a
- * full-allocation one for scraps, and a big project stays allocation-sized
- * (30k of work / 100t = 300 e/t, well above any real allocation). Short, so
- * roads still build fast (owner: "the roads got built quicker").
- */
-const PROJECT_BUILD_HORIZON = 100;
+// The sum-of-projects crew cap (owner 2026-07-19) lives in
+// primitives.projectAbsorbRate - shared verbatim with the PLAN's
+// construction-sink capacity so plan and crew can never disagree.
 
 /**
  * Horizon a road route must repay its build cost within: the wall-clock life
@@ -522,7 +515,7 @@ export class ConstructionCorp extends Corp {
     // each room's corp owns its segment, so "sum of THIS corp's projects" is
     // exactly its room's remaining site work.
     const siteWork = this.siteWorkRemaining(room);
-    if (siteWork > 0) buildEnergy = Math.min(buildEnergy, Math.max(5, siteWork / PROJECT_BUILD_HORIZON));
+    if (siteWork > 0) buildEnergy = Math.min(buildEnergy, projectAbsorbRate(siteWork));
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
     // The biggest single builder this room's extension capacity can build.

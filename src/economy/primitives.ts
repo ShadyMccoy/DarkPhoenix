@@ -119,6 +119,29 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
 }
 
 /**
+ * Horizon (ticks) a construction project should finish within - short, so
+ * roads still build fast (owner: "the roads got built quicker"), long enough
+ * that a big build-out sizes a real crew rather than a swarm.
+ */
+export const PROJECT_BUILD_HORIZON = 100;
+
+/**
+ * The energy/tick a body of construction WORK can usefully absorb: finish the
+ * outstanding site work over the build horizon, floored at one small builder
+ * (5 e/t = 1 WORK). The SUM-OF-PROJECTS lens (owner 2026-07-19: "a
+ * construction project is a finite tile list with a computable total cost"),
+ * shared by the EXECUTION crew sizing (ConstructionCorp.builderPlan) and the
+ * PLAN's construction-sink capacity (flowAdapter) - the two MUST read the
+ * same formula, or the plan allocates energy the crew will never burn
+ * (measured prod t72444684: a 455-energy extension site was granted 124 e/t
+ * of bank draw, actual burn 0.45 e/t, warchest +7.66/t to 8.3x target while
+ * the controller got 2 e/t).
+ */
+export function projectAbsorbRate(remainingWork: number): number {
+  return Math.max(5, remainingWork / PROJECT_BUILD_HORIZON);
+}
+
+/**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
  * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
  * energy allocation into the standing bodies that burn it.

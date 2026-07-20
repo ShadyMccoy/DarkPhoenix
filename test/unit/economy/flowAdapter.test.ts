@@ -337,6 +337,69 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 });
 
+/**
+ * The construction absorb cap - the SUM-OF-PROJECTS lens at the PLAN layer
+ * (prod incident t72444684, E4 idle capital): the construction sink's
+ * capacity was minedSupply+bankRate (455 e/t live) regardless of site work,
+ * so ONE nearly-done extension (400 remaining, physically absorbing <10 e/t)
+ * out-priced the controller (70 vs 43.9) and soaked 124 e/t of the plan's
+ * bank draw. Execution's work-aware crew (builderPlan) delivered 0.45 e/t of
+ * it; the other ~99.6% was never burned and the warchest climbed +7.66/t to
+ * 8.3x its target while the controller got 2 e/t. The plan and the corp now
+ * read the SAME primitives.projectAbsorbRate: remaining/100t, floor 5.
+ */
+describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t72444684)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const bankSource = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("a nearly-done site absorbs its work rate, NOT the whole bank draw - the controller mops up", () => {
+    // 20 e/t mined + 40 e/t surplus draw; one extension with 455 build energy
+    // remaining (the live incident's site). Absorbable: max(5, 455/100) = 5.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("ext", "home", at(9), 455);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(build.allocated, "construction capped at the project's absorb rate").to.be.at.most(5 + 1e-9);
+    // the surplus the fantasy build allocation used to soak flows to the score
+    expect(ctrl.allocated, "controller mops up the freed draw").to.be.greaterThan(build.allocated);
+  });
+
+  it("a REAL build-out keeps the valve open (spec 10 G6: no return of the flat-5 bottleneck)", () => {
+    // 15k of extension work remaining: absorb rate max(5, 150) = 150 e/t -
+    // far above this world's supply, so construction still takes everything
+    // the ladder gives it, exactly as before the cap.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("bigbuild", "home", at(9), 15000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    expect(build.allocated, "big project still absorbs the surplus").to.be.greaterThan(20);
+  });
+});
+
 describe("economy/flowAdapter - paved-source detection", () => {
   const g = globalThis as unknown as { Game?: unknown };
   let savedGame: unknown;

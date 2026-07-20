@@ -24,7 +24,14 @@ import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
-import { INVADER_TAX_PER_ENERGY, UPGRADE_ENERGY_PER_WORK, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
+import {
+  INVADER_TAX_PER_ENERGY,
+  UPGRADE_ENERGY_PER_WORK,
+  haulerOverhead,
+  infraSpawnLoad,
+  minerOverhead,
+  projectAbsorbRate
+} from "./primitives";
 import { detectRoomStocks, stockToTransientSource } from "./scavenge";
 import {
   ColonyProblem,
@@ -464,7 +471,16 @@ export function buildColonyProblem(
             // tapered, so construction may burn it - at 5 e/WORK-tick it
             // turns the bank into finished roads/structures 5x more
             // spawn-cheaply than upgrading burns the same energy.
-            Math.max(minedSupply + bankRate, 1)
+            // AND by the project's own absorb rate (prod t72444684, E4): the
+            // sink's remaining work through the SAME sum-of-projects lens
+            // that sizes the crew (primitives.projectAbsorbRate) - without
+            // it, one 455-energy site out-priced the controller for the
+            // ENTIRE 455 e/t supply, allocated 124 e/t, burned 0.45, and
+            // the warchest climbed to 8.3x target while upgrading starved.
+            Math.min(
+              Math.max(minedSupply + bankRate, 1),
+              sink.progressRemaining !== undefined ? projectAbsorbRate(sink.progressRemaining) : Number.POSITIVE_INFINITY
+            )
           : kind === "storage"
           ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
             // a topped-out storage presents zero capacity, which is the owner's
