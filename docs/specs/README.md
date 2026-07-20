@@ -45,6 +45,8 @@ Conventions used by every spec:
 | 15 | [Waste ledger: make every leak a measured number](15-waste-ledger.md) | proposed 2026-07-18 — owner directive: identify/measure/eliminate CPU, energy, spawn-time waste in planning & execution; phase 1 = audit-side ledger over existing captures | P0 |
 | 16 | [Construction as projects](16-construction-projects.md) | proposed 2026-07-19 (owner design) — a builder corp is a spawn + a finite-cost project list; cross-room remote-source trunk paving + sum-of-projects sizing landed; founding-as-project forward-looking | P1 |
 | 17 | [Ontology layers](17-ontology-layers.md) | IN PROGRESS 2026-07-20 — P0-P2 + enforcement landed (registration-only kinds, prescriptive NOW plan, purity ratchet); P3 (propose purity/host problem), P4 (envelope honesty), P5 (dead code) open | P0 |
+| 18 | [Weighted goals](18-weighted-goals.md) | PROPOSED 2026-07-20 (owner direction) — the objective becomes a planner input: goal profiles compiled onto the ladder, invariants preserved; organism-phase assignment relaxation | P1 |
+| 19 | [Delivery contract](19-delivery-contract.md) | PROPOSED 2026-07-20 (owner design) — spawning delivers newborns to each corp's declared delivery location; work functions assume on-post; creeps-as-cargo deferred | P2 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot

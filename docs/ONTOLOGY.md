@@ -205,6 +205,17 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   into `planColony` by expressing its `propose()` trigger as an operator
   precondition, its envelope as cost, and its output as effect. The declarative
   contract in §5 is already that shape.
+- **Weighted goals** ([spec 18](specs/18-weighted-goals.md)): the objective
+  becomes `planColony(problem, goal)` — named goal profiles compiled onto the
+  sink ladder with the measured ordering invariants preserved; relaxing the
+  nearest-spawn assignment under goal pressure yields the colony-as-organism
+  behavior (east rooms fund west goals) as an emergent plan.
+- **The delivery contract** ([spec 19](specs/19-delivery-contract.md)):
+  spawning delivers newborns to each corp's DECLARED delivery location
+  (miners: the mining post; scouts: self-deploying), so work functions
+  degenerate toward their primitive (`harvest(source)`) and travel logic
+  leaves the work corps. Creeps-as-cargo (pull convoys, zero-MOVE workers) is
+  the deferred end state behind the same handover seam.
 - **Known coupling debt:** the RoomMemory regime flags
   (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next
