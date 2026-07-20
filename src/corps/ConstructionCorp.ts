@@ -21,7 +21,7 @@ import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, coreDepot, sourceHarvestSpot } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, coreDepot, coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
@@ -1366,7 +1366,12 @@ export class ConstructionCorp extends Corp {
    */
   private findMissingSourceContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
+    const core = coreLink(room);
     for (const source of room.find(FIND_SOURCES)) {
+      // A link-fed source needs no container: its output leaves through the
+      // link. Without this skip, the legacy container decaying to dust would
+      // be REBUILT here forever (owner 2026-07-20).
+      if (core && sourceLink(source.pos, core.id)) continue;
       if (this.hasContainerNear(room, source.pos, 1)) continue;
       const pile = source.pos
         .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
@@ -1644,11 +1649,36 @@ export class ConstructionCorp extends Corp {
   /**
    * Run behavior for a builder creep.
    */
-  /** Everything the corp maintains: containers plus roads (both decay). */
+  /** Everything the corp maintains: containers plus roads (both decay) -
+   * MINUS containers a link has superseded (owner 2026-07-20: "we keep
+   * repairing the container even though we don't use it anymore"). */
   private roomRepairables(room: Room): (StructureContainer | StructureRoad)[] {
-    return room.find(FIND_STRUCTURES, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_ROAD
-    }) as (StructureContainer | StructureRoad)[];
+    return (
+      room.find(FIND_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_ROAD
+      }) as (StructureContainer | StructureRoad)[]
+    ).filter(s => !this.supersededByLink(room, s));
+  }
+
+  /**
+   * A source container SUPERSEDED by the link network: once its source feeds
+   * a link, the container is legacy plumbing - the output leaves through the
+   * link, so the container is never repaired again (it decays to dust for
+   * free; the miner standing on it is harmless) and never re-placed
+   * (findMissingSourceContainer skips link-fed sources). Repairing it was
+   * a small forever-tax: container decay in an owned room is ~10 hits/t =
+   * ~0.15 e/t of repair plus the repairer's trips, for a structure nothing
+   * reads.
+   */
+  private supersededByLink(room: Room, s: { structureType: string; pos: RoomPosition }): boolean {
+    if (s.structureType !== STRUCTURE_CONTAINER) return false;
+    const core = coreLink(room);
+    if (!core) return false;
+    for (const source of room.find(FIND_SOURCES)) {
+      const near = Math.max(Math.abs(source.pos.x - s.pos.x), Math.abs(source.pos.y - s.pos.y)) <= 1;
+      if (near && sourceLink(source.pos, core.id)) return true;
+    }
+    return false;
   }
 
   /** Whether to field/keep a maintenance builder for decaying structures (hysteresis). */

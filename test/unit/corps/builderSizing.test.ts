@@ -85,3 +85,52 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     expect(heavy.partsNeeded, "30k project -> 6 WORK (done in ~2/3 of a life)").to.equal(6);
   });
 });
+
+/**
+ * Link-superseded containers leave the maintenance rolls (owner 2026-07-20:
+ * "we keep repairing the container even though we don't use it anymore"):
+ * once a source feeds its link, its legacy container is neither repaired
+ * (decays to dust for free) nor re-placed.
+ */
+describe("ConstructionCorp ignores link-superseded source containers", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetGovernor();
+    const g = global as any;
+    g.FIND_STRUCTURES = 107;
+    g.FIND_MY_STRUCTURES = 108;
+    g.FIND_SOURCES = 105;
+    g.STRUCTURE_CONTAINER = "container";
+    g.STRUCTURE_ROAD = "road";
+    g.STRUCTURE_LINK = "link";
+  });
+
+  function linkedRoom(hasSourceLink: boolean): any {
+    const coreL = { id: "core-link", structureType: "link" };
+    const srcL = { id: "src-link", structureType: "link" };
+    const container = {
+      structureType: "container",
+      hits: 100_000,
+      hitsMax: 250_000,
+      pos: { x: 10, y: 10 }
+    };
+    const source = {
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (find: number) => (find === 108 && hasSourceLink ? [srcL] : [])
+      }
+    };
+    return {
+      name: "W1N1",
+      storage: { my: true, pos: { findInRange: (find: number) => (find === 108 ? [coreL] : []) } },
+      find: (t: number) => (t === 105 ? [source] : t === 107 ? [container] : [])
+    };
+  }
+
+  it("a container at a LINK-FED source is not repairable; the same container without a link is", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    expect((corp as any).roomRepairables(linkedRoom(true)), "superseded: off the rolls").to.have.length(0);
+    expect((corp as any).roomRepairables(linkedRoom(false)), "no link: still maintained").to.have.length(1);
+  });
+});
