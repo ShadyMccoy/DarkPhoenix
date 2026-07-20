@@ -57,6 +57,7 @@ describe("game physics probes (micro-bot, real engine)", () => {
             return;
           }
         }
+        if (c.pos.y !== 20 || c.pos.x < 20 || c.pos.x > 21) { c.moveTo(new RoomPosition(20, 20, "W0N0")); return; }
         if (c.pos.x <= 20) c.memory.dir = 1; else if (c.pos.x >= 21) c.memory.dir = -1;
         c.move(c.memory.dir === 1 ? RIGHT : LEFT);
       };
@@ -77,10 +78,11 @@ describe("game physics probes (micro-bot, real engine)", () => {
       await world.addBot({ username: "prober", room: "W0N0", x: 25, y: 25, modules: { main: MAIN } });
     });
 
-    const readWorld = async (): Promise<{ walked: number; control: number; carrying: number; x: number } | null> => {
+    const readWorld = async (): Promise<{ walked: number; control: number; carrying: number; x: number; y: number } | null> => {
       const objs = await helper.server.world.roomObjects("W0N0");
       const roads = objs.filter((o: any) => o.type === "road");
-      const walked = roads.find((o: any) => o.y === 20 && o.x === 20);
+      const lane = roads.filter((o: any) => o.y === 20);
+      const walked = lane.length === 2 ? { nextDecayTime: lane[0].nextDecayTime + lane[1].nextDecayTime } : undefined;
       const control = roads.find((o: any) => o.x === 30);
       const creep = objs.find((o: any) => o.type === "creep");
       if (!walked || !control) return null;
@@ -88,7 +90,8 @@ describe("game physics probes (micro-bot, real engine)", () => {
         walked: walked.nextDecayTime ?? 0,
         control: control.nextDecayTime ?? 0,
         carrying: creep?.store?.energy ?? 0,
-        x: creep?.x ?? -1
+        x: creep?.x ?? -1,
+        y: creep?.y ?? -1
       };
     };
 
@@ -97,14 +100,23 @@ describe("game physics probes (micro-bot, real engine)", () => {
     let loadedWear = 0;
     let loadedSteps = 0;
     let prev = null as Awaited<ReturnType<typeof readWorld>>;
+    let dumped = false;
 
     for (let t = 0; t < 220; t++) {
       await helper.server.tick();
+      if (t === 10 && !dumped) {
+        dumped = true;
+        const objs = await helper.server.world.roomObjects("W0N0");
+        const rawRoad = objs.find((o: any) => o.type === "road");
+        console.log(`raw road object @t10: ${JSON.stringify(rawRoad)}`);
+      }
       const cur = await readWorld();
       if (prev && cur) {
-        // wear this tick = extra decay-advance on the walked road vs control
-        const wear = (prev.walked - cur.walked) - (prev.control - cur.control);
-        const stepped = cur.x !== prev.x && (cur.x === 20 || cur.x === 21) && (prev.x === 20 || prev.x === 21);
+        // wear this tick = extra decay-advance on the LANE (both tiles
+        // summed - each step lands on exactly one of them) vs 2x control
+        const wear = (prev.walked - cur.walked) - 2 * (prev.control - cur.control);
+        const stepped =
+          cur.y === 20 && prev.y === 20 && cur.x !== prev.x && (cur.x === 20 || cur.x === 21) && (prev.x === 20 || prev.x === 21);
         if (stepped) {
           if (prev.carrying > 0) { loadedWear += wear; loadedSteps++; }
           else { emptyWear += wear; emptySteps++; }
@@ -120,10 +132,13 @@ describe("game physics probes (micro-bot, real engine)", () => {
 
     assert.isAbove(emptySteps, 20, "probe must observe empty road steps");
     assert.isAbove(loadedSteps, 20, "probe must observe loaded road steps");
-    // The discovery assertion is intentionally loose on the FIRST run: it
-    // pins that wear happened and reports the per-step numbers; the exact
-    // rule gets hardened into roadEconomics + this pin once measured.
-    assert.isAbove(loadedWear, 0, "a loaded hauler must wear the road");
+    // THE RULE, from the engine source (processor/intents/movement.js:219):
+    // nextDecayTime -= ROAD_WEAROUT(1) * body.length - total parts,
+    // LOAD-INDEPENDENT. A 6-part walker wears 6 per step, empty or full;
+    // the owner's empty-carry-is-free hypothesis is falsified and
+    // roadEconomics.maintenanceFor's both-legs-at-full-body charge is exact.
+    assert.closeTo(perStepEmpty, 6, 0.5, "empty wear = body.length per step");
+    assert.closeTo(perStepLoaded, 6, 0.5, "loaded wear = body.length per step (load-independent)");
   });
 
   it("SWAMP SPEED: empty full-speed across the belt, loaded crawls (the shortcut premise)", async function () {
