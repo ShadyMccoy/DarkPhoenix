@@ -276,3 +276,92 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     expect(node.resources.filter((r) => r.type === "source")).to.have.length(0);
   });
 });
+
+/**
+ * The remote unlock survives a global reset (prod incident t72444963, the
+ * first NAMED warmup remote-drop): homeEconomySaturated's 500-tick sticky
+ * unlock lived only in the heap, so a deploy's global reset re-evaluated the
+ * home-first gate cold - and because it reads LIVE creep assignments (the
+ * documented creep-position trap class), a single mid-replacement home hauler
+ * gap (the agenda was already buying it) relocked ALL remotes: graphSources
+ * 38 -> 2, five funded sources dropped, 94 body parts stranded. The sticky
+ * now persists in Memory.remotesUnlockedUntil, so a reset inside the window
+ * keeps remotes open exactly as an uninterrupted heap would have.
+ *
+ * These tests use HIGH, distinct Game.time values: the module memoizes per
+ * tick and earlier tests in this file arm the heap sticky at time 100+500 -
+ * times far beyond both make each check evaluate cold, like a fresh global.
+ */
+describe("homeEconomySaturated - the remote unlock is durable across resets", () => {
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_SOURCES = FIND_SOURCES;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MINERALS = 106;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MY_SPAWNS = 112;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game = { ...MockGame, creeps: {}, rooms: {}, spawns: { Spawn1: { owner: { username: "me" } } }, time: 100 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Memory = { creeps: {}, rooms: {}, roomIntel: {} };
+  });
+
+  /** An OWNED home room whose single source has NO live miner/hauler (the
+   * staffing gap): the live-scan lens says unsaturated. */
+  function gappedHome(): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.creeps = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.rooms = {
+      W0N0: {
+        controller: { my: true },
+        find: (t: number) => (t === FIND_SOURCES ? [{ id: "src-home", pos: { x: 10, y: 10, roomName: "W0N0" } }] : [])
+      }
+    };
+  }
+
+  function remoteWorld(): { colony: Colony; result: MultiRoomAnalysisResult; node: ReturnType<typeof createNode> } {
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" },
+      { x: 24, y: 25, roomName: "W1N0" },
+      { x: 26, y: 25, roomName: "W1N0" }
+    ]);
+    return { colony, result, node };
+  }
+
+  it("a persisted unlock window keeps remotes open through a reset + staffing gap", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 20_000; // fresh-heap regime: beyond every prior sticky/memo
+    const { colony, result, node } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(20_000, 25, 25) as never;
+    // The durable receipt a pre-reset global wrote while remotes ran:
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Memory as any).remotesUnlockedUntil = 20_050;
+
+    refreshNodeResources(colony, result);
+    expect(
+      node.resources.filter(r => r.type === "source"),
+      "reset inside the persisted window must not relock remotes"
+    ).to.have.length(1);
+  });
+
+  it("without a persisted window the home-first gate still relocks (the gate itself stands)", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 40_000; // beyond the previous test's window AND its re-armed sticky
+    const { colony, result, node } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(40_000, 25, 25) as never;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (Memory as any).remotesUnlockedUntil;
+
+    refreshNodeResources(colony, result);
+    expect(
+      node.resources.filter(r => r.type === "source"),
+      "an expired/absent window with an unstaffed home keeps remotes closed"
+    ).to.have.length(0);
+  });
+});

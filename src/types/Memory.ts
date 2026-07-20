@@ -275,6 +275,16 @@ declare global {
     goal?: { blend: { [profileName: string]: number } };
 
     /**
+     * The remote-unlock sticky window's durable receipt (IncrementalAnalysis.
+     * homeEconomySaturated): the tick until which remotes stay open without
+     * re-checking the home-first gate. Persisted because the heap copy dies
+     * with every global reset - a deploy landing inside an ordinary home
+     * staffing gap relocked ALL remotes (the named warmup remote-drop,
+     * prod t72444963: graphSources 38 -> 2, 94 body parts stranded).
+     */
+    remotesUnlockedUntil?: number;
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

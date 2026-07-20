@@ -519,13 +519,22 @@ let saturationTick = -1;
 let saturationValue = false;
 /** Hysteresis: once remotes unlock they stay unlocked for a while, so a
  * transient assignedSourceId flicker cannot close remotes at a refresh
- * boundary and churn the plan (retiring remote corps mid-life). */
+ * boundary and churn the plan (retiring remote corps mid-life). The window
+ * is PERSISTED (Memory.remotesUnlockedUntil) because the heap copy dies
+ * with every global reset: a deploy landing inside an ordinary staffing gap
+ * (a home hauler mid-replacement, already queued) re-evaluated this gate
+ * cold and relocked ALL remotes - the first NAMED warmup remote-drop
+ * (prod t72444963: graphSources 38 -> 2, five funded sources dropped, 94
+ * body parts stranded until the gap closed). Heap stays the fast path; the
+ * Memory receipt is the reset-survivor.
+ */
 let remotesUnlockedUntil = -1;
 const REMOTE_UNLOCK_STICKY_TICKS = 500;
 function homeEconomySaturated(): boolean {
   if (Game.time === saturationTick) return saturationValue;
   saturationTick = Game.time;
-  if (Game.time <= remotesUnlockedUntil) {
+  const persistedUntil = typeof Memory !== "undefined" ? Memory.remotesUnlockedUntil ?? -1 : -1;
+  if (Game.time <= Math.max(remotesUnlockedUntil, persistedUntil)) {
     saturationValue = true;
     return saturationValue;
   }
@@ -554,7 +563,10 @@ function homeEconomySaturated(): boolean {
       }
     }
   }
-  if (saturationValue) remotesUnlockedUntil = Game.time + REMOTE_UNLOCK_STICKY_TICKS;
+  if (saturationValue) {
+    remotesUnlockedUntil = Game.time + REMOTE_UNLOCK_STICKY_TICKS;
+    if (typeof Memory !== "undefined") Memory.remotesUnlockedUntil = remotesUnlockedUntil;
+  }
   return saturationValue;
 }
 

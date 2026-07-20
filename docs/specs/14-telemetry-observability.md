@@ -168,6 +168,47 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 — E4 idle capital: the construction absorb cap; the warmup remote-drop NAMED
+
+Cycle t72444684 (ledger TOP LINE E4): storage 228,749 = 8.3x the 27,650
+warchest target, slope +7.66/t with `feederActive true` — the spend path ran
+but nothing burned. The capture named the misroute end-to-end: construction
+sink demand 455 = the adapter's supply-shaped capacity (355 minedSupply over
+ALL 38 graph candidates — 285 e/t of it PHANTOM unfunded intel sources —
+plus the bank's MAX_SURPLUS_DRAW 100; the adversarial review corrected the
+first-pass 70+385 arithmetic), priority 70 over the RCL6 mid-grind
+controller's 43.9, allocated 124 e/t against ONE extension site holding 400
+build energy (absorbable <10 e/t; measured burn 0.45 e/t). The controller's
+2 e/t was exactly the ANTI_DOWNGRADE_RESERVE pre-pass — its value-pass fill
+never executed a take (partsLeft byte-identical to construction's), so the
+freed draw had exactly one taker. Fix (fc2b181): the corp's sum-of-projects
+lens moved to primitives.projectAbsorbRate (crew formula verbatim) and the
+construction sink capacity min()s it in — a 455-energy site now rates 5 e/t,
+a 15k build-out still rates 150 (spec 10 G6 valve intact). Deployed
+t~72444870. **Verified t72444963/t72445067:** construction plan alloc
+124→5.0, controller alloc 2→105 (plan WORK 112p ramping, upgrader@2100 in
+the agenda), E4 slope +7.66 → **−23.49/t** (FAIL→WARN, the warchest finally
+draining into score). P7 0.03x is the fleet ramp lag — upgrader bodies trail
+the plan by spawn time.
+
+Same deploy's global reset exposed and NAMED the long-unattributable
+**warmup remote-drop** (the assembly counters existed for exactly this):
+graphSources 38→2 — the GRAPH layer, not the solver. Mechanism:
+homeEconomySaturated's 500t sticky unlock lived in heap only; the reset
+re-evaluated the home-first gate cold, and its live creep-memory lens (the
+documented creep-position trap class) hit an ordinary mid-replacement home
+hauler gap (the buy was already in the agenda) — ALL remotes relocked, 5
+funded sources dropped, 94 body parts stranded, reservers still burning
+(P5). Fix: the sticky window persists in Memory.remotesUnlockedUntil (heap
+stays the fast path; the receipt survives resets), pinned red-first in
+refreshNodeResources.test.ts with the counter-pin that an absent/expired
+window still relocks (the home-first gate itself stands). Verdict: E4
+**fixed** (verified by slope reversal); remote-drop **fixed for future
+resets** (the live relock clears when the gate's staffing check passes —
+watch the next capture for graphSources 38 and the refund). Next cycle's
+TOP LINE: P5 reserver duty 1.0 vs priced 0.5 (the corp never reads
+reservation.ticksToEnd), plus the phantom minedSupply term the review found.
+
 ### 2026-07-18 — S3 starvation backstop: raw-age FIFO falsified, bucketed FIFO shipped
 
 The `since` export (phase 4) named the live S3 inversion exactly (t72403765:
