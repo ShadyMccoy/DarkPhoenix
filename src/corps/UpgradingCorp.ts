@@ -452,7 +452,21 @@ export class UpgradingCorp extends Corp {
     // Decision-symmetry stamp (spec 14 phase 2): record the inputs THIS sizing
     // read, for telemetry to export verbatim. Answers "why is the upgrader N
     // WORK" from a capture: plan vs stock vs inflow vs what won.
-    this.lastSizing = { tick: ctx.tick, planAllocated, stock, banked: bankedBehindFeeder, inflow, allocated, targetCount };
+    // `demand`/`cap` join the stamp because prod t72455355 showed targetCount 6
+    // with ONE fielded upgrader and NO agenda entry - which of the exits below
+    // swallowed the demand (and under which energyCapacity) was invisible in
+    // the capture. The verdict names the exit; never guess twice.
+    this.lastSizing = {
+      tick: ctx.tick,
+      planAllocated,
+      stock,
+      banked: bankedBehindFeeder,
+      inflow,
+      allocated,
+      targetCount,
+      cap: ctx.energyCapacity,
+      demand: "demanded"
+    };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
     // lead time (build + walk to the controller) keeps working but no longer
     // counts, so its successor spawns early enough for the controller's
@@ -463,10 +477,17 @@ export class UpgradingCorp extends Corp {
     const ctrlWalkTicks =
       spawn && controller ? spawn.pos.getRangeTo(controller.pos) * travelTicksPerTile(ctx.energyCapacity) : 0;
     const current = this.countStaffing(ctrlWalkTicks);
-    if (current >= targetCount) return [];
+    this.lastSizing.staffing = current;
+    if (current >= targetCount) {
+      this.lastSizing.demand = "staffed";
+      return [];
+    }
     // Physical swarm cap (mirrors CarryCorp): replacement overlap may field one
     // extra body per expiring incumbent, never more - parking tiles are few.
-    if (this.getCreepCount() >= targetCount * 2) return [];
+    if (this.getCreepCount() >= targetCount * 2) {
+      this.lastSizing.demand = "swarm-cap";
+      return [];
+    }
 
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
@@ -485,7 +506,11 @@ export class UpgradingCorp extends Corp {
     const anyUpgrader = current > 0 || this.getCreepCount() > 0;
     const minWork = anyUpgrader ? desiredWork : 1;
     const min = buildUpgraderBody(ctx.energyCapacity, minWork, "containerFed");
-    if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
+    if (min.cost === 0) {
+      this.lastSizing.demand = "unaffordable";
+      return []; // room cannot afford even a minimal upgrader
+    }
+    this.lastSizing.demandMin = min.cost;
 
     return [
       {

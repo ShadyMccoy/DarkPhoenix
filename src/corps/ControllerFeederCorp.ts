@@ -24,7 +24,7 @@ import { Position } from "../types/Position";
 import { CoreDepot, coreDepot, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
-import { feederRelayRate } from "../economy/bank";
+import { bankSurplusRate, feederRelayRate } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -48,6 +48,30 @@ const CONTROLLER_FEED_TARGET = 2000;
  * flow: input-container decay plus a small buffer so the stock never starves
  * between shuttle arrivals. */
 const FEEDER_STOCK_HEADROOM = 5;
+
+/**
+ * The relay rate the feeder fleet is sized to sustain (pure, unit-tested).
+ *
+ * SURPLUS (bankSurplusRate > 0): the raw surplus formula, IGNORING the plan's
+ * controller allocation - consumers size from actuals, never the goal plan
+ * (macro doctrine; the upgrader half is upgraderSizing's surplus regime, this
+ * is its supply line). Prod t72455355: the plan's parts ledger exhausted
+ * before the controller sink (allocated 2) while 340k stood banked; the old
+ * clamp sized the feeder to relay 7 while the upgraders' sizing assumed the
+ * surplus 115 - the stock drained 1520 -> 60 and burn ran 11 of 115. The two
+ * halves of the consumption chain must read the SAME inflow or the upgraders'
+ * math lies.
+ *
+ * NON-SURPLUS: the plan clamp stands (owner t72421124: while construction
+ * preempts the bank the controller legitimately floors at ~2 e/t, and a
+ * feeder sized to the raw formula is 90+ wasted parts). bankSurplusRate is
+ * the shared regime lens - the same primitive the upgraders and the bank
+ * draw read.
+ */
+export function feederRelayTarget(surplusRate: number, planFlow: number | undefined, banked: number): number {
+  if (bankSurplusRate(banked) > 0) return surplusRate;
+  return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+}
 
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
@@ -246,7 +270,7 @@ export class ControllerFeederCorp extends Corp {
     // t72421124). No allocation known (old commission) -> formula unclamped.
     const surplusRate = feederRelayRate(banked);
     const planFlow = this.controllerAllocation;
-    const relayRate = planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked);
     const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;

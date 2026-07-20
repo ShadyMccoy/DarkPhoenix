@@ -168,6 +168,43 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +6859t window) — GATE RETIREMENT VERIFIED LIVE; the feeder was the burn bottleneck
+
+VERIFY-FIRST (t72455355 vs t72448496, the loop's restart-downtime window):
+the retirement + lane-revert deploy VERIFIED on every prediction - core v8
+with NO remoteGate field, P1 0 flips across ~4.5 lifecycle generations
+(the remote-drop class is measured extinct), income 70 funded / 68.9
+routed (0.98x) held, E2 52 -> 8 parts. SCORE 2.0 -> 11.2/t (5.6x): the
+actuals-sizing ramp came through - partially.
+
+TOP LINE E4 (bank 340k, 12.3xT, +14/t) mechanism named from stamps: the
+upgrading corp sized itself allocated 115 / targetCount 6 (actuals, per
+daec503) but fielded 1x20W burning ~11 - because its SUPPLY LINE still
+read the goal plan: the plan's parts ledger exhausts before the
+controller sink (allocated 2, partsLeft 0), and ControllerFeederCorp
+clamped relayRate = min(surplus 115, planFlow 2 + 5) = 7 -> a 3-CARRY
+feeder -> controller stock drained 1520 -> 60. The consumption chain's
+two halves read DIFFERENT inflows: upgraders assumed the surplus 115 the
+feeder never delivered.
+
+FIX (red-first, feederRelayTarget pure seam): in SURPLUS
+(bankSurplusRate > 0) the relay serves the raw surplus formula - the
+same inflow the upgraders' sizing assumes; the plan clamp stays the
+NON-surplus rule. The t72421124 pin (94-part feeder into a full stock)
+rewritten to its post-daec503 form: that mismatch class cannot occur in
+surplus anymore (consumers size UP there), so the clamp's guard lives in
+the save regime - pinned both ways. ALSO instrumented (invisible-cause
+rule): the upgrader demand-exit verdict (demand: demanded/staffed/
+swarm-cap/unaffordable + cap + staffing + demandMin) joins lastSizing -
+targetCount 6 emitted NO agenda demand at t72455355 and which exit
+swallowed it was unreadable; next capture names it.
+
+Gate: unit 1077, trio green (pipefail). Predictions: feeder stamp
+relayRate 115 / wantedFeeders ~2, controller stock 60 -> ~2000, burn
+11.2 -> 18+ (the fielded 20W unthrottled) then fleet growth per the
+demand verdict; BANK slope +14 bending down. Cycle verdict: fixed
+(deployed) + instrumented (demand verdict).
+
 ### 2026-07-20 (cron cycle) — GATE RETIRED (owner doctrine); empty-lane pathing reverted by bisection; gate-runner masking incident
 
 VERIFY-FIRST (t72448496 vs t72448186, dt 310): the queued-orders gate fix
