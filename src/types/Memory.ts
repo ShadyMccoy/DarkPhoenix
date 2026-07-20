@@ -268,6 +268,13 @@ declare global {
     };
 
     /**
+     * The colony's GOAL (spec 18): a weighted blend of named goal profiles,
+     * compiled onto the sink-value ladder each solve. Absent = the default
+     * profile (today's measured ladder). Set via global.setGoal.
+     */
+    goal?: { blend: { [profileName: string]: number } };
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

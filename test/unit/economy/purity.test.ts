@@ -33,7 +33,9 @@ const PURE: string[] = [
   "siteValue.ts",
   "roadEconomics.ts",
   "bank.ts",
-  "expansion.ts"
+  "expansion.ts",
+  "goals.ts",
+  "strategy.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
@@ -108,6 +110,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
+      "./goals", "./strategy",
       // pure shared types
       "../types/Position", "../types/Memory",
       // (debt) constants physically homed outside economy/ - P5 inverts these

@@ -36,6 +36,8 @@ import {
   planColony
 } from "./CorpPlanner";
 import { Commission } from "./Commission";
+import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
+import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
@@ -128,26 +130,17 @@ export function agendaFundingRate(sinkId: string): number {
 
 /**
  * A NEW SPAWN's construction site (spec 06 expansion): above ordinary
- * construction (70) so every room funnels its surplus to the founding, below
- * the live spawn network (100) so keeping existing creeps alive still wins.
+ * construction so every room funnels its surplus to the founding, below the
+ * live spawn network so keeping existing creeps alive still wins. Since
+ * spec 18 the anchor lives in the goal's valuation (economy/goals - the
+ * measured incident rationale is recorded there); this export is the default
+ * profile's value, kept for its doc-reference role.
  */
-export const NEW_SPAWN_SITE_VALUE = 85;
+export const NEW_SPAWN_SITE_VALUE = DEFAULT_VALUATION.newSpawnSite;
 
-/**
- * controllerValue anchors: a fresh L1 (200 remaining) prices at the top of
- * the CONTROLLER band - which caps BELOW the new-spawn site's 85 ("new
- * spawns just have a higher priority than upgrading", owner 2026-07-09).
- * Measured failure at max=90: a freshly claimed room's own L1 controller
- * outranked the founding site AND ordinary construction everywhere, so the
- * whole colony's build allocation went to zero (exp-t5 founding cell).
- */
-const CONTROLLER_VALUE_MAX = 80;
-/** ...and the L8-scale grind (10.4M remaining) near the bottom. */
-const CONTROLLER_VALUE_MIN = 40;
+/** Controller-curve remaining-progress anchors (fresh L1 / L8-scale grind). */
 const CONTROLLER_REMAINING_MIN = 200;
 const CONTROLLER_REMAINING_MAX = 10_400_000;
-const CONTROLLER_VALUE_K =
-  (CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_MIN) / Math.log(CONTROLLER_REMAINING_MAX / CONTROLLER_REMAINING_MIN);
 
 /**
  * Value of a controller sink as a function of PROGRESS REMAINING to the next
@@ -160,10 +153,10 @@ const CONTROLLER_VALUE_K =
  * ("if something is 99% to the next RCL level, those marginal points are
  * valuable").
  */
-export function controllerValue(remaining: number): number {
-  const v =
-    CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_K * Math.log(Math.max(1, remaining) / CONTROLLER_REMAINING_MIN);
-  return Math.min(CONTROLLER_VALUE_MAX, Math.max(CONTROLLER_VALUE_MIN, v));
+export function controllerValue(remaining: number, val: SinkValuation = DEFAULT_VALUATION): number {
+  const k = (val.controllerMax - val.controllerMin) / Math.log(CONTROLLER_REMAINING_MAX / CONTROLLER_REMAINING_MIN);
+  const v = val.controllerMax - k * Math.log(Math.max(1, remaining) / CONTROLLER_REMAINING_MIN);
+  return Math.min(val.controllerMax, Math.max(val.controllerMin, v));
 }
 
 /**
@@ -173,18 +166,30 @@ export function controllerValue(remaining: number): number {
  * construction, and each controller prices by its remaining progress. Live
  * Game lookups are guarded so harness/unit paths fall back to the defaults.
  */
-function perInstanceSinkValue(kind: SinkKind, sink: { gameId?: string; position: Position }): number {
+function perInstanceSinkValue(
+  kind: SinkKind,
+  sink: { gameId?: string; position: Position },
+  val: SinkValuation = DEFAULT_VALUATION
+): number {
   if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
     const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
-    if (site && site.structureType === "spawn") return NEW_SPAWN_SITE_VALUE;
+    if (site && site.structureType === "spawn") return val.newSpawnSite;
   }
   if (kind === "controller" && typeof Game !== "undefined" && Game.rooms) {
     const controller = Game.rooms[sink.position.roomName]?.controller;
     if (controller && controller.progressTotal) {
-      return controllerValue(controller.progressTotal - controller.progress);
+      return controllerValue(controller.progressTotal - controller.progress, val);
     }
   }
-  return DEFAULT_SINK_VALUE[kind];
+  // Kind-level fallback from the goal's valuation (controllerStatic is the
+  // no-vision controller anchor - the pre-goal DEFAULT_SINK_VALUE numbers).
+  return kind === "spawn"
+    ? val.spawn
+    : kind === "construction"
+    ? val.construction
+    : kind === "controller"
+    ? val.controllerStatic
+    : val.storage;
 }
 
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
@@ -327,7 +332,8 @@ export function buildColonyProblem(
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
   pavedSources: Set<string> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
-  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY
+  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
+  valuation: SinkValuation = DEFAULT_VALUATION
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -428,7 +434,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: perInstanceSinkValue(kind, sink),
+      value: perInstanceSinkValue(kind, sink, valuation),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,
@@ -573,17 +579,26 @@ export function solveColony(
   tick = 0,
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
-  bankSources: PlannerSource[] = detectBankSources()
-): { solution: FlowSolution; commissions: Commission[] } {
-  const problem = buildColonyProblem(
+  bankSources: PlannerSource[] = detectBankSources(),
+  goal?: Goal
+): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
+  const baseProblem = buildColonyProblem(
     graph,
     dist,
     transientSources,
     detectLinkHaulPositions(graph),
     detectPavedSources(),
-    bankSources
+    bankSources,
+    INVADER_TAX_PER_ENERGY,
+    compileGoal(goal)
   );
-  const plan = planColony(problem);
+  // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
+  // evaluator; the searcher may pin budget-dropped sources to spawns with
+  // slack. Under the default goal on a status-quo-optimal world it adopts
+  // nothing and the plan is bit-identical to the plain solve (the pin).
+  const searched = searchStructure(baseProblem);
+  const problem = searched.problem;
+  const plan = searched.plan;
   publishRoster(plan);
   const commissions = commissionsFromPlan(problem, plan);
 
@@ -648,7 +663,7 @@ export function solveColony(
     computedAt: tick,
     sourceVerdicts: plan.sourceVerdicts
   };
-  return { solution, commissions };
+  return { solution, commissions, adopted: searched.adopted };
 }
 
 /** Re-export for the integration site. */

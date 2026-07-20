@@ -18,6 +18,7 @@ import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
 import { solveColony } from "../economy/flowAdapter";
+import { Goal } from "../economy/goals";
 import { Commission } from "../economy/Commission";
 
 export class FlowEconomy {
@@ -48,9 +49,18 @@ export class FlowEconomy {
    * always solves when called.
    */
   public update(tick: number): void {
-    const result = solveColony(this.graph, tick);
+    // The goal is EXECUTION-owned state (Memory.goal, set by the operator via
+    // global.setGoal); the pure layers only ever receive it as an argument.
+    const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
+    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal);
     this.solution = result.solution;
     this.commissions = result.commissions;
+    if (result.adopted.length > 0) {
+      console.log(
+        `[Strategy] adopted ${result.adopted.length} restructuring(s): ` +
+          result.adopted.map(a => `${a.sourceId}->${a.spawnId} (+${(a.gain * 100).toFixed(1)}%)`).join(", ")
+      );
+    }
   }
 
   /** Get current solution (or null if not solved). */

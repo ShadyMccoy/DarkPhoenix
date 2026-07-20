@@ -96,6 +96,7 @@ declare global {
       flowStatus: () => void;
       // Legacy commands
       recalculateTerrain: () => void;
+      setGoal: (profile?: string, weight?: number) => void;
       resetAnalysis: () => void;
       showNodes: () => void;
       exportNodes: () => string;
@@ -741,6 +742,25 @@ global.plan = () => {
  * - Active chains and contracts
  * - Corp counts by type
  */
+/**
+ * Set the colony's GOAL (spec 18): a named profile, optionally blended with
+ * the default. `global.setGoal()` reverts to the default profile;
+ * `global.setGoal("growController")` commits fully;
+ * `global.setGoal("growController", 0.7)` blends 70/30 with the default.
+ * Compiled onto the sink ladder next solve (invariants enforced - a bad
+ * profile name is ignored by the compiler and default applies).
+ */
+global.setGoal = (profile?: string, weight?: number) => {
+  if (!profile) {
+    delete Memory.goal;
+    console.log("[Goal] reverted to the default profile");
+    return;
+  }
+  const w = weight === undefined ? 1 : Math.max(0, Math.min(1, weight));
+  Memory.goal = w >= 1 ? { blend: { [profile]: 1 } } : { blend: { [profile]: w, default: 1 - w } };
+  console.log(`[Goal] set: ${JSON.stringify(Memory.goal.blend)}`);
+};
+
 global.status = () => {
   console.log("\n=== Orchestration Status ===");
   console.log(`Current tick: ${Game.time}`);

@@ -1,7 +1,14 @@
 # 18 — Strategy: weighted goals and the supply-chain search
 
-**Status:** PROPOSED (owner direction 2026-07-20, revised same day). Spec
-first, build next.
+**Status:** P1 LANDED 2026-07-20 (the vertical slice, live per the day-one
+principle): Goal/profiles/compiler (economy/goals.ts, invariants
+property-swept), the strategic searcher v0 (economy/strategy.ts - the
+source->spawn reassignment operator over budget-dropped sources, evaluator =
+planColony, margin-gated adoption, positive-proof + status-quo-pin tests),
+wired live through solveColony under the compiled goal valuation
+(flowAdapter prices every sink from it), goal source = Memory.goal via
+global.setGoal. P2+ (more profiles/operators, de-rooming, organism grid
+cell) open.
 **Priority:** P1 — the strategic planner: the "colony as one organism" thesis.
 **Depends on:** spec 17 (pure planner core, enforcement) — landed; spec 20
 (three-currency accounting) — phase 1 landed.

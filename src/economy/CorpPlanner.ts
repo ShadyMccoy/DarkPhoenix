@@ -82,6 +82,13 @@ export interface PlannerSource {
    */
   paved?: boolean;
   /**
+   * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
+   * spawn instead of the nearest-spawn default - the v0 restructuring
+   * operator (a source the nearest spawn's budget dropped can be worked by
+   * another spawn with slack). Absent = nearest, the pinned behavior.
+   */
+  assignedSpawnId?: string;
+  /**
    * Expected NPC-invader cost per unit harvested (spec 13 phase 5): raids
    * fire as a function of energy harvested, so their defense cost is a
    * per-energy tax. Set by the adapter for sources outside spawn rooms
@@ -272,7 +279,11 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
-    const near = nearestSpawn(source.pos, spawns, dist);
+    // The searcher's pin overrides the nearest-spawn default (spec 18).
+    const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
+    const near = pinned
+      ? { spawn: pinned, distance: dist(pinned.pos, source.pos) }
+      : nearestSpawn(source.pos, spawns, dist);
     if (!near) {
       // The formerly verdict-LESS skip (spec 14: no invisible decisions).
       // Spawns exist but none is reachable: the path lens failed for this
