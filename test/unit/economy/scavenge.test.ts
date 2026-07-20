@@ -7,7 +7,6 @@ import {
   CONTROLLER_BUCKET_RANGE,
   EnergyFind,
   SCAVENGE_THRESHOLD,
-  SCAVENGE_DRAIN_TICKS,
   MAX_SCAVENGE_RATE
 } from "../../../src/economy/scavenge";
 
@@ -18,7 +17,11 @@ describe("economy/scavenge", () => {
   describe("scavengeRate", () => {
     it("drains a stock over the target horizon", () => {
       // 1500 energy over 150 ticks = 10/tick
-      expect(scavengeRate(1500)).to.be.closeTo(1500 / SCAVENGE_DRAIN_TICKS, 1e-9);
+      // Owner 2026-07-20: halfway amount over effective ttl - a 1500 stock
+      // at the spawn's doorstep asks 1500/2/1500 = 0.5 e/t (waste-free),
+      // and DISTANCE lowers it further (shorter working life).
+      expect(scavengeRate(1500)).to.be.closeTo(1500 / 2 / 1500, 1e-9);
+      expect(scavengeRate(1500, 100), "travel shortens the working life").to.be.greaterThan(scavengeRate(1500));
     });
     it("caps the rate so a huge pile doesn't ask for an absurd fleet", () => {
       expect(scavengeRate(1_000_000)).to.equal(MAX_SCAVENGE_RATE);

@@ -492,19 +492,19 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
-  describe("sustained income outranks one-off recovery (prod t72447104)", () => {
-    it("a big NEAR scavenge stock never displaces a mined route in the parts ledger", () => {
-      // A 16k-backlog scavenge stock sits nearer the hub than the mined
-      // source; the ledger affords only one deposit route. Without the
-      // class ordering, nearest-first routed the transient and DEMOTED the
-      // mined source (funded 60->40 live). Mined must route first; the
-      // recovery gets the residual parts.
+  describe("recovery competes on route economics; SIZING keeps it from crowding (owner 2026-07-20)", () => {
+    it("a RIGHT-SIZED near recovery coexists with the mined route in the same tight ledger", () => {
+      // The t72447104 displacement replayed: a near backlog stock + a far
+      // mined source in a ledger that once could not hold both. The fix is
+      // SIZING, not ranking - scavengeRate now drains the halfway amount
+      // over an effective ttl (a 16k stock asks ~5 e/t, not the old 20), so
+      // nearest-first routes the cheap recovery AND the mined route fits.
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
           sources: [
             source("mined", 30, 10),
-            { ...stock("scavenge-big", 5, 40), transient: true },
+            { ...stock("scavenge-big", 5, 5.5), transient: true }, // ~16k pile at the new rate
             stock("bank-home", 2, 50)
           ],
           sinks: [
@@ -514,14 +514,14 @@ describe("economy/CorpPlanner", () => {
           infraPartsPerTick: 0.31
         })
       );
-      expect(plan.miners.map(m => m.sourceId), "the mined source keeps its miner").to.deep.equal(["mined"]);
+      const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");
+      expect(scav, "the near recovery routes (already-extracted energy is the cheapest there is)").to.not.equal(
+        undefined
+      );
       const minedRoute = plan.haulers.find(h => h.sourceId === "mined" && h.sinkId === "store");
-      expect(minedRoute, "mined deposit routes first").to.not.equal(undefined);
-      expect(minedRoute!.flowRate, "at its full rate").to.be.closeTo(10, 1e-6);
-      expect(
-        plan.sourceVerdicts.find(v => v.sourceId === "mined")!.verdict,
-        "never demoted by a transient"
-      ).to.equal("funded");
+      expect(minedRoute, "and the mined route still fits beside it").to.not.equal(undefined);
+      expect(minedRoute!.flowRate).to.be.closeTo(10, 1e-6);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "mined")!.verdict).to.equal("funded");
     });
   });
 

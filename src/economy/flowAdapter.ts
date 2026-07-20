@@ -11,6 +11,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
+import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { FlowGraph } from "../flow/FlowGraph";
 import {
   FlowSolution,
@@ -254,7 +255,7 @@ export function detectTransientSources(): PlannerSource[] {
       ? detectRoomStocks(Game.rooms[roomName])
       : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
     for (const stock of stocks) {
-      out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
+      out.push(stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos)));
     }
   }
   return out;
@@ -263,6 +264,22 @@ export function detectTransientSources(): PlannerSource[] {
 /** Remote dropped piles must exceed this to field a scavenger (real spills
  * decay ~1+/t at this size; harvest jitter stays below it). */
 export const REMOTE_SPILL_THRESHOLD = 1000;
+
+/** Walking distance estimate from a stock to its nearest spawn (linear-room
+ * approximation cross-room) - the effective-ttl input to scavengeRate. */
+function stockSpawnDistance(pos: Position): number {
+  if (typeof Game === "undefined" || !Game.spawns) return 0;
+  let best = Infinity;
+  for (const name in Game.spawns) {
+    const sp = Game.spawns[name].pos;
+    const d =
+      sp.roomName === pos.roomName
+        ? Math.abs(sp.x - pos.x) + Math.abs(sp.y - pos.y)
+        : roomLinearDistance(sp.roomName, pos.roomName) * 50;
+    if (d < best) best = d;
+  }
+  return best === Infinity ? 0 : best;
+}
 
 /**
  * Detect link-served sources across visible rooms: a source with its own link

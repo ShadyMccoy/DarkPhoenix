@@ -20,6 +20,7 @@
  */
 
 import { Position } from "../types/Position";
+import { effectiveLife } from "./primitives";
 import { PlannerSource } from "./CorpPlanner";
 
 /** Below this many energy a stock is left to opportunistic source-hauler pickup. */
@@ -44,9 +45,6 @@ export const SCAVENGE_THRESHOLD = 750;
  */
 export const CONTROLLER_BUCKET_RANGE = 3;
 
-/** Target ticks to clear a stock - sets how much hauling we throw at it. */
-export const SCAVENGE_DRAIN_TICKS = 150;
-
 /** Cap on a single stock's drain rate so we never over-provision scavengers. */
 export const MAX_SCAVENGE_RATE = 20;
 
@@ -67,13 +65,25 @@ export interface EnergyFind {
 }
 
 /**
- * Bounded drain rate (energy/tick) to assign a stock of `amount` energy: clear it
- * over SCAVENGE_DRAIN_TICKS, capped at MAX_SCAVENGE_RATE so a huge pile doesn't ask
- * for an absurd scavenger fleet. The cap means very large stocks drain over more
- * ticks - which is fine, the stock persists and is re-detected next cycle.
+ * Bounded drain rate (energy/tick) to assign a stock of `amount` energy at
+ * `distance` from its spawn (owner 2026-07-20): "scavenging IS better than
+ * mining. Especially if it's closer" - the energy is already extracted, so a
+ * stock competes with mined routes on plain route economics, not behind
+ * them. But the FLEET is sized waste-free like every other crew: "size the
+ * scavenger fleet to work through the pile in effective ttl. It's a bit
+ * tricky since the pile degrades during that time so we can estimate as the
+ * halfway point" - a dropped pile decays ceil(amount/1000)/t while it
+ * drains, so the fleet plans against the HALFWAY amount over the crew's
+ * effective life. What decay takes anyway was never recoverable at this
+ * pace; a right-sized fleet cannot crowd standing production out of the
+ * parts ledger (the t72447104 displacement came from the old 150-tick
+ * burst target asking 20 e/t per pile). MAX_SCAVENGE_RATE stays as the
+ * absurdity cap. If a marginal remote still yields a route to a closer
+ * stock, that is the correct trade (owner: "not necessarily wrong - we
+ * sort of lose on the capex or the room reservation a bit").
  */
-export function scavengeRate(amount: number): number {
-  return Math.min(MAX_SCAVENGE_RATE, amount / SCAVENGE_DRAIN_TICKS);
+export function scavengeRate(amount: number, distance = 0): number {
+  return Math.min(MAX_SCAVENGE_RATE, amount / 2 / effectiveLife(distance));
 }
 
 /**
@@ -108,12 +118,12 @@ export function excludeControllerBucket(finds: EnergyFind[], controllerPos: Posi
 }
 
 /** Turn a detected stock into a transient PlannerSource (no miner; bounded drain rate). */
-export function stockToTransientSource(stock: GroundStock, nodeId: string): PlannerSource {
+export function stockToTransientSource(stock: GroundStock, nodeId: string, distance = 0): PlannerSource {
   return {
     id: stock.id,
     nodeId,
     pos: stock.pos,
-    rate: scavengeRate(stock.amount),
+    rate: scavengeRate(stock.amount, distance),
     maxMiners: 0,
     transient: true
   };

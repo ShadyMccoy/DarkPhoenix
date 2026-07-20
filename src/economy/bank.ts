@@ -42,7 +42,7 @@ import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
  */
 export const WARCHEST_TARGET = EXPANSION_CAPEX + 2 * EXPANSION_SAFETY_RESERVE;
 
-/** Target ticks to drain the spendable surplus - mirrors SCAVENGE_DRAIN_TICKS. */
+/** Target ticks to drain the spendable surplus (the bank does not decay, so it keeps its own burst pace - unlike scavengeRate's effective-ttl sizing). */
 export const SURPLUS_DRAIN_TICKS = 150;
 
 /**
