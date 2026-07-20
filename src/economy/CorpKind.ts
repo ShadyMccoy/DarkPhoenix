@@ -23,9 +23,55 @@ import { ColonyProblem } from "./CorpPlanner";
 // THE KIND CONTRACT
 // =============================================================================
 
+/**
+ * One spawnable role of a kind: how the executor stamps its creeps and how
+ * orphan rescue treats them. Declaring roles HERE (instead of the historical
+ * SpawningCorp workTypeMap + OrphanRescue ROLE_KIND mirrors) is what lets a
+ * new kind's creeps spawn, get counted, and be re-adopted by registration
+ * alone - see docs/specs/17-ontology-layers.md.
+ */
+export interface RoleSpec {
+  /** The CreepMemory.workType this role's creeps carry. */
+  workType: string;
+  /**
+   * Whether an orphaned creep of this role may be re-adopted into a same-room
+   * corp of this kind (the default rescue rule). Default true. Set false when
+   * ANOTHER kind owns the workType's rescue (e.g. construction's tankers are
+   * rescued by the tender kind, preserving the pre-spec-17 ROLE_KIND mapping).
+   */
+  readopt?: boolean;
+}
+
+/**
+ * Body-shape hints forwarded from a SpawnDemand to the kind's body builder.
+ * Opaque to the scheduler; the kind interprets what it declared.
+ */
+export interface BodyHints {
+  /** Hauler CARRY:MOVE ratio (transport roles). Same union as HaulerRatio. */
+  haulerRatio?: "2:1" | "1:1" | "1:2";
+  /** Free-form strategy (e.g. miner "linkFed", upgrader "containerFed"). */
+  bodyStrategy?: string;
+}
+
+/**
+ * The few cross-kind execution facts a kind's demand policy may read. Built by
+ * the director from the commission store each tick - execution-layer state is
+ * an INPUT to the pure policy, never something the policy digs out of Game.
+ */
+export interface DemandWorld {
+  /** True if the given REAL game source id has a producer creep in the field. */
+  isSourceMined(gameSourceId: string): boolean;
+}
+
 export interface CorpKind<C extends Corp = Corp> {
   /** Unique kind name; commission.kind values reference this. */
   kind: string;
+  /**
+   * The spawnable roles of this kind's creeps, keyed by SpawnDemand.role.
+   * Drives the executor's workType stamp, body dispatch, and orphan
+   * re-adoption. A kind that spawns nothing declares {}.
+   */
+  roles: { [role: string]: RoleSpec };
   /**
    * Execution order across kinds (lower runs earlier). Convention:
    * 0 spawning/infrastructure, 10 produce, 20 transport, 30 consume,
@@ -52,9 +98,34 @@ export interface CorpKind<C extends Corp = Corp> {
   deserializeCorp(data: SerializedCorp, commission: Commission | undefined): C;
   /**
    * SPAWN: build a body for one of this kind's roles within an energy budget.
-   * Replaces SpawningCorp's role-string switch as kinds port over.
+   * THE live body path (SpawningCorp dispatches here); the equivalence pin in
+   * test/unit/framework/bodyEquivalence.test.ts froze each kind against the
+   * pre-spec-17 role switch it replaced.
    */
-  body(role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[];
+  body(role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[];
+  /**
+   * DEMAND policy (pure): decorate this kind's spawn demands with funding-group
+   * semantics - which income UNIT they belong to (groupId) and whether that
+   * unit is already underway (started). Absent or null = pass through: the
+   * corp's own getSpawnDemand already said everything. `corpId` is the
+   * commission id (the store key); `world` carries the cross-kind facts the
+   * director assembled. See spec 17 and the pins in
+   * test/unit/execution/collectDemandsPolicy.test.ts.
+   */
+  demandGroup?(corp: C, corpId: string, world: DemandWorld): { groupId: string; started: boolean } | null;
+  /**
+   * PRODUCER declaration: the REAL game source id this corp produces at, if
+   * any. Feeds DemandWorld.isSourceMined - a transport kind's "my source has a
+   * miner" check works for ANY registered producer kind, not just harvest.
+   */
+  sourceOf?(corp: C): string | null;
+  /**
+   * ORPHAN re-adoption override: return the id of one of this kind's corps
+   * that legitimately owns this creep's work, or null for "none - recycle".
+   * Absent = the default rule (any same-room corp of this kind whose declared
+   * role matches the creep's workType, roles[].readopt permitting).
+   */
+  claimsOrphan?(creep: Creep, corps: { [corpId: string]: C }): string | null;
 }
 
 // =============================================================================

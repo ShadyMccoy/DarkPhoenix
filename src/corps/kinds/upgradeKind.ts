@@ -16,11 +16,11 @@
  */
 
 import { Commission } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { BodyHints, CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildUpgraderBody } from "../../spawn/BodyBuilder";
+import { UpgraderStrategy, buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { SerializedUpgradingCorp, UpgradingCorp } from "../UpgradingCorp";
 
@@ -54,6 +54,7 @@ function legacyNodeId(roomName: string): string {
 export const upgradeKind: CorpKind<UpgradingCorp> = {
   kind: "upgrade",
   runOrder: 30, // consume, after produce (10) and transport (20)
+  roles: { upgrader: { workType: "upgrade" } },
 
   // Solver-backed: planColony emits upgrade commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {
@@ -99,8 +100,9 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // bodyParam caps the WORK parts; the builder sizes to the energy budget.
-    return buildUpgraderBody(energyBudget, bodyParam ?? 10).body;
+  body(_role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
+    // bodyParam caps the WORK parts (default 5, the live executor's cap); the
+    // strategy hint picks the mobile vs container-fed supply shape.
+    return buildUpgraderBody(energyBudget, bodyParam ?? 5, hints?.bodyStrategy as UpgraderStrategy | undefined).body;
   }
 };

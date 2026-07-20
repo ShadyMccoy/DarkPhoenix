@@ -25,6 +25,7 @@ export interface CoreBusterAssignment {
 
 export const coreBusterKind: CorpKind<CoreBusterCorp> = {
   kind: "coreBuster",
+  roles: { buster: { workType: "buster" }, striker: { workType: "strike" } },
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
@@ -75,5 +76,12 @@ export const coreBusterKind: CorpKind<CoreBusterCorp> = {
       return buildReserverBody(energyBudget, bodyParam ?? 2).body;
     }
     return buildGuardBody(energyBudget, bodyParam ?? 10).body;
+  },
+
+  // The kill+strip mission RESTORES zeroed income (spec 13 ph4): same
+  // started-income-unit treatment as the guard, never blocking (an occupation
+  // is a long siege, not a kill window).
+  demandGroup(corp: CoreBusterCorp) {
+    return { groupId: corp.id, started: true };
   }
 };

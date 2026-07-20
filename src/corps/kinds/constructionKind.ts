@@ -25,7 +25,7 @@ import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
 import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildUpgraderBody } from "../../spawn/BodyBuilder";
+import { buildTankerBody, buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
 import { hostileRooms } from "../../utils/RoomDiscovery";
@@ -82,6 +82,8 @@ function constructionAllocation(k: CommissionedSink): SinkAllocation {
 
 export const constructionKind: CorpKind<ConstructionCorp> = {
   kind: "construction",
+  // Tankers are rescued by the tender kind (pre-spec-17 ROLE_KIND mapping).
+  roles: { builder: { workType: "build" }, tanker: { workType: "tank", readopt: false } },
   runOrder: 30, // consume tier, alongside upgrade
 
   /**
@@ -203,8 +205,11 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // Builders are WORK creeps; bodyParam caps the WORK parts.
-    return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
+  body(role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+    // The corp fields two shapes: WORK builders (the live executor pins the
+    // WORK cap at 2 - upsizing is the ConstructionCorp's own fleet logic via
+    // bodyParam-less demands) and CARRY tankers ferrying build energy.
+    if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+    return buildUpgraderBody(energyBudget, 2).body;
   }
 };

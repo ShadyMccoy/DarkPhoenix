@@ -25,6 +25,7 @@ export interface ClaimAssignment {
 
 export const claimKind: CorpKind<ClaimCorp> = {
   kind: "claim",
+  roles: { claimer: { workType: "claim" } },
   runOrder: 45,
 
   propose(problem: ColonyProblem): Commission[] {

@@ -42,6 +42,7 @@ export function setSpawningCorpResolver(fn: (spawnId: string) => SpawningCorp | 
 
 export const scoutKind: CorpKind<ScoutCorp> = {
   kind: "scout",
+  roles: { scout: { workType: "scout" } },
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {

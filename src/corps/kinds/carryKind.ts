@@ -13,11 +13,11 @@
  */
 
 import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedHauler } from "../../economy/CorpPlanner";
 import { haulerOverhead } from "../../economy/primitives";
 import { HaulerAssignment, createEdgeId } from "../../flow/FlowTypes";
-import { buildTankerBody } from "../../spawn/BodyBuilder";
+import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { CarryCorp, SerializedCarryCorp } from "../CarryCorp";
 
@@ -56,6 +56,7 @@ function legacyNodeId(roomName: string, sourceId: string): string {
 export const carryKind: CorpKind<CarryCorp> = {
   kind: "carry",
   runOrder: 20, // transport, after produce (10), before consume (30)
+  roles: { hauler: { workType: "haul" } },
 
   // Solver-backed: planColony emits carry commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {
@@ -100,10 +101,32 @@ export const carryKind: CorpKind<CarryCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // Placeholder CARRY+MOVE body sized by bodyParam carry parts. Real per-route
-    // hauler sizing (rate x distance) stays in CarryCorp.getSpawnDemand until the
-    // rung-5 cutover routes spawning through the kind.
-    return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+  body(_role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
+    // bodyParam is the desired CARRY parts (sized by CarryCorp.getSpawnDemand
+    // from rate x distance); the ratio hint packs road bodies at 2 CARRY : 1 MOVE.
+    return buildRatioHaulerBody(bodyParam, energyBudget, hints?.haulerRatio ?? "1:1").body;
+  },
+
+  // A hauler funds inside its source's income unit. The unit key is the real
+  // game source id (flow "source-" prefix stripped), taken from the first
+  // route - matching harvest's key so the miner and its haulers couple - with
+  // the commission id as the routeless fallback. A scavenge- stock's energy is
+  // already on the ground (no miner to wait for), so its unit is always
+  // "started"; otherwise the unit starts when the source's producer fields.
+  demandGroup(corp: CarryCorp, corpId: string, world: DemandWorld) {
+    const fromId = corp.getHaulerAssignments()[0]?.fromId;
+    const sourceId = (fromId ?? corpId.replace(/^carry-/, "")).replace("source-", "");
+    const started = sourceId.startsWith("scavenge-") || world.isSourceMined(sourceId);
+    return { groupId: sourceId, started };
+  },
+
+  // A hauler belongs to the carry corp that routes its assigned source.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: CarryCorp }): string | null {
+    const sourceId = creep.memory.assignedSourceId;
+    if (!sourceId) return null;
+    for (const id in corps) {
+      if (corps[id].getAssignmentForSource(sourceId)) return corps[id].id;
+    }
+    return null;
   }
 };
