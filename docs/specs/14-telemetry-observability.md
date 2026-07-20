@@ -168,6 +168,32 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cron cycle, +356t) — FEEDER FIX VERIFIED: relay 7 -> 115, stock refilled; burn ramp in flight
+
+Verify-first on the feeder surplus deploy (~t72455600, capture t72455711):
+every immediate prediction hit. Feeder stamp: relayRate 7 -> 115 (planFlow
+still 2 - the clamp correctly ignored in surplus), neededCarry 39,
+wantedFeeders 2 with the second shuttle DEMANDED (gate "demand").
+Controller stock 60 -> 2000 (P7) - the buffer refilled within ~110 ticks
+of the deploy. The demand-verdict instrument works and answered last
+cycle's mystery by dissolving it: upgrader stamp reads demand "demanded"
+/ demandMin 2300 / staffing 1, and the receipts show upgrader@1750 bought
+t72455628 (the old 20W died end-of-life mid-window; the no-demand read at
+t72455355 was almost certainly the replacement-lead staffing transient -
+if it re-sticks the verdict now names the exit).
+
+Burn: 5.0/t window average - a mid-ramp read (starved early window, old
+upgrader died, replacement landed t72455628). The 18+ prediction and the
+BANK slope flip (13.4/t, barely bent from 14.0) carry to the next window
+with the fleet growing toward targetCount 6. Income 70/70 routed (1.00x),
+P1 stable, E2 8 parts, fleet 28 -> 33.
+
+No new fix this cycle: E4's mechanism is the in-flight ramp; a deploy now
+would global-reset it mid-measurement. Watch: 3 reserver buys in 250t
+(1/83t vs 1/150t sustained - reading as bank catch-up, P5/P6 ok); P-CPU
+instrument (task #12) queued for a post-verification cycle. Cycle
+verdict: verified (partial - burn ramp pending next capture).
+
 ### 2026-07-20 (cron cycle, +6859t window) — GATE RETIREMENT VERIFIED LIVE; the feeder was the burn bottleneck
 
 VERIFY-FIRST (t72455355 vs t72448496, the loop's restart-downtime window):
