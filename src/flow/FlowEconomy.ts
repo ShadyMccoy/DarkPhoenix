@@ -54,13 +54,18 @@ export class FlowEconomy {
     const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
     // The previous solve's realized bank draw (consumer allocations drawn
     // from the hub) - the feeder-pricing signal that breaks the starvation
-    // loop (see buildColonyProblem). Undefined on the first solve.
-    const prevBankDraw = this.solution
-      ? this.solution.sinkAllocations
-          .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
-          .reduce((sum, a) => sum + a.allocated, 0)
-      : undefined;
+    // loop (see buildColonyProblem). PERSISTED in Memory, not on `this`:
+    // main.ts replaces the FlowEconomy instance on every graph rebuild, so
+    // instance-held history died before it was ever read (prod t72447816:
+    // infra pinned at 0.1874 across every post-deploy solve - the fix was
+    // deployed and dormant). Memory survives rebuilds and global resets.
+    const prevBankDraw = typeof Memory !== "undefined" ? Memory.lastBankDraw : undefined;
     const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw);
+    if (typeof Memory !== "undefined") {
+      Memory.lastBankDraw = result.solution.sinkAllocations
+        .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
+        .reduce((sum, a) => sum + a.allocated, 0);
+    }
     this.solution = result.solution;
     this.commissions = result.commissions;
     if (result.adopted.length > 0) {

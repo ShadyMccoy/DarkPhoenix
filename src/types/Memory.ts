@@ -285,6 +285,15 @@ declare global {
     remotesUnlockedUntil?: number;
 
     /**
+     * The last solve's realized bank draw (controller + construction
+     * allocations) - the feeder-pricing signal (flowAdapter, the starvation
+     * loop). In Memory because the FlowEconomy instance is replaced on every
+     * graph rebuild: instance-held history never survived to a second solve
+     * (prod t72447816).
+     */
+    lastBankDraw?: number;
+
+    /**
      * The home-first gate's decision record (IncrementalAnalysis.
      * homeEconomySaturated, spec 14 - no invisible decisions): what the gate
      * read the last tick it evaluated. `missing` names each home source the
