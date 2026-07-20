@@ -28,6 +28,21 @@ The cost model it targets - Screeps charges two different things:
 — the doctrine attacks the third term to ~0 and shrinks the second's
 multiplier.
 
+## Time-multiplexing: saturate the intent stream, not the site
+
+Owner's example: "a single large creep could mine 2-3 sources in an SK
+room by traveling around. So intents-wise it's equal to 4.5 miners." The
+math: SK sources are 4000-capacity (13.3 e/t); a ~25-WORK miner drains one
+in ~80t and rotates three on the ~300t regen cycle -> ~40 e/t on ONE
+intent stream, vs ~8.9 e/t for a normal-room miner's stream: 4.5x output
+per intent. The intents term is per-CREEP, so when a site's supply rate is
+below one body's work rate, dedicating a creep to it WASTES intent budget
+- time-multiplex a large body across sites until the body is the
+bottleneck. The cost is walking (dead time priced in effectiveLife) - a
+lifetime-for-CPU trade, both already metered currencies. Generalizes to
+rotating repair details and multi-route haulers; pairs with keeper
+clearing (spec 22's SK credits engine).
+
 ## Why this colony caches unusually well
 
 Node stability (owner: "nodes should be stable because the world terrain
