@@ -189,6 +189,13 @@ export interface CoreTelemetry {
      */
     unattributed?: { name: string; corpId: string | null; workType?: string; ttl?: number }[];
     /**
+     * Corps whose id-attributed creep count differs from their own
+     * getCreepCount - the counting-lens mismatch that explains untracked>0
+     * with an empty unattributed roster. Rows only where the two differ,
+     * capped at 8.
+     */
+    countMismatch?: { corpId: string; claimed: number; counted: number }[];
+    /**
      * Creep counts keyed by commission KIND (harvest/carry/...), derived from
      * the census generically: a registered kind whose corps expose
      * getCreepCount is counted by construction (the hand-maintained bucket
@@ -649,6 +656,25 @@ export class Telemetry {
       });
     }
     if (unattributed.length > 0) creeps.unattributed = unattributed;
+    // The two lenses disagreeing NAMES the leak class (t72445817: untracked 3,
+    // unattributed EMPTY - so corps exist that don't COUNT creeps they own,
+    // the newborn/recycling counting-lens class, not orphans). This export
+    // names the corp: id-attributed creep count vs the corp's own
+    // getCreepCount, rows only where they differ.
+    const claimedByCorp = new Map<string, number>();
+    for (const name in Game.creeps) {
+      const cid = ((Game.creeps[name].memory ?? {}) as { corpId?: string }).corpId;
+      if (cid) claimedByCorp.set(cid, (claimedByCorp.get(cid) ?? 0) + 1);
+    }
+    const countMismatch: NonNullable<CoreTelemetry["creeps"]["countMismatch"]> = [];
+    for (const { corp } of census) {
+      const c = corp as unknown as { id?: string; getCreepCount?: () => number };
+      if (!c.id || typeof c.getCreepCount !== "function") continue;
+      const claimed = claimedByCorp.get(c.id) ?? 0;
+      const counted = c.getCreepCount();
+      if (claimed !== counted && countMismatch.length < 8) countMismatch.push({ corpId: c.id, claimed, counted });
+    }
+    if (countMismatch.length > 0) creeps.countMismatch = countMismatch;
 
     // Get colony stats
     const stats = colony?.getStats() || {

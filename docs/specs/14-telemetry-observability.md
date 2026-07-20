@@ -168,6 +168,37 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20 (cycle 2, cron loop) — production-first parts ledger: VERIFIED; X3 narrowed to a counting lens
+
+Cycle t72445337: the fresh solve after the absorb-cap deploy exposed the
+next layer — the sink fill spent ONE parts ledger in pure value order, so
+the mined-income deposit routes (storage hub, value 1) went LAST: consumer
+routes + the upgrade WORK charge drained partsLeft to 0.0 and all SEVEN
+funded sources got zero haul routes (P9 0.0x, 70 e/t rotting, 78 body
+parts stranded) while the plan read feasible (P4 0.83x) precisely BECAUSE
+the routes were missing. Energy pools were never in conflict (consumers
+draw the bank, deposits fill the hub — disjoint by role); only PARTS were.
+Fix: spawn overhead first, then deposits, then consumers burn the residual;
+plus FUNDED⇒ROUTED (a source whose deposit gets zero parts demotes to the
+new "unrouted" verdict and fields no miner). Pinned red-first (stash-
+verified); trio green; deployed.
+
+**Verified t72445817 (+480t):** P9 0.0 → 0.88x (6 routes standing, 52.6/60
+e/t moving), the demotion live and honest (4adbcedc funded→unrouted — the
+tail the spawn genuinely cannot route), E2 78 → 18 parts (haulers
+re-attached; the remaining 3 are the legacy scavenge-route corps), E4 slope
+−19.8/t sustained (storage 228.7k → 213.6k today), P7 actual 19.5 e/t
+(2.0 at day start), spawn 0.95 util with zero runt receipts. remoteGate
+stamped live: {saturated: true, until: 72446299} — the durable receipt +
+decision record close the warmup remote-drop class end-to-end. Verdict:
+**fixed, verified**.
+
+X3 (3 untracked) narrowed by instrument: the unattributed roster came back
+EMPTY with untracked=3 — every creep's corpId resolves, so corps exist
+that do not COUNT creeps they own (the newborn/recycling counting-lens
+class, not orphans). Next instrument (countMismatch: claimed-vs-counted
+per corp) ships with the lifetime-sizing deploy and names the kind.
+
 ### 2026-07-20 — E4 idle capital: the construction absorb cap; the warmup remote-drop NAMED
 
 Cycle t72444684 (ledger TOP LINE E4): storage 228,749 = 8.3x the 27,650
