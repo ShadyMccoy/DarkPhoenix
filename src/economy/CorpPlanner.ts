@@ -497,9 +497,17 @@ function routeToSinks(
       .filter(id => (sink.kind === "storage" ? isDeposit(id) : !isDeposit(id)))
       .map(id => {
         const s = sourceById.get(id)!;
-        return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
+        // SUSTAINED INCOME BEFORE ONE-OFF RECOVERY (prod t72447104): the
+        // deposit fill ordered nearest-first with no class distinction, so
+        // the spill-recovery scavenge stocks (16k of backlog, transient by
+        // definition) out-competed standing MINED routes for the parts
+        // ledger - funded fell 60 -> 40 e/t and three sources demoted to
+        // 'unrouted' the solve after remote scavenge shipped. Mined routes
+        // are the colony's sustained income; transients are one-off and
+        // self-draining. Class first, nearest within class.
+        return { id, transient: s.transient === true ? 1 : 0, d: dist(s.haulPos ?? s.pos, sink.pos) };
       })
-      .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
+      .sort((a, b) => a.transient - b.transient || a.d - b.d || (a.id < b.id ? -1 : 1));
 
     // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
     // a controller, builders at construction (5x cheaper per e/t - BUILD is

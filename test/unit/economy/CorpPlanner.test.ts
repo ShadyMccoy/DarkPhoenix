@@ -492,6 +492,39 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("sustained income outranks one-off recovery (prod t72447104)", () => {
+    it("a big NEAR scavenge stock never displaces a mined route in the parts ledger", () => {
+      // A 16k-backlog scavenge stock sits nearer the hub than the mined
+      // source; the ledger affords only one deposit route. Without the
+      // class ordering, nearest-first routed the transient and DEMOTED the
+      // mined source (funded 60->40 live). Mined must route first; the
+      // recovery gets the residual parts.
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [
+            source("mined", 30, 10),
+            { ...stock("scavenge-big", 5, 40), transient: true },
+            stock("bank-home", 2, 50)
+          ],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 1),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          infraPartsPerTick: 0.31
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "the mined source keeps its miner").to.deep.equal(["mined"]);
+      const minedRoute = plan.haulers.find(h => h.sourceId === "mined" && h.sinkId === "store");
+      expect(minedRoute, "mined deposit routes first").to.not.equal(undefined);
+      expect(minedRoute!.flowRate, "at its full rate").to.be.closeTo(10, 1e-6);
+      expect(
+        plan.sourceVerdicts.find(v => v.sourceId === "mined")!.verdict,
+        "never demoted by a transient"
+      ).to.equal("funded");
+    });
+  });
+
   describe("storage-full defund (owner 2026-07-19: top out the storage -> defund the WHOLE corp)", () => {
     // The all-or-nothing rule. A remote source is fully funded (miner + hauler
     // + reserver + container) or fully defunded - never a miner mining into a
