@@ -154,6 +154,53 @@ describe("economy/roadEconomics", () => {
  * source to 10 e/t - remote roads never got built. The verdict now records
  * its judged flow and stands only while live flow stays under 1.5x it.
  */
+/**
+ * Hauler ratio optimality (owner 2026-07-20: "another axis to consider is
+ * slower haulers ... on the way out they still move full speed with empty
+ * carry"). The empty leg IS free at any ratio - but the LOADED leg is what
+ * multiplies the fleet: slowing it forces more CARRY in flight, and that
+ * outweighs the MOVE parts saved. Total standing parts to sustain flow F
+ * over one-way d at CARRY:MOVE ratio r on terrain cost t:
+ *   roundTrip(r,t) = d*(1 + loadedTicksPerTile(t, r)) + 2
+ *   parts(r) = F * roundTrip / 50 * (1 + 1/r)
+ * The pins below are the closed-form verdict: 1:1 is optimal on unpaved
+ * plain (2:1 costs +12.5% parts AND +12.5% energy), and 2:1 on ROAD is the
+ * unique optimum (full-speed loaded at 1.5 parts/CARRY). Cheaper haulers
+ * come from pavement, not from slowing down.
+ */
+describe("economy/roadEconomics - hauler ratio optimality (slower haulers don't pay)", () => {
+  const d = 40; // one-way tiles, long enough that the +2 load ticks are noise
+  const F = 10; // e/t
+  const partsFor = (ratio: number, terrainCost: number): number => {
+    const rt = d * (1 + loadedTicksPerTile(terrainCost, ratio)) + 2;
+    return ((F * rt) / 50) * (1 + 1 / ratio);
+  };
+
+  it("on unpaved PLAIN, 1:1 beats every slower ratio (the loaded crawl costs more CARRY than MOVE saved)", () => {
+    const plain = 2;
+    expect(partsFor(2, plain) / partsFor(1, plain), "2:1 is ~12.5% MORE parts").to.be.closeTo(1.125, 0.01);
+    expect(partsFor(3, plain), "3:1 worse still").to.be.greaterThan(partsFor(2, plain));
+    expect(partsFor(0.5, plain), "over-moved (1C2M) also loses").to.be.greaterThan(partsFor(1, plain));
+  });
+
+  it("on ROAD, 2:1 is the unique optimum: same round trip as 1:1 at 25% fewer parts", () => {
+    const road = 1;
+    expect(partsFor(2, road) / partsFor(1, road)).to.be.closeTo(0.75, 0.01);
+    expect(partsFor(4, road), "4:1 crawls loaded road - worse").to.be.greaterThan(partsFor(2, road));
+  });
+
+  it("energy cost agrees with parts: slower unpaved haulers are ALSO more expensive to spawn", () => {
+    // per-CARRY body cost: 1:1 = 100 (C+M), 2:1 = 75 (C+M/2); in-flight CARRY
+    // scales with the round trip, so cost ratio = (75 * 3d) / (100 * 2d) = 1.125
+    const cost = (ratio: number, terrainCost: number): number => {
+      const rt = d * (1 + loadedTicksPerTile(terrainCost, ratio)) + 2;
+      return ((F * rt) / 50) * (50 + 50 / ratio);
+    };
+    expect(cost(2, 2) / cost(1, 2)).to.be.closeTo(1.125, 0.01);
+    expect(cost(2, 1) / cost(1, 1)).to.be.closeTo(0.75, 0.01);
+  });
+});
+
 describe("economy/roadEconomics - declinedVerdictStands (re-judge on flow rise)", () => {
   it("stands at the judged flow and under modest jitter", () => {
     expect(declinedVerdictStands(10, 10)).to.equal(true);

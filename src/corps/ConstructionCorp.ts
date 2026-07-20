@@ -128,6 +128,9 @@ export class ConstructionCorp extends Corp {
 
   /** Last tick we attempted to place extensions */
   private lastPlacementAttempt = 0;
+  /** Cooldown clock for the surplus road-scan path (not persisted - a reset
+   * just re-arms the scan a cooldown early, which is harmless). */
+  private lastRoadAttempt = 0;
   private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
 
   /** Target number of builders (computed during planning) */
@@ -332,6 +335,21 @@ export class ConstructionCorp extends Corp {
       // build-work budget. So place whenever RCL still wants the structure,
       // without an independent internal-ledger veto.
       this.tryPlaceNextSite(room, tick, rcl);
+    } else if (
+      // ROADS ROLLOUT (owner 2026-07-20: "finish out the roads rollout ...
+      // to the remote sources"): paving is a surplus INVESTMENT, not a
+      // capacity structure - it no longer waits for activeSites===0 or the
+      // capacity rungs above it in the ladder. With the warchest in surplus
+      // the road scan runs on its own cooldown even while other projects
+      // build; judged routes drop their whole tile set at once and the
+      // sum-of-projects crew sizing absorbs them like any other work.
+      room.storage?.my &&
+      spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0 &&
+      tick - this.lastRoadAttempt >= PLACEMENT_COOLDOWN &&
+      this.wantsRoadWork(room)
+    ) {
+      this.lastRoadAttempt = tick;
+      this.tryPlaceRoadRoute(room);
     }
 
     // Reserve a whole source for the builder while building, so its miner feeds
@@ -767,11 +785,30 @@ export class ConstructionCorp extends Corp {
     //    wanted container/storage with extensions already maxed, attempting an
     //    over-cap extension would fail every cooldown and starve the later steps.
     if (builtExtensions < (EXTENSION_LIMITS[rcl] || 0)) {
-      const ext = this.findGridPosition(room);
-      if (ext) {
+      // BATCH the remaining set (owner 2026-07-20: "having the set of all
+      // the extensions at once would factor into the plan just by
+      // increasing the size of the energy commitment ... which ups the
+      // limit on the builder fleet size"): the sum-of-projects lens can
+      // only amortize a crew against work standing as SITES, and
+      // one-at-a-time placement hid most of the build-out (3k visible of
+      // 9k). Same-tick placements are invisible to lookFor until next
+      // tick, so an exclusion set threads our own placements through the
+      // position scan.
+      const standingExtSites = room
+        .find(FIND_MY_CONSTRUCTION_SITES)
+        .filter(s => s.structureType === STRUCTURE_EXTENSION).length;
+      let remaining = (EXTENSION_LIMITS[rcl] || 0) - builtExtensions - standingExtSites;
+      const placedHere = new Set<string>();
+      let placedAny = false;
+      while (remaining > 0) {
+        const ext = this.findGridPosition(room, placedHere);
+        if (!ext) break;
         this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION);
-        return;
+        placedHere.add(`${ext.x},${ext.y}`);
+        remaining -= 1;
+        placedAny = true;
       }
+      if (placedAny) return;
     }
 
     // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
@@ -1435,12 +1472,12 @@ export class ConstructionCorp extends Corp {
    * Find a position for extension using a grid pattern near sources.
    * Uses checkerboard pattern (every other tile) for walkability.
    */
-  private findGridPosition(room: Room): { x: number; y: number } | null {
+  private findGridPosition(room: Room, exclude?: Set<string>): { x: number; y: number } | null {
     const terrain = room.getTerrain();
     const candidates: { x: number; y: number; score: number }[] = [];
 
     // Build set of positions to avoid (occupied or reserved)
-    const avoidPositions = new Set<string>();
+    const avoidPositions = new Set<string>(exclude ?? []);
 
     // Avoid spawn and adjacent tiles
     const spawns = room.find(FIND_MY_SPAWNS);
