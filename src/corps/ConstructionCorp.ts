@@ -21,7 +21,7 @@ import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, coreDepot, coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
@@ -1506,8 +1506,14 @@ export class ConstructionCorp extends Corp {
     // range-2 tile by the SAME park-ring metric the input election uses;
     // once built, controllerInputSpot prefers it and the container decays
     // via the displaced rule.
+    // SAME-LENS discipline (live deadlock t72462700-t72463749, three
+    // captures, zero sites): linkNear(ctrl, 3) counted ANY link - the CORE
+    // included when the storage parks near the controller - while the
+    // controllerLink lens excludes the core. Ladder said "served", lens said
+    // "not link-fed", nobody placed. The ladder asks the lens; only a
+    // pending link SITE in the controller ring also counts as served.
     const ctrl = room.controller;
-    if (ctrl?.my && !linkNear(ctrl.pos, 3)) {
+    if (ctrl?.my && !controllerLink(room) && !sites.some(s => s.pos.inRangeTo(ctrl.pos, 3))) {
       const tile = this.bestControllerLinkTile(room, ctrl);
       if (tile) return tile;
     }

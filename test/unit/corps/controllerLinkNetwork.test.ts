@@ -107,3 +107,64 @@ describe("controller link network (spec 24 rung 3)", () => {
     expect(walked - linked, "the whole saving is the feeder leg").to.be.greaterThan(0.02);
   });
 });
+
+describe("findMissingLink's controller step reads the SHARED lens (the core-adjacency deadlock)", () => {
+  beforeEach(() => {
+    (global as any).FIND_MY_STRUCTURES = 108;
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
+    (global as any).STRUCTURE_LINK = "link";
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).TERRAIN_MASK_WALL = 1;
+  });
+
+  it("places the controller link even when the CORE link sits within 3 of the controller", () => {
+    // Live deadlock (t72462700-t72463749, three captures, zero sites): the
+    // ladder's linkNear(ctrl,3) counted ANY link - the core included - while
+    // the controllerLink lens excludes the core. Ladder said "served", lens
+    // said "not link-fed", nobody placed. Same-lens discipline: the ladder
+    // must ask controllerLink(), not proximity-to-anything.
+    const { ConstructionCorp } = require("../../../src/corps/ConstructionCorp");
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    const core = {
+      id: "core",
+      structureType: "link",
+      pos: { x: 27, y: 31, roomName: "W1N1", inRangeTo: (p: any, r: number) => Math.max(Math.abs(27 - p.x), Math.abs(31 - p.y)) <= r }
+    };
+    const ctrlPos = {
+      x: 25,
+      y: 32,
+      roomName: "W1N1",
+      findInRange: (_t: number, range: number, o: any) => {
+        const list = [core].filter(l => Math.max(Math.abs(l.pos.x - 25), Math.abs(l.pos.y - 32)) <= range);
+        return o?.filter ? list.filter(o.filter) : list;
+      }
+    };
+    const room: any = {
+      name: "W1N1",
+      storage: {
+        my: true,
+        pos: {
+          x: 26,
+          y: 31,
+          roomName: "W1N1",
+          findInRange: (_t: number, range: number, o?: any) => {
+            const list = [core].filter(l => Math.max(Math.abs(l.pos.x - 26), Math.abs(l.pos.y - 31)) <= range);
+            return o?.filter ? list.filter(o.filter) : list;
+          },
+          inRangeTo: () => false
+        }
+      },
+      controller: { my: true, pos: ctrlPos },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+      find: (t: number) => (t === 108 ? [core] : t === 114 ? [] : [])
+    };
+    room.controller.room = room;
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    const tile = (corp as any).findMissingLink(room, 6);
+    expect(tile, "the controller link must still be wanted").to.not.equal(null);
+    expect(Math.max(Math.abs(tile.x - 25), Math.abs(tile.y - 32)), "placed in the controller's range-2 ring").to.be.at.most(2);
+  });
+});
