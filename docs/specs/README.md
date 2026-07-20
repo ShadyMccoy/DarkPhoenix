@@ -30,7 +30,7 @@ Conventions used by every spec:
 | 00 | [Corp Framework](00-corp-framework.md) | **COMPLETE** — all kinds run through CommissionHost; polish notes remain in-spec | landed |
 | 01 | [Early-game progression](01-rcl5-cold-start-stall.md) | mostly closed (cold-start pipeline pinned by resilience cells); remaining question: live RCL2-3 throughput | P1 |
 | 02 | [Link logistics](02-link-logistics.md) | shipped in altered form: LinkRunner (free function) + planner haulPos pricing; the corp-kind redesign remains open | P2 |
-| 03 | [Storage draw-down](03-storage-drawdown.md) | deposit half + controller feeder relay landed; planner-level draw-down (bank as supply) not started | P1 |
+| 03 | [Storage draw-down](03-storage-drawdown.md) | LANDED — deposit half, controller feeder relay, and planner-level bank-as-supply (transient bank sources + hub-and-spoke) all live | P1 |
 | 04 | [Retire the chain/market layer](04-retire-chain-layer.md) | **DONE 2026-07-12** — `economy/siteValue` re-bases node/spawn valuation on planColony; ChainEvaluator/ColonyEconomy deleted | landed |
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |
 | 06 | [Expansion: claim the next room](06-expansion.md) | **LANDED 2026-07-10** — capital-gated claiming + sink-based founding, exp-t5 cells green | landed |
@@ -44,6 +44,7 @@ Conventions used by every spec:
 | 14 | [Telemetry observability: answer the basic questions](14-telemetry-observability.md) | ALL PHASES implemented 2026-07-18 (bodies #111/#113, ledger+sizing #114, gate stamps, spawn meter + NOW-plan mirror core-v5); found+fixed the live reserver purchase loop | P1 |
 | 15 | [Waste ledger: make every leak a measured number](15-waste-ledger.md) | proposed 2026-07-18 — owner directive: identify/measure/eliminate CPU, energy, spawn-time waste in planning & execution; phase 1 = audit-side ledger over existing captures | P0 |
 | 16 | [Construction as projects](16-construction-projects.md) | proposed 2026-07-19 (owner design) — a builder corp is a spawn + a finite-cost project list; cross-room remote-source trunk paving + sum-of-projects sizing landed; founding-as-project forward-looking | P1 |
+| 17 | [Ontology layers](17-ontology-layers.md) | IN PROGRESS 2026-07-20 — P0-P2 + enforcement landed (registration-only kinds, prescriptive NOW plan, purity ratchet); P3 (propose purity/host problem), P4 (envelope honesty), P5 (dead code) open | P0 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot

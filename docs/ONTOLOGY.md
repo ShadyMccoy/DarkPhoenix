@@ -1,15 +1,37 @@
 # Colony Economy Ontology
 
-This document defines the concrete model the colony's economy is built on, names
-the overlapping/shadow systems being collapsed into it, and describes the
-GOAP-style planner whose operators are corps.
+The domain model the bot is built on: the entities, the economic primitives,
+the corp-as-operator abstraction, the three architectural layers and their
+boundaries, and the contract a new corp kind signs.
 
-It is the reference the code is being shaped to match. When code and this
-document disagree, that is a bug in one of them — fix it, don't let them drift.
+It is the reference the code is shaped to match. When code and this document
+disagree, that is a bug in one of them — fix it, don't let them drift.
+Mechanical enforcement lives in the test suite (see §8); the live pipeline
+walkthrough is [PIPELINE.md](./PIPELINE.md); the work items are
+[specs/](./specs/README.md).
 
 ---
 
-## 1. Entities (the world)
+## 1. The three layers
+
+| Layer | Contents | May read | Must never |
+|---|---|---|---|
+| **PLAN** (pure) | `economy/` core — CorpPlanner, primitives, Commission, CorpKind (contract+registry+dispatch), commissionPlan, siteValue, bank, roadEconomics; `spawn/SpawnScheduler` (the NOW planner); every kind's `propose()` | its arguments: `ColonyProblem`, draft commissions, demands+context | `Game`, `Memory`, `execution/`, live creep positions or room vision |
+| **EXECUTE** (dumb) | `corps/`, `corps/kinds/` (materialize/run/body), `execution/` (CommissionHost, SpawnDirector, OrphanRescue, runners) | Game, plus its commission's assignment — "follow your assignment" | invent policy the plan owns; read another kind's naming conventions instead of a shared lens |
+| **AUDIT** (passive, pullable) | variance meters (`Memory.corpVariance`), telemetry segments, the spawn agenda + receipts (`Memory.spawnAgenda`), BlackBox flight recorder | everything, generically via the census | feed back into decisions; enumerate kinds by hand |
+
+Two world-adapter modules are the sanctioned PLAN↔world boundary:
+`economy/flowAdapter.ts` and `economy/scavenge.ts` read the live world (behind
+`typeof Game` guards) to BUILD the pure `ColonyProblem`. Everything else in
+`economy/` is Game-free.
+
+The audit layer is deliberately **passive but pullable**: nothing in the bot
+reads audit output to make a decision (planner inputs come from the world),
+but every plan-vs-actual fact is published uniformly so it can be pulled
+through the telemetry API and used as feedback by the operator — that
+pullability is the audit layer's acceptance bar.
+
+## 2. Entities (the world)
 
 | Entity | What it is | Key facts |
 |--------|-----------|-----------|
@@ -22,109 +44,182 @@ document disagree, that is a bug in one of them — fix it, don't let them drift
 These are *physical givens*. The planner does not change them; it decides what
 to build on top of them.
 
-## 2. Economic primitives (`src/economy/primitives.ts`)
+## 3. Economic primitives (`src/economy/primitives.ts`)
 
-One definition of every per-tick economic quantity. Semantics match the live
-path: a creep posted `distance` tiles away loses ~`distance` ticks walking out,
-so its cost amortises over `effectiveLife(distance) = CREEP_LIFETIME - distance`.
+One definition of every per-tick economic quantity — no module reimplements
+them (kind conformance enforces the envelope to 1e-9). Semantics match the
+live path: a creep posted `distance` tiles away loses ~`distance` ticks
+walking out, so its cost amortises over `effectiveLife(distance)`.
+
+The founding set:
 
 - `roundTripTicks(d) = 2d + 2`
 - `carryPartsFor(rate, d) = rate · roundTrip / 50`
 - `minerOverhead(d) = MINER_COST / life(d)`
 - `haulerOverhead(carry, d) = carry · (CARRY+MOVE) / life(d)`
-- `netEnergy(rate, d) = rate − minerOverhead − haulerOverhead` — the profitability of a source
-- `spawnPartsFor(rate, d) = (MINER_PARTS + 2·carry) / life(d)` — build-time the source's miner+haulers cost
-- `miningBudgetPerSpawn() = SPAWN_PARTS_PER_TICK · MINING_BUDGET_FRACTION` — build-time a spawn lends to income
+- `netEnergy(rate, d) = rate − minerOverhead − haulerOverhead` — source profitability
+- `spawnPartsFor(rate, d)` — build-time a source's miner+haulers cost
+- `miningBudgetPerSpawn()` — build-time a spawn lends to income
 
-Everything economic derives from these. No module reimplements them.
+Later families (same rule — one home):
 
-## 3. The Corp (the building block / GOAP operator)
+- **Delivery contract:** `deliveryLeadTime`, `staffsPost(ttl, parts, travel)` —
+  the ONE staffing lens both demand and count sides must share (trap list).
+- **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
+  ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **Ledger charges:** `controllerWorkSpawnLoad`, `constructionWorkSpawnLoad`,
+  `infraSpawnLoad` — what the planner's parts ledger charges consumers/infra.
+- **Conversions:** `workPartsForEnergyRate`, `energyPerSpawnPart` (the shadow
+  price), the invader-tax primitives (spec 13).
+
+Known debt: `planning/EconomicConstants.ts` and `corps/economics.ts` still hold
+parallel copies/constants (audited 2026-07-19, spec 17 P5 folds them in).
+
+## 4. The Corp (the operator)
 
 A **Corp** is a *commission*: a unit of economic activity that consumes spawn
-build-time (and maybe energy) and produces energy-at-a-place or colony value. It
-is simultaneously
+build-time (and maybe energy) and produces energy-at-a-place or colony value.
+It is simultaneously
 
 - the **planning operator** (a candidate action the planner can take), and
 - the **runtime owner** of the creeps that execute it.
 
-| Corp | Role | Consumes | Produces | Cost |
-|------|------|----------|----------|------|
-| **HarvestCorp** | Producer | a Source + spawn parts | `rate` e/tick at the source | `minerOverhead` + miner spawn parts |
-| **CarryCorp** | Transport | energy at a source + spawn parts | `rate` e/tick delivered at a sink | `haulerOverhead` + hauler spawn parts |
-| **UpgradingCorp** | Consumer | energy at the controller + spawn parts | controller progress (value) | worker overhead + spawn parts |
-| **ConstructionCorp** | Consumer | energy at a site + spawn parts | structures (value) | worker overhead + spawn parts |
-| **ScoutCorp / ReservationCorp / BootstrapCorp** | Auxiliary | spawn parts | intel / reservation / cold-start rescue | off the income budget |
+Every corp kind is an operator with **preconditions** (its trigger, over the
+problem + draft plan — durable signals only), **cost** (spawn build-time,
+declared in its commission envelope), and **effect** (energy moved / value
+produced). Today the central solver plans the energy economy
+(harvest/carry/upgrade) and the other kinds apply themselves via `propose()`;
+the contract is shaped so a kind can migrate INTO the planner without rework
+(§9 — full GOAP is the endpoint).
 
-Lifecycle (uniform across types): **create → plan(tick) → work(tick) →
-serialize**. The planner sets a corp's *assignment* (size + targets); the corp
-executes it and reports variance.
+The live roster (KINDS, `execution/CommissionHost.ts`):
 
-## 4. The Plan (GOAP output)
+| Kind | Shape | Role | Spawn roles (workType) |
+|------|-------|------|------------------------|
+| **harvest** | produce | mine a source | miner (harvest) |
+| **carry** | transport | move energy source→sinks | hauler (haul) |
+| **upgrade** | consume | controller progress | upgrader (upgrade) |
+| **construction** | hybrid (self-proposes, reads draft allocations) | build structures | builder (build), tanker (tank, rescued by tender) |
+| **scout** | auxiliary | intel | scout (scout) |
+| **reservation** | auxiliary | double remote sources | reserver (reserve) |
+| **tender** | auxiliary | refill extensions | tanker (tank) |
+| **controllerFeeder** | auxiliary | bank→controller relay | feeder (feed) |
+| **raidGuard** | auxiliary (military) | protect remote producers | guard (guard) |
+| **coreBuster** | auxiliary (military) | reclaim occupied remotes | buster (buster), striker (strike) |
+| **claim** | auxiliary (CAPEX) | expansion claimer | claimer (claim) |
+
+Outside the framework (legacy registry, folded into the census by
+`completeCensus`): **bootstrap** (cold-start jacks) and **spawning**
+(infrastructure — executes spawn decisions; not really a commission).
+
+## 5. The CorpKind contract (registration-only integration)
+
+A kind declares everything the colony needs; nothing else learns its name.
+**Adding a corp kind = one kind file + one `KINDS` entry.** Anything that
+requires a third edit is a framework bug (the registration-only test proves
+it with a toy kind).
+
+| Verb / declaration | Layer | What it does |
+|---|---|---|
+| `propose(problem, draft)` | PLAN (pure) | the operator's trigger: commissions this kind wants, from durable signals (the draft plan, intel lenses) — never creep positions or vision |
+| `materialize(commission, existing)` | EXECUTE | bind/update the runtime corp; MUST refresh `spawnId` on existing corps (conformance-enforced) |
+| `run(corp, tick)` | EXECUTE | one dumb tick — the assignment has everything |
+| `serializeCorp` / `deserializeCorp` | EXECUTE | persistence round-trip |
+| `body(role, bodyParam, budget, hints)` | EXECUTE | the LIVE body path (SpawningCorp dispatches here; the old role switch is deleted, pinned by the body-equivalence sweep) |
+| `roles: { role → {workType, readopt?, deliversEnergy?} }` | declaration | workType stamps, orphan-rescue registry, income-estimate participation |
+| `demandGroup(corp, corpId, world)` | declaration (pure) | funding-group policy: which income UNIT a demand joins and whether it is started (harvest/carry share the source key; military/reservation force started — rationale lives in the kind files) |
+| `sourceOf(corp)` | declaration | producer's source id — feeds `DemandWorld.isSourceMined` for ANY transport kind |
+| `claimsOrphan(creep, corps)` | declaration | orphan re-adoption override (harvest: source underfoot; carry: assigned source); default = same-room corp of the creep's declared workType |
+
+Generic plumbing that consumes the declarations (never a kind name):
+`materializeCommissions`/`runCommissionedCorps` (dispatch),
+`SpawnDirector.collectDemands` (ONE loop), `SpawningCorp.executeSpawn`
+(body+workType via kind), `OrphanRescue` (census + declared roles),
+`completeCensus` → telemetry/variance/stats/console.
+
+**Id spaces (normative):** planner/commission ids are flow-prefixed
+(`source-`/`spawn-` inside assignments); kinds strip prefixes at materialize.
+Corp ids and creep `memory.corpId` are LEGACY-STABLE — renaming either
+silently orphans live creeps (trap list). Lookups that cross id spaces must
+normalize explicitly.
+
+## 6. The two plans (GOAL and NOW)
+
+- **GOAL plan** (`Memory.economyPlan`): `planColony`'s solver equilibrium —
+  miners, haulers, sink allocations, the parts ledger. Not a schedule; a
+  destination.
+- **NOW plan** (`Memory.spawnAgenda`): the transition — the ordered
+  acquisition sequence per spawn. Since spec 17 it is **prescriptive**:
+  `planAcquisitions(demands, ctx)` (pure, `spawn/SpawnScheduler.ts`) runs ONE
+  decision walk that yields both the published agenda (every demand ranked,
+  annotated with its gate verdict: buy / no-miner / held / wall / passed /
+  deferred / impossible / queued) and this tick's buy — which is by
+  construction the agenda's `buy` entry. `SpawnDirector` executes it
+  mechanically and files receipts. Agenda and action cannot disagree.
+
+The spawn **doctrine** — tier ladder (income ≫ blocking ≫ started ≫ value),
+starvation buckets, hold/wall semantics, miner precedence — is settled,
+measured, and lives entirely in `SpawnScheduler` as one swappable pure module.
+Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp gauge.
+
+## 7. The Plan (GOAP output)
 
 A **ColonyPlan** is a set of commissioned corps with sizes such that:
 
 1. **Energy balance** — delivered energy ≥ consumed energy (sustainable).
-2. **Spawn budget** — per spawn, Σ `spawnPartsFor(source)` ≤ `miningBudgetPerSpawn()`.
-3. **Value maximised** — Σ (energy delivered to sink × sink.value) − overhead is maximised.
+2. **Spawn budget** — per spawn, Σ `spawnPartsFor(source)` ≤ `miningBudgetPerSpawn()`;
+   consumers/infra charge the parts LEDGER (spec 15).
+3. **Value maximised** — Σ (energy delivered × sink.value) − overhead maximised.
 
-## 5. GOAP framing
+Sink values are the strict per-instance ladder (trap list — never nudge one
+value in isolation): spawn 100 > new-spawn-site 85 > controller ≤80 (band
+40–80 by downgrade pressure) > construction 70 > controller floor 40 >
+storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
+`perInstanceSinkValue` (flowAdapter) refines per instance.
 
-- **Goal:** maximise colony value-rate (weighted energy delivery) subject to feasibility.
-- **State:** which sources are staffed, spawn build-time remaining per spawn, energy supply vs demand.
-- **Operators (actions):** commission a corp — *mine S*, *haul S→K*, *upgrade*, *build* — each with
-  - **preconditions** (haul S→K requires S mined),
-  - **cost** (`spawnPartsFor`, overhead),
-  - **effect** (energy produced / moved / consumed).
-- **Exploration:** assign each source to its best (nearest) spawn; rank candidate income
-  corps by **net energy per build-part**; fill each spawn's mining budget highest-value-first;
-  route the delivered energy to sinks by value, respecting capacity and reserves.
+## 8. Enforcement (the ontology is tested, not aspirational)
 
-  This is the corp-atomic rule — *complete the highest-value income corp before opening the
-  next* — generalised from one spawn to N. At N=1 it is trivial (saturate the source, size
-  the haulers, feed the controller); at N>1 it is the same rule per spawn with sources
-  assigned to their nearest spawn. We build and test it 1→2→3→N and trust it to generalise.
+- **Conformance suite** (`test/unit/framework/conformance.ts`): every
+  registered kind — determinism of propose, serialize round-trip, materialize
+  idempotence + spawnId refresh, empty-world run safety, economics envelope.
+- **Registration-only proof** (`test/unit/execution/registrationOnly.test.ts`
+  + `test/unit/framework/newCorp.test.ts`): a toy kind flows through plan,
+  dispatch, demands, orphan registry, census with zero core edits.
+- **Behavior pins:** `collectDemandsPolicy.test.ts` (demand decoration),
+  `bodyEquivalence.test.ts` (kind bodies vs the retired role switch),
+  `nowPlanner.test.ts` (the walk vs its pre-refactor reference),
+  `planEquivalence.test.ts` (golden-master commissions),
+  `orphanAction.test.ts` (rescue map derivation).
+- **The grid** (`npm run grid`, spec 08) is the outer acceptance bar.
 
-## 6. Systems being collapsed into this model
+## 9. Extension paths (declared, not yet implemented)
 
-The economy currently runs **two** solvers plus several vestigial layers. The
-target is ONE planner (the GOAP `CorpPlanner`) whose operators are corps.
+- **Typed resources** (minerals/labs/factory/market — on the roadmap): the
+  Commission envelope's `consumes`/`produces` grow a `resource` field
+  defaulting to energy; primitives stay energy-denominated until a second
+  resource exists. New surfaces must not hard-code "energy" where
+  "rate-at-place" is meant.
+- **Mission-shaped commissions** (military campaigns): `shape: "mission"` with
+  objective-typed assignments; raidGuard/coreBuster are the proto-missions.
+- **Planner absorption** (the full-GOAP endpoint): an auxiliary kind migrates
+  into `planColony` by expressing its `propose()` trigger as an operator
+  precondition, its envelope as cost, and its output as effect. The declarative
+  contract in §5 is already that shape.
+- **Known coupling debt:** the RoomMemory regime flags
+  (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
+  couple mover kinds to CarryCorp/UpgradingCorp branches — the next
+  cross-kind protocol to make declarative (spec 17 backlog).
 
-| System | File(s) | Status | Disposition |
-|--------|---------|--------|-------------|
-| **CorpPlanner** | `economy/CorpPlanner.ts`, `economy/flowAdapter.ts` | ✅ LIVE — the single economy authority | — |
-| **FlowSolver** | `flow/FlowSolver.ts` | ✅ DELETED | `printSolutionSummary` relocated to `FlowEconomy`; unique behavior pin (far-source-with-spare-budget) migrated to the CorpPlanner test |
-| **EconomyPlanner / EconomyAdapter** | `flow/EconomyPlanner.ts`, `flow/EconomyAdapter.ts` | ✅ DELETED | Absorbed by `CorpPlanner`; overlay removed from `main.ts` |
-| **Duplicate formulas** | 9 files (see analysis) | ✅ collapsed | `economy/primitives.ts` is the canonical home. CarryCorp/ConstructionCorp/BodyBuilder/HarvestCorp/UpgradingCorp/FlowGraph now call `carryPartsFor`/`effectiveLife`/`roundTripTicks`; the FlowTypes copies (`calculateRoundTrip`/`calculateCarryParts`/`calculateHaulerCostPerTick`) are deleted |
-| **Four "value" models** | mintValue / net-energy / effectiveNet / sink.value | ✅ one model | `DEFAULT_SINK_VALUE` in the planner (spawn 100 / construction 70 / controller 50) |
-| **Chain/market valuation layer** | `corps/ChainEvaluator.ts`, `planning/ColonyEconomy.ts`, `corps/*.project()` | ✅ DELETED (spec 04, 2026-07-12) | Replaced by `economy/siteValue.ts` (`spawnSiteValue` / `marginalSiteValue`) — site + node valuation now runs through `planColony`, one economy authority end-to-end |
-| **EdgeVariant variant search** | `framework/EdgeVariant.ts` (`generateEdgeVariants`/`selectBestVariant`), `FlowSolver` terrain branch | DEAD — `edge.terrain` never populated | Remove functions + branch; keep `HaulerRatio`/`MiningMode` types (used by body building) |
-| **FlowEdge (framework)** | `framework/FlowEdge.ts` | DEAD — imported only by EdgeVariant + its test | Remove |
-| **Per-corp money accounting** | `corps/Corp.ts` (`balance`/`totalRevenue`/`totalCost`/`recordRevenue`/`recordCost`/`getActualROI`/`getProfit`/`isBankrupt`/`isDormant`/`shouldPrune`/`activate`/`deactivate`/`isActive`/`calculateROI`), `nodes/Node.ts` (`getTotalBalance`/`getActiveCorps`/`pruneDead`) | ✅ DELETED (2026-07-14) | Vestige of the old market model — written, serialized, and displayed but never read to gate a decision (corp lifecycle is driven by `materializeCommissions` + `hasLiveCreeps`). Removed the fields, their callers, `global.forgiveDebt`, and the corp segment's money fields. KEPT the live variance-vs-budget meter (`unitsProduced`/`budgetedRate`/`variance` → `Memory.corpVariance`) and lifecycle metadata (`createdAt`/`lastActivityTick`). Telemetry now builds a complete creep census from `allCommissionedCorps()` + registry so every corp kind is counted. |
+## 10. History (systems collapsed into this model)
 
-### Progress (this pass)
-
-Done: ontology + canonical `economy/primitives.ts` (15 tests); GOAP `CorpPlanner`
-(11 tests, 1→N); `flowAdapter` drop-in (3 tests); **swapped live** in
-`FlowEconomy.solve`; shadow `EconomyPlanner`/`EconomyAdapter` **deleted** (~600
-LOC); profitability test migrated to the live planner. Validated by the fast
-fixture harness (singleSource / twoSourceRcl3 / threeChamberRcl2 all mine their
-sources).
-
-Consolidation pass two: `FlowSolver` **deleted** (with `solveIteratively`,
-`calculateEfficiency`, `estimateOverhead`; `printSolutionSummary` relocated to
-`FlowEconomy`); the duplicate formula call-sites **migrated** to `primitives`
-(CarryCorp, ConstructionCorp, BodyBuilder, HarvestCorp, UpgradingCorp,
-FlowGraph) and the FlowTypes copies deleted; dead `calculateHaulingNeeds` /
-`calculateTankerCarryNeeded` (BodyBuilder) and the broken
-`scripts/compare-efficiency.ts` removed. 394 unit tests pass.
-
-Next: retire the vestigial chain/market layer (`ChainPlanner`/`ColonyEconomy` -
-note `marginalNodeValue` is still live in `IncrementalAnalysis` and needs a new
-home first).
-
-### Integration contract
-
-`CorpPlanner` emits the same shape the materialiser already consumes
-(`MinerAssignment[]`, `HaulerAssignment[]`, `SinkAllocation[]` — i.e. a
-`FlowSolution`). That makes it a **proven drop-in** for `FlowSolver.solve`: swap
-the call, delete the loser, keep the corps/materialiser/scheduler untouched.
+The economy once ran two solvers plus market/chain/priority layers. Collapsed
+(2026-07, specs 00/04/17): `FlowSolver`, `EconomyPlanner`/`EconomyAdapter`,
+`FlowMaterializer`, the market/offer/contract layer, the chain/ROI valuation
+layer (`ChainEvaluator`/`ColonyEconomy`), per-corp money accounting,
+`framework/FlowEdge`, the EdgeVariant variant search, the per-kind plumbing
+mirrors (SpawnDirector blocks, OrphanRescue lists, SpawningCorp's role switch,
+telemetry bucket maps), and the duplicate formula call-sites. The
+`FlowGraph`/`FlowSolution` shapes survive only as the world-translation layer
+and the legacy telemetry DTO. Residual dead code tracked in spec 17 P5
+(PriorityManager's second ladder, NodeFlow, FlowEconomy's dead query API,
+survey vestiges, `plan:budget`).

@@ -71,11 +71,15 @@ whose operators are corps. Read order for architecture truth:
   mockup db's `$set` with dotted paths (`"store.energy"`) silently NO-OPS —
   write whole objects. Staged storage needs the OWNED schema
   (user + storeCapacityResource).
-- **New corp kinds** must be added to OrphanRescue `liveCorpIds` AND
-  SpawnDirector `collectDemands`, or their creeps get orphan-recycled / never
-  spawn. Every kind's `materialize` must refresh `spawnId` on existing corps
-  (immortal consumer corps otherwise keep a dead spawn's id forever —
-  conformance test enforces).
+- **New corp kinds** integrate by REGISTRATION ONLY (spec 17): one kind file +
+  one `KINDS` entry in CommissionHost. Demand policy, body building, orphan
+  rescue, and the census all derive from the kind's declarations (`roles`,
+  `demandGroup`, `sourceOf`, `claimsOrphan`, `body`) — if adding a kind seems
+  to need an edit anywhere else, that's a framework regression; fix the seam,
+  don't hand-wire. Enroll every kind in the conformance suite
+  (`describeCorpKindConformance`). Every kind's `materialize` must refresh
+  `spawnId` on existing corps (immortal consumer corps otherwise keep a dead
+  spawn's id forever — conformance test enforces).
 - **Corp id prefixes**: planner ids are pure (`harvest-{flowSourceId}`); kinds
   strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
   live creeps.
