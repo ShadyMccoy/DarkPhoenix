@@ -43,6 +43,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
+import { effectiveOneWayTiles } from "./roadEconomics";
 
 // =============================================================================
 // INPUT - a clean description of the world the planner reasons over
@@ -76,11 +77,37 @@ export interface PlannerSource {
    */
   transient?: boolean;
   /**
-   * The source's haul route is fully paved (ConstructionCorp's receipt in room
-   * memory). Its haulers run the 2:1 road body - 1.5 spawn parts per CARRY
-   * instead of 2 - which the routing pass prices in.
+   * The source's haul route fields the 2:1 road body - 1.5 spawn parts per
+   * CARRY instead of 2 - which the routing pass prices in. Set from
+   * ConstructionCorp's receipts via roadEconomics.partialPaveRatio: fully
+   * paved, or a trunk verifiably >= 1/2 built (owner 2026-07-20: "32 out of
+   * 38 - we could still optimize the body parts").
    */
   paved?: boolean;
+  /**
+   * Verified paved fraction of the route (present with `paved`; absent means
+   * 1). Below 1 the 2:1 body's loaded leg crawls the unpaved stretch, so
+   * CARRY sizes at the EFFECTIVE distance (roadEconomics.effectiveOneWayTiles)
+   * - the fleet must cover the true round-trip time until the last tile lands.
+   */
+  pavedFraction?: number;
+  /**
+   * The source's trunk road is IN PROGRESS (owner 2026-07-21: "feed the
+   * Z-to-A remote builder from the source, and disable hauling anything home
+   * until the road is finished"). The MINER stays funded - the pile is the
+   * road's fuel - but the fill routes none of this source's output home
+   * (pool rate 0), so no haul bodies are planned or spawned; CarryCorp's
+   * yieldsToBuild reads the same receipts for the standing fleet. Hauling
+   * resumes at the 2:1 road rate when the paved receipt lands.
+   */
+  dedicatedToBuild?: boolean;
+  /**
+   * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
+   * spawn instead of the nearest-spawn default - the v0 restructuring
+   * operator (a source the nearest spawn's budget dropped can be worked by
+   * another spawn with slack). Absent = nearest, the pinned behavior.
+   */
+  assignedSpawnId?: string;
   /**
    * Expected NPC-invader cost per unit harvested (spec 13 phase 5): raids
    * fire as a function of energy harvested, so their defense cost is a
@@ -121,6 +148,18 @@ export interface ColonyProblem {
    * the spawn-parts ledger before the sink fill spends the rest (spec 15 P4).
    */
   infraPartsPerTick?: number;
+  /**
+   * Execution-context facts for auxiliary propose() triggers, assembled by
+   * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
+   * anything a trigger used to steal from Game/Memory/execution state rides
+   * on the problem instead. Absent = the fact is false/unknown.
+   */
+  /** A live expansion campaign (claimKind's trigger). Host: Memory.expansion. */
+  expansion?: { roomName: string };
+  /** CPU-governor degradation freezes (scoutKind's gate). Host: CpuGovernor. */
+  freezes?: { scouting?: boolean };
+  /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
+  hostileRooms?: readonly string[];
 }
 
 /** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
@@ -186,7 +225,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted";
 }
 
 export interface ColonyPlan {
@@ -260,7 +299,11 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
-    const near = nearestSpawn(source.pos, spawns, dist);
+    // The searcher's pin overrides the nearest-spawn default (spec 18).
+    const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
+    const near = pinned
+      ? { spawn: pinned, distance: dist(pinned.pos, source.pos) }
+      : nearestSpawn(source.pos, spawns, dist);
     if (!near) {
       // The formerly verdict-LESS skip (spec 14: no invisible decisions).
       // Spawns exist but none is reachable: the path lens failed for this
@@ -422,8 +465,12 @@ function routeToSinks(
   const nearestSpawnDist = (pos: Position): number =>
     problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
-  // Remaining gross energy each supply point can still ship.
-  const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
+  // Remaining gross energy each supply point can still ship. A source
+  // dedicated to its own trunk build ships NOTHING home - its miner stands,
+  // its output builds the road at the source end (owner 2026-07-21).
+  const pool = new Map<string, number>(
+    supply.map(s => [s.sourceId, sourceById.get(s.sourceId)?.dedicatedToBuild ? 0 : s.rate])
+  );
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
@@ -474,6 +521,16 @@ function routeToSinks(
       .filter(id => (sink.kind === "storage" ? isDeposit(id) : !isDeposit(id)))
       .map(id => {
         const s = sourceById.get(id)!;
+        // NEAREST-FIRST, no class ranking (owner 2026-07-20: "scavenging IS
+        // better than mining. Especially if it's closer" - a stock is
+        // already-extracted energy competing on plain route economics). The
+        // t72447104 displacement was a SIZING bug, not an ordering one: the
+        // old 150-tick drain target asked 20 e/t per pile; scavengeRate now
+        // sizes waste-free (halfway amount over effective ttl), so a
+        // right-sized recovery cannot crowd standing production - and when
+        // a nearer stock DOES out-compete a marginal remote, that is the
+        // correct trade ("we sort of lose on the capex or the room
+        // reservation a bit").
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
@@ -492,10 +549,16 @@ function routeToSinks(
       if (acc.allocated >= target - 1e-9) break;
       const avail = pool.get(id) ?? 0;
       // A paved route's 2:1 hauler needs 1.5 parts per CARRY, not 2 - the
-      // spawn-budget payoff that makes roads worth building at all.
-      const paved = sourceById.get(id)?.paved === true;
+      // spawn-budget payoff that makes roads worth building at all. A route
+      // still mid-build (paved fraction < 1) already fields that body, but
+      // its loaded leg crawls the unpaved stretch: CARRY sizes at the
+      // EFFECTIVE distance (ticks not tiles - roadEconomics), or the fleet
+      // under-carries until the last tile lands.
+      const src = sourceById.get(id);
+      const paved = src?.paved === true;
+      const dEff = paved ? effectiveOneWayTiles(d, src?.pavedFraction ?? 1, 2) : d;
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
-      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, d)) / effectiveLife(d) + workPerUnit;
+      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(d) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
       const take = Math.min(avail, target - acc.allocated, maxByParts);
       if (take <= 1e-9) {
@@ -519,20 +582,43 @@ function routeToSinks(
         spawnId: spawnBySource.get(id) ?? "",
         distance: d,
         flowRate: take,
-        carryParts: carryPartsFor(take, d),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / effectiveLife(d),
+        carryParts: carryPartsFor(take, dEff),
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(d),
         ...(paved ? { paved } : {})
       });
     }
     acc.partsLeft = partsRemaining;
   };
 
+  const byValueThenId = (a: PlannerSink, b: PlannerSink): number =>
+    b.value - a.value || (a.id < b.id ? -1 : 1);
   // Reserve pre-pass: guarantee critical floors before value greed drains the pool.
-  for (const sink of [...sinks].filter(s => (s.reserve ?? 0) > 0).sort((a, b) => b.value - a.value)) {
+  for (const sink of [...sinks].filter(s => (s.reserve ?? 0) > 0).sort(byValueThenId)) {
     fill(sink, Math.min(sink.reserve!, sink.capacity));
   }
-  // Value pass: highest value first, up to capacity.
-  for (const sink of [...sinks].sort((a, b) => b.value - a.value || (a.id < b.id ? -1 : 1))) {
+  // PRODUCTION-FIRST LEDGER ORDER (macro doctrine; prod t72445337): the pure
+  // value pass filled consumers first, and because deposits (mined -> hub)
+  // sit at storage's value 1 they were LAST - one solve's consumer routes +
+  // upgrade WORK charges drained the ledger to partsLeft 0.0 and all SEVEN
+  // funded sources got zero haul routes: 70 e/t of funded mining, 0 routed,
+  // income rotting at the containers while the plan read as feasible. The
+  // energy pools were never the conflict (consumers draw the bank, deposits
+  // fill the hub - disjoint by role); the PARTS ledger was. So parts now
+  // follow the doctrine: spawn overhead first (production's own financing),
+  // then the funded income's haul-home, then consumers burn the residual.
+  // Consumer ALLOCATIONS shrink when parts bind - execution already sizes
+  // real consumers from actual stock (sustainableConsumptionRate), so the
+  // burn continues from standing stock while the plan stops promising
+  // routes the spawn cannot maintain.
+  for (const sink of [...sinks].filter(s => s.kind === "spawn").sort(byValueThenId)) {
+    fill(sink, sink.capacity);
+  }
+  for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
+    fill(sink, sink.capacity);
+  }
+  // Value pass: highest value first, up to capacity (spawn/storage are
+  // already at target - their re-fill is a no-op).
+  for (const sink of [...sinks].sort(byValueThenId)) {
     fill(sink, sink.capacity);
   }
 
@@ -598,15 +684,44 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   };
   const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
-  const totalProduced = supply.reduce((s, p) => s + p.rate, 0);
+  // FUNDED => ROUTED (leak #19 in plan form): in the hub era a funded source
+  // whose deposit routing got ZERO parts would field a miner for pure rot -
+  // the exact fantasy the fill order above exists to prevent, surviving only
+  // on the tail when even production-first parts run out. Demote it to an
+  // "unrouted" verdict and drop its miner; the freed build-time re-enters
+  // the equilibrium next solve. (Partial routing stays funded - a source
+  // shipping some of its rate is income, not rot.) NOTE: the hub bank credit
+  // above was computed pre-routing, so a demoted source's rate inflates the
+  // consumer spend pool by its rate for THIS solve - bounded to the demoted
+  // tail and visible via the verdict.
+  const hasHub = storageSinks.length > 0;
+  let plannedMiners = miners;
+  if (hasHub) {
+    const routedSources = new Set<string>();
+    for (const k of sinks) {
+      for (const sf of k.sources) {
+        if (sf.amount > 1e-9) routedSources.add(sf.sourceId);
+      }
+    }
+    const unroutedIds = new Set(miners.filter(m => !routedSources.has(m.sourceId)).map(m => m.sourceId));
+    if (unroutedIds.size > 0) {
+      plannedMiners = miners.filter(m => !unroutedIds.has(m.sourceId));
+      for (const v of sourceVerdicts) {
+        if (unroutedIds.has(v.sourceId) && v.verdict === "funded") v.verdict = "unrouted";
+      }
+    }
+  }
+
+  const demotedRate = miners.reduce((s, m) => s + m.rate, 0) - plannedMiners.reduce((s, m) => s + m.rate, 0);
+  const totalProduced = supply.reduce((s, p) => s + p.rate, 0) - demotedRate;
   const totalDelivered = sinks.reduce((s, k) => s + k.allocated, 0);
-  const miningOverhead = miners.reduce((s, m) => s + minerOverhead(m.distance), 0);
+  const miningOverhead = plannedMiners.reduce((s, m) => s + minerOverhead(m.distance), 0);
   const haulOverhead = haulers.reduce((s, h) => s + haulerOverhead(h.carryParts, h.distance), 0);
   const totalOverhead = miningOverhead + haulOverhead;
   const valueDelivered = sinks.reduce((s, k) => s + k.allocated * k.value, 0);
 
   const spawnPartsUsed = new Map<string, number>();
-  for (const m of miners) {
+  for (const m of plannedMiners) {
     spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / effectiveLife(m.distance));
   }
   for (const h of haulers) {
@@ -614,7 +729,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   }
 
   return {
-    miners,
+    miners: plannedMiners,
     haulers,
     sinks,
     sourceVerdicts,

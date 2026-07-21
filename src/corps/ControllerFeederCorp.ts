@@ -21,10 +21,11 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
-import { CoreDepot, coreDepot, controllerInputSpot } from "./nodeEnergy";
+import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
-import { feederRelayRate } from "../economy/bank";
+import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { buildPool } from "./ConstructionCorp";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -47,7 +48,42 @@ const CONTROLLER_FEED_TARGET = 2000;
 /** Container-refill headroom the relay carries above the plan's controller
  * flow: input-container decay plus a small buffer so the stock never starves
  * between shuttle arrivals. */
-const FEEDER_STOCK_HEADROOM = 5;
+export const FEEDER_STOCK_HEADROOM = 5;
+
+/**
+ * The relay rate the feeder fleet is sized to sustain (pure, unit-tested).
+ *
+ * SURPLUS (bankSurplusRate > 0): the raw surplus formula, IGNORING the plan's
+ * controller allocation - consumers size from actuals, never the goal plan
+ * (macro doctrine; the upgrader half is upgraderSizing's surplus regime, this
+ * is its supply line). Prod t72455355: the plan's parts ledger exhausted
+ * before the controller sink (allocated 2) while 340k stood banked; the old
+ * clamp sized the feeder to relay 7 while the upgraders' sizing assumed the
+ * surplus 115 - the stock drained 1520 -> 60 and burn ran 11 of 115. The two
+ * halves of the consumption chain must read the SAME inflow or the upgraders'
+ * math lies.
+ *
+ * NON-SURPLUS: the plan clamp stands (owner t72421124: while construction
+ * preempts the bank the controller legitimately floors at ~2 e/t, and a
+ * feeder sized to the raw formula is 90+ wasted parts). bankSurplusRate is
+ * the shared regime lens - the same primitive the upgraders and the bank
+ * draw read.
+ */
+export function feederRelayTarget(
+  surplusRate: number,
+  planFlow: number | undefined,
+  banked: number,
+  constructionStanding = false
+): number {
+  // CONSTRUCTION-FIRST (owner 2026-07-21: "when construction is around ...
+  // funnel energy to construction. Upgrading is secondary"): with sites
+  // standing, the surplus belongs to the build set - the plan already ranks
+  // construction (70) above the mid-grind controller (~44 at RCL6), so the
+  // relay serves the plan's post-construction controller RESIDUAL, not the
+  // raw surplus formula. No sites -> the unclamped surplus draw stands.
+  if (bankSurplusRate(banked) > 0 && !constructionStanding) return surplusRate;
+  return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+}
 
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
@@ -151,6 +187,33 @@ export class ControllerFeederCorp extends Corp {
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
+      // LINK RELAY (spec 24 rung 3): with a controller link built, the long
+      // leg belongs to the link network - the feeder's whole route becomes
+      // storage -> core link, one tile. The LinkRunner fires core -> controller
+      // link; upgraders draw from the link (the input election prefers it).
+      const ctrlLink = controllerLink(creep.room);
+      const core = ctrlLink ? coreLink(creep.room) : null;
+      if (ctrlLink && core) {
+        // The feeder stages the relay in the core but NEVER tops it out:
+        // the top of the link is the income reserve (owner 2026-07-21 - a
+        // brim-full core left the source link's volleys nowhere to land).
+        const free = core.store.getFreeCapacity(RESOURCE_ENERGY);
+        const loadRoom = coreLinkLoadRoom(core.store[RESOURCE_ENERGY], core.store[RESOURCE_ENERGY] + free);
+        if (loadRoom <= 0) {
+          if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
+          return; // relay buffer staged: hold the load beside the core
+        }
+        if (creep.pos.getRangeTo(core.pos) > 1) {
+          travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          return;
+        }
+        const moved = Math.min(creep.store[RESOURCE_ENERGY], loadRoom);
+        if (creep.transfer(core, RESOURCE_ENERGY, moved) === OK) {
+          this.recordProduction(moved);
+          creep.memory.lastDeliver = { to: "core-link", amount: moved, tick: Game.time };
+        }
+        return;
+      }
       const input = controllerInputSpot(controller);
       // Topped up: hold the load near the input so the next drain is served at once
       // (do not overfill - a bare pile would otherwise grow without bound).
@@ -237,7 +300,11 @@ export class ControllerFeederCorp extends Corp {
     // Balanced 1:1 body sized to sustain the relay over the round trip (the
     // feeder travels, unlike the parked extension tender). The storage sits by
     // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    const distance = spawn.pos.getRangeTo(controller.pos);
+    // Link-fed rooms shrink the shuttle leg to storage -> core link (spec 24
+    // rung 3): the same relay rate needs ~1/6th the CARRY, and the plan's
+    // feeder pricing reads the same lens (infraSpawnLoad linkFedRoomCount).
+    const linkFed = !!controllerLink(spawn.room);
+    const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
     // The relay serves the PLAN's controller flow, never the raw surplus
@@ -246,7 +313,10 @@ export class ControllerFeederCorp extends Corp {
     // t72421124). No allocation known (old commission) -> formula unclamped.
     const surplusRate = feederRelayRate(banked);
     const planFlow = this.controllerAllocation;
-    const relayRate = planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+    // ONE lens with the upgraders (owner 2026-07-21): sites standing =
+    // the surplus belongs to the build set; the relay serves the residual.
+    const constructionStanding = buildPool(spawn.pos.roomName).length > 0;
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionStanding);
     const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
@@ -259,6 +329,7 @@ export class ControllerFeederCorp extends Corp {
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
       distance,
+      ...(linkFed ? { linkFed: true } : {}),
       neededCarry,
       wantedFeeders,
       feeders

@@ -9,9 +9,10 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
-import { travelTo, travelToQueued } from "./movement";
+import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
+import { detectTrunkBuildingSources } from "../economy/flowAdapter";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
@@ -613,7 +614,7 @@ export class CarryCorp extends Corp {
         })
       ) {
         if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          travelToLane(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         }
         return;
       }
@@ -623,7 +624,7 @@ export class CarryCorp extends Corp {
     if (!targetPos) return;
 
     if (targetPos.roomName !== creep.room.name) {
-      travelTo(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+      travelToLane(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
       return;
     }
 
@@ -838,7 +839,7 @@ export class CarryCorp extends Corp {
     if (!storage || !storage.my) return false; // route gone; caller re-assigns / falls back
     if (storage.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false; // bank full: spill to consumers
     if (creep.pos.getRangeTo(storage) > 1) {
-      travelTo(creep, storage, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
+      travelToLane(creep, storage, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
       return true;
     }
     const moved = Math.min(creep.store[RESOURCE_ENERGY], storage.store.getFreeCapacity(RESOURCE_ENERGY));
@@ -863,7 +864,7 @@ export class CarryCorp extends Corp {
     const site = Game.getObjectById(sinkId.replace("construction-", "") as Id<ConstructionSite>);
     if (!site) return false;
     if (creep.room.name !== site.pos.roomName || creep.pos.getRangeTo(site.pos) > 1) {
-      travelTo(creep, site.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      travelToLane(creep, site.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       return true;
     }
     const builder = creep.pos.findInRange(FIND_MY_CREEPS, 1, {
@@ -904,7 +905,7 @@ export class CarryCorp extends Corp {
         spawnNeedsEnergy ?? (depot && depot.store[RESOURCE_ENERGY] < depotBankTarget(depot) ? depot : undefined);
       if (!busTarget) return false;
       const r = creep.transfer(busTarget, RESOURCE_ENERGY);
-      if (r === ERR_NOT_IN_RANGE) travelTo(creep, busTarget, { visualizePathStyle: { stroke: "#ffffff" } });
+      if (r === ERR_NOT_IN_RANGE) travelToLane(creep, busTarget, { visualizePathStyle: { stroke: "#ffffff" } });
       else if (r === OK)
         this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], busTarget.store.getFreeCapacity(RESOURCE_ENERGY)));
       return true;
@@ -939,7 +940,7 @@ export class CarryCorp extends Corp {
       );
       if (tender && creep.store[RESOURCE_ENERGY] > 0) {
         const r = creep.transfer(tender, RESOURCE_ENERGY);
-        if (r === ERR_NOT_IN_RANGE) travelTo(creep, tender, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        if (r === ERR_NOT_IN_RANGE) travelToLane(creep, tender, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         else if (r === OK)
           this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], tender.store.getFreeCapacity(RESOURCE_ENERGY)));
         return true;
@@ -1346,6 +1347,13 @@ export class CarryCorp extends Corp {
    * so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
+    // TRUNK-BUILDING source (owner 2026-07-21: "disable hauling anything home
+    // until the road is finished"): the same receipts the planner reads
+    // (detectTrunkBuildingSources) stand the fleet down kind-side too - no
+    // pickups, no new hauler bodies - so the source's whole output feeds the
+    // Z-to-A road crew. Flips off the moment the paved receipt lands.
+    const mine = this.mySourceId();
+    if (mine && detectTrunkBuildingSources().has(mine)) return true;
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
     if (!dedicated || this.mySourceId() !== dedicated) return false;

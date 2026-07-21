@@ -23,6 +23,10 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     // Lens constants used by controllerSideStock/controllerInputSpot.
     (global as any).FIND_STRUCTURES = 107;
     (global as any).FIND_DROPPED_RESOURCES = 106;
+    // Site-progress export (core v6) scans construction sites per owned room;
+    // define the constant HERE, not by leakage from other suites' globals
+    // (standalone runs of this file had no definition and threw mid-export).
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
     (global as any).STRUCTURE_CONTAINER = "container";
     (global as any).STRUCTURE_STORAGE = "storage";
     (global as any).STRUCTURE_LINK = "link";
@@ -72,7 +76,7 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(6); // v4 ledger; v5 spawn meter + agenda; v6 site progress (P8)
+    expect(core.version).to.equal(10); // v9 remoteSites; v10 pathMeter (spec 23 step 1)
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot

@@ -22,7 +22,7 @@ import {
   runCommissionedCorps,
   serializeStore
 } from "../../../src/economy/CorpKind";
-import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
+import { ConstructionCorp, trunkGateFromSurvey } from "../../../src/corps/ConstructionCorp";
 import { constructionKind, ConstructionAssignment } from "../../../src/corps/kinds/constructionKind";
 import { describeCorpKindConformance } from "./conformance";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";
@@ -234,9 +234,11 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     resetGovernor(); // module-level governor state leaks across test files
   });
 
-  const mkRoom = (roads: Set<string>): any => ({
-    lookForAt: (_l: number, x: number, y: number) =>
-      roads.has(`${x},${y}`) ? [{ structureType: "road" }] : [],
+  const mkRoom = (roads: Set<string>, sites: Set<string> = new Set()): any => ({
+    lookForAt: (look: string, x: number, y: number) => {
+      if (look === "structure") return roads.has(`${x},${y}`) ? [{ structureType: "road" }] : [];
+      return sites.has(`${x},${y}`) ? [{ structureType: "road" }] : [];
+    },
     createConstructionSite: () => 0
   });
 
@@ -246,8 +248,64 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
     (global as any).STRUCTURE_ROAD = "road";
     Game.rooms = { W1N1: mkRoom(new Set()) } as any; // W2N1 blind
-    const placed = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 10, 10, 1, 11, 10, 1]);
-    expect(placed, "two visible-room tiles placed; two blind-room tiles skipped").to.equal(2);
+    const s = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 10, 10, 1, 11, 10, 1]);
+    expect(s.placed, "two visible-room tiles placed; two blind-room tiles skipped").to.equal(2);
+  });
+
+  it("SURVEYS the pass: built / placed / blind rooms named (the waiting-vision misnomer, owner 2026-07-20)", () => {
+    // Live incident: the gate stamped "trunk-waiting-vision" all day while
+    // the true state was "fully placed, crews building" - placed=0 conflated
+    // blind rooms with nothing-left-to-place, and the owner had to object
+    // ("we're mining the rooms, of course we have vision"). The survey
+    // separates the states so the stamp can name which one it is.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    // W1N1 visible: (5,5) built road, (6,5) standing site, (7,5) empty -> 1 new placement
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"]), new Set(["6,5"])) } as any; // W2N1 blind
+    const s = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 7, 5, 0, 10, 10, 1]);
+    expect(s.placed).to.equal(1);
+    expect(s.built, "built roads counted").to.equal(1);
+    expect(s.total).to.equal(4);
+    expect(s.blind, "blind rooms NAMED").to.deep.equal(["W2N1"]);
+  });
+
+  it("maps the survey to an unambiguous gate stamp", () => {
+    expect(trunkGateFromSurvey({ placed: 3, built: 0, total: 9, blind: [] })).to.equal("trunk-placing-3");
+    expect(trunkGateFromSurvey({ placed: 0, built: 2, total: 9, blind: ["W3N2"] })).to.equal("trunk-blind-W3N2");
+    expect(trunkGateFromSurvey({ placed: 0, built: 7, total: 9, blind: [] })).to.equal("trunk-building-7/9");
+  });
+
+  it("persists the pass survey (built/total) onto the route entry - the partial-pave repricing receipt", () => {
+    // The binary paved receipt made every trunk wait for the LAST tile before
+    // its haulers repriced (owner 2026-07-20: "even if the road is 32 out of
+    // 38 we could probably still optimize"). The survey's verified built count
+    // now lands in room memory each pass, where detectPavedSources turns it
+    // into the fraction the planner reprices from.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.getObjectById = (() => ({ pos: { x: 25, y: 25, roomName: "W1N1" } })) as never;
+    corp.setRemoteTrunks([{ sourceId: "source-abc", pos: { x: 20, y: 20, roomName: "W2N1" }, flow: 10 }]);
+    // W1N1 visible: (5,5), (6,5) built roads, (7,5) empty; W2N1 blind.
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5", "6,5"])) } as never;
+    const routes: any = {
+      abc: { tiles: [], tiles3: [5, 5, 0, 6, 5, 0, 7, 5, 0, 10, 10, 1], rooms: ["W1N1", "W2N1"] }
+    };
+    const room: any = { name: "W1N1", memory: {}, find: () => [] };
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "verified built tiles persisted").to.equal(2);
+    expect(routes.abc.total, "route length persisted").to.equal(4);
+
+    // A vision-lost pass verifies fewer tiles, not fewer ROADS: the receipt
+    // RATCHETS (counting down would flap the hauler body around the 1/2
+    // threshold every time a remote goes dark).
+    Game.rooms = {} as never;
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "blind pass never regresses the count").to.equal(2);
+    expect(routes.abc.total).to.equal(4);
   });
 
   it("never declares a trunk paved while any room is blind (unverifiable != built)", () => {

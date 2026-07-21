@@ -11,6 +11,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
+import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { FlowGraph } from "../flow/FlowGraph";
 import {
   FlowSolution,
@@ -22,10 +23,18 @@ import {
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
-import { INVADER_TAX_PER_ENERGY, UPGRADE_ENERGY_PER_WORK, haulerOverhead, infraSpawnLoad, minerOverhead } from "./primitives";
-import { detectRoomStocks, stockToTransientSource } from "./scavenge";
+import {
+  INVADER_TAX_PER_ENERGY,
+  UPGRADE_ENERGY_PER_WORK,
+  haulerOverhead,
+  infraSpawnLoad,
+  minerOverhead,
+  projectAbsorbRate
+} from "./primitives";
+import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
+import { partialPaveRatio } from "./roadEconomics";
 import {
   ColonyProblem,
   DEFAULT_SINK_VALUE,
@@ -36,6 +45,8 @@ import {
   planColony
 } from "./CorpPlanner";
 import { Commission } from "./Commission";
+import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
+import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
@@ -128,26 +139,17 @@ export function agendaFundingRate(sinkId: string): number {
 
 /**
  * A NEW SPAWN's construction site (spec 06 expansion): above ordinary
- * construction (70) so every room funnels its surplus to the founding, below
- * the live spawn network (100) so keeping existing creeps alive still wins.
+ * construction so every room funnels its surplus to the founding, below the
+ * live spawn network so keeping existing creeps alive still wins. Since
+ * spec 18 the anchor lives in the goal's valuation (economy/goals - the
+ * measured incident rationale is recorded there); this export is the default
+ * profile's value, kept for its doc-reference role.
  */
-export const NEW_SPAWN_SITE_VALUE = 85;
+export const NEW_SPAWN_SITE_VALUE = DEFAULT_VALUATION.newSpawnSite;
 
-/**
- * controllerValue anchors: a fresh L1 (200 remaining) prices at the top of
- * the CONTROLLER band - which caps BELOW the new-spawn site's 85 ("new
- * spawns just have a higher priority than upgrading", owner 2026-07-09).
- * Measured failure at max=90: a freshly claimed room's own L1 controller
- * outranked the founding site AND ordinary construction everywhere, so the
- * whole colony's build allocation went to zero (exp-t5 founding cell).
- */
-const CONTROLLER_VALUE_MAX = 80;
-/** ...and the L8-scale grind (10.4M remaining) near the bottom. */
-const CONTROLLER_VALUE_MIN = 40;
+/** Controller-curve remaining-progress anchors (fresh L1 / L8-scale grind). */
 const CONTROLLER_REMAINING_MIN = 200;
 const CONTROLLER_REMAINING_MAX = 10_400_000;
-const CONTROLLER_VALUE_K =
-  (CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_MIN) / Math.log(CONTROLLER_REMAINING_MAX / CONTROLLER_REMAINING_MIN);
 
 /**
  * Value of a controller sink as a function of PROGRESS REMAINING to the next
@@ -160,10 +162,10 @@ const CONTROLLER_VALUE_K =
  * ("if something is 99% to the next RCL level, those marginal points are
  * valuable").
  */
-export function controllerValue(remaining: number): number {
-  const v =
-    CONTROLLER_VALUE_MAX - CONTROLLER_VALUE_K * Math.log(Math.max(1, remaining) / CONTROLLER_REMAINING_MIN);
-  return Math.min(CONTROLLER_VALUE_MAX, Math.max(CONTROLLER_VALUE_MIN, v));
+export function controllerValue(remaining: number, val: SinkValuation = DEFAULT_VALUATION): number {
+  const k = (val.controllerMax - val.controllerMin) / Math.log(CONTROLLER_REMAINING_MAX / CONTROLLER_REMAINING_MIN);
+  const v = val.controllerMax - k * Math.log(Math.max(1, remaining) / CONTROLLER_REMAINING_MIN);
+  return Math.min(val.controllerMax, Math.max(val.controllerMin, v));
 }
 
 /**
@@ -173,18 +175,30 @@ export function controllerValue(remaining: number): number {
  * construction, and each controller prices by its remaining progress. Live
  * Game lookups are guarded so harness/unit paths fall back to the defaults.
  */
-function perInstanceSinkValue(kind: SinkKind, sink: { gameId?: string; position: Position }): number {
+function perInstanceSinkValue(
+  kind: SinkKind,
+  sink: { gameId?: string; position: Position },
+  val: SinkValuation = DEFAULT_VALUATION
+): number {
   if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
     const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
-    if (site && site.structureType === "spawn") return NEW_SPAWN_SITE_VALUE;
+    if (site && site.structureType === "spawn") return val.newSpawnSite;
   }
   if (kind === "controller" && typeof Game !== "undefined" && Game.rooms) {
     const controller = Game.rooms[sink.position.roomName]?.controller;
     if (controller && controller.progressTotal) {
-      return controllerValue(controller.progressTotal - controller.progress);
+      return controllerValue(controller.progressTotal - controller.progress, val);
     }
   }
-  return DEFAULT_SINK_VALUE[kind];
+  // Kind-level fallback from the goal's valuation (controllerStatic is the
+  // no-vision controller anchor - the pre-goal DEFAULT_SINK_VALUE numbers).
+  return kind === "spawn"
+    ? val.spawn
+    : kind === "construction"
+    ? val.construction
+    : kind === "controller"
+    ? val.controllerStatic
+    : val.storage;
 }
 
 /** Map a FlowGraph sink type to the planner's coarser sink kind. */
@@ -226,20 +240,50 @@ export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
   for (const roomName in Game.rooms) {
-    // FORGET SCAVENGERS FOR REMOTES (owner 2026-07-19): a remote source mines
-    // into its container, and detectRoomStocks sums that container into the
-    // ground pile - so the container's energy is planned as SCAVENGE supply and
-    // a scavenge hauler siphons it, stealing the energy from the source's own
-    // dedicated haul-home. The remote then "delivers" only a scavenge trickle
-    // while the colony burns its warchest. Scavenge ONLY owned rooms, where the
-    // controller-bucket overflow recapture is load-bearing (scavenge.ts); a
-    // remote source's energy is the miner's to haul home, not a scavenger's.
-    if (!Game.rooms[roomName].controller?.my) continue;
-    for (const stock of detectRoomStocks(Game.rooms[roomName])) {
-      out.push(stockToTransientSource(stock, `${roomName}-scavenge`));
+    // REMOTE SCAVENGE IS SPILL-ONLY (refining the 2026-07-19 ruling): the
+    // original incident was detectRoomStocks summing a remote CONTAINER into
+    // the pile, so scavengers siphoned the route's own supply and the colony
+    // burned its warchest while the remote "delivered" a trickle. The
+    // container stays structurally un-scavengeable here (includeContainers
+    // false) - but DROPPED piles in remote rooms are energy nobody's route
+    // will ever haul (a demoted source has no route at all; a funded route's
+    // spill exceeds its flow-sized haulers) and they DECAY at
+    // ceil(amount/1000)/t: measured t72446738, 25k standing at four remote
+    // mouths bleeding ~19 e/t - the colony's largest live leak. Threshold
+    // 1000 keeps the fleet off harvest jitter; only real spills qualify.
+    const owned = !!Game.rooms[roomName].controller?.my;
+    const stocks = owned
+      ? detectRoomStocks(Game.rooms[roomName])
+      : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
+    for (const stock of stocks) {
+      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos));
+      // Micro-route floor (owner 2026-07-20): a sub-floor rate plans a
+      // sub-1-CARRY route whose corp lifecycle costs more than it recovers
+      // (the E2/E5 churn loop) - leave those piles to opportunistic pickup.
+      if (src.rate >= SCAVENGE_RATE_FLOOR) out.push(src);
     }
   }
   return out;
+}
+
+/** Remote dropped piles must exceed this to field a scavenger (real spills
+ * decay ~1+/t at this size; harvest jitter stays below it). */
+export const REMOTE_SPILL_THRESHOLD = 1000;
+
+/** Walking distance estimate from a stock to its nearest spawn (linear-room
+ * approximation cross-room) - the effective-ttl input to scavengeRate. */
+function stockSpawnDistance(pos: Position): number {
+  if (typeof Game === "undefined" || !Game.spawns) return 0;
+  let best = Infinity;
+  for (const name in Game.spawns) {
+    const sp = Game.spawns[name].pos;
+    const d =
+      sp.roomName === pos.roomName
+        ? Math.abs(sp.x - pos.x) + Math.abs(sp.y - pos.y)
+        : roomLinearDistance(sp.roomName, pos.roomName) * 50;
+    if (d < best) best = d;
+  }
+  return best === Infinity ? 0 : best;
 }
 
 /**
@@ -303,21 +347,57 @@ export function storageRoomRemaining(roomName: string): number {
 }
 
 /**
- * Sources whose haul route ConstructionCorp has fully paved, by GAME id (the
- * `paved` receipt in room memory - see RoomMemory.roadRoutes). Graph source ids
- * carry a "source-" prefix, so callers match with stripFlowId. Live default for
- * buildColonyProblem; injectable for tests.
+ * Paved FRACTION of each source's haul route, by GAME id (the receipts in
+ * room memory - see RoomMemory.roadRoutes): the binary `paved` receipt reads
+ * as 1, an in-progress trunk's survey receipt as built/total (owner
+ * 2026-07-20: a 32/38 trunk already fields the 2:1 body - the repricing
+ * verdict is roadEconomics.partialPaveRatio, applied in buildColonyProblem).
+ * Graph source ids carry a "source-" prefix, so callers match with
+ * stripFlowId. Live default for buildColonyProblem; injectable for tests.
  */
-export function detectPavedSources(): Set<string> {
-  const paved = new Set<string>();
+export function detectPavedSources(): Map<string, number> {
+  const paved = new Map<string, number>();
   if (typeof Game === "undefined" || !Game.rooms) return paved;
   for (const roomName in Game.rooms) {
     const routes = Game.rooms[roomName].memory?.roadRoutes;
     for (const sourceId in routes ?? {}) {
-      if (routes![sourceId].paved) paved.add(sourceId);
+      const e = routes![sourceId];
+      if (e.paved) paved.set(sourceId, 1);
+      else if (!e.declined && e.total && e.built !== undefined) {
+        paved.set(sourceId, Math.min(1, e.built / e.total));
+      }
     }
   }
   return paved;
+}
+
+/**
+ * Sources whose trunk road is IN PROGRESS (owner 2026-07-21: "feed the Z-to-A
+ * remote builder from the source, and disable hauling anything home until the
+ * road is finished"): tiles3 planned, not yet paved, not declined. While in
+ * this set the source keeps its MINER (the pile is the road's fuel) but the
+ * plan routes none of its output home and CarryCorp fields no haulers for it
+ * (yieldsToBuild) - the whole 10 e/t builds the trunk from the source end,
+ * and hauling resumes at the 2:1 road rate the moment the paved receipt
+ * lands. Same receipts detectPavedSources reads; game ids (callers strip
+ * "source-").
+ */
+export function detectTrunkBuildingSources(): Set<string> {
+  const building = new Set<string>();
+  if (typeof Game === "undefined" || !Game.rooms) return building;
+  for (const roomName in Game.rooms) {
+    const routes = Game.rooms[roomName].memory?.roadRoutes;
+    for (const sourceId in routes ?? {}) {
+      const e = routes![sourceId];
+      // SURVEYED only (t72474584 regression: the planned-only lens dedicated
+      // all five remotes at once - three had no sites even PLACED, pure
+      // income loss for zero build progress). total is stamped by the first
+      // placement survey, so its presence = road sites actually stand and
+      // the Z-to-A crew has something to build.
+      if (e.tiles3 && !e.paved && !e.declined && e.total !== undefined) building.add(sourceId);
+    }
+  }
+  return building;
 }
 
 export function buildColonyProblem(
@@ -325,9 +405,12 @@ export function buildColonyProblem(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
-  pavedSources: Set<string> = detectPavedSources(),
+  pavedSources: Map<string, number> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
-  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY
+  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
+  valuation: SinkValuation = DEFAULT_VALUATION,
+  prevBankDraw?: number,
+  trunkBuildingSources: Set<string> = detectTrunkBuildingSources()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -336,22 +419,40 @@ export function buildColonyProblem(
   // the tower absorbs the raid for the cost of its shots (~0).
   const spawnRooms = new Set(spawns.map(s => s.pos.roomName));
 
-  const sources: PlannerSource[] = graph.getSources().map(s => ({
-    id: s.id,
-    nodeId: s.nodeId,
-    pos: s.position,
-    rate: s.capacity,
-    maxMiners: s.maxMiners,
-    haulPos: linkHaulPos.get(s.id),
-    ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {}),
-    ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
-  }));
+  const sources: PlannerSource[] = graph.getSources().map(s => {
+    // The mid-build repricing verdict (roadEconomics): a route >= 1/2 built
+    // already fields the 2:1 body; the fraction rides along so the planner
+    // sizes CARRY at the effective (crawl-corrected) distance.
+    const paveFrac = pavedSources.get(s.id.replace("source-", ""));
+    const pave = paveFrac === undefined ? undefined : partialPaveRatio(paveFrac, 1);
+    return {
+      id: s.id,
+      nodeId: s.nodeId,
+      pos: s.position,
+      rate: s.capacity,
+      maxMiners: s.maxMiners,
+      haulPos: linkHaulPos.get(s.id),
+      ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
+      ...(trunkBuildingSources.has(s.id.replace("source-", "")) ? { dedicatedToBuild: true } : {}),
+      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
+    };
+  });
   // Sustained income only: what mined sources yield per tick. Transient
   // stocks are real energy but ONE-OFF - sizing standing fleets or the
   // construction absorb rate to them publishes fantasy plans (measured on
   // the shard1 stress fixture: unhauled piles grew, inflating supply until
   // the plan wanted build 140 e/t / 316 CARRY against 20 e/t of mining).
-  const minedSupply = sources.reduce((sum, s) => sum + s.rate, 0);
+  // PHANTOM GUARD (t72444684 review finding): intel-only PROSPECTS - rooms
+  // scouted before their source ids were ever recorded - are not income
+  // (live: 31 of 38 candidates were "source-intel-*", 285 e/t of phantom
+  // inflating this valve term to 455). Prospects scouted WITH real ids
+  // still count (indistinguishable from mined by id alone - an accepted
+  // residual, bounded by the fill's bank-pool cap which is funded-credit
+  // sized post-solve either way).
+  const minedSupply = sources
+    .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"))
+    .filter(s => !s.dedicatedToBuild) // its 10 e/t builds the trunk at-site, not the home economy
+    .reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging), and so
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
   // is a ground-stock-shaped supply at the storage position).
@@ -428,7 +529,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: perInstanceSinkValue(kind, sink),
+      value: perInstanceSinkValue(kind, sink, valuation),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,
@@ -458,7 +559,24 @@ export function buildColonyProblem(
             // tapered, so construction may burn it - at 5 e/WORK-tick it
             // turns the bank into finished roads/structures 5x more
             // spawn-cheaply than upgrading burns the same energy.
-            Math.max(minedSupply + bankRate, 1)
+            // AND by the project's own absorb rate (prod t72444684, E4): the
+            // sink's remaining work through the SAME sum-of-projects lens
+            // that sizes the crew (primitives.projectAbsorbRate) - without
+            // it, one 455-energy site out-priced the controller for the
+            // ENTIRE 455 e/t supply, allocated 124 e/t, burned 0.45, and
+            // the warchest climbed to 8.3x target while upgrading starved.
+            Math.min(
+              Math.max(minedSupply + bankRate, 1),
+              // Horizon = the crew's buffered EFFECTIVE life: travel to the
+              // site (a founding a couple rooms over) shortens the working
+              // window, so the same work sizes a bigger crew there.
+              sink.progressRemaining !== undefined
+                ? projectAbsorbRate(
+                    sink.progressRemaining,
+                    spawns.length === 0 ? 0 : Math.min(...spawns.map(sp => dist(sp.pos, sink.position)))
+                  )
+                : Number.POSITIVE_INFINITY
+            )
           : kind === "storage"
           ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
             // a topped-out storage presents zero capacity, which is the owner's
@@ -485,7 +603,30 @@ export function buildColonyProblem(
   const remoteRooms = new Set(
     sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );
-  const infraPartsPerTick = infraSpawnLoad(STORAGE_UPGRADE_TARGET + bankRate, roomsWithStorage.size, remoteRooms.size);
+  // FEEDER PRICED AT THE REALIZED DRAW (prod t72447444, the starvation
+  // loop): pricing the relay at the FULL surplus (15 + bankRate = 115 live)
+  // charged 64p of infra for a relay whose actual consumers - starved by
+  // that very charge - drew ~2 e/t. Self-fulfilling: feeder priced for big
+  // consumers is WHY consumers stay small. The relay now prices at the
+  // PREVIOUS solve's realized bank draw, floored at STORAGE_UPGRADE_TARGET
+  // (so it can ratchet UP from the floor: cheap feeder -> parts free ->
+  // bigger consumer allocation -> next solve prices the feeder for it;
+  // converges in <=2 solves both directions). No history (first solve,
+  // harness, golden master) keeps the old full-surplus pricing.
+  const pricedRelay =
+    prevBankDraw !== undefined
+      ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))
+      : STORAGE_UPGRADE_TARGET + bankRate;
+  // Link-fed depots price the feeder at the storage->core-link leg (spec 24
+  // rung 3) - the SAME controllerLink lens the corp's sizing reads.
+  let linkFedRooms = 0;
+  if (typeof Game !== "undefined" && Game.rooms) {
+    for (const roomName of roomsWithStorage) {
+      const room = Game.rooms[roomName];
+      if (room && controllerLink(room)) linkFedRooms++;
+    }
+  }
+  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
 
   return {
     assembly,
@@ -573,17 +714,28 @@ export function solveColony(
   tick = 0,
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
-  bankSources: PlannerSource[] = detectBankSources()
-): { solution: FlowSolution; commissions: Commission[] } {
-  const problem = buildColonyProblem(
+  bankSources: PlannerSource[] = detectBankSources(),
+  goal?: Goal,
+  prevBankDraw?: number
+): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
+  const baseProblem = buildColonyProblem(
     graph,
     dist,
     transientSources,
     detectLinkHaulPositions(graph),
     detectPavedSources(),
-    bankSources
+    bankSources,
+    INVADER_TAX_PER_ENERGY,
+    compileGoal(goal),
+    prevBankDraw
   );
-  const plan = planColony(problem);
+  // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
+  // evaluator; the searcher may pin budget-dropped sources to spawns with
+  // slack. Under the default goal on a status-quo-optimal world it adopts
+  // nothing and the plan is bit-identical to the plain solve (the pin).
+  const searched = searchStructure(baseProblem);
+  const problem = searched.problem;
+  const plan = searched.plan;
   publishRoster(plan);
   const commissions = commissionsFromPlan(problem, plan);
 
@@ -606,7 +758,11 @@ export function solveColony(
     carryParts: h.carryParts,
     flowRate: h.flowRate,
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
-    spawnId: h.spawnId
+    spawnId: h.spawnId,
+    // The paved verdict rides through to telemetry (audit t72469936: the
+    // plan HAD repriced cd8e at 2:1 with crawl-corrected CARRY, but seg 6
+    // dropped the flag and the audit nearly called the repricing dead).
+    ...(h.paved ? { haulerRatio: "2:1" as const } : {})
   }));
 
   const sinkTypeById = new Map(graph.getSinks().map(s => [s.id, s.type]));
@@ -648,7 +804,7 @@ export function solveColony(
     computedAt: tick,
     sourceVerdicts: plan.sourceVerdicts
   };
-  return { solution, commissions };
+  return { solution, commissions, adopted: searched.adopted };
 }
 
 /** Re-export for the integration site. */

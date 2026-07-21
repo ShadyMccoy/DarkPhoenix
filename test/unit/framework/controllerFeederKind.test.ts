@@ -71,11 +71,11 @@ function installRoom(withStorage: boolean, withMiner: boolean): void {
     ? {
         structureType: "storage",
         my: true,
-        pos: { x: 26, y: 25, roomName: HOME },
+        pos: { x: 26, y: 25, roomName: HOME, findInRange: () => [] },
         store: { energy: 5000, getFreeCapacity: () => 995000, getUsedCapacity: () => 5000 }
       }
     : undefined;
-  const controllerPos = { x: 40, y: 25, roomName: HOME };
+  const controllerPos = { x: 40, y: 25, roomName: HOME, findInRange: () => [] };
   const controller = { my: true, level: 4, pos: controllerPos };
   const spawnPos = {
     x: 25,
@@ -172,26 +172,28 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(demands[0].bodyParam).to.equal(expected);
   });
 
-  it("clamps the relay to the PLAN's controller flow when construction preempts the bank (owner incident t72421124)", async () => {
-    // Live: controller floored at 2 e/t (construction absorbed the surplus)
-    // while the feeder fielded 3 shuttles / 94 parts relaying 115 e/t into a
-    // FULL 2000 stock. The feeder must serve the plan's controller-side flow
-    // (its allocation + refill headroom), not the raw surplus formula - two
-    // consumers cannot both be sized for the same bank draw.
-    const { WARCHEST_TARGET } = await import("../../../src/economy/bank");
+  it("clamps the relay to the PLAN's controller flow in the SAVE regime (t72421124, post-daec503 form)", async () => {
+    // The original incident (t72421124): controller floored at 2 e/t while
+    // the feeder fielded 94 parts relaying 115 e/t into a FULL 2000 stock -
+    // consumers plan-capped tiny while the feeder sized to raw surplus. Since
+    // daec503 that mismatch class cannot occur IN SURPLUS: the upgraders size
+    // from actuals there (the goal plan is not a cap - owner doctrine), so
+    // the feeder now matches them (feederRelayTarget: surplus -> surplusRate;
+    // prod t72455355 measured the half-fixed state - upgraders assuming 115
+    // while the clamped feeder relayed 7, stock 1520 -> 60, burn 11 of 115).
+    // The clamp's guard therefore lives in the NON-surplus regime: while the
+    // warchest fills, the relay serves the plan's controller flow only.
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
     const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
 
-    installRoom(true, true);
-    (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = WARCHEST_TARGET + 100_000;
+    installRoom(true, true); // bank at 5000: below the warchest target (save regime)
 
     corp.setControllerAllocation(2); // the plan's floored controller sink
     const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
     expect(demands).to.have.length(1);
-    // Sized for ~2+headroom e/t over the 15-range leg - ONE small shuttle,
-    // nowhere near the 13-CARRY surplus body (needed 35+ carry for 115 e/t).
+    // Sized for ~2+headroom e/t over the 15-range leg - ONE small shuttle.
     const clampedMax = Math.ceil(carryPartsFor(2 + 5, 15) * 1.2);
     expect(demands[0].bodyParam).to.be.at.most(clampedMax);
   });

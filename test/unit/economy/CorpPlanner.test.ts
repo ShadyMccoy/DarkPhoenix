@@ -17,6 +17,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "../../../src/economy/primitives";
+import { effectiveOneWayTiles } from "../../../src/economy/roadEconomics";
 import { Position } from "../../../src/types/Position";
 
 // 1-D world: everything in one room, distance = |dx| + |dy|, so we can place a
@@ -433,6 +434,98 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("production-first parts ledger (prod t72445337: 70 e/t funded, 0 routed)", () => {
+    // The pure value pass filled consumers first; deposits (mined -> hub) sat
+    // at storage's value 1 and got the ledger's LEAVINGS - one live solve's
+    // bank->consumer routes plus upgrade WORK charges drained partsLeft to
+    // 0.0 and all seven funded sources got zero haul routes: the plan read
+    // feasible while 70 e/t of income rotted at the containers. Parts now
+    // follow the macro doctrine: spawn overhead, then the funded income's
+    // haul-home, then consumers burn the residual.
+    it("routes the funded deposit BEFORE consumer draws when parts bind (the incident)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("remote", 40, 10), stock("bank-home", 2, 200)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 5),
+            sink("ctrl", "controller", 5, 50, 200),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
+          // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
+          // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
+          infraPartsPerTick: 0.297
+        })
+      );
+      const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
+      expect(deposit, "the funded source's haul-home exists even under consumer pressure").to.not.equal(undefined);
+      expect(deposit!.flowRate, "the deposit routes the FULL rate").to.be.closeTo(10, 1e-6);
+      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      expect(spawnSink.allocated, "spawn overhead still funded first").to.be.closeTo(5, 1e-6);
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      expect(ctrl.allocated, "the consumer burns the RESIDUAL parts").to.be.greaterThan(1);
+      expect(ctrl.allocated, "not the deposit's share").to.be.lessThan(15);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "remote")!.verdict).to.equal("funded");
+    });
+
+    it("FUNDED => ROUTED: a source whose deposit gets ZERO parts demotes to 'unrouted' (no miner for rot)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // A (closer to the hub) partially routes and exhausts the ledger;
+          // B's deposit gets nothing - a B miner would mine for pure rot.
+          sources: [source("A", 30, 20), source("B", 45, 10), stock("bank-home", 2, 200)],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 1),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          infraPartsPerTick: 0.302
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "A")!.verdict, "partial routing stays funded").to.equal("funded");
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "B")!.verdict).to.equal("unrouted");
+      const aDeposit = plan.haulers.find(h => h.sourceId === "A" && h.sinkId === "store");
+      expect(aDeposit!.flowRate, "A ships what the ledger affords").to.be.greaterThan(5);
+      expect(aDeposit!.flowRate).to.be.lessThan(19);
+      expect(plan.haulers.some(h => h.sourceId === "B"), "no phantom B route").to.equal(false);
+    });
+  });
+
+  describe("recovery competes on route economics; SIZING keeps it from crowding (owner 2026-07-20)", () => {
+    it("a RIGHT-SIZED near recovery coexists with the mined route in the same tight ledger", () => {
+      // The t72447104 displacement replayed: a near backlog stock + a far
+      // mined source in a ledger that once could not hold both. The fix is
+      // SIZING, not ranking - scavengeRate now drains the halfway amount
+      // over an effective ttl (a 16k stock asks ~5 e/t, not the old 20), so
+      // nearest-first routes the cheap recovery AND the mined route fits.
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [
+            source("mined", 30, 10),
+            { ...stock("scavenge-big", 5, 5.5), transient: true }, // ~16k pile at the new rate
+            stock("bank-home", 2, 50)
+          ],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 1),
+            sink("store", "storage", 2, 1, 1000)
+          ],
+          infraPartsPerTick: 0.31
+        })
+      );
+      const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");
+      expect(scav, "the near recovery routes (already-extracted energy is the cheapest there is)").to.not.equal(
+        undefined
+      );
+      const minedRoute = plan.haulers.find(h => h.sourceId === "mined" && h.sinkId === "store");
+      expect(minedRoute, "and the mined route still fits beside it").to.not.equal(undefined);
+      expect(minedRoute!.flowRate).to.be.closeTo(10, 1e-6);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "mined")!.verdict).to.equal("funded");
+    });
+  });
+
   describe("storage-full defund (owner 2026-07-19: top out the storage -> defund the WHOLE corp)", () => {
     // The all-or-nothing rule. A remote source is fully funded (miner + hauler
     // + reserver + container) or fully defunded - never a miner mining into a
@@ -699,6 +792,40 @@ describe("Phase 2 - paved routes (roads)", () => {
     // 2:1 road hauler: 1.5 parts per CARRY instead of 2 - the spawn-budget payoff
     expect(pavedHauler.spawnParts).to.be.closeTo((1.5 * pavedHauler.carryParts) / (1500 - pavedHauler.distance), 1e-9);
     expect(plainHauler.spawnParts).to.be.closeTo((2 * plainHauler.carryParts) / (1500 - plainHauler.distance), 1e-9);
+  });
+
+  it("a PARTIALLY paved route sizes CARRY at the EFFECTIVE distance (owner: 32/38 still optimizes)", () => {
+    // The 2:1 body is already the winner at >= 1/2 built, but its loaded leg
+    // crawls the unpaved stretch - CARRY must cover the true round-trip TIME
+    // (ticks, not tiles) or the fleet is undersized until the last tile lands.
+    const fraction = 32 / 38;
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("a", 10), paved: true, pavedFraction: fraction }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    const h = plan.haulers.find(x => x.sourceId === "a")!;
+    expect(h.paved).to.equal(true);
+    const dEff = effectiveOneWayTiles(h.distance, fraction, 2);
+    expect(h.carryParts).to.be.closeTo(carryPartsFor(h.flowRate, dEff), 1e-9);
+    // the unpaved-stretch tax is real: more CARRY than the fully paved sizing...
+    expect(h.carryParts).to.be.greaterThan(carryPartsFor(h.flowRate, h.distance));
+    // ...priced at the road body's 1.5 parts per CARRY, life at the real walk
+    expect(h.spawnParts).to.be.closeTo((1.5 * h.carryParts) / (1500 - h.distance), 1e-9);
+  });
+
+  it("a fully paved receipt (no fraction - the legacy shape) sizes exactly as before", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("a", 10), paved: true }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    const h = plan.haulers.find(x => x.sourceId === "a")!;
+    expect(h.carryParts).to.be.closeTo(carryPartsFor(h.flowRate, h.distance), 1e-9);
   });
 });
 

@@ -16,25 +16,17 @@
 export {
   // Constants
   PLANNING_INTERVAL,
-  CONTRACT_DURATION,
   // Init phase (lazy initialization)
   needsInit,
   initCorps,
   InitResult,
   // Survey phase
-  runSurveyPhase,
-  SurveyResult,
   getLastSurveyTick,
   setLastSurveyTick,
   // Planning phase (refreshes corp production targets)
   shouldRunPlanning,
-  runPlanningPhase,
-  PlanningResult,
   // Execution phase
-  runExecutionPhase,
-  ExecutionResult,
   // Status
-  getOrchestrationStatus,
   // Persistence
   getLastPlanningTick,
   setLastPlanningTick

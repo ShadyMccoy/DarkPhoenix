@@ -113,11 +113,11 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
 
   it("rung 3 - EXECUTE: run() requests a scout via the injected SpawningCorp when a stale room exists", () => {
     installHomeSpawn();
-    const calls: { role: string; corpId: string; budget: number }[] = [];
+    const calls: { kind: string; role: string; corpId: string; budget: number }[] = [];
     const stub = {
       countPendingOrdersFrom: () => 0,
-      executeSpawn: (role: string, corpId: string, budget: number) => {
-        calls.push({ role, corpId, budget });
+      executeSpawn: (kind: string, role: string, corpId: string, budget: number) => {
+        calls.push({ kind, role, corpId, budget });
         return true;
       }
     } as unknown as SpawningCorp;
@@ -127,7 +127,7 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
     materializeCommissions(planCommissions(world).commissions, store);
     runCommissionedCorps(store, Game.time); // W1N2 has no intel -> stale -> spawn
     expect(calls).to.have.length(1);
-    expect(calls[0]).to.deep.include({ role: "scout", budget: 50 });
+    expect(calls[0]).to.deep.include({ kind: "scout", role: "scout", budget: 50 });
 
     runCommissionedCorps(store, Game.time + 1); // inside SCOUT_SPAWN_COOLDOWN
     expect(calls).to.have.length(1);

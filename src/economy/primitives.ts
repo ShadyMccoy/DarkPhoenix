@@ -119,6 +119,46 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
 }
 
 /**
+ * Fraction of a crew's EFFECTIVE life (lifetime minus travel) a project
+ * should complete within (owner 2026-07-20: "limit the builders to the size
+ * that would complete the whole construction project during their lifetime
+ * ... Let's have a bit of a buffer. We don't want it 99% finished. And
+ * there's travel time. We can aim for around 1,000 but in any case it
+ * should be based on effective ttl (i.e. excluding travel time) not a hard
+ * constant. Since we might, for example, be trying to build up a spawn in a
+ * couple rooms over."). 2/3 of a full 1500 life = the owner's ~1000 at zero
+ * travel; a build site 100 tiles out gets 2/3 of 1400.
+ */
+export const PROJECT_COMPLETION_FRACTION = 2 / 3;
+
+/** The sizing horizon for a crew working `travelDistance` from its spawn. */
+export function projectBuildHorizon(travelDistance: number): number {
+  return Math.max(1, PROJECT_COMPLETION_FRACTION * effectiveLife(travelDistance));
+}
+
+/**
+ * The energy/tick a body of construction WORK can usefully absorb: finish the
+ * outstanding site work within the buffered effective life of the crew,
+ * floored at one small builder (5 e/t = 1 WORK - the granularity floor). A
+ * crew sized this way finishes with margin before it dies - no 99%-stranded
+ * projects, no spawned WORK-ticks idling long after completion; the
+ * un-claimed energy scores at the controller via the value pass ("the rest
+ * flows back to upgrading in the planner"). The SUM-OF-PROJECTS lens (owner
+ * 2026-07-19: "a construction project is a finite tile list with a computable
+ * total cost"), shared by the EXECUTION crew sizing (ConstructionCorp.
+ * builderPlan) and the PLAN's construction-sink capacity (flowAdapter) - the
+ * two MUST read the same formula, or the plan allocates energy the crew will
+ * never burn (measured prod t72444684: a 455-energy extension site was
+ * granted 124 e/t of bank draw, actual burn 0.45 e/t, warchest +7.66/t to
+ * 8.3x target while the controller got 2 e/t). Batching a structure SET into
+ * visible sites raises `remainingWork` and with it the crew cap - the
+ * owner's focused-burst lever under this rule.
+ */
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0): number {
+  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance));
+}
+
+/**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
  * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
  * energy allocation into the standing bodies that burn it.
@@ -174,13 +214,22 @@ const FEEDER_NOMINAL_DISTANCE = 6;
  * frees the parts). Fed to the planner as ColonyProblem.infraPartsPerTick by
  * the flow adapter, so the sink fill spends only what is truly left.
  */
-export function infraSpawnLoad(relayRate: number, depotRoomCount: number, remoteRoomCount: number): number {
+export function infraSpawnLoad(
+  relayRate: number,
+  depotRoomCount: number,
+  remoteRoomCount: number,
+  linkFedRoomCount = 0
+): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
   // worlds ~5-7% of the parts budget for infra that cannot exist there
   // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
-  const feeder =
-    depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, FEEDER_NOMINAL_DISTANCE)) / effectiveLife(FEEDER_NOMINAL_DISTANCE) : 0;
+  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
+  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th
+  // the CARRY for the same relay. Priced like the original: one feeder
+  // detail for the depot room (multi-depot pricing arrives with expansion).
+  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
   const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body, per depot room
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE

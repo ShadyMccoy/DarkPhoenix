@@ -1,7 +1,11 @@
 # 00 — The Corp Framework (the keystone)
 
-**Status:** partially real, not yet enforced. This spec is the deliverable the
-others serve.
+**Status:** COMPLETE — migration done (all kinds run through CommissionHost);
+the registration-only story and its mechanical enforcement landed in
+[spec 17](17-ontology-layers.md), which supersedes this spec's §D grep gates
+(they are encoded as tests there: registrationOnly / purity / bodyEquivalence /
+collectDemandsPolicy). Kept for the design rationale and the proof-ladder
+method.
 **Priority:** P0 — every other spec gets cheaper once this lands; specs 02,
 03, 06, 07 should be implemented AS corp kinds through this framework.
 

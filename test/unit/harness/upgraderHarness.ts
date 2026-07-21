@@ -144,6 +144,7 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
       if (!result) break;
 
       const ok = spawning.executeSpawn(
+        result.demand.kind ?? "",
         result.demand.role,
         result.demand.buyerCorpId,
         result.energyBudget,

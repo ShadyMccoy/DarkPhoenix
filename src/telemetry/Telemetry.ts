@@ -54,25 +54,6 @@ export interface CorpCensusEntry {
   corp: Corp;
 }
 
-/**
- * Map from a corp's commission `kind` to the human creep-role bucket in the
- * core telemetry census. Every creep-owning kind appears here; `spawning` is
- * intentionally absent (it spawns other corps' creeps and is tracked by
- * pending orders, not by a creep count of its own).
- */
-const KIND_TO_CREEP_BUCKET: Record<string, keyof CoreTelemetry["creeps"]> = {
-  bootstrap: "bootstrap",
-  harvest: "miners",
-  carry: "haulers",
-  upgrade: "upgraders",
-  construction: "builders",
-  scout: "scouts",
-  reservation: "reservers",
-  tender: "tankers",
-  controllerFeeder: "feeders",
-  claim: "claimers"
-};
-
 /** Live creep count for any corp, whichever accessor it exposes. */
 function corpCreepCount(corp: Corp): number {
   const c = corp as unknown as { getCreepCount?: () => number; getPendingOrderCount?: () => number };
@@ -201,16 +182,28 @@ export interface CoreTelemetry {
     total: number;
     tracked: number;
     untracked: number;
-    bootstrap: number;
-    miners: number;
-    haulers: number;
-    upgraders: number;
-    scouts: number;
-    builders: number;
-    reservers: number;
-    tankers: number;
-    feeders: number;
-    claimers: number;
+    /**
+     * Creeps whose memory.corpId matches NO census corp (id-match lens,
+     * distinct from the count-difference lens above) - the X3 leak, named.
+     * Capped at 8 rows; absent when empty.
+     */
+    unattributed?: { name: string; corpId: string | null; workType?: string; ttl?: number }[];
+    /**
+     * Corps whose id-attributed creep count differs from their own
+     * getCreepCount - the counting-lens mismatch that explains untracked>0
+     * with an empty unattributed roster. Rows only where the two differ,
+     * capped at 8.
+     */
+    countMismatch?: { corpId: string; claimed: number; counted: number }[];
+    /**
+     * Creep counts keyed by commission KIND (harvest/carry/...), derived from
+     * the census generically: a registered kind whose corps expose
+     * getCreepCount is counted by construction (the hand-maintained bucket
+     * map this replaces had already silently dropped raidGuard + coreBuster).
+     * `spawning` never appears (it spawns other corps' creeps and exposes
+     * pending orders, not a creep count).
+     */
+    byKind: { [kind: string]: number };
   };
   /**
    * ACTUAL body parts across every live creep, measured from `Creep.body` (not
@@ -253,6 +246,34 @@ export interface CoreTelemetry {
       queue: unknown[];
       executed: unknown[];
     };
+  };
+  /**
+   * Per-source BUFFER levels (v7 additive): energy standing at each visible
+   * source's mouth - container store within range 1 plus dropped piles
+   * within range 1 - keyed by the source id's last 6 chars. The over/under
+   * haul diagnostic (owner 2026-07-20): a buffer pinned near container cap
+   * (2000) means mining outruns hauling (rot); chronically ~0 with an
+   * active miner means hauling has headroom (or over-provision). Only
+   * rooms with vision contribute.
+   */
+  sourceBuffers?: { [idTail: string]: number };
+  /**
+   * Our construction sites in visible UNOWNED rooms (v9): the owned-room
+   * ledger's siteCount misses cross-room trunk paving entirely - the P8
+   * owned-room blindness (owner 2026-07-20). Keyed by room name; rooms with
+   * zero sites are omitted.
+   */
+  remoteSites?: { [roomName: string]: number };
+  /**
+   * P-CPU meter snapshot (v10): last tick's moveTo CPU per corp family
+   * (Memory.pathMeter verbatim) - the BEFORE number for spec 23's cached
+   * routes, naming the top pathing spender.
+   */
+  pathMeter?: {
+    tick: number;
+    calls: number;
+    cpu: number;
+    byCorp: { [family: string]: { calls: number; cpu: number } };
   };
   /** Owned rooms summary */
   rooms: {
@@ -612,31 +633,63 @@ export class Telemetry {
    * Updates core telemetry (Segment 0).
    */
   private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[], bodyParts: BodyAggregate): void {
-    // Creep census: one bucket per creep-owning kind, summed from the complete
-    // corp list so every kind is counted (no more silent undercount).
+    // Creep census keyed by kind, summed generically from the complete corp
+    // list: every creep-owning kind is counted by construction. Only corps
+    // that expose getCreepCount contribute (spawning tracks pending orders,
+    // not creeps of its own).
     const creeps: CoreTelemetry["creeps"] = {
       total: Object.keys(Game.creeps).length,
       tracked: 0,
       untracked: 0,
-      bootstrap: 0,
-      miners: 0,
-      haulers: 0,
-      upgraders: 0,
-      scouts: 0,
-      builders: 0,
-      reservers: 0,
-      tankers: 0,
-      feeders: 0,
-      claimers: 0
+      byKind: {}
     };
     for (const { kind, corp } of census) {
-      const bucket = KIND_TO_CREEP_BUCKET[kind];
-      if (!bucket) continue; // spawning (and any non-creep kind) is not a creep bucket
-      const n = corpCreepCount(corp);
-      creeps[bucket] += n;
+      const counter = corp as unknown as { getCreepCount?: () => number };
+      if (typeof counter.getCreepCount !== "function") continue;
+      const n = counter.getCreepCount();
+      creeps.byKind[kind] = (creeps.byKind[kind] ?? 0) + n;
       creeps.tracked += n;
     }
     creeps.untracked = Math.max(0, creeps.total - creeps.tracked);
+    // NAME the leak (X3 sat at 3-4 for days with no names): creeps whose
+    // memory.corpId resolves to NO census corp, listed with the id they
+    // claim. This is its OWN lens (id-match), deliberately separate from the
+    // count difference above (corp-side getCreepCount) - the two disagreeing
+    // is itself a diagnostic (a corp counting creeps it doesn't own, or one
+    // owning creeps it doesn't count).
+    const censusIds = new Set(census.map(c => (c.corp as unknown as { id?: string }).id).filter(Boolean));
+    const unattributed: NonNullable<CoreTelemetry["creeps"]["unattributed"]> = [];
+    for (const name in Game.creeps) {
+      const m = (Game.creeps[name].memory ?? {}) as { corpId?: string; workType?: string };
+      if (m.corpId && censusIds.has(m.corpId)) continue;
+      if (unattributed.length >= 8) break;
+      unattributed.push({
+        name,
+        corpId: m.corpId ?? null,
+        ...(m.workType ? { workType: m.workType } : {}),
+        ...(Game.creeps[name].ticksToLive !== undefined ? { ttl: Game.creeps[name].ticksToLive } : {})
+      });
+    }
+    if (unattributed.length > 0) creeps.unattributed = unattributed;
+    // The two lenses disagreeing NAMES the leak class (t72445817: untracked 3,
+    // unattributed EMPTY - so corps exist that don't COUNT creeps they own,
+    // the newborn/recycling counting-lens class, not orphans). This export
+    // names the corp: id-attributed creep count vs the corp's own
+    // getCreepCount, rows only where they differ.
+    const claimedByCorp = new Map<string, number>();
+    for (const name in Game.creeps) {
+      const cid = ((Game.creeps[name].memory ?? {}) as { corpId?: string }).corpId;
+      if (cid) claimedByCorp.set(cid, (claimedByCorp.get(cid) ?? 0) + 1);
+    }
+    const countMismatch: NonNullable<CoreTelemetry["creeps"]["countMismatch"]> = [];
+    for (const { corp } of census) {
+      const c = corp as unknown as { id?: string; getCreepCount?: () => number };
+      if (!c.id || typeof c.getCreepCount !== "function") continue;
+      const claimed = claimedByCorp.get(c.id) ?? 0;
+      const counted = c.getCreepCount();
+      if (claimed !== counted && countMismatch.length < 8) countMismatch.push({ corpId: c.id, claimed, counted });
+    }
+    if (countMismatch.length > 0) creeps.countMismatch = countMismatch;
 
     // Get colony stats
     const stats = colony?.getStats() || {
@@ -670,6 +723,48 @@ export class Telemetry {
           })()
         });
       }
+    }
+
+    // Source buffers (owner 2026-07-20): container + pile at each visible
+    // source's mouth - the over/under-haul read.
+    const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      let sources: Source[] = [];
+      try {
+        sources = room.find(FIND_SOURCES);
+      } catch {
+        continue; // partial mocks without FIND_SOURCES wired
+      }
+      for (const source of sources) {
+        let stock = 0;
+        for (const s of source.pos.findInRange(FIND_STRUCTURES, 1)) {
+          if (s.structureType === STRUCTURE_CONTAINER) {
+            stock += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
+          }
+        }
+        for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+          if (r.resourceType === RESOURCE_ENERGY) stock += r.amount ?? 0;
+        }
+        sourceBuffers[source.id.slice(-6)] = stock;
+      }
+    }
+
+    // Remote construction sites (v9): the rooms[] ledger below covers OWNED
+    // rooms only, which left the P8 build read blind to cross-room trunk
+    // paving - a healthy remote build looked like "no sites standing"
+    // (owner 2026-07-20). Visible unowned rooms with our sites, counted.
+    const remoteSites: NonNullable<CoreTelemetry["remoteSites"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (room.controller?.my) continue;
+      let count = 0;
+      try {
+        count = room.find(FIND_MY_CONSTRUCTION_SITES).length;
+      } catch {
+        continue; // partial mocks
+      }
+      if (count > 0) remoteSites[roomName] = count;
     }
 
     // Spawn meter readout (phase 3): measured utilization from the Memory windows.
@@ -709,7 +804,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 6, // v5 spawn meter + NOW-plan mirror; v6 site progress (ledger P8)
+      version: 10, // v9 remoteSites; v10 pathMeter (spec 23 step 1 - the pathing BEFORE number)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -732,6 +827,9 @@ export class Telemetry {
       bodyParts,
       spawns,
       agenda,
+      ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
+      ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+      ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
       rooms
     };
 

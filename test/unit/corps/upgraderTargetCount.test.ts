@@ -65,19 +65,35 @@ describe("upgraderAllocation", () => {
     expect(upgraderAllocation(15, 2000, null)).to.be.closeTo(sustainableConsumptionRate(2000, 2), 1e-9);
   });
 
-  it("surplus regime: the feeder relay is real inflow and the fleet scales to the plan", () => {
+  it("surplus regime: sized from ACTUALS - the plan is not a cap (prod t72448020)", () => {
     const banked = WARCHEST_TARGET + 100_000;
-    // plan opened to 30 by the bank draw; relay 35 + stock term clears it, so
-    // the PLAN caps the fleet (planner authority), not the drip-fed stock.
-    expect(upgraderAllocation(30, 2000, banked)).to.be.closeTo(30, 1e-9);
-    // and the uncapped sizing is exactly the shared-primitives formula
-    expect(upgraderAllocation(999, 2000, banked)).to.be.closeTo(
-      sustainableConsumptionRate(2000, feederRelayRate(banked)),
-      1e-9
-    );
+    // The old pin let the plan cap the surplus fleet; live, a
+    // parts-exhausted fill pinned planAllocated at the reserve 2 while
+    // stock 2000 + relay + 234k banked stood ready - the goal-plan cap
+    // held the burn at 2 e/t forever. Macro doctrine: consumers are sized
+    // from actual stock at the work site, never from the goal plan; the
+    // NOW-walk arbitrates spawn feasibility. In surplus BOTH calls now
+    // return the shared-primitives actuals formula, plan number ignored.
+    const actuals = sustainableConsumptionRate(2000, feederRelayRate(banked));
+    expect(upgraderAllocation(30, 2000, banked)).to.be.closeTo(actuals, 1e-9);
+    expect(upgraderAllocation(999, 2000, banked)).to.be.closeTo(actuals, 1e-9);
   });
 
   it("never sizes below the anti-downgrade floor", () => {
     expect(upgraderAllocation(15, 0, null)).to.equal(2);
+  });
+
+  it("surplus + CONSTRUCTION STANDING: the plan is the cap again (owner 2026-07-21)", () => {
+    // "Construction is going to be an investment in our future upgrading
+    // abilities" - with sites standing, the surplus belongs to the build
+    // set and upgraders eat the plan's residual (min(plan, sustainable)),
+    // exactly the save-regime shape. Same lens as the feeder
+    // (constructionStanding = buildPool nonempty), so the chain cannot
+    // fight itself.
+    const banked = WARCHEST_TARGET + 100_000;
+    const clamped = upgraderAllocation(12, 2000, banked, true);
+    expect(clamped).to.be.at.most(12);
+    // and without construction the unclamped actuals still rule:
+    expect(upgraderAllocation(12, 2000, banked, false)).to.be.greaterThan(12);
   });
 });

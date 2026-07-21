@@ -276,3 +276,93 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     expect(node.resources.filter((r) => r.type === "source")).to.have.length(0);
   });
 });
+
+/**
+ * Remote sources enter the pool UNCONDITIONALLY (owner 2026-07-20: "Shutting
+ * down remote mining doesn't help. Maybe defunding it (not spawning more
+ * creeps for it) but this type of rule you're explaining tends to backfire.
+ * It's a bandaid."). The home-first gate that lived here caused two measured
+ * remote-drop incidents (t72444963, t72448082): its response to a home
+ * staffing gap was to REVOKE remote commissions - stranding the standing
+ * fleet (238 body parts, income 46 -> 20 e/t in #2) - and each incident was
+ * then patched with another layer (sticky window, agenda reads) on a rule
+ * whose core action is never the right response. The correct home-first
+ * mechanism is DEFUNDING through spawn priority, and it already exists:
+ * blocking home income outranks remote scaling in spawnPriority's strict
+ * tiers, so a distressed home starves remote SPAWNING while the standing
+ * remote fleet keeps working its profitable routes. The cold-start breadth
+ * tax the gate was built for (a remote opening against an unstaffed home)
+ * is pinned by the plan-t5-remote-pipeline grid cell, which must stay green
+ * without it.
+ */
+describe("remote sources are claimed regardless of home staffing (the gate is retired)", () => {
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_SOURCES = FIND_SOURCES;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MINERALS = 106;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_MY_SPAWNS = 112;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game = { ...MockGame, creeps: {}, rooms: {}, spawns: { Spawn1: { owner: { username: "me" } } }, time: 100 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Memory = { creeps: {}, rooms: {}, roomIntel: {} };
+  });
+
+  /** An OWNED home room whose single source has NO live miner/hauler - the
+   * staffing-gap world that used to relock remotes. */
+  function gappedHome(): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.creeps = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.rooms = {
+      W0N0: {
+        controller: { my: true },
+        find: (t: number) => (t === FIND_SOURCES ? [{ id: "src-home", pos: { x: 10, y: 10, roomName: "W0N0" } }] : [])
+      }
+    };
+  }
+
+  function remoteWorld(): { colony: Colony; result: MultiRoomAnalysisResult; node: ReturnType<typeof createNode> } {
+    const colony = new Colony();
+    const node = createNode("n-remote", "W1N0", { x: 25, y: 25, roomName: "W1N0" }, 4, ["W1N0"], 100);
+    colony.addNode(node);
+    const result = resultWith("n-remote", [
+      { x: 25, y: 25, roomName: "W1N0" },
+      { x: 24, y: 25, roomName: "W1N0" },
+      { x: 26, y: 25, roomName: "W1N0" }
+    ]);
+    return { colony, result, node };
+  }
+
+  it("claims a remote source while the home is fully unstaffed - the revocation shape, retired", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 200_000; // beyond every historical sticky/memo regime
+    const { colony, result, node } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(200_000, 25, 25) as never;
+    // No live staff, no queued orders, no sticky window - the exact world
+    // that used to drop five funded sources. The planner's economics and the
+    // spawn-priority tiers own the sequencing now; claiming must not flinch.
+
+    refreshNodeResources(colony, result);
+    expect(
+      node.resources.filter(r => r.type === "source"),
+      "an unstaffed home must not revoke remote claims"
+    ).to.have.length(1);
+  });
+
+  it("writes no gate stamp - the decision record retires with the decision", () => {
+    gappedHome();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).Game.time = 220_000;
+    const { colony, result } = remoteWorld();
+    Memory.roomIntel!["W1N0"] = intelWithSource(220_000, 25, 25) as never;
+
+    refreshNodeResources(colony, result);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((Memory as any).remoteGate, "no relock decision exists to record").to.equal(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((Memory as any).remotesUnlockedUntil, "no sticky window survives").to.equal(undefined);
+  });
+});

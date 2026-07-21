@@ -168,6 +168,572 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (owner-directed) — CONSTRUCTION-FIRST SURPLUS: sites standing condition the surplus draw
+
+Owner: "when construction is around ... the planner [should be] even more
+aggressive and funneling energy to construction. Upgrading is secondary
+... an investment in our future upgrading abilities ... it might
+represent more hauling ... even than working." Finding: the ROUTING
+ladder already delivers this - controllerValue at the RCL6 mid-grind is
+~44 vs construction's 70 (the owner's own 99%-done crossover preserved
+at 80 > 70) - but the SURPLUS-ACTUALS chain (daec503 + feederRelayTarget)
+bypassed the plan entirely in surplus, built in a zero-construction era:
+during a build burst it would relay 115/t controller-ward past the
+standing sites.
+
+SHIPPED: constructionStanding (ONE lens = buildPool nonempty, the same
+pool that sizes and drives the crew) conditions both halves - the feeder
+relay re-respects min(surplus, planFlow + headroom) and upgraderSizing
+eats min(plan, sustainable(stock, planFlow + headroom)) while sites
+stand; a construction-free surplus stays unclamped-actuals (the pinned
+t72448020 behavior). The logistics half follows automatically: the
+plan's construction-first allocation flows through the existing
+buildEnergy / tanker / deposit-haul sizing. Pins: feeder clamp-returns,
+upgrader plan-cap-returns, both with the no-construction contrast. Unit
+1100; trio green. DEPLOYED.
+
+Predictions: while the link site stands, controller allocation/burn
+tempers toward the plan residual and the build side eats the difference
+(link completes FASTER); when the pool empties, the surplus unclamps and
+burn snaps back to actuals. E4 slope stays negative through both phases.
+Cycle verdict: fixed (doctrine conditioned).
+
+### 2026-07-21 (cron cycle, +2075t) — SWAP VERIFIED: the controller link is half-built
+
+The whole chain executed: source-link retired (slot freed) -> link SITE
+at the controller (5000 total) -> the pool crew is building it - 2483/
+5000 at capture, cons 7 fielded. Feeder correctly still distance 6 (the
+lens flips on COMPLETION). Expected transient swap cost visible: cd92's
+buffer near-full (2.6k) while its hauling corp re-fields the hauler its
+link used to replace - watch next capture.
+
+Window softness: burn 19.7 (upgr fell to 1 again mid-window), util 0.65
+across a deploy reset + generation wave, PARTS 334 (-0.09/t), bank +2.7
+-> E4 re-FAIL. The structural answer to the upgrader-gap cadence IS the
+in-flight chain (link frees ~42p of plan pricing -> more consumer
+slots) plus spec 24 circulation. No new fix this cycle - the link
+completes within ~1 window at the current build rate; then: input
+election re-anchors, feeder linkFed/distance 1, P4 feeder 64p -> ~22p,
+LinkRunner starts firing. Cycle verdict: verified (swap chain);
+E4 carries pending the link.
+
+### 2026-07-21 (cron cycle, +1000t) — LINK MYSTERY SOLVED: the slot table was full; the swap ships
+
+Scoreboard: burn 39.3 (recovered - 4 upgraders/121 WORK fielding), BANK
+-16.5/t (241k, 8.7xT), income 1.00x, no FAIL lines. The pool crew's
+tempo read carries again (trunk 32/38; the 1W pool builder's progress
+not yet visible in the gate).
+
+THE LINK: the merged stamp was decisive by ABSENCE - no placeAttempt =>
+findMissingLink nulls before placing => walked its checks against
+evidence => RCL6's THREE slots are FULL: core + BOTH source links (the
+plan has modeled cd90 AND cd92 as distance-1 edges since t72448186 -
+the two source links were there all along; "we field 2" was an
+unexamined assumption). The blanket `all.length >= limit -> null` sat
+ABOVE the controller step: silent starvation, forever, no stamp.
+
+FIX (red-first): LINK SWAP - with the table full, no controller link,
+and a wanted tile, the ladder retires the source link whose source sits
+NEAREST the storage (smallest haul saved; ~15:1 against the feeder's
+64p pricing), stamps linkSwap, and places the controller link on the
+freed slot next cooldown. The retired source's container + hauler
+resume seamlessly (sourceLink/supersededByLink lenses re-read). Each
+rung now guards the limit itself. Unit 1098; trio green. DEPLOYED.
+
+Predictions: linkSwap stamp + one source link destroyed within a
+cooldown; link SITE within the next; pool crew builds it (~5k); then
+the feeder flips linkFed and P4's feeder line drops. Cycle verdict:
+fixed (the swap) - the third patch on this rung, but each was a
+DIFFERENT mechanism named by data (lens mismatch, stamp clobber, slot
+table), not a re-patched bandaid.
+
+### 2026-07-21 (cron cycle, +750t) — pool crew fielded (runt-sized, correctly); link site STILL absent - the clobbered stamp
+
+No FAIL lines; burn recovering (25.7 from the 15.4 trough), income
+0.97x, bank -9.3/t. PATH snapshot 0.3 cpu/t (quiet tick).
+
+Build-pool verify: the HOME corp bought its first pool builder
+(t72464136) - 1W1C1M@200. The absorb math sizes 1W for ~4.3k of pool
+work (doctrine-correct lifetime-completion; the SUPPLY fix, not raw
+WORK, is what the pool changes). Trunk unchanged at 32/38 at capture
+(+360t; the builder was still walking/building - too early). Remote
+corps' builder demand: none observed (attrition working).
+
+Link-site verify: STILL absent post-same-lens-fix (~600t). The capture's
+construction stamp held ONLY roadGate - and the reason is now known:
+placeSite ALREADY stamps placeAttempt/placeResult, but the road gate's
+whole-object lastSizing write CLOBBERED it same-tick. The evidence was
+destroyed, not missing. FIX (observability): stampSizing(patch) merges
+same-tick stamps from every decision site (placeSite, road gates, trunk
+gate). Deployed on unit 1097 + build. Next capture names the stuck rung
+directly: placeAttempt present => structure+result code; absent =>
+canBuildMore false => the wants-lens chain. Cycle verdict: instrumented
+(stamp merge) + pending (pool tempo, link rung).
+
+### 2026-07-20/21 (cron cycle, +654t) — link-site stall ROOT-CAUSED: the ladder and the lens disagreed; same-lens fix deployed
+
+Scoreboard: burn sagged to 15.4 this window (the upgrader generation gap
+- fleet fell to 1 again mid-window; a fresh 20W@2300 landed t72463488 and
+recovery follows), E4 re-FAILed on the sag (bank +9.8/t), income 1.00x.
+PATH meter live: ~2.2 cpu/t, hauling top at 1.4 - the RouteCache rung's
+named starting point.
+
+Build-pool deploy: TOO FRESH to judge (~100t at capture; agenda still
+pre-deploy). Next capture verifies builder receipts + trunk movement.
+
+LINK-SITE STALL: classified STUCK (three captures, +1050t, zero sites)
+and root-caused by code read: findMissingLink's controller step gated on
+linkNear(ctrl, 3) - ANY link within 3, the CORE included (the storage
+parks near the controller) - while the controllerLink lens excludes the
+core. The ladder said "served", the lens said "not link-fed": a
+deadlock between two readers of the same question - the same-lens trap
+class, verbatim. FIX: the ladder asks controllerLink() + a pending-site
+check; pinned with the exact live geometry (core at range <=3). Unit
+1097; trio green (runt-economy's chain run died environmentally with no
+test output - solo re-run green; today's container pressure). Deployed.
+
+Predictions: link site within one placement cooldown; the pool crew
+builds it (~5k); on completion the input election re-anchors on the
+link, feeder stamps linkFed/distance 1, P4 feeder line 64p -> ~22p,
+burn continuity through the handover. Cycle verdict: fixed (same-lens) +
+pending (pool, link build).
+
+### 2026-07-20 (owner-directed, immediate) — ROOM-AGNOSTIC CONSTRUCTION: one build pool per spawn
+
+Owner: "we need them to build quicker. It's an investment... why not also
+just build these roads the 'normal' way just like the ones in the owned
+room?" then the principle: "It basically just doesn't matter which room
+the construction is in." The distributed trunk model (each room's corp
+owns its segment - the code's own comments) produced the measured stall:
+empty-room corps sized 1W1C1M runts against tiny local inventories,
+self-ferrying 50 energy per trip; trunk frozen at 32/38 for ~4300t.
+
+SHIPPED task #22: buildPool(homeRoom) - every room with our sites, home
+first then nearest, one work list. The home corp SIZES against the whole
+pool (builderPlan: pool work, horizon travel = farthest pool room -
+lifetime-completion math unchanged, just fed the true inventory), DRIVES
+its crew to the pool's head room (runBuilder already handles any room -
+the remote rung proved it; refuel from the route's source containers),
+and demands tankers only while working home sites. Remote corps field NO
+builders (repair detail + placement only; legacy runts age out by
+attrition - correct class). Pins: pool ordering/summing, empty-home ->
+remote head (the un-stall shape), empty pool. Unit 1096; trio green.
+
+Predictions: builder receipts jump from @200-300 runts to proper bodies
+within ~1 generation; trunk 32/38 -> 38/38 within ~1-2k ticks of the
+crew landing; trunk-paved receipt -> W43N24 haulers reprice 2:1; then
+trunk #2 places with a working build machine. Cycle verdict: fixed
+(pending verification).
+
+### 2026-07-20 (cron cycle, +287t) — link-site watch armed; P-CPU meter ships (task #12, the last backlog instrument)
+
+Post-link-deploy first look: burn 39.5, BANK -30.8/t (251.9k, 9.1xT),
+income 0.99x, SRCBUF drained to 1.5k colony-wide, NO FAIL lines - P4
+dropped off the WARN list entirely (the tender fix's full effect). The
+controller link SITE is not yet placed at +287t (home siteCount 0) -
+transient-until-two-captures per protocol; next capture classifies it
+(if still absent: read the ladder's gate order - the link rung may sit
+behind a surplus/containersOpen gate).
+
+SHIPPED task #12 (observability): meteredMoveTo wraps travelTo's moveTo
+- CPU delta per corp FAMILY into Memory.pathMeter (tick-reset), core
+telemetry v10, scoreboard PATH line (calls, cpu/t, top-3 families).
+This is spec 23's measured BEFORE number; the RouteCache rung starts
+from whatever family this names as the top spender. Same-behavior
+wrapper (identical moveTo, identical opts) - but after the empty-lane
+lesson the cold-start canary ran anyway: flow-handoff green. Unit 1093.
+Cycle verdict: instrumented; link verification pending next capture.
+
+### 2026-07-20 (cron cycle, +2954t) — tender fix + parking VERIFIED; CONTROLLER LINK ships (spec 24 rung 3)
+
+Verify-first: per-slot tender bodies landed - P4 tender line 138p -> 62p
+(0.092 -> 0.041), the FAIL cleared (0.90x). Upgrader stamp parking: 8 -
+the input election is correct (the earlier "6" inference was the
+co-bound targetCount, allocation/20W = 6 explains it alone). Task #18
+closed verified. Income 1.00x through ANOTHER deep generation trough
+(fleet 21, harv 2 mid-rebuild). ROADS 32/38, sites now visible in three
+remote rooms via remoteSites.
+
+SHIPPED task #21 (owner go-ahead): the controller link slice, all halves
+in one gated deploy so a built link can never strand the (link-preferring)
+input election: controllerLink lens (nodeEnergy - built link <=3 of
+controller, never the core; read by ALL consumers); LinkRunner - core
+fires INTO the controller link, the sink never sends (no 3%/hop
+ping-pong), source links unchanged; feeder RETASK - link-fed rooms
+shuttle storage -> core link (distance 1, ~1/6th CARRY; mode stamped
+linkFed) instead of the 6-tile controller walk, retirement by shrinkage
+not revocation; plan pricing - infraSpawnLoad gains linkFedRoomCount,
+adapter counts link-fed depots via the same lens; ladder - controller
+link placed between core and source links at the best structure-free
+range-2 park-ring tile; controllerSideStock counts link stores (upgrader
+sizing reads the link as stock). Pins: 4 network + harness. Unit 1091,
+trio green.
+
+Predictions (the link needs ~5k build after placement, so staged):
+next capture - a link SITE within range 2 of the controller (ladder);
+after build - feeder stamp linkFed:true/distance 1, P4 feeder line
+64p -> ~22p, controller stock reads the link, burn continuity through
+the input handover (upgraders re-ring the link tile). Cycle verdict:
+verified (tender, parking) + fixed-pending-verification (link).
+
+### 2026-07-20 (cron cycle, +653t) — P4's FIRST FAIL: tender mass tipped the plan; per-slot bodies land
+
+Scoreboard: burn 33.4 (upgrader generation dip - staffing back to 1 of 6,
+replacement demanded@2300), BANK -9.2/t, income 1.00x, ROADS
+trunk-building-32/38 (+1 tile, 4 sites left in W43N24).
+
+P4 FAILED for the first time: 1.05x ceiling, and the breakdown names the
+driver - tenders 138p = 0.092 parts/t (3x46p bodies, each sized to the
+BIGGEST cluster for a 2300 bank at maxCarry 23). The design's two
+measured incidents (per-cluster deadlines; one-wave coverage) never had a
+budget term, and capacity growth inflated every body to near-max. FIX
+(red-first, tenderSlotCarry pure seam): slot k sized for ITS cluster
+(clusters[k % len], the same pairing runTenders walks) with an
+equal-share-of-one-wave floor - live shape 22/9/9 -> carries 23/16/16 =
+110p (0.073), plan back under ceiling (~0.99x). Both incident guarantees
+pinned (one-trip-per-cluster, combined >= bank).
+
+Input-election verify (t72459426): INCONCLUSIVE-leaning-correct - home
+siteCount 0, stock/burn continuous, no adverse effects; either the
+hysteresis kept a good-enough incumbent (ring within 1 of best) or the
+container budget blocks. `parking` joins the upgrader stamp (ride-along)
+- next capture reads 8 (migrated/kept-good) vs 6 (kept-clipped = election
+bug) directly. Gate: unit 1087, trio green. Cycle verdict: fixed (P4,
+pending verification) + instrumented (parking).
+
+### 2026-07-20 (cron cycle, +560t) — ROADS ANSWERED: trunk-building-31/38, zero blind rooms; spec 24 rung 1 SHIPPED
+
+Verification of the v9 observability on its first capture: ROADS gate
+trunk-building-31/38, remoteSites W43N24:5, NO blind rooms - the owner's
+objection fully validated; the first trunk is 82% built with crews
+working, and "waiting-vision" was pure misnomer. Task #20 closed.
+Scoreboard: burn 47.6 held through another generation trough (fleet 20,
+mass 0.82), BANK -37.4/t, income 1.00x, the cedc under-haul self-
+resolved (3.1k -> 0). No FAIL lines.
+
+SHIPPED task #18 (spec 24 rung 1, live-behavior, full gate): the input
+election. controllerInputSpot now scores an existing container's park
+ring against the best fresh range-2 candidate and keeps it only within
+1 tile (hysteresis); links are never migrated from; among coexisting
+containers the best ring wins (no flap mid-migration). A displaced
+controller container leaves the maintenance rolls (displacedInputContainer,
+mirroring link-superseded; source containers on tight maps exempted).
+findMissingControllerContainer already wants the container at the
+migrated bare spot - the ladder places it, the fleet re-anchors pile-fed
+meanwhile. Pins: 3 election + 1 rolls; unit 1083; trio green (pipefail).
+
+Predictions (next capture): home siteCount +1 (the new container at a
+range-2 tile), upgrader stamp parking 6 -> 8 (count stays 6 - allocation
+co-binds at ceil(116/20)), burn continuity through the re-anchor (a
+transient dip during the pile transition is acceptable; a sustained drop
+is a regression -> revert), legacy container unmaintained. Cycle
+verdict: verified (#20) + fixed-pending-verification (#18).
+
+### 2026-07-20 (cron cycle, +473t) — trunk stamp disambiguated; the ledger learns to see remote sites (v9)
+
+Scoreboard: burn 50.0 e/t (still climbing; 3 upgraders / 97 WORK), BANK
+-13.4/t, income 0.99x, no FAIL lines. Two remote buffers near-full
+(cedc 3.1k, cbd5 2.3k) - under-haul watch.
+
+Shipped task #20 (observability, owner-driven): the owner refuted the
+"trunk-waiting-vision" reading - the remotes are MINED, vision was never
+the blocker; the stamp fired on placed=0 which conflates "tiles in a
+blind room" with "fully placed, crews building". placeTrunkSites now
+returns a pass survey (placed/built/total/blind[]) and the gate stamps
+trunk-placing-N / trunk-blind-<rooms> / trunk-building-X/Y
+(trunkGateFromSurvey, pinned). Telemetry v9 adds remoteSites (our sites
+in visible unowned rooms) - P8's owned-room ledger was blind to
+cross-room paving; audit:report gains the ROADS line.
+
+Predictions for the next capture: the ROADS line names the true trunk
+state - expected trunk-building-X/Y with remoteSites>0 in the trunk
+rooms (the building-in-progress hypothesis); trunk-blind-<rooms> would
+instead confirm a genuinely blind corridor and name it. Either way the
+next fix is data-driven (builder throughput vs scout-on-demand vs the
+one-project serialization). Cycle verdict: instrumented.
+
+### 2026-07-20 (cron cycle, cont.) — task #16 FALSIFIED as a regression: the cell is draw-marginal; baseline corrected
+
+Bisection of plan-t5-remote-pipeline's extensions-refill invariant: RED at
+HEAD (@1233/1239/1285), RED at 82c212c (@1118), RED at 7efe6c2 (@1292),
+and RED AT THE RATCHET COMMIT 3a9116c ITSELF (@1199). Five draws, four
+commits, one invariant - there is no first-bad commit; the baseline's
+"pass" was a fail-tail draw recorded as truth (the multi-draw rule
+applied to grid ratchets: an always:-invariant near its tempo margin is
+NOT grid-pinned-deterministic). Earlier framing ("regression on deployed
+HEAD", the retirement cycle) is corrected: acquittal of the retirement
+stands, but nothing regressed - the cell was never reliably green.
+
+Baseline: plan-t5-remote-pipeline pass -> fail (honest ratchet; BOT LEVEL
+unchanged at 4 - T5 was already the frontier). The REAL work item filed:
+the T5 world's extension-refill tempo is genuinely marginal (~t1200
+failure across all draws - tender fleet lags the draining spawn once the
+extension set grows). Either raise the tempo (tender sizing/timing at
+that stage) or give the invariant a doctrine-justified refill-lag
+tolerance - a design decision, not a patch. Cycle verdict: verified
+(feeder chain closed, bank draining) + falsified (#16-as-regression).
+
+### 2026-07-20 (cron cycle, +1004t) — BANK SLOPE NEGATIVE: the consumption chain is whole; generation boundary passed clean
+
+Verification of the feeder deploy, final: burn 19.0 e/t (predicted 18+),
+controller stock 2000 -> 2000 under that burn (relay pacing exactly),
+feeder 2 shuttles / relayRate 115 / staffed, upgraders 2x(20W,15W) = 35
+WORK with demand "demanded" toward targetCount 6. BANK -2.8/t over 1004
+ticks - the first draining window since the loop began; E4 no longer
+FAILs (slope condition). SCORE 2.0 -> 19.0 e/t across the three-cycle
+chain (goal-plan cap -> feeder clamp -> ramp). A lifecycle generation
+boundary passed mid-window (22 creeps from 33, same mass in bigger
+bodies) with ZERO remote drop - the gate retirement verified in live
+fire against the exact scenario of both incidents. NOTE: targetCount 6
+is co-bound (parking 6 AND ceil(116/20W) = 6) - spec 24 rung 1 buys
+overlap headroom near-term, not count; scheduled, not urgent (~1500t).
+
+No FAIL lines. Cycle verdict: verified (chain closed); work item = the
+backlog's standing regression, task #16 plan-t5-remote-pipeline
+extensions-refill invariant (red on deployed HEAD, ratchet violation) -
+bisection this cycle.
+
+### 2026-07-20 (cron cycle, +356t) — FEEDER FIX VERIFIED: relay 7 -> 115, stock refilled; burn ramp in flight
+
+Verify-first on the feeder surplus deploy (~t72455600, capture t72455711):
+every immediate prediction hit. Feeder stamp: relayRate 7 -> 115 (planFlow
+still 2 - the clamp correctly ignored in surplus), neededCarry 39,
+wantedFeeders 2 with the second shuttle DEMANDED (gate "demand").
+Controller stock 60 -> 2000 (P7) - the buffer refilled within ~110 ticks
+of the deploy. The demand-verdict instrument works and answered last
+cycle's mystery by dissolving it: upgrader stamp reads demand "demanded"
+/ demandMin 2300 / staffing 1, and the receipts show upgrader@1750 bought
+t72455628 (the old 20W died end-of-life mid-window; the no-demand read at
+t72455355 was almost certainly the replacement-lead staffing transient -
+if it re-sticks the verdict now names the exit).
+
+Burn: 5.0/t window average - a mid-ramp read (starved early window, old
+upgrader died, replacement landed t72455628). The 18+ prediction and the
+BANK slope flip (13.4/t, barely bent from 14.0) carry to the next window
+with the fleet growing toward targetCount 6. Income 70/70 routed (1.00x),
+P1 stable, E2 8 parts, fleet 28 -> 33.
+
+No new fix this cycle: E4's mechanism is the in-flight ramp; a deploy now
+would global-reset it mid-measurement. Watch: 3 reserver buys in 250t
+(1/83t vs 1/150t sustained - reading as bank catch-up, P5/P6 ok); P-CPU
+instrument (task #12) queued for a post-verification cycle. Cycle
+verdict: verified (partial - burn ramp pending next capture).
+
+### 2026-07-20 (cron cycle, +6859t window) — GATE RETIREMENT VERIFIED LIVE; the feeder was the burn bottleneck
+
+VERIFY-FIRST (t72455355 vs t72448496, the loop's restart-downtime window):
+the retirement + lane-revert deploy VERIFIED on every prediction - core v8
+with NO remoteGate field, P1 0 flips across ~4.5 lifecycle generations
+(the remote-drop class is measured extinct), income 70 funded / 68.9
+routed (0.98x) held, E2 52 -> 8 parts. SCORE 2.0 -> 11.2/t (5.6x): the
+actuals-sizing ramp came through - partially.
+
+TOP LINE E4 (bank 340k, 12.3xT, +14/t) mechanism named from stamps: the
+upgrading corp sized itself allocated 115 / targetCount 6 (actuals, per
+daec503) but fielded 1x20W burning ~11 - because its SUPPLY LINE still
+read the goal plan: the plan's parts ledger exhausts before the
+controller sink (allocated 2, partsLeft 0), and ControllerFeederCorp
+clamped relayRate = min(surplus 115, planFlow 2 + 5) = 7 -> a 3-CARRY
+feeder -> controller stock drained 1520 -> 60. The consumption chain's
+two halves read DIFFERENT inflows: upgraders assumed the surplus 115 the
+feeder never delivered.
+
+FIX (red-first, feederRelayTarget pure seam): in SURPLUS
+(bankSurplusRate > 0) the relay serves the raw surplus formula - the
+same inflow the upgraders' sizing assumes; the plan clamp stays the
+NON-surplus rule. The t72421124 pin (94-part feeder into a full stock)
+rewritten to its post-daec503 form: that mismatch class cannot occur in
+surplus anymore (consumers size UP there), so the clamp's guard lives in
+the save regime - pinned both ways. ALSO instrumented (invisible-cause
+rule): the upgrader demand-exit verdict (demand: demanded/staffed/
+swarm-cap/unaffordable + cap + staffing + demandMin) joins lastSizing -
+targetCount 6 emitted NO agenda demand at t72455355 and which exit
+swallowed it was unreadable; next capture names it.
+
+Gate: unit 1077, trio green (pipefail). Predictions: feeder stamp
+relayRate 115 / wantedFeeders ~2, controller stock 60 -> ~2000, burn
+11.2 -> 18+ (the fielded 20W unthrottled) then fleet growth per the
+demand verdict; BANK slope +14 bending down. Cycle verdict: fixed
+(deployed) + instrumented (demand verdict).
+
+### 2026-07-20 (cron cycle) — GATE RETIRED (owner doctrine); empty-lane pathing reverted by bisection; gate-runner masking incident
+
+VERIFY-FIRST (t72448496 vs t72448186, dt 310): the queued-orders gate fix
+RECOVERED PROD in one window - income 20 -> 70 e/t funded, routed 69.1
+(0.99x, all 7 sources), P1 0 flips, E2 238 -> 52 parts (only the four
+pre-existing scavenge micro-corps), fleet +0.14 p/t. Verdict on the
+previous cycle: fixed AND verified.
+
+OWNER (mid-cycle): "Shutting down remote mining doesn't help. Maybe
+defunding it (not spawning more creeps for it) but this type of rule you're
+explaining tends to backfire. It's a bandaid." Concur - two incidents
+(t72444963, t72448082) both trace to the gate's REVOCATION semantics, and
+both fixes patched the rule rather than the harm. THE GATE IS RETIRED:
+remote sources enter the pool unconditionally; home-first sequencing lives
+where it already works (spawnPriority strict tiers - blocking home income
+outranks remote scaling, so a distressed home starves remote SPAWNING
+without touching remote operations). Removed: homeEconomySaturated, the
+500t sticky window, Memory.remotesUnlockedUntil, Memory.remoteGate,
+telemetry core v7 gate record (v8). Pinned: remote claims survive a fully
+unstaffed home (refreshNodeResources.test.ts); cold-start breadth tax
+pinned by plan-t5-remote-pipeline.
+
+INCIDENT (found by this cycle's gate run): flow-handoff RED - and
+attribution showed it red on DEPLOYED HEAD too. Root cause of the mask:
+every deploy chain today gated on `mocha | tail -N` - the PIPE's exit
+code, not mocha's - so integration failures shipped silently. Fixed
+process: `set -o pipefail` on every gate chain from now on. Bisection
+(880a191 GREEN -> 82c212c GREEN -> c81a34c RED, phantom-guard half
+acquitted by surgical file revert): the EMPTY-LANE travelTo branch
+deterministically prevents a newly spawned hauler from completing its
+maiden trip (green t500: hauling 4/10, energy 110; red t500: hauling
+0/10, energy 37 - same world shape, same exec cadence). REVERTED. The
+doctrine (measured physics: wear = body.length/step load-independent,
+swamp free when empty) stands and returns as spec 23 RouteCache lanes
+with a mockup-verified implementation.
+
+ACQUITTED-BUT-OPEN: plan-t5-remote-pipeline [x] @~1233/1800
+always:"extensions refill before the draining spawn finishes" -
+IDENTICAL on unmodified HEAD, so it is a pre-existing regression of a
+deployed build (baseline says pass; one of today's earlier deploys or an
+older ratchet gap). Filed as its own incident - next cycle's candidate
+work item.
+
+Cycle verdict: fixed (gate retirement + lane revert deployed together);
+predictions - cold-start hand-off restored (trio green pre-deploy), prod
+steady-state unchanged (the removal is inert while home is staffed:
+verified plan identical in the probe), no remote-drop class recurrence at
+generation boundaries (the class is structurally gone).
+
+### 2026-07-20 (cron cycle) — REMOTE-DROP #2: the gate flapped on a lifecycle-clustered wave; queued orders now count as staffing
+
+Verify-first (t72448186 vs t72448020, dt 166): the actuals-sizing deploy
+VERIFIED plan-side - controller sink demand 2 -> 121.6 e/t, allocated 63
+WORK (the goal-plan cap is gone) - but execution has not followed (1
+upgrader, burn 2.0/t, BANK +21.6/t) because the window's live incident
+preempted it: P1 FAIL 5 sources funded->DROPPED, E2 FAIL 238 parts
+stranded, income 46 -> 20 e/t (2 home sources only).
+
+Full chain from stamps (agenda receipts + remoteGate): last fully-staffed
+tick t72447582 (gate `until` 72448082 - 500); both home miners AND the
+cd90 micro-hauler hit end-of-life within ~100t (lifecycle clustering);
+the re-staffing wave interleaved a guard@650 and a starved-tier
+(age 306 >= 300) remote cee0 scale hauler @2150 with a 129-tick build -
+bought at t72448101, ~20t AFTER the sticky expiry, for a route already
+being dropped - while the blocking cd90 hauler @100 (mustFund, since
+t72448044) waited behind it. Wave exceeded the 500t sticky window ->
+gate relocked -> all 5 remotes dropped. The recurrence risk is
+structural: the home fleet is born in waves, so every ~1500t generation
+boundary threatens a repeat.
+
+FIX (this cycle, red-first in refreshNodeResources.test.ts): the gate's
+staffing lens also reads Memory.spawnAgenda queues - a source whose
+mining/hauling corp has a QUEUED order is mid-replacement, not dark
+(trap-list: durable signals; same family as recycling-counts-as-
+staffing). Corp ids resolved via new harvestCorpId/carryCorpId exports
+(single naming source). Guard pin: foreign orders do not satisfy the
+gate. Predicted deltas: gate saturated:true through the next wave, P1
+back to 0 flips, E2 drains as stranded corps re-attach, income ~46 e/t,
+and the upgrader ramp (still pending verification) proceeds on the
+refunded plan. Watch items: starved-tier one-shot can still spend a
+2150/129t body ahead of blocking income (own cycle if it recurs);
+prod self-heal of THIS instance expected ~t72448260 even unfixed (cee0's
+dropped corp stops demanding, cd90 hauler reaches head). Cycle verdict:
+fixed (pending post-deploy verification).
+
+### 2026-07-20 (cycle 3, cron loop) — X3 CLOSED: the tankers were invisible; sizing deploy verified
+
+Verify-first (t72446096, +279t over the sizing deploy's reset): routing held
+(P9 0.91x, P1 stable 0 - the durable receipt carried remotes through their
+SECOND live reset), E4 -11.45/t sustained (storage 210.4k), the extension
+closed 180->2970 at 10 e/t from stock with plan alloc 0.0 - consumers
+priced out by parts while actual build ran from build-side stock, the
+doctrine working as designed. Zero runt receipts.
+
+countMismatch's FIRST capture named X3 exactly: building-W43N23-construction
+claimed 4 / counted 2 - ConstructionCorp.getCreepCount returned only the
+builders squad; its TANKER detail (same corpId, workType "tank") was
+invisible to the census. Fixed census-only (demand sizing reads the squads
+directly - caller audit: only Telemetry + Colony.getStats consume it),
+pinned in builderSizing.test.ts. The second row (hauling-W44N23-cbd5
+claimed 2/counted 1) is BENIGN: Squad.members() excludes mid-spawn creeps,
+so a replacement in the spawn shows +-1 for its build duration - expected
+census noise, not a leak. Predicted post-deploy: untracked 3 -> 0 (with
+transient +-1 during spawns), countMismatch rows only for in-flight
+replacements. Verdict: **fixed** (X3), sizing deploy **verified**.
+
+### 2026-07-20 (cycle 2, cron loop) — production-first parts ledger: VERIFIED; X3 narrowed to a counting lens
+
+Cycle t72445337: the fresh solve after the absorb-cap deploy exposed the
+next layer — the sink fill spent ONE parts ledger in pure value order, so
+the mined-income deposit routes (storage hub, value 1) went LAST: consumer
+routes + the upgrade WORK charge drained partsLeft to 0.0 and all SEVEN
+funded sources got zero haul routes (P9 0.0x, 70 e/t rotting, 78 body
+parts stranded) while the plan read feasible (P4 0.83x) precisely BECAUSE
+the routes were missing. Energy pools were never in conflict (consumers
+draw the bank, deposits fill the hub — disjoint by role); only PARTS were.
+Fix: spawn overhead first, then deposits, then consumers burn the residual;
+plus FUNDED⇒ROUTED (a source whose deposit gets zero parts demotes to the
+new "unrouted" verdict and fields no miner). Pinned red-first (stash-
+verified); trio green; deployed.
+
+**Verified t72445817 (+480t):** P9 0.0 → 0.88x (6 routes standing, 52.6/60
+e/t moving), the demotion live and honest (4adbcedc funded→unrouted — the
+tail the spawn genuinely cannot route), E2 78 → 18 parts (haulers
+re-attached; the remaining 3 are the legacy scavenge-route corps), E4 slope
+−19.8/t sustained (storage 228.7k → 213.6k today), P7 actual 19.5 e/t
+(2.0 at day start), spawn 0.95 util with zero runt receipts. remoteGate
+stamped live: {saturated: true, until: 72446299} — the durable receipt +
+decision record close the warmup remote-drop class end-to-end. Verdict:
+**fixed, verified**.
+
+X3 (3 untracked) narrowed by instrument: the unattributed roster came back
+EMPTY with untracked=3 — every creep's corpId resolves, so corps exist
+that do not COUNT creeps they own (the newborn/recycling counting-lens
+class, not orphans). Next instrument (countMismatch: claimed-vs-counted
+per corp) ships with the lifetime-sizing deploy and names the kind.
+
+### 2026-07-20 — E4 idle capital: the construction absorb cap; the warmup remote-drop NAMED
+
+Cycle t72444684 (ledger TOP LINE E4): storage 228,749 = 8.3x the 27,650
+warchest target, slope +7.66/t with `feederActive true` — the spend path ran
+but nothing burned. The capture named the misroute end-to-end: construction
+sink demand 455 = the adapter's supply-shaped capacity (355 minedSupply over
+ALL 38 graph candidates — 285 e/t of it PHANTOM unfunded intel sources —
+plus the bank's MAX_SURPLUS_DRAW 100; the adversarial review corrected the
+first-pass 70+385 arithmetic), priority 70 over the RCL6 mid-grind
+controller's 43.9, allocated 124 e/t against ONE extension site holding 400
+build energy (absorbable <10 e/t; measured burn 0.45 e/t). The controller's
+2 e/t was exactly the ANTI_DOWNGRADE_RESERVE pre-pass — its value-pass fill
+never executed a take (partsLeft byte-identical to construction's), so the
+freed draw had exactly one taker. Fix (fc2b181): the corp's sum-of-projects
+lens moved to primitives.projectAbsorbRate (crew formula verbatim) and the
+construction sink capacity min()s it in — a 455-energy site now rates 5 e/t,
+a 15k build-out still rates 150 (spec 10 G6 valve intact). Deployed
+t~72444870. **Verified t72444963/t72445067:** construction plan alloc
+124→5.0, controller alloc 2→105 (plan WORK 112p ramping, upgrader@2100 in
+the agenda), E4 slope +7.66 → **−23.49/t** (FAIL→WARN, the warchest finally
+draining into score). P7 0.03x is the fleet ramp lag — upgrader bodies trail
+the plan by spawn time.
+
+Same deploy's global reset exposed and NAMED the long-unattributable
+**warmup remote-drop** (the assembly counters existed for exactly this):
+graphSources 38→2 — the GRAPH layer, not the solver. Mechanism:
+homeEconomySaturated's 500t sticky unlock lived in heap only; the reset
+re-evaluated the home-first gate cold, and its live creep-memory lens (the
+documented creep-position trap class) hit an ordinary mid-replacement home
+hauler gap (the buy was already in the agenda) — ALL remotes relocked, 5
+funded sources dropped, 94 body parts stranded, reservers still burning
+(P5). Fix: the sticky window persists in Memory.remotesUnlockedUntil (heap
+stays the fast path; the receipt survives resets), pinned red-first in
+refreshNodeResources.test.ts with the counter-pin that an absent/expired
+window still relocks (the home-first gate itself stands). Verdict: E4
+**fixed** (verified by slope reversal); remote-drop **fixed for future
+resets** (the live relock clears when the gate's staffing check passes —
+watch the next capture for graphSources 38 and the refund). Next cycle's
+TOP LINE: P5 reserver duty 1.0 vs priced 0.5 (the corp never reads
+reservation.ticksToEnd), plus the phantom minedSupply term the review found.
+
 ### 2026-07-18 — S3 starvation backstop: raw-age FIFO falsified, bucketed FIFO shipped
 
 The `since` export (phase 4) named the live S3 inversion exactly (t72403765:
@@ -1142,3 +1708,213 @@ at-2 is a chronic inefficiency, colony safe + progressing, not a crisis). Cycle
 verdict: RECOVERY VERIFIED COMPLETE + #21 controller-cap bottleneck DIAGNOSED,
 instrument-next handed to #21. Correction: I called the room RCL8 repeatedly this
 session - it is RCL6 (energyCapacity 1950).
+
+**OWNER-DIRECTED BATCH 2026-07-21 (five live-behavior changes, one session,
+each full-gated + deployed).** (1) Partial-pave repricing (#23): a trunk
+verifiably >= 1/2 built already fields the 2:1 hauler, CARRY sized at the
+effective (crawl-corrected) distance - roadEconomics.partialPaveRatio /
+effectiveOneWayTiles, trunk survey built/total persisted onto roadRoutes,
+detectPavedSources Set->Map. Predicted: W43N24 (32/38 = 84%) reprices next
+solve, ~19% fewer hauler parts. (2) Link-hub congestion (owner report: the
+source link had nowhere to send): feeder stages the relay only to capacity -
+CORE_LINK_INCOME_RESERVE (200); LinkRunner spills a congested source volley
+DIRECTLY to the controller link (one 3% hop, bank-first preserved). (3)
+Remote source containers (owner report: missing/partial): placement no
+longer blocked by trunk ROAD sites (container-sites-only gate); a pile-funded
+LOCAL builder (2W, eats the pile, no hauling - the owner's road-end paradigm)
+fields while the project stands; the remote repair detail is now actually
+dispatched (it idled in runBuilder before - decayed containers were the other
+"partial" shape). (4) Swamp-favored placement: bestAdjacentTile tie-breaks
+equal-distance candidates toward swamp for unwalkable buildings (adjacent-to-
+plain preferred; roads/containers terrain-neutral; distance still rules). (5)
+Road-lane hauling + EMPTY LANE RETURNS: haul legs path creep-blind
+(ignoreCreeps, reusePath 20; mutual-move swaps resolve head-on traffic;
+standing blockers get ONE creep-aware detour after LANE_PATIENCE=2) and the
+empty pure-hauler leg goes terrain-blind with roads penalized. The 2026-07-20
+empty-lane revert (cd3f0b8) is thereby superseded: flow-handoff - the exact
+gate that caught the first attempt - is GREEN with the lane inside
+travelToLane; probable old root = creep-AWARE pathing made a pocket-mouth
+miner an unreachability wall for the maiden trip (consistent, not proven).
+Verify next capture: pathMeter hauling calls/cpu DOWN, W43N24 hauler bodies
+2:1, core link <= 600 with source volleys landing, container sites + local
+builders in remote rooms, income steady-or-up across the movement change.
+
+**AUDIT CYCLE t72469936 - batch verified live; E4 named with its full causal
+chain; one export gap fixed.** Ledger top line E4 (272k banked, 9.8xT, +10.6/t,
+feederActive false). VERIFIED from live reads (room-objects + memory API):
+(1) partial-pave repricing LIVE and exact - cd8e planned carry 15.9368 =
+carryPartsFor(10, effectiveOneWay(36, 32/38, 2:1)), spawned body 18C:9M;
+receipt built 34/38 ratcheting; (2) remote-container fixes executing - cd8d
+container site placed THROUGH standing road sites, miner pre-positioned on it,
+second miner spawned, two pile-funded local builders finishing the last road
+tiles (155/300, 50/300 in progress); (3) link chain physically healthy (ctrl
+384e, core 90e - inside the income reserve, source link loaded); (4) income
+0.98x routed across the movement change - no road-lane regression. E4 CAUSAL
+CHAIN (all stamped/measured): construction-first clamps upgrader+feeder to
+planFlow 2 (+5) while the absorber (trunk, 4 tiles left) finishes - by design,
+self-resolving. The LIVE BLOCKER: the feeder (gate "demand" >= 2 captures,
+wants ONE 1-CARRY body = 100 energy, linkFed distance 1) is QUEUE-STARVED at
+spawn util 0.95 - the bank's spend path is down NOW and would stay down when
+the trunk completes and the surplus regime wants the 115-relay flood.
+SECONDARY ANOMALY: util 0.95 vs steady-state ~0.60 (301 parts flat, 0.315/t
+built => implied part-life ~955t < 1500) - purchase-loop/churn signature, E5
+runt receipts hauler@100 x2; agenda.executed exported EMPTY (gap). FALSIFIED
+en route: feeder spawnId-prefix mismatch (live store shows clean id); "empty
+sizing stamp" was an audit-side filter bug (capital F), not a bot defect; P4's
+"feeder 64p @ relay 115" is the LEDGER's own pricing drift (corp is linkFed
+relay 7) - ledger fix pending. FIXED+DEPLOYED this cycle: seg-6 haulers now
+carry the paved verdict (the mapping dropped it; nearly ruled the repricing
+dead). Cycle verdict: VERIFIED (batch) + BLOCKER NAMED (feeder starvation,
+with numbers) + one observability fix shipped. Next cycle: feeder-starvation
+fix (scheduler slack for cheap infra, design-first, no value nudges) and the
+churn anomaly via agenda.executed (fix its empty export first).
+
+**AUDIT CYCLE t72470198 - feeder starvation root-caused to the CLOCK, not the
+backstop; prediction filed.** E4 top line again (274.7k, +9.95/t, feederActive
+false). Post-reset capture (only the roadGate stamp had refilled; spawn busy
+40t straight - demand-pass stamps empty is a RESET+BUSY artifact, not a
+defect). Live agenda read (Memory.spawnAgenda): the anti-starvation backstop
+WORKS - the queue's head is starved-FIFO by age (hauler-cedc 798t > reserver
+441t > hauler-cbd5 321t > FEEDER 321t @ minCost 100, position 4). The feeder's
+2400-tick starvation is a CLOCK-RESET loop: its no-miner gate blinks the
+demand off during routine home-miner turnover (clock restarted at t72469837,
+exactly the cd90 miner replacement window; the prune deletes a first-seen key
+after ONE absent evaluated tick), so 300 ticks of age never accumulate
+before the next blink - while blocking income replacements (miner@700 at
+t72469894, hauler@100 at t72469921 bought PAST older starved entries) keep
+taking the rare free slots at util 0.97. PREDICTION (falsifies next capture):
+the starved FIFO ahead of the feeder costs 1900 energy total and the feeder's
+current clock is already past threshold - if the queue drains as designed the
+feeder BUYS by ~t72471500 and feederActive flips true. If the next capture
+still shows feeders 0, the fix (design ready): (a) the feeder's no-miner gate
+is wrong-class - a feeder relays the BANK, so it should gate on banked stock,
+not miner presence (kills the blink at its source; "infrastructure follows
+income" is satisfied by a funded bank); (b) clock hysteresis - a first-seen
+key survives K absent evaluated ticks before pruning (one-tick blinks no
+longer zero 300 ticks of age). Trunk: 34/38 held this window (local builders
+mid-tile); fleet 22->25 (miners 3->7 - the churn rebuild). Cycle verdict:
+DIAGNOSED to mechanism + prediction filed; no code shipped (the honest move
+- the system may already be buying the feeder).
+
+**AUDIT CYCLE t72473701 - prediction VERIFIED (feeder alive, zero code was
+the right call); the cork moved one seam down and got its fix.** feederActive
+TRUE - the t72470198 prediction held: the starved FIFO drained and bought the
+100-energy feeder on its own; the scheduler needed no change (the clock-reset
+fix in #29 stays shelved unless the blink recurs somewhere it matters). E4
+WORSENED (370k, +27.4/t): income rose (28 creeps, remotes fully staffed,
+P9 1.0x of 70 e/t) while construction-first held burn at the plan's 8.6 e/t
+- correct doctrine, broken absorber: the trunk sat at 34/38 for 3500+ ticks.
+Mechanism (measured): the last tiles are MID-ROUTE - outside the builders'
+4-tile self-fuel reach (doPickup is deliberately stationary), no pile, no
+container, and the tanker demand gate was HOME-sites-only while the bank held
+370k. FIXED+DEPLOYED (#24 slice, full gate green): tanker demand keys on the
+POOL head's site; targetTankerCount prices the cross-room shuttle at linear
+room distance (same-room getRangeTo across rooms = Infinity = no fleet).
+runTanker needed nothing - it already draws the surplus bank and stages
+toward the builders cross-room. Predictions for next capture: 2+ tankers
+fielded for the home corp; trunk 34 -> 38 in ~2-3k ticks; on completion
+constructionStanding false -> surplus regime unclamps (feeder relay 115,
+upgraders from actuals) -> burn into the 40 e/t band, BANK SLOPE NEGATIVE
+for the first time. If the trunk completes but burn stays low, the next seam
+is the upgrader fleet's scale-up (parking 8, cap 2300 - room to grow).
+Cycle verdict: VERIFIED (prior prediction) + FIXED (pool tankers, deployed).
+
+**OWNER DIRECTIVE 2026-07-21 (Z-to-A trunk dedication, #25 core) - shipped.**
+"The remote is still hauling home although we're building a road there ...
+feed the Z-to-A remote builder from the source, and disable hauling anything
+home until the road is finished." One lens (detectTrunkBuildingSources:
+tiles3 && !paved && !declined, the same receipts detectPavedSources reads),
+three consumers: PLAN keeps the miner but pools the source at rate 0 (no
+haul routes planned/priced - defund at the spawn) and excludes it from
+minedSupply; KIND-side CarryCorp.yieldsToBuild yields for trunk-building
+sources (standing haulers stop pickups, no replacements; the home-room
+dedicatedBuildSourceId slot untouched - single-slot, home-memory, and
+hard-freezes without vision per the seam audit); CREW-side the remote local
+builder gate counts ROAD sites, so the Z-to-A 2-WORK body (= the source's
+full 10 e/t) stands while its room's segment builds. Hauling resumes at 2:1
+when the paved receipt lands. Expected readings while a trunk builds: P9
+shows the dedicated source unrouted BY DESIGN (annotate if noisy), income
+dips by the dedicated 10 e/t, the trunk finishes faster from both ends
+(pool tankers home-side + Z-to-A source-side). Gate: 1150 unit + trio green;
+deployed.
+
+**AUDIT CYCLE t72474584 - MY REGRESSION caught and fixed same-cycle: the
+Z-to-A lens over-rotated.** The ledger lit up on the previous deploy's own
+change: P1 five sources funded->unrouted, E2 168 parts stood down, funded
+mining 70 -> 20 e/t. detectTrunkBuildingSources (tiles3 && !paved &&
+!declined) matched every PLANNED trunk - but placement is one-project-at-a-
+time, so three of the five (cbd5/cedc/cd8d) had no sites even placed:
+income revoked for zero build progress, the trap-list revocation class
+inside my own implementation. FIX (same cycle, full gate, deployed): the
+lens additionally requires `total` (stamped by the first placement survey)
+- dedication now tracks the build discipline itself: sites stand => the
+source feeds its Z-to-A crew; planned-only => keep hauling. Live: cbd5/
+cedc/cd8d resume (30 e/t back); cd8e (34/38) + cee0 (10 sites standing)
+stay dedicated. ALSO SURFACED, filed not fixed: P5 FAIL - the reserver
+gate re-staffs whenever staffed < target (duty 1.0) while the toll prices
+0.5 duty and the reservation bank (~5000 ticks) is never read by the gate;
+2x reserver spawn+energy vs priced. Next cycle's candidate work item if it
+holds across a clean window (this window was raid-distorted). Predictions:
+income recovers to ~50 e/t (2 home + 3 resumed remotes; 20 dedicated),
+trunk cd8e completes within ~1-2k ticks, cee0 segment advances at ~10 e/t
+from its 1770-stocked container. Cycle verdict: REGRESSION FIXED same-cycle
++ P5 named with data.
+
+**INCIDENT t72475006 - EMPTY PLAN on the dedication build; ROLLED BACK.**
+Two captures 42t apart: fresh solve ticks publishing sources 0 / haulers 0 /
+candidates NONE while corps coasted on old commissions. Rollback to 815e033
+(pool tankers, pre-dedication) restored the plan within ~100t (7 sources, 11
+haulers). ATTRIBUTION: the Z-to-A dedication commits (261abec + 9703bc9)
+break the LIVE solve - the mockup gate could not catch it (no roadRoutes
+receipts in those worlds, the dedication path never executes there: sim
+blind spot, now measured). The unit pin (planColony: dedicated source ->
+miner yes, haulers none) PASSES, so the throw is DOWNSTREAM of planColony -
+prime suspect: commissionsFromPlan / carryKind / FlowMaterializer handling a
+FUNDED MINER WITH ZERO HAUL ROUTES (routes[0] access on an empty group).
+Repro to write FIRST: commissionsFromPlan + materialize over a plan with a
+dedicated source. DEPLOYED BUILD (815e033's bundle) is now BEHIND branch
+HEAD - the branch keeps the dedication commits + the surveyed-lens fix; do
+NOT redeploy HEAD until the routeless-source repro is red->green. The
+t72474584 cycle's other finding stands: P5 reserver duty 2x (raid-distorted
+window; re-check clean). Cycle verdict: INCIDENT CONTAINED (rollback
+verified) + attribution measured + repro filed (#30).
+
+---
+
+**SESSION HANDOFF 2026-07-21 (merge point; next session starts here).**
+
+DEPLOYED BUILD = commit 815e033's bundle (pool tankers). Branch HEAD is
+AHEAD of it by the Z-to-A dedication commits (261abec, 9703bc9) which are
+KNOWN-BROKEN LIVE (incident t72475006: empty plan; rolled back, verified
+recovered at t72478452 - 70 e/t routed 1.00x). Do NOT redeploy HEAD's
+bundle until task #30 lands.
+
+LIVE STATUS (t72478452): income 70 e/t fully routed; feeder + controller
+link chain working; trunk cd8e at 36/38 (2 tiles left); W42N22 segment 7/10
+built; new W44N23 segment placed (12 sites); all settled remotes have
+containers (the two W43N24 sources queued behind the trunk by design).
+E4 idle capital 464k (+23/t) is the SCORE cork: burn clamps to ~2-3 e/t
+while construction stands (correct doctrine); it unclamps mechanically when
+the trunk paves - watch for the surplus-regime flip (feeder relay 115,
+upgrader fleet scale-up, bank slope NEGATIVE).
+
+NEXT STEPS, in order:
+1. #30 empty-plan crash: red-first repro = commissionsFromPlan +
+   materializeCommissions over a plan with a dedicatedToBuild source (funded
+   miner, ZERO haul routes; suspect routes[0] on an empty group). Fix, full
+   gate, add a grid cell that STAGES roadRoutes receipts (the mockup gate
+   passed because the dedication path never executed - sim blind spot,
+   measured), then redeploy HEAD. This re-lands the owner's Z-to-A
+   dedication with the surveyed-trunks scoping already in HEAD.
+2. Verify the surplus-regime flip when the trunk completes; if burn stays
+   low with construction clear, the next seam is upgrader fleet scale-up
+   (parking 8, cap 2300).
+3. P5 reserver duty 2x (gate re-staffs at staffed<target, never reads the
+   ~5000-tick reservation bank; priced 0.5 duty) - confirm in a raid-free
+   window, then fix the gate to read reservation.ticksToEnd.
+4. Owner design queue: #24 aggregate squad formula (W=E/5H, K=W(d+1)/5,
+   H=2/3(1500-d); bodies 2W:1M:1-2C, 2C:1M) beyond the pool-tanker slice;
+   #25 anchor-relative dual-front once #30 unblocks; #19 T5 tempo (design).
+5. Infra: the 20-min audit cron is session-local (dies with the container);
+   server-side Routine creation is still blocked by an MCP approval that
+   never reaches the owner - unresolved.

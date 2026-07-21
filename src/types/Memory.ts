@@ -7,17 +7,7 @@
  * @module types/Memory
  */
 
-import {
-  SerializedBootstrapCorp,
-  SerializedCarryCorp,
-  SerializedConstructionCorp,
-  SerializedExtensionTenderCorp,
-  SerializedHarvestCorp,
-  SerializedReservationCorp,
-  SerializedScoutCorp,
-  SerializedSpawningCorp,
-  SerializedUpgradingCorp
-} from "../corps";
+import { SerializedBootstrapCorp, SerializedSpawningCorp } from "../corps";
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 
@@ -269,6 +259,8 @@ declare global {
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
           precondition?: string;
+          /** The decision walk's verdict on this entry (spec 17: "buy" IS the action). */
+          gate?: string;
         }[];
         /** Execution receipts (actual-vs-NOW): the last ~8 spawns bought here. */
         executed?: { tick: number; role: string; corp: string; cost: number }[];
@@ -276,27 +268,57 @@ declare global {
     };
 
     /**
+     * The colony's GOAL (spec 18): a weighted blend of named goal profiles,
+     * compiled onto the sink-value ladder each solve. Absent = the default
+     * profile (today's measured ladder). Set via global.setGoal.
+     */
+    goal?: { blend: { [profileName: string]: number } };
+
+    /**
+     * The last solve's realized bank draw (controller + construction
+     * allocations) - the feeder-pricing signal (flowAdapter, the starvation
+     * loop). In Memory because the FlowEconomy instance is replaced on every
+     * graph rebuild: instance-held history never survived to a second solve
+     * (prod t72447816).
+     */
+    lastBankDraw?: number;
+
+    /**
+     * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
+     * CPU joins energy and spawn build-time as a metered, pullable resource.
+     * `corpsTotal` is the sum over every commissioned corp this tick -
+     * reconcile it against the loop's whole-tick usage to see the
+     * infrastructure residual (planner solve, host, telemetry).
+     */
+    /**
+     * P-CPU meter (spec 23 step 1): moveTo CPU per corp FAMILY this tick,
+     * the measured BEFORE number for the cached-routes doctrine. Written by
+     * corps/movement.meteredMoveTo, reset on tick change, exported in core
+     * telemetry (v10).
+     */
+    pathMeter?: {
+      tick: number;
+      calls: number;
+      cpu: number;
+      byCorp: { [family: string]: { calls: number; cpu: number } };
+    };
+
+    corpCpu?: {
+      tick: number;
+      corpsTotal: number;
+      byKind: { [kind: string]: number };
+      /** Worst offenders by ~100-tick EMA, dashboard-sized. */
+      top: { corpId: string; kind: string; cpu: number; avg: number }[];
+      /** Named infrastructure buckets (spec 20 P2): the bulkheaded phases. */
+      infra?: { [bucket: string]: number };
+      /** Whole-tick CPU at publish - the reconciliation anchor. */
+      wholeTick?: number;
+    };
+
+    /**
      * Serialized bootstrap corps by room name.
      */
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
-
-    /**
-     * @deprecated Harvest/carry/upgrade corps live in commissionedCorps since
-     * the framework cutover; these keys are no longer written and exist only in
-     * old saves.
-     */
-    harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
-    /** @deprecated see harvestCorps. */
-    haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-    /** @deprecated see harvestCorps. */
-    upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
-
-    /**
-     * Serialized scout corps by room name.
-     * @deprecated Scout corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    scoutCorps?: { [roomName: string]: SerializedScoutCorp };
 
     /**
      * The commissioned-corp store (execution/CommissionHost): every corp of a
@@ -307,28 +329,10 @@ declare global {
     commissionedCorps?: import("../economy/CorpKind").SerializedCorpStore;
 
     /**
-     * Serialized construction corps by room name.
-     */
-    constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
-
-    /**
-     * Serialized reservation corps by room name.
-     * @deprecated Reservation corps live in commissionedCorps since the
-     * framework port; this key is no longer written and exists only in old saves.
-     */
-    reservationCorps?: { [roomName: string]: SerializedReservationCorp };
-
-    /**
-     * Serialized spawning corps by spawn ID.
+     * Serialized spawning corps by spawn ID (one of the two legacy-registry
+     * kinds still outside the commission store - see completeCensus).
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
-
-    /**
-     * Serialized extension tender corps (local movers) by room name.
-     * @deprecated Tender corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }
 
   /**
@@ -372,7 +376,11 @@ declare global {
      * is the planned route as flat [x0,y0,x1,y1,...]. `paved` is the receipt that
      * every tile has a built road - read by flowAdapter.detectPavedSources to
      * stamp the route's haulers with the 2:1 road body ratio. `declined` caches a
-     * not-worth-paving verdict so the route is not re-evaluated every cooldown.
+     * not-worth-paving verdict AT the flow it was judged with (`judgedFlow`) so
+     * the route is not re-evaluated every cooldown - but the verdict is VOIDED
+     * and re-judged when live flow rises materially past the judged level
+     * (roadEconomics.declinedVerdictStands; reservation's 5->10 doubling of a
+     * remote source clears the bar by design).
      */
     roadRoutes?: {
       [sourceId: string]: {
@@ -387,7 +395,20 @@ declare global {
         /** Room-name table for tiles3 roomIdx values. */
         rooms?: string[];
         paved?: boolean;
+        /**
+         * Trunk build progress, survey-persisted each placement pass:
+         * verified built road tiles (RATCHETS up - a vision-lost pass never
+         * counts down, or the hauler body would flap around the repricing
+         * threshold) out of `total` route tiles. detectPavedSources reads
+         * built/total as the paved fraction; at >= 1/2 (roadEconomics.
+         * PARTIAL_PAVE_REPRICE_FRACTION) the source's haulers reprice to the
+         * 2:1 road body BEFORE the binary `paved` receipt lands.
+         */
+        built?: number;
+        total?: number;
         declined?: boolean;
+        /** Flow (e/t) the declined verdict was judged at (absent on legacy entries). */
+        judgedFlow?: number;
       };
     };
 
@@ -421,29 +442,14 @@ declare global {
     corpId?: string;
 
     /**
-     * The type of work this creep performs.
-     * - harvest: Mining energy from sources
-     * - haul: Edge-based transport (source to sink via paths)
-     * - tank: Node-based local distribution (fill extensions/spawns)
-     * - upgrade: Controller upgrading
-     * - build: Construction
-     * - repair: Structure repair
-     * - scout: Room scouting
+     * The type of work this creep performs. Values are DECLARED by each corp
+     * kind (CorpKind.roles[].workType - e.g. harvest/haul/tank/feed/upgrade/
+     * build/scout/reserve/claim/guard/buster/strike), not enumerated here: a
+     * closed union at this distance was an undeclared second registration
+     * point every new kind had to find (spec 17). Validity is enforced by the
+     * kind-conformance suite against the registry's declarations.
      */
-    workType?:
-      | "harvest"
-      | "haul"
-      | "tank"
-      | "feed"
-      | "upgrade"
-      | "build"
-      | "repair"
-      | "scout"
-      | "reserve"
-      | "claim"
-      | "guard"
-      | "buster"
-      | "strike";
+    workType?: string;
 
     /**
      * Target ID for current task.

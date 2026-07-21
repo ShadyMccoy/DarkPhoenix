@@ -1,0 +1,191 @@
+{
+  "shard": "shard1",
+  "capturedAt": "2026-07-21T11:33:45.756Z",
+  "tick": 72475048,
+  "segments": [
+    0,
+    6
+  ],
+  "data": {
+    "core": {
+      "version": 10,
+      "tick": 72475048,
+      "shard": "shard1",
+      "cpu": {
+        "used": 85.04649159999826,
+        "limit": 300,
+        "bucket": 10000,
+        "tickLimit": 500
+      },
+      "gcl": {
+        "level": 32,
+        "progress": 274717988.58056545,
+        "progressTotal": 300508132.580564
+      },
+      "colony": {
+        "nodeCount": 480,
+        "totalCorps": 26,
+        "activeCorps": 21
+      },
+      "creeps": {
+        "total": 28,
+        "tracked": 28,
+        "untracked": 0,
+        "byKind": {
+          "harvest": 3,
+          "upgrade": 1,
+          "construction": 7,
+          "reservation": 0,
+          "scout": 0,
+          "tender": 3,
+          "controllerFeeder": 1,
+          "coreBuster": 0,
+          "raidGuard": 2,
+          "carry": 11,
+          "bootstrap": 0
+        }
+      },
+      "bodyParts": {
+        "total": 472,
+        "byPart": {
+          "carry": 250,
+          "move": 189,
+          "work": 23,
+          "attack": 10
+        }
+      },
+      "spawns": [
+        {
+          "id": "6a261309c1ca830013f516a5",
+          "name": "Spawn1",
+          "windowTicks": 701,
+          "utilization": 0.9472182596291013,
+          "partsPerTick": 0.3157394198763671,
+          "ceiling": 0.3333333333333333,
+          "queueDepth": 0
+        }
+      ],
+      "agenda": {
+        "6a261309c1ca830013f516a5": {
+          "tick": 72475048,
+          "fundingNeed": 0,
+          "queueDepth": 0,
+          "queue": [],
+          "executed": [
+            {
+              "tick": 72474646,
+              "role": "tanker",
+              "corp": "building-W43N23-construction",
+              "cost": 1100
+            },
+            {
+              "tick": 72474712,
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-37-6",
+              "cost": 200
+            },
+            {
+              "tick": 72474724,
+              "role": "tanker",
+              "corp": "moving-W43N23-tender",
+              "cost": 1600
+            },
+            {
+              "tick": 72474790,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474802,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474814,
+              "role": "tanker",
+              "corp": "building-W43N23-construction",
+              "cost": 1100
+            },
+            {
+              "tick": 72474895,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474907,
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-37-6",
+              "cost": 2300
+            }
+          ]
+        }
+      },
+      "sourceBuffers": {
+        "dbcedc": 5567,
+        "dbcd94": 0,
+        "dbcd90": 370,
+        "dbcd92": 2300,
+        "dbcd8d": 1054,
+        "dbcd8e": 333,
+        "dbcbd5": 1554
+      },
+      "remoteSites": {
+        "W43N22": 17,
+        "W43N24": 12,
+        "W44N23": 15
+      },
+      "pathMeter": {
+        "tick": 72475048,
+        "calls": 6,
+        "cpu": 1.1157866999965336,
+        "byCorp": {
+          "hauling": {
+            "calls": 5,
+            "cpu": 1.1006780999978218
+          },
+          "raidGuard": {
+            "calls": 1,
+            "cpu": 0.015108599998711725
+          }
+        }
+      },
+      "rooms": [
+        {
+          "name": "W43N23",
+          "rcl": 6,
+          "rclProgress": 506813,
+          "rclProgressTotal": 3645000,
+          "energyAvailable": 2300,
+          "energyCapacity": 2300,
+          "storageEnergy": 384587,
+          "controllerStock": 1762,
+          "feederActive": true,
+          "siteProgress": 564,
+          "siteTotal": 12600,
+          "siteCount": 42
+        }
+      ]
+    },
+    "flow": {
+      "version": 5,
+      "tick": 72475048,
+      "sources": [],
+      "haulers": [],
+      "sinks": [],
+      "candidates": [],
+      "summary": {
+        "totalHarvest": 0,
+        "totalOverhead": 0,
+        "netEnergy": 0,
+        "efficiency": 0,
+        "isSustainable": false,
+        "minerCount": 0,
+        "haulerCount": 0
+      },
+      "warnings": []
+    }
+  }
+}

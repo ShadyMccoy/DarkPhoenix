@@ -39,8 +39,6 @@ export {
   CREEP_LIFETIME,
   BODY_COSTS,
   MINER_COST,
-  DEFAULT_SINK_PRIORITIES,
-  DEFAULT_CONSTRAINTS,
 
   // Sink types
   SinkType,
@@ -56,12 +54,9 @@ export {
   SinkAllocation,
 
   // Problem/Solution interfaces
-  FlowProblem,
-  FlowConstraints,
   FlowSolution,
 
   // Context
-  PriorityContext,
 
   // Factory functions
   createFlowSource,
@@ -83,30 +78,12 @@ export { FlowGraph, createFlowGraph } from "./FlowGraph";
 // PRIORITY MANAGER
 // =============================================================================
 
-export { PriorityManager, PRIORITY_PRESETS, describePriority, comparePriorities } from "./PriorityManager";
 
 // =============================================================================
 // FLOW ECONOMY (Main Entry Point)
 // =============================================================================
 
-export { FlowEconomy, createFlowEconomy, createFlowEconomyWithPreset, printSolutionSummary } from "./FlowEconomy";
-
-// =============================================================================
-// NODE FLOW (Flow Solution → Node Grouping)
-// =============================================================================
-
-export {
-  NodeFlow,
-  NodeFlowMap,
-  groupByNode,
-  getActiveNodeIds,
-  getTotalCarryParts,
-  getPrimarySpawn,
-  getSinkAllocationByType,
-  isNodeSelfSustaining,
-  printNodeFlow,
-  printAllNodeFlows
-} from "./NodeFlow";
+export { FlowEconomy } from "./FlowEconomy";
 
 // =============================================================================
 // FLOW MATERIALIZER (Flow Solution → Corps)

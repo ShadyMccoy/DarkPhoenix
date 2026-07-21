@@ -32,6 +32,7 @@ export interface ControllerFeederAssignment {
 
 export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
   kind: "controllerFeeder",
+  roles: { feeder: { workType: "feed" } },
   runOrder: 41, // local mover, right after the extension tender (40)
 
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {

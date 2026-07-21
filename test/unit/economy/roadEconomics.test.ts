@@ -1,11 +1,15 @@
 import { expect } from "chai";
 import {
+  declinedVerdictStands,
+  effectiveOneWayTiles,
   evaluateRoadRoute,
+  partialPaveRatio,
   pavedRouteCostPerTick,
   paveScore,
   loadedTicksPerTile,
   roundTripTicksForRoute,
-  bestHaulerRatio,
+  PARTIAL_PAVE_REPRICE_FRACTION,
+  REJUDGE_FLOW_FACTOR,
   ROAD_BUILD_COST,
   ROAD_DECAY_HITS,
   ROAD_HITS,
@@ -147,6 +151,85 @@ describe("economy/roadEconomics", () => {
 });
 
 /**
+ * Declined-verdict staleness (the remote-trunk fix, owner 2026-07-20): a
+ * not-worth-paving verdict was PERMANENT, so a trunk judged at the
+ * pre-reservation 5 e/t was never re-judged after reservation doubled the
+ * source to 10 e/t - remote roads never got built. The verdict now records
+ * its judged flow and stands only while live flow stays under 1.5x it.
+ */
+/**
+ * Hauler ratio optimality (owner 2026-07-20: "another axis to consider is
+ * slower haulers ... on the way out they still move full speed with empty
+ * carry"). The empty leg IS free at any ratio - but the LOADED leg is what
+ * multiplies the fleet: slowing it forces more CARRY in flight, and that
+ * outweighs the MOVE parts saved. Total standing parts to sustain flow F
+ * over one-way d at CARRY:MOVE ratio r on terrain cost t:
+ *   roundTrip(r,t) = d*(1 + loadedTicksPerTile(t, r)) + 2
+ *   parts(r) = F * roundTrip / 50 * (1 + 1/r)
+ * The pins below are the closed-form verdict: 1:1 is optimal on unpaved
+ * plain (2:1 costs +12.5% parts AND +12.5% energy), and 2:1 on ROAD is the
+ * unique optimum (full-speed loaded at 1.5 parts/CARRY). Cheaper haulers
+ * come from pavement, not from slowing down.
+ */
+describe("economy/roadEconomics - hauler ratio optimality (slower haulers don't pay)", () => {
+  const d = 40; // one-way tiles, long enough that the +2 load ticks are noise
+  const F = 10; // e/t
+  const partsFor = (ratio: number, terrainCost: number): number => {
+    const rt = d * (1 + loadedTicksPerTile(terrainCost, ratio)) + 2;
+    return ((F * rt) / 50) * (1 + 1 / ratio);
+  };
+
+  it("on unpaved PLAIN, 1:1 beats every slower ratio (the loaded crawl costs more CARRY than MOVE saved)", () => {
+    const plain = 2;
+    expect(partsFor(2, plain) / partsFor(1, plain), "2:1 is ~12.5% MORE parts").to.be.closeTo(1.125, 0.01);
+    expect(partsFor(3, plain), "3:1 worse still").to.be.greaterThan(partsFor(2, plain));
+    expect(partsFor(0.5, plain), "over-moved (1C2M) also loses").to.be.greaterThan(partsFor(1, plain));
+  });
+
+  it("on ROAD, 2:1 is the unique optimum: same round trip as 1:1 at 25% fewer parts", () => {
+    const road = 1;
+    expect(partsFor(2, road) / partsFor(1, road)).to.be.closeTo(0.75, 0.01);
+    expect(partsFor(4, road), "4:1 crawls loaded road - worse").to.be.greaterThan(partsFor(2, road));
+  });
+
+  it("energy cost agrees with parts: slower unpaved haulers are ALSO more expensive to spawn", () => {
+    // per-CARRY body cost: 1:1 = 100 (C+M), 2:1 = 75 (C+M/2); in-flight CARRY
+    // scales with the round trip, so cost ratio = (75 * 3d) / (100 * 2d) = 1.125
+    const cost = (ratio: number, terrainCost: number): number => {
+      const rt = d * (1 + loadedTicksPerTile(terrainCost, ratio)) + 2;
+      return ((F * rt) / 50) * (50 + 50 / ratio);
+    };
+    expect(cost(2, 2) / cost(1, 2)).to.be.closeTo(1.125, 0.01);
+    expect(cost(2, 1) / cost(1, 1)).to.be.closeTo(0.75, 0.01);
+  });
+});
+
+describe("economy/roadEconomics - declinedVerdictStands (re-judge on flow rise)", () => {
+  it("stands at the judged flow and under modest jitter", () => {
+    expect(declinedVerdictStands(10, 10)).to.equal(true);
+    expect(declinedVerdictStands(10, 12)).to.equal(true);
+    expect(declinedVerdictStands(10, 15)).to.equal(true); // exactly at the bar: stands
+  });
+
+  it("THE CANONICAL RISE: reservation's 5 -> 10 doubling voids the verdict", () => {
+    expect(declinedVerdictStands(5, 10)).to.equal(false);
+    expect(REJUDGE_FLOW_FACTOR).to.be.lessThan(2); // the doubling must clear the bar
+  });
+
+  it("falling or flat flow never re-judges (the cache keeps its purpose)", () => {
+    expect(declinedVerdictStands(10, 5)).to.equal(true);
+    expect(declinedVerdictStands(10, 0)).to.equal(true);
+  });
+
+  it("legacy entries (no recorded flow) earn one re-judge against any live flow", () => {
+    expect(declinedVerdictStands(undefined, 5)).to.equal(false);
+    expect(declinedVerdictStands(undefined, 0.001)).to.equal(false);
+    // ...but a dead route (zero flow) stays settled even for legacy entries
+    expect(declinedVerdictStands(undefined, 0)).to.equal(true);
+  });
+});
+
+/**
  * Ticks, not tiles (owner directive 2026-07-19): a hauler's round trip is a
  * TIME, and a body whose MOVE complement no longer clears the terrain at full
  * speed crawls - so its round trip is LONGER than 2*tiles+2 even though the
@@ -193,33 +276,79 @@ describe("economy/roadEconomics - ticks not tiles (hauler travel time)", () => {
     });
   });
 
-  describe("bestHaulerRatio (choose the body by TOTAL parts from the tick round trip)", () => {
-    it("a fully paved route picks 2:1 - same round trip, but 1.5 parts/CARRY beats 2", () => {
-      const r = bestHaulerRatio(20, 0, 0, 10);
-      expect(r.carryPerMove).to.equal(2);
-      // RT 42 ticks, carry = 10*42/50 = 8.4, spawn parts = 8.4 * 1.5 = 12.6
-      expect(r.rtTicks).to.equal(42);
-      expect(r.carryParts).to.be.closeTo(8.4, 1e-9);
-      expect(r.spawnParts).to.be.closeTo(12.6, 1e-9);
+});
+
+/**
+ * Partial-pave repricing (owner 2026-07-20: "even if the road is 32 out of 38
+ * we could probably still optimize the body parts somewhat"). From the
+ * ratio-optimality model above, total standing parts for flow F over one-way
+ * d with fraction p of the route paved:
+ *
+ *   parts(1:1) = 2   * F * (2d + 2) / 50            (full speed everywhere)
+ *   parts(2:1) = 1.5 * F * (d + d*(2 - p) + 2) / 50 (loaded leg crawls unpaved)
+ *
+ * Asymptotically (d >> 2) they tie at p = 1/3: 1.5*(3 - p) = 2*2 <=> p = 1/3.
+ * The repricing threshold is 1/2 - margin over breakeven, so a route flips
+ * bodies once, mid-build, and the win is real (~6% at exactly 1/2, growing to
+ * 25% at fully paved) rather than a coin toss against the model's +2 terms.
+ */
+describe("economy/roadEconomics - partial-pave repricing (32/38 is already a 2:1 route)", () => {
+  const partsPerFlow = (ratio: 1 | 2, d: number, p: number): number => {
+    const paved = d * p;
+    return ((1 + 1 / ratio) * roundTripTicksForRoute(paved, d - paved, 0, ratio)) / 50;
+  };
+
+  describe("partialPaveRatio", () => {
+    it("crossover proof: at 1/3 paved the bodies tie (asymptotically); above it 2:1 wins", () => {
+      const d = 1000; // long route: the +2 load ticks are noise
+      expect(partsPerFlow(2, d, 1 / 3) / partsPerFlow(1, d, 1 / 3)).to.be.closeTo(1, 0.01);
+      expect(partsPerFlow(2, d, 1 / 2)).to.be.lessThan(partsPerFlow(1, d, 1 / 2));
+      expect(partsPerFlow(2, d, 1 / 4)).to.be.greaterThan(partsPerFlow(1, d, 1 / 4));
     });
-    it("an all-plain route picks 1:1 - the 2:1 crawl outweighs its cheaper MOVE", () => {
-      const r = bestHaulerRatio(0, 20, 0, 10);
-      expect(r.carryPerMove).to.equal(1);
-      // 1:1 RT 42, carry 8.4, parts 16.8; 2:1 RT 62, carry 12.4, parts 18.6 -> 1:1 wins
-      expect(r.rtTicks).to.equal(42);
-      expect(r.spawnParts).to.be.closeTo(16.8, 1e-9);
+
+    it("the threshold sits between breakeven and certainty: 1/3 < 1/2 <= 1", () => {
+      expect(PARTIAL_PAVE_REPRICE_FRACTION).to.be.greaterThan(1 / 3);
+      expect(PARTIAL_PAVE_REPRICE_FRACTION).to.equal(1 / 2);
     });
-    it("the break-even is plainTiles < 2*roadTiles + 2: half-and-half still picks 2:1", () => {
-      expect(bestHaulerRatio(10, 10, 0, 10).carryPerMove).to.equal(2); // 10 < 22
-      expect(bestHaulerRatio(1, 10, 0, 10).carryPerMove).to.equal(1); // 10 < 4 is false
+
+    it("verdict flips to 2:1 at >= 1/2 built, stays 1:1 below", () => {
+      expect(partialPaveRatio(19, 38).ratio).to.equal("2:1");
+      expect(partialPaveRatio(19, 38).partsPerCarry).to.equal(1.5);
+      expect(partialPaveRatio(18, 38).ratio).to.equal("1:1");
+      expect(partialPaveRatio(18, 38).partsPerCarry).to.equal(2);
     });
-    it("a swamp-DOMINATED route picks 1:1 (a 2:1 body is 10x on swamp, 1:1 only 5x)", () => {
-      expect(bestHaulerRatio(0, 0, 5, 10).carryPerMove).to.equal(1); // all unpaved swamp
-      expect(bestHaulerRatio(4, 2, 4, 10).carryPerMove).to.equal(1); // swamp-heavy mix
+
+    it("THE LIVE TRUNK: 32/38 built reprices at 2:1 today, not at the last tile", () => {
+      const v = partialPaveRatio(32, 38);
+      expect(v.ratio).to.equal("2:1");
+      expect(v.fraction).to.be.closeTo(32 / 38, 1e-9);
     });
-    it("but a mostly-ROAD route keeps 2:1 despite a little swamp (the trade is quantitative)", () => {
-      // 20 road + 3 swamp: 2:1 parts 22.5 < 1:1 parts 24 - the road tiles dominate
-      expect(bestHaulerRatio(20, 0, 3, 10).carryPerMove).to.equal(2);
+
+    it("degenerate receipts never reprice (no total, zero total, overshoot clamps)", () => {
+      expect(partialPaveRatio(0, 0).ratio).to.equal("1:1");
+      expect(partialPaveRatio(5, 0).fraction).to.equal(0);
+      expect(partialPaveRatio(40, 38).fraction).to.equal(1); // stale over-count clamps
+    });
+  });
+
+  describe("effectiveOneWayTiles (CARRY sized in ticks, not tiles, over the mixed surface)", () => {
+    it("a 1:1 body is pave-invariant: effective distance IS the distance", () => {
+      expect(effectiveOneWayTiles(38, 0, 1)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 0.5, 1)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 1, 1)).to.equal(38);
+    });
+
+    it("2:1 endpoints: fully paved = real distance, fully unpaved = 1.5x (loaded half speed)", () => {
+      expect(effectiveOneWayTiles(38, 1, 2)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 0, 2)).to.equal(57);
+    });
+
+    it("agrees with roundTripTicksForRoute on the live 32/38 split", () => {
+      // 32 road + 6 plain, 2:1: empty 38 + loaded (32 + 12) + 2 = 84 ticks.
+      // The effective one-way is the d that reproduces that trip: 2d + 2 = 84.
+      const dEff = effectiveOneWayTiles(38, 32 / 38, 2);
+      expect(2 * dEff + 2).to.be.closeTo(roundTripTicksForRoute(32, 6, 0, 2), 1e-9);
+      expect(dEff).to.equal(41);
     });
   });
 });

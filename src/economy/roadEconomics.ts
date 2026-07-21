@@ -129,34 +129,57 @@ export function roundTripTicksForRoute(
 }
 
 /**
- * The cheaper hauler CARRY:MOVE ratio (1 or 2) for a route, chosen by TOTAL
- * spawn parts (CARRY + its MOVE complement) sized from the tick-accurate round
- * trip. The 2:1 road body is 1.5 parts/CARRY but sizes MORE CARRY on any
- * unpaved stretch (its loaded leg crawls); the 1:1 body is 2 parts/CARRY at
- * full speed on plain and road. On an all-plain/road split the break-even is
- * plainTiles < 2*roadTiles + 2; this evaluates it exactly from the tick model,
- * so partially-paved routes (owner: "some routes may have partial roads") get
- * the ratio that actually costs the fewest spawn parts - not an all-or-nothing
- * paved flag. Ties go to 1:1 (the robust body: full speed on any non-swamp).
+ * Paved fraction at which a route's haulers reprice to the 2:1 road body
+ * MID-BUILD (owner 2026-07-20: "even if the road is 32 out of 38 we could
+ * probably still optimize the body parts somewhat"). The exact breakeven is
+ * 1/3: total standing parts tie when 1.5*(d + d*(2-p)) = 2*2d <=> p = 1/3
+ * (empty legs are free at any ratio; only the loaded crawl differs). 1/2
+ * leaves margin over the model's +2 constants and rounding, so a trunk flips
+ * bodies once with a real win (~6% at the flip, 25% fully paved) instead of
+ * oscillating at the tie.
  */
-export function bestHaulerRatio(
-  roadTiles: number,
-  plainTiles: number,
-  swampTiles: number,
-  flow: number
-): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } {
-  const size = (carryPerMove: number): { carryPerMove: number; rtTicks: number; carryParts: number; spawnParts: number } => {
-    const rtTicks = roundTripTicksForRoute(roadTiles, plainTiles, swampTiles, carryPerMove);
-    const carryParts = (flow * rtTicks) / CARRY_CAPACITY;
-    // parts per CARRY = 1 (the CARRY) + 1/carryPerMove (its MOVE share): 2 at
-    // 1:1, 1.5 at 2:1 - the exact ratio the planner charges (see header).
-    const spawnParts = carryParts * (1 + 1 / carryPerMove);
-    return { carryPerMove, rtTicks, carryParts, spawnParts };
-  };
-  const oneToOne = size(1);
-  const twoToOne = size(2);
-  return twoToOne.spawnParts < oneToOne.spawnParts ? twoToOne : oneToOne;
+export const PARTIAL_PAVE_REPRICE_FRACTION = 0.5;
+
+export interface PartialPaveVerdict {
+  /** Verified built/total, clamped to [0,1]; 0 when the total is unknown. */
+  fraction: number;
+  /** The winning hauler body at this fraction. */
+  ratio: "2:1" | "1:1";
+  /** Spawn build-parts per CARRY unit at that ratio (1.5 road, 2 plain). */
+  partsPerCarry: number;
 }
+
+/**
+ * The mid-build hauler-body verdict for a route with `builtTiles` of
+ * `totalTiles` verifiably paved (ConstructionCorp's survey receipt). Callers
+ * holding a bare fraction pass (fraction, 1).
+ */
+export function partialPaveRatio(builtTiles: number, totalTiles: number): PartialPaveVerdict {
+  const fraction = totalTiles > 0 ? Math.min(1, Math.max(0, builtTiles / totalTiles)) : 0;
+  const road = fraction >= PARTIAL_PAVE_REPRICE_FRACTION;
+  return {
+    fraction,
+    ratio: road ? "2:1" : "1:1",
+    partsPerCarry: road ? 1 + MOVE_PER_CARRY_ROAD : 1 + MOVE_PER_CARRY_PLAIN
+  };
+}
+
+/**
+ * The one-way distance that, fed to primitives.roundTripTicks/carryPartsFor,
+ * reproduces a partially-paved route's TRUE round-trip time for a body at
+ * `carryPerMove` CARRY:MOVE - so CARRY sizing covers the loaded crawl over
+ * the still-unpaved stretch (ticks, not tiles). Empty out is full speed on
+ * any surface; the loaded leg pays per-tile via loadedTicksPerTile (unpaved
+ * tiles modeled as plain - swamps are paved first / detoured by the planner).
+ * For a 1:1 body, or a 2:1 body on a fully paved route, this is the identity.
+ */
+export function effectiveOneWayTiles(oneWayTiles: number, pavedFraction: number, carryPerMove: number): number {
+  const paved = oneWayTiles * Math.min(1, Math.max(0, pavedFraction));
+  const unpaved = oneWayTiles - paved;
+  const loadedBack = paved * loadedTicksPerTile(1, carryPerMove) + unpaved * loadedTicksPerTile(2, carryPerMove);
+  return (oneWayTiles + loadedBack) / 2;
+}
+
 
 /** A haul route as the road planner sees it. */
 export interface RoadRouteSpec {
@@ -278,6 +301,26 @@ export function evaluateRoadRoute(
     paybackTicks,
     worthPaving: oneWay > 0 && netSavingsPerTick > 0 && paybackTicks <= horizonTicks
   };
+}
+
+/**
+ * Flow rise that voids a cached `declined` verdict. A route judged
+ * not-worth-paving at some flow stays declined while flow holds near that
+ * level (the cache exists so routes are not re-planned every cooldown), but
+ * a MATERIAL rise re-opens the question: reservation doubles a remote source
+ * (5 -> 10 e/t), clearing this 1.5x bar by design; solver jitter does not.
+ */
+export const REJUDGE_FLOW_FACTOR = 1.5;
+
+/**
+ * Does a cached not-worth-paving verdict still stand at the current flow?
+ * Stands while currentFlow <= judgedFlow * REJUDGE_FLOW_FACTOR. A verdict
+ * with NO recorded flow (legacy entries predating the stamp) never stands
+ * against a live flow - it earns exactly one re-judge, which records
+ * judgedFlow for every verdict after it.
+ */
+export function declinedVerdictStands(judgedFlow: number | undefined, currentFlow: number): boolean {
+  return currentFlow <= (judgedFlow ?? 0) * REJUDGE_FLOW_FACTOR;
 }
 
 /**

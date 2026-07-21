@@ -15,13 +15,18 @@
  */
 
 import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedMiner } from "../../economy/CorpPlanner";
 import { minerOverhead } from "../../economy/primitives";
 import { MinerAssignment } from "../../flow/FlowTypes";
 import { buildMinerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { HarvestCorp, SerializedHarvestCorp } from "../HarvestCorp";
+
+/** The real game source id (the flow "source-" prefix stripped, defensively). */
+function gameSourceId(corp: HarvestCorp): string {
+  return corp.getSourceId().replace("source-", "");
+}
 
 /**
  * Reconstruct the flow-shaped MinerAssignment from the commission's plan
@@ -56,6 +61,7 @@ function legacyNodeId(roomName: string, sourceId: string): string {
 export const harvestKind: CorpKind<HarvestCorp> = {
   kind: "harvest",
   runOrder: 10, // produce before transport (20), consume (30), auxiliary (40)
+  roles: { miner: { workType: "harvest" } },
 
   // Solver-backed: planColony emits harvest commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {
@@ -100,8 +106,37 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+  body(_role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
     // bodyParam is the desired WORK parts; the scheduler scales to the budget.
-    return buildMinerBody(bodyParam ?? 5, energyBudget).body;
+    // CARRY only for link-fed miners (the one job that uses it) - the corp
+    // declares the strategy on its demand.
+    return buildMinerBody(bodyParam ?? 5, energyBudget, hints?.bodyStrategy === "linkFed").body;
+  },
+
+  // A source's miner and haulers fund as ONE income unit keyed by the real
+  // game source id; the unit is "started" once a producer creep is fielded.
+  demandGroup(corp: HarvestCorp, _corpId: string, world: DemandWorld) {
+    const sourceId = gameSourceId(corp);
+    return { groupId: sourceId, started: world.isSourceMined(sourceId) };
+  },
+
+  sourceOf(corp: HarvestCorp): string | null {
+    return gameSourceId(corp);
+  },
+
+  // A miner belongs to the harvest corp for the source it stands on (or its
+  // remembered source). If that source is no longer commissioned there is no
+  // such corp and the orphan falls through to recycle.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: HarvestCorp }): string | null {
+    const source =
+      creep.pos.findInRange(FIND_SOURCES, 1)[0] ??
+      (creep.memory.assignedSourceId
+        ? Game.getObjectById(creep.memory.assignedSourceId as Id<Source>) ?? undefined
+        : undefined);
+    if (!source) return null;
+    for (const id in corps) {
+      if (corps[id].getSourceId() === source.id) return corps[id].id;
+    }
+    return null;
   }
 };

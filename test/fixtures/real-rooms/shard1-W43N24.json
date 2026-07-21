@@ -1,11 +1,13 @@
 {
   "room": "W43N24",
   "shard": "shard1",
-  "capturedAt": "2026-07-09T16:44:41.334Z",
+  "capturedAt": "2026-07-21T06:13:49.603Z",
   "ownedOnLive": false,
   "droppedObjectTypes": [
+    "constructionSite",
     "creep",
-    "energy"
+    "energy",
+    "road"
   ],
   "terrain": [
     "##################################################",

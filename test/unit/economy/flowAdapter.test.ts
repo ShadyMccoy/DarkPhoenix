@@ -337,6 +337,220 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 });
 
+/**
+ * The construction absorb cap - the SUM-OF-PROJECTS lens at the PLAN layer
+ * (prod incident t72444684, E4 idle capital): the construction sink's
+ * capacity was minedSupply+bankRate (455 e/t live) regardless of site work,
+ * so ONE nearly-done extension (400 remaining, physically absorbing <10 e/t)
+ * out-priced the controller (70 vs 43.9) and soaked 124 e/t of the plan's
+ * bank draw. Execution's work-aware crew (builderPlan) delivered 0.45 e/t of
+ * it; the other ~99.6% was never burned and the warchest climbed +7.66/t to
+ * 8.3x its target while the controller got 2 e/t. The plan and the corp now
+ * read the SAME primitives.projectAbsorbRate: remaining/100t, floor 5.
+ */
+describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t72444684)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const bankSource = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("PHANTOM GUARD: intel-only prospects never inflate the construction valve (t72444684 review)", () => {
+    // 2 real sources (20 e/t) + 3 intel-only prospects (30 e/t of phantom)
+    // + a 40 e/t bank draw, and a build-out big enough that the absorb cap
+    // does not bind (15k at ~4 travel -> ~15 e/t... use a huge site so the
+    // valve term is what shows). The construction sink's demand must be
+    // real-mined + bank (60), never phantom-inflated (90).
+    const graph = graphOf([
+      homeNodeWithStorage(5),
+      sourceNode("s1", 15),
+      sourceNode("s2", 25),
+      sourceNode("intel-W9N9-10-10", 30),
+      sourceNode("intel-W9N9-20-20", 35),
+      sourceNode("intel-W9N9-30-30", 40)
+    ]);
+    graph.addConstructionSite("bigbuild", "home", at(9), 200_000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    expect(build.demand, "valve = real mined (20) + bank (40), phantom excluded").to.be.closeTo(60, 1e-6);
+  });
+
+  it("a nearly-done site absorbs its work rate, NOT the whole bank draw - the controller mops up", () => {
+    // 20 e/t mined + 40 e/t surplus draw; one extension with 455 build energy
+    // remaining (the live incident's site). Absorbable: max(5, 455/100) = 5.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("ext", "home", at(9), 455);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(build.allocated, "construction capped at the project's absorb rate").to.be.at.most(5 + 1e-9);
+    // the surplus the fantasy build allocation used to soak flows to the score
+    expect(ctrl.allocated, "controller mops up the freed draw").to.be.greaterThan(build.allocated);
+  });
+
+  it("a REAL build-out sizes to buffered-effective-life completion; the residual upgrades (owner 2026-07-20)", () => {
+    // Horizon = 2/3 of effectiveLife(travel): the site sits 4 tiles from the
+    // spawn, so 15k / ((2/3) * 1496) ~ 15 e/t - above the G6 flat-5 floor
+    // (the build-out is never starved) but no burst: the surplus a burst
+    // would have claimed flows to the controller instead of idling in
+    // spawned WORK-ticks that outlive their work.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("bigbuild", "home", at(9), 15000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(build.allocated, "buffered-effective-life rate").to.be.closeTo(15000 / ((2 / 3) * 1496), 1e-6);
+    expect(ctrl.allocated, "the un-claimed surplus scores at the controller").to.be.greaterThan(build.allocated);
+  });
+});
+
+/**
+ * Remote scavenge is SPILL-ONLY (refining the owner's 2026-07-19 ruling;
+ * prod t72446738): the original siphon incident came from summing a remote
+ * CONTAINER into the pile - scavengers stole the route's own supply. The
+ * container stays structurally un-scavengeable in remote rooms, but DROPPED
+ * piles there decay at ceil(amount/1000)/t with nobody coming (measured:
+ * 25k standing at four remote mouths, ~19 e/t bleeding - the largest live
+ * leak). Dropped-only + a 1000 threshold recovers the spill without ever
+ * touching what the haul-home owns.
+ */
+describe("economy/flowAdapter - remote scavenge is spill-only (prod t72446738)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    (global as any).FIND_DROPPED_RESOURCES = 106;
+    (global as any).FIND_TOMBSTONES = 118;
+    (global as any).FIND_RUINS = 123;
+    (global as any).FIND_STRUCTURES = 107;
+    (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).__mockTiles = {};
+    (global as any).RoomPosition = class {
+      public constructor(public x: number, public y: number, public roomName: string) {}
+      public findInRange(): any[] {
+        return (global as any).__mockTiles[`${this.roomName}:${this.x},${this.y}`] ?? [];
+      }
+    };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const mkRoom = (name: string, owned: boolean, dropped: number, containerEnergy: number): any => {
+    const pile = { resourceType: "energy", amount: dropped, pos: { x: 20, y: 20, roomName: name } };
+    const container = {
+      structureType: "container",
+      store: { energy: containerEnergy },
+      pos: { x: 20, y: 20, roomName: name }
+    };
+    // the pile sits ON the container tile: findInRange(0) from a minted
+    // RoomPosition at (20,20) must find it - register in the tile registry
+    (global as any).__mockTiles[`${name}:20,20`] = [container];
+    return {
+      name,
+      controller: owned ? { my: true, pos: { x: 40, y: 40, roomName: name } } : { my: false },
+      memory: {},
+      find: (t: number) => (t === 106 && dropped > 0 ? [pile] : t === 107 ? [container] : [])
+    };
+  };
+
+  it("a remote DROPPED spill becomes scavenge supply - the container's energy does NOT", async () => {
+    const { detectTransientSources } = await import("../../../src/economy/flowAdapter");
+    const { detectRoomStocks } = await import("../../../src/economy/scavenge");
+    g.Game = { rooms: { W9N9: mkRoom("W9N9", false, 8000, 2000) }, creeps: {}, getObjectById: () => null };
+    const out = detectTransientSources();
+    expect(out, "one spill stock").to.have.length(1);
+    // The stock AMOUNT is dropped-only (8000), never dropped+container
+    // (10000) - the container is the haul-home's, structurally.
+    const room = g.Game.rooms.W9N9;
+    expect(detectRoomStocks(room, 1000, false)[0].amount, "spill-only lens").to.equal(8000);
+    expect(detectRoomStocks(room, 1000, true)[0].amount, "the summed lens would have siphoned").to.equal(10000);
+  });
+
+  it("remote sub-threshold jitter fields nothing; owned rooms keep the summed-stock rule", async () => {
+    const { detectTransientSources, REMOTE_SPILL_THRESHOLD } = await import("../../../src/economy/flowAdapter");
+    expect(REMOTE_SPILL_THRESHOLD).to.equal(1000);
+    g.Game = { rooms: { W9N9: mkRoom("W9N9", false, 500, 2000) }, creeps: {}, getObjectById: () => null };
+    expect(detectTransientSources(), "500 dropped remote = jitter, no scavenger").to.have.length(0);
+    // owned: container SUMS into the stock (the 2026-07-10 rule, unchanged)
+    g.Game = { rooms: { W1N1: mkRoom("W1N1", true, 400, 1800) }, creeps: {}, getObjectById: () => null };
+    const owned = detectTransientSources();
+    expect(owned, "owned pile+container above threshold together").to.have.length(1);
+  });
+});
+
+/**
+ * Feeder priced at the REALIZED draw (prod t72447444, the starvation loop):
+ * pricing the relay at the full surplus (115 e/t) charged 64p of infra for
+ * consumers that - starved by that very charge - drew 2 e/t. With history,
+ * the relay prices at the previous solve's bank draw (floored at the upgrade
+ * target), freeing the phantom infra so consumers actually grow; without
+ * history the old full-surplus pricing holds (first solve / golden master).
+ */
+describe("economy/flowAdapter - feeder priced at realized draw (prod t72447444)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {}, spawns: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const bank = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("a starved-history solve frees the phantom feeder infra and the consumers GROW", async () => {
+    const { buildColonyProblem, solveColony } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const noHistory = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [bank(100)]);
+    const starvedHistory = buildColonyProblem(
+      graph, manhattan, [], new Map(), new Map(), [bank(100)], undefined, undefined, 2
+    );
+    expect(starvedHistory.infraPartsPerTick!, "the relay re-prices to the floor, not the full surplus").to.be.lessThan(
+      noHistory.infraPartsPerTick!
+    );
+    // and the freed parts reach the consumers in the actual solve
+    const without = solveColony(graph, 0, manhattan, [], [bank(100)]).solution;
+    const withHist = solveColony(graph, 0, manhattan, [], [bank(100)], undefined, 2).solution;
+    const ctrl = (s: any): number => s.sinkAllocations.find((a: any) => a.sinkType === "controller")?.allocated ?? 0;
+    expect(ctrl(withHist), "consumers grow when the feeder stops charging phantom relay").to.be.at.least(ctrl(without));
+  });
+});
+
 describe("economy/flowAdapter - paved-source detection", () => {
   const g = globalThis as unknown as { Game?: unknown };
   let savedGame: unknown;
@@ -348,12 +562,62 @@ describe("economy/flowAdapter - paved-source detection", () => {
     g.Game = savedGame;
   });
 
+  it("carries the paved verdict onto the SOLUTION's haulers (audit t72469936: seg 6 dropped it and nearly called the repricing dead)", async () => {
+    const { solveWithCorpPlanner } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    (g.Game as any).rooms = {
+      [ROOM]: { name: ROOM, find: () => [], memory: { roadRoutes: { s1: { tiles: [], paved: true } } } }
+    };
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+    const s1Haulers = sol.haulers.filter(h => h.fromId === "source-s1");
+    expect(s1Haulers.length).to.be.greaterThan(0);
+    expect(s1Haulers.every(h => h.haulerRatio === "2:1"), "the road body reaches telemetry and the materialiser").to.equal(true);
+  });
+
   it("marks sources paved from the receipt by GAME id (graph 'source-' prefix stripped)", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set(["s1"]));
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map([["s1", 1]]));
     expect(problem.sources.find(s => s.id === "source-s1")!.paved).to.equal(true);
+    expect(problem.sources.find(s => s.id === "source-s1")!.pavedFraction).to.equal(1);
     expect(problem.sources.find(s => s.id === "source-s2")!.paved).to.equal(undefined);
+  });
+
+  it("a HALF-BUILT trunk already reprices: fraction >= 1/2 stamps paved + pavedFraction", async () => {
+    // Owner 2026-07-20: "even if the road is 32 out of 38 we could probably
+    // still optimize the body parts" - the binary receipt made every future
+    // trunk wait for the last tile; the fraction collects from the 1/2 mark.
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map([["s1", 32 / 38], ["s2", 10 / 38]]));
+    const s1 = problem.sources.find(s => s.id === "source-s1")!;
+    expect(s1.paved).to.equal(true);
+    expect(s1.pavedFraction).to.be.closeTo(32 / 38, 1e-9);
+    // below the repricing threshold the 1:1 body stays - no stamp at all
+    const s2 = problem.sources.find(s => s.id === "source-s2")!;
+    expect(s2.paved).to.equal(undefined);
+    expect(s2.pavedFraction).to.equal(undefined);
+  });
+
+  it("detectPavedSources reads BOTH receipt shapes: binary paved -> 1, survey built/total -> fraction", async () => {
+    const { detectPavedSources } = await import("../../../src/economy/flowAdapter");
+    (g.Game as any).rooms = {
+      W1N1: {
+        memory: {
+          roadRoutes: {
+            a: { tiles: [], paved: true },
+            b: { tiles: [], built: 32, total: 38 },
+            c: { tiles: [], built: 0, total: 38 },
+            d: { tiles: [], declined: true }
+          }
+        }
+      }
+    };
+    const m = detectPavedSources();
+    expect(m.get("a")).to.equal(1);
+    expect(m.get("b")).to.be.closeTo(32 / 38, 1e-9);
+    expect(m.get("c")).to.equal(0);
+    expect(m.has("d"), "a declined route has no pave state").to.equal(false);
   });
 });
 
@@ -395,7 +659,7 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
     g.Game.getObjectById = (id: string) =>
       id === "founding" ? { structureType: "spawn" } : id === "ext" ? { structureType: "extension" } : null;
 
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     const founding = problem.sinks.find(k => k.id === "construction-founding")!;
     const ext = problem.sinks.find(k => k.id === "construction-ext")!;
     expect(founding.value).to.equal(NEW_SPAWN_SITE_VALUE);
@@ -412,7 +676,7 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
     const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
     g.Game.rooms = { [ROOM]: { controller: { progress: 44_550, progressTotal: 45_000 } } };
 
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     const ctrl = problem.sinks.find(k => k.kind === "controller")!;
     expect(ctrl.value).to.be.closeTo(controllerValue(450), 1e-9);
     expect(ctrl.value).to.be.greaterThan(70); // 99%-done level outprices construction
@@ -421,7 +685,52 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
   it("falls back to the kind default without vision of the controller", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     expect(problem.sinks.find(k => k.kind === "controller")!.value).to.equal(50);
+  });
+});
+
+describe("trunk-building sources (owner 2026-07-21: no hauling home until the road is done)", () => {
+  const g = globalThis as unknown as { Game?: any };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  it("detectTrunkBuildingSources: in-progress trunks only (not paved, not declined, not fresh in-room)", async () => {
+    const { detectTrunkBuildingSources } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = {
+      W1N1: {
+        memory: {
+          roadRoutes: {
+            a: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], built: 0, total: 1 }, // surveyed: sites STAND
+            b: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true }, // done
+            c: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], declined: true }, // not worth it
+            d: { tiles: [1, 1] }, // in-room legacy route, no trunk
+            e: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] } // PLANNED only - no sites placed yet (t72474584: dedicating these cut 30 e/t for zero build progress)
+          }
+        }
+      }
+    };
+    const set = detectTrunkBuildingSources();
+    expect([...set]).to.deep.equal(["a"]);
+  });
+
+  it("a dedicated source keeps its MINER but ships NOTHING home (the pile is the road's fuel)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(
+      graph, manhattan, [], new Map(), new Map(), [], 0, undefined, undefined, new Set(["s1"])
+    );
+    expect(problem.sources.find(s => s.id === "source-s1")!.dedicatedToBuild).to.equal(true);
+    const plan = planColony(problem);
+    expect(plan.miners.some(m => m.sourceId === "source-s1"), "the miner stands - the pile feeds the crew").to.equal(true);
+    expect(plan.haulers.some(h => h.sourceId === "source-s1"), "no haul route home while the trunk builds").to.equal(false);
+    expect(plan.haulers.some(h => h.sourceId === "source-s2"), "other sources haul normally").to.equal(true);
   });
 });

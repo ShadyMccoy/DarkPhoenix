@@ -30,7 +30,7 @@ Conventions used by every spec:
 | 00 | [Corp Framework](00-corp-framework.md) | **COMPLETE** — all kinds run through CommissionHost; polish notes remain in-spec | landed |
 | 01 | [Early-game progression](01-rcl5-cold-start-stall.md) | mostly closed (cold-start pipeline pinned by resilience cells); remaining question: live RCL2-3 throughput | P1 |
 | 02 | [Link logistics](02-link-logistics.md) | shipped in altered form: LinkRunner (free function) + planner haulPos pricing; the corp-kind redesign remains open | P2 |
-| 03 | [Storage draw-down](03-storage-drawdown.md) | deposit half + controller feeder relay landed; planner-level draw-down (bank as supply) not started | P1 |
+| 03 | [Storage draw-down](03-storage-drawdown.md) | LANDED — deposit half, controller feeder relay, and planner-level bank-as-supply (transient bank sources + hub-and-spoke) all live | P1 |
 | 04 | [Retire the chain/market layer](04-retire-chain-layer.md) | **DONE 2026-07-12** — `economy/siteValue` re-bases node/spawn valuation on planColony; ChainEvaluator/ColonyEconomy deleted | landed |
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |
 | 06 | [Expansion: claim the next room](06-expansion.md) | **LANDED 2026-07-10** — capital-gated claiming + sink-based founding, exp-t5 cells green | landed |
@@ -44,6 +44,11 @@ Conventions used by every spec:
 | 14 | [Telemetry observability: answer the basic questions](14-telemetry-observability.md) | ALL PHASES implemented 2026-07-18 (bodies #111/#113, ledger+sizing #114, gate stamps, spawn meter + NOW-plan mirror core-v5); found+fixed the live reserver purchase loop | P1 |
 | 15 | [Waste ledger: make every leak a measured number](15-waste-ledger.md) | proposed 2026-07-18 — owner directive: identify/measure/eliminate CPU, energy, spawn-time waste in planning & execution; phase 1 = audit-side ledger over existing captures | P0 |
 | 16 | [Construction as projects](16-construction-projects.md) | proposed 2026-07-19 (owner design) — a builder corp is a spawn + a finite-cost project list; cross-room remote-source trunk paving + sum-of-projects sizing landed; founding-as-project forward-looking | P1 |
+| 17 | [Ontology layers](17-ontology-layers.md) | IN PROGRESS 2026-07-20 — P0-P2 + enforcement landed (registration-only kinds, prescriptive NOW plan, purity ratchet); P3 (propose purity/host problem), P4 (envelope honesty), P5 (dead code) open | P0 |
+| 18 | [Strategy: weighted goals + supply-chain search](18-weighted-goals.md) | PROPOSED 2026-07-20 (owner strategy thesis, revised) — the chain STRUCTURE is the searched decision (event-triggered, transition-costed), planColony is the evaluator, the NOW plan the transition executor; node grain not room grain; warfare priced as economics | P1 |
+| 19 | [Delivery contract](19-delivery-contract.md) | PROPOSED 2026-07-20 (owner design) — spawning delivers newborns to each corp's declared delivery location; work functions assume on-post; creeps-as-cargo deferred | P2 |
+| 21 | [Conquest](21-conquest.md) | PROPOSED 2026-07-20 (owner doctrine) — peace as the default strategy; conquest a narrow economic exception: probe→assess→harass→siege→claim ladder against measured-weak owners of desirable rooms when claims are scarce, with a pre-committed abort rule | P3 |
+| 20 | [Corp accounting](20-corp-accounting.md) | phase 1 LANDED 2026-07-20 (owner directive: everything is a corp running) — per-corp CPU metering at the pure dispatch seam, Memory.corpCpu ledger; phases 2-3: name the residual, migrate towers/links/bootstrap/spawning to kinds | P1 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
