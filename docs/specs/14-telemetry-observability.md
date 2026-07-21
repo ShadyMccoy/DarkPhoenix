@@ -217,6 +217,17 @@ slope +20 -> negative within ~2 windows, trunk build tempo UNCHANGED
 was actually eating). Cycle verdict: verified (link chain) + falsified
 (E4 prediction) + fixed (absorb-bounded clamp, pending verification).
 
+First post-deploy capture (t72479912, +973t): STAMPS VERIFIED - feeder
+relayRate 106.5 = surplusRate 115 - constructionAbsorb 8.49 (the pool
+re-read; 11 sites), both corps' stamps carry the IDENTICAL absorb to 15
+digits (one lens, no drift), neededCarry 11 / wantedFeeders 1 / gate
+"demand" (buying the bigger shuttle). The fresh solve re-priced the
+controller at planAllocated 9.65. Upgrader momentarily in the save-sip
+(banked null, allocated 3.1): the old 1-CARRY feeder died in the deploy
+generation wave, so controllerFeederActive is false until the new
+shuttle fields - then the surplus regime engages at share ~106.5.
+Fleet ramp + E4 slope carry to the next window's verification.
+
 ### 2026-07-21 (owner-directed) — CONSTRUCTION-FIRST SURPLUS: sites standing condition the surplus draw
 
 Owner: "when construction is around ... the planner [should be] even more
