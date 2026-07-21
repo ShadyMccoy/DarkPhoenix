@@ -474,9 +474,6 @@ export interface FlowTelemetry {
     efficiency: number;
     /** Distance from spawn */
     spawnDistance: number;
-    /** Designed zero-routing: the trunk build owns this source's output
-     * (P9 rot detector exempts it - v6). */
-    dedicatedToBuild?: boolean;
   }[];
   /**
    * PLANNED haulers (goal-plan side). Each solver hauler assignment with the
@@ -1191,10 +1188,7 @@ export class Telemetry {
           // harvest corp in segments 0/4.
           workParts: workPartsForEnergyRate(miner.harvestRate, HARVEST_ENERGY_PER_WORK),
           efficiency: miner.efficiency,
-          spawnDistance: miner.spawnDistance,
-          // Designed zero-routing (trunk build owns the output) - the P9 rot
-          // detector exempts these instead of reading 0 routed as rot.
-          ...(miner.dedicatedToBuild ? { dedicatedToBuild: true } : {})
+          spawnDistance: miner.spawnDistance
         });
       }
 
@@ -1237,9 +1231,10 @@ export class Telemetry {
       // v4: the fill's spawn-parts ledger trace (partsLedger + per-sink
       // partsLeft). v5: problem-assembly counts (graphSources/mined/
       // transient/bank) - names the layer that dropped sources in one
-      // capture (the warmup remote-drop lens). v6: sources[] carries
-      // dedicatedToBuild (designed zero-routing; P9 exemption).
-      version: 6,
+      // capture (the warmup remote-drop lens). v6 carried dedicatedToBuild;
+      // v7 RETIRES it (spec 25 phase 3: dedication is emergent routing -
+      // the audit reads source->construction ROUTES, not a flag).
+      version: 7,
       tick: Game.time,
       sources,
       haulers,

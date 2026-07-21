@@ -492,35 +492,6 @@ describe("economy/CorpPlanner", () => {
       expect(plan.haulers.some(h => h.sourceId === "B"), "no phantom B route").to.equal(false);
     });
 
-    it("dedicated-to-build source is NEVER demoted: zero routing IS its plan (prod t72480337)", () => {
-      // The trunk dedication (owner 2026-07-21: "feed the Z-to-A remote
-      // builder from the source, and disable hauling anything home until the
-      // road is finished") zeroes the source's haul pool BY DESIGN - "the
-      // MINER stays funded, the pile is the road's fuel". The FUNDED=>ROUTED
-      // demotion predates the dedication and read that zero as rot: live,
-      // the moment the build pool's head reached the trunk rooms, all 5
-      // remotes flipped dedicatedToBuild and the demotion dropped every one
-      // of their miners - funded mining 70 -> 20 e/t, 193 hauler parts
-      // stranded (E2), and the freed ledger parts inflated the consumer
-      // plan. The dedication is the source's routing; only an UNDEDICATED
-      // zero-routed source is rot (pinned above).
-      const plan = planColony(
-        problem({
-          spawns: [spawn("S", 0)],
-          sources: [source("A", 30, 20), { ...source("T", 46, 10), dedicatedToBuild: true }, stock("bank-home", 2, 200)],
-          sinks: [
-            sink("spawn-S", "spawn", 0, 100, 1),
-            sink("store", "storage", 2, 1, 1000)
-          ],
-          infraPartsPerTick: 0.302
-        })
-      );
-      expect(plan.miners.map(m => m.sourceId).sort(), "the dedicated miner STANDS").to.deep.equal(["A", "T"]);
-      expect(plan.sourceVerdicts.find(v => v.sourceId === "T")!.verdict, "funded, not demoted").to.equal("funded");
-      expect(plan.haulers.some(h => h.sourceId === "T"), "and still ships nothing home").to.equal(false);
-      // the flag rides the commission so telemetry/audits read designed zero-routing
-      expect(plan.miners.find(m => m.sourceId === "T")!.dedicatedToBuild).to.equal(true);
-    });
   });
 
   describe("spec 25: emergent dedication - deposit sources may feed construction NEARER than their hub", () => {

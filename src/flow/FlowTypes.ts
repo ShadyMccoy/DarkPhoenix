@@ -214,12 +214,6 @@ export interface MinerAssignment {
    */
   efficiency: number;
 
-  /**
-   * The source's trunk build owns its output (CommissionedMiner passthrough):
-   * the plan routes nothing home BY DESIGN. Audits (P9 rot detector) must not
-   * read this as mined production rotting.
-   */
-  dedicatedToBuild?: boolean;
 
 
 

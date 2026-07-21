@@ -92,16 +92,6 @@ export interface PlannerSource {
    */
   pavedFraction?: number;
   /**
-   * The source's trunk road is IN PROGRESS (owner 2026-07-21: "feed the
-   * Z-to-A remote builder from the source, and disable hauling anything home
-   * until the road is finished"). The MINER stays funded - the pile is the
-   * road's fuel - but the fill routes none of this source's output home
-   * (pool rate 0), so no haul bodies are planned or spawned; CarryCorp's
-   * yieldsToBuild reads the same receipts for the standing fleet. Hauling
-   * resumes at the 2:1 road rate when the paved receipt lands.
-   */
-  dedicatedToBuild?: boolean;
-  /**
    * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
    * spawn instead of the nearest-spawn default - the v0 restructuring
    * operator (a source the nearest spawn's budget dropped can be worked by
@@ -184,10 +174,6 @@ export interface CommissionedMiner {
   netEnergy: number;
   efficiency: number;
   maxMiners: number;
-  /** The source's trunk build owns its output (PlannerSource.dedicatedToBuild):
-   * the fill routes nothing home BY DESIGN and the unrouted demotion exempts
-   * it. Exported (flow segment) so audits read designed zero-routing. */
-  dedicatedToBuild?: boolean;
 }
 
 export interface CommissionedHauler {
@@ -373,11 +359,7 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
         spawnParts: c.parts,
         netEnergy: c.net,
         efficiency: (c.net / c.rate) * 100,
-        maxMiners: c.source.maxMiners,
-        // Rides through FlowSolution to segment 6 (like the paved flag) so
-        // the waste ledger's P9 rot detector can tell designed zero-routing
-        // (the pile fuels the trunk at-site) from actual rot.
-        ...(c.source.dedicatedToBuild ? { dedicatedToBuild: true } : {})
+        maxMiners: c.source.maxMiners
       });
     }
   }
@@ -473,12 +455,11 @@ function routeToSinks(
   const nearestSpawnDist = (pos: Position): number =>
     problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
-  // Remaining gross energy each supply point can still ship. A source
-  // dedicated to its own trunk build ships NOTHING home - its miner stands,
-  // its output builds the road at the source end (owner 2026-07-21).
-  const pool = new Map<string, number>(
-    supply.map(s => [s.sourceId, sourceById.get(s.sourceId)?.dedicatedToBuild ? 0 : s.rate])
-  );
+  // Remaining gross energy each supply point can still ship. Trunk
+  // dedication is EMERGENT (spec 25 phase 3): a source's nearer-than-hub
+  // construction sinks take their fill in the local-build pre-pass and the
+  // residual deposits home - no flag, no zeroed pool.
+  const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
@@ -755,18 +736,11 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
         if (sf.amount > 1e-9) routedSources.add(sf.sourceId);
       }
     }
-    // A dedicated-to-build source routes zero BY DESIGN (its pool is zeroed;
-    // the pile fuels its trunk road at-site) and its miner must STAND - the
-    // dedication doc's own contract. This demotion predates the dedication
-    // and read that zero as rot: live t72480337, the moment the build pool's
-    // head reached the trunk rooms all 5 remotes flipped dedicatedToBuild
-    // and lost their miners - funded mining 70 -> 20 e/t, 193 hauler parts
-    // stranded, the freed ledger parts inflating the consumer plan.
-    const unroutedIds = new Set(
-      miners
-        .filter(m => !routedSources.has(m.sourceId) && !sourceById.get(m.sourceId)?.dedicatedToBuild)
-        .map(m => m.sourceId)
-    );
+    // Spec 25 phase 3: the dedicatedToBuild exemption is retired - a source
+    // building locally IS routed (to its construction sinks via the
+    // local-build pre-pass), so the plain zero-routed test is honest again
+    // (t72445337's contract, unqualified).
+    const unroutedIds = new Set(miners.filter(m => !routedSources.has(m.sourceId)).map(m => m.sourceId));
     if (unroutedIds.size > 0) {
       plannedMiners = miners.filter(m => !unroutedIds.has(m.sourceId));
       for (const v of sourceVerdicts) {

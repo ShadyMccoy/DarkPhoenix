@@ -1,6 +1,19 @@
 # 25 — Emergent dedication: route economics replace the dedicatedToBuild flag
 
-**Status:** PHASE 1 IMPLEMENTED 2026-07-21 (owner: "start on spec 25") —
+**Status:** PHASE 3 IMPLEMENTED 2026-07-21 (owner: "let's work on phase 3
+flag retirement - develop and test that locally") — the flag is RETIRED
+end-to-end: `PlannerSource`/`CommissionedMiner`/`MinerAssignment`/flow-v6
+fields deleted (flow v7), `detectTrunkBuildingSources` + the adapter wiring
+gone, the pool-zeroing and demotion exemption removed (the plain
+zero-routed contract is honest again), the waste-ledger P9 carve-out
+dropped, and CarryCorp's trunk-receipt stand-down retired (the plan's
+routes ARE the stand-down; the older home-room `dedicatedBuildSourceId`
+spill-guard mechanism remains). Behavior flip: trunk-building sources now
+feed their local sites first (pool-budgeted) and ship the RESIDUAL home.
+Gated locally (unit 1174 + trio); NOT yet deployed — owner directed local
+development.
+
+Previously: PHASE 1 IMPLEMENTED 2026-07-21 (owner: "start on spec 25") —
 the role-rule refinement + remote-sink admission + pool-absorb budget, with
 the dedicatedToBuild flag still standing (coexistence: its pool-zeroing
 keeps the new edges inert for currently-dedicated sources). Mechanics:

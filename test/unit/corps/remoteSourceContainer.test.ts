@@ -301,16 +301,23 @@ describe("Z-to-A trunk dedication (no hauling home until the road is done)", () 
     Game.rooms = { W1N1: { name: "W1N1", find: () => [], memory: { roadRoutes: { abc: entry } } } } as any;
   }
 
-  it("a hauler whose source's trunk is IN PROGRESS yields (no pickups, no new bodies)", () => {
+  it("SPEC 25 PHASE 3: trunk receipts never stand a hauler down - the PLAN's routes govern", () => {
+    // The receipt-keyed stand-down is retired: the planner's local-build
+    // pre-pass routes a trunk-building source's output to its sites first
+    // and the residual home, and this corp fields haulers only for planned
+    // routes - the stand-down IS the routing. A hauler with a planned route
+    // hauls, whatever the trunk receipts say.
     const { CarryCorp } = require("../../../src/corps/CarryCorp");
     const corp = new CarryCorp("W2N1-hauling-cabc", "spawn1");
     corp.setHaulerAssignments([{ fromId: "source-abc", toId: "storage-x", edgeId: "e", distance: 30, carryParts: 10, flowRate: 10, spawnCostPerTick: 1, spawnId: "spawn1" } as any]);
-    stageTrunk({ tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], built: 0, total: 1 });
-    expect((corp as any).yieldsToBuild(), "surveyed trunk (sites stand) -> stand down").to.equal(true);
-    stageTrunk({ tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] });
-    expect((corp as any).yieldsToBuild(), "PLANNED-only trunk (no sites placed) -> keep hauling (t72474584: dedicating these cut 30 e/t for zero progress)").to.equal(false);
-    stageTrunk({ tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true });
-    expect((corp as any).yieldsToBuild(), "paved receipt -> hauling resumes").to.equal(false);
+    for (const entry of [
+      { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], built: 0, total: 1 }, // sites stand
+      { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] }, // planned only
+      { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true } // done
+    ]) {
+      stageTrunk(entry);
+      expect((corp as any).yieldsToBuild(), "planned route -> haul, regardless of trunk state").to.equal(false);
+    }
   });
 
   it("the remote Z-to-A crew stands while ROAD sites remain (not just the container)", () => {

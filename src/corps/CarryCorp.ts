@@ -12,7 +12,6 @@ import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePicku
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
-import { detectTrunkBuildingSources } from "../economy/flowAdapter";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
@@ -1347,13 +1346,11 @@ export class CarryCorp extends Corp {
    * so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
-    // TRUNK-BUILDING source (owner 2026-07-21: "disable hauling anything home
-    // until the road is finished"): the same receipts the planner reads
-    // (detectTrunkBuildingSources) stand the fleet down kind-side too - no
-    // pickups, no new hauler bodies - so the source's whole output feeds the
-    // Z-to-A road crew. Flips off the moment the paved receipt lands.
-    const mine = this.mySourceId();
-    if (mine && detectTrunkBuildingSources().has(mine)) return true;
+    // Spec 25 phase 3: the trunk-receipt stand-down is retired - the PLAN now
+    // routes a trunk-building source's output (local sinks first, residual
+    // home), and this corp fields haulers only for planned routes, so the
+    // stand-down is the routing itself. Only the home-room dedicated-source
+    // mechanism below remains (spill-guarded, predates trunks).
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
     if (!dedicated || this.mySourceId() !== dedicated) return false;
