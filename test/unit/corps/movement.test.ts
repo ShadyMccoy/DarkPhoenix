@@ -438,3 +438,54 @@ describe("travelToLane (haul legs hold the road; standing blockers get one detou
     expect(c.calls[0].ignoreCreeps).to.equal(true);
   });
 });
+
+describe("travelToLane EMPTY LANE (outbound off the pavement; loaded leg keeps it)", () => {
+  const { travelToLane, isFatigueFreeWhenEmpty } = require("../../../src/corps/movement");
+
+  function haulerStub(loaded: number, body: string[] = ["carry", "move"]) {
+    const calls: any[] = [];
+    return {
+      name: "h2",
+      pos: pos(10, 10, "W1N0"),
+      fatigue: 0,
+      memory: {} as any,
+      store: { getUsedCapacity: () => loaded },
+      body: body.map(type => ({ type })),
+      move: () => 0,
+      moveTo(_t: any, opts: any) {
+        calls.push(opts ?? {});
+        return 0;
+      },
+      calls
+    };
+  }
+
+  beforeEach(() => {
+    (global as any).Game = { time: 200, rooms: {} };
+  });
+
+  it("an EMPTY pure hauler paths terrain-blind (swamp = plain = 1), roads penalized", () => {
+    const c = haulerStub(0);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    const o = c.calls[0];
+    expect(o.plainCost).to.equal(1);
+    expect(o.swampCost).to.equal(1);
+    expect(o.ignoreCreeps, "the lane still ignores creeps").to.equal(true);
+    expect(typeof o.costCallback, "roads raised via the matrix").to.equal("function");
+  });
+
+  it("a LOADED hauler keeps the road-preferring defaults (no terrain-blind costs)", () => {
+    const c = haulerStub(100);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    const o = c.calls[0];
+    expect(o.plainCost).to.equal(undefined);
+    expect(o.swampCost).to.equal(undefined);
+    expect(o.ignoreCreeps).to.equal(true);
+  });
+
+  it("a WORK-carrying creep never rides the empty lane (its WORK always weighs)", () => {
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "work" }, { type: "move" }] })).to.equal(false);
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(true);
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 50 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(false);
+  });
+});
