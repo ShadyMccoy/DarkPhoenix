@@ -168,6 +168,32 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +317t) — MEA CULPA: cd8e was 2:1 all along; the auditor's probe read the wrong field
+
+The roadReceipts export (v13) answered on its first capture - by
+exposing an AUDITOR error, not a bot bug. cd8e's entry: built 36/38,
+paved TRUE (standing since ~t72483599 - it is what un-dedicated the
+source). And with the CORRECT segment-6 field name, the plan reads:
+cd90 2:1, cd92 2:1, cd8e 2:1. THE REPRICING HAS BEEN LIVE AND CORRECT.
+Every probe since t72483599 filtered `h.haulerRatio` (the internal
+FlowSolution name); segment 6 exports `ratio` (pinned in
+flowPlan.test.ts all along). carry 14.8 is CORRECT for a 2:1 body -
+pavement saves MOVE parts (1.5 vs 2 per CARRY in the spawn ledger),
+not CARRY count. The "cd8e stuck at 1:1" thread across three cycles
+was a phantom.
+
+What remains REAL from that thread: the edge-tile fix (the trunk WAS
+unsatisfiable - err-7 receipts, 36/38 for 4400t); the completion sweep
+(a genuine ordering hazard, correctly pinned - though cd8e itself was
+likely receipted by the ordinary loop before the sweep shipped); the
+roadReceipts export (proved its worth immediately). Auditor process
+fix: probe field names come FROM THE EXPORT PINS (flowPlan.test.ts),
+never from internal type names.
+
+Board otherwise the greenest of the session: NO FAIL lines, P7 0.89x
+(burn 66.7, stock 2078), E4 -50/t continuing, spec 25 stable. Cycle
+verdict: FALSIFIED (the phantom named, the record corrected).
+
 ### 2026-07-21 (cron cycle, +190t) — X1 prices the feeder gap; roadReceipts export ships (core v13)
 
 Verify-first: the feeder SELF-HEALED (feederActive true, stock 1005 ->
