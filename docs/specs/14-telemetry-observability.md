@@ -168,6 +168,32 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +207t) — restaffing complete; P6 zero-floor artifact fixed; trunk tiebreak on watch
+
+Verify-first, all on track: E2 82 -> 78 parts / 4 -> 2 corps (the
+micro-runts EOL'd; the re-buy escalation trigger did NOT fire - the
+window's hauler@100 went to hauling-4-37, an IN-PLAN 0.8c micro-route,
+acquitted), burn 72 -> 86.3 e/t (P7 1.25x), E4 slope -96.82/t (424k),
+remote restaffing COMPLETE on receipts (miners cee0/cbd5/cd8d/cedc +
+THREE reservers @1300; banks refill next window), P9 honest, P1 stable,
+util 0.66.
+
+FIXED (instrument, ledger-script only - no deploy): P6's pump formula
+credited +dt of decay at the ZERO FLOOR (a bank at 0 cannot decay),
+fabricating "836 ticks banked, no reservers fielded" from four zero
+banks. Expected decay now bounded by the starting bank
+(min(bank1, dt)); pinned in wasteLedger.test.ts. Unit 1160.
+
+WATCH (falsifiable, next capture): trunk STILL 36/38 (~3000t) but its
+fuel line (the dedicated miners) only landed this window. Meanwhile
+placement expanded the pool to 31 remote sites incl. a fresh 17-site
+batch in W43N22. If next capture shows W43N22's count dropping while
+the trunk holds 36/38, the pool crew provably marched to the fresh
+batch over the 2 nearly-done trunk tiles - a completion-first tiebreak
+missing from buildPool's ordering (the owner's own no-99%-finished
+doctrine) - and that becomes the work item. Cycle verdict: verified
+(restaffing) + fixed (P6 instrument).
+
 ### 2026-07-21 (cron cycle, +44t/+933t) — RECOVERY VERIFIED END TO END: burn 72 e/t (1.04x plan), remotes restaffing, E2 draining
 
 Verification cycle - no fix, no deploy (a reset mid-recovery costs

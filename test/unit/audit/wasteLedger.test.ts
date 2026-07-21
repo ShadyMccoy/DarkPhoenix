@@ -60,6 +60,24 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p6.detail).to.contain("W42N23:66");
   });
 
+  it("P6 zero-floor: banks pinned at 0 with no reservers pump NOTHING (t72481477 phantom +dt)", () => {
+    // pump_r = bank2 - (bank1 - dt) assumes an above-zero bank decays 1/tick;
+    // at the ZERO FLOOR nothing decays, so the +dt credit fabricated a
+    // phantom "209 ticks banked per room, no reservers fielded" (live
+    // t72481477 vs t72481270 - all four banks 0 at both ends). Expected
+    // decay must be bounded by the starting bank.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    for (const cap of [capA, capB]) {
+      const res = cap.data.corps.corps.find((c: any) => c.kind === "reservation");
+      res.sizing.banks = { W42N22: 0, W42N23: 0, W43N24: 0, W44N23: 0 };
+      res.bodyParts = 0;
+    }
+    const p6 = computeLedger(capA, capB).find(r => r.id === "P6")!;
+    expect(p6.value, "no decay credit at the zero floor").to.equal(0);
+    expect(p6.verdict).to.equal("ok");
+  });
+
   it("P7 does not fail a window whose plan legitimately dropped (construction preempt)", () => {
     // Same pair: allocation fell 86.3 -> 2.0 by doctrine; actual 14.35 e/t is
     // the old upgraders burning residual stock - MORE than the surviving

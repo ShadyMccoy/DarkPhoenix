@@ -328,7 +328,13 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const stampDt = res?.sizing?.tick && bres?.sizing?.tick ? res.sizing.tick - bres.sizing.tick : dt;
     if (banks1 && banks2 && stampDt > 0) {
       const rooms = Object.keys(banks2).filter(r => r in banks1);
-      const pumps = rooms.map(r => [r, Math.round(banks2[r] - (banks1[r] - stampDt))] as [string, number]);
+      // Expected decay is bounded by the starting bank (a bank at 0 cannot
+      // decay): pump = bank2 - (bank1 - min(bank1, dt)). The unbounded form
+      // fabricated "+dt banked per room" from four zero banks with no
+      // reservers fielded (live t72481477 vs t72481270).
+      const pumps = rooms.map(
+        r => [r, Math.round(banks2[r] - (banks1[r] - Math.min(banks1[r], stampDt)))] as [string, number]
+      );
       const zero = pumps.filter(([, p]) => p <= 0);
       const fielded = (res?.bodyParts ?? 0) > 0 && (bres?.bodyParts ?? 0) > 0;
       const totalPump = pumps.reduce((a, [, p]) => a + Math.max(0, p), 0);
