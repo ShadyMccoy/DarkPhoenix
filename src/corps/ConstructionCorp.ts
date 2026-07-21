@@ -1026,7 +1026,7 @@ export class ConstructionCorp extends Corp {
       if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) {
         // The last silent exit in the road scan (spec 14): an unjudged source
         // behind this wall blocks the feeder trunk below it every pass.
-        this.lastSizing = { tick: Game.time, roadGate: `road-wall-energy-${source.id.slice(-4)}` };
+        this.stampSizing({ roadGate: `road-wall-energy-${source.id.slice(-4)}` });
         return;
       }
 
@@ -1068,7 +1068,7 @@ export class ConstructionCorp extends Corp {
    */
   private tryPlaceTrunkRoutes(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
     const gate = (reason: string): void => {
-      this.lastSizing = { tick: Game.time, roadGate: reason };
+      this.stampSizing({ roadGate: reason });
     };
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
@@ -1209,7 +1209,7 @@ export class ConstructionCorp extends Corp {
     // Every exit stamps WHY (spec 14: no invisible decisions - roadRoutes sat
     // EMPTY a full session because these returns were silent).
     const gate = (reason: string): void => {
-      this.lastSizing = { tick: Game.time, roadGate: reason };
+      this.stampSizing({ roadGate: reason });
     };
     let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes["feeder"];
     const bank = room.storage;
@@ -1359,6 +1359,16 @@ export class ConstructionCorp extends Corp {
   }
 
   /** Create a construction site. */
+  /** Merge a sizing-stamp patch for THIS tick (spec 14): same-tick stamps
+   * from different decision sites (the ladder's placeAttempt, the road
+   * gates) must COEXIST - whole-object writes clobbered the ladder's
+   * evidence (t72464499: roadGate alone survived while the placeResult that
+   * would have named the stuck link rung was overwritten same-tick). */
+  private stampSizing(patch: { [k: string]: number | string | boolean }): void {
+    const prev = this.lastSizing && this.lastSizing.tick === Game.time ? this.lastSizing : { tick: Game.time };
+    this.lastSizing = { ...prev, tick: Game.time, ...patch };
+  }
+
   private placeSite(room: Room, x: number, y: number, type: BuildableStructureConstant): void {
     // CPU governor (spec 09 ph5): under austere degradation, NEW investment
     // pauses - existing sites keep building, the income core keeps running.
@@ -1366,11 +1376,11 @@ export class ConstructionCorp extends Corp {
     // an invisible infinite loop that eats the whole placement ladder below
     // its rung (W43N23 2026-07-19: zero sites, zero road verdicts, no trace).
     if (governorPlan().pauseConstruction) {
-      this.lastSizing = { tick: Game.time, placeGate: "governor-paused" };
+      this.stampSizing({ placeGate: "governor-paused" });
       return;
     }
     const result = room.createConstructionSite(x, y, type);
-    this.lastSizing = { tick: Game.time, placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result };
+    this.stampSizing({ placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result });
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
     } else {
