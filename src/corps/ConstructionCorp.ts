@@ -2249,13 +2249,17 @@ export class ConstructionCorp extends Corp {
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
 
-    // Tankers serve the crew only while it works HOME sites; abroad the
-    // builders eat the route's source containers (a tanker's home-side
-    // refuel loop would walk energy the remote piles provide for free).
-    const homeSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES);
-    if (homeSites.length === 0) return builderDemand;
+    // Tankers serve the POOL crew wherever the pool head is (owner #24: "the
+    // builder plus carrier squad mix in aggregate ... it might represent more
+    // hauling"). The old home-sites-only gate corked the trunk at 34/38 for
+    // 3500+ ticks (t72473701): the last tiles sat mid-route, outside the
+    // builders' 4-tile self-fuel reach, while the bank held 370k the tankers
+    // were forbidden to carry there. runTanker already shuttles cross-room
+    // (surplus bank draw + stage-toward-builder); only the gate was home-only.
+    const poolSite = this.poolTankerSite(spawn.pos.roomName);
+    if (!poolSite) return builderDemand;
 
-    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, homeSites[0]));
+    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, poolSite));
     return [...builderDemand, ...tankerDemand];
   }
 
@@ -2313,12 +2317,31 @@ export class ConstructionCorp extends Corp {
    * tanker fetch uses: the storage in the surplus regime, the nearest source
    * otherwise - sizing and fetching cannot disagree.
    */
+  /**
+   * The construction site the tanker detail serves: the POOL head's first
+   * site - home when home builds, else the nearest room with sites (the same
+   * ordering the crew itself works, so carriers and builders never disagree
+   * on where the project is).
+   */
+  private poolTankerSite(spawnRoomName: string): ConstructionSite | null {
+    const head = buildPool(spawnRoomName)[0];
+    if (!head) return null;
+    return (head.room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined) ?? null;
+  }
+
   private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
     const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
     const bank = room.storage;
     const surplusBanked = bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0;
     const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
-    const dist = fuelPos ? site.pos.getRangeTo(fuelPos) : 8;
+    // A pool site can sit in ANOTHER room (same-room getRangeTo is Infinity
+    // across rooms - an unfixed count would be Infinity, not a fleet): price
+    // the cross-room shuttle at the linear room distance.
+    const dist = !fuelPos
+      ? 8
+      : site.pos.roomName === fuelPos.roomName
+      ? site.pos.getRangeTo(fuelPos)
+      : roomLinearDistance(site.pos.roomName, fuelPos.roomName) * 50;
     // CARRY needed in flight to sustain consumption over the round trip, with a
     // 1.5x margin: a tanker also spends ticks transferring at the builder and
     // withdrawing at the fuel point, so the bare round-trip figure under-delivers

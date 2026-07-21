@@ -206,3 +206,74 @@ describe("remote source containers (owner 2026-07-21: build from the remote end,
     });
   });
 });
+
+/**
+ * The tanker detail serves the POOL, not just home (owner #24: "the builder
+ * plus carrier squad mix in aggregate ... it might represent more hauling").
+ * Measured cork t72473701: the trunk's last 4 tiles sat 3500+ ticks at
+ * 34/38 - mid-route, no pile within the builders' 4-tile self-fuel reach -
+ * while the tanker gate was home-sites-only and the bank held 370k. The
+ * carriers must follow the crew to the pool head and price the CROSS-ROOM
+ * shuttle (same-room getRangeTo is Infinity across rooms - an unfixed count
+ * would be Infinity/NaN, not a fleet).
+ */
+describe("pool tankers (the carrier detail follows the build crew)", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetGovernor();
+    (global as any).FIND_MY_CONSTRUCTION_SITES = FIND_MY_CONSTRUCTION_SITES;
+    (global as any).RESOURCE_ENERGY = "energy";
+    Game.creeps = {};
+    Game.rooms = {};
+  });
+
+  it("poolTankerSite: no home sites -> the pool head's REMOTE site (was: gate closed)", () => {
+    const remoteSite = { structureType: "road", progress: 155, progressTotal: 300, pos: { x: 43, y: 48, roomName: "W2N1" } };
+    const home: any = {
+      name: "W1N1",
+      controller: { my: true },
+      find: (t: number) => [],
+      memory: {}
+    };
+    const remote: any = {
+      name: "W2N1",
+      controller: { my: false },
+      find: (t: number) => (t === FIND_MY_CONSTRUCTION_SITES ? [remoteSite] : []),
+      memory: {}
+    };
+    Game.rooms = { W1N1: home, W2N1: remote } as any;
+    const corp = new (require("../../../src/corps/ConstructionCorp").ConstructionCorp)("W1N1-construction", "spawn1");
+    const site = (corp as any).poolTankerSite("W1N1");
+    expect(site, "the pool head's site is served").to.equal(remoteSite);
+  });
+
+  it("poolTankerSite: empty pool -> null (no phantom carrier fleet)", () => {
+    Game.rooms = { W1N1: { name: "W1N1", controller: { my: true }, find: () => [], memory: {} } } as any;
+    const corp = new (require("../../../src/corps/ConstructionCorp").ConstructionCorp)("W1N1-construction", "spawn1");
+    expect((corp as any).poolTankerSite("W1N1")).to.equal(null);
+  });
+
+  it("targetTankerCount prices the CROSS-ROOM shuttle finitely (linear-distance fallback)", () => {
+    const { ConstructionCorp } = require("../../../src/corps/ConstructionCorp");
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    // builderPlan is exercised inside targetTankerCount - stub it to a fixed crew
+    (corp as any).builderPlan = () => ({ target: 1, desiredCost: 300, minCost: 300, bodyParam: 2, partsNeeded: 2 });
+    const bank = {
+      my: true,
+      store: { energy: 370_000 },
+      pos: { x: 36, y: 26, roomName: "W1N1", getRangeTo: () => Infinity }
+    };
+    const room: any = { name: "W1N1", storage: bank, find: () => [], memory: {} };
+    const site: any = {
+      pos: {
+        x: 43, y: 48, roomName: "W2N1",
+        getRangeTo: () => Infinity, // the cross-room trap this pins against
+        findClosestByRange: () => null
+      }
+    };
+    const n = (corp as any).targetTankerCount(room, site, 16, { energyCapacity: 1950 });
+    expect(Number.isFinite(n), "a finite fleet, not Infinity/NaN").to.equal(true);
+    expect(n, "at least the hot-swap pair").to.be.at.least(2);
+    expect(n, "sized for ~one room of shuttle, not absurd").to.be.at.most(12);
+  });
+});
