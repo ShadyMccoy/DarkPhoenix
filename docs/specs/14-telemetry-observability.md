@@ -1818,3 +1818,22 @@ upgraders from actuals) -> burn into the 40 e/t band, BANK SLOPE NEGATIVE
 for the first time. If the trunk completes but burn stays low, the next seam
 is the upgrader fleet's scale-up (parking 8, cap 2300 - room to grow).
 Cycle verdict: VERIFIED (prior prediction) + FIXED (pool tankers, deployed).
+
+**OWNER DIRECTIVE 2026-07-21 (Z-to-A trunk dedication, #25 core) - shipped.**
+"The remote is still hauling home although we're building a road there ...
+feed the Z-to-A remote builder from the source, and disable hauling anything
+home until the road is finished." One lens (detectTrunkBuildingSources:
+tiles3 && !paved && !declined, the same receipts detectPavedSources reads),
+three consumers: PLAN keeps the miner but pools the source at rate 0 (no
+haul routes planned/priced - defund at the spawn) and excludes it from
+minedSupply; KIND-side CarryCorp.yieldsToBuild yields for trunk-building
+sources (standing haulers stop pickups, no replacements; the home-room
+dedicatedBuildSourceId slot untouched - single-slot, home-memory, and
+hard-freezes without vision per the seam audit); CREW-side the remote local
+builder gate counts ROAD sites, so the Z-to-A 2-WORK body (= the source's
+full 10 e/t) stands while its room's segment builds. Hauling resumes at 2:1
+when the paved receipt lands. Expected readings while a trunk builds: P9
+shows the dedicated source unrouted BY DESIGN (annotate if noisy), income
+dips by the dedicated 10 e/t, the trunk finishes faster from both ends
+(pool tankers home-side + Z-to-A source-side). Gate: 1150 unit + trio green;
+deployed.
