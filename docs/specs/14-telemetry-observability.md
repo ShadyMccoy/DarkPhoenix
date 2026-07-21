@@ -1768,3 +1768,30 @@ dead). Cycle verdict: VERIFIED (batch) + BLOCKER NAMED (feeder starvation,
 with numbers) + one observability fix shipped. Next cycle: feeder-starvation
 fix (scheduler slack for cheap infra, design-first, no value nudges) and the
 churn anomaly via agenda.executed (fix its empty export first).
+
+**AUDIT CYCLE t72470198 - feeder starvation root-caused to the CLOCK, not the
+backstop; prediction filed.** E4 top line again (274.7k, +9.95/t, feederActive
+false). Post-reset capture (only the roadGate stamp had refilled; spawn busy
+40t straight - demand-pass stamps empty is a RESET+BUSY artifact, not a
+defect). Live agenda read (Memory.spawnAgenda): the anti-starvation backstop
+WORKS - the queue's head is starved-FIFO by age (hauler-cedc 798t > reserver
+441t > hauler-cbd5 321t > FEEDER 321t @ minCost 100, position 4). The feeder's
+2400-tick starvation is a CLOCK-RESET loop: its no-miner gate blinks the
+demand off during routine home-miner turnover (clock restarted at t72469837,
+exactly the cd90 miner replacement window; the prune deletes a first-seen key
+after ONE absent evaluated tick), so 300 ticks of age never accumulate
+before the next blink - while blocking income replacements (miner@700 at
+t72469894, hauler@100 at t72469921 bought PAST older starved entries) keep
+taking the rare free slots at util 0.97. PREDICTION (falsifies next capture):
+the starved FIFO ahead of the feeder costs 1900 energy total and the feeder's
+current clock is already past threshold - if the queue drains as designed the
+feeder BUYS by ~t72471500 and feederActive flips true. If the next capture
+still shows feeders 0, the fix (design ready): (a) the feeder's no-miner gate
+is wrong-class - a feeder relays the BANK, so it should gate on banked stock,
+not miner presence (kills the blink at its source; "infrastructure follows
+income" is satisfied by a funded bank); (b) clock hysteresis - a first-seen
+key survives K absent evaluated ticks before pruning (one-tick blinks no
+longer zero 300 ticks of age). Trunk: 34/38 held this window (local builders
+mid-tile); fleet 22->25 (miners 3->7 - the churn rebuild). Cycle verdict:
+DIAGNOSED to mechanism + prediction filed; no code shipped (the honest move
+- the system may already be buying the feeder).
