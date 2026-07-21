@@ -1,6 +1,18 @@
 # 25 — Emergent dedication: route economics replace the dedicatedToBuild flag
 
-**Status:** PROPOSED (owner-directed 2026-07-21: "a lot of times adding the
+**Status:** PHASE 1 IMPLEMENTED 2026-07-21 (owner: "start on spec 25") —
+the role-rule refinement + remote-sink admission + pool-absorb budget, with
+the dedicatedToBuild flag still standing (coexistence: its pool-zeroing
+keeps the new edges inert for currently-dedicated sources). Mechanics:
+a LOCAL-BUILD PRE-PASS in routeToSinks (between spawn overhead and the
+deposit fill, restricted to deposit sources nearer the sink than their
+hub) implements tests 1–5; `main.ts` admits ANY visible room's own sites
+(acceptance test 0's gate); per-site capacities are pro-rata shares of one
+projectAbsorbRate pool budget (the floor-sum fix). Phase 2 = live
+verification (source→site routes in captures); phase 3 = flag retirement
+(tests 6–8, v7 bump, delete the three exemptions).
+
+Originally PROPOSED (owner-directed 2026-07-21: "a lot of times adding the
 flags has these very negative counter effects ... maybe what we should be
 doing is visiting the planning module and getting it to behave the way we
 want by working out some of these nuances rather than patching on a flag in

@@ -521,6 +521,24 @@ export function buildColonyProblem(
     });
   }
 
+  // SPEC 25 / filed 2026-07-21: per-site construction capacities share ONE
+  // pool absorb budget instead of each carrying the max(5,...) floor - 10
+  // road sites summed to 50 e/t of priority-70 demand against a pool that
+  // absorbs ~7 (measured t72480337: the freed ledger parts inflated the
+  // consumer plan). Pool absorb = the SAME sum-of-projects formula the crew
+  // sizes with (primitives.projectAbsorbRate over total remaining work at
+  // the farthest site's travel); each site's capacity is its pro-rata share
+  // by remaining work. A single site degenerates to exactly the old number.
+  const constructionSites = graph
+    .getSinks()
+    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
+  const poolRemaining = constructionSites.reduce((a, s) => a + (s.progressRemaining ?? 0), 0);
+  const poolTravel =
+    spawns.length === 0 || constructionSites.length === 0
+      ? 0
+      : Math.max(...constructionSites.map(s => Math.min(...spawns.map(sp => dist(sp.pos, s.position)))));
+  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel) : 0;
+
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
@@ -567,14 +585,14 @@ export function buildColonyProblem(
             // the warchest climbed to 8.3x target while upgrading starved.
             Math.min(
               Math.max(minedSupply + bankRate, 1),
-              // Horizon = the crew's buffered EFFECTIVE life: travel to the
-              // site (a founding a couple rooms over) shortens the working
-              // window, so the same work sizes a bigger crew there.
-              sink.progressRemaining !== undefined
-                ? projectAbsorbRate(
-                    sink.progressRemaining,
-                    spawns.length === 0 ? 0 : Math.min(...spawns.map(sp => dist(sp.pos, sink.position)))
-                  )
+              // Pro-rata share of the POOL absorb (spec 25 / the floor-sum
+              // fix): the crew is ONE fleet sized against the whole pool, so
+              // per-site demands must sum to what that fleet can eat - not
+              // to N independent floors. Horizon travel = the farthest
+              // site's spawn distance (the crew must finish the whole pool
+              // within its buffered effective life).
+              sink.progressRemaining !== undefined && poolRemaining > 0
+                ? poolAbsorb * (sink.progressRemaining / poolRemaining)
                 : Number.POSITIVE_INFINITY
             )
           : kind === "storage"

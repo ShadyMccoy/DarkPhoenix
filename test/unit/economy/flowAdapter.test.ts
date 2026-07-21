@@ -407,6 +407,23 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(ctrl.allocated, "controller mops up the freed draw").to.be.greaterThan(build.allocated);
   });
 
+  it("PER-SITE FLOORS SHARE ONE POOL BUDGET: ten road sites sum to the pool absorb, not ten floors (spec 25 / t72480337)", () => {
+    // The boolean-era incident: 10 sites x the max(5,...) floor = 50 e/t of
+    // priority-70 plan demand against a pool absorbing ~5 - the demotion-
+    // freed ledger parts inflated the consumer plan around exactly this.
+    // The crew is ONE fleet sized against the whole pool; per-site demands
+    // are pro-rata shares of projectAbsorbRate(total remaining, farthest
+    // travel) and their SUM equals it.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    for (let i = 0; i < 10; i++) graph.addConstructionSite(`road${i}`, "home", at(9 + i), 300);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+    expect(builds.length).to.equal(10);
+    const totalDemand = builds.reduce((s, a) => s + a.demand, 0);
+    // pool: 3000 remaining, farthest travel 18 -> max(5, 3000/((2/3)*1482)) = 5
+    expect(totalDemand, "sum = ONE pool absorb, not 10 floors").to.be.closeTo(5, 0.1);
+  });
+
   it("a REAL build-out sizes to buffered-effective-life completion; the residual upgrades (owner 2026-07-20)", () => {
     // Horizon = 2/3 of effectiveLife(travel): the site sits 4 tiles from the
     // spawn, so 15k / ((2/3) * 1496) ~ 15 e/t - above the G6 flat-5 floor

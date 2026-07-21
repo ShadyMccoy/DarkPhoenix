@@ -168,6 +168,38 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (owner-directed) — SPEC 25 PHASE 1 SHIPS: emergent dedication machinery, remote sinks admitted, floor-sum fixed
+
+Owner: "Yes start on spec 25." Phase 1 per the spec's migration order -
+the flag COEXISTS (its pool-zeroing keeps the new edges inert for
+currently-dedicated sources; behavior switches at phase 3 retirement).
+
+SHIPPED (red-first, tests 1-5 + test 0's adapter half + the floor-sum
+pin): (1) routeToSinks gains a LOCAL-BUILD PRE-PASS between spawn
+overhead and the deposit fill - a deposit-class source may feed a
+construction sink NEARER to it than its hub; restricted to local
+deposit sources so bank-funded construction keeps its value-pass turn
+behind deposits (t72445337's production-first order preserved
+byte-identical when no construction stands). Emergent dedication,
+residual deposits, completion transition, the role guard (farther
+sites still bank-funded), and hub-roles-otherwise (controllers never
+draw mined) all pinned. (2) main.ts admits ANY visible room's own
+sites as construction sinks (was owner-rooms only - the entire remote
+road program was outside the solve; t72484107 zero construction sinks
+while the pool tanker worked off-ledger). (3) Per-site construction
+capacities are pro-rata shares of ONE projectAbsorbRate pool budget -
+ten 300-work road sites now sum to ~5 e/t, not ten 5-floors (the
+t72480337 inflation class, closed at the adapter). Unit 1178.
+
+Predictions (phase 1, flag standing): remote sites appear as
+construction sinks in the flow segment with pool-budgeted demands;
+their haul routes (bank->site or local-source->site for NON-dedicated
+sources) appear in haulers[] and charge the parts ledger (the owner's
+tankers-in-plan ruling, measured); currently-dedicated sources route
+nothing (pool 0) - no behavior flip until phase 3. P4's construction
+lines become real. Cycle verdict: shipped (phase 1, pending live
+verification next capture).
+
 ### 2026-07-21 (cron cycle, +771t) — RECEIPT STARVATION: one-project-at-a-time starved completed trunks of their paved receipt
 
 Verify-first: the cd8e 2:1 self-heal prediction FALSIFIED (two windows,

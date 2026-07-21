@@ -492,7 +492,28 @@ function routeToSinks(
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBank(id);
 
-  const fill = (sink: PlannerSink, target: number): void => {
+  // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
+  // nuances into the planner, not tail-end flags): a deposit-class source may
+  // feed a CONSTRUCTION sink that is NEARER to it than its hub. A source's
+  // own trunk road sites sit tiles away while its hub is a room haul distant,
+  // so nearest-first routes the source's output into its road first, the
+  // residual deposits home, and completion re-routes everything with no
+  // lifecycle code - the behavior the dedicatedToBuild flag bypassed the
+  // router to fake (and needed three same-day exemption patches for). The
+  // exception is construction-ONLY: controllers/spawns never draw mined
+  // directly in the hub era. Per-source hub distance, computed once.
+  const hubDist = new Map<string, number>();
+  if (hasStorageSink) {
+    const storagePos = sinks.filter(s => s.kind === "storage").map(s => s.pos);
+    for (const sp of supply) {
+      const src = sourceById.get(sp.sourceId);
+      const from = src?.haulPos ?? src?.pos;
+      if (!from) continue;
+      hubDist.set(sp.sourceId, Math.min(...storagePos.map(p => dist(from, p))));
+    }
+  }
+
+  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false): void => {
     const acc = out.get(sink.id) ?? {
       sinkId: sink.id,
       kind: sink.kind,
@@ -526,7 +547,6 @@ function routeToSinks(
     // link-served source), not necessarily the source tile itself.
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
-      .filter(id => (sink.kind === "storage" ? isDeposit(id) : !isDeposit(id)))
       .map(id => {
         const s = sourceById.get(id)!;
         // NEAREST-FIRST, no class ranking (owner 2026-07-20: "scavenging IS
@@ -540,6 +560,19 @@ function routeToSinks(
         // correct trade ("we sort of lose on the capex or the room
         // reservation a bit").
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
+      })
+      .filter(({ id, d }) => {
+        // Spec 25 local-build pre-pass mode: ONLY deposit sources nearer to
+        // this construction sink than their hub (the bank keeps its normal
+        // value-pass turn, so bank-funded construction stays BEHIND the
+        // deposit fill in the parts ledger - t72445337's order preserved).
+        if (localDepositsOnly) return isDeposit(id) && d < (hubDist.get(id) ?? Infinity);
+        return sink.kind === "storage"
+          ? isDeposit(id)
+          : !isDeposit(id) ||
+              // Spec 25 exception: deposit-class sources build LOCALLY - a
+              // construction sink nearer than the source's hub may draw it.
+              (sink.kind === "construction" && d < (hubDist.get(id) ?? Infinity));
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
@@ -620,6 +653,17 @@ function routeToSinks(
   // routes the spawn cannot maintain.
   for (const sink of [...sinks].filter(s => s.kind === "spawn").sort(byValueThenId)) {
     fill(sink, sink.capacity);
+  }
+  // SPEC 25 LOCAL-BUILD PRE-PASS (owner 2026-07-21): a deposit source's
+  // nearer-than-hub construction is its energy's FIRST home - the trunk is
+  // production's own financing, built from the source end at 5 e/WORK-tick.
+  // Runs between spawn overhead and the deposit fill so deposit greed cannot
+  // strand the local build; restricted to LOCAL deposit sources, so
+  // bank-funded construction keeps its value-pass turn behind deposits
+  // (production-first, t72445337). With no construction sinks this is a
+  // no-op and the fill order is byte-identical to before.
+  for (const sink of [...sinks].filter(s => s.kind === "construction").sort(byValueThenId)) {
+    fill(sink, sink.capacity, true);
   }
   for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
     fill(sink, sink.capacity);

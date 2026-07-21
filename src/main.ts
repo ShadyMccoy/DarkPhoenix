@@ -496,19 +496,25 @@ function getOrCreateColony(): Colony {
 function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
-    if (!room.controller?.my) continue;
-
+    // SPEC 25 (owner 2026-07-21: "construction crew tankers definitely
+    // should be part of the plan"): ANY visible room with OUR sites is
+    // admitted, not just owned rooms - the remote trunk/road program was
+    // entirely outside the solve (t72484107: zero construction sinks while
+    // the pool crew's tanker worked remote sites off-ledger). FIND_MY
+    // already scopes to our own sites; per-site capacity is pool-absorb
+    // bounded in the adapter, and the planner's local-build rule routes
+    // source-adjacent sites from their source.
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) continue;
 
-    // A freshly claimed room has no analyzed nodes yet, but its founding
-    // spawn site must still be a sink (spec 06 audit: "the flow graph must
-    // admit construction sinks in rooms the colony can see") - fall back to
-    // anchoring on ANY node, nearest by room distance, until the room's own
-    // analysis lands. The anchor only shapes graph topology; haul pricing
-    // uses the site's real position either way.
+    // A room with no analyzed nodes yet (a freshly claimed founding, or a
+    // remote road room) still needs its sites in the graph (spec 06 audit:
+    // "the flow graph must admit construction sinks in rooms the colony can
+    // see") - anchor on the nearest node by room distance until the room's
+    // own analysis lands. The anchor only shapes graph topology; haul
+    // pricing uses the site's real position either way.
     let roomNodes = nodes.filter(n => n.roomName === roomName);
-    if (roomNodes.length === 0 && Memory.expansion?.roomName === roomName) {
+    if (roomNodes.length === 0) {
       let nearest: Node | undefined;
       let nearestDist = Infinity;
       for (const node of nodes) {
@@ -518,10 +524,7 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
           nearest = node;
         }
       }
-      if (nearest) {
-        roomNodes = [nearest];
-        console.log(`[Expansion] founding site in ${roomName} anchored to node ${nearest.id} (no local nodes yet)`);
-      }
+      if (nearest) roomNodes = [nearest];
     }
     if (roomNodes.length === 0) continue;
 
