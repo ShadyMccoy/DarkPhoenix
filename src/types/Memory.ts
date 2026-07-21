@@ -240,7 +240,24 @@ declare global {
      * telemetry. `last` guards against double-counting a tick.
      */
     spawnMeter?: {
-      [spawnId: string]: { t0: number; last: number; ticks: number; busy: number };
+      [spawnId: string]: {
+        t0: number;
+        last: number;
+        ticks: number;
+        busy: number;
+        /** s.spawning at the previous observation - finish-event edge detector. */
+        wasBusy?: boolean;
+        /** Build-finish events observed WITH a gap after them (a back-to-back
+         * restart keeps spawning true, so it never registers - by design:
+         * every counted finish is a duty gap to explain). */
+        finishes?: number;
+        /** Sum over those finishes of energyAvailable/energyCapacityAvailable
+         * AT the finish tick (owner 2026-07-21: "refilling should happen
+         * while the other creeps are spawning - or we have to measure and
+         * fix that"). Low avg = refill lag (tender); high avg = the spawn
+         * was affordable and idled anyway (agenda/decision latency). */
+        fillSum?: number;
+      };
     };
 
     /**

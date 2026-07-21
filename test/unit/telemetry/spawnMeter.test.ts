@@ -24,11 +24,17 @@ describe("Telemetry spawn meter (segment 0, spec 14 phase 3)", () => {
     (Memory as any).spawnAgenda = undefined;
   });
 
-  const spawn: any = { id: "sid1", name: "Spawn1", spawning: null };
+  const spawn: any = {
+    id: "sid1",
+    name: "Spawn1",
+    spawning: null,
+    room: { energyAvailable: 2300, energyCapacityAvailable: 2300 }
+  };
 
-  const tickOnce = (t: Telemetry, time: number, busy: boolean): void => {
+  const tickOnce = (t: Telemetry, time: number, busy: boolean, energy?: number): void => {
     Game.time = time;
     spawn.spawning = busy ? { name: "x", needTime: 9, remainingTime: 3 } : null;
+    if (energy !== undefined) spawn.room.energyAvailable = energy;
     t.update(undefined, [], undefined);
   };
 
@@ -43,7 +49,7 @@ describe("Telemetry spawn meter (segment 0, spec 14 phase 3)", () => {
     tickOnce(t, 104, true);
 
     const core = JSON.parse(RawMemory.segments[0]);
-    expect(core.version).to.equal(11);
+    expect(core.version).to.equal(12);
     const m = core.spawns[0];
     expect(m.id).to.equal("sid1");
     expect(m.windowTicks).to.equal(4);
@@ -51,6 +57,34 @@ describe("Telemetry spawn meter (segment 0, spec 14 phase 3)", () => {
     expect(m.partsPerTick).to.be.closeTo(3 / 4 / 3, 1e-9);
     expect(m.ceiling).to.be.closeTo(1 / 3, 1e-9);
     expect(m.queueDepth).to.equal(2);
+  });
+
+  it("endFill probe: a GAPPED build-finish records energyAvailable at the finish tick (owner: refill must overlap the build)", () => {
+    (Game as any).spawns = { Spawn1: spawn };
+    const t = new Telemetry();
+    // Build for two ticks, then finish with the bank only 20% refilled - the
+    // refill did NOT overlap the build (the tender-lag signature). A second
+    // finish at 90% averages in.
+    tickOnce(t, 301, true);
+    tickOnce(t, 302, true);
+    tickOnce(t, 303, false, 460); // finish #1: fill 0.2
+    tickOnce(t, 304, true);
+    tickOnce(t, 305, false, 2070); // finish #2: fill 0.9
+    const core = JSON.parse(RawMemory.segments[0]);
+    const m = core.spawns[0];
+    expect(m.finishes).to.equal(2);
+    expect(m.endFill).to.be.closeTo((0.2 + 0.9) / 2, 1e-3);
+  });
+
+  it("endFill probe: back-to-back builds never register a finish (nothing to explain)", () => {
+    (Game as any).spawns = { Spawn1: spawn };
+    const t = new Telemetry();
+    tickOnce(t, 401, true);
+    tickOnce(t, 402, true); // a new body started the same tick the old ended: spawning stays truthy
+    tickOnce(t, 403, true);
+    const core = JSON.parse(RawMemory.segments[0]);
+    expect(core.spawns[0].finishes).to.equal(undefined);
+    expect(core.spawns[0].endFill).to.equal(undefined);
   });
 
   it("survives across Telemetry instances (window state in Memory, not heap)", () => {

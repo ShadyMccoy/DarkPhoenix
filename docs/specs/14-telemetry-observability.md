@@ -168,6 +168,38 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (owner-directed) — THE PLAN'S CEILING IS IDEALIZED: duty gap measured; endFill probe ships (core v12)
+
+Owner: "If we're not using 100% of our spawn capacity then why are we
+perpetually queued? ... According to the plan ... refilling should
+happen while the other creeps are spawning. So the spawn should always
+be able to spawn bodies. Or we have to measure and fix that."
+
+MEASURED across today's 8 captures: delivered parts/tick 0.207-0.316
+(mean ~0.26) vs the plan's implied 0.307 need vs the ideal 0.333
+ceiling. P4's "92% with slack" is against a 100%-duty ceiling that
+reality never delivers - the plan OVERSPENDS actual throughput ~15-20%
+in most windows, and the perpetual queue is the buffer absorbing that
+standing overdraft (which is also why the ordering acts as the
+allocator and consumers trickle). Second gap: off-plan bodies - SIX
+guards in today's receipts with NO P4 line (spec 15's own "ALL fleet
+classes" rule), construction-crew tankers under-charged similarly.
+
+Tender code read: the bus circuit has NO spawning-state gate - refill
+CAN overlap builds mechanically; whether it DOES is the question.
+INSTRUMENTED (core v12): the spawn meter's endFill probe - at each
+GAPPED build-finish (back-to-back restarts never register, so every
+counted finish IS a duty gap) record energyAvailable/capacity. The
+next captures discriminate: low endFill = refill lag (tender fix, the
+red plan-t5 cell is its sim scenario); high endFill = affordable-but-
+idle (agenda/decision latency). Unit 1171; deployed.
+
+QUEUED (instrument, next cycle): P4 duty-adjusted verdict (plan vs
+MEASURED partsPerTick) + the guard line. OWNER-OPEN: the consumer-
+trickle fix choice (multi-shot rebate / maintenance tier / package);
+whether partsBudget should discount by measured duty; the expansion
+audit (GCL 32, warchest 10x target, one room).
+
 ### 2026-07-21 (cron cycle, +508t) — THE SAW'S MECHANISM CLOSED: consumers refleet on the starvation trickle alone
 
 The v11 whole-queue mirror answered on its first capture. The upgrader

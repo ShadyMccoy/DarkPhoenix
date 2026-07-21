@@ -232,6 +232,12 @@ export interface CoreTelemetry {
     ceiling: number;
     /** Current agenda queue length for this spawn (0 when no agenda). */
     queueDepth: number;
+    /** Gapped build-finish events in the window (back-to-back restarts never
+     * register - every counted finish is a duty gap). v12. */
+    finishes?: number;
+    /** Avg energyAvailable/capacity AT those finish ticks: low = refill did
+     * not overlap the build (tender lag); high = affordable-but-idle. */
+    endFill?: number;
   }[];
   /**
    * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
@@ -628,7 +634,20 @@ export class Telemetry {
       if (w.last === Game.time) continue;
       w.last = Game.time;
       w.ticks++;
-      if (s.spawning) w.busy++;
+      const busyNow = !!s.spawning;
+      if (busyNow) w.busy++;
+      // BUILD-FINISH fill probe (owner 2026-07-21: refill must overlap the
+      // build "or we have to measure and fix that"). A back-to-back restart
+      // keeps spawning true and never registers here - every counted finish
+      // is a duty GAP, and its fill ratio names the cause: low = the refill
+      // did NOT overlap the build (tender lag); high = affordable-but-idle
+      // (agenda/decision latency).
+      if (w.wasBusy && !busyNow) {
+        w.finishes = (w.finishes ?? 0) + 1;
+        const cap = s.room?.energyCapacityAvailable || 1;
+        w.fillSum = (w.fillSum ?? 0) + (s.room?.energyAvailable ?? 0) / cap;
+      }
+      w.wasBusy = busyNow;
     }
   }
 
@@ -779,6 +798,7 @@ export class Telemetry {
       const ticks = w?.ticks ?? 0;
       const busy = w?.busy ?? 0;
       const utilization = ticks > 0 ? busy / ticks : 0;
+      const finishes = w?.finishes ?? 0;
       spawns.push({
         id: s.id,
         name,
@@ -786,7 +806,10 @@ export class Telemetry {
         utilization,
         partsPerTick: utilization * SPAWN_PARTS_PER_TICK,
         ceiling: SPAWN_PARTS_PER_TICK,
-        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0
+        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0,
+        // Gapped build-finishes + avg fill AT the finish (v12): low endFill =
+        // refill lag; high = affordable-but-idle. Absent until a gap occurs.
+        ...(finishes > 0 ? { finishes, endFill: +((w!.fillSum ?? 0) / finishes).toFixed(3) } : {})
       });
     }
 
@@ -811,7 +834,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 11, // v9 remoteSites; v10 pathMeter; v11 agenda mirrors the WHOLE queue (starvation-age visibility)
+      version: 12, // v11 whole-queue agenda mirror; v12 spawn endFill probe (refill-overlap discriminator)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
