@@ -178,7 +178,27 @@ export function bestAdjacentTile(
   const shunExitBuffer =
     forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
 
-  let best: { x: number; y: number; d: number } | null = null;
+  // Swamp-favored placement (owner 2026-07-21): an UNWALKABLE building blots
+  // out its tile either way, so at EQUAL distance "waste" a swamp and leave
+  // the plain as a walking lane; among swamps prefer one with an adjacent
+  // plain (the servicing creep parks there - standing pays no fatigue, only
+  // the approach does). Same class as the exit-buffer rule: roads and
+  // containers are walkable, so they stay terrain-neutral (a container on
+  // swamp would tax every visitor 5x fatigue). Distance always rules first -
+  // a farther swamp would charge every servicing trip forever.
+  const swampScore = (x: number, y: number): number => {
+    if (!shunExitBuffer || (terrain.get(x, y) & TERRAIN_MASK_SWAMP) === 0) return 0;
+    for (let ax = x - 1; ax <= x + 1; ax++) {
+      for (let ay = y - 1; ay <= y + 1; ay++) {
+        if (ax === x && ay === y) continue;
+        if (ax < 0 || ax > 49 || ay < 0 || ay > 49) continue;
+        if (terrain.get(ax, ay) === 0) return 2; // swamp with a plain stand beside it
+      }
+    }
+    return 1; // landlocked swamp: still better than blotting a plain
+  };
+
+  let best: { x: number; y: number; d: number; s: number } | null = null;
   for (let dx = -range; dx <= range; dx++) {
     for (let dy = -range; dy <= range; dy++) {
       if (dx === 0 && dy === 0) continue;
@@ -198,7 +218,8 @@ export function bestAdjacentTile(
       if (occupied.has(`${x},${y}`)) continue;
       if (shunExitBuffer && besideOpenExit(terrain, x, y)) continue;
       const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;
-      if (!best || d < best.d) best = { x, y, d };
+      const s = swampScore(x, y);
+      if (!best || d < best.d || (d === best.d && s > best.s)) best = { x, y, d, s };
     }
   }
   return best ? new RoomPosition(best.x, best.y, room.name) : null;
