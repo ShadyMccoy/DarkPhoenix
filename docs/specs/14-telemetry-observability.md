@@ -1837,3 +1837,25 @@ shows the dedicated source unrouted BY DESIGN (annotate if noisy), income
 dips by the dedicated 10 e/t, the trunk finishes faster from both ends
 (pool tankers home-side + Z-to-A source-side). Gate: 1150 unit + trio green;
 deployed.
+
+**AUDIT CYCLE t72474584 - MY REGRESSION caught and fixed same-cycle: the
+Z-to-A lens over-rotated.** The ledger lit up on the previous deploy's own
+change: P1 five sources funded->unrouted, E2 168 parts stood down, funded
+mining 70 -> 20 e/t. detectTrunkBuildingSources (tiles3 && !paved &&
+!declined) matched every PLANNED trunk - but placement is one-project-at-a-
+time, so three of the five (cbd5/cedc/cd8d) had no sites even placed:
+income revoked for zero build progress, the trap-list revocation class
+inside my own implementation. FIX (same cycle, full gate, deployed): the
+lens additionally requires `total` (stamped by the first placement survey)
+- dedication now tracks the build discipline itself: sites stand => the
+source feeds its Z-to-A crew; planned-only => keep hauling. Live: cbd5/
+cedc/cd8d resume (30 e/t back); cd8e (34/38) + cee0 (10 sites standing)
+stay dedicated. ALSO SURFACED, filed not fixed: P5 FAIL - the reserver
+gate re-staffs whenever staffed < target (duty 1.0) while the toll prices
+0.5 duty and the reservation bank (~5000 ticks) is never read by the gate;
+2x reserver spawn+energy vs priced. Next cycle's candidate work item if it
+holds across a clean window (this window was raid-distorted). Predictions:
+income recovers to ~50 e/t (2 home + 3 resumed remotes; 20 dedicated),
+trunk cd8e completes within ~1-2k ticks, cee0 segment advances at ~10 e/t
+from its 1770-stocked container. Cycle verdict: REGRESSION FIXED same-cycle
++ P5 named with data.
