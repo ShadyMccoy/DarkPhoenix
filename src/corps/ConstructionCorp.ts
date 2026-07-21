@@ -331,11 +331,17 @@ export class ConstructionCorp extends Corp {
     if (this.isRemoteWorkRoom(room)) {
       // Remote rung: one source container at a time, triggered by the pile
       // threshold (findMissingSourceContainer), built from that same pile.
-      if (room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) {
-        const spot = this.findMissingSourceContainer(room);
-        if (spot) this.placeSite(room, spot.x, spot.y, STRUCTURE_CONTAINER);
-      }
-      this.builders.run(creep => this.runBuilder(creep, room), spawn);
+      const spot = this.remoteContainerSiteWanted(room);
+      if (spot) this.placeSite(room, spot.x, spot.y, STRUCTURE_CONTAINER);
+      // The repair detail is dispatched here exactly as at home (owner
+      // 2026-07-21 "or partially built": the old branch ran EVERYONE through
+      // runBuilder, so the detail the demand fielded for a decaying remote
+      // container idled at the sites gate while the container rotted).
+      this.assignRepairDetail(room);
+      this.builders.run(
+        creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
+        spawn
+      );
       return;
     }
 
@@ -1466,6 +1472,36 @@ export class ConstructionCorp extends Corp {
    * build and turn roaming drop-mining into static mining - infrastructure worth
    * placing before extensions.
    */
+  /**
+   * The REMOTE rung's placement decision: one container project at a time,
+   * gated on CONTAINER sites only - the trunk program strings ROAD sites
+   * through remote rooms for whole reservation cycles, and counting them
+   * blocked the container forever (owner 2026-07-21: "some of the remote
+   * source don't have containers built").
+   */
+  private remoteContainerSiteWanted(room: Room): { x: number; y: number } | null {
+    const containerSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    });
+    if (containerSites.length > 0) return null;
+    return this.findMissingSourceContainer(room);
+  }
+
+  /**
+   * Is the remote room's pile-funded container project live - a container
+   * site standing, or the pile signal calling for one? The demand side
+   * (getSpawnDemand's local crew) and the placement side (work()'s remote
+   * rung) read THIS same lens - staffsPost symmetry.
+   */
+  private remoteContainerProject(room: Room): boolean {
+    if (
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length > 0
+    ) {
+      return true;
+    }
+    return this.remoteContainerSiteWanted(room) !== null;
+  }
+
   private findMissingSourceContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
     const core = coreLink(room);
@@ -2187,11 +2223,18 @@ export class ConstructionCorp extends Corp {
     if (!workRoom) return [];
 
     // ONE BUILD POOL PER SPAWN (owner 2026-07-20): remote corps field NO
-    // builders - their room's sites belong to the home corp's pool crew.
-    // They keep the standing repair detail (their containers still decay)
-    // and their placement duties; legacy builders age out by attrition.
+    // pool builders - their room's HOME-FUNDED sites belong to the home
+    // corp's pool crew. They keep the standing repair detail (their
+    // containers still decay) - PLUS the pile-funded container crew (owner
+    // 2026-07-21: "a similar paradigm to building a road from the remote
+    // end, with no hauling ... energy is laying there anyways"): the source
+    // container is funded entirely by the pile decaying at the site, a
+    // different funding class from the pool, so ONE local builder fields
+    // while that project stands and eats the pile as it builds. No tankers.
     if (this.isRemoteWorkRoom(workRoom)) {
-      return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
+      const plan = this.repairerPlan(ctx, workRoom);
+      if (this.remoteContainerProject(workRoom)) plan.target += 1;
+      return this.builders.spawnDemand(plan);
     }
 
     const poolWork = buildPool(spawn.pos.roomName).reduce((s, e) => s + e.work, 0);
