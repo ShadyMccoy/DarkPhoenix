@@ -562,6 +562,18 @@ describe("economy/flowAdapter - paved-source detection", () => {
     g.Game = savedGame;
   });
 
+  it("carries the paved verdict onto the SOLUTION's haulers (audit t72469936: seg 6 dropped it and nearly called the repricing dead)", async () => {
+    const { solveWithCorpPlanner } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
+    (g.Game as any).rooms = {
+      [ROOM]: { name: ROOM, find: () => [], memory: { roadRoutes: { s1: { tiles: [], paved: true } } } }
+    };
+    const sol = solveWithCorpPlanner(graph, 0, manhattan);
+    const s1Haulers = sol.haulers.filter(h => h.fromId === "source-s1");
+    expect(s1Haulers.length).to.be.greaterThan(0);
+    expect(s1Haulers.every(h => h.haulerRatio === "2:1"), "the road body reaches telemetry and the materialiser").to.equal(true);
+  });
+
   it("marks sources paved from the receipt by GAME id (graph 'source-' prefix stripped)", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);

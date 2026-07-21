@@ -726,7 +726,11 @@ export function solveColony(
     carryParts: h.carryParts,
     flowRate: h.flowRate,
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
-    spawnId: h.spawnId
+    spawnId: h.spawnId,
+    // The paved verdict rides through to telemetry (audit t72469936: the
+    // plan HAD repriced cd8e at 2:1 with crawl-corrected CARRY, but seg 6
+    // dropped the flag and the audit nearly called the repricing dead).
+    ...(h.paved ? { haulerRatio: "2:1" as const } : {})
   }));
 
   const sinkTypeById = new Map(graph.getSinks().map(s => [s.id, s.type]));
