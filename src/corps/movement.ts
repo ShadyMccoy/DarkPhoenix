@@ -91,6 +91,37 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
 }
 
 /**
+ * ROAD-LANE travel for haul legs (owner 2026-07-21: "pathfind with ignoring
+ * creeps. so they stay on the road. the creeps can just bypass each other as
+ * necessary"). Creeps are TRANSIENT obstacles: pathing around them steps the
+ * loaded leg off the pavement - at the 2:1 road body that tile is HALF speed,
+ * and the detour outlives the blocker. So the lane paths creep-BLIND (long
+ * reuse: the route is stable, and skipping the re-searches is CPU off the
+ * P-CPU meter's top line). Opposing lane traffic resolves itself: two creeps
+ * each moving onto the other's tile swap through (the engine's mutual-move
+ * rule - the same physics travelToBypass's forced swap rides). Only a
+ * STANDING blocker (parked/working, never leaving the lane) defeats that, so
+ * after LANE_PATIENCE consecutive stuck ticks ONE creep-aware repath detours
+ * around it and the lane resumes. Fatigue is rest, not a jam; a gap in calls
+ * (loading/unloading at an endpoint) resets the clock.
+ */
+export const LANE_PATIENCE = 2;
+
+export function travelToLane(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const now = typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
+  const mem = creep.memory as CreepMemory & { _lane?: { p: string; n: number; t: number } };
+  const here = `${creep.pos.roomName}:${creep.pos.x},${creep.pos.y}`;
+  const prev = mem._lane && mem._lane.t === now - 1 ? mem._lane : undefined;
+  const stuck = prev && prev.p === here && (creep.fatigue ?? 0) === 0 ? prev.n + 1 : 0;
+  if (stuck > LANE_PATIENCE) {
+    delete mem._lane; // detour issued - the clock restarts on the next call
+    return travelTo(creep, target, { ...opts, reusePath: 0, ignoreCreeps: false });
+  }
+  mem._lane = { p: here, n: stuck, t: now };
+  return travelTo(creep, target, { reusePath: 20, ...opts, ignoreCreeps: true });
+}
+
+/**
  * Is this friendly creep YIELDING - a parked upgrader sitting on its assigned
  * upgrade tile? Such a creep has no travel intent of its own this tick (it camps
  * and upgrades in place) and walks straight back next tick, so swapping through it
