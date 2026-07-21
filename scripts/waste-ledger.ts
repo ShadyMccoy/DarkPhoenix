@@ -429,7 +429,12 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // sink (this cycle) restore routed ~= produced.
   if (flow?.sources && flow?.haulers) {
     const isMined = (id: any): boolean => typeof id === "string" && id.startsWith("source-");
-    const produced = (flow.sources as any[]).reduce((a, s) => a + (+s.harvestRate || 0), 0);
+    // Trunk-dedicated sources route zero BY DESIGN (their pile fuels the road
+    // at-site, flow v6 flag) - designed zero-routing is not rot. Without the
+    // exemption every dedicated source reads as #19 for its whole build.
+    const routable = (flow.sources as any[]).filter(s => !s.dedicatedToBuild);
+    const dedicated = (flow.sources as any[]).length - routable.length;
+    const produced = routable.reduce((a, s) => a + (+s.harvestRate || 0), 0);
     const minedHaulers = (flow.haulers as any[]).filter(h => isMined(h.sourceId));
     const routed = minedHaulers.reduce((a, h) => a + (+h.flowRate || 0), 0);
     const ratio = produced > 0 ? routed / produced : 1;
@@ -441,8 +446,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       unit: "x of funded mining",
       verdict: meaningful && ratio < 0.5 ? "FAIL" : meaningful && ratio < 0.8 ? "WARN" : "ok",
       detail:
-        `funded mining ${(flow.sources as any[]).length} src / ${produced.toFixed(1)} e/t; ` +
-        `routed ${routed.toFixed(1)} e/t via ${minedHaulers.length} mined-source haulers` +
+        `funded mining ${routable.length} src / ${produced.toFixed(1)} e/t` +
+        (dedicated > 0 ? ` (+${dedicated} trunk-dedicated, route-exempt)` : "") +
+        `; routed ${routed.toFixed(1)} e/t via ${minedHaulers.length} mined-source haulers` +
         (meaningful && ratio < 0.5 ? " - MINED PRODUCTION ROTTING (funded but unrouted, #19)" : "")
     });
   }

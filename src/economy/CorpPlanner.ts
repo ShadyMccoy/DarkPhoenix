@@ -184,6 +184,10 @@ export interface CommissionedMiner {
   netEnergy: number;
   efficiency: number;
   maxMiners: number;
+  /** The source's trunk build owns its output (PlannerSource.dedicatedToBuild):
+   * the fill routes nothing home BY DESIGN and the unrouted demotion exempts
+   * it. Exported (flow segment) so audits read designed zero-routing. */
+  dedicatedToBuild?: boolean;
 }
 
 export interface CommissionedHauler {
@@ -369,7 +373,11 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
         spawnParts: c.parts,
         netEnergy: c.net,
         efficiency: (c.net / c.rate) * 100,
-        maxMiners: c.source.maxMiners
+        maxMiners: c.source.maxMiners,
+        // Rides through FlowSolution to segment 6 (like the paved flag) so
+        // the waste ledger's P9 rot detector can tell designed zero-routing
+        // (the pile fuels the trunk at-site) from actual rot.
+        ...(c.source.dedicatedToBuild ? { dedicatedToBuild: true } : {})
       });
     }
   }

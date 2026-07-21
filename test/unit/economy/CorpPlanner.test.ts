@@ -518,6 +518,8 @@ describe("economy/CorpPlanner", () => {
       expect(plan.miners.map(m => m.sourceId).sort(), "the dedicated miner STANDS").to.deep.equal(["A", "T"]);
       expect(plan.sourceVerdicts.find(v => v.sourceId === "T")!.verdict, "funded, not demoted").to.equal("funded");
       expect(plan.haulers.some(h => h.sourceId === "T"), "and still ships nothing home").to.equal(false);
+      // the flag rides the commission so telemetry/audits read designed zero-routing
+      expect(plan.miners.find(m => m.sourceId === "T")!.dedicatedToBuild).to.equal(true);
     });
   });
 

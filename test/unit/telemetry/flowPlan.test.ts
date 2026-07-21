@@ -95,8 +95,25 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(5); // v3 verdicts; v4 parts ledger; v5 assembly counts
+    expect(flow.version).to.equal(6); // v3 verdicts; v4 parts ledger; v5 assembly counts; v6 dedicatedToBuild
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
+  });
+
+  it("threads dedicatedToBuild to sources[] (designed zero-routing, v6 - prod t72480337 P9 exemption)", () => {
+    // A trunk-dedicated source routes nothing home BY DESIGN; without the
+    // flag in segment 6 the P9 rot detector reads its 0 routed as #19 for
+    // the entire trunk build. Present iff true - like the paved verdict.
+    const withDedicated = {
+      ...solution,
+      miners: [
+        ...solution.miners,
+        { sourceId: "trunk", nodeId: "W2N1-2-2", harvestRate: 10, efficiency: 80, spawnDistance: 40, dedicatedToBuild: true }
+      ]
+    };
+    new Telemetry().update(undefined, [], withDedicated);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow.sources.find((s: any) => s.id === "trunk").dedicatedToBuild).to.equal(true);
+    expect(flow.sources.find((s: any) => s.id === "s1").dedicatedToBuild).to.equal(undefined);
   });
 
   it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4)", () => {

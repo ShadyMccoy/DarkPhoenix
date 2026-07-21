@@ -747,7 +747,9 @@ export function solveColony(
     harvestRate: m.rate,
     spawnCostPerTick: minerOverhead(m.distance),
     maxMiners: m.maxMiners,
-    efficiency: m.efficiency
+    efficiency: m.efficiency,
+    // Designed zero-routing rides to telemetry, like the paved verdict.
+    ...(m.dedicatedToBuild ? { dedicatedToBuild: true } : {})
   }));
 
   const haulers: HaulerAssignment[] = plan.haulers.map(h => ({
