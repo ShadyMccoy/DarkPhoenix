@@ -271,6 +271,16 @@ export interface CoreTelemetry {
    */
   remoteSites?: { [roomName: string]: number };
   /**
+   * roadRoutes receipts, verbatim per key (v13 - prod t72485595): cd8e's
+   * plan price sat 1:1 for three windows after its road stood complete and
+   * WHY was uninferable from captures - the pave/dedication lenses both
+   * read these room-memory receipts, which no segment carried. Slim:
+   * built/total/paved/declined + tile count per key, rooms merged.
+   */
+  roadReceipts?: {
+    [key: string]: { built?: number; total?: number; paved?: boolean; declined?: boolean; tiles?: number };
+  };
+  /**
    * P-CPU meter snapshot (v10): last tick's moveTo CPU per corp family
    * (Memory.pathMeter verbatim) - the BEFORE number for spec 23's cached
    * routes, naming the top pathing spender.
@@ -834,7 +844,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 12, // v11 whole-queue agenda mirror; v12 spawn endFill probe (refill-overlap discriminator)
+      version: 13, // v12 endFill probe; v13 roadReceipts (the pave/dedication lens records, verbatim)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -859,6 +869,26 @@ export class Telemetry {
       agenda,
       ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
       ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+      ...(() => {
+        // roadRoutes receipts (v13): the exact records the pave-fraction and
+        // dedication lenses read, exported verbatim so a stuck pricing names
+        // its own state (entry deleted vs fractionless vs paved).
+        const receipts: NonNullable<CoreTelemetry["roadReceipts"]> = {};
+        for (const roomName in Game.rooms ?? {}) {
+          const routes = Game.rooms[roomName]?.memory?.roadRoutes;
+          for (const key in routes ?? {}) {
+            const e = routes![key];
+            receipts[key] = {
+              ...(e.built !== undefined ? { built: e.built } : {}),
+              ...(e.total !== undefined ? { total: e.total } : {}),
+              ...(e.paved ? { paved: true } : {}),
+              ...(e.declined ? { declined: true } : {}),
+              ...(e.tiles3 ? { tiles: e.tiles3.length / 3 } : {})
+            };
+          }
+        }
+        return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
+      })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
       rooms
     };

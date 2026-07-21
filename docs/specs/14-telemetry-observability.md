@@ -168,6 +168,30 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +190t) — X1 prices the feeder gap; roadReceipts export ships (core v13)
+
+Verify-first: the feeder SELF-HEALED (feederActive true, stock 1005 ->
+1503, burn 32.8 -> 51.6 recovering, E4 -50.24/t). X1 did exactly what
+the owner's waste class was built for: the feeder outage now has a
+NUMBER - workUtil 0.68 / dryShare 0.32 over 765 upgrader creep-ticks =
+25.6 idle WORK-equivalent, the measured cost of a single-shuttle supply
+line dying at end-of-life. Strengthens the pending supply-package
+decision (trickle fix options, owner-open). Reservation healthy (banks
+821-1194, gate opportunistic-topup). Spec 25 phase 1 STABLE on its
+second capture (3 sinks, 4 routes, dedication set unchanged) - phase 3
+unblocked. endFill 0.835 over 22 finishes (util 0.97).
+
+cd8e STILL 1:1 (third window). Per never-guess-twice, INSTRUMENTED
+(core v13): roadReceipts - the roadRoutes records the pave-fraction and
+dedication lenses actually read (built/total/paved/declined/tiles per
+key, rooms merged), exported verbatim. Next capture names cd8e's entry
+state directly: absent = deleted (the re-judge hypothesis), present
+fractionless = survey starvation persists, paved = the pricing lens has
+a different bug. Unit 1178; deployed.
+
+Cycle verdict: verified (feeder heal, spec 25 stability) + priced (X1
+feeder gap) + instrumented (roadReceipts).
+
 ### 2026-07-21 (cron cycle, +527t) — SPEC 25 PHASE 1 VERIFIED LIVE; endFill 0.80 answers the refill question
 
 PHASE 1 VERIFIED on its first capture: 3 remote construction sinks in
