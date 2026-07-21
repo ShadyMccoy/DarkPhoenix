@@ -168,6 +168,40 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +44t/+933t) — RECOVERY VERIFIED END TO END: burn 72 e/t (1.04x plan), remotes restaffing, E2 draining
+
+Verification cycle - no fix, no deploy (a reset mid-recovery costs
+progress for nothing). Every standing prediction landed:
+
+- Demotion exemption + v6: 7 funded / 0 unrouted held (P1 stable), P9
+  reads "2 src / 20 e/t (+5 trunk-dedicated, route-exempt)" - the rot
+  detector honest through a trunk build, no false FAIL.
+- Receipts show the restaffing executing: miners bought for cd92/cd90/
+  cd8e (a dedicated source - the trunk's fuel line), cee0/cbd5/cd8d
+  queued; THREE upgraders @2300 in one window.
+- Absorb-clamp chain at full effect: P7 actual 72.0 e/t vs plan 69
+  (1.04x - was 0.49x FAIL at 1.0 e/t two cycles ago), upgraders 5 of 6
+  staffed, allocated 102.7 / inflow 101.9 = 115 - absorb 13.09 (the
+  pool grew as trunk placement resumed; both halves still identical).
+- E4 slope -79.55/t (444k, drawdown to target ~5k ticks at current
+  draw, tapering below 42.6k). E5 zero runts. Spawn util 0.64 - the
+  saturation era over.
+- E2 82 parts (TOP LINE, watch-class): draining 193 -> 82 as the
+  demotion fix pulled the remote corps back in-plan; the residual 4 are
+  scavenge-route leftovers holding 1 creep each with NO re-buys in the
+  window's receipts - expected to attrite by EOL. If the set persists
+  past a creep lifetime, that becomes the work item (a stranded corp
+  outliving 1500t implies re-buying).
+- WATCH: all 4 reservation banks read 0 (lapsed during the miner-drop
+  era; reservers re-field value-ordered behind the queued miners).
+  Rate halving on unreserved remotes is the transient cost; next
+  capture should show banks refilling.
+
+Day arc across the three deploys (t72478939 -> t72481270, 2331t): burn
+1.0 -> 72 e/t, rclProgress +18.34 pts/t averaged INCLUDING the
+catastrophe era, storage 474k -> 444k with the slope flipped from
++20.18 to -79.55. Cycle verdict: verified (all three deploys).
+
 ### 2026-07-21 (cron cycle, +425t) — ABSORB CLAMP VERIFIED; the trunk dedication fed its miners to the demotion
 
 VERIFY-FIRST, all absorb-clamp predictions LANDED in one window
