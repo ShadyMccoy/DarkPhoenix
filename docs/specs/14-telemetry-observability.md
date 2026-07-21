@@ -168,6 +168,46 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +425t) — ABSORB CLAMP VERIFIED; the trunk dedication fed its miners to the demotion
+
+VERIFY-FIRST, all absorb-clamp predictions LANDED in one window
+(t72480337 vs t72479912): feeder STAFFED (22-part shuttle, relayRate
+108.3 = surplus 115 - absorb 6.7, linkFed d1), upgrader allocated 109.4
+with inflow 108.3 (the identical share - the chain symmetric to 15
+digits), targetCount 6 with the first 20W body fielded, burn 1.0 -> 7.2
+e/t and climbing (P7 cleared), E4 slope +20.18 -> -10.67/t (the first
+draining window since the clamp landed). The absorb-bounded clamp is
+VERIFIED.
+
+LIVE INCIDENT preempting the P5 top line: funded mining 7 -> 2 sources
+(income 70 -> 20 e/t), E2 193 hauler parts stranded across the 5
+remotes, candidates verdicts all "unrouted". Named from code + verdicts:
+the TRUNK DEDICATION (owner 2026-07-21: dedicatedToBuild - the source's
+pile fuels its road at-site, "the MINER stays funded") zeroes the
+source's haul pool BY DESIGN, and the FUNDED=>ROUTED demotion
+(2026-07-20, prod t72445337) - written before the dedication existed -
+read that zero as rot and dropped every dedicated miner. It first bound
+NOW because the link's completion moved the build pool's head to the
+trunk rooms, flipping all 5 remotes dedicatedToBuild at once. The freed
+ledger parts then inflated the consumer plan (10 per-site construction
+sinks x the 5 e/t projectAbsorbRate floor = 50 e/t at priority 70, 42
+plan WORK at the controller, tenders 99p) - downstream symptoms, one
+cause. FIX (red-first, CorpPlanner.test.ts): the demotion exempts
+dedicatedToBuild - the dedication IS the source's routing; only an
+UNDEDICATED zero-routed source is rot (counter-pin stands). Unit 1158.
+(A container restart mid-gate wiped the first pass of this fix and
+killed the session cron - both re-done; the restart is the measured
+argument for the server-side watchdog Routine.)
+
+FILED (not fixed - one hypothesis per cycle): the plan's per-site
+construction floors SUM (10 sites x max(5, ...) = 50 e/t demand) while
+the pool's real absorb is 6.7 - the same sum-vs-pool class the consumer
+clamp just fixed, now visible on the PLAN side. It only binds when the
+ledger has free parts (this window's inflation was demotion-funded);
+execution never over-builds (the crew reads the pool absorb). Candidate
+work item for a future cycle: per-site sinks share one pool-absorb
+budget in the adapter.
+
 ### 2026-07-21 (cron cycle, +487t) — LINK CHAIN COMPLETE; the boolean clamp banked the surplus - absorb-bounded fix
 
 VERIFY-FIRST: the whole link chain landed - feeder stamps linkFed:true /

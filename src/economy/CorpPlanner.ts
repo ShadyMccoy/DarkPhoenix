@@ -703,7 +703,18 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
         if (sf.amount > 1e-9) routedSources.add(sf.sourceId);
       }
     }
-    const unroutedIds = new Set(miners.filter(m => !routedSources.has(m.sourceId)).map(m => m.sourceId));
+    // A dedicated-to-build source routes zero BY DESIGN (its pool is zeroed;
+    // the pile fuels its trunk road at-site) and its miner must STAND - the
+    // dedication doc's own contract. This demotion predates the dedication
+    // and read that zero as rot: live t72480337, the moment the build pool's
+    // head reached the trunk rooms all 5 remotes flipped dedicatedToBuild
+    // and lost their miners - funded mining 70 -> 20 e/t, 193 hauler parts
+    // stranded, the freed ledger parts inflating the consumer plan.
+    const unroutedIds = new Set(
+      miners
+        .filter(m => !routedSources.has(m.sourceId) && !sourceById.get(m.sourceId)?.dedicatedToBuild)
+        .map(m => m.sourceId)
+    );
     if (unroutedIds.size > 0) {
       plannedMiners = miners.filter(m => !unroutedIds.has(m.sourceId));
       for (const v of sourceVerdicts) {
