@@ -168,6 +168,37 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +640t) — FIRST ALL-GREEN TRIAGE; workUtil 0.98 falsifies the supply hypothesis; trunk residual named
+
+NO FAIL LINES - first fully-green triage of the session. Verify-first:
+
+- X1's FIRST LIVE READ answers the P7 question: workUtil 0.976 /
+  dryShare 0.02 over 1974 creep-ticks - standing WORK fires 98% of the
+  time, supply is HEALTHY. The P7 sag (0.48x -> 0.80x this window) is
+  FLEET COMPOSITION: upgraders 5 -> 3 of target 6 (generation gap,
+  replacements queued behind a 0.94-util spawn). The package-spawn
+  remedy for THIS symptom is falsified by the meter - the supply half
+  never starved; the residual waste class is replacement timing under
+  spawn contention (S4), self-resolving as the queue drains. Watch.
+- Reservation fully recovered: gate "staffed", banks 795-838, P6 2449
+  ticks delivered. E2 down to 2 parts (one micro-corp, attrition).
+  E4 draining -76.78/t (335k). E5's 2x hauler@200 are plan-sized micro
+  bodies for 2.6-3.0c scavenge routes, not drained-spawn runts (E5's
+  cost heuristic conflates them - known imprecision).
+- TRUNK: formally STUCK - trunk-building-36/38 across 5 captures
+  (~4400t) while W43N24 sites complete and reappear (4 -> 1 -> 2) with
+  the crew working there. WHICH 2 tiles never build - and why - is
+  invisible: placeTrunkSites counted a failed createConstructionSite
+  NOWHERE (the silent-forever state). INSTRUMENTED (invisible-cause
+  rule): TrunkSurvey.missing names each unbuilt visible tile with its
+  pass state (site/placed/paused/err<rc>, capped 4), stamped as
+  trunkMissing beside roadGate. Next capture names the 2 tiles
+  directly: err-13 = blocked tile (re-path the segment), site = crew
+  tempo, absent = registry mismatch. Unit 1167; deployed.
+
+Cycle verdict: verified (all-green board) + falsified (package-remedy
+for P7 - the meter did its job) + instrumented (trunk residual).
+
 ### 2026-07-21 (cron cycle, +743t) — E2 to ZERO; trunk tiebreak acquitted; P7's invisible half gets a meter
 
 Verify-first: E2 78 -> 0 parts ("every fielded hauler serves a planned

@@ -272,9 +272,13 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
   });
 
   it("maps the survey to an unambiguous gate stamp", () => {
-    expect(trunkGateFromSurvey({ placed: 3, built: 0, total: 9, blind: [] })).to.equal("trunk-placing-3");
-    expect(trunkGateFromSurvey({ placed: 0, built: 2, total: 9, blind: ["W3N2"] })).to.equal("trunk-blind-W3N2");
-    expect(trunkGateFromSurvey({ placed: 0, built: 7, total: 9, blind: [] })).to.equal("trunk-building-7/9");
+    expect(trunkGateFromSurvey({ placed: 3, built: 0, total: 9, blind: [], missing: [] })).to.equal("trunk-placing-3");
+    expect(trunkGateFromSurvey({ placed: 0, built: 2, total: 9, blind: ["W3N2"], missing: [] })).to.equal(
+      "trunk-blind-W3N2"
+    );
+    expect(trunkGateFromSurvey({ placed: 0, built: 7, total: 9, blind: [], missing: ["W3N2:5,5:site"] })).to.equal(
+      "trunk-building-7/9"
+    );
   });
 
   it("persists the pass survey (built/total) onto the route entry - the partial-pave repricing receipt", () => {

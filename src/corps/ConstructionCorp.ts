@@ -194,6 +194,13 @@ export interface TrunkSurvey {
   built: number;
   total: number;
   blind: string[];
+  /** The unbuilt VISIBLE tiles, each with its pass state - `room:x,y:site`
+   * (construction site standing), `:placed` (site created this pass),
+   * `:paused` (governor), or `:err<rc>` (createConstructionSite failed -
+   * the silent-forever state; prod t72482860: the gate read
+   * trunk-building-36/38 for ~4400t across 5 captures and WHICH 2 tiles
+   * never built - or why - was invisible). Capped at 4 entries. */
+  missing: string[];
 }
 
 /**
@@ -1147,7 +1154,12 @@ export class ConstructionCorp extends Corp {
         // hauler body around the repricing threshold.
         entry.built = Math.max(entry.built ?? 0, survey.built);
         entry.total = survey.total;
-        gate(trunkGateFromSurvey(survey));
+        // The residual tiles ride the stamp by NAME (prod t72482860: 36/38
+        // for ~4400t and the 2 unbuilt tiles were unnameable from captures).
+        this.stampSizing({
+          roadGate: trunkGateFromSurvey(survey),
+          ...(survey.missing.length > 0 ? { trunkMissing: survey.missing.join(" ") } : {})
+        });
         return; // one project at a time
       }
 
@@ -1216,9 +1228,12 @@ export class ConstructionCorp extends Corp {
 
   /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
   private placeTrunkSites(roomsTable: string[], tiles3: number[]): TrunkSurvey {
-    const survey: TrunkSurvey = { placed: 0, built: 0, total: tiles3.length / 3, blind: [] };
+    const survey: TrunkSurvey = { placed: 0, built: 0, total: tiles3.length / 3, blind: [], missing: [] };
     const blind = new Set<string>();
     const paused = governorPlan().pauseConstruction;
+    const noteMissing = (roomName: string, x: number, y: number, state: string): void => {
+      if (survey.missing.length < 4) survey.missing.push(`${roomName}:${x},${y}:${state}`);
+    };
     for (let i = 0; i + 2 < tiles3.length; i += 3) {
       const roomName = roomsTable[tiles3[i + 2]];
       const r = Game.rooms[roomName];
@@ -1232,8 +1247,23 @@ export class ConstructionCorp extends Corp {
         survey.built++;
         continue;
       }
-      if (r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) continue;
-      if (!paused && r.createConstructionSite(x, y, STRUCTURE_ROAD) === OK) survey.placed++;
+      if (r.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) {
+        noteMissing(roomName, x, y, "site");
+        continue;
+      }
+      if (paused) {
+        noteMissing(roomName, x, y, "paused");
+        continue;
+      }
+      const rc = r.createConstructionSite(x, y, STRUCTURE_ROAD);
+      if (rc === OK) {
+        survey.placed++;
+        noteMissing(roomName, x, y, "placed");
+      } else {
+        // The silent-forever state: a tile placement rejects every pass
+        // (blocked structure, invalid terrain drift) and no counter moved.
+        noteMissing(roomName, x, y, `err${rc}`);
+      }
     }
     survey.blind = [...blind];
     return survey;
