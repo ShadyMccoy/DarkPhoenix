@@ -168,6 +168,39 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +552t) — FIRST TRUNK COMPLETED (edge fix verified); the upgrader saw named S4; whole-queue mirror ships
+
+EDGE-FIX VERIFYING: P9 reads funded 3 src / 30 e/t routed (+4 still
+trunk-dedicated) - was 2+5. One trunk completed, its dedication lifted,
+hauling resumed, routed income 20 -> 30 e/t; source-route hauler parts
+11 -> 41. The remaining 4 lift organically as their trunks finish.
+
+TOP LINE P7 FAIL 0.33x - the upgrader SAW, now precise: fleet 3 -> 1
+(20 WORK standing), X1 workUtil 0.84 when present (bodies work when
+they exist; the waste is the GAPS). The corp stamped demand:"demanded"
+(staffing 1, target 6, demandMin 2300) continuously, yet ZERO upgrader
+receipts in 250t and the visible queue heads are a serialized
+miner->reserver->hauler->tanker chain at a 0.86-util spawn. Same class
+hit reservers (2 staffed of 4, banks decaying 795-838 -> 92-384). S4
+(replacement mistiming) is the named class. NOTE: today's four deploys
+each global-reset the colony and re-sync death waves - part of this saw
+is deploy-induced; the steady-state saw predates today (log passim).
+
+THE OPEN QUESTION the capture cannot answer: the anti-starvation
+backstop (300t -> STARVED_TIER one-shot) should have lifted a 550t-
+unmet upgrader demand and visibly did not (demand is NOT opportunistic
+- exemption ruled out by code read). Its `since` age - the starvation
+clock - was invisible: the agenda mirror exported only 4 queue heads
+and the upgrader sat at rank 5+. INSTRUMENTED (core v11): the mirror
+now exports the WHOLE queue verbatim (~100B/entry, single-digit
+depth). Next capture reads the upgrader entry's since/gate directly:
+old age + no lift = backstop bug; young age = the stream clock resets
+spuriously (the fix target either way). Unit 1169; deployed.
+
+Cycle verdict: verified (edge fix, first trunk) + named (S4, the saw)
++ instrumented (whole-queue mirror). Fix deferred one capture - never
+guess twice; the queue entry names the mechanism.
+
 ### 2026-07-21 (owner-directed) — THE TRUNK WAS UNSATISFIABLE: border tiles in the tile list; edge-exempt completion ships
 
 Owner: "prioritizes building over upgrading... upgraders building up

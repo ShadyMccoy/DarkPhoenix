@@ -800,14 +800,18 @@ export class Telemetry {
           tick: a.tick,
           fundingNeed: a.fundingNeed,
           queueDepth: a.queue.length,
-          queue: a.queue.slice(0, 4),
+          // The WHOLE queue, not 4 heads (v11 - prod t72483599): the upgrader
+          // demand sat at rank 5+ through a 550t staffing collapse and its
+          // `since` age - the anti-starvation clock, THE datum for "why no
+          // lift" - was invisible. ~100B/entry; depth is single digits.
+          queue: a.queue,
           executed: a.executed ?? []
         };
       }
     }
 
     const telemetry: CoreTelemetry = {
-      version: 10, // v9 remoteSites; v10 pathMeter (spec 23 step 1 - the pathing BEFORE number)
+      version: 11, // v9 remoteSites; v10 pathMeter; v11 agenda mirrors the WHOLE queue (starvation-age visibility)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
