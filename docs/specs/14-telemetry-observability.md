@@ -168,6 +168,29 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +750t) — pool crew fielded (runt-sized, correctly); link site STILL absent - the clobbered stamp
+
+No FAIL lines; burn recovering (25.7 from the 15.4 trough), income
+0.97x, bank -9.3/t. PATH snapshot 0.3 cpu/t (quiet tick).
+
+Build-pool verify: the HOME corp bought its first pool builder
+(t72464136) - 1W1C1M@200. The absorb math sizes 1W for ~4.3k of pool
+work (doctrine-correct lifetime-completion; the SUPPLY fix, not raw
+WORK, is what the pool changes). Trunk unchanged at 32/38 at capture
+(+360t; the builder was still walking/building - too early). Remote
+corps' builder demand: none observed (attrition working).
+
+Link-site verify: STILL absent post-same-lens-fix (~600t). The capture's
+construction stamp held ONLY roadGate - and the reason is now known:
+placeSite ALREADY stamps placeAttempt/placeResult, but the road gate's
+whole-object lastSizing write CLOBBERED it same-tick. The evidence was
+destroyed, not missing. FIX (observability): stampSizing(patch) merges
+same-tick stamps from every decision site (placeSite, road gates, trunk
+gate). Deployed on unit 1097 + build. Next capture names the stuck rung
+directly: placeAttempt present => structure+result code; absent =>
+canBuildMore false => the wants-lens chain. Cycle verdict: instrumented
+(stamp merge) + pending (pool tempo, link rung).
+
 ### 2026-07-20/21 (cron cycle, +654t) — link-site stall ROOT-CAUSED: the ladder and the lens disagreed; same-lens fix deployed
 
 Scoreboard: burn sagged to 15.4 this window (the upgrader generation gap
