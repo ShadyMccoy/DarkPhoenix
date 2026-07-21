@@ -1708,3 +1708,33 @@ at-2 is a chronic inefficiency, colony safe + progressing, not a crisis). Cycle
 verdict: RECOVERY VERIFIED COMPLETE + #21 controller-cap bottleneck DIAGNOSED,
 instrument-next handed to #21. Correction: I called the room RCL8 repeatedly this
 session - it is RCL6 (energyCapacity 1950).
+
+**OWNER-DIRECTED BATCH 2026-07-21 (five live-behavior changes, one session,
+each full-gated + deployed).** (1) Partial-pave repricing (#23): a trunk
+verifiably >= 1/2 built already fields the 2:1 hauler, CARRY sized at the
+effective (crawl-corrected) distance - roadEconomics.partialPaveRatio /
+effectiveOneWayTiles, trunk survey built/total persisted onto roadRoutes,
+detectPavedSources Set->Map. Predicted: W43N24 (32/38 = 84%) reprices next
+solve, ~19% fewer hauler parts. (2) Link-hub congestion (owner report: the
+source link had nowhere to send): feeder stages the relay only to capacity -
+CORE_LINK_INCOME_RESERVE (200); LinkRunner spills a congested source volley
+DIRECTLY to the controller link (one 3% hop, bank-first preserved). (3)
+Remote source containers (owner report: missing/partial): placement no
+longer blocked by trunk ROAD sites (container-sites-only gate); a pile-funded
+LOCAL builder (2W, eats the pile, no hauling - the owner's road-end paradigm)
+fields while the project stands; the remote repair detail is now actually
+dispatched (it idled in runBuilder before - decayed containers were the other
+"partial" shape). (4) Swamp-favored placement: bestAdjacentTile tie-breaks
+equal-distance candidates toward swamp for unwalkable buildings (adjacent-to-
+plain preferred; roads/containers terrain-neutral; distance still rules). (5)
+Road-lane hauling + EMPTY LANE RETURNS: haul legs path creep-blind
+(ignoreCreeps, reusePath 20; mutual-move swaps resolve head-on traffic;
+standing blockers get ONE creep-aware detour after LANE_PATIENCE=2) and the
+empty pure-hauler leg goes terrain-blind with roads penalized. The 2026-07-20
+empty-lane revert (cd3f0b8) is thereby superseded: flow-handoff - the exact
+gate that caught the first attempt - is GREEN with the lane inside
+travelToLane; probable old root = creep-AWARE pathing made a pocket-mouth
+miner an unreachability wall for the maiden trip (consistent, not proven).
+Verify next capture: pathMeter hauling calls/cpu DOWN, W43N24 hauler bodies
+2:1, core link <= 600 with source volleys landing, container sites + local
+builders in remote rooms, income steady-or-up across the movement change.
