@@ -1738,3 +1738,33 @@ miner an unreachability wall for the maiden trip (consistent, not proven).
 Verify next capture: pathMeter hauling calls/cpu DOWN, W43N24 hauler bodies
 2:1, core link <= 600 with source volleys landing, container sites + local
 builders in remote rooms, income steady-or-up across the movement change.
+
+**AUDIT CYCLE t72469936 - batch verified live; E4 named with its full causal
+chain; one export gap fixed.** Ledger top line E4 (272k banked, 9.8xT, +10.6/t,
+feederActive false). VERIFIED from live reads (room-objects + memory API):
+(1) partial-pave repricing LIVE and exact - cd8e planned carry 15.9368 =
+carryPartsFor(10, effectiveOneWay(36, 32/38, 2:1)), spawned body 18C:9M;
+receipt built 34/38 ratcheting; (2) remote-container fixes executing - cd8d
+container site placed THROUGH standing road sites, miner pre-positioned on it,
+second miner spawned, two pile-funded local builders finishing the last road
+tiles (155/300, 50/300 in progress); (3) link chain physically healthy (ctrl
+384e, core 90e - inside the income reserve, source link loaded); (4) income
+0.98x routed across the movement change - no road-lane regression. E4 CAUSAL
+CHAIN (all stamped/measured): construction-first clamps upgrader+feeder to
+planFlow 2 (+5) while the absorber (trunk, 4 tiles left) finishes - by design,
+self-resolving. The LIVE BLOCKER: the feeder (gate "demand" >= 2 captures,
+wants ONE 1-CARRY body = 100 energy, linkFed distance 1) is QUEUE-STARVED at
+spawn util 0.95 - the bank's spend path is down NOW and would stay down when
+the trunk completes and the surplus regime wants the 115-relay flood.
+SECONDARY ANOMALY: util 0.95 vs steady-state ~0.60 (301 parts flat, 0.315/t
+built => implied part-life ~955t < 1500) - purchase-loop/churn signature, E5
+runt receipts hauler@100 x2; agenda.executed exported EMPTY (gap). FALSIFIED
+en route: feeder spawnId-prefix mismatch (live store shows clean id); "empty
+sizing stamp" was an audit-side filter bug (capital F), not a bot defect; P4's
+"feeder 64p @ relay 115" is the LEDGER's own pricing drift (corp is linkFed
+relay 7) - ledger fix pending. FIXED+DEPLOYED this cycle: seg-6 haulers now
+carry the paved verdict (the mapping dropped it; nearly ruled the repricing
+dead). Cycle verdict: VERIFIED (batch) + BLOCKER NAMED (feeder starvation,
+with numbers) + one observability fix shipped. Next cycle: feeder-starvation
+fix (scheduler slack for cheap infra, design-first, no value nudges) and the
+churn anomaly via agenda.executed (fix its empty export first).
