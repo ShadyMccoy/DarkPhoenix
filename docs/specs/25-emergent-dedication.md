@@ -82,6 +82,17 @@ work item.)
 
 ## Acceptance tests (write first)
 
+0. **No off-plan construction logistics** (owner 2026-07-21: "construction
+   crew tankers definitely should be part of the plan"; measured
+   t72484107: zero construction sinks in the solve while the pool crew's
+   18C:8M tanker worked remote sites entirely off-ledger): once remote
+   construction sinks are admitted (this spec's routing refinement), the
+   plan's parts ledger charges the crew's WORK **and** its haul/tanker
+   logistics for every standing site, home or remote — no construction
+   body class exists outside the ledger. Pin: a remote-site world's P4
+   table carries the construction-haul charge; the corp's fielded tanker
+   parts reconcile against it.
+
 Unit (CorpPlanner.test.ts unless noted):
 
 1. **Emergent dedication**: hub world, source S with road sinks 3 tiles
