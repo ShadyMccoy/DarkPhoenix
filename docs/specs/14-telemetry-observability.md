@@ -168,6 +168,36 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +1000t) — LINK MYSTERY SOLVED: the slot table was full; the swap ships
+
+Scoreboard: burn 39.3 (recovered - 4 upgraders/121 WORK fielding), BANK
+-16.5/t (241k, 8.7xT), income 1.00x, no FAIL lines. The pool crew's
+tempo read carries again (trunk 32/38; the 1W pool builder's progress
+not yet visible in the gate).
+
+THE LINK: the merged stamp was decisive by ABSENCE - no placeAttempt =>
+findMissingLink nulls before placing => walked its checks against
+evidence => RCL6's THREE slots are FULL: core + BOTH source links (the
+plan has modeled cd90 AND cd92 as distance-1 edges since t72448186 -
+the two source links were there all along; "we field 2" was an
+unexamined assumption). The blanket `all.length >= limit -> null` sat
+ABOVE the controller step: silent starvation, forever, no stamp.
+
+FIX (red-first): LINK SWAP - with the table full, no controller link,
+and a wanted tile, the ladder retires the source link whose source sits
+NEAREST the storage (smallest haul saved; ~15:1 against the feeder's
+64p pricing), stamps linkSwap, and places the controller link on the
+freed slot next cooldown. The retired source's container + hauler
+resume seamlessly (sourceLink/supersededByLink lenses re-read). Each
+rung now guards the limit itself. Unit 1098; trio green. DEPLOYED.
+
+Predictions: linkSwap stamp + one source link destroyed within a
+cooldown; link SITE within the next; pool crew builds it (~5k); then
+the feeder flips linkFed and P4's feeder line drops. Cycle verdict:
+fixed (the swap) - the third patch on this rung, but each was a
+DIFFERENT mechanism named by data (lens mismatch, stamp clobber, slot
+table), not a re-patched bandaid.
+
 ### 2026-07-21 (cron cycle, +750t) — pool crew fielded (runt-sized, correctly); link site STILL absent - the clobbered stamp
 
 No FAIL lines; burn recovering (25.7 from the 15.4 trough), income

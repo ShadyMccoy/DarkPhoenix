@@ -168,3 +168,80 @@ describe("findMissingLink's controller step reads the SHARED lens (the core-adja
     expect(Math.max(Math.abs(tile.x - 25), Math.abs(tile.y - 32)), "placed in the controller's range-2 ring").to.be.at.most(2);
   });
 });
+
+describe("findMissingLink LINK SWAP: a full slot table retires the least-valuable source link", () => {
+  beforeEach(() => {
+    (global as any).FIND_MY_STRUCTURES = 108;
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
+    (global as any).FIND_SOURCES = 105;
+    (global as any).STRUCTURE_LINK = "link";
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).TERRAIN_MASK_WALL = 1;
+  });
+
+  function world() {
+    // t72465499 live shape: RCL6 limit 3, slots FULL (core + two source
+    // links), no controller link - the controller step nulled forever on
+    // the limit check with no stamp. The swap: retire the source link whose
+    // source is NEAREST the storage (smallest haul saved), freeing the slot.
+    const destroyLog: string[] = [];
+    const mk = (id: string, x: number, y: number): any => ({
+      id,
+      structureType: "link",
+      pos: { x, y, roomName: "W1N1", inRangeTo: (p: any, r: number) => Math.max(Math.abs(x - p.x), Math.abs(y - p.y)) <= r },
+      destroy: () => {
+        destroyLog.push(id);
+        return 0;
+      }
+    });
+    const core = mk("core", 26, 31);
+    const nearLink = mk("near-src-link", 30, 34); // source 5 from storage
+    const farLink = mk("far-src-link", 10, 5); // source 25 from storage
+    const sources = [
+      { id: "near-src", pos: { x: 31, y: 35, roomName: "W1N1", inRangeTo: (p: any, r: number) => Math.max(Math.abs(31 - p.x), Math.abs(35 - p.y)) <= r, getRangeTo: (p: any) => Math.max(Math.abs(31 - p.x), Math.abs(35 - p.y)) } },
+      { id: "far-src", pos: { x: 9, y: 4, roomName: "W1N1", inRangeTo: (p: any, r: number) => Math.max(Math.abs(9 - p.x), Math.abs(4 - p.y)) <= r, getRangeTo: (p: any) => Math.max(Math.abs(9 - p.x), Math.abs(4 - p.y)) } }
+    ];
+    const links = [core, nearLink, farLink];
+    const storagePos = {
+      x: 27,
+      y: 31,
+      roomName: "W1N1",
+      findInRange: (_t: number, range: number, o?: any) => {
+        const list = links.filter(l => Math.max(Math.abs(l.pos.x - 27), Math.abs(l.pos.y - 31)) <= range);
+        return o?.filter ? list.filter(o.filter) : list;
+      },
+      inRangeTo: () => false,
+      getRangeTo: (p: any) => Math.max(Math.abs(27 - p.x), Math.abs(31 - p.y))
+    };
+    const ctrlPos = {
+      x: 25,
+      y: 32,
+      roomName: "W1N1",
+      findInRange: (_t: number, range: number, o?: any) => {
+        const list = links.filter(l => Math.max(Math.abs(l.pos.x - 25), Math.abs(l.pos.y - 32)) <= range);
+        return o?.filter ? list.filter(o.filter) : list;
+      }
+    };
+    const room: any = {
+      name: "W1N1",
+      storage: { my: true, pos: storagePos },
+      controller: { my: true, pos: ctrlPos },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+      find: (t: number) => (t === 108 ? links : t === 105 ? sources : [])
+    };
+    room.controller.room = room;
+    (global as any).Game = { rooms: { W1N1: room }, time: 999 };
+    return { room, destroyLog };
+  }
+
+  it("retires the NEAREST-to-storage source link (smallest haul saved), not the far one", () => {
+    const { ConstructionCorp } = require("../../../src/corps/ConstructionCorp");
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    const { room, destroyLog } = world();
+    const tile = (corp as any).findMissingLink(room, 6);
+    expect(tile, "no placement the same pass as the swap").to.equal(null);
+    expect(destroyLog, "the near source link is retired").to.deep.equal(["near-src-link"]);
+  });
+});

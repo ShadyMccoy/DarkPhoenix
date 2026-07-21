@@ -1500,12 +1500,14 @@ export class ConstructionCorp extends Corp {
     }) as StructureLink[];
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_LINK });
     const all: { pos: RoomPosition }[] = [...links, ...sites];
-    if (all.length >= limit) return null;
-
+    // NOTE: no blanket early-return on a full table - the controller step
+    // below must still run to SWAP a weak source link out (t72465499: the
+    // early return silently starved the controller link forever once both
+    // source links existed). Each placement rung guards the limit itself.
     const linkNear = (pos: RoomPosition, range: number): boolean => all.some(l => l.pos.inRangeTo(pos, range));
 
     // 1) Core link beside the storage.
-    if (!linkNear(storage.pos, 2)) {
+    if (all.length < limit && !linkNear(storage.pos, 2)) {
       const tile = bestAdjacentTile(room, storage.pos, 1, storage.pos, room.find(FIND_MY_SPAWNS).map(s => s.pos), STRUCTURE_LINK);
       return tile ? { x: tile.x, y: tile.y } : null;
     }
@@ -1525,10 +1527,37 @@ export class ConstructionCorp extends Corp {
     const ctrl = room.controller;
     if (ctrl?.my && !controllerLink(room) && !sites.some(s => s.pos.inRangeTo(ctrl.pos, 3))) {
       const tile = this.bestControllerLinkTile(room, ctrl);
-      if (tile) return tile;
+      if (tile && all.length < limit) return tile;
+      if (tile) {
+        // LINK SWAP (t72465499: RCL6's three slots were FULL - core + both
+        // source links - so this step nulled on the limit check forever,
+        // with no stamp). The controller link outvalues the weakest source
+        // link ~15:1 (64p of feeder plan pricing vs a couple of carry parts
+        // of saved haul), so retire the source link whose source sits
+        // NEAREST the storage; its container + hauler resume seamlessly
+        // (sourceLink/supersededByLink lenses re-read next pass). The freed
+        // slot places the controller link on the following cooldown.
+        const core = coreLink(room);
+        const sourceLinks = links.filter(l => l.id !== core?.id);
+        let weakest: { link: StructureLink; range: number } | null = null;
+        for (const l of sourceLinks) {
+          for (const source of room.find(FIND_SOURCES)) {
+            if (!source.pos.inRangeTo(l.pos, 2)) continue;
+            const range = storage.pos.getRangeTo(source.pos);
+            if (!weakest || range < weakest.range) weakest = { link: l, range };
+          }
+        }
+        if (weakest) {
+          this.stampSizing({ linkSwap: `retired-${weakest.link.id.slice(-4)}@range${weakest.range}` });
+          console.log(`[Construction] LINK SWAP: retiring source link ${weakest.link.id} (range ${weakest.range}) for the controller link`);
+          weakest.link.destroy();
+        }
+        return null; // the freed slot places next cooldown
+      }
     }
 
     // 2) Source links, farthest first; nearby sources aren't worth one.
+    if (all.length >= limit) return null; // table full; only the swap above may free a slot
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     const candidates = room
       .find(FIND_SOURCES)
