@@ -168,6 +168,25 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +2075t) — SWAP VERIFIED: the controller link is half-built
+
+The whole chain executed: source-link retired (slot freed) -> link SITE
+at the controller (5000 total) -> the pool crew is building it - 2483/
+5000 at capture, cons 7 fielded. Feeder correctly still distance 6 (the
+lens flips on COMPLETION). Expected transient swap cost visible: cd92's
+buffer near-full (2.6k) while its hauling corp re-fields the hauler its
+link used to replace - watch next capture.
+
+Window softness: burn 19.7 (upgr fell to 1 again mid-window), util 0.65
+across a deploy reset + generation wave, PARTS 334 (-0.09/t), bank +2.7
+-> E4 re-FAIL. The structural answer to the upgrader-gap cadence IS the
+in-flight chain (link frees ~42p of plan pricing -> more consumer
+slots) plus spec 24 circulation. No new fix this cycle - the link
+completes within ~1 window at the current build rate; then: input
+election re-anchors, feeder linkFed/distance 1, P4 feeder 64p -> ~22p,
+LinkRunner starts firing. Cycle verdict: verified (swap chain);
+E4 carries pending the link.
+
 ### 2026-07-21 (cron cycle, +1000t) — LINK MYSTERY SOLVED: the slot table was full; the swap ships
 
 Scoreboard: burn 39.3 (recovered - 4 upgraders/121 WORK fielding), BANK
