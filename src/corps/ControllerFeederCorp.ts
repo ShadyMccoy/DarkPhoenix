@@ -25,7 +25,7 @@ import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, contr
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
-import { buildPool } from "./ConstructionCorp";
+import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -73,15 +73,24 @@ export function feederRelayTarget(
   surplusRate: number,
   planFlow: number | undefined,
   banked: number,
-  constructionStanding = false
+  constructionAbsorb = 0
 ): number {
-  // CONSTRUCTION-FIRST (owner 2026-07-21: "when construction is around ...
-  // funnel energy to construction. Upgrading is secondary"): with sites
-  // standing, the surplus belongs to the build set - the plan already ranks
-  // construction (70) above the mid-grind controller (~44 at RCL6), so the
-  // relay serves the plan's post-construction controller RESIDUAL, not the
-  // raw surplus formula. No sites -> the unclamped surplus draw stands.
-  if (bankSurplusRate(banked) > 0 && !constructionStanding) return surplusRate;
+  // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "when construction
+  // is around ... funnel energy to construction. Upgrading is secondary";
+  // prod t72478939): with sites standing, the build set eats what it CAN
+  // absorb (buildPoolAbsorbRate - the same projectAbsorbRate lens that sizes
+  // the crew and the plan's construction sink) and the relay serves the REST
+  // of the surplus, floored at the plan's post-construction controller
+  // residual. The boolean form of this clamp treated 12 road sites (pool
+  // absorb ~5 e/t) exactly like a 100k build-out: relay clamped to 7 while
+  // surplus 115 stood and construction ate 0.47 e/t measured - the freed
+  // energy BANKED (+20.18/t at 474k, 17x target). A build-out that absorbs
+  // the whole draw floors the relay at the plan residual - the link-era
+  // clamp, preserved. No sites -> the unclamped surplus draw stands.
+  if (bankSurplusRate(banked) > 0) {
+    if (constructionAbsorb <= 0 || planFlow === undefined) return surplusRate;
+    return Math.max(Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM), surplusRate - constructionAbsorb);
+  }
   return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
 }
 
@@ -313,10 +322,11 @@ export class ControllerFeederCorp extends Corp {
     // t72421124). No allocation known (old commission) -> formula unclamped.
     const surplusRate = feederRelayRate(banked);
     const planFlow = this.controllerAllocation;
-    // ONE lens with the upgraders (owner 2026-07-21): sites standing =
-    // the surplus belongs to the build set; the relay serves the residual.
-    const constructionStanding = buildPool(spawn.pos.roomName).length > 0;
-    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionStanding);
+    // ONE absorb lens with the upgraders AND the crew (owner 2026-07-21 +
+    // prod t72478939): construction eats what it can absorb; the relay
+    // serves the rest of the surplus, floored at the plan residual.
+    const constructionAbsorb = buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos);
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionAbsorb);
     const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
@@ -328,6 +338,7 @@ export class ControllerFeederCorp extends Corp {
       relayRate,
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
+      ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
       distance,
       ...(linkFed ? { linkFed: true } : {}),
       neededCarry,

@@ -168,6 +168,55 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +487t) — LINK CHAIN COMPLETE; the boolean clamp banked the surplus - absorb-bounded fix
+
+VERIFY-FIRST: the whole link chain landed - feeder stamps linkFed:true /
+distance 1 (2-part shuttle), the swap + site + build predictions all hit.
+But the E4 prediction ("slope stays negative through both phases")
+FALSIFIED: bank 474k (17.2xT), slope +20.18/t, and the scoreboard names
+the mechanism exactly. The pool refilled with TRUNK ROAD sites (12 sites,
+3600 total work, trunk 36/38) after the link completed, so the
+construction-first clamp stayed engaged: upgrader stamp planAllocated 2 /
+allocated 2 / targetCount 1 / construction:true (burn 1.0 e/t measured,
+P7 FAIL 0.49x), feeder stamp relayRate 7 vs surplusRate 115 - while the
+build side ran 0.47 e/t measured (P8). The freed ~108 e/t went to
+NEITHER sink: it banked.
+
+ROOT CAUSE (the clamp's own math, not its trigger): constructionStanding
+was a BOOLEAN - 12 road sites (pool absorb ~5 e/t by the crew's own
+projectAbsorbRate lens) engaged the identical full clamp as a 100k
+build-out. And the boolean form never funneled anything even in the link
+era: projectAbsorbRate on the 5000-work link pool was ~5 e/t too - the
+clamp freed 108 e/t of which construction could physically eat 5; the
+rest banked in both eras (link-era slope was masked by a deploy-reset
+window). "Funnel to construction" was implemented as "starve upgrading",
+which are only the same thing when construction can absorb the flow.
+
+FIX (red-first): ABSORB-BOUNDED construction-first. New shared lens
+buildPoolAbsorbRate (ConstructionCorp) = projectAbsorbRate(total pool
+work, farthest pool travel) - builderPlan's home branch extracted, so
+the crew sizing, the plan's construction sink, and now the consumers'
+clamp read ONE formula. Both seams take the absorb rate instead of the
+boolean: feederRelayTarget serves max(plan clamp, surplus - absorb);
+upgraderSizing eats the same share as its inflow. Limits preserved
+bit-for-bit: absorb 0 -> unclamped actuals (t72448020 pin), absorb >=
+the draw -> the plan-residual clamp (link-era pin), non-surplus
+untouched (t72421124 pin). Stamps carry constructionAbsorb. Unit 1157;
+trio green - gate note: runt-economy's first draw red (never upsized in
+1200t); attribution run on unmodified HEAD green (upsize t460), re-draw
+with the change green (upsize t460, same tick) - the cell is
+draw-marginal at its tail and the change is acquitted (the fix is
+surplus-regime only; that world has no storage).
+
+Predictions (current shape: surplus 115, absorb 5, plan 2): feeder
+relayRate 7 -> ~110 (neededCarry ~6, still 1 shuttle at distance 1),
+upgrader allocated 2 -> ~111 / targetCount -> ~6, burn ramps as the
+fleet fields (spawn-time arbitrated - producers first, unchanged), E4
+slope +20 -> negative within ~2 windows, trunk build tempo UNCHANGED
+(the crew's 5 e/t absorb is untouched; construction loses nothing it
+was actually eating). Cycle verdict: verified (link chain) + falsified
+(E4 prediction) + fixed (absorb-bounded clamp, pending verification).
+
 ### 2026-07-21 (owner-directed) — CONSTRUCTION-FIRST SURPLUS: sites standing condition the surplus draw
 
 Owner: "when construction is around ... the planner [should be] even more

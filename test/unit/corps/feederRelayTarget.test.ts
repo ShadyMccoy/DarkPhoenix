@@ -29,17 +29,43 @@ describe("feederRelayTarget (the relay serves actuals in surplus, the plan other
     expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked)).to.equal(surplusRate);
   });
 
-  it("SURPLUS + CONSTRUCTION STANDING: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
+  it("SURPLUS + a build-out that absorbs the whole draw: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
     // "When construction is around ... funnel energy to construction.
-    // Upgrading is secondary" - the surplus unclamp was built in a
-    // zero-construction era; with sites standing, the plan's controller
+    // Upgrading is secondary" - with sites standing that can genuinely EAT
+    // the surplus (constructionAbsorb >= the draw), the plan's controller
     // allocation IS the post-construction residual and the relay serves
     // exactly that. The plan already ranks construction (70) above the
     // mid-grind controller (~44 at RCL6), so honoring planFlow is the
     // aggressive-construction doctrine end to end.
     const banked = WARCHEST_TARGET + 312_715;
     const surplusRate = feederRelayRate(banked);
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, true)).to.equal(Math.min(surplusRate, PLAN_FLOOR + 5));
+    const absorbsEverything = surplusRate + 10;
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, absorbsEverything)).to.equal(
+      Math.min(surplusRate, PLAN_FLOOR + 5)
+    );
+  });
+
+  it("SURPLUS + construction that absorbs only a trickle: the relay serves the REST of the surplus (prod t72478939)", () => {
+    // The boolean form of this clamp treated 12 road sites (pool absorb ~5
+    // e/t) exactly like a 100k build-out: relay clamped to planFlow+5 = 7
+    // while surplus 115 stood - burn collapsed to 1 e/t, build ran 0.47
+    // e/t, and the difference BANKED (+20.18/t at 474k, 17x target).
+    // Construction-first means the build set eats what it CAN absorb
+    // (projectAbsorbRate - the same lens that sizes the crew and the
+    // plan's construction sink); the controller side gets the remainder,
+    // floored at the plan residual. It never means the remainder banks.
+    const banked = WARCHEST_TARGET + 446_493; // prod t72478939
+    const surplusRate = feederRelayRate(banked); // 115
+    const poolAbsorb = 5; // 12 road sites, 3225 work remaining, ~2-room travel
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, poolAbsorb)).to.equal(surplusRate - poolAbsorb);
+    // the plan residual is the floor, not the ceiling:
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, poolAbsorb)).to.be.greaterThan(PLAN_FLOOR + 5);
+  });
+
+  it("SURPLUS + construction, no known allocation (old commission): stays unclamped, exactly as before", () => {
+    const banked = WARCHEST_TARGET + 446_493;
+    const surplusRate = feederRelayRate(banked);
+    expect(feederRelayTarget(surplusRate, undefined, banked, 5)).to.equal(surplusRate);
   });
 
   it("NON-SURPLUS: keeps the plan clamp (t72421124 - no 90-part feeder into a full stock)", () => {

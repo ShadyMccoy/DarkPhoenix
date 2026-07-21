@@ -147,6 +147,46 @@ export function buildPool(homeRoomName: string): { room: Room; work: number }[] 
   return entries;
 }
 
+/**
+ * The energy/tick the ONE build-pool crew can usefully absorb - the shared
+ * CONSTRUCTION-FIRST bound (prod t72478939). Three readers, one formula:
+ * the crew sizing (builderPlan), the plan's construction-sink capacity
+ * (flowAdapter, via the same primitives.projectAbsorbRate), and the
+ * consumers' surplus clamp (feederRelayTarget / upgraderSizing). The clamp's
+ * boolean predecessor ("any site stands") treated 12 road sites - pool
+ * absorb ~5 e/t - exactly like a 100k build-out: it freed the whole 115 e/t
+ * surplus from the upgraders, construction ate 0.47 e/t measured, and the
+ * difference BANKED (+20.18/t at 474k, 17x the warchest target). Bounding
+ * the clamp by what the build set can actually EAT is what makes
+ * "construction first" funnel energy to construction instead of the bank.
+ *
+ * Inputs mirror builderPlan's home branch verbatim: total pool work over
+ * the buffered horizon of the FARTHEST pool room (in-room = spawn range to
+ * the first site; remote = roomLinearDistance * 50).
+ */
+export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition | undefined): number {
+  const pool = buildPool(homeRoomName);
+  if (pool.length === 0) return 0;
+  const siteWork = pool.reduce((s, e) => s + e.work, 0);
+  let travel = 0;
+  for (const e of pool) {
+    let t: number;
+    if (e.room.name === homeRoomName && spawnPos) {
+      let sitePos: RoomPosition | undefined;
+      try {
+        sitePos = e.room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos;
+      } catch {
+        sitePos = undefined; // partial mocks
+      }
+      t = spawnPos.getRangeTo(sitePos ?? spawnPos);
+    } else {
+      t = roomLinearDistance(homeRoomName, e.room.name) * 50;
+    }
+    if (t > travel) travel = t;
+  }
+  return projectAbsorbRate(siteWork, travel);
+}
+
 /** One placement pass over a trunk's tiles: what stands, what was added,
  * which rooms could not be read. */
 export interface TrunkSurvey {
@@ -602,33 +642,27 @@ export class ConstructionCorp extends Corp {
     // Remote corps keep their per-room read for their aging-out legacy crews.
     const spawnForTravel = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const isHome = spawnForTravel ? spawnForTravel.pos.roomName === room.name : true;
-    let siteWork: number;
-    let travel = 0;
+    let absorb = 0;
     if (isHome && spawnForTravel) {
-      const pool = buildPool(spawnForTravel.pos.roomName);
-      siteWork = pool.reduce((s, e) => s + e.work, 0);
       // Horizon travel = the FARTHEST pool room (the crew must finish the
       // whole pool within its buffered effective life - owner: "based on
-      // effective ttl ... not a hard constant").
-      for (const e of pool) {
-        const t =
-          e.room.name === room.name
-            ? spawnForTravel.pos.getRangeTo(room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos ?? spawnForTravel.pos)
-            : roomLinearDistance(spawnForTravel.pos.roomName, e.room.name) * 50;
-        if (t > travel) travel = t;
-      }
+      // effective ttl ... not a hard constant"). buildPoolAbsorbRate IS this
+      // branch, extracted so the consumers' construction-first clamp reads
+      // the identical formula (prod t72478939 - three readers, one lens).
+      absorb = buildPoolAbsorbRate(spawnForTravel.pos.roomName, spawnForTravel.pos);
     } else {
-      siteWork = this.siteWorkRemaining(room);
+      const siteWork = this.siteWorkRemaining(room);
       const firstSite = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
-      travel =
+      const travel =
         spawnForTravel && firstSite
           ? spawnForTravel.pos.roomName === room.name
             ? spawnForTravel.pos.getRangeTo(firstSite.pos)
             : roomLinearDistance(spawnForTravel.pos.roomName, room.name) * 50
           : 0;
+      if (siteWork > 0) absorb = projectAbsorbRate(siteWork, travel);
     }
-    if (siteWork > 0) {
-      buildEnergy = Math.min(buildEnergy, projectAbsorbRate(siteWork, travel));
+    if (absorb > 0) {
+      buildEnergy = Math.min(buildEnergy, absorb);
     }
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));

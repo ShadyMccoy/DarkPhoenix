@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { upgraderAllocation, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
 import { WARCHEST_TARGET, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
@@ -83,17 +83,37 @@ describe("upgraderAllocation", () => {
     expect(upgraderAllocation(15, 0, null)).to.equal(2);
   });
 
-  it("surplus + CONSTRUCTION STANDING: the plan is the cap again (owner 2026-07-21)", () => {
+  it("surplus + a build-out that absorbs the whole draw: the plan is the cap again (owner 2026-07-21)", () => {
     // "Construction is going to be an investment in our future upgrading
-    // abilities" - with sites standing, the surplus belongs to the build
+    // abilities" - when the standing sites can genuinely EAT the surplus
+    // (constructionAbsorb >= the draw), the surplus belongs to the build
     // set and upgraders eat the plan's residual (min(plan, sustainable)),
-    // exactly the save-regime shape. Same lens as the feeder
-    // (constructionStanding = buildPool nonempty), so the chain cannot
-    // fight itself.
+    // exactly the save-regime shape. Same absorb lens as the feeder
+    // (buildPoolAbsorbRate), so the chain cannot fight itself.
     const banked = WARCHEST_TARGET + 100_000;
-    const clamped = upgraderAllocation(12, 2000, banked, true);
+    const surplusDraw = feederRelayRate(banked);
+    const clamped = upgraderAllocation(12, 2000, banked, surplusDraw + 10);
     expect(clamped).to.be.at.most(12);
     // and without construction the unclamped actuals still rule:
-    expect(upgraderAllocation(12, 2000, banked, false)).to.be.greaterThan(12);
+    expect(upgraderAllocation(12, 2000, banked, 0)).to.be.greaterThan(12);
+  });
+
+  it("surplus + construction absorbing only a trickle: the fleet eats the REST of the surplus (prod t72478939)", () => {
+    // The boolean form of this clamp treated 12 road sites (pool absorb
+    // ~5 e/t) exactly like a 100k build-out: allocated pinned at the plan
+    // residual 2 while surplus 115 stood and the build side ran 0.47 e/t
+    // measured - the freed energy BANKED (+20.18/t at 474k, 17x target).
+    // Construction-first, absorb-bounded: the build set eats what it CAN
+    // (the same projectAbsorbRate lens that sizes the crew and the plan's
+    // construction sink); the upgraders are sized to the remaining share
+    // as their inflow - the same relay the feeder will actually run.
+    const banked = WARCHEST_TARGET + 446_493; // prod t72478939
+    const poolAbsorb = 5; // 12 road sites, 3225 work remaining
+    const share = feederRelayRate(banked) - poolAbsorb; // 110
+    const { allocated, inflow } = upgraderSizing(2, 1607, banked, poolAbsorb);
+    expect(inflow, "inflow = the feeder's absorb-bounded relay").to.be.closeTo(share, 1e-9);
+    expect(allocated).to.be.closeTo(sustainableConsumptionRate(1607, share), 1e-9);
+    // never again the incident shape: allocated 2 with 110 e/t of unabsorbed surplus
+    expect(allocated).to.be.greaterThan(100);
   });
 });
