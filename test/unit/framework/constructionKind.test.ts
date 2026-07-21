@@ -347,6 +347,37 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     expect(s.missing, "no err-7-forever entries for edge tiles").to.deep.equal([]);
   });
 
+  it("a COMPLETED trunk receipts even when an in-progress trunk precedes it (prod t72484878: cd8e starved of its paved receipt)", () => {
+    // The one-project-at-a-time RETURN lives in the survey path, so an
+    // in-progress trunk earlier in remoteTrunks order took the pass every
+    // time and the fully-built trunk behind it was NEVER re-checked: no
+    // paved receipt -> no pave fraction -> the plan priced its haulers
+    // 1:1 (carry 14.8 vs ~11) for two full windows after the road stood
+    // complete. Completion is cheap and idempotent - it must sweep ALL
+    // entries before the serialized placement pass.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.getObjectById = (() => ({ pos: { x: 25, y: 25, roomName: "W1N1" } })) as never;
+    corp.setRemoteTrunks([
+      { sourceId: "source-inprog", pos: { x: 20, y: 20, roomName: "W2N1" }, flow: 10 },
+      { sourceId: "source-done", pos: { x: 30, y: 30, roomName: "W2N1" }, flow: 10 }
+    ]);
+    // inprog: tile (5,5) unbuilt with a site standing; done: both tiles roaded.
+    Game.rooms = {
+      W1N1: mkRoom(new Set(["10,10", "11,10"]), new Set(["5,5"]))
+    } as never;
+    const routes: any = {
+      inprog: { tiles: [], tiles3: [5, 5, 0], rooms: ["W1N1"] },
+      done: { tiles: [], tiles3: [10, 10, 0, 11, 10, 0], rooms: ["W1N1"] }
+    };
+    const room: any = { name: "W1N1", memory: {}, find: () => [] };
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.done.paved, "the completed trunk's receipt lands despite the in-progress head").to.equal(true);
+    expect(routes.inprog.paved, "the in-progress trunk stays unpaved").to.equal(undefined);
+  });
+
   it("EDGE TILES: trunkBuilt completes when every PLACEABLE tile is roaded (the paved receipt un-sticks)", () => {
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
     (global as any).LOOK_STRUCTURES = "structure";

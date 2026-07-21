@@ -168,6 +168,33 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +771t) — RECEIPT STARVATION: one-project-at-a-time starved completed trunks of their paved receipt
+
+Verify-first: the cd8e 2:1 self-heal prediction FALSIFIED (two windows,
+~1300t, still carry 14.8 / no ratio) - and per the recorded criterion
+that made it a bug investigation. Named from code, consistent with all
+captures: the one-project-at-a-time RETURN lives in the trunk loop's
+SURVEY path, so the in-progress W43N22 trunk took every placement pass
+and cd8e's completed-but-unreceipted route behind it in remoteTrunks
+order was NEVER re-checked - no paved receipt, no pave fraction (its
+re-judged entry lacks built/total), haulers priced 1:1. FIX
+(red-first): a COMPLETION SWEEP over all entries runs before the
+serialized placement pass - completion is cheap and idempotent; only
+placement stays one-project-at-a-time. Pin: an in-progress trunk ahead
+of a completed one no longer blocks its receipt. Unit 1172.
+
+Also this window: upgrader saw on its recovery leg (1 -> 3, an @2300
+receipt landed; queue holds another at age 173), E2 back to 0, P6
+banks 636-1013 (reservation fully healthy), E4 -31.66/t (294k).
+endFill probe TOO FRESH to read (window rolled 34t before capture,
+util 1.00, zero gapped finishes yet) - next capture.
+
+Predictions: cd8e paved receipt within one pass post-deploy -> 2:1
+flag + priced carry ~11 (-25%); the pave fraction re-stamps via the
+next survey; W44N23/W42N22 trunks receipt the moment they finish
+regardless of queue position. Cycle verdict: falsified (self-heal) ->
+fixed (completion sweep, pending live verification).
+
 ### 2026-07-21 (owner-directed) — THE PLAN'S CEILING IS IDEALIZED: duty gap measured; endFill probe ships (core v12)
 
 Owner: "If we're not using 100% of our spawn capacity then why are we

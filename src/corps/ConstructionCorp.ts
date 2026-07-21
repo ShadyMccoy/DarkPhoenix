@@ -1121,6 +1121,24 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return;
     const depotPos = room.storage?.pos ?? spawn.pos;
 
+    // COMPLETION SWEEP over ALL entries first (prod t72484878): the
+    // one-project-at-a-time return below lives in the SURVEY path, so an
+    // in-progress trunk earlier in remoteTrunks order took every pass and a
+    // fully-built trunk behind it was never re-checked - no paved receipt,
+    // no pave fraction, haulers priced 1:1 (carry 14.8 vs ~11) for two full
+    // windows after the road stood complete. Completion is cheap (lookForAt
+    // over the tile list) and idempotent; only PLACEMENT stays serialized.
+    for (const trunk of this.remoteTrunks) {
+      const key = trunk.sourceId.replace(/^source-/, "");
+      const entry = routes[key];
+      if (!entry || entry.paved || entry.declined || !entry.tiles3 || !entry.rooms) continue;
+      if (this.trunkBuilt(entry.rooms, entry.tiles3)) {
+        entry.paved = true;
+        gate("trunk-paved");
+        console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
+      }
+    }
+
     for (const trunk of this.remoteTrunks) {
       const key = trunk.sourceId.replace(/^source-/, "");
       let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes[key];
@@ -1136,13 +1154,8 @@ export class ConstructionCorp extends Corp {
       if (entry?.paved || entry?.declined) continue;
 
       if (entry?.tiles3 && entry.rooms) {
-        // In-progress trunk: place what vision allows; receipt when all built.
-        if (this.trunkBuilt(entry.rooms, entry.tiles3)) {
-          entry.paved = true;
-          gate("trunk-paved");
-          console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
-          continue;
-        }
+        // In-progress trunk (the completion sweep above already receipted
+        // finished ones): place what vision allows.
         // The stamp names WHICH state a zero-placement pass is (owner
         // 2026-07-20: "waiting-vision" stamped all day while the true state
         // was fully-placed-and-building - the remotes are mined, vision was
