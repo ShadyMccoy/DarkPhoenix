@@ -82,4 +82,18 @@ describe("upgraderAllocation", () => {
   it("never sizes below the anti-downgrade floor", () => {
     expect(upgraderAllocation(15, 0, null)).to.equal(2);
   });
+
+  it("surplus + CONSTRUCTION STANDING: the plan is the cap again (owner 2026-07-21)", () => {
+    // "Construction is going to be an investment in our future upgrading
+    // abilities" - with sites standing, the surplus belongs to the build
+    // set and upgraders eat the plan's residual (min(plan, sustainable)),
+    // exactly the save-regime shape. Same lens as the feeder
+    // (constructionStanding = buildPool nonempty), so the chain cannot
+    // fight itself.
+    const banked = WARCHEST_TARGET + 100_000;
+    const clamped = upgraderAllocation(12, 2000, banked, true);
+    expect(clamped).to.be.at.most(12);
+    // and without construction the unclamped actuals still rule:
+    expect(upgraderAllocation(12, 2000, banked, false)).to.be.greaterThan(12);
+  });
 });

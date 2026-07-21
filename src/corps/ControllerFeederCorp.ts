@@ -25,6 +25,7 @@ import { CoreDepot, controllerLink, coreDepot, coreLink, controllerInputSpot } f
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { buildPool } from "./ConstructionCorp";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -47,7 +48,7 @@ const CONTROLLER_FEED_TARGET = 2000;
 /** Container-refill headroom the relay carries above the plan's controller
  * flow: input-container decay plus a small buffer so the stock never starves
  * between shuttle arrivals. */
-const FEEDER_STOCK_HEADROOM = 5;
+export const FEEDER_STOCK_HEADROOM = 5;
 
 /**
  * The relay rate the feeder fleet is sized to sustain (pure, unit-tested).
@@ -68,8 +69,19 @@ const FEEDER_STOCK_HEADROOM = 5;
  * the shared regime lens - the same primitive the upgraders and the bank
  * draw read.
  */
-export function feederRelayTarget(surplusRate: number, planFlow: number | undefined, banked: number): number {
-  if (bankSurplusRate(banked) > 0) return surplusRate;
+export function feederRelayTarget(
+  surplusRate: number,
+  planFlow: number | undefined,
+  banked: number,
+  constructionStanding = false
+): number {
+  // CONSTRUCTION-FIRST (owner 2026-07-21: "when construction is around ...
+  // funnel energy to construction. Upgrading is secondary"): with sites
+  // standing, the surplus belongs to the build set - the plan already ranks
+  // construction (70) above the mid-grind controller (~44 at RCL6), so the
+  // relay serves the plan's post-construction controller RESIDUAL, not the
+  // raw surplus formula. No sites -> the unclamped surplus draw stands.
+  if (bankSurplusRate(banked) > 0 && !constructionStanding) return surplusRate;
   return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
 }
 
@@ -296,7 +308,10 @@ export class ControllerFeederCorp extends Corp {
     // t72421124). No allocation known (old commission) -> formula unclamped.
     const surplusRate = feederRelayRate(banked);
     const planFlow = this.controllerAllocation;
-    const relayRate = feederRelayTarget(surplusRate, planFlow, banked);
+    // ONE lens with the upgraders (owner 2026-07-21): sites standing =
+    // the surplus belongs to the build set; the relay serves the residual.
+    const constructionStanding = buildPool(spawn.pos.roomName).length > 0;
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionStanding);
     const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;

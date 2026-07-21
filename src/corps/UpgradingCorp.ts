@@ -17,6 +17,8 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
+import { buildPool } from "./ConstructionCorp";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -73,31 +75,44 @@ export function upgraderTargetCount(
 export function upgraderSizing(
   planAllocated: number,
   stock: number | null,
-  bankedBehindFeeder: number | null
+  bankedBehindFeeder: number | null,
+  constructionStanding = false
 ): { allocated: number; inflow: number | null } {
   if (stock === null) return { allocated: planAllocated, inflow: null };
-  const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
-  const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
+  const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
+  // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
+  // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
+  // stock 2000 + relay 115 + 234k banked stood ready - the goal-plan cap
+  // held the burn at 2 e/t forever; consumers are "sized from ACTUAL stock
+  // at their work site, never from the goal plan"). The NOW-walk arbitrates
+  // spawn time, so an actuals-sized demand cannot displace producers.
+  //
+  // CONSTRUCTION-FIRST (owner 2026-07-21: "upgrading is secondary to
+  // construction ... an investment in our future upgrading abilities"):
+  // with sites standing the surplus belongs to the build set - the plan
+  // already ranks construction (70) above the mid-grind controller (~44),
+  // so the fleet eats the plan's post-construction RESIDUAL at the relay
+  // the feeder will actually run (planFlow + headroom, the same clamp
+  // feederRelayTarget applies; same constructionStanding lens = buildPool
+  // nonempty - the chain cannot fight itself). While the warchest FILLS,
+  // the plan-capped sip remains the pinned save regime.
+  const unclamped = surplus && !constructionStanding;
+  const inflow = unclamped
+    ? feederRelayRate(bankedBehindFeeder!)
+    : surplus
+      ? planAllocated + FEEDER_STOCK_HEADROOM
+      : 2;
   const sustainable = sustainableConsumptionRate(stock, inflow);
-  // In SURPLUS the plan is NOT a cap (prod t72448020: planAllocated pinned
-  // at the reserve 2 by a parts-exhausted fill while stock 2000 + relay 115
-  // + 234k banked stood ready - the goal-plan cap held the burn at 2 e/t
-  // forever, the exact trap the macro doctrine names: consumers are "sized
-  // from ACTUAL stock at their work site, never from the goal plan"). The
-  // NOW-walk arbitrates spawn time (consume ranks below production; the
-  // starvation backstop buys on idle+affordable - the owner's
-  // idle-harvesting), so an actuals-sized demand cannot displace producers.
-  // While the warchest FILLS, the plan-capped sip remains the pinned save
-  // regime.
-  return { allocated: Math.max(2, surplusRelay ? sustainable : Math.min(planAllocated, sustainable)), inflow };
+  return { allocated: Math.max(2, unclamped ? sustainable : Math.min(planAllocated, sustainable)), inflow };
 }
 
 export function upgraderAllocation(
   planAllocated: number,
   stock: number | null,
-  bankedBehindFeeder: number | null
+  bankedBehindFeeder: number | null,
+  constructionStanding = false
 ): number {
-  return upgraderSizing(planAllocated, stock, bankedBehindFeeder).allocated;
+  return upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionStanding).allocated;
 }
 
 /**
@@ -432,7 +447,10 @@ export class UpgradingCorp extends Corp {
       spawn && spawn.room.memory.controllerFeederActive && spawn.room.storage?.my
         ? spawn.room.storage.store.energy ?? 0
         : null;
-    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder);
+    // ONE lens with the feeder (owner 2026-07-21): construction standing =
+    // the build pool is nonempty - the surplus then belongs to the build set.
+    const constructionStanding = spawn?.pos?.roomName ? buildPool(spawn.pos.roomName).length > 0 : false;
+    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionStanding);
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -466,6 +484,7 @@ export class UpgradingCorp extends Corp {
       targetCount,
       parking,
       cap: ctx.energyCapacity,
+      construction: constructionStanding,
       demand: "demanded"
     };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement

@@ -29,6 +29,19 @@ describe("feederRelayTarget (the relay serves actuals in surplus, the plan other
     expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked)).to.equal(surplusRate);
   });
 
+  it("SURPLUS + CONSTRUCTION STANDING: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
+    // "When construction is around ... funnel energy to construction.
+    // Upgrading is secondary" - the surplus unclamp was built in a
+    // zero-construction era; with sites standing, the plan's controller
+    // allocation IS the post-construction residual and the relay serves
+    // exactly that. The plan already ranks construction (70) above the
+    // mid-grind controller (~44 at RCL6), so honoring planFlow is the
+    // aggressive-construction doctrine end to end.
+    const banked = WARCHEST_TARGET + 312_715;
+    const surplusRate = feederRelayRate(banked);
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, true)).to.equal(Math.min(surplusRate, PLAN_FLOOR + 5));
+  });
+
   it("NON-SURPLUS: keeps the plan clamp (t72421124 - no 90-part feeder into a full stock)", () => {
     const banked = 10_000; // below the warchest target: save regime
     expect(bankSurplusRate(banked), "precondition: not surplus").to.equal(0);

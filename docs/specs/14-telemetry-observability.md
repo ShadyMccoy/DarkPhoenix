@@ -168,6 +168,36 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (owner-directed) — CONSTRUCTION-FIRST SURPLUS: sites standing condition the surplus draw
+
+Owner: "when construction is around ... the planner [should be] even more
+aggressive and funneling energy to construction. Upgrading is secondary
+... an investment in our future upgrading abilities ... it might
+represent more hauling ... even than working." Finding: the ROUTING
+ladder already delivers this - controllerValue at the RCL6 mid-grind is
+~44 vs construction's 70 (the owner's own 99%-done crossover preserved
+at 80 > 70) - but the SURPLUS-ACTUALS chain (daec503 + feederRelayTarget)
+bypassed the plan entirely in surplus, built in a zero-construction era:
+during a build burst it would relay 115/t controller-ward past the
+standing sites.
+
+SHIPPED: constructionStanding (ONE lens = buildPool nonempty, the same
+pool that sizes and drives the crew) conditions both halves - the feeder
+relay re-respects min(surplus, planFlow + headroom) and upgraderSizing
+eats min(plan, sustainable(stock, planFlow + headroom)) while sites
+stand; a construction-free surplus stays unclamped-actuals (the pinned
+t72448020 behavior). The logistics half follows automatically: the
+plan's construction-first allocation flows through the existing
+buildEnergy / tanker / deposit-haul sizing. Pins: feeder clamp-returns,
+upgrader plan-cap-returns, both with the no-construction contrast. Unit
+1100; trio green. DEPLOYED.
+
+Predictions: while the link site stands, controller allocation/burn
+tempers toward the plan residual and the build side eats the difference
+(link completes FASTER); when the pool empties, the surplus unclamps and
+burn snaps back to actuals. E4 slope stays negative through both phases.
+Cycle verdict: fixed (doctrine conditioned).
+
 ### 2026-07-21 (cron cycle, +2075t) — SWAP VERIFIED: the controller link is half-built
 
 The whole chain executed: source-link retired (slot freed) -> link SITE
