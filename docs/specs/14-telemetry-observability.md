@@ -1859,3 +1859,22 @@ income recovers to ~50 e/t (2 home + 3 resumed remotes; 20 dedicated),
 trunk cd8e completes within ~1-2k ticks, cee0 segment advances at ~10 e/t
 from its 1770-stocked container. Cycle verdict: REGRESSION FIXED same-cycle
 + P5 named with data.
+
+**INCIDENT t72475006 - EMPTY PLAN on the dedication build; ROLLED BACK.**
+Two captures 42t apart: fresh solve ticks publishing sources 0 / haulers 0 /
+candidates NONE while corps coasted on old commissions. Rollback to 815e033
+(pool tankers, pre-dedication) restored the plan within ~100t (7 sources, 11
+haulers). ATTRIBUTION: the Z-to-A dedication commits (261abec + 9703bc9)
+break the LIVE solve - the mockup gate could not catch it (no roadRoutes
+receipts in those worlds, the dedication path never executes there: sim
+blind spot, now measured). The unit pin (planColony: dedicated source ->
+miner yes, haulers none) PASSES, so the throw is DOWNSTREAM of planColony -
+prime suspect: commissionsFromPlan / carryKind / FlowMaterializer handling a
+FUNDED MINER WITH ZERO HAUL ROUTES (routes[0] access on an empty group).
+Repro to write FIRST: commissionsFromPlan + materialize over a plan with a
+dedicated source. DEPLOYED BUILD (815e033's bundle) is now BEHIND branch
+HEAD - the branch keeps the dedication commits + the surveyed-lens fix; do
+NOT redeploy HEAD until the routeless-source repro is red->green. The
+t72474584 cycle's other finding stands: P5 reserver duty 2x (raid-distorted
+window; re-check clean). Cycle verdict: INCIDENT CONTAINED (rollback
+verified) + attribution measured + repro filed (#30).
