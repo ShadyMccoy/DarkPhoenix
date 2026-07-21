@@ -168,6 +168,35 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +527t) — SPEC 25 PHASE 1 VERIFIED LIVE; endFill 0.80 answers the refill question
+
+PHASE 1 VERIFIED on its first capture: 3 remote construction sinks in
+the solve with pool-budgeted demands (1.48+1.6+1.92 ~ 5, pro-rata -
+the floor-sum fix live), and construction ROUTES in haulers[] charging
+the parts ledger - including scavenge-34-30 -> sites (the deposit-class
+local-build rule firing on a LOCAL PILE, exactly the emergent behavior)
+plus bank -> site legs. The owner's tankers-in-plan ruling is measured.
+cd8e correctly left the dedicated set (4 remain). Phase 2 satisfied;
+phase 3 (flag retirement) is unblocked pending one more stable capture.
+
+endFill FIRST READ: 0.798 over 17 gapped finishes (util 0.96) - refill
+largely OVERLAPS builds; the residual is the last ~20% (~460 energy)
+on expensive heads. The morning's 0.62-0.69 duty windows were
+deploy-reset artifacts; the standing overdraft is far smaller than
+first measured. The duty-adjusted P4 stays queued but drops in urgency.
+
+OPEN: (1) P7 0.42x this window = a FEEDER generation gap (corp at 0
+creeps, feederActive false; the @200 replacement at the agenda head
+mid-buy at capture - self-healing; same replacement-cadence class as
+the consumer trickle, owner decision pending). (2) cd8e STILL priced
+1:1 (carry 14.8) after the completion sweep - the receipt did not
+land, suggesting its roadRoutes entry is GONE (deleted, not starved) -
+next step is a roadRoutes receipts export (keys/built/total/paved) in
+telemetry, not a third guess. (3) P5/P6 rows skipped this capture
+(reservation stamp absent) - watch.
+
+Cycle verdict: verified (spec 25 phase 1 + endFill instrument).
+
 ### 2026-07-21 (owner-directed) — SPEC 25 PHASE 1 SHIPS: emergent dedication machinery, remote sinks admitted, floor-sum fixed
 
 Owner: "Yes start on spec 25." Phase 1 per the spec's migration order -
