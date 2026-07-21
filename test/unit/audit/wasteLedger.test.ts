@@ -78,6 +78,35 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p6.verdict).to.equal("ok");
   });
 
+  it("X1 skips gracefully on pre-meter captures (no workUtil in the upgrader stamp)", () => {
+    const rows2 = computeLedger(fixture("shard1-t72421124.json"), fixture("shard1-t72420978.json"));
+    expect(rows2.find(r => r.id === "X1")).to.equal(undefined);
+  });
+
+  it("X1 names standing-but-idle WORK from the meter stamp (owner: parts standing around are waste)", () => {
+    // The t72482220 shape: 100 WORK standing at both endpoints, stock full,
+    // burn 48.7 of ~100 e/t. With the meter stamped, the invisible half
+    // becomes a number: idle-equivalent WORK and its supply-starved share.
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    const upg = capA.data.corps.corps.find((c: any) => c.kind === "upgrade");
+    upg.body = { work: 100, carry: 5, move: 25 };
+    upg.sizing = { ...(upg.sizing ?? {}), workUtil: 0.49, dryShare: 0.45, meterTicks: 743 };
+    const x1 = computeLedger(capA, fixture("shard1-t72420978.json")).find(r => r.id === "X1")!;
+    expect(x1.verdict).to.equal("FAIL");
+    expect(x1.value, "idle-equivalent WORK = 100 x (1 - 0.49)").to.be.closeTo(51, 0.11);
+    expect(x1.detail).to.contain("dry (supply-starved) 0.45");
+    expect(x1.detail).to.contain("package");
+  });
+
+  it("X1 reads ok when standing WORK actually fires (workUtil ~1)", () => {
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    const upg = capA.data.corps.corps.find((c: any) => c.kind === "upgrade");
+    upg.body = { work: 100, carry: 5, move: 25 };
+    upg.sizing = { ...(upg.sizing ?? {}), workUtil: 0.97, dryShare: 0.01, meterTicks: 1500 };
+    const x1 = computeLedger(capA, fixture("shard1-t72420978.json")).find(r => r.id === "X1")!;
+    expect(x1.verdict).to.equal("ok");
+  });
+
   it("P7 does not fail a window whose plan legitimately dropped (construction preempt)", () => {
     // Same pair: allocation fell 86.3 -> 2.0 by doctrine; actual 14.35 e/t is
     // the old upgraders burning residual stock - MORE than the surviving

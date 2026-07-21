@@ -459,6 +459,37 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- X1 dry WORK ticks (owner doctrine 2026-07-21: "having body parts
+  // standing around, unable to do their job is one form of waste ... hauling
+  // and working grow in concert, spawned as a package") ----
+  // The upgrade meter (Memory.upgradeMeter, tallied at the upgradeController
+  // call site) stamps workUtil/dryShare into the upgrader sizing record.
+  // Idle standing WORK = work parts x (1 - workUtil): capacity the colony
+  // paid spawn time for that produced nothing. dryShare names the supply-
+  // starved share of it - the half the package-spawn remedy targets.
+  // Pre-meter captures (no workUtil in the stamp) skip the row.
+  {
+    const upg = (cap.data.corps?.corps ?? []).find((c: any) => c.kind === "upgrade" && c.sizing?.workUtil !== undefined);
+    const work = upg?.body?.work ?? 0;
+    if (upg && work > 0) {
+      const workUtil = +upg.sizing.workUtil;
+      const dryShare = +upg.sizing.dryShare || 0;
+      const idleWork = work * (1 - workUtil);
+      const meaningful = work > 10 && (upg.sizing.meterTicks ?? 0) > 100;
+      rows.push({
+        id: "X1",
+        name: "dry WORK ticks (standing-but-idle)",
+        value: +idleWork.toFixed(1),
+        unit: "WORK parts idle-equivalent",
+        verdict: meaningful && workUtil < 0.7 ? "FAIL" : meaningful && workUtil < 0.85 ? "WARN" : "ok",
+        detail:
+          `${work} WORK standing, workUtil ${workUtil.toFixed(2)} over ${upg.sizing.meterTicks}t; ` +
+          `dry (supply-starved) ${dryShare.toFixed(2)}` +
+          (meaningful && workUtil < 0.7 ? " - STANDING PARTS NOT WORKING (grow hauling+working as a package)" : "")
+      });
+    }
+  }
+
   // ---- X3 census ----
   rows.push({
     id: "X3",

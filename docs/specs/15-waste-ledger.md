@@ -67,7 +67,7 @@ progress unconverted).
 
 | id | leak | measurement |
 |----|------|-------------|
-| X1 | dry WORK ticks: upgraders/builders in position with no energy to burn | phase 2 counter per corp: `workTicks`/`dryTicks` (sizing-record style) |
+| X1 | dry WORK ticks: upgraders/builders in position with no energy to burn — the standing-but-idle waste class (owner doctrine 2026-07-21: "we always want the hauling and the working to grow in concert ... spawned as a package. Having body parts standing around, unable to do their job is one form of waste"; measured t72482220: 100 WORK standing at both endpoints, stock endpoint full, burn 48.7 of ~100 e/t — the missing half invisible to every endpoint read) | EXISTS (upgrader half): `Memory.upgradeMeter` tallied at the upgradeController call site (fired/dry per creep-tick, rolling 1500t), stamped as `workUtil`/`dryShare` in the sizing record; ledger row = standing WORK × (1 − workUtil), FAIL workUtil <0.7, WARN <0.85. `dryShare` names the supply-starved share — the half the **package-spawn remedy** targets: a consumer's bodies and its supply line (feeder/hauler capacity) priced and ordered as ONE transition, so neither half stands idle waiting for the other. Builder half still phase-2 |
 | X2 | deadhead hauling: hauler ticks moving empty beyond the unavoidable return leg | phase 2 counter: loaded vs empty move ticks |
 | X3 | idle creeps: alive, assigned nothing | phase 2 counter, plus census `untracked` (EXISTS) |
 
