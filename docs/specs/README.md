@@ -50,6 +50,7 @@ Conventions used by every spec:
 | 21 | [Conquest](21-conquest.md) | PROPOSED 2026-07-20 (owner doctrine) — peace as the default strategy; conquest a narrow economic exception: probe→assess→harass→siege→claim ladder against measured-weak owners of desirable rooms when claims are scarce, with a pre-committed abort rule | P3 |
 | 20 | [Corp accounting](20-corp-accounting.md) | phase 1 LANDED 2026-07-20 (owner directive: everything is a corp running) — per-corp CPU metering at the pure dispatch seam, Memory.corpCpu ledger; phases 2-3: name the residual, migrate towers/links/bootstrap/spawning to kinds | P1 |
 | 25 | [Emergent dedication](25-emergent-dedication.md) | PROPOSED 2026-07-21 (owner doctrine: work nuances into the planner, not tail-end flags) — one role-rule refinement (mined may route to construction nearer than its hub) makes trunk dedication emergent from prices; retires dedicatedToBuild + its three same-day exemption patches | P1 |
+| 26 | [Links as hub ports](26-links-as-hub-ports.md) | DEFERRED 2026-07-21 (owner: revisit after spec 25 — same routing seams) — deposit-side haulPos: remote haulers drop at the hub's link constellation; design + open questions banked in-spec | P3 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
