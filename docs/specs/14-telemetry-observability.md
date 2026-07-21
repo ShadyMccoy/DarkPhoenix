@@ -168,6 +168,35 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +743t) — E2 to ZERO; trunk tiebreak acquitted; P7's invisible half gets a meter
+
+Verify-first: E2 78 -> 0 parts ("every fielded hauler serves a planned
+route") - the stranded-fleet leak fully self-healed by attrition, as
+classified two cycles ago; no intervention was the right call.
+Reservation banks refilled (311/383/385/474 - P6 reading honestly
+post-fix, 1553 ticks delivered). TRUNK TIEBREAK WATCH resolved
+favorably: W43N24 sites 4 -> 1 while W43N22's fresh 17-batch is
+untouched - the pool crew IS finishing the nearly-done room; no
+ordering bug. roadGate still stamps 36/38 (4 ticks pre-capture); next
+capture expects 38/38 or names the residual tiles.
+
+TOP LINE P7 FAIL 0.48x: burn 86.3 -> 48.7 e/t while 100 WORK stood at
+BOTH endpoints (identical bodies, zero churn, no upgrader receipts) and
+the stock endpoint read full (1190 -> 1396). The missing half is
+invisible: endpoint stock reads hide mid-window starvation, and nothing
+measures whether standing WORK actually fired. Per the invisible-cause
+rule: INSTRUMENT, don't theorize. Shipped the upgrade WORK-utilization
+meter (Memory.upgradeMeter, spawn-meter pattern, pure seam
+tallyUpgradeAttempt): tallied at the upgradeController call site -
+fired on OK, dry on ERR_NOT_ENOUGH_RESOURCES - and stamped as
+workUtil/dryShare/meterTicks in the upgrader sizing record. Next
+capture discriminates: high dryShare = supply chain (feeder/link
+throughput mid-window); low dryShare with low workUtil = idling
+(parking/walk); workUtil ~1 = the window average was masking a
+composition effect. Unit 1164; telemetry-only, deployed.
+
+Cycle verdict: verified (E2, banks, tiebreak) + instrumented (P7).
+
 ### 2026-07-21 (cron cycle, +207t) — restaffing complete; P6 zero-floor artifact fixed; trunk tiebreak on watch
 
 Verify-first, all on track: E2 82 -> 78 parts / 4 -> 2 corps (the

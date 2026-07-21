@@ -243,6 +243,21 @@ declare global {
       [spawnId: string]: { t0: number; last: number; ticks: number; busy: number };
     };
 
+    /**
+     * Rolling upgrade-WORK utilization per controller room (spawn-meter
+     * pattern), tallied at the upgradeController call site: `ticks` =
+     * parked upgrader creep-ticks observed, `fired` = ticks the intent
+     * returned OK, `dry` = ticks it returned ERR_NOT_ENOUGH_RESOURCES (the
+     * input starved the buffer). Prod t72482220: 100 WORK stood at both
+     * window endpoints with the stock endpoint full, yet burn averaged
+     * 48.7 of ~100 e/t - whether the missing half was supply or idling was
+     * unmeasurable. workUtil/dryShare in the upgrader sizing stamp read
+     * this window.
+     */
+    upgradeMeter?: {
+      [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
+    };
+
     spawnAgenda?: {
       [spawnId: string]: {
         tick: number;

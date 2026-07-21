@@ -24,6 +24,30 @@ import { travelTicksPerTile } from "./economics";
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 8;
 
+/** Rolling window for the WORK-utilization meter (spawn-meter cadence). */
+export const UPGRADE_METER_WINDOW = 1500;
+
+/**
+ * One creep-tick observation for the WORK-utilization meter (pure seam,
+ * spawn-meter pattern): `fired` on OK, `dry` on ERR_NOT_ENOUGH_RESOURCES
+ * (the starved-buffer tick an endpoint stock read hides). Windows roll
+ * after UPGRADE_METER_WINDOW ticks.
+ */
+export function tallyUpgradeAttempt(
+  meter: NonNullable<Memory["upgradeMeter"]>,
+  room: string,
+  tick: number,
+  rc: number
+): void {
+  let w = meter[room];
+  if (!w || tick - w.t0 >= UPGRADE_METER_WINDOW) {
+    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0 };
+  }
+  w.ticks++;
+  if (rc === OK) w.fired++;
+  else if (rc === ERR_NOT_ENOUGH_RESOURCES) w.dry++;
+}
+
 /**
  * Tighter ceiling at RCL <= 2: the tiny spawn network can't both staff a big
  * upgrader camp AND keep full-size haulers running, so a swarm of upgraders
@@ -293,10 +317,15 @@ export class UpgradingCorp extends Corp {
   /** Upgrade the controller in place, recording the WORK produced. */
   private tryUpgrade(creep: Creep, controller: StructureController): void {
     if (creep.pos.getRangeTo(controller) > 3) return;
-    if (creep.upgradeController(controller) === OK) {
+    const rc = creep.upgradeController(controller);
+    if (rc === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
       this.recordProduction(workParts);
     }
+    // WORK-utilization meter, tallied where the intent resolves (prod
+    // t72482220: burn 48.7 of ~100 e/t standing WORK with the stock
+    // endpoint full - supply gap vs idling was unmeasurable).
+    tallyUpgradeAttempt((Memory.upgradeMeter = Memory.upgradeMeter ?? {}), controller.pos.roomName, Game.time, rc);
   }
 
   /**
@@ -481,6 +510,11 @@ export class UpgradingCorp extends Corp {
     // with ONE fielded upgrader and NO agenda entry - which of the exits below
     // swallowed the demand (and under which energyCapacity) was invisible in
     // the capture. The verdict names the exit; never guess twice.
+    // WORK-utilization window (Memory.upgradeMeter, tallied in tryUpgrade):
+    // workUtil = OK share of attempted creep-ticks, dryShare = starved-buffer
+    // share. Reads the same window the intents wrote - never recomputed from
+    // stock/burn (prod t72482220's invisible half).
+    const meterW = spawn?.pos?.roomName ? Memory.upgradeMeter?.[spawn.pos.roomName] : undefined;
     this.lastSizing = {
       tick: ctx.tick,
       planAllocated,
@@ -493,6 +527,13 @@ export class UpgradingCorp extends Corp {
       cap: ctx.energyCapacity,
       construction: constructionAbsorb > 0,
       ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
+      ...(meterW && meterW.ticks > 0
+        ? {
+            workUtil: +(meterW.fired / meterW.ticks).toFixed(3),
+            dryShare: +(meterW.dry / meterW.ticks).toFixed(3),
+            meterTicks: meterW.ticks
+          }
+        : {}),
       demand: "demanded"
     };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
