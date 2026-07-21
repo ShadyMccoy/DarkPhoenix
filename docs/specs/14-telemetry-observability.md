@@ -1795,3 +1795,26 @@ longer zero 300 ticks of age). Trunk: 34/38 held this window (local builders
 mid-tile); fleet 22->25 (miners 3->7 - the churn rebuild). Cycle verdict:
 DIAGNOSED to mechanism + prediction filed; no code shipped (the honest move
 - the system may already be buying the feeder).
+
+**AUDIT CYCLE t72473701 - prediction VERIFIED (feeder alive, zero code was
+the right call); the cork moved one seam down and got its fix.** feederActive
+TRUE - the t72470198 prediction held: the starved FIFO drained and bought the
+100-energy feeder on its own; the scheduler needed no change (the clock-reset
+fix in #29 stays shelved unless the blink recurs somewhere it matters). E4
+WORSENED (370k, +27.4/t): income rose (28 creeps, remotes fully staffed,
+P9 1.0x of 70 e/t) while construction-first held burn at the plan's 8.6 e/t
+- correct doctrine, broken absorber: the trunk sat at 34/38 for 3500+ ticks.
+Mechanism (measured): the last tiles are MID-ROUTE - outside the builders'
+4-tile self-fuel reach (doPickup is deliberately stationary), no pile, no
+container, and the tanker demand gate was HOME-sites-only while the bank held
+370k. FIXED+DEPLOYED (#24 slice, full gate green): tanker demand keys on the
+POOL head's site; targetTankerCount prices the cross-room shuttle at linear
+room distance (same-room getRangeTo across rooms = Infinity = no fleet).
+runTanker needed nothing - it already draws the surplus bank and stages
+toward the builders cross-room. Predictions for next capture: 2+ tankers
+fielded for the home corp; trunk 34 -> 38 in ~2-3k ticks; on completion
+constructionStanding false -> surplus regime unclamps (feeder relay 115,
+upgraders from actuals) -> burn into the 40 e/t band, BANK SLOPE NEGATIVE
+for the first time. If the trunk completes but burn stays low, the next seam
+is the upgrader fleet's scale-up (parking 8, cap 2300 - room to grow).
+Cycle verdict: VERIFIED (prior prediction) + FIXED (pool tankers, deployed).
