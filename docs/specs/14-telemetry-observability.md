@@ -1878,3 +1878,43 @@ NOT redeploy HEAD until the routeless-source repro is red->green. The
 t72474584 cycle's other finding stands: P5 reserver duty 2x (raid-distorted
 window; re-check clean). Cycle verdict: INCIDENT CONTAINED (rollback
 verified) + attribution measured + repro filed (#30).
+
+---
+
+**SESSION HANDOFF 2026-07-21 (merge point; next session starts here).**
+
+DEPLOYED BUILD = commit 815e033's bundle (pool tankers). Branch HEAD is
+AHEAD of it by the Z-to-A dedication commits (261abec, 9703bc9) which are
+KNOWN-BROKEN LIVE (incident t72475006: empty plan; rolled back, verified
+recovered at t72478452 - 70 e/t routed 1.00x). Do NOT redeploy HEAD's
+bundle until task #30 lands.
+
+LIVE STATUS (t72478452): income 70 e/t fully routed; feeder + controller
+link chain working; trunk cd8e at 36/38 (2 tiles left); W42N22 segment 7/10
+built; new W44N23 segment placed (12 sites); all settled remotes have
+containers (the two W43N24 sources queued behind the trunk by design).
+E4 idle capital 464k (+23/t) is the SCORE cork: burn clamps to ~2-3 e/t
+while construction stands (correct doctrine); it unclamps mechanically when
+the trunk paves - watch for the surplus-regime flip (feeder relay 115,
+upgrader fleet scale-up, bank slope NEGATIVE).
+
+NEXT STEPS, in order:
+1. #30 empty-plan crash: red-first repro = commissionsFromPlan +
+   materializeCommissions over a plan with a dedicatedToBuild source (funded
+   miner, ZERO haul routes; suspect routes[0] on an empty group). Fix, full
+   gate, add a grid cell that STAGES roadRoutes receipts (the mockup gate
+   passed because the dedication path never executed - sim blind spot,
+   measured), then redeploy HEAD. This re-lands the owner's Z-to-A
+   dedication with the surveyed-trunks scoping already in HEAD.
+2. Verify the surplus-regime flip when the trunk completes; if burn stays
+   low with construction clear, the next seam is upgrader fleet scale-up
+   (parking 8, cap 2300).
+3. P5 reserver duty 2x (gate re-staffs at staffed<target, never reads the
+   ~5000-tick reservation bank; priced 0.5 duty) - confirm in a raid-free
+   window, then fix the gate to read reservation.ticksToEnd.
+4. Owner design queue: #24 aggregate squad formula (W=E/5H, K=W(d+1)/5,
+   H=2/3(1500-d); bodies 2W:1M:1-2C, 2C:1M) beyond the pool-tanker slice;
+   #25 anchor-relative dual-front once #30 unblocks; #19 T5 tempo (design).
+5. Infra: the 20-min audit cron is session-local (dies with the container);
+   server-side Routine creation is still blocked by an MCP approval that
+   never reaches the owner - unresolved.

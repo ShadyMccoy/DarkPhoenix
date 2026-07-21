@@ -96,7 +96,11 @@ whose operators are corps. Read order for architecture truth:
   strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
   live creeps.
 - **Sim blind spots**: sims never churn spawn ids, never lose room vision,
-  and never generate NPC raids (raid generation is a backend wall-clock cron
+  never generate NPC raids, and STAGE NO roadRoutes receipts - a code path
+  gated on them (paved repricing, trunk dedication) never executes in the
+  integration trio, so its gate can pass for the wrong reason (measured
+  t72475006: empty-plan crash live, trio green). Stage the receipts in a
+  grid cell for any receipts-gated behavior (raid generation is a backend wall-clock cron
   the mockup doesn't run — invader noise is a LIVE-ONLY effect class; grid
   cells stage their raids by db insert). Don't claim live-readiness from
   sims alone.
