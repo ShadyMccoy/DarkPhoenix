@@ -389,7 +389,12 @@ export function detectTrunkBuildingSources(): Set<string> {
     const routes = Game.rooms[roomName].memory?.roadRoutes;
     for (const sourceId in routes ?? {}) {
       const e = routes![sourceId];
-      if (e.tiles3 && !e.paved && !e.declined) building.add(sourceId);
+      // SURVEYED only (t72474584 regression: the planned-only lens dedicated
+      // all five remotes at once - three had no sites even PLACED, pure
+      // income loss for zero build progress). total is stamped by the first
+      // placement survey, so its presence = road sites actually stand and
+      // the Z-to-A crew has something to build.
+      if (e.tiles3 && !e.paved && !e.declined && e.total !== undefined) building.add(sourceId);
     }
   }
   return building;

@@ -707,10 +707,11 @@ describe("trunk-building sources (owner 2026-07-21: no hauling home until the ro
       W1N1: {
         memory: {
           roadRoutes: {
-            a: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] }, // in progress
+            a: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], built: 0, total: 1 }, // surveyed: sites STAND
             b: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true }, // done
             c: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], declined: true }, // not worth it
-            d: { tiles: [1, 1] } // in-room legacy route, no trunk
+            d: { tiles: [1, 1] }, // in-room legacy route, no trunk
+            e: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] } // PLANNED only - no sites placed yet (t72474584: dedicating these cut 30 e/t for zero build progress)
           }
         }
       }
