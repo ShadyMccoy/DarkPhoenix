@@ -168,6 +168,40 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (cron cycle, +508t) — THE SAW'S MECHANISM CLOSED: consumers refleet on the starvation trickle alone
+
+The v11 whole-queue mirror answered on its first capture. The upgrader
+demand: rank 2, since 72483597, age 510, gate "queued" - the clock
+reset at ~t72483597 is a starvation ONE-SHOT firing (a purchase in the
+304t receipt-cap hole between windows), and the age has re-accumulated
+toward the next. Ruled out by code+data: opportunistic exemption (not
+set), deploy resets (firstSeen lives in Memory.spawnDemandFirstSeen),
+cost-flip re-keying (clock key is spawn:corp:role).
+
+MECHANISM (measured end to end): consumers lose every normal-tier
+arbitration to the +1e6 income/infra tiers (by doctrine), so the WHOLE
+consumer refleet flows through the anti-starvation backstop at ONE body
+per ~550t (300t threshold + queue drain). One body/550t against a
+1500t lifetime = equilibrium fleet ~2-3 vs targetCount 6 - the 1->3->
+5->1 saw, exactly as observed across five windows. Meanwhile P4
+charges the plan the FULL 6-body maintenance (117p, 0.079 parts/t,
+~24% of ceiling) - paid, never delivered - and the spawn idled 31%
+this window while the 2300-cost demand waited at rank 2. The one-shot
+contract ("once the creep exists the demand stops reappearing") was
+designed for single-body demands; a 6-body fleet needs six shots.
+
+OWNER-GATED (talk-first precedent on spawn economics), options
+presented: (a) multi-shot starvation while staffing < targetCount
+(partial clock rebate on purchase - recommended, minimal), (b) a
+maintenance tier between income-blocking and income-scaling, (c)
+package-spawn (owner doctrine, biggest redesign). No deploy this cycle.
+
+Watch items: cd8e's 2:1 plan flag NOT yet self-healed (carry 14.8,
+no ratio - the re-judge/re-survey hypothesis gets ONE more window
+before it becomes a bug investigation); E2 90p (0-20 corp recurring);
+trunks: still 3 routed + 4 dedicated. Cycle verdict: named (the
+trickle equilibrium) + presented (fix options, owner-gated).
+
 ### 2026-07-21 (cron cycle, +552t) — FIRST TRUNK COMPLETED (edge fix verified); the upgrader saw named S4; whole-queue mirror ships
 
 EDGE-FIX VERIFYING: P9 reads funded 3 src / 30 e/t routed (+4 still
