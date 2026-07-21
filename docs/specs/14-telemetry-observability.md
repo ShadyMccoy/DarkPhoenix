@@ -168,6 +168,34 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-20/21 (cron cycle, +654t) — link-site stall ROOT-CAUSED: the ladder and the lens disagreed; same-lens fix deployed
+
+Scoreboard: burn sagged to 15.4 this window (the upgrader generation gap
+- fleet fell to 1 again mid-window; a fresh 20W@2300 landed t72463488 and
+recovery follows), E4 re-FAILed on the sag (bank +9.8/t), income 1.00x.
+PATH meter live: ~2.2 cpu/t, hauling top at 1.4 - the RouteCache rung's
+named starting point.
+
+Build-pool deploy: TOO FRESH to judge (~100t at capture; agenda still
+pre-deploy). Next capture verifies builder receipts + trunk movement.
+
+LINK-SITE STALL: classified STUCK (three captures, +1050t, zero sites)
+and root-caused by code read: findMissingLink's controller step gated on
+linkNear(ctrl, 3) - ANY link within 3, the CORE included (the storage
+parks near the controller) - while the controllerLink lens excludes the
+core. The ladder said "served", the lens said "not link-fed": a
+deadlock between two readers of the same question - the same-lens trap
+class, verbatim. FIX: the ladder asks controllerLink() + a pending-site
+check; pinned with the exact live geometry (core at range <=3). Unit
+1097; trio green (runt-economy's chain run died environmentally with no
+test output - solo re-run green; today's container pressure). Deployed.
+
+Predictions: link site within one placement cooldown; the pool crew
+builds it (~5k); on completion the input election re-anchors on the
+link, feeder stamps linkFed/distance 1, P4 feeder line 64p -> ~22p,
+burn continuity through the handover. Cycle verdict: fixed (same-lens) +
+pending (pool, link build).
+
 ### 2026-07-20 (owner-directed, immediate) — ROOM-AGNOSTIC CONSTRUCTION: one build pool per spawn
 
 Owner: "we need them to build quicker. It's an investment... why not also
