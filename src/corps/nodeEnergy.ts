@@ -235,6 +235,21 @@ export function bestAdjacentTile(
  * y==48) is judged only by its last-matching side's edge tiles - the y-side
  * list replaces the x-side one, same as the engine's checkConstructionSite.
  */
+/**
+ * The engine forbids ALL construction on the room border row (x or y = 0 or
+ * 49) - createConstructionSite returns ERR_INVALID_TARGET there for every
+ * structure type, roads included. Creeps traverse exits without roads, so a
+ * border tile on a cross-room path is walkable but never placeable: any tile
+ * list that feeds placement must exclude these (prod t72483047: a trunk's
+ * two border tiles read err-7 every pass for ~4400t and the paved receipt
+ * could never land - the completion condition was unsatisfiable by
+ * construction). Sibling of besideOpenExit below, which handles the
+ * engine's separate exit-BUFFER rule (x/y = 1 or 48, roads exempt).
+ */
+export function isRoomEdgeTile(x: number, y: number): boolean {
+  return x === 0 || x === 49 || y === 0 || y === 49;
+}
+
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
   if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];

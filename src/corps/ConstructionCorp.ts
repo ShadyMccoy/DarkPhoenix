@@ -21,7 +21,7 @@ import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, isRoomEdgeTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
@@ -1179,6 +1179,10 @@ export class ConstructionCorp extends Corp {
       const roomsTable: string[] = [];
       const tiles3: number[] = [];
       for (const p of path) {
+        // Border tiles are walkable but never placeable (isRoomEdgeTile) -
+        // a cross-room path always includes them; recording them made the
+        // trunk's completion condition unsatisfiable (prod t72483047).
+        if (isRoomEdgeTile(p.x, p.y)) continue;
         let ri = roomsTable.indexOf(p.roomName);
         if (ri === -1) {
           ri = roomsTable.length;
@@ -1228,21 +1232,29 @@ export class ConstructionCorp extends Corp {
 
   /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
   private placeTrunkSites(roomsTable: string[], tiles3: number[]): TrunkSurvey {
-    const survey: TrunkSurvey = { placed: 0, built: 0, total: tiles3.length / 3, blind: [], missing: [] };
+    const survey: TrunkSurvey = { placed: 0, built: 0, total: 0, blind: [], missing: [] };
     const blind = new Set<string>();
     const paused = governorPlan().pauseConstruction;
     const noteMissing = (roomName: string, x: number, y: number, state: string): void => {
       if (survey.missing.length < 4) survey.missing.push(`${roomName}:${x},${y}:${state}`);
     };
     for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      const x0 = tiles3[i];
+      const y0 = tiles3[i + 1];
+      // Border tiles are walkable but NEVER placeable (isRoomEdgeTile - the
+      // err-7-forever state, prod t72483047): not part of the placeable
+      // total, defensively skipped so routes STORED with edge tiles
+      // (pre-fix paths) complete without migration.
+      if (isRoomEdgeTile(x0, y0)) continue;
+      survey.total++;
       const roomName = roomsTable[tiles3[i + 2]];
       const r = Game.rooms[roomName];
       if (!r) {
         blind.add(roomName); // no vision this pass
         continue;
       }
-      const x = tiles3[i];
-      const y = tiles3[i + 1];
+      const x = x0;
+      const y = y0;
       if (r.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) {
         survey.built++;
         continue;
@@ -1269,9 +1281,12 @@ export class ConstructionCorp extends Corp {
     return survey;
   }
 
-  /** All trunk tiles verifiably built - a blind room cannot verify, so false. */
+  /** All PLACEABLE trunk tiles verifiably built - a blind room cannot verify,
+   * so false; border tiles carry creeps without roads and are exempt (the
+   * completion condition was otherwise unsatisfiable - prod t72483047). */
   private trunkBuilt(roomsTable: string[], tiles3: number[]): boolean {
     for (let i = 0; i + 2 < tiles3.length; i += 3) {
+      if (isRoomEdgeTile(tiles3[i], tiles3[i + 1])) continue;
       const r = Game.rooms[roomsTable[tiles3[i + 2]]];
       if (!r) return false;
       if (!r.lookForAt(LOOK_STRUCTURES, tiles3[i], tiles3[i + 1]).some(s => s.structureType === STRUCTURE_ROAD)) {

@@ -321,4 +321,38 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     Game.rooms = { W1N1: mkRoom(new Set(["5,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
     expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 10, 10, 1])).to.equal(true);
   });
+
+  // ROOM-EDGE TILES (prod t72483047, the 36/38-forever trunk): a cross-room
+  // path necessarily includes border tiles (x/y = 0 or 49), and the engine
+  // forbids ALL construction there - createConstructionSite returned -7
+  // every pass for ~4400t while creeps walked the exits fine. Exit tiles
+  // carry creeps WITHOUT roads, so they simply do not belong in a trunk's
+  // placeable tile list: the survey and the completion check skip them
+  // (which un-sticks routes already stored with edge tiles), and new paths
+  // never record them.
+  it("EDGE TILES: the survey neither places, counts, nor 'misses' border tiles (the err-7-forever state)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    // The live shape: 2 built tiles + the border crossing (43,49 / 43,0).
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5", "6,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    const s = (corp as any).placeTrunkSites(
+      ["W1N1", "W2N1"],
+      [5, 5, 0, 6, 5, 0, 43, 49, 0, 43, 0, 1, 10, 10, 1]
+    );
+    expect(s.total, "edge tiles are not placeable trunk tiles").to.equal(3);
+    expect(s.built).to.equal(3);
+    expect(s.placed).to.equal(0);
+    expect(s.missing, "no err-7-forever entries for edge tiles").to.deep.equal([]);
+  });
+
+  it("EDGE TILES: trunkBuilt completes when every PLACEABLE tile is roaded (the paved receipt un-sticks)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    // 36/38-forever, in miniature: both real tiles roaded, two edge tiles never can be.
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 43, 49, 0, 43, 0, 1, 10, 10, 1])).to.equal(true);
+  });
 });

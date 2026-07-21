@@ -168,6 +168,52 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-21 (owner-directed) — THE TRUNK WAS UNSATISFIABLE: border tiles in the tile list; edge-exempt completion ships
+
+Owner: "prioritizes building over upgrading... upgraders building up
+while there's construction sites remaining is a bit concerning... the
+road should have two mechanisms... I want the information feedback that
+the roads are getting built... using our frameworks and primitives
+rather than a Band-Aid... simple scenarios to verify."
+
+The trunkMissing stamp (deployed last cycle) NAMED IT ON ITS FIRST
+CAPTURE (t72483047): "W43N24:43,49:err-7 W43N23:43,0:err-7" - the 2
+unbuilt tiles are the BORDER tiles where the trunk crosses rooms, and
+the engine forbids ALL construction on the border row (err-7 =
+ERR_INVALID_TARGET, every pass, ~4400t). Neither build mechanism failed
+- the COMPLETION CONDITION was unsatisfiable by construction: a
+cross-room path necessarily includes border tiles, tiles3 recorded
+them, and trunkBuilt required roads on all of them. So the paved
+receipt could never land -> the 2:1 repricing never fired -> the
+dedication never lifted -> the 5 sources would have shipped nothing
+home FOREVER. Same engine-rule class as the 693065a link fix (the
+exit-BUFFER rule, x/y=1/48, roads exempt); this is the border ROW
+itself (x/y=0/49, nothing exempt), unhandled.
+
+FIX (primitives, not band-aid): ONE shared predicate
+nodeEnergy.isRoomEdgeTile, applied at three seams - the path->tiles3
+conversion (new routes never record border tiles), placeTrunkSites
+(total counts placeable tiles only; no err-7-forever missing entries),
+trunkBuilt (completion over placeable tiles - un-sticks routes STORED
+with edge tiles, no migration). Owner's verification scenarios: the
+live 36/38 shape in miniature pinned both ways (survey + completion) in
+constructionKind.test.ts; the conversion exclusion pinned in
+trunkRejudge.test.ts. Unit 1169; trio gate below.
+
+Predictions (next captures): roadGate -> trunk-paved for the stuck key,
+trunkMissing absent, the trunk sources lose [DED] as their segments
+complete -> hauling resumes at the 2:1 paved rate, routed income 20 ->
+climbing, P9's route-exempt count drops. On the owner's building-vs-
+upgrading priority: the ROUTING ladder + absorb clamp already put
+construction first in ENERGY; the small build crew (2W) is the absorb
+formula's lifetime-completion horizon sizing to the pool - with the
+trunk unstuck the pool re-forms (W43N22 17 + W44N23 6) and tempo gets
+re-measured before touching the horizon primitive. The two-mechanism
+design (build-from-both-ends) was consolidated away by the ONE-pool
+change (2026-07-20) BEFORE the dedication directive; restoring a
+source-end build detail through the kind framework is spec-25-adjacent
+follow-up work, owner-gated.
+
 ### 2026-07-21 (cron cycle, +640t) — FIRST ALL-GREEN TRIAGE; workUtil 0.98 falsifies the supply hypothesis; trunk residual named
 
 NO FAIL LINES - first fully-green triage of the session. Verify-first:
