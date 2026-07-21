@@ -44,8 +44,22 @@ export function runLinks(): void {
       if (ctrl && link.id === ctrl.id) continue; // sink, never a sender
       if (link.cooldown > 0) continue;
       if (link.store[RESOURCE_ENERGY] < LINK_FIRE_THRESHOLD) continue;
-      if (core.store.getFreeCapacity(RESOURCE_ENERGY) === 0) continue;
-      link.transferEnergy(core);
+      // BANK FIRST: income lands at the core (the hub the haulers drain).
+      // When the core is congested - full, or without room for a meaningful
+      // volley - spill DIRECTLY to the controller link instead (owner
+      // 2026-07-21: "it can send to the upgrader link as well"): one 3% hop
+      // instead of two, into the sink the relay was feeding anyway. A
+      // sub-volley core remainder is still taken before holding outright.
+      const coreFree = core.store.getFreeCapacity(RESOURCE_ENERGY);
+      const target =
+        coreFree >= LINK_FIRE_THRESHOLD
+          ? core
+          : ctrl && ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
+          ? ctrl
+          : coreFree > 0
+          ? core
+          : null;
+      if (target) link.transferEnergy(target);
     }
 
     if (

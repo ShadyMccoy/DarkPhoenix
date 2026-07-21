@@ -98,6 +98,86 @@ describe("controller link network (spec 24 rung 3)", () => {
     expect(core.fired).to.deep.equal(["ctrl"]);
   });
 
+  /**
+   * The hub-congestion fix (owner 2026-07-21: "the 'other' link from the
+   * source has nowhere to send its energy to. so either the hub should
+   * reserve capacity for it, and/or it can send to the upgrader link as
+   * well"). Both mechanisms: the feeder leaves an income reserve in the core
+   * (coreLinkLoadRoom, pinned below), and a source link that still finds the
+   * core congested fires the controller link DIRECTLY - one 3% hop instead
+   * of two, into the sink the energy was headed for anyway.
+   */
+  it("a source link blocked by a FULL core falls back to the controller link", () => {
+    const core = mkLink("core", 20, 20, 800); // feeder-stuffed: zero free
+    const ctrl = mkLink("ctrl", 42, 32, 0);
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src] });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired, "direct source -> controller link").to.deep.equal(["ctrl"]);
+  });
+
+  it("a NEAR-full core (free < one volley) also diverts - no dribble-and-wait", () => {
+    // free 50 at the core: sending 50 and idling a full cooldown loses to a
+    // whole volley landing at the controller link.
+    const core = mkLink("core", 20, 20, 750);
+    const ctrl = mkLink("ctrl", 42, 32, 100);
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src] });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired).to.deep.equal(["ctrl"]);
+  });
+
+  it("BANK FIRST: with room at the core, the source link never bypasses it", () => {
+    // Macro doctrine: income banks at the hub; the controller link is the
+    // congestion spillway, not the default (a direct feed would bypass the
+    // feeder's regime clamp on controller inflow).
+    const core = mkLink("core", 20, 20, 400);
+    const ctrl = mkLink("ctrl", 42, 32, 0);
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src] });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired).to.deep.equal(["core"]);
+  });
+
+  it("both receivers full: the source link HOLDS (a send would be lost)", () => {
+    const core = mkLink("core", 20, 20, 800);
+    const ctrl = mkLink("ctrl", 42, 32, 800);
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src] });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired).to.deep.equal([]);
+  });
+
+  it("no controller link in the room: the old behavior exactly (core or hold)", () => {
+    const core = mkLink("core", 20, 20, 800);
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, others: [src] });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired).to.deep.equal([]);
+  });
+
+  it("coreLinkLoadRoom: the feeder fills the core only to capacity minus the income reserve", () => {
+    const { coreLinkLoadRoom, CORE_LINK_INCOME_RESERVE } = require("../../../src/corps/nodeEnergy");
+    // The reserve is one typical source volley (~2 fire thresholds): big
+    // enough that income keeps landing, small enough that the relay buffer
+    // (capacity - reserve = 600) still out-runs every relay target to date.
+    expect(CORE_LINK_INCOME_RESERVE).to.equal(200);
+    expect(coreLinkLoadRoom(0, 800)).to.equal(600);
+    expect(coreLinkLoadRoom(500, 800)).to.equal(100);
+    expect(coreLinkLoadRoom(600, 800)).to.equal(0);
+    expect(coreLinkLoadRoom(750, 800), "never negative - already past the line").to.equal(0);
+  });
+
   it("infraSpawnLoad: a link-fed depot prices the feeder at the 1-tile leg (~1/6th)", () => {
     const walked = infraSpawnLoad(115, 1, 4, 0);
     const linked = infraSpawnLoad(115, 1, 4, 1);

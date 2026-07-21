@@ -21,7 +21,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
-import { CoreDepot, controllerLink, coreDepot, coreLink, controllerInputSpot } from "./nodeEnergy";
+import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
@@ -194,16 +194,21 @@ export class ControllerFeederCorp extends Corp {
       const ctrlLink = controllerLink(creep.room);
       const core = ctrlLink ? coreLink(creep.room) : null;
       if (ctrlLink && core) {
-        if (core.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+        // The feeder stages the relay in the core but NEVER tops it out:
+        // the top of the link is the income reserve (owner 2026-07-21 - a
+        // brim-full core left the source link's volleys nowhere to land).
+        const free = core.store.getFreeCapacity(RESOURCE_ENERGY);
+        const loadRoom = coreLinkLoadRoom(core.store[RESOURCE_ENERGY], core.store[RESOURCE_ENERGY] + free);
+        if (loadRoom <= 0) {
           if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
-          return; // network saturated: hold the load beside the core
+          return; // relay buffer staged: hold the load beside the core
         }
         if (creep.pos.getRangeTo(core.pos) > 1) {
           travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
           return;
         }
-        const moved = Math.min(creep.store[RESOURCE_ENERGY], core.store.getFreeCapacity(RESOURCE_ENERGY));
-        if (creep.transfer(core, RESOURCE_ENERGY) === OK) {
+        const moved = Math.min(creep.store[RESOURCE_ENERGY], loadRoom);
+        if (creep.transfer(core, RESOURCE_ENERGY, moved) === OK) {
           this.recordProduction(moved);
           creep.memory.lastDeliver = { to: "core-link", amount: moved, tick: Game.time };
         }

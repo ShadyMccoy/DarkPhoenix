@@ -61,6 +61,26 @@ export function coreLink(room: Room): StructureLink | null {
 }
 
 /**
+ * Income headroom the FEEDER must leave in the core link (owner 2026-07-21:
+ * "the hub should reserve capacity for it" - a feeder topping the core to the
+ * brim left the source link's volleys nowhere to land). One typical source
+ * volley (~2 fire thresholds); the relay buffer that remains (capacity -
+ * reserve = 600) still out-runs every relay target to date, and a volley the
+ * reserve can't hold spills to the controller link directly (LinkRunner's
+ * congestion fallback - the second half of the owner's fix).
+ */
+export const CORE_LINK_INCOME_RESERVE = 200;
+
+/**
+ * Energy the feeder may still load into the core link: fill to capacity
+ * minus the income reserve, never above. The SOURCE side of the link
+ * network is not throttled - only the feeder's controller-relay staging is.
+ */
+export function coreLinkLoadRoom(store: number, capacity: number): number {
+  return Math.max(0, capacity - CORE_LINK_INCOME_RESERVE - store);
+}
+
+/**
  * The room's CONTROLLER link: a built link within upgrade range (3) of the
  * controller, excluding the core link (a storage parked next to the
  * controller needs no second link). THE link-fed lens (spec 24 rung 3,
