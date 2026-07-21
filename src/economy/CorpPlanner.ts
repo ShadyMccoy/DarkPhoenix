@@ -43,6 +43,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
+import { effectiveOneWayTiles } from "./roadEconomics";
 
 // =============================================================================
 // INPUT - a clean description of the world the planner reasons over
@@ -76,11 +77,20 @@ export interface PlannerSource {
    */
   transient?: boolean;
   /**
-   * The source's haul route is fully paved (ConstructionCorp's receipt in room
-   * memory). Its haulers run the 2:1 road body - 1.5 spawn parts per CARRY
-   * instead of 2 - which the routing pass prices in.
+   * The source's haul route fields the 2:1 road body - 1.5 spawn parts per
+   * CARRY instead of 2 - which the routing pass prices in. Set from
+   * ConstructionCorp's receipts via roadEconomics.partialPaveRatio: fully
+   * paved, or a trunk verifiably >= 1/2 built (owner 2026-07-20: "32 out of
+   * 38 - we could still optimize the body parts").
    */
   paved?: boolean;
+  /**
+   * Verified paved fraction of the route (present with `paved`; absent means
+   * 1). Below 1 the 2:1 body's loaded leg crawls the unpaved stretch, so
+   * CARRY sizes at the EFFECTIVE distance (roadEconomics.effectiveOneWayTiles)
+   * - the fleet must cover the true round-trip time until the last tile lands.
+   */
+  pavedFraction?: number;
   /**
    * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
    * spawn instead of the nearest-spawn default - the v0 restructuring
@@ -525,10 +535,16 @@ function routeToSinks(
       if (acc.allocated >= target - 1e-9) break;
       const avail = pool.get(id) ?? 0;
       // A paved route's 2:1 hauler needs 1.5 parts per CARRY, not 2 - the
-      // spawn-budget payoff that makes roads worth building at all.
-      const paved = sourceById.get(id)?.paved === true;
+      // spawn-budget payoff that makes roads worth building at all. A route
+      // still mid-build (paved fraction < 1) already fields that body, but
+      // its loaded leg crawls the unpaved stretch: CARRY sizes at the
+      // EFFECTIVE distance (ticks not tiles - roadEconomics), or the fleet
+      // under-carries until the last tile lands.
+      const src = sourceById.get(id);
+      const paved = src?.paved === true;
+      const dEff = paved ? effectiveOneWayTiles(d, src?.pavedFraction ?? 1, 2) : d;
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
-      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, d)) / effectiveLife(d) + workPerUnit;
+      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(d) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
       const take = Math.min(avail, target - acc.allocated, maxByParts);
       if (take <= 1e-9) {
@@ -552,8 +568,8 @@ function routeToSinks(
         spawnId: spawnBySource.get(id) ?? "",
         distance: d,
         flowRate: take,
-        carryParts: carryPartsFor(take, d),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, d)) / effectiveLife(d),
+        carryParts: carryPartsFor(take, dEff),
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(d),
         ...(paved ? { paved } : {})
       });
     }

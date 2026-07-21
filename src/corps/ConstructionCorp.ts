@@ -1100,7 +1100,14 @@ export class ConstructionCorp extends Corp {
         // 2026-07-20: "waiting-vision" stamped all day while the true state
         // was fully-placed-and-building - the remotes are mined, vision was
         // never the blocker; the ambiguity was).
-        gate(trunkGateFromSurvey(this.placeTrunkSites(entry.rooms, entry.tiles3)));
+        const survey = this.placeTrunkSites(entry.rooms, entry.tiles3);
+        // Survey receipt for the partial-pave repricing lens
+        // (detectPavedSources): verified built RATCHETS - a blind pass sees
+        // fewer tiles, not fewer roads, and counting down would flap the
+        // hauler body around the repricing threshold.
+        entry.built = Math.max(entry.built ?? 0, survey.built);
+        entry.total = survey.total;
+        gate(trunkGateFromSurvey(survey));
         return; // one project at a time
       }
 

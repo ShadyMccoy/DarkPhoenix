@@ -1,11 +1,14 @@
 import { expect } from "chai";
 import {
   declinedVerdictStands,
+  effectiveOneWayTiles,
   evaluateRoadRoute,
+  partialPaveRatio,
   pavedRouteCostPerTick,
   paveScore,
   loadedTicksPerTile,
   roundTripTicksForRoute,
+  PARTIAL_PAVE_REPRICE_FRACTION,
   REJUDGE_FLOW_FACTOR,
   ROAD_BUILD_COST,
   ROAD_DECAY_HITS,
@@ -273,4 +276,79 @@ describe("economy/roadEconomics - ticks not tiles (hauler travel time)", () => {
     });
   });
 
+});
+
+/**
+ * Partial-pave repricing (owner 2026-07-20: "even if the road is 32 out of 38
+ * we could probably still optimize the body parts somewhat"). From the
+ * ratio-optimality model above, total standing parts for flow F over one-way
+ * d with fraction p of the route paved:
+ *
+ *   parts(1:1) = 2   * F * (2d + 2) / 50            (full speed everywhere)
+ *   parts(2:1) = 1.5 * F * (d + d*(2 - p) + 2) / 50 (loaded leg crawls unpaved)
+ *
+ * Asymptotically (d >> 2) they tie at p = 1/3: 1.5*(3 - p) = 2*2 <=> p = 1/3.
+ * The repricing threshold is 1/2 - margin over breakeven, so a route flips
+ * bodies once, mid-build, and the win is real (~6% at exactly 1/2, growing to
+ * 25% at fully paved) rather than a coin toss against the model's +2 terms.
+ */
+describe("economy/roadEconomics - partial-pave repricing (32/38 is already a 2:1 route)", () => {
+  const partsPerFlow = (ratio: 1 | 2, d: number, p: number): number => {
+    const paved = d * p;
+    return ((1 + 1 / ratio) * roundTripTicksForRoute(paved, d - paved, 0, ratio)) / 50;
+  };
+
+  describe("partialPaveRatio", () => {
+    it("crossover proof: at 1/3 paved the bodies tie (asymptotically); above it 2:1 wins", () => {
+      const d = 1000; // long route: the +2 load ticks are noise
+      expect(partsPerFlow(2, d, 1 / 3) / partsPerFlow(1, d, 1 / 3)).to.be.closeTo(1, 0.01);
+      expect(partsPerFlow(2, d, 1 / 2)).to.be.lessThan(partsPerFlow(1, d, 1 / 2));
+      expect(partsPerFlow(2, d, 1 / 4)).to.be.greaterThan(partsPerFlow(1, d, 1 / 4));
+    });
+
+    it("the threshold sits between breakeven and certainty: 1/3 < 1/2 <= 1", () => {
+      expect(PARTIAL_PAVE_REPRICE_FRACTION).to.be.greaterThan(1 / 3);
+      expect(PARTIAL_PAVE_REPRICE_FRACTION).to.equal(1 / 2);
+    });
+
+    it("verdict flips to 2:1 at >= 1/2 built, stays 1:1 below", () => {
+      expect(partialPaveRatio(19, 38).ratio).to.equal("2:1");
+      expect(partialPaveRatio(19, 38).partsPerCarry).to.equal(1.5);
+      expect(partialPaveRatio(18, 38).ratio).to.equal("1:1");
+      expect(partialPaveRatio(18, 38).partsPerCarry).to.equal(2);
+    });
+
+    it("THE LIVE TRUNK: 32/38 built reprices at 2:1 today, not at the last tile", () => {
+      const v = partialPaveRatio(32, 38);
+      expect(v.ratio).to.equal("2:1");
+      expect(v.fraction).to.be.closeTo(32 / 38, 1e-9);
+    });
+
+    it("degenerate receipts never reprice (no total, zero total, overshoot clamps)", () => {
+      expect(partialPaveRatio(0, 0).ratio).to.equal("1:1");
+      expect(partialPaveRatio(5, 0).fraction).to.equal(0);
+      expect(partialPaveRatio(40, 38).fraction).to.equal(1); // stale over-count clamps
+    });
+  });
+
+  describe("effectiveOneWayTiles (CARRY sized in ticks, not tiles, over the mixed surface)", () => {
+    it("a 1:1 body is pave-invariant: effective distance IS the distance", () => {
+      expect(effectiveOneWayTiles(38, 0, 1)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 0.5, 1)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 1, 1)).to.equal(38);
+    });
+
+    it("2:1 endpoints: fully paved = real distance, fully unpaved = 1.5x (loaded half speed)", () => {
+      expect(effectiveOneWayTiles(38, 1, 2)).to.equal(38);
+      expect(effectiveOneWayTiles(38, 0, 2)).to.equal(57);
+    });
+
+    it("agrees with roundTripTicksForRoute on the live 32/38 split", () => {
+      // 32 road + 6 plain, 2:1: empty 38 + loaded (32 + 12) + 2 = 84 ticks.
+      // The effective one-way is the d that reproduces that trip: 2d + 2 = 84.
+      const dEff = effectiveOneWayTiles(38, 32 / 38, 2);
+      expect(2 * dEff + 2).to.be.closeTo(roundTripTicksForRoute(32, 6, 0, 2), 1e-9);
+      expect(dEff).to.equal(41);
+    });
+  });
 });

@@ -536,9 +536,9 @@ describe("economy/flowAdapter - feeder priced at realized draw (prod t72447444)"
   it("a starved-history solve frees the phantom feeder infra and the consumers GROW", async () => {
     const { buildColonyProblem, solveColony } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
-    const noHistory = buildColonyProblem(graph, manhattan, [], new Map(), new Set(), [bank(100)]);
+    const noHistory = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [bank(100)]);
     const starvedHistory = buildColonyProblem(
-      graph, manhattan, [], new Map(), new Set(), [bank(100)], undefined, undefined, 2
+      graph, manhattan, [], new Map(), new Map(), [bank(100)], undefined, undefined, 2
     );
     expect(starvedHistory.infraPartsPerTick!, "the relay re-prices to the floor, not the full surplus").to.be.lessThan(
       noHistory.infraPartsPerTick!
@@ -565,9 +565,47 @@ describe("economy/flowAdapter - paved-source detection", () => {
   it("marks sources paved from the receipt by GAME id (graph 'source-' prefix stripped)", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set(["s1"]));
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map([["s1", 1]]));
     expect(problem.sources.find(s => s.id === "source-s1")!.paved).to.equal(true);
+    expect(problem.sources.find(s => s.id === "source-s1")!.pavedFraction).to.equal(1);
     expect(problem.sources.find(s => s.id === "source-s2")!.paved).to.equal(undefined);
+  });
+
+  it("a HALF-BUILT trunk already reprices: fraction >= 1/2 stamps paved + pavedFraction", async () => {
+    // Owner 2026-07-20: "even if the road is 32 out of 38 we could probably
+    // still optimize the body parts" - the binary receipt made every future
+    // trunk wait for the last tile; the fraction collects from the 1/2 mark.
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map([["s1", 32 / 38], ["s2", 10 / 38]]));
+    const s1 = problem.sources.find(s => s.id === "source-s1")!;
+    expect(s1.paved).to.equal(true);
+    expect(s1.pavedFraction).to.be.closeTo(32 / 38, 1e-9);
+    // below the repricing threshold the 1:1 body stays - no stamp at all
+    const s2 = problem.sources.find(s => s.id === "source-s2")!;
+    expect(s2.paved).to.equal(undefined);
+    expect(s2.pavedFraction).to.equal(undefined);
+  });
+
+  it("detectPavedSources reads BOTH receipt shapes: binary paved -> 1, survey built/total -> fraction", async () => {
+    const { detectPavedSources } = await import("../../../src/economy/flowAdapter");
+    (g.Game as any).rooms = {
+      W1N1: {
+        memory: {
+          roadRoutes: {
+            a: { tiles: [], paved: true },
+            b: { tiles: [], built: 32, total: 38 },
+            c: { tiles: [], built: 0, total: 38 },
+            d: { tiles: [], declined: true }
+          }
+        }
+      }
+    };
+    const m = detectPavedSources();
+    expect(m.get("a")).to.equal(1);
+    expect(m.get("b")).to.be.closeTo(32 / 38, 1e-9);
+    expect(m.get("c")).to.equal(0);
+    expect(m.has("d"), "a declined route has no pave state").to.equal(false);
   });
 });
 
@@ -609,7 +647,7 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
     g.Game.getObjectById = (id: string) =>
       id === "founding" ? { structureType: "spawn" } : id === "ext" ? { structureType: "extension" } : null;
 
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     const founding = problem.sinks.find(k => k.id === "construction-founding")!;
     const ext = problem.sinks.find(k => k.id === "construction-ext")!;
     expect(founding.value).to.equal(NEW_SPAWN_SITE_VALUE);
@@ -626,7 +664,7 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
     const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
     g.Game.rooms = { [ROOM]: { controller: { progress: 44_550, progressTotal: 45_000 } } };
 
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     const ctrl = problem.sinks.find(k => k.kind === "controller")!;
     expect(ctrl.value).to.be.closeTo(controllerValue(450), 1e-9);
     expect(ctrl.value).to.be.greaterThan(70); // 99%-done level outprices construction
@@ -635,7 +673,7 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
   it("falls back to the kind default without vision of the controller", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     const graph = graphOf([homeNode(5), sourceNode("s1", 15)]);
-    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Set());
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map());
     expect(problem.sinks.find(k => k.kind === "controller")!.value).to.equal(50);
   });
 });

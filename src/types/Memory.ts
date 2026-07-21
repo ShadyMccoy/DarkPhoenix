@@ -395,6 +395,17 @@ declare global {
         /** Room-name table for tiles3 roomIdx values. */
         rooms?: string[];
         paved?: boolean;
+        /**
+         * Trunk build progress, survey-persisted each placement pass:
+         * verified built road tiles (RATCHETS up - a vision-lost pass never
+         * counts down, or the hauler body would flap around the repricing
+         * threshold) out of `total` route tiles. detectPavedSources reads
+         * built/total as the paved fraction; at >= 1/2 (roadEconomics.
+         * PARTIAL_PAVE_REPRICE_FRACTION) the source's haulers reprice to the
+         * 2:1 road body BEFORE the binary `paved` receipt lands.
+         */
+        built?: number;
+        total?: number;
         declined?: boolean;
         /** Flow (e/t) the declined verdict was judged at (absent on legacy entries). */
         judgedFlow?: number;

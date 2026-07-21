@@ -34,6 +34,7 @@ import {
   projectAbsorbRate
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
+import { partialPaveRatio } from "./roadEconomics";
 import {
   ColonyProblem,
   DEFAULT_SINK_VALUE,
@@ -346,18 +347,25 @@ export function storageRoomRemaining(roomName: string): number {
 }
 
 /**
- * Sources whose haul route ConstructionCorp has fully paved, by GAME id (the
- * `paved` receipt in room memory - see RoomMemory.roadRoutes). Graph source ids
- * carry a "source-" prefix, so callers match with stripFlowId. Live default for
- * buildColonyProblem; injectable for tests.
+ * Paved FRACTION of each source's haul route, by GAME id (the receipts in
+ * room memory - see RoomMemory.roadRoutes): the binary `paved` receipt reads
+ * as 1, an in-progress trunk's survey receipt as built/total (owner
+ * 2026-07-20: a 32/38 trunk already fields the 2:1 body - the repricing
+ * verdict is roadEconomics.partialPaveRatio, applied in buildColonyProblem).
+ * Graph source ids carry a "source-" prefix, so callers match with
+ * stripFlowId. Live default for buildColonyProblem; injectable for tests.
  */
-export function detectPavedSources(): Set<string> {
-  const paved = new Set<string>();
+export function detectPavedSources(): Map<string, number> {
+  const paved = new Map<string, number>();
   if (typeof Game === "undefined" || !Game.rooms) return paved;
   for (const roomName in Game.rooms) {
     const routes = Game.rooms[roomName].memory?.roadRoutes;
     for (const sourceId in routes ?? {}) {
-      if (routes![sourceId].paved) paved.add(sourceId);
+      const e = routes![sourceId];
+      if (e.paved) paved.set(sourceId, 1);
+      else if (!e.declined && e.total && e.built !== undefined) {
+        paved.set(sourceId, Math.min(1, e.built / e.total));
+      }
     }
   }
   return paved;
@@ -368,7 +376,7 @@ export function buildColonyProblem(
   dist: ColonyProblem["dist"] = pathDistance,
   transientSources: PlannerSource[] = detectTransientSources(),
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
-  pavedSources: Set<string> = detectPavedSources(),
+  pavedSources: Map<string, number> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
@@ -381,16 +389,23 @@ export function buildColonyProblem(
   // the tower absorbs the raid for the cost of its shots (~0).
   const spawnRooms = new Set(spawns.map(s => s.pos.roomName));
 
-  const sources: PlannerSource[] = graph.getSources().map(s => ({
-    id: s.id,
-    nodeId: s.nodeId,
-    pos: s.position,
-    rate: s.capacity,
-    maxMiners: s.maxMiners,
-    haulPos: linkHaulPos.get(s.id),
-    ...(pavedSources.has(s.id.replace("source-", "")) ? { paved: true } : {}),
-    ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
-  }));
+  const sources: PlannerSource[] = graph.getSources().map(s => {
+    // The mid-build repricing verdict (roadEconomics): a route >= 1/2 built
+    // already fields the 2:1 body; the fraction rides along so the planner
+    // sizes CARRY at the effective (crawl-corrected) distance.
+    const paveFrac = pavedSources.get(s.id.replace("source-", ""));
+    const pave = paveFrac === undefined ? undefined : partialPaveRatio(paveFrac, 1);
+    return {
+      id: s.id,
+      nodeId: s.nodeId,
+      pos: s.position,
+      rate: s.capacity,
+      maxMiners: s.maxMiners,
+      haulPos: linkHaulPos.get(s.id),
+      ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
+      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
+    };
+  });
   // Sustained income only: what mined sources yield per tick. Transient
   // stocks are real energy but ONE-OFF - sizing standing fleets or the
   // construction absorb rate to them publishes fantasy plans (measured on

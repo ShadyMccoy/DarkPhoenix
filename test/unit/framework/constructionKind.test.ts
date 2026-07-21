@@ -277,6 +277,37 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     expect(trunkGateFromSurvey({ placed: 0, built: 7, total: 9, blind: [] })).to.equal("trunk-building-7/9");
   });
 
+  it("persists the pass survey (built/total) onto the route entry - the partial-pave repricing receipt", () => {
+    // The binary paved receipt made every trunk wait for the LAST tile before
+    // its haulers repriced (owner 2026-07-20: "even if the road is 32 out of
+    // 38 we could probably still optimize"). The survey's verified built count
+    // now lands in room memory each pass, where detectPavedSources turns it
+    // into the fraction the planner reprices from.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.getObjectById = (() => ({ pos: { x: 25, y: 25, roomName: "W1N1" } })) as never;
+    corp.setRemoteTrunks([{ sourceId: "source-abc", pos: { x: 20, y: 20, roomName: "W2N1" }, flow: 10 }]);
+    // W1N1 visible: (5,5), (6,5) built roads, (7,5) empty; W2N1 blind.
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5", "6,5"])) } as never;
+    const routes: any = {
+      abc: { tiles: [], tiles3: [5, 5, 0, 6, 5, 0, 7, 5, 0, 10, 10, 1], rooms: ["W1N1", "W2N1"] }
+    };
+    const room: any = { name: "W1N1", memory: {}, find: () => [] };
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "verified built tiles persisted").to.equal(2);
+    expect(routes.abc.total, "route length persisted").to.equal(4);
+
+    // A vision-lost pass verifies fewer tiles, not fewer ROADS: the receipt
+    // RATCHETS (counting down would flap the hauler body around the 1/2
+    // threshold every time a remote goes dark).
+    Game.rooms = {} as never;
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "blind pass never regresses the count").to.equal(2);
+    expect(routes.abc.total).to.equal(4);
+  });
+
   it("never declares a trunk paved while any room is blind (unverifiable != built)", () => {
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
     (global as any).LOOK_STRUCTURES = "structure";

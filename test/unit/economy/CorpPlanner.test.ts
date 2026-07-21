@@ -17,6 +17,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "../../../src/economy/primitives";
+import { effectiveOneWayTiles } from "../../../src/economy/roadEconomics";
 import { Position } from "../../../src/types/Position";
 
 // 1-D world: everything in one room, distance = |dx| + |dy|, so we can place a
@@ -791,6 +792,40 @@ describe("Phase 2 - paved routes (roads)", () => {
     // 2:1 road hauler: 1.5 parts per CARRY instead of 2 - the spawn-budget payoff
     expect(pavedHauler.spawnParts).to.be.closeTo((1.5 * pavedHauler.carryParts) / (1500 - pavedHauler.distance), 1e-9);
     expect(plainHauler.spawnParts).to.be.closeTo((2 * plainHauler.carryParts) / (1500 - plainHauler.distance), 1e-9);
+  });
+
+  it("a PARTIALLY paved route sizes CARRY at the EFFECTIVE distance (owner: 32/38 still optimizes)", () => {
+    // The 2:1 body is already the winner at >= 1/2 built, but its loaded leg
+    // crawls the unpaved stretch - CARRY must cover the true round-trip TIME
+    // (ticks, not tiles) or the fleet is undersized until the last tile lands.
+    const fraction = 32 / 38;
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("a", 10), paved: true, pavedFraction: fraction }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    const h = plan.haulers.find(x => x.sourceId === "a")!;
+    expect(h.paved).to.equal(true);
+    const dEff = effectiveOneWayTiles(h.distance, fraction, 2);
+    expect(h.carryParts).to.be.closeTo(carryPartsFor(h.flowRate, dEff), 1e-9);
+    // the unpaved-stretch tax is real: more CARRY than the fully paved sizing...
+    expect(h.carryParts).to.be.greaterThan(carryPartsFor(h.flowRate, h.distance));
+    // ...priced at the road body's 1.5 parts per CARRY, life at the real walk
+    expect(h.spawnParts).to.be.closeTo((1.5 * h.carryParts) / (1500 - h.distance), 1e-9);
+  });
+
+  it("a fully paved receipt (no fraction - the legacy shape) sizes exactly as before", () => {
+    const plan = planColony(
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [{ ...source("a", 10), paved: true }],
+        sinks: [sink("ctrl", "controller", 0, 50, 100)]
+      })
+    );
+    const h = plan.haulers.find(x => x.sourceId === "a")!;
+    expect(h.carryParts).to.be.closeTo(carryPartsFor(h.flowRate, h.distance), 1e-9);
   });
 });
 

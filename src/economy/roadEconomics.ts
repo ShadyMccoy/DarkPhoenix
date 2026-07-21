@@ -128,6 +128,58 @@ export function roundTripTicksForRoute(
   return tiles + loadedBack + 2;
 }
 
+/**
+ * Paved fraction at which a route's haulers reprice to the 2:1 road body
+ * MID-BUILD (owner 2026-07-20: "even if the road is 32 out of 38 we could
+ * probably still optimize the body parts somewhat"). The exact breakeven is
+ * 1/3: total standing parts tie when 1.5*(d + d*(2-p)) = 2*2d <=> p = 1/3
+ * (empty legs are free at any ratio; only the loaded crawl differs). 1/2
+ * leaves margin over the model's +2 constants and rounding, so a trunk flips
+ * bodies once with a real win (~6% at the flip, 25% fully paved) instead of
+ * oscillating at the tie.
+ */
+export const PARTIAL_PAVE_REPRICE_FRACTION = 0.5;
+
+export interface PartialPaveVerdict {
+  /** Verified built/total, clamped to [0,1]; 0 when the total is unknown. */
+  fraction: number;
+  /** The winning hauler body at this fraction. */
+  ratio: "2:1" | "1:1";
+  /** Spawn build-parts per CARRY unit at that ratio (1.5 road, 2 plain). */
+  partsPerCarry: number;
+}
+
+/**
+ * The mid-build hauler-body verdict for a route with `builtTiles` of
+ * `totalTiles` verifiably paved (ConstructionCorp's survey receipt). Callers
+ * holding a bare fraction pass (fraction, 1).
+ */
+export function partialPaveRatio(builtTiles: number, totalTiles: number): PartialPaveVerdict {
+  const fraction = totalTiles > 0 ? Math.min(1, Math.max(0, builtTiles / totalTiles)) : 0;
+  const road = fraction >= PARTIAL_PAVE_REPRICE_FRACTION;
+  return {
+    fraction,
+    ratio: road ? "2:1" : "1:1",
+    partsPerCarry: road ? 1 + MOVE_PER_CARRY_ROAD : 1 + MOVE_PER_CARRY_PLAIN
+  };
+}
+
+/**
+ * The one-way distance that, fed to primitives.roundTripTicks/carryPartsFor,
+ * reproduces a partially-paved route's TRUE round-trip time for a body at
+ * `carryPerMove` CARRY:MOVE - so CARRY sizing covers the loaded crawl over
+ * the still-unpaved stretch (ticks, not tiles). Empty out is full speed on
+ * any surface; the loaded leg pays per-tile via loadedTicksPerTile (unpaved
+ * tiles modeled as plain - swamps are paved first / detoured by the planner).
+ * For a 1:1 body, or a 2:1 body on a fully paved route, this is the identity.
+ */
+export function effectiveOneWayTiles(oneWayTiles: number, pavedFraction: number, carryPerMove: number): number {
+  const paved = oneWayTiles * Math.min(1, Math.max(0, pavedFraction));
+  const unpaved = oneWayTiles - paved;
+  const loadedBack = paved * loadedTicksPerTile(1, carryPerMove) + unpaved * loadedTicksPerTile(2, carryPerMove);
+  return (oneWayTiles + loadedBack) / 2;
+}
+
 
 /** A haul route as the road planner sees it. */
 export interface RoadRouteSpec {
