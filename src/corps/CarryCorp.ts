@@ -12,6 +12,7 @@ import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePicku
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
+import { detectTrunkBuildingSources } from "../economy/flowAdapter";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
@@ -1346,6 +1347,13 @@ export class CarryCorp extends Corp {
    * so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
+    // TRUNK-BUILDING source (owner 2026-07-21: "disable hauling anything home
+    // until the road is finished"): the same receipts the planner reads
+    // (detectTrunkBuildingSources) stand the fleet down kind-side too - no
+    // pickups, no new hauler bodies - so the source's whole output feeds the
+    // Z-to-A road crew. Flips off the moment the paved receipt lands.
+    const mine = this.mySourceId();
+    if (mine && detectTrunkBuildingSources().has(mine)) return true;
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
     if (!dedicated || this.mySourceId() !== dedicated) return false;

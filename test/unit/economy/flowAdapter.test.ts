@@ -689,3 +689,47 @@ describe("economy/flowAdapter - per-instance sink values (spec 06 expansion)", (
     expect(problem.sinks.find(k => k.kind === "controller")!.value).to.equal(50);
   });
 });
+
+describe("trunk-building sources (owner 2026-07-21: no hauling home until the road is done)", () => {
+  const g = globalThis as unknown as { Game?: any };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  it("detectTrunkBuildingSources: in-progress trunks only (not paved, not declined, not fresh in-room)", async () => {
+    const { detectTrunkBuildingSources } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = {
+      W1N1: {
+        memory: {
+          roadRoutes: {
+            a: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] }, // in progress
+            b: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true }, // done
+            c: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], declined: true }, // not worth it
+            d: { tiles: [1, 1] } // in-room legacy route, no trunk
+          }
+        }
+      }
+    };
+    const set = detectTrunkBuildingSources();
+    expect([...set]).to.deep.equal(["a"]);
+  });
+
+  it("a dedicated source keeps its MINER but ships NOTHING home (the pile is the road's fuel)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(
+      graph, manhattan, [], new Map(), new Map(), [], 0, undefined, undefined, new Set(["s1"])
+    );
+    expect(problem.sources.find(s => s.id === "source-s1")!.dedicatedToBuild).to.equal(true);
+    const plan = planColony(problem);
+    expect(plan.miners.some(m => m.sourceId === "source-s1"), "the miner stands - the pile feeds the crew").to.equal(true);
+    expect(plan.haulers.some(h => h.sourceId === "source-s1"), "no haul route home while the trunk builds").to.equal(false);
+    expect(plan.haulers.some(h => h.sourceId === "source-s2"), "other sources haul normally").to.equal(true);
+  });
+});

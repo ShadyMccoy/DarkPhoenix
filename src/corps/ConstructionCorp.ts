@@ -2233,7 +2233,16 @@ export class ConstructionCorp extends Corp {
     // while that project stands and eats the pile as it builds. No tankers.
     if (this.isRemoteWorkRoom(workRoom)) {
       const plan = this.repairerPlan(ctx, workRoom);
-      if (this.remoteContainerProject(workRoom)) plan.target += 1;
+      // The local project lens: the pile-funded container, OR the trunk's
+      // ROAD sites through this room (owner 2026-07-21: "feed the Z-to-A
+      // remote builder from the source" - with hauling stood down while the
+      // trunk builds, the source's whole 10 e/t feeds this crew; one 2-WORK
+      // body burns exactly that). work()'s remote rung already builds any
+      // site handed to it - the gate was the only gap.
+      const roadSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES, {
+        filter: s => s.structureType === STRUCTURE_ROAD
+      }).length;
+      if (this.remoteContainerProject(workRoom) || roadSites > 0) plan.target += 1;
       return this.builders.spawnDemand(plan);
     }
 

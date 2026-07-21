@@ -92,6 +92,16 @@ export interface PlannerSource {
    */
   pavedFraction?: number;
   /**
+   * The source's trunk road is IN PROGRESS (owner 2026-07-21: "feed the
+   * Z-to-A remote builder from the source, and disable hauling anything home
+   * until the road is finished"). The MINER stays funded - the pile is the
+   * road's fuel - but the fill routes none of this source's output home
+   * (pool rate 0), so no haul bodies are planned or spawned; CarryCorp's
+   * yieldsToBuild reads the same receipts for the standing fleet. Hauling
+   * resumes at the 2:1 road rate when the paved receipt lands.
+   */
+  dedicatedToBuild?: boolean;
+  /**
    * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
    * spawn instead of the nearest-spawn default - the v0 restructuring
    * operator (a source the nearest spawn's budget dropped can be worked by
@@ -455,8 +465,12 @@ function routeToSinks(
   const nearestSpawnDist = (pos: Position): number =>
     problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
-  // Remaining gross energy each supply point can still ship.
-  const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
+  // Remaining gross energy each supply point can still ship. A source
+  // dedicated to its own trunk build ships NOTHING home - its miner stands,
+  // its output builds the road at the source end (owner 2026-07-21).
+  const pool = new Map<string, number>(
+    supply.map(s => [s.sourceId, sourceById.get(s.sourceId)?.dedicatedToBuild ? 0 : s.rate])
+  );
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];

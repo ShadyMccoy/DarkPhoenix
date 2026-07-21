@@ -371,6 +371,30 @@ export function detectPavedSources(): Map<string, number> {
   return paved;
 }
 
+/**
+ * Sources whose trunk road is IN PROGRESS (owner 2026-07-21: "feed the Z-to-A
+ * remote builder from the source, and disable hauling anything home until the
+ * road is finished"): tiles3 planned, not yet paved, not declined. While in
+ * this set the source keeps its MINER (the pile is the road's fuel) but the
+ * plan routes none of its output home and CarryCorp fields no haulers for it
+ * (yieldsToBuild) - the whole 10 e/t builds the trunk from the source end,
+ * and hauling resumes at the 2:1 road rate the moment the paved receipt
+ * lands. Same receipts detectPavedSources reads; game ids (callers strip
+ * "source-").
+ */
+export function detectTrunkBuildingSources(): Set<string> {
+  const building = new Set<string>();
+  if (typeof Game === "undefined" || !Game.rooms) return building;
+  for (const roomName in Game.rooms) {
+    const routes = Game.rooms[roomName].memory?.roadRoutes;
+    for (const sourceId in routes ?? {}) {
+      const e = routes![sourceId];
+      if (e.tiles3 && !e.paved && !e.declined) building.add(sourceId);
+    }
+  }
+  return building;
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -380,7 +404,8 @@ export function buildColonyProblem(
   bankSources: PlannerSource[] = detectBankSources(),
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
-  prevBankDraw?: number
+  prevBankDraw?: number,
+  trunkBuildingSources: Set<string> = detectTrunkBuildingSources()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -403,6 +428,7 @@ export function buildColonyProblem(
       maxMiners: s.maxMiners,
       haulPos: linkHaulPos.get(s.id),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
+      ...(trunkBuildingSources.has(s.id.replace("source-", "")) ? { dedicatedToBuild: true } : {}),
       ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
     };
   });
@@ -420,6 +446,7 @@ export function buildColonyProblem(
   // sized post-solve either way).
   const minedSupply = sources
     .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"))
+    .filter(s => !s.dedicatedToBuild) // its 10 e/t builds the trunk at-site, not the home economy
     .reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging), and so
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest

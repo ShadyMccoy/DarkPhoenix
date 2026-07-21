@@ -277,3 +277,58 @@ describe("pool tankers (the carrier detail follows the build crew)", () => {
     expect(n, "sized for ~one room of shuttle, not absurd").to.be.at.most(12);
   });
 });
+
+/**
+ * Trunk-building sources stand their haulers down (owner 2026-07-21: "feed
+ * the Z-to-A remote builder from the source, and disable hauling anything
+ * home until the road is finished"). Same receipts the planner reads
+ * (detectTrunkBuildingSources) - kind-side: no pickups, no new hauler
+ * bodies; and the remote crew gate now counts ROAD sites so the Z-to-A
+ * builder stands while the trunk builds.
+ */
+describe("Z-to-A trunk dedication (no hauling home until the road is done)", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetGovernor();
+    (global as any).FIND_MY_CONSTRUCTION_SITES = FIND_MY_CONSTRUCTION_SITES;
+    (global as any).RESOURCE_ENERGY = "energy";
+    Game.creeps = {};
+    Game.rooms = {};
+    Game.getObjectById = (() => null) as never;
+  });
+
+  function stageTrunk(entry: any): void {
+    Game.rooms = { W1N1: { name: "W1N1", find: () => [], memory: { roadRoutes: { abc: entry } } } } as any;
+  }
+
+  it("a hauler whose source's trunk is IN PROGRESS yields (no pickups, no new bodies)", () => {
+    const { CarryCorp } = require("../../../src/corps/CarryCorp");
+    const corp = new CarryCorp("W2N1-hauling-cabc", "spawn1");
+    corp.setHaulerAssignments([{ fromId: "source-abc", toId: "storage-x", edgeId: "e", distance: 30, carryParts: 10, flowRate: 10, spawnCostPerTick: 1, spawnId: "spawn1" } as any]);
+    stageTrunk({ tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] });
+    expect((corp as any).yieldsToBuild(), "trunk building -> stand down").to.equal(true);
+    stageTrunk({ tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true });
+    expect((corp as any).yieldsToBuild(), "paved receipt -> hauling resumes").to.equal(false);
+  });
+
+  it("the remote Z-to-A crew stands while ROAD sites remain (not just the container)", () => {
+    const roadSite = { structureType: "road", pos: { x: 30, y: 30, roomName: "W2N1" } };
+    const room: any = {
+      name: "W2N1",
+      memory: {},
+      storage: undefined,
+      controller: { my: false, pos: { x: 5, y: 5, roomName: "W2N1" } },
+      getTerrain: () => ({ get: () => 0 }),
+      find: (t: number, o?: any) => {
+        const all = t === FIND_MY_CONSTRUCTION_SITES ? [roadSite] : [];
+        return o?.filter ? all.filter(o.filter) : all;
+      }
+    };
+    Game.rooms = { W2N1: room } as any;
+    Game.getObjectById = (() => ({ pos: new (global as any).RoomPosition(25, 25, "W1N1"), room: { name: "W1N1" } })) as never;
+    const corp = new ConstructionCorp("W2N1-construction", "spawn1");
+    const demands = corp.getSpawnDemand({ energyCapacity: 550 } as any);
+    expect(demands.length, "one local builder for the road sites").to.equal(1);
+    expect(demands[0].role).to.equal("builder");
+  });
+});
