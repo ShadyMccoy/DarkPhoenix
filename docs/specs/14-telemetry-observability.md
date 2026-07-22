@@ -168,6 +168,31 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +381t) — X1 CLOSED: workUtil 1.00; cee0 45/50 at 2:1; the cleanest board of the session
+
+Capture t72489965 (pre-3-small baseline; that deploy landed seconds
+before capture, trio green). The board:
+
+- X1: 0 - workUtil 1.00, dry 0.00 over 308t, 40 WORK standing. The
+  upgrader saw that opened with the feeder outage is CLOSED; consumers
+  resized and burn every delivered unit.
+- X3: 0 untracked (23/23) - first fully-tracked census on record.
+  E2: 2 parts. E5: 0. P1: stable. P9: 1.0x.
+- cee0: 45/50 - the four standing sites BUILT (41 -> 45), and the
+  route already repriced to 2:1 at paved fraction 0.9. The empty sink
+  set this capture is LEDGER TRUTH, not the flap: zero sites stand;
+  the last 5 tiles await a placement pass with sight. Prediction:
+  next capture shows 50/50 + paved:true (the emergent completion
+  transition), or the 5 sites placed and admitted via ledger.
+- E4: -13.75/t, 146k above target and falling. P7 1.59x (33 e/t).
+- Tenders 45p (2-fleet era); the 3-SMALL SPLIT deployed with this
+  cycle - staffing 3 x ~16-carry, duty ~0.10-0.12, S3/E5 0 predicted
+  for next capture.
+
+Cycle verdict: VERIFIED (ledger-era steady state; the day's leak
+arcs - dark dedication, feeder outage, trunk deadlock, consumer saw -
+all measure closed or closing).
+
 ### 2026-07-22 (owner-directed) — FLEET OF 3 SMALL: same parts, more coverage points (equal-share slot bodies)
 
 Owner, on the cap-2 ratchet vs the legacy scattered layout: "it's
