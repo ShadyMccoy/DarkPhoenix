@@ -233,6 +233,30 @@ Predictions for post-deploy verification (~200+ ticks):
 4. No hauling regression (P9 stays 1.0x; the tankers still draw from
    the surplus bank, not source containers).
 
+**VERIFIED t72504737 (591t post-deploy window): all four landed.**
+(1) THREE tankers (72503310/72504052/72504490, all with real cargo
+282/734/749) physically in W43N24 clustered at (36-37,31-32) beside
+the two pool builders working the container - the exact cross-room
+delivery that was impossible before. (2) cd8d built 51 -> 52 AND
+paved:true; remoteSites W43N24 3 -> 1 (the two road sites completed,
+container remains). (3) **P8 FAIL -> ok, 0.51 e/t built** (the
+container advanced 770 -> 2966 / 5000, ~3.7 e/t on that site alone).
+(4) P9 1.0x (70/70 routed), E4 draining -47.8/t (bank 168k -> 140k),
+no runts, X1 clean. The colony immediately placed the NEXT trunk
+(W42N23, ~36 fresh road sites at 0/300) - the pipeline that was
+frozen two generations is moving again.
+
+Cycle verdict: FIXED and VERIFIED (mechanism proven from three live
+instruments, red-first tested, all predictions confirmed in prod).
+The remote-aware P8 shipped last cycle paid for itself immediately -
+it was the top line that named a stall the home-only meter had hidden
+for two trunk generations.
+
+Grid attribution: plan-t5-remote-pipeline stays [T] pre/post (its
+failing assertions are reserver-dispatch + container-site placement,
+upstream of tanker delivery) - baseline-red for its own reasons, not
+moved by this fix.
+
 ### 2026-07-22 t72503018 (scheduled cycle) — the "ramp" was a STALL: scaling upgraders can't fund; holdToFund honored for consumers
 
 The two prior cycles filed P7 under "ramp mid-flight; watch upgraders
