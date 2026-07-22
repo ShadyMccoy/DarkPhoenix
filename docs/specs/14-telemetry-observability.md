@@ -168,6 +168,34 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +172t) — TRUNK UNSTUCK FOR REAL: blind cleared, 41/50 and climbing; ledger admission live; ratchet stands
+
+Capture t72489584. The day's three fixes verify together:
+
+- DEADLOCK FIX (march half): VERIFIED. trunk-blind-W43N22 is GONE -
+  the stamp reads trunk-building-41/50 with the W43N22 sites
+  enumerated (sighted). cee0 36 -> 41/50 in 172t after ~2600t frozen.
+  Rate projects completion within ~2 windows; then the paved receipt
+  and 2:1 repricing land by the ordinary path.
+- PROJECT LEDGER: 10 construction sinks admitted (the cluster edges
+  restored, P2 lists them) on the FIRST post-deploy solve window;
+  final stability check = they persist next capture.
+- TENDER RATCHET: duty 0.16 @ 653 meter-ticks, staffed 2/2, E5 0,
+  S3 0, util 0.79 (the wave is OVER - first sub-0.95 window all day).
+  endFill 0.638/finishes 3: the criterion as written broke - the
+  queue is buying 2300-cost bodies (= the room's whole capacity), so
+  every finish lands mid-recovery from a designed full drain. endFill
+  was a proxy for refill collisions at normal body costs; the real
+  harm signals (energy-blocked starts, runts) are both zero. RULING:
+  cap stays; the revert criterion is replaced by the direct signals -
+  any S3 energy-blocked start or E5 runt attributable to refill
+  reverts the cap. Reserver-charge watch item CLOSED (reset artifact;
+  the line returned).
+
+Remaining board: X1 0.73 over a 2983t window still spanning the
+outage (20 WORK standing, resize ongoing); E4 draining -10.8/t.
+Cycle verdict: VERIFIED x3.
+
 ### 2026-07-22 (cron cycle, +334t) — LEDGER BUILD DEPLOYED (trio green); first trunk progress in 2600t; endFill unadjudicable this window
 
 Capture t72489412 (seconds after the project-ledger deploy - this
