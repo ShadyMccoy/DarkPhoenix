@@ -168,6 +168,51 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72508624 (scheduled cycle) — the P4 FAIL was the LEDGER, not the plan: drift eliminated at the root (owner directive)
+
+Cycle opened on P4 1.01x FAIL (spawn-infeasible) with the colony
+otherwise HEALTHY: P7 1.11x (delivery ABOVE plan - the upgrader fleet
+finally ramped, 3 creeps / 60 WORK), E4 draining, X1 recovered, P2
+3/10 (A/Z holding). A FAIL with a healthy colony is a ledger-accuracy
+smell.
+
+Root cause (read, not inferred): the waste ledger's P4 RE-DERIVED
+hauler spawn-load as `2*carryParts/effectiveLife` - a second copy of
+the planner's `((paved?1.5:2)*carryPartsFor(take,dEff))/effectiveLife`.
+The 2x hardcoded the UNPAVED (1:1) body for EVERY route, so this
+paved-remote colony (7 trunks, all 2:1 bodies measured in seg 4)
+over-counted its hauler load: 0.144 parts/t where the paved-aware
+number is 0.111. That 0.033 over-count IS the 1.01x-vs-0.90x gap. The
+plan was never infeasible (spawn util 0.91); the LEDGER was wrong.
+
+Fix (owner directive: "eliminate the ledger vs planner drift at the
+root by having them share the same code"): don't re-derive - ECHO the
+planner's own number. CorpPlanner already computes spawnParts per
+CommissionedHauler; threaded it through HaulerAssignment (flowAdapter +
+haulerAssignmentFromCommissioned both set it, solver-bridge pin) and
+exported on segment 6 (v8). waste-ledger P4 now reads h.spawnParts;
+legacy captures without it fall back to the 2x recompute. Pinned with
+a sentinel-echo test (only an echo, never a recompute, yields the
+sentinel). This is decision symmetry made structural - the ledger can
+no longer drift because it reads the planner's output, not a copy of
+its formula.
+
+Shipped WITH the origin/master merge (5 commits: builders latch-sweep
+#125, empirical road-scoring #120, tower peace-time repair #122, tower
+focus-fire #119, docs #123). Full gate green on the merged build (unit
+1332, flow-handoff + runt-economy + storage-depot).
+
+VERIFIED t72508624 (post-deploy): segment 6 v8 exports spawnParts on
+10/10 haulers; P4 1.01x FAIL -> 0.90x WARN (feasible); NO FAIL lines;
+no regression from master's changes (P7 0.92x, P2 2/10, P9 1.0x, E4
+draining). The false infeasibility is retired.
+
+Cycle verdict: FIXED (ledger-accuracy leak eliminated at the root;
+verified live). The colony's actual progress is healthy - this cycle
+corrected the INSTRUMENT that was crying wolf, which is itself waste
+elimination (a false FAIL costs a cycle chasing a phantom every time
+it fires).
+
 ### 2026-07-22 t72505602 (scheduled cycle) — DIAGNOSIS: top-line WARNs are a road-build spike; the upgrader "ramp" was preempted by construction (prior verification was premature)
 
 No FAIL lines. Three WARNs (P4 0.90x, E4 127k draining, P2 34/44
