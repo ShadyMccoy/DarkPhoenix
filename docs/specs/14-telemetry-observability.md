@@ -168,6 +168,39 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +392t) — THE CLUSTER IS LIVE (remote end); X1 names a feeder gap; tender ratchet ships
+
+Capture t72488716. SPEC 25 WORKS END-TO-END LIVE for the first time:
+15 construction sinks in the plan and cee0's output routed to its road
+sites (the P2 "micro-route" explosion is the cluster's per-site edges,
+0.4-3.4 carry each - plan-side pro-rata, not fielded runts; E5 0).
+The unlock came from the REMOTE end, not the home crew: W42N22's
+pile-funded local builder fielded (2W1C1M standing) and provided the
+vision that admitted the sites. The home pool crew is still QUEUED
+behind the hauler re-field wave (trunk-blind-W43N22 persists,
+bodyParts 0) - within the deadlock fix's predicted 2-window allowance;
+next capture decides it.
+
+X1 FAIL (top line): workUtil 0.69, dry 0.32, delivery 61 -> 39 e/t.
+Cause read from the stamp, not inferred: the controller feeder DIED
+and has not re-fielded - gate "demand", wantedFeeders 1, feeders 0,
+feederActive false at 180k storage. Queue congestion class (util 0.97,
+head AFFORDABLE+IDLE churn); ONE capture observed - the two-capture
+rule holds escalation until next window. Predicted self-heal: the
+re-field wave is draining (E5 0 runts now, transient haulers 13p) and
+the TENDER RATCHET deploying this cycle frees ~24 parts of exactly
+this queue pressure. If feeders is still 0 next capture, the feeder's
+queue priority becomes the work item.
+
+Also: E2 back to 40 parts (cluster plan-shape re-strand, defund-not-
+revoke aging); P4 0.98 -> 0.94 (plan upgrader WORK shrank); W43N24
+reservation recovered (bank 410); W42N22 bank 14 - reserver next.
+
+Shipped this cycle after its own build+trio: tender fleet cap 3 -> 2 +
+TENDER_FLEET_PARTS 72 -> 48 + transfer-duty meter (owner ratchet).
+Predictions: tender duty ~0.10 -> ~0.15+, endFill holds >= 0.9, ~24
+parts freed, no S3/E5 regressions; revert on breach.
+
 ### 2026-07-22 (cron cycle, +902t) — STRANDED-TRUNK DEADLOCK: buildPool was a vision lens; receipts now charge blind rooms
 
 Capture t72488324. Deploy verification holds a second window: P9 1.0x
