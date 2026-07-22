@@ -168,6 +168,71 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72504146 (scheduled cycle) — P8 named the trunk stall; the pool's fuel never crossed rooms: tanker delivery was same-room-blind
+
+First cycle with the remote-aware P8 (previous cycle's instrument):
+TOP LINE P8 FAIL - remote 3->3 sites, progress 0, receipts frozen
+51/53, plan alloc 20 e/t, "CREW IDLE". The cd8d trunk's last 2 tiles
+(W43N24:36,28 + 36,29, sites STANDING) have been frozen 3,300+ ticks;
+the 07-21 handoff shows the same 2-tiles-short freeze on cd8e a day
+earlier. Elsewhere the previous fix holds: P7 1.24x (57.0 e/t actual),
+E4 -36.6/t and draining, upgrader ramp continuing.
+
+Diagnosis (live reads, three instruments deep):
+- Room objects API (ground truth): the 3 sites are PARTIALLY built -
+  36,29 at 134/300, container 37,38 at 770/5000. Someone built ~13
+  fed-ticks' worth, once. The W43N24 rung builder (4-part, pile-fed)
+  works its container at ~10 e/t; the trunk tiles sit mid-route,
+  outside pile reach - they are the POOL crew's job by design
+  (t72473701 ruling: pool tankers ferry bank energy to them).
+- Live creep positions: the ENTIRE pool convoy (3 tankers, ~800
+  energy each, `working:true`) parked/converging in the HOME room.
+- Creep memory (the decisive stamp): all three tankers' _move.dest =
+  the wander position of the home corp's ONE builder - which is
+  `repairDetail: true`. The colony's only other 4-part builder
+  (W44N23's) is ALSO a repair detail. ZERO non-detail builders stood
+  anywhere; the fielded pool builder generation that produced 134/300
+  died dry at the site.
+
+Mechanism: runTanker's delivery pick was
+`creep.pos.findClosestByRange(builders)` - a SAME-ROOM-ONLY operation.
+The t72473701 fix made the tanker DEMAND gate pool-aware and its
+comment claimed "runTanker already shuttles cross-room ... only the
+gate was home-only" - false for the delivery half. A pool builder in
+the head room was invisible to the pick, so tankers delivered to (and
+staged on) the only same-room member: the self-fueling repair detail.
+The pool builder burns its own 50 carry at the trunk, stands dry,
+ages out; the next builder purchase becomes the detail's replacement;
+repeat. Two trunks froze 2-tiles-short this way.
+
+Fix (live-behavior, red-first: test/unit/corps/poolTankerDelivery
+.test.ts, 5 pins): tanker delivery and staging target the POOL CREW
+only (repairDetail excluded - it self-fuels by design); nearest
+same-room crew wins as before, and with NO local crew the tanker
+marches at the cross-room builder (moveTo paths between rooms;
+transfer connects on arrival).
+
+Side findings (named, not fixed - one mechanism per cycle):
+- cd8e receipt `paved:true` at built 36/38: suspect the line-1352
+  paved stamp reads roadTilesBuilt(room, entry.tiles) - a single-room
+  tile lens - while built/total count the cross-room tiles3. A route
+  marked paved early loses its blind-receipt backstop. HYPOTHESIS -
+  falsify next cycle by diffing entry.tiles vs tiles3 room sets.
+- W44N23 rung: placeAttempt container@33,29 -> placeResult -7
+  (ERR_INVALID_TARGET) repeating across captures. Its builder
+  purchases turn out to be the legitimate repair detail, but the
+  placement retry loop wants a look once the trunk moves.
+
+Predictions for post-deploy verification (~200+ ticks):
+1. Tankers' _move.dest switches to W43N24 (the pool builder / trunk
+   tiles) within one demand cycle of a pool builder fielding.
+2. roadReceipts cd8d built 51 -> 53 and the two road sites complete;
+   remoteSites count drops as the container follows.
+3. P8 flips FAIL -> ok (progress > 0 via receipts delta) once a pool
+   builder + fed tanker overlap a window.
+4. No hauling regression (P9 stays 1.0x; the tankers still draw from
+   the surplus bank, not source containers).
+
 ### 2026-07-22 t72503018 (scheduled cycle) — the "ramp" was a STALL: scaling upgraders can't fund; holdToFund honored for consumers
 
 The two prior cycles filed P7 under "ramp mid-flight; watch upgraders
