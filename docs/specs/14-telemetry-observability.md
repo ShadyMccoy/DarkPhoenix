@@ -168,6 +168,36 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72492179 (scheduled cycle) — ALL GREEN: bank slope flipped NEGATIVE, ramp confirmed mid-flight, every bundle prediction now stamped
+
+No FAIL lines. The re-field-ramp thesis from last cycle is confirmed
+by every instrument:
+
+- E4 downgraded FAIL->WARN, slope +14.94 -> **-6.93/t** (bank 180,431
+  and draining). The consumer machinery is winning; at the current
+  38/55 standing WORK the drain accelerates as the fleet tops out
+  (targetCount 6, 2 standing, allocated 110.4).
+- P7 0.54 -> 0.77 (17.7 vs 23 e/t), X1 workUtil 0.958 on 38 standing
+  WORK (dry 0.042) - upgraders busy, supply line keeping up.
+- Feeder stamp back and exactly as designed: linkFed, relay 110,
+  standingWork 38 -> bodyRate 57 -> **neededCarry 3** (the parked
+  model live); gate staffed on the 4-part body.
+- Tenders 2/3 (third queued at gate demand), duty 0.126 - in the
+  measured band. Spawn endFill **0.727** (incident: 0.41), util 0.86,
+  queue 8.
+- Reservers RETURNED to the plan (12p claim-life; P5 ok at 0.50 duty,
+  gate reading reservation banks - last cycle's "dropped" line was
+  plan-tick timing, not a regression). P8 +14,400e of remote road
+  receipts in 931t (~48 tiles paved this window). P9 routes 70/70.
+- The E2 strands from the incident era (hauler-g-4-37 among them) are
+  GONE - EOL recycle/expiry cleaned them; one 6p strand remains
+  (W42N22). cbd5 funded and routed throughout the crippled-invader
+  window - no death-gap materialized; the invader TTL'd out.
+
+Cycle verdict: VERIFIED, no change shipped (observe cycle). Watch
+next: fleet 3-6 of the upgrader ramp standing, E4 drain rate rising
+toward the ~100 e/t burn the valve allows, the third tender fielding.
+
 ### 2026-07-22 t72491248 (scheduled cycle) — VERIFIED: tender incident closed, feeder 4 parts, fan-fill retired live; E4 = consumer re-field ramp
 
 Verification capture 923t after the incident baseline (both bundles
