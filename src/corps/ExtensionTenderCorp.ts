@@ -28,6 +28,11 @@ import { staffsPost } from "../economy/primitives";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
   spawnId: string;
+  /** Transfer-duty meter (survives resets - a global reset mid-window
+   * must not read as a duty collapse). */
+  dutyTransfers?: number;
+  dutyAlive?: number;
+  dutySince?: number;
 }
 
 /** A spawn or extension the tender keeps topped up. */
@@ -64,6 +69,16 @@ export function tenderSlotCarry(
 
 export class ExtensionTenderCorp extends Corp {
   private spawnId: string;
+
+  /** TRANSFER-DUTY METER (owner 2026-07-22: "the tender truth is somewhere
+   * between our current actual and the simulated ideal - we can ratchet
+   * that up a bit"): transfer intents per alive tender tick over a rolling
+   * window, stamped into lastSizing so captures verify each fleet ratchet
+   * against measured duty (sim reference: one saturated tender runs ~0.30;
+   * a fleet at ~0.10 each is 3x over-provisioned). */
+  private dutyTransfers = 0;
+  private dutyAlive = 0;
+  private dutySince = 0;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, customId);
@@ -158,6 +173,16 @@ export class ExtensionTenderCorp extends Corp {
 
     const depot = coreDepot(room);
     const tenders = this.getTenders();
+
+    // Duty-meter window: one creep generation, then restart (same cadence
+    // as the upgrade meter - long enough to smooth bursts, short enough
+    // that a fleet change shows within two captures).
+    if (tick - this.dutySince >= 1500) {
+      this.dutyTransfers = 0;
+      this.dutyAlive = 0;
+      this.dutySince = tick;
+    }
+    this.dutyAlive += tenders.length;
 
     // Signal the haulers: while a depot exists AND a tender is alive to drain it,
     // haulers run the dumb source->depot bus instead of fanning across extensions.
@@ -299,6 +324,7 @@ export class ExtensionTenderCorp extends Corp {
       const adjacent = adjacentPool.find(t => creep.pos.isNearTo(t.pos));
       if (adjacent) {
         creep.transfer(adjacent, RESOURCE_ENERGY);
+        this.dutyTransfers += 1;
         this.recordProduction(
           Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY))
         );
@@ -436,7 +462,13 @@ export class ExtensionTenderCorp extends Corp {
     const clusters = extensionClusters(room);
     const bankCapacity = 300 + 50 * extensions.length;
     const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
-    const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    // FLEET CAP 2 (owner ratchet 2026-07-22): the per-cluster term encoded
+    // RCL2-3 physics (400-carry tenders losing 650-drain deadlines); at
+    // RCL6 the coverage math itself says 2 (2300 bank / 1150 per load), and
+    // the refill sim holds ONE saturated tender at util 1.000 on every
+    // layout. Duty meter + endFill verify the cut; a breach reverts it.
+    const target = Math.min(2, Math.max(1, clusters.length, forCoverage));
+    const duty = this.dutyAlive > 0 ? this.dutyTransfers / this.dutyAlive : null;
     this.lastSizing = {
       tick: ctx.tick,
       gate: staffing >= target ? "staffed" : "demand",
@@ -444,7 +476,8 @@ export class ExtensionTenderCorp extends Corp {
       hasMiner,
       clusters: clusters.length,
       staffing,
-      target
+      target,
+      ...(duty !== null ? { duty: Math.round(duty * 1000) / 1000, meterTicks: ctx.tick - this.dutySince } : {})
     };
     if (staffing >= target) return [];
 
@@ -478,11 +511,20 @@ export class ExtensionTenderCorp extends Corp {
   }
 
   public serialize(): SerializedExtensionTenderCorp {
-    return { ...super.serialize(), spawnId: this.spawnId };
+    return {
+      ...super.serialize(),
+      spawnId: this.spawnId,
+      dutyTransfers: this.dutyTransfers,
+      dutyAlive: this.dutyAlive,
+      dutySince: this.dutySince
+    };
   }
 
   public deserialize(data: SerializedExtensionTenderCorp): void {
     super.deserialize(data);
     this.spawnId = data.spawnId ?? this.spawnId;
+    this.dutyTransfers = data.dutyTransfers ?? 0;
+    this.dutyAlive = data.dutyAlive ?? 0;
+    this.dutySince = data.dutySince ?? 0;
   }
 }

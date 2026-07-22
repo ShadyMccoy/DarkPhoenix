@@ -230,7 +230,9 @@ export function infraSpawnLoad(
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
-  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body, per depot room
+  // 2 tankers x measured 24-part body, per depot room (owner ratchet
+  // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
+  const TENDER_FLEET_PARTS = 48;
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
   const CLAIM_LIFETIME = 600;
