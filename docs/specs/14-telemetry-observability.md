@@ -3200,7 +3200,69 @@ verified) + attribution measured + repro filed (#30).
 
 ---
 
-**SESSION HANDOFF 2026-07-21 (merge point; next session starts here).**
+**SESSION HANDOFF 2026-07-22 (end of day; next session starts here).**
+
+DEPLOYED BUILD = commit 35785ba's bundle = branch HEAD. Everything below
+is live and verified (t72500407): the day ended all-green after a full
+collapse-and-recovery arc.
+
+LIVE STATUS (t72500407): fleet 33 creeps (post-incident re-field
+complete); tender 3/3 staffed, duty 0.186; feeder active (4-16p parked
+body vs 22p two days ago); endFill 0.444 and climbing; storage ~195k
+DRAINING (-14.7/t) toward the 27.6k warchest; routes 70/70 e/t across 7
+funded sources; reservers staffed, all four remote banks pumping;
+upgraders re-ramping toward the plan's 108p WORK; GCL 32, one room.
+
+LANDED TODAY (all gated, all deployed): spec 25 emergent dedication
+(verified live, 70/70 routed); project-ledger pattern (sites in corp
+memory, vision reconciles); feeder parked-post sizing; tender
+fleet-of-3 + duty meter + equal-share bodies; REFILL BOOTSTRAP (dark
+post + stranded stock bids 150); fan-fill RETIRED (accountability
+doctrine: covered-room lens, one lens at all four CarryCorp sites, +
+intent receipt "extension-fan"); off-road parking (ring sort, one-hop,
+stepOffRoad at tanker posts); builder hand-off (release + adopt via
+orphan machinery); builder en-route road repair; EOL hauler recycle +
+X4 row; source-approach tile exemption; ledger truth fixes (P8
+receipts, P4 link-fed charge); extension-sim mini-game + evolve
+harness (scripts/extension-sim/, findings in README).
+
+THE INCIDENT (the day's biggest lesson, full log above): cohort
+die-off + mustFund wall + strict hold + retired fan-fill = 4,400-tick
+spawn deadlock, colony 23 -> 4 creeps. Rollback -> root cause from the
+walk's own code -> INFRASTRUCTURE LANE (owner ruling "a only"),
+emergency-gated after the unconditional form measurably recreated the
+W2N6 cold-start stream -> re-land -> full recovery, every step
+measured. The lane's LIVE proof is still pending: the first real
+dark-post pierce happens whenever a tender generation turns over with
+the bank stocked - watch receipts for it.
+
+NEXT STEPS, in order:
+1. **Spec 27 extension remodel** (owner-designated next item): phase-1
+   scorer + per-cluster table (size, distance, implied tender body);
+   owner reviews the scored plan BEFORE any destroy logic; then the
+   migration executor under its rails. Folds in: per-cluster tender
+   sizing (retire the equal-share interim), the depot bridge economy
+   fix (DEPOT_BUFFER 150 vs split fleet - un-reds
+   haul-t4-tender-bus-regime), and parking-spot placement.
+2. **Upgrader scale-up seam**: construction-clear surplus should burn
+   ~115 e/t; the fleet ramp (parking 8, cap 2300, plan 108p) is the
+   cork - verify it completes, then E4 finally reaches target.
+3. **Threat = capability hostility lens** (owner assessment, designed
+   not landed): a MOVE/TOUGH-only cripple must not defund a room;
+   active-parts filter in hostileRooms(), HEAL keeps groups hostile.
+4. Ledger polish (telemetry-only): S3 discounts a head bought within
+   its own staleness window (false-positive stall).
+5. Backlog: consumer-trickle decision; expansion audit (GCL 32, one
+   room - capex is ready when the warchest holds); spec 11 phase 3;
+   spec 17 P3-P5.
+
+INFRA NOTE: the audit loop runs on harness ScheduleWakeup (~45 min
+cadence) and survived the whole day; the server-side MCP Routine is
+still blocked by an approval prompt that never reaches the owner.
+
+---
+
+**SESSION HANDOFF 2026-07-21 (superseded by 2026-07-22 above).**
 
 DEPLOYED BUILD = commit 815e033's bundle (pool tankers). Branch HEAD is
 AHEAD of it by the Z-to-A dedication commits (261abec, 9703bc9) which are

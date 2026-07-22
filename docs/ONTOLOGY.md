@@ -124,6 +124,28 @@ Outside the framework (legacy registry, folded into the census by
 `completeCensus`): **bootstrap** (cold-start jacks) and **spawning**
 (infrastructure — executes spawn decisions; not really a commission).
 
+**Accountability doctrine** (owner 2026-07-22: "each corp needs to do their
+job, not cover for each other ... they could orphan and adopt creeps if
+necessary"): a corp's scope is its job and only its job — cross-corp
+coverage makes corps unscorable and masks outages. Two mechanisms replace
+coverage:
+
+- **Structural regime flags**, never creep-liveness flags: a room is
+  tender-COVERED (`extensionTenderCovered`: depot + extensions exist) and
+  extensions belong to the tender corp whether or not a tender is alive
+  this tick — a dead tender is re-fielded by its own demand, not covered
+  for by haulers (liveness-keyed regimes are the flapping-signal trap
+  class). Haulers always keep the SPAWN STRUCTURE topped, so a gap cannot
+  deadlock. One lens per regime (`tenderOwnsExtensions`), read by every
+  site on both demand and work sides.
+- **Creep hand-off via orphan/adopt**: a corp fielding more of a role than
+  its demand lens wants RELEASES the extras (corpId → a non-live marker;
+  rescue skips creeps with NO corpId), and the kind's `claimsOrphan`
+  adopts them into the nearest corp whose own probe wants one; no taker →
+  grace → recycle refund. Standing bodies walk between corps instead of
+  each corp buying fresh (measured: sequential 4-part builder purchases
+  per remote stint while finished builders aged out in place).
+
 ## 5. The CorpKind contract (registration-only integration)
 
 A kind declares everything the colony needs; nothing else learns its name.
@@ -173,6 +195,18 @@ The spawn **doctrine** — tier ladder (income ≫ blocking ≫ started ≫ valu
 starvation buckets, hold/wall semantics, miner precedence — is settled,
 measured, and lives entirely in `SpawnScheduler` as one swappable pure module.
 Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp gauge.
+
+**The infrastructure lane** (incident t72499165, owner ruling): a mustFund
+WALL saves the bank for one body and declines every lower spend — correct,
+except when the body being declined is the refill apparatus the bank's own
+growth depends on (three correct rules — age boost, wall, strict hold —
+interlocked into a 4,400-tick deadlock, colony 23 → 4 creeps).
+`SpawnDemand.infrastructure` pierces both hold paths, never displacing a
+real buy — and the corps declare it ONLY in the emergency it fixes: a DARK
+refill post with STRANDED stock (the tender's bootstrap condition; feeder:
+zero feeders + bank ≥ 10k). An unconditional flag measurably recreated the
+W2N6 stream in cold starts (fleet top-ups pierced the first-hauler wall
+three times); top-ups wait like everyone else.
 
 ## 7. The Plan (GOAP output)
 

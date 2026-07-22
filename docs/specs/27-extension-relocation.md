@@ -7,6 +7,15 @@ resources which will compound during the scale out"). Phase 1 (scoring +
 telemetry, NO destroy logic) may ship under the audit loop; any phase that
 destroys a structure ships only after the owner reviews the scored plan.
 
+**Prereqs, all landed end-of-day 2026-07-22:** the extension-sim
+mini-game + evolution harness (design search evidence: diagonal stripe,
+compactness, circuit automaton, half-pavement parity), the tender duty
+meter (verification instrument), off-road parking (the parking-spot
+mechanics the remodel will place for), and the covered-room lens (the
+regime the new layout serves). This is the next session's first work
+item; items 4-5 below (per-cluster tender re-derivation, depot bridge
+economy) ride the same design pass.
+
 ## Why
 
 The live extension field grew under older placement regimes. The refill
