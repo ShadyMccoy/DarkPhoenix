@@ -7,8 +7,7 @@
 
 // Position type (shared across modules)
 export { Position } from "../types/Position";
-// Import EdgeVariant types for route optimization
-import { EdgeVariant, HaulerRatio, MiningMode, TerrainProfile } from "../framework/EdgeVariant";
+import { HaulerRatio } from "../framework/EdgeVariant";
 import { Position } from "../types/Position";
 
 // =============================================================================
@@ -54,26 +53,6 @@ export type SinkType =
   | "factory" // Factory production
   | "nuker" // Nuker charging
   | "powerSpawn"; // Power processing
-
-/**
- * Default priority values for each sink type.
- * Higher = more important. Range: 0-100.
- * These are defaults - PriorityManager adjusts based on game state.
- */
-export const DEFAULT_SINK_PRIORITIES: Record<SinkType, number> = {
-  spawn: 100, // Always critical
-  extension: 85, // High when spawning
-  tower: 80, // High during combat
-  construction: 70, // High after RCL-up
-  controller: 60, // Normal operation
-  link: 50, // Convenience
-  terminal: 40, // Trade operations
-  storage: 30, // Buffer
-  lab: 25, // Production
-  factory: 20, // Production
-  powerSpawn: 10, // Luxury
-  nuker: 5 // Very low priority
-};
 
 // =============================================================================
 // FLOW SOURCE
@@ -192,7 +171,6 @@ export interface FlowEdge {
   // === Terrain-aware routing (optional, for EdgeVariant optimization) ===
 
   /** Terrain profile of the route (road/plain/swamp tile counts) */
-  terrain?: TerrainProfile;
 }
 
 // =============================================================================
@@ -236,16 +214,12 @@ export interface MinerAssignment {
    */
   efficiency: number;
 
-  // === EdgeVariant optimization (optional) ===
 
-  /** Mining infrastructure mode selected by variant optimizer */
-  miningMode?: MiningMode;
+
 
   /** CARRY parts for harvester (affects decay for drop mining) */
   harvesterCarryParts?: number;
 
-  /** Selected EdgeVariant for this mining assignment */
-  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -276,16 +250,13 @@ export interface HaulerAssignment {
   /** Nearest spawn for these haulers */
   spawnId: string;
 
-  // === EdgeVariant optimization (optional) ===
 
   /** Terrain profile for this route */
-  terrain?: TerrainProfile;
 
   /** Hauler CARRY:MOVE ratio selected by variant optimizer */
   haulerRatio?: HaulerRatio;
 
   /** Selected EdgeVariant for this hauler assignment */
-  selectedVariant?: EdgeVariant;
 }
 
 /**
@@ -294,6 +265,12 @@ export interface HaulerAssignment {
 export interface SinkAllocation {
   /** Sink receiving energy */
   sinkId: string;
+
+  /**
+   * Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
+   * trace) - why filling stopped: capacity met, pool dry, or ledger dry.
+   */
+  partsLeft?: number;
 
   /** Type of sink */
   sinkType: SinkType;
@@ -323,69 +300,19 @@ export interface SinkAllocation {
 // =============================================================================
 
 /**
- * Input to the flow solver.
- */
-export interface FlowProblem {
-  /** All energy sources */
-  sources: FlowSource[];
-
-  /** All energy sinks (sorted by priority) */
-  sinks: FlowSink[];
-
-  /** All transport edges */
-  edges: FlowEdge[];
-
-  /** Solver constraints */
-  constraints: FlowConstraints;
-}
-
-/**
- * Constraints for the flow solver.
- */
-export interface FlowConstraints {
-  /** Maximum miners per source (usually 1) */
-  maxMinersPerSource: number;
-
-  /** Maximum CARRY parts per edge (creep size limit) */
-  maxCarryPerEdge: number;
-
-  /** Minimum controller upgrade rate (prevent downgrade) */
-  minControllerUpgrade: number;
-
-  /** Whether to allow deficit operation */
-  allowDeficit: boolean;
-
-  // === EdgeVariant optimization (optional) ===
-
-  /** Available energy capacity for spawning (for variant selection) */
-  spawnEnergyCapacity?: number;
-
-  /** Whether containers can be built */
-  canBuildContainer?: boolean;
-
-  /** Whether links are available */
-  canBuildLink?: boolean;
-
-  /** Infrastructure budget available */
-  infrastructureBudget?: number;
-}
-
-/**
- * Default constraints.
- */
-export const DEFAULT_CONSTRAINTS: FlowConstraints = {
-  maxMinersPerSource: 1,
-  maxCarryPerEdge: 25, // 25C25M = 50 parts max
-  minControllerUpgrade: 1, // At least 1/tick to prevent downgrade
-  allowDeficit: false
-};
-
-/**
  * Output from the flow solver.
  */
 export interface FlowSolution {
   /** Miner assignments */
   miners: MinerAssignment[];
+
+  /**
+   * The plan's spawn-parts ledger, traced (spec 15 P4): capacity, standing
+   * deductions, and the routing budget the sink fill worked with.
+   */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (flow v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
 
   /** Hauler assignments */
   haulers: HaulerAssignment[];
@@ -422,50 +349,29 @@ export interface FlowSolution {
 
   /** Tick when this solution was computed */
   computedAt: number;
+
+  /**
+   * Per-candidate funding verdicts from producer selection (spec 14 phase 5) -
+   * why each non-transient source was funded or excluded (unprofitable /
+   * over-budget / no-spawn), with the net/tax pricing the decision read.
+   * Shape: economy/CorpPlanner.SourceVerdict[]. Optional: absent on legacy
+   * solutions.
+   */
+  sourceVerdicts?: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
+  }[];
 }
 
 // =============================================================================
 // PRIORITY CONTEXT
 // =============================================================================
 
-/**
- * Game state context for priority calculations.
- * Passed to PriorityManager to determine dynamic priorities.
- */
-export interface PriorityContext {
-  /** Current game tick */
-  tick: number;
-
-  /** Room's RCL */
-  rcl: number;
-
-  /** Progress toward next RCL (0-1) */
-  rclProgress: number;
-
-  /** Number of active construction sites */
-  constructionSites: number;
-
-  /** Number of hostile creeps in room */
-  hostileCreeps: number;
-
-  /** Current storage energy level */
-  storageEnergy: number;
-
-  /** Number of creeps in spawn queue */
-  spawnQueueSize: number;
-
-  /** Whether room is under attack */
-  underAttack: boolean;
-
-  /** Ticks since last RCL upgrade */
-  ticksSinceRclUp: number;
-
-  /** Energy in extensions (for spawn capacity) */
-  extensionEnergy: number;
-
-  /** Total extension capacity */
-  extensionCapacity: number;
-}
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -510,7 +416,10 @@ export function createFlowSink(
     nodeId,
     position,
     type,
-    priority: priority ?? DEFAULT_SINK_PRIORITIES[type],
+    // Vestigial: sinks are VALUED by the planner's ladder (perInstanceSinkValue
+    // over DEFAULT_SINK_VALUE - the ONE value model, ONTOLOGY §7). This field
+    // survives only as a telemetry passthrough; nothing routes on it.
+    priority: priority ?? 0,
     demand,
     capacity,
     allocation: 0,
@@ -532,5 +441,5 @@ export function createEdgeId(fromId: string, toId: string): string {
 // Re-export distance functions from shared Position module
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
 
-// Re-export EdgeVariant types for convenience
-export { EdgeVariant, TerrainProfile, HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+// Re-export body-shape vocabulary for convenience
+export { HaulerRatio, MiningMode } from "../framework/EdgeVariant";

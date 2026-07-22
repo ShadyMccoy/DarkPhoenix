@@ -23,6 +23,10 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     // Lens constants used by controllerSideStock/controllerInputSpot.
     (global as any).FIND_STRUCTURES = 107;
     (global as any).FIND_DROPPED_RESOURCES = 106;
+    // Site-progress export (core v6) scans construction sites per owned room;
+    // define the constant HERE, not by leakage from other suites' globals
+    // (standalone runs of this file had no definition and threw mid-export).
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
     (global as any).STRUCTURE_CONTAINER = "container";
     (global as any).STRUCTURE_STORAGE = "storage";
     (global as any).STRUCTURE_LINK = "link";
@@ -72,12 +76,35 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(4);
+    expect(core.version).to.equal(13); // v12 endFill probe; v13 roadReceipts
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
     expect(room.controllerStock).to.equal(1750);
     expect(room.feederActive).to.equal(true);
+  });
+
+  it("exports my construction sites' progress sums (v6, ledger P8 'builders not building')", () => {
+    const container = { structureType: "container", store: { energy: 0 } };
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
+    Game.rooms = {
+      W1N1: {
+        name: "W1N1",
+        controller: mkController([container], []),
+        memory: {},
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        find: (t: number) =>
+          t === 114 ? [{ progress: 500, progressTotal: 3000 }, { progress: 100, progressTotal: 5000 }] : []
+      }
+    } as any;
+
+    new Telemetry().update(undefined, [], undefined);
+    const room = JSON.parse(RawMemory.segments[0]).rooms[0];
+
+    expect(room.siteProgress).to.equal(600);
+    expect(room.siteTotal).to.equal(8000);
+    expect(room.siteCount).to.equal(2);
   });
 
   it("reports null (not zero) when a room has no storage, and 0 stock for a bare controller", () => {

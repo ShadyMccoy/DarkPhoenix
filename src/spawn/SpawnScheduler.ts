@@ -26,20 +26,16 @@
  * @module spawn/SpawnScheduler
  */
 
-/** Roles the scheduler knows how to rank and size. */
-export type SpawnRole =
-  | "miner"
-  | "hauler"
-  | "upgrader"
-  | "builder"
-  | "scout"
-  | "tanker"
-  | "feeder"
-  | "reserver"
-  | "claimer"
-  | "guard"
-  | "buster"
-  | "striker";
+/**
+ * A spawnable role name. Roles are DECLARED by corp kinds (CorpKind.roles -
+ * e.g. miner/hauler/upgrader/builder/scout/tanker/feeder/reserver/claimer/
+ * guard/buster/striker), not enumerated here: the closed union this replaces
+ * was an undeclared second registration point every new kind had to edit
+ * (spec 17). The scheduler ranks on semantic demand flags, not role names -
+ * the one exception, withMinerPrecedence's "hauler" literal, is documented
+ * at its definition.
+ */
+export type SpawnRole = string;
 
 /**
  * A request for one creep, declared by a producing corp.
@@ -51,6 +47,13 @@ export type SpawnRole =
 export interface SpawnDemand {
   /** Corp that will own the spawned creep. */
   buyerCorpId: string;
+  /**
+   * Registered corp kind of the buyer, stamped by the director's generic
+   * collection loop. The executor dispatches body building + workType through
+   * the kind's declarations (CorpKind.body / CorpKind.roles). The scheduler
+   * itself never interprets it.
+   */
+  kind?: string;
   /** What kind of creep. Also tells the executor which body builder to use. */
   role: SpawnRole;
   /**
@@ -71,6 +74,29 @@ export interface SpawnDemand {
    * the delivery contract to reactive replacement plus a death-gap scramble.
    */
   replacement?: boolean;
+  /**
+   * INFRASTRUCTURE LANE (owner ruling after incident t72499165): this demand
+   * is the spawn network's own refill apparatus (extension tender, controller
+   * feeder) - the thing every OTHER body's funding depends on. An affordable
+   * infrastructure demand buys THROUGH holds and walls: three individually
+   * correct rules (age boost ranking a starved miner first, its unaffordable
+   * mustFund body walling the bank, the strict hold declining every lower
+   * spend) interlocked into a 4,400-tick deadlock - the bank could never
+   * reach the walled 650 because the only body that refills the bank was
+   * itself held. Piercing is safe by construction: the class is
+   * staffing-gated (one fielded tender ends its demand), so it can never
+   * become the W2N6 blocking STREAM, and each buy accelerates the wall's own
+   * funding. Never displaces an actual buy - only pierces holds.
+   */
+  infrastructure?: boolean;
+  /**
+   * An idle-window filler (task #11, owner 2026-07-18): bought ONLY when the
+   * walk reaches the bottom with nothing else to do - never ages into the
+   * starved tier, never buys during a hold. Reserved for opportunistic
+   * reservation banking; NO reader yet (schema staged ahead of the feature
+   * so its acceptance specs compile).
+   */
+  opportunistic?: boolean;
   /** True if this creep increases energy delivery (miner/hauler). */
   producesIncome: boolean;
   /**
@@ -149,8 +175,21 @@ export interface AgendaEntry {
   desiredCost: number;
   mustFund: boolean;
   why: AgendaWhy;
+  /**
+   * First tick the director saw this demand (0 = unstamped). Exported so a
+   * capture can tell a starved-but-ignored demand (large age: ranking/buy
+   * failure) from a resetting clock (age never accrues: demand flicker) -
+   * the spec 15 S3 diagnosis.
+   */
+  since: number;
   /** "bank>=N" (head, unaffordable) or "after:<corpId>" (ordered behind). */
   precondition?: string;
+  /**
+   * The decision walk's verdict on this entry (spec 17: the agenda published
+   * via planAcquisitions IS the decision record - "buy" marks the creep the
+   * spawn executes this tick). Absent on the legacy ranking-only path.
+   */
+  gate?: string;
 }
 
 const INFRA_ROLES = new Set<string>(["tanker", "feeder", "scout"]);
@@ -174,18 +213,19 @@ export function agendaWhy(d: SpawnDemand): AgendaWhy {
 export function buildAgendaQueue(
   demands: SpawnDemand[],
   tick: number,
-  energyAvailable: number
+  energyAvailable: number,
+  gates?: ReadonlyMap<SpawnDemand, AcquisitionGate>,
+  limit = 8
 ): { queue: AgendaEntry[]; fundingNeed: number } {
-  const ranked = [...demands].sort(
-    (a, b) => spawnPriority(b) + starvationBoost(b, tick) - (spawnPriority(a) + starvationBoost(a, tick))
-  );
-  const queue = ranked.slice(0, 8).map((d, i): AgendaEntry => {
+  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick) - effectivePriority(a, tick));
+  const queue = ranked.slice(0, limit).map((d, i): AgendaEntry => {
     const precondition =
       i === 0
         ? d.minCost > energyAvailable
           ? `bank>=${d.minCost}`
           : undefined
         : `after:${ranked[i - 1].buyerCorpId}`;
+    const gate = gates?.get(d);
     return {
       role: d.role,
       corp: d.buyerCorpId,
@@ -193,11 +233,44 @@ export function buildAgendaQueue(
       desiredCost: d.desiredCost,
       mustFund: d.blocking || d.replacement === true || d.holdToFund === true,
       why: agendaWhy(d),
-      ...(precondition ? { precondition } : {})
+      since: d.since,
+      ...(precondition ? { precondition } : {}),
+      ...(gate ? { gate } : {})
     };
   });
   const fundingNeed = queue.reduce((sum, a) => sum + (a.mustFund ? a.minCost : 0), 0);
   return { queue, fundingNeed };
+}
+
+// =============================================================================
+// THE NOW PLANNER (spec 17) - one walk, agenda AND decision
+// =============================================================================
+
+/** The NOW plan for one spawn: the published agenda and this tick's buy. */
+export interface AcquisitionPlan {
+  /** Ranked acquisitions, each annotated with the walk's gate verdict. */
+  agenda: AgendaEntry[];
+  /** Outstanding must-fund financing (spec 11 phase 2). */
+  fundingNeed: number;
+  /** This tick's buy - by construction the agenda's "buy"-gated entry. */
+  decision: ScheduleResult | null;
+}
+
+/**
+ * Plan this spawn's acquisitions: ONE decision walk yields both the published
+ * agenda (every demand ranked, annotated with the walk's verdict) and the buy
+ * decision. The pre-spec-17 pipeline ran buildAgendaQueue and scheduleSpawn
+ * separately - two functions over the same demands whose stories could drift
+ * (the agenda ignored miner precedence and the hold rules). Here the agenda IS
+ * the decision record: `decision` is exactly the entry gated "buy", and the
+ * director executes it mechanically. Pinned equivalent to scheduleSpawn by
+ * test/unit/spawn/nowPlanner.test.ts.
+ */
+export function planAcquisitions(demands: SpawnDemand[], ctx: ScheduleContext): AcquisitionPlan {
+  const gates = new Map<SpawnDemand, AcquisitionGate>();
+  const decision = walkDemands(demands, ctx, (d, g) => gates.set(d, g));
+  const { queue, fundingNeed } = buildAgendaQueue(demands, ctx.tick, ctx.energyAvailable, gates);
+  return { agenda: queue, fundingNeed, decision };
 }
 
 /**
@@ -305,6 +378,15 @@ const STARVATION_THRESHOLD = 300;
 const STARVED_TIER = 3_000_000;
 
 /**
+ * Priority step per full STARVATION_THRESHOLD a starved demand has waited
+ * (see effectivePriority). Strictly larger than the maximum spawnPriority
+ * (income 1e6 + blocking 1e4 + started 1e3 + value ~110), so one whole
+ * bucket of extra starvation beats any value difference, while value still
+ * decides within a bucket.
+ */
+const STARVED_BUCKET_STEP = 2_000_000;
+
+/**
  * Anti-starvation boost for a demand the director has been seeing for too long.
  * `since` is the first tick the demand was observed (0 when unstamped - the pure
  * unit/harness paths leave it 0, so they are unaffected). Returns 0 until the
@@ -320,9 +402,45 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
   return tick - demand.since >= STARVATION_THRESHOLD ? STARVED_TIER : 0;
 }
 
-/** Spawn priority including the anti-starvation age boost - the value the scheduler ranks on. */
-function effectivePriority(demand: SpawnDemand, tick: number): number {
-  return spawnPriority(demand) + starvationBoost(demand, tick);
+/**
+ * Spawn priority including the anti-starvation backstop - THE value both the
+ * buy walk and the published agenda rank on (one function, so the NOW plan can
+ * never show an order the scheduler won't follow).
+ *
+ * Inside the starved tier, AGE decides - oldest first - NOT the base income
+ * tier. A flat boost preserved income-over-infra ordering among the starved,
+ * which vacates the "one guaranteed slot" promise whenever starvation is not
+ * singular: under a fleet-wide rebuild, "scale" hauler demands are a
+ * self-renewing stream that all cross the threshold, and consumers/infra
+ * starve INSIDE the backstop (live incident t72403765: tender age 1371 held
+ * at queue position 4 behind starved haulers aged <=1134, receipts showing
+ * four hauler buys in ~160t; upgrader age 1023 at position 6 - the colony's
+ * progress itself queued behind the stream). FIFO among the starved makes the
+ * guarantee real: every demand that crosses the threshold is reached in
+ * bounded time.
+ */
+export function effectivePriority(demand: SpawnDemand, tick: number): number {
+  // Opportunistic demands (task #11: idle-window fillers like the reservation
+  // topup) live at their base value FOREVER: they exist to soak spawn windows
+  // nothing else wants, so aging one into the starved tier would invert the
+  // whole idea - it must never outrank real work no matter how long it waits.
+  if (demand.opportunistic) return spawnPriority(demand);
+  const starved = starvationBoost(demand, tick);
+  if (starved === 0) return spawnPriority(demand);
+  // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
+  // longer than another outranks it outright; within the same bucket the value
+  // doctrine (income first, finish started sources) still orders the buys.
+  // Raw-age FIFO was measured WRONG on both ends (instrumented flow-handoff
+  // draw, agenda mirror): a cold start seeds every demand in the same tick, so
+  // raw age degenerates to collection order and round-robins miner buys across
+  // sources - no source ever COMPLETES its staffing, so withMinerPrecedence
+  // never unlocks a hauler (zero flow haulers by t600, control draw on the
+  // additive ranking green). Bucketing keeps the live guarantee that motivated
+  // FIFO (t72403765: tender age 1371 = bucket 4 outranks the hauler stream at
+  // <=1134 = bucket 3) while inside a bucket the started-source concentration
+  // that cold start depends on still applies.
+  const buckets = Math.floor((tick - demand.since) / STARVATION_THRESHOLD);
+  return starved + buckets * STARVED_BUCKET_STEP + spawnPriority(demand);
 }
 
 /**
@@ -351,6 +469,45 @@ function effectivePriority(demand: SpawnDemand, tick: number): number {
  *       very first creep.
  */
 export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
+  return walkDemands(demands, ctx);
+}
+
+/**
+ * The walk's verdict on one demand - why it did or did not buy it this tick.
+ * Recorded per demand by {@link planAcquisitions} so the published agenda
+ * carries the DECISION's own reasoning (spec 17: the NOW plan is prescriptive;
+ * agenda and buy come from one walk and cannot disagree).
+ *
+ *  - buy:        the walk's decision this tick
+ *  - no-miner:   hauler gated out - its source has no fielded miner yet
+ *  - held:       affordable, but the spawn is held for a higher blocking body
+ *  - deferred:   opportunistic filler declining to soak an accumulation runway
+ *  - wall:       unaffordable must-fund - the bank accumulates toward it
+ *  - passed:     unaffordable now, walk moved on to cheaper demands
+ *  - impossible: minCost exceeds room capacity - can never fund at this RCL
+ *  - queued:     ranked behind the decision/wall; not reached this tick
+ */
+export type AcquisitionGate =
+  | "buy"
+  | "no-miner"
+  | "held"
+  | "deferred"
+  | "wall"
+  | "passed"
+  | "impossible"
+  | "queued";
+
+/**
+ * The single decision walk (the doctrine): rank by effective priority, then
+ * walk down applying the hold/wall/starvation rules. `record`, when given,
+ * receives every verdict - {@link scheduleSpawn} is this walk unrecorded;
+ * {@link planAcquisitions} is this walk with the agenda listening.
+ */
+function walkDemands(
+  demands: SpawnDemand[],
+  ctx: ScheduleContext,
+  record?: (demand: SpawnDemand, gate: AcquisitionGate) => void
+): ScheduleResult | null {
   if (demands.length === 0) return null;
 
   // Within a mining unit the miner is a prerequisite for its haulers: while a
@@ -358,6 +515,10 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // the miner is staffed first. Otherwise a hauler can outrank its own miner on
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
+  if (record) {
+    const kept = new Set(eligible);
+    for (const d of demands) if (!kept.has(d)) record(d, "no-miner");
+  }
 
   // Rank on EFFECTIVE priority (base tier + anti-starvation age boost). A demand
   // that has waited past the threshold is lifted above the income tier, so the
@@ -376,8 +537,38 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
   // spawns, because at income 0 the consumer can never be afforded without
   // it (the cold-start deadlock).
   let holdStrict = false;
+  // Set when we pass an unaffordable non-walling demand the room CAN
+  // eventually build: the bank below it is that body's accumulation runway.
+  // Opportunistic demands defer to it - "idle" means nobody above is
+  // accumulating, not merely nobody held (measured: the reservation topup
+  // soaked a recovering economy's accumulation windows - runt-economy red).
+  let pendingAffordable = false;
 
+  // undefined = still walking; a ScheduleResult or null = the walk's outcome
+  // (a buy, or a wall with income flowing). Once set, everything ranked below
+  // is recorded "queued" - never evaluated, exactly as the pre-recorder code
+  // returned out of the loop.
+  let outcome: ScheduleResult | null | undefined;
   for (const demand of ranked) {
+    if (outcome !== undefined) {
+      // INFRASTRUCTURE LANE, wall-hold path: outcome === null means "hold
+      // the spawn, buy nothing" (an income-flowing wall above). The refill
+      // apparatus still buys through it - it is what funds the wall. A real
+      // buy (outcome set to a result) is never displaced.
+      if (outcome === null && demand.infrastructure && ctx.energyAvailable >= demand.minCost) {
+        const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
+        record?.(demand, "buy");
+        outcome = {
+          demand,
+          energyBudget,
+          reason: energyBudget >= demand.desiredCost ? "afford-desired" : "afford-min-scaled"
+        };
+        continue;
+      }
+      record?.(demand, "queued");
+      continue;
+    }
+    const starved = starvationBoost(demand, ctx.tick) > 0;
     if (ctx.energyAvailable >= demand.minCost) {
       // While holding for an unaffordable blocking demand, decline EVERY
       // lower-priority spend - blocking ones included. The old rule let any
@@ -394,13 +585,22 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
       // chance earlier in this walk. The one exception: under a NON-strict
       // hold (held demand is a consumer), a lower income PRODUCER still
       // spawns - see holdStrict above.
-      if (holdForBlocking && (holdStrict || !demand.producesIncome)) continue;
+      if (holdForBlocking && (holdStrict || !demand.producesIncome) && !demand.infrastructure) {
+        record?.(demand, "held");
+        continue;
+      }
+      if (demand.opportunistic && pendingAffordable) {
+        record?.(demand, "deferred"); // never soak an accumulation runway
+        continue;
+      }
       const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
-      return {
+      record?.(demand, "buy");
+      outcome = {
         demand,
         energyBudget,
         reason: energyBudget >= demand.desiredCost ? "afford-desired" : "afford-min-scaled"
       };
+      continue;
     }
 
     // Cannot afford even the minimum body for this demand.
@@ -426,24 +626,38 @@ export function scheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): Sch
     // hold was tried and measurably cost ~12% mined energy in the two-source
     // A/B: it parks the spawn for 700-cost miner top-ups that fleet-first
     // tempo should not wait on.
-    const fundableIncome =
-      demand.producesIncome && (demand.holdToFund === true || starvationBoost(demand, ctx.tick) > 0);
-    const mustFund = demand.blocking || demand.replacement === true || fundableIncome;
+    const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
+    // An opportunistic demand NEVER walls the spawn (it soaks idle windows;
+    // holding for one would manufacture the idleness it exists to fill).
+    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome);
+    let walled = false;
     if (mustFund && canEverAfford) {
+      walled = true;
+      record?.(demand, "wall");
       if (ctx.energyIncome > 0) {
         // Energy is flowing in - just hold the spawn for this blocking demand
         // instead of spending on something less important.
-        return null;
+        outcome = null;
+        continue;
       }
       // No income measured this tick: hold anyway. The dribble accumulates
-      // toward this body; lower demands wait (see the decline above).
+      // toward this body; lower demands wait (see the decline above). This
+      // wall applies INSIDE the starved tier too: a no-walls variant was
+      // tried and measured WRONG (instrumented flow-handoff draw: the tier's
+      // affordable builder ate the bank at 200 the moment the blocking hauler
+      // crossed the threshold at 300, receipts builder@325, hauler never) -
+      // in a poor cold start the whole demand set lives in the tier, and the
+      // wall IS how a blocking body ever funds.
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
     }
-    // Otherwise, let a lower-value but affordable demand have a turn.
+    // Otherwise, let a lower-value but affordable demand have a turn - but
+    // remember the runway: opportunistic demands below must not soak it.
+    if (canEverAfford) pendingAffordable = true;
+    if (!walled) record?.(demand, canEverAfford ? "passed" : "impossible");
   }
 
-  return null;
+  return outcome ?? null;
 }
 
 /**

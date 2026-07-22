@@ -14,20 +14,29 @@ const FIND_MY_STRUCTURES = 108;
  * per room. Without a depot the haulers still fill the network themselves, so no
  * tender is wanted.
  */
-function room(opts: { depot?: boolean; extensions?: number }): any {
+function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean; depotEnergy?: number }): any {
   const spawnPos = {
     x: 25, y: 25, roomName: "W0N0",
     findInRange: (type: number) =>
-      type === FIND_STRUCTURES && opts.depot ? [{ structureType: "container", pos: { x: 24, y: 25 } }] : []
+      type === FIND_STRUCTURES && opts.depot
+        ? [{ structureType: "container", pos: { x: 24, y: 25 }, store: { energy: opts.depotEnergy ?? 0 } }]
+        : []
   };
   const spawn = { id: "spawn1", pos: spawnPos, store: { getFreeCapacity: () => 0 } };
+  // Default: one tight row (a single spatial cluster). scattered: three
+  // well-separated groups - the legacy-layout shape the fleet count serves.
+  const groupAnchor = (i: number): { x: number; y: number } =>
+    i % 3 === 0 ? { x: 10, y: 10 } : i % 3 === 1 ? { x: 40, y: 10 } : { x: 25, y: 40 };
   const extensions = Array.from({ length: opts.extensions ?? 0 }, (_, i) => ({
     structureType: "extension",
-    pos: { x: 20 + i, y: 20 },
+    pos: opts.scattered
+      ? { x: groupAnchor(i).x + Math.floor(i / 3), y: groupAnchor(i).y }
+      : { x: 20 + i, y: 20 },
     store: { getFreeCapacity: () => 50 }
   }));
   return {
     name: "W0N0",
+    memory: {},
     find: (type: number, o?: any) => {
       if (type === FIND_MY_SPAWNS) return [spawn];
       if (type === FIND_MY_STRUCTURES) {
@@ -75,6 +84,132 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
   it("asks for NOTHING when there are no extensions to fill", () => {
     const corp = corpFor(room({ depot: true, extensions: 0 }));
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
+  });
+
+  it("FLEET OF 3 SMALL (owner 2026-07-22): a 40-extension room targets three EQUAL-SHARE tenders", () => {
+    // "Split the same amount of body parts across two or three creeps" -
+    // the cap returns to 3 but tenderSlotCarry's equal share keeps the
+    // TOTAL at one bank wave (~the cap-2 ratchet's parts budget), so the
+    // scattered legacy layout gets three coverage points, not the old
+    // 72-part fleet back.
+    const r = room({ depot: true, extensions: 40, scattered: true });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    const sizing = (corp as any).lastSizing;
+    expect(sizing.target, "three coverage points on scatter").to.equal(3);
+    // Equal share: ceil(2300/3/50) = 16 carry -> a ~32-part 1:1 body request.
+    expect(demand[0]?.bodyParam, "equal-share body, not cluster-inflated").to.equal(16);
+  });
+
+  it("stamps the transfer-duty meter into lastSizing (the ratchet's verification instrument)", () => {
+    const r = room({ depot: true, extensions: 10 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    (corp as any).dutyTransfers = 30;
+    (corp as any).dutyAlive = 100;
+    (corp as any).dutySince = 50;
+    corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    const sizing = (corp as any).lastSizing;
+    expect(sizing.duty, "duty = transfers per alive tender tick").to.equal(0.3);
+    expect(sizing.meterTicks).to.equal(50);
+    // Round-trips: a global reset mid-window must not read as a collapse.
+    const back = new ExtensionTenderCorp("W0N0-tender", "spawn1");
+    back.deserialize(JSON.parse(JSON.stringify(corp.serialize())));
+    expect((back as any).dutyTransfers).to.equal(30);
+  });
+
+  it("COVERED STAMP (owner accountability ruling): depot + extensions marks the room tender-covered, tender alive or not", () => {
+    // The structural flag the haulers key off: extension duty belongs to THIS
+    // corp wherever a depot and extensions exist. It must NOT flap with tender
+    // deaths (that liveness signal is extensionTenderActive, kept for the
+    // depot-reserve nuances) - a dead tender means the bootstrap re-fields
+    // one, never that haulers resume fanning.
+    const r = room({ depot: true, extensions: 10 });
+    const corp = corpFor(r);
+    Game.creeps = {}; // no tender alive - the exact dead-tender window
+    corp.work(100);
+    expect(r.memory.extensionTenderCovered, "structural: depot + extensions").to.equal(true);
+    expect(r.memory.extensionTenderActive, "liveness: no tender alive").to.equal(false);
+
+    const bare = room({ depot: false, extensions: 10 });
+    const corp2 = corpFor(bare);
+    corp2.work(100);
+    expect(bare.memory.extensionTenderCovered, "no depot: haulers still own the network").to.equal(false);
+  });
+
+  it("REFILL BOOTSTRAP covers CONTAINER depots too: haulers no longer bridge, so any stocked depot with a dark post is the emergency", () => {
+    // With fan-fill retired, depot stock is UNREACHABLE for the network while
+    // no tender lives - in a container-depot room (RCL2-3, no storage) an
+    // ordinary 96 can lose to income (100-146) for thousands of ticks. One
+    // spawn volley of stranded stock (>=300) triggers the same 150 rank.
+    const r = room({ depot: true, extensions: 10, depotEnergy: 400 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].value, "stranded container stock: same emergency rank").to.equal(150);
+    expect(demand[0].blocking).to.equal(false);
+  });
+
+  it("no bootstrap from a DRY depot: a tender with nothing to move is ordinary infrastructure", () => {
+    const r = room({ depot: true, extensions: 10, depotEnergy: 0 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].value, "empty depot: nothing stranded, no emergency").to.equal(96);
+  });
+
+  it("REFILL BOOTSTRAP (owner, live t72490325): a DARK post with a stocked bank outbids all income and blocks", () => {
+    // Zero tenders + banked energy = every spawn tick without a tender
+    // buys runts from an unfillable room. Emergency value 150 beats miners
+    // (100-146) and haulers (90-110); one live tender ends the emergency.
+    const r = room({ depot: true, extensions: 40, scattered: true });
+    (r as any).storage = { my: true, store: { energy: 173_000 } };
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const dark = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    expect(dark[0].value, "emergency: above the whole income range").to.equal(150);
+    expect(dark[0].blocking, "value wins the rank; never freeze the spawn (W2N6 scar)").to.equal(false);
+    expect(dark[0].minCost, "a scaled tender fields on the next walk").to.equal(200);
+    expect(dark[0].infrastructure, "the emergency ALSO pierces holds/walls (incident t72499165)").to.equal(true);
+
+    // One live tender: back to ordinary infrastructure priority.
+    Game.creeps.t1 = {
+      memory: { corpId: (corp as any).id, workType: "tank" },
+      body: { length: 8 },
+      ticksToLive: 1400,
+      room: { name: "W0N0" }
+    } as any;
+    const staffedOne = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    expect(staffedOne[0].value, "one alive: ordinary priority for the top-up").to.equal(96);
+    expect(staffedOne[0].blocking).to.equal(false);
+    expect(staffedOne[0].infrastructure ?? false, "top-ups NEVER pierce walls (the cold-start stream lesson)").to.equal(
+      false
+    );
+  });
+
+  it("a DRY-depot dark post does not pierce walls either (cold start keeps its exact old ordering)", () => {
+    // The unconditional lane recreated the W2N6 stream in the cold-start
+    // trio: tender-fleet buys pierced the first-hauler wall three times
+    // (tanker@310/369/419, hauler@498, hand-off probe red). No stranded
+    // stock -> no emergency -> no pierce.
+    const r = room({ depot: true, extensions: 10, depotEnergy: 0 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].infrastructure ?? false).to.equal(false);
   });
 
   it("asks for NOTHING before the room has a miner (income before infrastructure)", () => {

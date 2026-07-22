@@ -66,9 +66,21 @@ describe("runt economy upsizes its runts", () => {
     let largestMiner = 0; // the biggest body it ever upsized to
     let recyclingSeen = false;
     const samples: string[] = [];
+    let endedAt = 1200;
 
+    // PROBE CADENCE (owner 2026-07-20 "runt econ always takes so long"): the
+    // wall-clock was never the sim - it was per-tick instrumentation (a full
+    // player-memory pull + JSON.parse + roomObjects, ~2 db round-trips per
+    // tick). The probed states persist for hundreds of ticks (a runt lives
+    // >>10 ticks; an upsized body stays), so a 10-tick sample cadence loses
+    // nothing the assertion reads. GREEN runs also stop as soon as the
+    // upsize is proven (min/max are monotone - more ticks cannot un-prove
+    // it); a RED run still gets the full 1200-tick ceiling, so failures
+    // stay as thorough as ever. Measured: ~12min -> minutes.
+    const SAMPLE_EVERY = 10;
     for (let t = 1; t <= 1200; t += 1) {
       await helper.server.tick();
+      if (t % SAMPLE_EVERY !== 0 && t !== 1200) continue;
       const mem = JSON.parse((await helper.player.memory) || "{}");
 
       if (!recyclingSeen) {
@@ -88,11 +100,19 @@ describe("runt economy upsizes its runts", () => {
           `tick ${t}: flowMiners [${works.join(",")}] smallest ${smallestMiner === Infinity ? "-" : smallestMiner} largest ${largestMiner} recycledYet ${recyclingSeen}`
         );
       }
+      if (smallestMiner !== Infinity && largestMiner > smallestMiner) {
+        endedAt = t;
+        samples.push(`tick ${t}: upsize PROVEN (smallest ${smallestMiner} -> largest ${largestMiner}) - early exit`);
+        break;
+      }
     }
 
     console.log("\n=== runt upsize probe ===");
     for (const line of samples) console.log(line);
-    console.log(`smallest flow miner ${smallestMiner === Infinity ? "-" : smallestMiner} WORK, largest ${largestMiner} WORK, recyclingSeen ${recyclingSeen}`);
+    console.log(
+      `smallest flow miner ${smallestMiner === Infinity ? "-" : smallestMiner} WORK, largest ${largestMiner} WORK, ` +
+        `recyclingSeen ${recyclingSeen}, ended at tick ${endedAt}`
+    );
 
     assert.notEqual(smallestMiner, Infinity, "the colony should staff at least one flow miner");
     assert.isAbove(

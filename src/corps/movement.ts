@@ -38,6 +38,36 @@ function stepDirection(dx: number, dy: number): DirectionConstant {
 }
 
 /**
+ * P-CPU meter (spec 23 step 1, observability only): the measured BEFORE
+ * number for the cached-routes doctrine. Every metered moveTo's CPU delta
+ * accumulates per corp FAMILY (the corpId's first segment - mining/hauling/
+ * moving/upgrading/building) in Memory.pathMeter, reset each tick. moveTo
+ * includes the path search when the cached path is stale - exactly the cost
+ * the RouteCache will delete; the per-family split names the top offender.
+ */
+export function meteredMoveTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const cpuApi = typeof Game !== "undefined" ? Game.cpu : undefined;
+  if (typeof Memory === "undefined" || !cpuApi || typeof cpuApi.getUsed !== "function") {
+    return creep.moveTo(target as RoomPosition, opts); // harness/mocks: no meter
+  }
+  const before = cpuApi.getUsed();
+  const result = creep.moveTo(target as RoomPosition, opts);
+  const spent = cpuApi.getUsed() - before;
+  let meter = Memory.pathMeter;
+  if (!meter || meter.tick !== Game.time) {
+    meter = { tick: Game.time, calls: 0, cpu: 0, byCorp: {} };
+    Memory.pathMeter = meter;
+  }
+  meter.calls++;
+  meter.cpu += spent;
+  const family = (creep.memory?.corpId ?? "unattributed").split("-")[0] || "unattributed";
+  const slot = (meter.byCorp[family] ??= { calls: 0, cpu: 0 });
+  slot.calls++;
+  slot.cpu += spent;
+  return result;
+}
+
+/**
  * Move a creep toward a target, robust against the room-border bounce. A drop-in
  * replacement for `creep.moveTo(target, opts)` that additionally forces an inward
  * step when the creep is stuck on an exit tile of its target's room.
@@ -57,7 +87,99 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
     return creep.move(stepDirection(dx, dy));
   }
 
-  return creep.moveTo(target as RoomPosition, opts);
+  return meteredMoveTo(creep, target, opts);
+}
+
+/**
+ * ROAD-LANE travel for haul legs (owner 2026-07-21: "pathfind with ignoring
+ * creeps. so they stay on the road. the creeps can just bypass each other as
+ * necessary"). Creeps are TRANSIENT obstacles: pathing around them steps the
+ * loaded leg off the pavement - at the 2:1 road body that tile is HALF speed,
+ * and the detour outlives the blocker. So the lane paths creep-BLIND (long
+ * reuse: the route is stable, and skipping the re-searches is CPU off the
+ * P-CPU meter's top line). Opposing lane traffic resolves itself: two creeps
+ * each moving onto the other's tile swap through (the engine's mutual-move
+ * rule - the same physics travelToBypass's forced swap rides). Only a
+ * STANDING blocker (parked/working, never leaving the lane) defeats that, so
+ * after LANE_PATIENCE consecutive stuck ticks ONE creep-aware repath detours
+ * around it and the lane resumes. Fatigue is rest, not a jam; a gap in calls
+ * (loading/unloading at an endpoint) resets the clock.
+ */
+export const LANE_PATIENCE = 2;
+
+export function travelToLane(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
+  const now = typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
+  const mem = creep.memory as CreepMemory & { _lane?: { p: string; n: number; t: number } };
+  const here = `${creep.pos.roomName}:${creep.pos.x},${creep.pos.y}`;
+  const prev = mem._lane && mem._lane.t === now - 1 ? mem._lane : undefined;
+  const stuck = prev && prev.p === here && (creep.fatigue ?? 0) === 0 ? prev.n + 1 : 0;
+  if (stuck > LANE_PATIENCE) {
+    delete mem._lane; // detour issued - the clock restarts on the next call
+    return travelTo(creep, target, { ...opts, reusePath: 0, ignoreCreeps: false });
+  }
+  mem._lane = { p: here, n: stuck, t: now };
+  // EMPTY LANE (owner 2026-07-21 re-directive; first tried 2026-07-20 and
+  // reverted on a bisected maiden-trip break, now scoped to haul legs only):
+  // an empty pure-hauler pays no fatigue, so terrain is free and the
+  // geometric line is fastest - while every step on a road still wears it by
+  // body.length (measured, load-independent). The outbound leg paths
+  // terrain-blind with roads PENALIZED: shorter empty legs where the road
+  // detours around swamp, zero empty-leg road wear, and two-lane traffic
+  // (loaded on the pavement, empty beside it). The loaded leg keeps the
+  // road-preferring defaults.
+  const lane = isFatigueFreeWhenEmpty(creep) ? emptyLaneOpts() : undefined;
+  return travelTo(creep, target, { reusePath: 20, ...lane, ...opts, ignoreCreeps: true });
+}
+
+/** Fatigue-free right now: empty, and every non-MOVE part is CARRY (empty
+ * CARRY is weightless; WORK/ATTACK/etc always weigh). Pure predicate -
+ * part types compare as their string values ("carry"/"move" === the game
+ * constants), so this runs identically in-game and under unit mocks. */
+export function isFatigueFreeWhenEmpty(creep: {
+  store?: { getUsedCapacity: () => number };
+  body?: { type: string }[];
+}): boolean {
+  if (!creep.store || !creep.body) return false;
+  if (creep.store.getUsedCapacity() > 0) return false;
+  for (const part of creep.body) {
+    if (part.type !== "carry" && part.type !== "move") return false;
+  }
+  return creep.body.length > 0;
+}
+
+/** Road cost on the empty lane: above plain/swamp (1) so the line avoids
+ * pavement when a parallel tile exists, below blockers. */
+export const EMPTY_LANE_ROAD_COST = 2;
+/** Road-position cache TTL (roads change slowly; a stale lane is harmless). */
+const EMPTY_LANE_CACHE_TTL = 200;
+const roadTileCache = new Map<string, { tick: number; tiles: { x: number; y: number }[] }>();
+
+/** moveTo options for the empty lane: terrain-blind, roads penalized. */
+export function emptyLaneOpts(): MoveToOpts {
+  return {
+    plainCost: 1,
+    swampCost: 1,
+    ignoreRoads: true,
+    costCallback: (roomName: string, matrix: CostMatrix): void => {
+      const room = Game.rooms[roomName];
+      if (!room) return; // blind rooms: terrain-only is already the lane
+      let cached = roadTileCache.get(roomName);
+      if (!cached || Game.time - cached.tick >= EMPTY_LANE_CACHE_TTL) {
+        cached = {
+          tick: Game.time,
+          tiles: room
+            .find(FIND_STRUCTURES)
+            .filter(s => s.structureType === STRUCTURE_ROAD)
+            .map(s => ({ x: s.pos.x, y: s.pos.y }))
+        };
+        roadTileCache.set(roomName, cached);
+      }
+      for (const t of cached.tiles) {
+        // only RAISE plain-cost tiles - never overwrite a blocker (255)
+        if (matrix.get(t.x, t.y) < EMPTY_LANE_ROAD_COST) matrix.set(t.x, t.y, EMPTY_LANE_ROAD_COST);
+      }
+    }
+  };
 }
 
 /**
@@ -225,4 +347,59 @@ export function travelToQueued(creep: Creep, target: MoveTarget, opts?: MoveToOp
   // Moving (or forcing) this tick - reset the hold clock.
   delete (creep.memory as CreepMemory & { queueHeld?: number }).queueHeld;
   return travelToBypass(creep, target, opts);
+}
+
+/**
+ * Standing workers prefer to stand OFF roads (owner 2026-07-22): an idle
+ * creep parked on a road plugs the delivery lane for everything moving
+ * through - roads decay per STEP, not per standing tick, so the cost of
+ * squatting one is congestion, not wear. When the creep is idle ON a road,
+ * step to an adjacent tile that keeps its work range to `anchor`: not a
+ * wall, not a road, structure-free (a container is somebody's post - a
+ * harvest spot, the controller input, the depot), and unoccupied. Plain
+ * beats swamp (entering swamp costs fatigue; standing is free either way).
+ * Nothing legal -> stay put: work range always beats lane-clearing.
+ * Returns true when it issued the step. Costs nothing off-road (one look).
+ */
+const OFF_ROAD_NEIGHBORS: Array<[number, number]> = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+  [-1, -1]
+];
+
+export function stepOffRoad(creep: Creep, anchor: { x: number; y: number }, range: number): boolean {
+  const room = creep.room;
+  if (typeof room?.lookForAt !== "function" || typeof room?.getTerrain !== "function") return false;
+  const onRoad = room
+    .lookForAt(LOOK_STRUCTURES, creep.pos.x, creep.pos.y)
+    .some(s => s.structureType === STRUCTURE_ROAD);
+  if (!onRoad) return false;
+
+  const terrain = room.getTerrain();
+  let best: { x: number; y: number } | null = null;
+  let bestSwamp = true;
+  for (const [dx, dy] of OFF_ROAD_NEIGHBORS) {
+    const x = creep.pos.x + dx;
+    const y = creep.pos.y + dy;
+    if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+    if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) > range) continue;
+    const t = terrain.get(x, y);
+    if (t === TERRAIN_MASK_WALL) continue;
+    if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue;
+    if (room.lookForAt(LOOK_CREEPS, x, y).length > 0) continue;
+    const swamp = t === TERRAIN_MASK_SWAMP;
+    if (best === null || (bestSwamp && !swamp)) {
+      best = { x, y };
+      bestSwamp = swamp;
+      if (!swamp) break; // first plain tile in neighbor order wins
+    }
+  }
+  if (!best) return false;
+  creep.moveTo(new RoomPosition(best.x, best.y, room.name));
+  return true;
 }

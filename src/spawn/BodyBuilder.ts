@@ -218,6 +218,37 @@ export function buildHaulerBody(energyRate: number, distance: number, energyCapa
 }
 
 /**
+ * Builds a flow hauler body from a desired CARRY count and a ratio hint - the
+ * demand-driven executor path (SpawnDemand.bodyParam = desired CARRY,
+ * SpawnDemand.haulerRatio = terrain hint). Semantics are the pre-spec-17
+ * SpawningCorp role-switch hauler case, verbatim and pinned by
+ * test/unit/framework/bodyEquivalence.test.ts: whole CARRY:MOVE units only,
+ * at least one unit even when the budget cannot afford it (the executor's
+ * energy check rejects the spawn instead), 50-part cap.
+ *
+ * @param desiredCarry - Desired CARRY parts (undefined/0 = fill the budget)
+ * @param energyBudget - Energy granted by the scheduler
+ * @param ratio - CARRY:MOVE ratio hint (default balanced 1:1)
+ */
+export function buildRatioHaulerBody(
+  desiredCarry: number | undefined,
+  energyBudget: number,
+  ratio: "2:1" | "1:1" | "1:2" = "1:1"
+): HaulerBodyResult {
+  const [carryRatio, moveRatio] = ratio === "2:1" ? [2, 1] : ratio === "1:2" ? [1, 2] : [1, 1];
+  const costPerUnit = PART_COSTS[CARRY] * carryRatio + PART_COSTS[MOVE] * moveRatio;
+  const partsPerUnit = carryRatio + moveRatio;
+  const maxByBudget = Math.floor(energyBudget / costPerUnit);
+  const maxBySize = Math.floor(MAX_BODY_PARTS / partsPerUnit);
+  const desiredUnits = desiredCarry ? Math.ceil(desiredCarry / carryRatio) : maxByBudget;
+  const units = Math.max(1, Math.min(desiredUnits, maxByBudget, maxBySize));
+  const body: BodyPartConstant[] = [];
+  for (let i = 0; i < units * carryRatio; i++) body.push(CARRY);
+  for (let i = 0; i < units * moveRatio; i++) body.push(MOVE);
+  return { body, cost: units * costPerUnit, carryCapacity: units * carryRatio * 50 };
+}
+
+/**
  * Result of a tanker body calculation.
  */
 export interface TankerBodyResult {

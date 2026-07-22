@@ -1,14 +1,19 @@
 {
   "room": "W43N23",
   "shard": "shard1",
-  "capturedAt": "2026-07-09T16:44:39.752Z",
+  "capturedAt": "2026-07-21T06:13:48.081Z",
   "ownedOnLive": true,
   "droppedObjectTypes": [
-    "constructionSite",
+    "container",
     "creep",
     "energy",
     "extension",
-    "spawn"
+    "link",
+    "road",
+    "spawn",
+    "storage",
+    "tombstone",
+    "tower"
   ],
   "terrain": [
     "#############...................................##",

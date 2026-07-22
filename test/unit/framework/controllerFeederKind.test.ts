@@ -71,11 +71,11 @@ function installRoom(withStorage: boolean, withMiner: boolean): void {
     ? {
         structureType: "storage",
         my: true,
-        pos: { x: 26, y: 25, roomName: HOME },
+        pos: { x: 26, y: 25, roomName: HOME, findInRange: () => [] },
         store: { energy: 5000, getFreeCapacity: () => 995000, getUsedCapacity: () => 5000 }
       }
     : undefined;
-  const controllerPos = { x: 40, y: 25, roomName: HOME };
+  const controllerPos = { x: 40, y: 25, roomName: HOME, findInRange: () => [] };
   const controller = { my: true, level: 4, pos: controllerPos };
   const spawnPos = {
     x: 25,
@@ -122,7 +122,8 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(f).to.have.length(1);
     expect(f[0].corpId).to.equal("controllerFeeder-W1N1");
     expect(f[0].shape).to.equal("auxiliary");
-    expect(f[0].assignment).to.deep.equal({ roomName: HOME, spawnId: "spawn1" });
+    expect(f[0].assignment).to.include({ roomName: HOME, spawnId: "spawn1" });
+    expect((f[0].assignment as { controllerAllocation: number }).controllerAllocation).to.be.a("number");
   });
 
   it("rung 3 - BIND: materialize keeps the LEGACY moving-corp id", () => {
@@ -171,6 +172,42 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(demands[0].bodyParam).to.equal(expected);
   });
 
+  it("clamps the relay to the PLAN's controller flow in the SAVE regime (t72421124, post-daec503 form)", async () => {
+    // The original incident (t72421124): controller floored at 2 e/t while
+    // the feeder fielded 94 parts relaying 115 e/t into a FULL 2000 stock -
+    // consumers plan-capped tiny while the feeder sized to raw surplus. Since
+    // daec503 that mismatch class cannot occur IN SURPLUS: the upgraders size
+    // from actuals there (the goal plan is not a cap - owner doctrine), so
+    // the feeder now matches them (feederRelayTarget: surplus -> surplusRate;
+    // prod t72455355 measured the half-fixed state - upgraders assuming 115
+    // while the clamped feeder relayed 7, stock 1520 -> 60, burn 11 of 115).
+    // The clamp's guard therefore lives in the NON-surplus regime: while the
+    // warchest fills, the relay serves the plan's controller flow only.
+    const { carryPartsFor } = await import("../../../src/economy/primitives");
+    const store: CorpStore = new Map();
+    materializeCommissions(planCommissions(world).commissions, store);
+    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+
+    installRoom(true, true); // bank at 5000: below the warchest target (save regime)
+
+    corp.setControllerAllocation(2); // the plan's floored controller sink
+    const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
+    expect(demands).to.have.length(1);
+    // Sized for ~2+headroom e/t over the 15-range leg - ONE small shuttle.
+    const clampedMax = Math.ceil(carryPartsFor(2 + 5, 15) * 1.2);
+    expect(demands[0].bodyParam).to.be.at.most(clampedMax);
+  });
+
+  it("rung 2 - PLAN: propose threads the draft's controller allocation into the assignment", () => {
+    const { commissions } = planCommissions(world);
+    const f = commissions.find(c => c.kind === "controllerFeeder")!;
+    const a = f.assignment as { controllerAllocation?: number };
+    // world's plan allocates the controller sink (capacity 1000, one source
+    // at 10 e/t) - whatever it funds, the feeder assignment must carry it.
+    expect(a.controllerAllocation, "assignment carries the plan's controller flow").to.be.a("number");
+    expect(a.controllerAllocation!).to.be.greaterThan(0);
+  });
+
   it("scales the relay (more feeders) once the bank is in surplus", async () => {
     const { WARCHEST_TARGET, feederRelayRate } = await import("../../../src/economy/bank");
     const { carryPartsFor } = await import("../../../src/economy/primitives");
@@ -181,6 +218,9 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     installRoom(true, true);
     const banked = WARCHEST_TARGET + 100_000; // deep surplus: draw at its cap
     (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = banked;
+    // Post-clamp contract: the feeder scales only for flow the PLAN sends to
+    // the controller - state a surplus-era plan that allocates the full draw.
+    corp.setControllerAllocation(feederRelayRate(banked));
 
     // needed carry across the relay exceeds one max body (13 CARRY at 1300
     // capacity), so the corp fields a second (and third) feeder rather than

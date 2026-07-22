@@ -15,6 +15,7 @@
  * @module corps/nodeEnergy
  */
 
+import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
@@ -57,6 +58,44 @@ export function coreLink(room: Room): StructureLink | null {
       filter: s => s.structureType === STRUCTURE_LINK
     })[0] as StructureLink | undefined) ?? null
   );
+}
+
+/**
+ * Income headroom the FEEDER must leave in the core link (owner 2026-07-21:
+ * "the hub should reserve capacity for it" - a feeder topping the core to the
+ * brim left the source link's volleys nowhere to land). One typical source
+ * volley (~2 fire thresholds); the relay buffer that remains (capacity -
+ * reserve = 600) still out-runs every relay target to date, and a volley the
+ * reserve can't hold spills to the controller link directly (LinkRunner's
+ * congestion fallback - the second half of the owner's fix).
+ */
+export const CORE_LINK_INCOME_RESERVE = 200;
+
+/**
+ * Energy the feeder may still load into the core link: fill to capacity
+ * minus the income reserve, never above. The SOURCE side of the link
+ * network is not throttled - only the feeder's controller-relay staging is.
+ */
+export function coreLinkLoadRoom(store: number, capacity: number): number {
+  return Math.max(0, capacity - CORE_LINK_INCOME_RESERVE - store);
+}
+
+/**
+ * The room's CONTROLLER link: a built link within upgrade range (3) of the
+ * controller, excluding the core link (a storage parked next to the
+ * controller needs no second link). THE link-fed lens (spec 24 rung 3,
+ * owner 2026-07-20): the feeder corp's retask, the plan's feeder pricing,
+ * the LinkRunner's send rule, and the input election all read THIS function
+ * - one lens, no drift.
+ */
+export function controllerLink(room: Room): StructureLink | null {
+  const ctrl = room.controller;
+  if (!ctrl || !ctrl.my) return null;
+  const core = coreLink(room);
+  const link = ctrl.pos.findInRange(FIND_MY_STRUCTURES, 3, {
+    filter: s => s.structureType === STRUCTURE_LINK && s.id !== core?.id
+  })[0] as StructureLink | undefined;
+  return link ?? null;
 }
 
 /**
@@ -116,6 +155,7 @@ export function bestAdjacentTile(
   target: RoomPosition,
   range: number,
   spawnPos?: RoomPosition,
+  avoid?: { x: number; y: number }[],
   forStructure?: BuildableStructureConstant
 ): RoomPosition | null {
   const terrain = room.getTerrain();
@@ -130,22 +170,56 @@ export function bestAdjacentTile(
   // spawn", producing a link site that fails to place every cooldown forever.
   for (const s of room.find(FIND_SOURCES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   for (const m of room.find(FIND_MINERALS)) occupied.add(`${m.pos.x},${m.pos.y}`);
+  // Tiles a placement already proved permanently invalid (-7): placeSite
+  // records them so the ladder stops retrying the same tile every cooldown
+  // (W43N23 link@48,13 looped ~forever before the stamp made it visible).
+  for (const key of Object.keys(room.memory?.deadTiles ?? {})) occupied.add(key);
 
   const shunExitBuffer =
     forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
 
-  let best: { x: number; y: number; d: number } | null = null;
+  // Swamp-favored placement (owner 2026-07-21): an UNWALKABLE building blots
+  // out its tile either way, so at EQUAL distance "waste" a swamp and leave
+  // the plain as a walking lane; among swamps prefer one with an adjacent
+  // plain (the servicing creep parks there - standing pays no fatigue, only
+  // the approach does). Same class as the exit-buffer rule: roads and
+  // containers are walkable, so they stay terrain-neutral (a container on
+  // swamp would tax every visitor 5x fatigue). Distance always rules first -
+  // a farther swamp would charge every servicing trip forever.
+  const swampScore = (x: number, y: number): number => {
+    if (!shunExitBuffer || (terrain.get(x, y) & TERRAIN_MASK_SWAMP) === 0) return 0;
+    for (let ax = x - 1; ax <= x + 1; ax++) {
+      for (let ay = y - 1; ay <= y + 1; ay++) {
+        if (ax === x && ay === y) continue;
+        if (ax < 0 || ax > 49 || ay < 0 || ay > 49) continue;
+        if (terrain.get(ax, ay) === 0) return 2; // swamp with a plain stand beside it
+      }
+    }
+    return 1; // landlocked swamp: still better than blotting a plain
+  };
+
+  let best: { x: number; y: number; d: number; s: number } | null = null;
   for (let dx = -range; dx <= range; dx++) {
     for (let dy = -range; dy <= range; dy++) {
       if (dx === 0 && dy === 0) continue;
       const x = target.x + dx;
       const y = target.y + dy;
+      // 1..48: the engine allows a non-road structure on a near-border tile
+      // ONLY when every edge tile beside it is a natural wall; besideOpenExit
+      // (below) models that rule precisely for exit-restricted structures.
+      // (#116 - this REPLACES the old conservative 2..47 cutoff that rejected
+      // legal wall-backed border placements, the W43N23 link -7 loop.)
       if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      // Caller-marked keep-clear zones (owner 2026-07-19): an unwalkable
+      // structure on a spawn-adjacent tile can lock in freshly spawned units.
+      // Generators for towers/storage/links pass the room's spawn positions.
+      if (avoid?.some(p => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) <= 1)) continue;
       if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
       if (occupied.has(`${x},${y}`)) continue;
       if (shunExitBuffer && besideOpenExit(terrain, x, y)) continue;
       const d = spawnPos ? Math.max(Math.abs(spawnPos.x - x), Math.abs(spawnPos.y - y)) : 0;
-      if (!best || d < best.d) best = { x, y, d };
+      const s = swampScore(x, y);
+      if (!best || d < best.d || (d === best.d && s > best.s)) best = { x, y, d, s };
     }
   }
   return best ? new RoomPosition(best.x, best.y, room.name) : null;
@@ -161,6 +235,42 @@ export function bestAdjacentTile(
  * y==48) is judged only by its last-matching side's edge tiles - the y-side
  * list replaces the x-side one, same as the engine's checkConstructionSite.
  */
+/**
+ * The engine forbids ALL construction on the room border row (x or y = 0 or
+ * 49) - createConstructionSite returns ERR_INVALID_TARGET there for every
+ * structure type, roads included. Creeps traverse exits without roads, so a
+ * border tile on a cross-room path is walkable but never placeable: any tile
+ * list that feeds placement must exclude these (prod t72483047: a trunk's
+ * two border tiles read err-7 every pass for ~4400t and the paved receipt
+ * could never land - the completion condition was unsatisfiable by
+ * construction). Sibling of besideOpenExit below, which handles the
+ * engine's separate exit-BUFFER rule (x/y = 1 or 48, roads exempt).
+ */
+export function isRoomEdgeTile(x: number, y: number): boolean {
+  return x === 0 || x === 49 || y === 0 || y === 49;
+}
+
+/**
+ * Trunk tiles WITHIN RANGE 1 of the route's source are not worth paving
+ * (owner 2026-07-22: "we don't need that very last bit of road next to the
+ * source mine"): the miner stands there permanently and haulers STOP there
+ * to load - fatigue clears during the standing tick, so the road saves
+ * nothing, while costing build energy + perpetual decay. Unlike edge tiles
+ * (which the engine REJECTS - err-7), these are perfectly placeable - just
+ * pointless (owner). Same skip mechanics as isRoomEdgeTile: the survey AND
+ * the completion check exempt them, so routes already stored with approach
+ * tiles complete without migration.
+ */
+export function isSourceApproachTile(
+  x: number,
+  y: number,
+  roomName: string,
+  source?: { x: number; y: number; roomName: string }
+): boolean {
+  if (!source || roomName !== source.roomName) return false;
+  return Math.max(Math.abs(x - source.x), Math.abs(y - source.y)) <= 1;
+}
+
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
   if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];
@@ -314,19 +424,27 @@ export function controllerDeliverySpot(controller: StructureController): EnergyS
  * at and upgraders always draw from (where the upgrader container is, or will be
  * built). Deterministic so haulers, upgraders, and the future container all
  * agree on it:
- *   - an existing container/link within range 3 of the controller, else
- *   - the walkable tile (within range 2 of the controller) with the MOST walkable
- *     neighbours that are themselves within upgrade range - i.e. the spot that can
- *     host the most parked upgraders. Ties broken by (x,y) for stability.
- * No container yet (RCL 2) => a bare drop tile, so every load lands on ONE pile
- * the parked upgraders share, instead of scattering across the controller fringe.
+ *   - an existing LINK within range 3 (a deliberate placement, never migrated), else
+ *   - an existing container within range 3 whose PARK RING (walkable neighbours
+ *     inside upgrade range, controller tile excluded) is within 1 of the best
+ *     fresh candidate's - the hysteresis that stops migration flap, else
+ *   - the walkable tile (within range 2 of the controller) with the largest
+ *     park ring. Ties broken by (x,y) for stability.
+ * Spec 24 rung 1 (owner 2026-07-20): a legacy container used to be accepted
+ * unconditionally, its ring quality never re-examined - live it held parking
+ * at 6 of a possible 8, 30 e/t of burn ceiling lost to position alone. When
+ * the best candidate beats the incumbent by 2+ park tiles the spot MIGRATES:
+ * this function returns the bare better tile, findMissingControllerContainer
+ * immediately wants the container there, and the fleet re-anchors (pile-fed
+ * until it builds) while the old container leaves the maintenance rolls.
  */
 export function controllerInputSpot(controller: StructureController): EnergySpot {
   const room = controller.room as Room;
-  const buffer = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+  const buffers = controller.pos.findInRange(FIND_STRUCTURES, 3, {
     filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
-  })[0] as StructureContainer | StructureLink | undefined;
-  if (buffer) return { pos: buffer.pos, structure: buffer };
+  }) as (StructureContainer | StructureLink)[];
+  const link = buffers.find(s => s.structureType === STRUCTURE_LINK);
+  if (link) return { pos: link.pos, structure: link };
 
   const terrain = room.getTerrain();
   const cx = controller.pos.x;
@@ -334,6 +452,19 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
   const walkable = (x: number, y: number): boolean =>
     x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
   const inUpgradeRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
+  const parkRing = (x: number, y: number): number => {
+    let score = 0;
+    for (let ex = -1; ex <= 1; ex++) {
+      for (let ey = -1; ey <= 1; ey++) {
+        if (ex === 0 && ey === 0) continue;
+        const nx = x + ex;
+        const ny = y + ey;
+        if (nx === cx && ny === cy) continue; // the controller tile hosts no upgrader
+        if (walkable(nx, ny) && inUpgradeRange(nx, ny)) score++;
+      }
+    }
+    return score;
+  };
 
   let best: { x: number; y: number; score: number } | null = null;
   for (let dx = -2; dx <= 2; dx++) {
@@ -341,19 +472,23 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
       const x = cx + dx;
       const y = cy + dy;
       if ((dx === 0 && dy === 0) || !walkable(x, y) || !inUpgradeRange(x, y)) continue;
-      let score = 0;
-      for (let ex = -1; ex <= 1; ex++) {
-        for (let ey = -1; ey <= 1; ey++) {
-          if (ex === 0 && ey === 0) continue;
-          if (walkable(x + ex, y + ey) && inUpgradeRange(x + ex, y + ey)) score++;
-        }
-      }
+      const score = parkRing(x, y);
       const better =
         !best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)));
       if (better) best = { x, y, score };
     }
   }
-  return { pos: best ? new RoomPosition(best.x, best.y, room.name) : controller.pos };
+
+  const incumbent = buffers
+    .filter((s): s is StructureContainer => s.structureType === STRUCTURE_CONTAINER)
+    .map(c => ({ c, score: parkRing(c.pos.x, c.pos.y) }))
+    .sort((a, b) => b.score - a.score)[0];
+  if (incumbent && (!best || incumbent.score >= best.score - 1)) {
+    return { pos: incumbent.c.pos, structure: incumbent.c };
+  }
+  if (best) return { pos: new RoomPosition(best.x, best.y, room.name) };
+  if (incumbent) return { pos: incumbent.c.pos, structure: incumbent.c }; // walled-in: keep what stands
+  return { pos: controller.pos };
 }
 
 /**
@@ -399,7 +534,22 @@ export function controllerParkingTiles(controller: StructureController, input: R
     }
   }
   const distToController = (p: RoomPosition): number => Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy));
-  tiles.sort((a, b) => distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
+  // OFF-ROAD FIRST (owner 2026-07-22): road tiles in the ring are the
+  // delivery lanes - a parked upgrader there plugs them for every hauler and
+  // feeder trip. Road avoidance dominates the closest-first rule (every ring
+  // tile is within upgrade range, so distance is comfort, not function);
+  // road tiles stay in the ring as last-resort capacity. Precomputed once -
+  // never inside the comparator (lookForAt per comparison).
+  const roadTiles = new Set<string>();
+  if (typeof room.lookForAt === "function") {
+    for (const t of tiles) {
+      if (room.lookForAt(LOOK_STRUCTURES, t.x, t.y).some(s => s.structureType === STRUCTURE_ROAD)) {
+        roadTiles.add(`${t.x},${t.y}`);
+      }
+    }
+  }
+  const road = (p: RoomPosition): number => (roadTiles.has(`${p.x},${p.y}`) ? 1 : 0);
+  tiles.sort((a, b) => road(a) - road(b) || distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
   return tiles;
 }
 
@@ -466,8 +616,12 @@ export function controllerSideStock(controller: StructureController): number {
   const spot = controllerInputSpot(controller).pos;
   let stock = 0;
   for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
-    if (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) {
-      stock += (s as StructureContainer | StructureStorage).store[RESOURCE_ENERGY];
+    if (
+      s.structureType === STRUCTURE_CONTAINER ||
+      s.structureType === STRUCTURE_STORAGE ||
+      s.structureType === STRUCTURE_LINK // the controller link IS the input once built (spec 24 rung 3)
+    ) {
+      stock += (s as StructureContainer | StructureStorage | StructureLink).store[RESOURCE_ENERGY] ?? 0;
     }
   }
   for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {

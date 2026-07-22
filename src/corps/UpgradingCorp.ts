@@ -17,10 +17,36 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
+import { buildPoolAbsorbRate } from "./ConstructionCorp";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 8;
+
+/** Rolling window for the WORK-utilization meter (spawn-meter cadence). */
+export const UPGRADE_METER_WINDOW = 1500;
+
+/**
+ * One creep-tick observation for the WORK-utilization meter (pure seam,
+ * spawn-meter pattern): `fired` on OK, `dry` on ERR_NOT_ENOUGH_RESOURCES
+ * (the starved-buffer tick an endpoint stock read hides). Windows roll
+ * after UPGRADE_METER_WINDOW ticks.
+ */
+export function tallyUpgradeAttempt(
+  meter: NonNullable<Memory["upgradeMeter"]>,
+  room: string,
+  tick: number,
+  rc: number
+): void {
+  let w = meter[room];
+  if (!w || tick - w.t0 >= UPGRADE_METER_WINDOW) {
+    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0 };
+  }
+  w.ticks++;
+  if (rc === OK) w.fired++;
+  else if (rc === ERR_NOT_ENOUGH_RESOURCES) w.dry++;
+}
 
 /**
  * Tighter ceiling at RCL <= 2: the tiny spawn network can't both staff a big
@@ -73,20 +99,50 @@ export function upgraderTargetCount(
 export function upgraderSizing(
   planAllocated: number,
   stock: number | null,
-  bankedBehindFeeder: number | null
+  bankedBehindFeeder: number | null,
+  constructionAbsorb = 0
 ): { allocated: number; inflow: number | null } {
   if (stock === null) return { allocated: planAllocated, inflow: null };
-  const surplusRelay = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
-  const inflow = surplusRelay ? feederRelayRate(bankedBehindFeeder!) : 2;
-  return { allocated: Math.max(2, Math.min(planAllocated, sustainableConsumptionRate(stock, inflow))), inflow };
+  const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
+  // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
+  // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
+  // stock 2000 + relay 115 + 234k banked stood ready - the goal-plan cap
+  // held the burn at 2 e/t forever; consumers are "sized from ACTUAL stock
+  // at their work site, never from the goal plan"). The NOW-walk arbitrates
+  // spawn time, so an actuals-sized demand cannot displace producers.
+  //
+  // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "upgrading is
+  // secondary to construction ... an investment in our future upgrading
+  // abilities"; prod t72478939): the build set eats what it CAN absorb
+  // (constructionAbsorb = buildPoolAbsorbRate, the same projectAbsorbRate
+  // lens that sizes the crew and the plan's construction sink) and the
+  // fleet eats the REMAINING share of the surplus as its inflow - the same
+  // relay feederRelayTarget will actually run, so the chain cannot fight
+  // itself. The boolean form of this clamp treated 12 road sites (absorb
+  // ~5 e/t) exactly like a 100k build-out: allocated pinned at the plan
+  // residual 2 while surplus 115 stood - the freed energy BANKED (+20.18/t
+  // at 474k, 17x target). Only a build-out that absorbs the whole draw
+  // (share <= planAllocated + headroom) returns the plan's residual clamp -
+  // the link-era behavior, preserved. While the warchest FILLS, the
+  // plan-capped sip remains the pinned save regime.
+  const share = surplus ? feederRelayRate(bankedBehindFeeder!) - constructionAbsorb : 0;
+  const unclamped = surplus && (constructionAbsorb <= 0 || share > planAllocated + FEEDER_STOCK_HEADROOM);
+  const inflow = unclamped
+    ? share
+    : surplus
+      ? planAllocated + FEEDER_STOCK_HEADROOM
+      : 2;
+  const sustainable = sustainableConsumptionRate(stock, inflow);
+  return { allocated: Math.max(2, unclamped ? sustainable : Math.min(planAllocated, sustainable)), inflow };
 }
 
 export function upgraderAllocation(
   planAllocated: number,
   stock: number | null,
-  bankedBehindFeeder: number | null
+  bankedBehindFeeder: number | null,
+  constructionAbsorb = 0
 ): number {
-  return upgraderSizing(planAllocated, stock, bankedBehindFeeder).allocated;
+  return upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionAbsorb).allocated;
 }
 
 /**
@@ -261,10 +317,15 @@ export class UpgradingCorp extends Corp {
   /** Upgrade the controller in place, recording the WORK produced. */
   private tryUpgrade(creep: Creep, controller: StructureController): void {
     if (creep.pos.getRangeTo(controller) > 3) return;
-    if (creep.upgradeController(controller) === OK) {
+    const rc = creep.upgradeController(controller);
+    if (rc === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
       this.recordProduction(workParts);
     }
+    // WORK-utilization meter, tallied where the intent resolves (prod
+    // t72482220: burn 48.7 of ~100 e/t standing WORK with the stock
+    // endpoint full - supply gap vs idling was unmeasurable).
+    tallyUpgradeAttempt((Memory.upgradeMeter = Memory.upgradeMeter ?? {}), controller.pos.roomName, Game.time, rc);
   }
 
   /**
@@ -303,15 +364,28 @@ export class UpgradingCorp extends Corp {
     if (tiles.length === 0) return null;
 
     const key = (p: { x: number; y: number }): string => `${p.x},${p.y}`;
-    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
-    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
-      return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
-    }
+    const room = controller.room as Room;
+    const isRoad = (p: { x: number; y: number }): boolean =>
+      typeof room.lookForAt === "function" &&
+      room.lookForAt(LOOK_STRUCTURES, p.x, p.y).some(s => s.structureType === STRUCTURE_ROAD);
     const taken = new Set<string>();
     for (const other of this.getActiveCreeps()) {
       if (other.name === creep.name) continue;
       const s = other.memory.upgradeSpot as { x: number; y: number } | undefined;
       if (s) taken.add(key(s));
+    }
+    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
+    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
+      // OFF-ROAD HOP (owner 2026-07-22: standing workers stand off the
+      // roads): a spot cached in the road-blind era stays "valid", so a
+      // parked upgrader would plug a delivery lane for its whole life. If
+      // the cached tile is a road and a NON-road slot is genuinely free,
+      // drop the cache and fall through to assignment (which sorts off-road
+      // first) - one hop, then the new cache is off-road and this never
+      // fires again. No shuffle: the hop only ever targets an UNTAKEN slot.
+      const hop = isRoad(cached) && tiles.some(t => !taken.has(key(t)) && !isRoad(t));
+      if (!hop) return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
+      delete creep.memory.upgradeSpot;
     }
     const free = tiles.find(t => !taken.has(key(t))) ?? tiles[0];
     creep.memory.upgradeSpot = { x: free.x, y: free.y };
@@ -421,7 +495,11 @@ export class UpgradingCorp extends Corp {
       spawn && spawn.room.memory.controllerFeederActive && spawn.room.storage?.my
         ? spawn.room.storage.store.energy ?? 0
         : null;
-    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder);
+    // ONE absorb lens with the feeder AND the crew (owner 2026-07-21 + prod
+    // t72478939): construction eats what it can absorb; the fleet is sized
+    // to the remaining share of the surplus.
+    const constructionAbsorb = spawn?.pos?.roomName ? buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos) : 0;
+    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionAbsorb);
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -441,7 +519,36 @@ export class UpgradingCorp extends Corp {
     // Decision-symmetry stamp (spec 14 phase 2): record the inputs THIS sizing
     // read, for telemetry to export verbatim. Answers "why is the upgrader N
     // WORK" from a capture: plan vs stock vs inflow vs what won.
-    this.lastSizing = { tick: ctx.tick, planAllocated, stock, banked: bankedBehindFeeder, inflow, allocated, targetCount };
+    // `demand`/`cap` join the stamp because prod t72455355 showed targetCount 6
+    // with ONE fielded upgrader and NO agenda entry - which of the exits below
+    // swallowed the demand (and under which energyCapacity) was invisible in
+    // the capture. The verdict names the exit; never guess twice.
+    // WORK-utilization window (Memory.upgradeMeter, tallied in tryUpgrade):
+    // workUtil = OK share of attempted creep-ticks, dryShare = starved-buffer
+    // share. Reads the same window the intents wrote - never recomputed from
+    // stock/burn (prod t72482220's invisible half).
+    const meterW = spawn?.pos?.roomName ? Memory.upgradeMeter?.[spawn.pos.roomName] : undefined;
+    this.lastSizing = {
+      tick: ctx.tick,
+      planAllocated,
+      stock,
+      banked: bankedBehindFeeder,
+      inflow,
+      allocated,
+      targetCount,
+      parking,
+      cap: ctx.energyCapacity,
+      construction: constructionAbsorb > 0,
+      ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
+      ...(meterW && meterW.ticks > 0
+        ? {
+            workUtil: +(meterW.fired / meterW.ticks).toFixed(3),
+            dryShare: +(meterW.dry / meterW.ticks).toFixed(3),
+            meterTicks: meterW.ticks
+          }
+        : {}),
+      demand: "demanded"
+    };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
     // lead time (build + walk to the controller) keeps working but no longer
     // counts, so its successor spawns early enough for the controller's
@@ -452,10 +559,17 @@ export class UpgradingCorp extends Corp {
     const ctrlWalkTicks =
       spawn && controller ? spawn.pos.getRangeTo(controller.pos) * travelTicksPerTile(ctx.energyCapacity) : 0;
     const current = this.countStaffing(ctrlWalkTicks);
-    if (current >= targetCount) return [];
+    this.lastSizing.staffing = current;
+    if (current >= targetCount) {
+      this.lastSizing.demand = "staffed";
+      return [];
+    }
     // Physical swarm cap (mirrors CarryCorp): replacement overlap may field one
     // extra body per expiring incumbent, never more - parking tiles are few.
-    if (this.getCreepCount() >= targetCount * 2) return [];
+    if (this.getCreepCount() >= targetCount * 2) {
+      this.lastSizing.demand = "swarm-cap";
+      return [];
+    }
 
     const remainingWork = allocated - current * affordableWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
@@ -474,7 +588,11 @@ export class UpgradingCorp extends Corp {
     const anyUpgrader = current > 0 || this.getCreepCount() > 0;
     const minWork = anyUpgrader ? desiredWork : 1;
     const min = buildUpgraderBody(ctx.energyCapacity, minWork, "containerFed");
-    if (min.cost === 0) return []; // room cannot afford even a minimal upgrader
+    if (min.cost === 0) {
+      this.lastSizing.demand = "unaffordable";
+      return []; // room cannot afford even a minimal upgrader
+    }
+    this.lastSizing.demandMin = min.cost;
 
     return [
       {

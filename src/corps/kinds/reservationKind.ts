@@ -47,6 +47,7 @@ export interface ReservationAssignment {
 export const reservationKind: CorpKind<ReservationCorp> = {
   kind: "reservation",
   runOrder: 40,
+  roles: { reserver: { workType: "reserve" } },
 
   propose(problem: ColonyProblem, draft: readonly Commission[] = []): Commission[] {
     const homeSpawnByRoom = new Map<string, string>();
@@ -111,5 +112,14 @@ export const reservationKind: CorpKind<ReservationCorp> = {
 
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
     return buildReserverBody(energyBudget, bodyParam ?? 2).body;
+  },
+
+  // Income-tier treatment (measured, diag-reserver): the reserver UNLOCKS +5
+  // e/tick per remote source, and its demand only exists once a miner already
+  // harvests the remote - the op is underway, so the unit is always started.
+  // At base value it starved forever behind the income tier while the remote
+  // stayed at the unreserved half-rate.
+  demandGroup(corp: ReservationCorp) {
+    return { groupId: corp.id, started: true };
   }
 };

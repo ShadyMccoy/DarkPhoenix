@@ -48,6 +48,7 @@ const runLog: string[] = [];
 const beaconKind: CorpKind<BeaconCorp> = {
   kind: "beacon",
   runOrder: 40,
+  roles: {},
   propose(problem: ColonyProblem): Commission[] {
     return problem.spawns.map(s => ({
       corpId: corpIdFor("beacon", s.id),

@@ -25,9 +25,13 @@ import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
+  SPAWN_PARTS_PER_TICK,
   UPGRADE_ENERGY_PER_WORK,
   workPartsForEnergyRate
 } from "../economy/primitives";
+
+/** Spawn-meter window length: one creep lifetime, the economy's natural period. */
+const SPAWN_METER_WINDOW = 1500;
 
 /**
  * Energy/tick a single WORK part burns at a WORK-driven consumer sink, keyed by
@@ -49,25 +53,6 @@ export interface CorpCensusEntry {
   kind: string;
   corp: Corp;
 }
-
-/**
- * Map from a corp's commission `kind` to the human creep-role bucket in the
- * core telemetry census. Every creep-owning kind appears here; `spawning` is
- * intentionally absent (it spawns other corps' creeps and is tracked by
- * pending orders, not by a creep count of its own).
- */
-const KIND_TO_CREEP_BUCKET: Record<string, keyof CoreTelemetry["creeps"]> = {
-  bootstrap: "bootstrap",
-  harvest: "miners",
-  carry: "haulers",
-  upgrade: "upgraders",
-  construction: "builders",
-  scout: "scouts",
-  reservation: "reservers",
-  tender: "tankers",
-  controllerFeeder: "feeders",
-  claim: "claimers"
-};
 
 /** Live creep count for any corp, whichever accessor it exposes. */
 function corpCreepCount(corp: Corp): number {
@@ -197,16 +182,28 @@ export interface CoreTelemetry {
     total: number;
     tracked: number;
     untracked: number;
-    bootstrap: number;
-    miners: number;
-    haulers: number;
-    upgraders: number;
-    scouts: number;
-    builders: number;
-    reservers: number;
-    tankers: number;
-    feeders: number;
-    claimers: number;
+    /**
+     * Creeps whose memory.corpId matches NO census corp (id-match lens,
+     * distinct from the count-difference lens above) - the X3 leak, named.
+     * Capped at 8 rows; absent when empty.
+     */
+    unattributed?: { name: string; corpId: string | null; workType?: string; ttl?: number }[];
+    /**
+     * Corps whose id-attributed creep count differs from their own
+     * getCreepCount - the counting-lens mismatch that explains untracked>0
+     * with an empty unattributed roster. Rows only where the two differ,
+     * capped at 8.
+     */
+    countMismatch?: { corpId: string; claimed: number; counted: number }[];
+    /**
+     * Creep counts keyed by commission KIND (harvest/carry/...), derived from
+     * the census generically: a registered kind whose corps expose
+     * getCreepCount is counted by construction (the hand-maintained bucket
+     * map this replaces had already silently dropped raidGuard + coreBuster).
+     * `spawning` never appears (it spawns other corps' creeps and exposes
+     * pending orders, not a creep count).
+     */
+    byKind: { [kind: string]: number };
   };
   /**
    * ACTUAL body parts across every live creep, measured from `Creep.body` (not
@@ -215,6 +212,85 @@ export interface CoreTelemetry {
    * measured "what we have" for the plan-vs-actual body-parts gauge.
    */
   bodyParts: BodyAggregate;
+  /**
+   * Spawn meter (spec 14 phase 3): MEASURED utilization per spawn over a
+   * rolling ~1500-tick window. Every busy tick builds exactly 1/3 part, so
+   * `partsPerTick = utilization / 3` - no spawn-start detection, no receipt
+   * arithmetic. `ceiling` is the physical limit (SPAWN_PARTS_PER_TICK) so
+   * "X% of ceiling" is a read, not a derivation.
+   */
+  spawns: {
+    id: string;
+    name: string;
+    /** Observed ticks in the current window. */
+    windowTicks: number;
+    /** busyTicks / windowTicks (0 when nothing observed yet). */
+    utilization: number;
+    /** Actual parts/tick built = utilization / 3. */
+    partsPerTick: number;
+    /** Physical ceiling (SPAWN_PARTS_PER_TICK = 1/3). */
+    ceiling: number;
+    /** Current agenda queue length for this spawn (0 when no agenda). */
+    queueDepth: number;
+    /** Gapped build-finish events in the window (back-to-back restarts never
+     * register - every counted finish is a duty gap). v12. */
+    finishes?: number;
+    /** Avg energyAvailable/capacity AT those finish ticks: low = refill did
+     * not overlap the build (tender lag); high = affordable-but-idle. */
+    endFill?: number;
+  }[];
+  /**
+   * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
+   * 4, VERBATIM) + executed receipts per spawn, so actual-vs-NOW is a
+   * telemetry read instead of a /user/memory pull. Absent when no agenda.
+   */
+  agenda?: {
+    [spawnId: string]: {
+      tick: number;
+      fundingNeed: number;
+      queueDepth: number;
+      queue: unknown[];
+      executed: unknown[];
+    };
+  };
+  /**
+   * Per-source BUFFER levels (v7 additive): energy standing at each visible
+   * source's mouth - container store within range 1 plus dropped piles
+   * within range 1 - keyed by the source id's last 6 chars. The over/under
+   * haul diagnostic (owner 2026-07-20): a buffer pinned near container cap
+   * (2000) means mining outruns hauling (rot); chronically ~0 with an
+   * active miner means hauling has headroom (or over-provision). Only
+   * rooms with vision contribute.
+   */
+  sourceBuffers?: { [idTail: string]: number };
+  /**
+   * Our construction sites in visible UNOWNED rooms (v9): the owned-room
+   * ledger's siteCount misses cross-room trunk paving entirely - the P8
+   * owned-room blindness (owner 2026-07-20). Keyed by room name; rooms with
+   * zero sites are omitted.
+   */
+  remoteSites?: { [roomName: string]: number };
+  /**
+   * roadRoutes receipts, verbatim per key (v13 - prod t72485595): cd8e's
+   * plan price sat 1:1 for three windows after its road stood complete and
+   * WHY was uninferable from captures - the pave/dedication lenses both
+   * read these room-memory receipts, which no segment carried. Slim:
+   * built/total/paved/declined + tile count per key, rooms merged.
+   */
+  roadReceipts?: {
+    [key: string]: { built?: number; total?: number; paved?: boolean; declined?: boolean; tiles?: number };
+  };
+  /**
+   * P-CPU meter snapshot (v10): last tick's moveTo CPU per corp family
+   * (Memory.pathMeter verbatim) - the BEFORE number for spec 23's cached
+   * routes, naming the top pathing spender.
+   */
+  pathMeter?: {
+    tick: number;
+    calls: number;
+    cpu: number;
+    byCorp: { [family: string]: { calls: number; cpu: number } };
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -234,6 +310,15 @@ export interface CoreTelemetry {
     controllerStock: number | null;
     /** Is the controller feeder actively relaying storage -> controller? */
     feederActive: boolean;
+    /**
+     * Construction delivery inputs (v6, ledger P8 "builders not building"):
+     * my sites' summed progress / progressTotal and count. A window where
+     * sites stand, allocation flows, and siteProgress is FLAT = build crew
+     * idle (completions read ambiguous and are skipped by the meter).
+     */
+    siteProgress: number;
+    siteTotal: number;
+    siteCount: number;
   }[];
 }
 
@@ -327,6 +412,8 @@ export interface IntelTelemetry {
     invaderCorePresent?: boolean;
     raidDebt?: number;
     lastRaidSeen?: number;
+    reservedUntil?: number;
+    reservedBy?: string;
   }[];
 }
 
@@ -373,6 +460,10 @@ export interface CorpsTelemetry {
 export interface FlowTelemetry {
   version: number;
   tick: number;
+  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget. */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** Problem-assembly counts (v5): names the layer that dropped sources. */
+  assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   /** Source nodes (energy producers) */
   sources: {
     id: string;
@@ -416,6 +507,8 @@ export interface FlowTelemetry {
     allocated: number;
     unmet: number;
     priority: number;
+    /** Spawn-parts ledger remaining when this sink's fill ended (spec 15 P4). */
+    partsLeft?: number;
     /**
      * PLANNED WORK parts implied by `allocated` for WORK-driven consumer sinks
      * (controller=upgrade, construction=build); absent for non-WORK sinks
@@ -425,6 +518,21 @@ export interface FlowTelemetry {
      * construction corp in segment 4.
      */
     workParts?: number;
+  }[];
+  /**
+   * Planner funding verdicts for every non-transient mining candidate (spec 14
+   * phase 5), VERBATIM from producer selection: why each source is in or out
+   * of the plan (funded / unprofitable / over-budget / no-spawn) with the
+   * net/tax pricing the decision read. "Why are the remotes dead" is a read.
+   */
+  candidates: {
+    sourceId: string;
+    rate: number;
+    distance: number;
+    net: number;
+    tax: number;
+    parts: number;
+    verdict: string;
   }[];
   /** Flow summary */
   summary: {
@@ -484,6 +592,10 @@ export class Telemetry {
     // Request segments we'll be writing to
     RawMemory.setActiveSegments(PUBLIC_SEGMENTS);
 
+    // Spawn meter accumulates EVERY observed tick, before the interval gate -
+    // sampling busy state on an interval would systematically undercount.
+    this.meterSpawns();
+
     // Check if we should update based on interval
     const shouldUpdate = this.config.updateInterval === 0 || Game.time % this.config.updateInterval === 0;
 
@@ -513,34 +625,100 @@ export class Telemetry {
   }
 
   /**
+   * Accumulate the spawn meter: one observation per spawn per tick (the `last`
+   * guard makes a second update() call in the same tick a no-op). Windows roll
+   * after SPAWN_METER_WINDOW ticks.
+   */
+  private meterSpawns(): void {
+    const spawns = Game.spawns ?? {};
+    const meter = (Memory.spawnMeter = Memory.spawnMeter ?? {});
+    for (const name in spawns) {
+      const s = spawns[name];
+      let w = meter[s.id];
+      if (!w || Game.time - w.t0 >= SPAWN_METER_WINDOW) {
+        w = meter[s.id] = { t0: Game.time, last: -1, ticks: 0, busy: 0 };
+      }
+      if (w.last === Game.time) continue;
+      w.last = Game.time;
+      w.ticks++;
+      const busyNow = !!s.spawning;
+      if (busyNow) w.busy++;
+      // BUILD-FINISH fill probe (owner 2026-07-21: refill must overlap the
+      // build "or we have to measure and fix that"). A back-to-back restart
+      // keeps spawning true and never registers here - every counted finish
+      // is a duty GAP, and its fill ratio names the cause: low = the refill
+      // did NOT overlap the build (tender lag); high = affordable-but-idle
+      // (agenda/decision latency).
+      if (w.wasBusy && !busyNow) {
+        w.finishes = (w.finishes ?? 0) + 1;
+        const cap = s.room?.energyCapacityAvailable || 1;
+        w.fillSum = (w.fillSum ?? 0) + (s.room?.energyAvailable ?? 0) / cap;
+      }
+      w.wasBusy = busyNow;
+    }
+  }
+
+  /**
    * Updates core telemetry (Segment 0).
    */
   private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[], bodyParts: BodyAggregate): void {
-    // Creep census: one bucket per creep-owning kind, summed from the complete
-    // corp list so every kind is counted (no more silent undercount).
+    // Creep census keyed by kind, summed generically from the complete corp
+    // list: every creep-owning kind is counted by construction. Only corps
+    // that expose getCreepCount contribute (spawning tracks pending orders,
+    // not creeps of its own).
     const creeps: CoreTelemetry["creeps"] = {
       total: Object.keys(Game.creeps).length,
       tracked: 0,
       untracked: 0,
-      bootstrap: 0,
-      miners: 0,
-      haulers: 0,
-      upgraders: 0,
-      scouts: 0,
-      builders: 0,
-      reservers: 0,
-      tankers: 0,
-      feeders: 0,
-      claimers: 0
+      byKind: {}
     };
     for (const { kind, corp } of census) {
-      const bucket = KIND_TO_CREEP_BUCKET[kind];
-      if (!bucket) continue; // spawning (and any non-creep kind) is not a creep bucket
-      const n = corpCreepCount(corp);
-      creeps[bucket] += n;
+      const counter = corp as unknown as { getCreepCount?: () => number };
+      if (typeof counter.getCreepCount !== "function") continue;
+      const n = counter.getCreepCount();
+      creeps.byKind[kind] = (creeps.byKind[kind] ?? 0) + n;
       creeps.tracked += n;
     }
     creeps.untracked = Math.max(0, creeps.total - creeps.tracked);
+    // NAME the leak (X3 sat at 3-4 for days with no names): creeps whose
+    // memory.corpId resolves to NO census corp, listed with the id they
+    // claim. This is its OWN lens (id-match), deliberately separate from the
+    // count difference above (corp-side getCreepCount) - the two disagreeing
+    // is itself a diagnostic (a corp counting creeps it doesn't own, or one
+    // owning creeps it doesn't count).
+    const censusIds = new Set(census.map(c => (c.corp as unknown as { id?: string }).id).filter(Boolean));
+    const unattributed: NonNullable<CoreTelemetry["creeps"]["unattributed"]> = [];
+    for (const name in Game.creeps) {
+      const m = (Game.creeps[name].memory ?? {}) as { corpId?: string; workType?: string };
+      if (m.corpId && censusIds.has(m.corpId)) continue;
+      if (unattributed.length >= 8) break;
+      unattributed.push({
+        name,
+        corpId: m.corpId ?? null,
+        ...(m.workType ? { workType: m.workType } : {}),
+        ...(Game.creeps[name].ticksToLive !== undefined ? { ttl: Game.creeps[name].ticksToLive } : {})
+      });
+    }
+    if (unattributed.length > 0) creeps.unattributed = unattributed;
+    // The two lenses disagreeing NAMES the leak class (t72445817: untracked 3,
+    // unattributed EMPTY - so corps exist that don't COUNT creeps they own,
+    // the newborn/recycling counting-lens class, not orphans). This export
+    // names the corp: id-attributed creep count vs the corp's own
+    // getCreepCount, rows only where they differ.
+    const claimedByCorp = new Map<string, number>();
+    for (const name in Game.creeps) {
+      const cid = ((Game.creeps[name].memory ?? {}) as { corpId?: string }).corpId;
+      if (cid) claimedByCorp.set(cid, (claimedByCorp.get(cid) ?? 0) + 1);
+    }
+    const countMismatch: NonNullable<CoreTelemetry["creeps"]["countMismatch"]> = [];
+    for (const { corp } of census) {
+      const c = corp as unknown as { id?: string; getCreepCount?: () => number };
+      if (!c.id || typeof c.getCreepCount !== "function") continue;
+      const claimed = claimedByCorp.get(c.id) ?? 0;
+      const counted = c.getCreepCount();
+      if (claimed !== counted && countMismatch.length < 8) countMismatch.push({ corpId: c.id, claimed, counted });
+    }
+    if (countMismatch.length > 0) creeps.countMismatch = countMismatch;
 
     // Get colony stats
     const stats = colony?.getStats() || {
@@ -563,13 +741,107 @@ export class Telemetry {
           energyCapacity: room.energyCapacityAvailable,
           storageEnergy: room.storage?.my ? room.storage.store.energy ?? 0 : null,
           controllerStock: controllerSideStock(room.controller),
-          feederActive: !!room.memory.controllerFeederActive
+          feederActive: !!room.memory.controllerFeederActive,
+          ...(() => {
+            const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+            return {
+              siteProgress: sites.reduce((a, st) => a + (st.progress ?? 0), 0),
+              siteTotal: sites.reduce((a, st) => a + (st.progressTotal ?? 0), 0),
+              siteCount: sites.length
+            };
+          })()
         });
       }
     }
 
+    // Source buffers (owner 2026-07-20): container + pile at each visible
+    // source's mouth - the over/under-haul read.
+    const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      let sources: Source[] = [];
+      try {
+        sources = room.find(FIND_SOURCES);
+      } catch {
+        continue; // partial mocks without FIND_SOURCES wired
+      }
+      for (const source of sources) {
+        let stock = 0;
+        for (const s of source.pos.findInRange(FIND_STRUCTURES, 1)) {
+          if (s.structureType === STRUCTURE_CONTAINER) {
+            stock += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
+          }
+        }
+        for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+          if (r.resourceType === RESOURCE_ENERGY) stock += r.amount ?? 0;
+        }
+        sourceBuffers[source.id.slice(-6)] = stock;
+      }
+    }
+
+    // Remote construction sites (v9): the rooms[] ledger below covers OWNED
+    // rooms only, which left the P8 build read blind to cross-room trunk
+    // paving - a healthy remote build looked like "no sites standing"
+    // (owner 2026-07-20). Visible unowned rooms with our sites, counted.
+    const remoteSites: NonNullable<CoreTelemetry["remoteSites"]> = {};
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (room.controller?.my) continue;
+      let count = 0;
+      try {
+        count = room.find(FIND_MY_CONSTRUCTION_SITES).length;
+      } catch {
+        continue; // partial mocks
+      }
+      if (count > 0) remoteSites[roomName] = count;
+    }
+
+    // Spawn meter readout (phase 3): measured utilization from the Memory windows.
+    const spawns: CoreTelemetry["spawns"] = [];
+    const gameSpawns = Game.spawns ?? {};
+    for (const name in gameSpawns) {
+      const s = gameSpawns[name];
+      const w = Memory.spawnMeter?.[s.id];
+      const ticks = w?.ticks ?? 0;
+      const busy = w?.busy ?? 0;
+      const utilization = ticks > 0 ? busy / ticks : 0;
+      const finishes = w?.finishes ?? 0;
+      spawns.push({
+        id: s.id,
+        name,
+        windowTicks: ticks,
+        utilization,
+        partsPerTick: utilization * SPAWN_PARTS_PER_TICK,
+        ceiling: SPAWN_PARTS_PER_TICK,
+        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0,
+        // Gapped build-finishes + avg fill AT the finish (v12): low endFill =
+        // refill lag; high = affordable-but-idle. Absent until a gap occurs.
+        ...(finishes > 0 ? { finishes, endFill: +((w!.fillSum ?? 0) / finishes).toFixed(3) } : {})
+      });
+    }
+
+    // NOW-plan mirror (phase 4): agenda heads + receipts, verbatim.
+    let agenda: CoreTelemetry["agenda"];
+    if (Memory.spawnAgenda) {
+      agenda = {};
+      for (const spawnId in Memory.spawnAgenda) {
+        const a = Memory.spawnAgenda[spawnId];
+        agenda[spawnId] = {
+          tick: a.tick,
+          fundingNeed: a.fundingNeed,
+          queueDepth: a.queue.length,
+          // The WHOLE queue, not 4 heads (v11 - prod t72483599): the upgrader
+          // demand sat at rank 5+ through a 550t staffing collapse and its
+          // `since` age - the anti-starvation clock, THE datum for "why no
+          // lift" - was invisible. ~100B/entry; depth is single digits.
+          queue: a.queue,
+          executed: a.executed ?? []
+        };
+      }
+    }
+
     const telemetry: CoreTelemetry = {
-      version: 4, // Version 4: room energy ledger (storage/controller stocks, feeder state)
+      version: 13, // v12 endFill probe; v13 roadReceipts (the pave/dedication lens records, verbatim)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -590,6 +862,31 @@ export class Telemetry {
       },
       creeps,
       bodyParts,
+      spawns,
+      agenda,
+      ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
+      ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+      ...(() => {
+        // roadRoutes receipts (v13): the exact records the pave-fraction and
+        // dedication lenses read, exported verbatim so a stuck pricing names
+        // its own state (entry deleted vs fractionless vs paved).
+        const receipts: NonNullable<CoreTelemetry["roadReceipts"]> = {};
+        for (const roomName in Game.rooms ?? {}) {
+          const routes = Game.rooms[roomName]?.memory?.roadRoutes;
+          for (const key in routes ?? {}) {
+            const e = routes![key];
+            receipts[key] = {
+              ...(e.built !== undefined ? { built: e.built } : {}),
+              ...(e.total !== undefined ? { total: e.total } : {}),
+              ...(e.paved ? { paved: true } : {}),
+              ...(e.declined ? { declined: true } : {}),
+              ...(e.tiles3 ? { tiles: e.tiles3.length / 3 } : {})
+            };
+          }
+        }
+        return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
+      })(),
+      ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
       rooms
     };
 
@@ -806,7 +1103,11 @@ export class Telemetry {
           ...(intel.invaderReservedUntil !== undefined ? { invaderReservedUntil: intel.invaderReservedUntil } : {}),
           ...(intel.invaderCorePresent !== undefined ? { invaderCorePresent: intel.invaderCorePresent } : {}),
           ...(intel.raidDebt !== undefined ? { raidDebt: intel.raidDebt } : {}),
-          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {})
+          ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {}),
+          // Our reservation bank (spec 15 P5): the duty-cycle lens, exported
+          // so a capture shows what the reserver gate coasts on.
+          ...(intel.reservedUntil !== undefined ? { reservedUntil: intel.reservedUntil } : {}),
+          ...(intel.reservedBy !== undefined ? { reservedBy: intel.reservedBy } : {})
         });
       }
     }
@@ -920,17 +1221,27 @@ export class Telemetry {
           allocated: sink.allocated,
           unmet: sink.unmet,
           priority: sink.priority,
+          ...(sink.partsLeft !== undefined ? { partsLeft: sink.partsLeft } : {}),
           workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
         });
       }
     }
 
     const telemetry: FlowTelemetry = {
-      version: 2, // Version 2: added planned hauler carry + consumer WORK (full plan-side body)
+      // v4: the fill's spawn-parts ledger trace (partsLedger + per-sink
+      // partsLeft). v5: problem-assembly counts (graphSources/mined/
+      // transient/bank) - names the layer that dropped sources in one
+      // capture (the warmup remote-drop lens). v6 carried dedicatedToBuild;
+      // v7 RETIRES it (spec 25 phase 3: dedication is emergent routing -
+      // the audit reads source->construction ROUTES, not a flag).
+      version: 7,
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
+      ...(flowSolution?.assembly ? { assembly: flowSolution.assembly } : {}),
+      candidates: flowSolution?.sourceVerdicts ?? [],
       summary: flowSolution
         ? {
             totalHarvest: flowSolution.totalHarvest,

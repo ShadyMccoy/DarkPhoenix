@@ -16,6 +16,7 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ClaimCorp, SerializedClaimCorp } from "../ClaimCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
+import { roomLinearDistance } from "../../utils/RoomDiscovery";
 
 /** The claim commission's binding: which target room, which home spawn. */
 export interface ClaimAssignment {
@@ -25,22 +26,23 @@ export interface ClaimAssignment {
 
 export const claimKind: CorpKind<ClaimCorp> = {
   kind: "claim",
+  roles: { claimer: { workType: "claim" } },
   runOrder: 45,
 
   propose(problem: ColonyProblem): Commission[] {
-    if (typeof Memory === "undefined" || !Memory.expansion) return [];
-    const target = Memory.expansion.roomName;
+    // The campaign fact arrives ON THE PROBLEM (host reads Memory.expansion):
+    // propose is a pure function of its arguments (spec 17 P3).
+    if (!problem.expansion) return [];
+    const target = problem.expansion.roomName;
     if (problem.spawns.length === 0) return [];
 
     let best = problem.spawns[0];
-    if (typeof Game !== "undefined" && Game.map?.getRoomLinearDistance) {
-      let bestDist = Infinity;
-      for (const s of problem.spawns) {
-        const d = Game.map.getRoomLinearDistance(s.pos.roomName, target);
-        if (d < bestDist) {
-          bestDist = d;
-          best = s;
-        }
+    let bestDist = Infinity;
+    for (const s of problem.spawns) {
+      const d = roomLinearDistance(s.pos.roomName, target);
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
       }
     }
 
