@@ -82,8 +82,19 @@ export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): S
   // letting us walk into the room body. (While still traversing OTHER rooms en
   // route, let moveTo carry us across borders normally.)
   if (onExit && creep.pos.roomName === pos.roomName && !creep.pos.isEqualTo(pos)) {
-    const dx = x === 0 ? 1 : x === 49 ? -1 : 0;
-    const dy = y === 0 ? 1 : y === 49 ? -1 : 0;
+    // The BORDER axis is forced inward (off the edge - that breaks the bounce).
+    // The FREE axis is biased toward the target, so when the road/target sits
+    // off to one side we step DIAGONALLY onto it (e.g. SW) instead of straight
+    // in and then correcting: a straight inward step strands a fatigued creep
+    // on plain beside the road for an extra move-fatigue tick (owner 2026-07-22:
+    // "coming into the room going straight South instead of SW").
+    let dx = x === 0 ? 1 : x === 49 ? -1 : Math.sign(pos.x - x);
+    let dy = y === 0 ? 1 : y === 49 ? -1 : Math.sign(pos.y - y);
+    // Never let the free-axis bias land us on ANOTHER exit tile - that just
+    // re-arms a crossing (or bounces us out the perpendicular border). The
+    // forced border axis is always 1/48, so it never trips this guard.
+    if (x + dx <= 0 || x + dx >= 49) dx = 0;
+    if (y + dy <= 0 || y + dy >= 49) dy = 0;
     return creep.move(stepDirection(dx, dy));
   }
 
