@@ -20,6 +20,7 @@
  */
 
 import { Position } from "../types/Position";
+import { effectiveLife } from "./primitives";
 import { PlannerSource } from "./CorpPlanner";
 
 /** Below this many energy a stock is left to opportunistic source-hauler pickup. */
@@ -44,11 +45,21 @@ export const SCAVENGE_THRESHOLD = 750;
  */
 export const CONTROLLER_BUCKET_RANGE = 3;
 
-/** Target ticks to clear a stock - sets how much hauling we throw at it. */
-export const SCAVENGE_DRAIN_TICKS = 150;
-
 /** Cap on a single stock's drain rate so we never over-provision scavengers. */
 export const MAX_SCAVENGE_RATE = 20;
+
+/**
+ * A stock fields a DEDICATED corp only when its sized drain rate clears this
+ * (owner 2026-07-20, the micro-route sweep): below it, the planned route is
+ * sub-1-CARRY, and the corp lifecycle costs more than it recovers - measured
+ * as the E2/E5 churn loop (a 100-cost runt spawns for a pile that decays
+ * away before the runt's life ends; the corp strands ~40 parts of fleet).
+ * Sub-floor stocks stay covered by opportunistic pickup (sourcePickupSpot),
+ * exactly like sub-threshold ones - the fid-t4 recapture class (real
+ * overflow piles, 2k+ near the controller) sizes ~0.7 e/t and stays above
+ * the floor.
+ */
+export const SCAVENGE_RATE_FLOOR = 0.5;
 
 /** A scavengeable ground energy stock (dropped pile, tombstone, or ruin). */
 export interface GroundStock {
@@ -67,13 +78,26 @@ export interface EnergyFind {
 }
 
 /**
- * Bounded drain rate (energy/tick) to assign a stock of `amount` energy: clear it
- * over SCAVENGE_DRAIN_TICKS, capped at MAX_SCAVENGE_RATE so a huge pile doesn't ask
- * for an absurd scavenger fleet. The cap means very large stocks drain over more
- * ticks - which is fine, the stock persists and is re-detected next cycle.
+ * Bounded drain rate (energy/tick) to assign a stock of `amount` energy at
+ * `distance` from its spawn (owner 2026-07-20): "scavenging IS better than
+ * mining. Especially if it's closer" - the energy is already extracted, so a
+ * stock competes with mined routes on plain route economics, not behind
+ * them. But the FLEET is sized waste-free like every other crew: "size the
+ * scavenger fleet to work through the pile in effective ttl", planning
+ * against the pile as it stands at the drain's TEMPORAL MIDPOINT (owner:
+ * "750 tick decay") - ground decay is proportional to the standing amount
+ * (ceil(amount/1000)/t, ~an exponential at 1/1000), so ~750 ticks into a
+ * ~1500-tick drain the pile sits at A*e^(-0.75) ~ 0.47*A; amount/2 is that
+ * midpoint within 6%. What decay takes anyway was never recoverable at
+ * this pace; a right-sized fleet cannot crowd standing production out of
+ * the parts ledger (the t72447104 displacement came from the old 150-tick
+ * burst target asking 20 e/t per pile). MAX_SCAVENGE_RATE stays as the
+ * absurdity cap. If a marginal remote still yields a route to a closer
+ * stock, that is the correct trade (owner: "not necessarily wrong - we
+ * sort of lose on the capex or the room reservation a bit").
  */
-export function scavengeRate(amount: number): number {
-  return Math.min(MAX_SCAVENGE_RATE, amount / SCAVENGE_DRAIN_TICKS);
+export function scavengeRate(amount: number, distance = 0): number {
+  return Math.min(MAX_SCAVENGE_RATE, amount / 2 / effectiveLife(distance));
 }
 
 /**
@@ -108,12 +132,12 @@ export function excludeControllerBucket(finds: EnergyFind[], controllerPos: Posi
 }
 
 /** Turn a detected stock into a transient PlannerSource (no miner; bounded drain rate). */
-export function stockToTransientSource(stock: GroundStock, nodeId: string): PlannerSource {
+export function stockToTransientSource(stock: GroundStock, nodeId: string, distance = 0): PlannerSource {
   return {
     id: stock.id,
     nodeId,
     pos: stock.pos,
-    rate: scavengeRate(stock.amount),
+    rate: scavengeRate(stock.amount, distance),
     maxMiners: 0,
     transient: true
   };
@@ -124,7 +148,11 @@ export function stockToTransientSource(stock: GroundStock, nodeId: string): Plan
  * energy. Thin wrapper over the room API; the thresholding/rate logic is the pure
  * functions above.
  */
-export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): GroundStock[] {
+export function detectRoomStocks(
+  room: Room,
+  threshold = SCAVENGE_THRESHOLD,
+  includeContainers = true
+): GroundStock[] {
   let finds: EnergyFind[] = [];
 
   for (const r of room.find(FIND_DROPPED_RESOURCES)) {
@@ -156,11 +184,16 @@ export function detectRoomStocks(room: Room, threshold = SCAVENGE_THRESHOLD): Gr
   // container is a single quantity of energy for planning - the container's
   // contents join the pile's find so thresholding and drain-rate sizing see
   // the true stock (execution drains the decaying pile first; nodeEnergy).
-  for (const find of finds) {
-    const pos = new RoomPosition(find.pos.x, find.pos.y, find.pos.roomName);
-    for (const s of pos.findInRange(FIND_STRUCTURES, 0)) {
-      if (s.structureType === STRUCTURE_CONTAINER) {
-        find.energy += (s as StructureContainer).store[RESOURCE_ENERGY];
+  // REMOTE callers pass includeContainers=false: the container is a route's
+  // own supply (scavenging it was the 2026-07-19 warchest-bleed siphon), so
+  // remote stocks are DROPPED-ONLY - the spill that decays if nobody comes.
+  if (includeContainers) {
+    for (const find of finds) {
+      const pos = new RoomPosition(find.pos.x, find.pos.y, find.pos.roomName);
+      for (const s of pos.findInRange(FIND_STRUCTURES, 0)) {
+        if (s.structureType === STRUCTURE_CONTAINER) {
+          find.energy += (s as StructureContainer).store[RESOURCE_ENERGY];
+        }
       }
     }
   }

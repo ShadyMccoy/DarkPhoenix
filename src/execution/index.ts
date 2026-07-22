@@ -23,6 +23,7 @@ export {
 export {
   commissionedCorpsOfKind,
   allCommissionedCorps,
+  completeCensus,
   CorpCensusEntry,
   runCommissionHost,
   resetCommissionHost
@@ -49,6 +50,8 @@ export {
 } from "./IncrementalAnalysis";
 
 export { renderNodeVisuals, renderSpatialVisuals } from "./Visualization";
+
+export { trackRoadUsage, roadCandidateTiles, renderRoadScores } from "./roadTracker";
 
 export {
   isSpawnPlacementInProgress,

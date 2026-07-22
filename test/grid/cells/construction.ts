@@ -310,7 +310,9 @@ export function buildConstructionT2Cells(): GridCell[] {
         eventually("a maintenance builder is fielded", (s) =>
           Object.entries(s.memory?.creeps ?? {}).some(
             ([, mem]: [string, any]) =>
-              mem?.workType === "build" && typeof mem?.corpId === "string" && mem.corpId.endsWith("-construction")
+              (mem?.workType === "build" || mem?.workType === "repair") &&
+              typeof mem?.corpId === "string" &&
+              mem.corpId.endsWith("-construction")
           )
         ),
         eventually("the 55% container is repaired", (s) => {
@@ -325,6 +327,59 @@ export function buildConstructionT2Cells(): GridCell[] {
           prevBHits = b.hits ?? 0;
           return !rose;
         }),
+      ],
+    },
+
+    {
+      // THE SPLIT (owner 2026-07-18: "repair and building can be completely
+      // separate functions - sites don't impact repair in any way"). Stage a
+      // decayed container AND unbuilt extensions: the build crew must raise
+      // extensions WHILE the standing repair detail heals the container - the
+      // old mode-switching pool did one or the other, never both.
+      id: "cons-t3-build-and-repair-concurrent",
+      tier: 3,
+      avenue: "construction",
+      window: 400,
+      rooms: { home: twoSourceRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        { type: "tower", x: 30, y: 26, energy: 1000 },
+        // 45% container WITH energy: below the 60% start gate, above critical,
+        // self-fuels its repair detail.
+        { type: "container", x: 15, y: 29, energy: 1500, hits: 112500 },
+        // Spawn-adjacent depot WITH stock: the concurrency contract needs an
+        // economy that can AFFORD two creeps (builder + detail). With the
+        // last-builder guard fixed (one-sided hysteresis, 2026-07-19), a
+        // drained cold ramp legitimately builds-first forever - the second
+        // member the +1 detail target orders must be buyable in-window.
+        { type: "container", x: 24, y: 24, energy: 1500 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        // Only HALF the extension ring pre-built: the corp places and builds
+        // the rest, guaranteeing live construction through the window.
+        ...EXT_POS.slice(0, 5).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+      ],
+      // The concurrency contract is CREW-FUNCTION independence, not cold-start
+      // affordability (the ramp cells own that): a drained T2 spawn (+1 e/t)
+      // never fields the +1 detail member in-window, so the crew is staged.
+      // Orphan corpIds - OrphanRescue re-homes both into the building corp.
+      creeps: [
+        { name: "cb1", x: 26, y: 25, body: ["work", "work", "carry", "move"], energy: 0, memory: { workType: "build", corpId: "staged-building" } },
+        { name: "cb2", x: 17, y: 28, body: ["work", "work", "carry", "move"], energy: 50, memory: { workType: "build", corpId: "staged-building" } },
+      ],
+      assertions: [
+        eventually("construction is underway (a site stands)", (s) =>
+          s.objects().some((o) => o.type === "constructionSite")
+        ),
+        eventually("the decayed container is repaired past the start gate WHILE sites still exist", (s) => {
+          const a = s.objects().find((o) => o.type === "container" && o.x === 15 && o.y === 29);
+          const sites = s.objects().some((o) => o.type === "constructionSite");
+          return !!a && (a.hits ?? 0) > 150000 && sites;
+        }),
+        eventually("the build crew keeps building (site progress advances materially)", (s) =>
+          s.objects().some((o) => o.type === "constructionSite" && (o.progress ?? 0) > 500) ||
+          s.objects().filter((o) => o.type === "extension").length > 5
+        ),
       ],
     },
 
@@ -528,15 +583,17 @@ export function buildConstructionT2Cells(): GridCell[] {
     {
       // TOWER PEACE-TIME REPAIR (owner directive 2026-07-19): a tower tops up
       // decaying roads/containers within TOWER_REPAIR_RANGE (10) when the room
-      // holds no hostiles. Two decayed containers at 88% sit at range 5 (IN)
-      // and range 15 (OUT) of a full tower. A persistent extension site keeps
-      // ORDINARY MAINTENANCE gated off (the corp builds, never maintains, while
-      // a site exists) and both containers stay above the 0.6 builder-field
-      // gate - so NO builder ever repairs a container here, and the ONLY thing
-      // that can raise one is the tower. The discriminators: the in-range
-      // container climbs toward the ceiling; the out-of-range one never rises
-      // (the range gate); and the tower stops at REPAIR_TO, never topping to
-      // full.
+      // holds no hostiles. Two decayed containers at 88% sit on ISOLATED,
+      // traffic-free tiles - one at range 6 of the tower (IN), one in the far
+      // corner at range 30 (OUT). Neither tile is a source/spawn/controller/
+      // depot spot, so no creep ever paths within repair range of them (this
+      // matters post-en-route-repair: a creep working a source-adjacent
+      // container would otherwise repair it and confound the range gate). The
+      // ONLY actor that can raise either container is the tower. The
+      // discriminators: the in-range one climbs toward the ceiling; the
+      // out-of-range one never rises (the range gate); the tower stops at
+      // REPAIR_TO, never topping to full. Both stay above the 0.6 builder-field
+      // gate, so no maintenance builder is ever fielded for them.
       id: "cons-tower-repairs-in-good-range",
       tier: 2,
       avenue: "construction",
@@ -546,44 +603,28 @@ export function buildConstructionT2Cells(): GridCell[] {
       controller: { level: 3 },
       structures: [
         { type: "tower", x: 30, y: 14, energy: 1000 },
-        { type: "container", x: 25, y: 12, energy: 0, hits: 220000 }, // IN range (5): tower's target, 88%
-        { type: "container", x: 15, y: 29, energy: 2000, hits: 220000 }, // OUT of range (15): range-gate control, 88%
-        { type: "container", x: 35, y: 29, energy: 0 }, // other source container, full
-        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+        // IN range (6 from the tower), isolated NE tile: the tower's target.
+        { type: "container", x: 36, y: 14, energy: 0, hits: 220000 }, // 88%
+        // OUT of range (30 from the tower), isolated SW corner: the range-gate
+        // control. No creep works this tile, so only a tower could ever repair
+        // it - and it is too far. It can only decay.
+        { type: "container", x: 10, y: 44, energy: 0, hits: 220000 }, // 88%
       ],
       creeps: quiet(),
-      async stage(ctx) {
-        // A persistent extension site so the room is unambiguously "building"
-        // for the whole window - ordinary maintenance stays gated, so any
-        // organic builder builds this site and never repairs a container.
-        await ctx.db["rooms.objects"].insert({
-          type: "constructionSite",
-          room: ctx.room(),
-          x: 27,
-          y: 29,
-          user: ctx.userId,
-          structureType: "extension",
-          progress: 0,
-          progressTotal: 30000,
-        });
-      },
       assertions: [
-        // Non-vacuity: the room is building, so maintenance is gated and no
-        // builder repairs these containers - the tower is the only actor left.
-        eventually("the room is building (an extension site exists), gating maintenance", (s) =>
-          s.objects().some((o: any) => o.type === "constructionSite" && o.structureType === "extension")
-        ),
-        // THE WIN: the tower drives the in-range decayed container up.
+        // THE WIN: the tower drives the in-range decayed container up. It sits
+        // on an isolated tile, so the tower is the only possible repairer -
+        // this rise IS the tower working (non-vacuity for the range gate).
         eventually("the tower repairs the in-range container toward the ceiling", (s) => {
-          const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+          const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 36 && o.y === 14);
           return !!inRange && (inRange.hits ?? 0) >= 243000;
         }),
-        // THE RANGE GATE: the out-of-range container is never reached - with
-        // maintenance gated and nobody else eligible, it can only decay.
+        // THE RANGE GATE: the out-of-range container is never reached. Isolated
+        // and beyond range 10, nothing can repair it - it only decays.
         always(
           "the out-of-range container is never repaired (range gate holds)",
           (s) => {
-            const outRange = s.objects().find((o: any) => o.type === "container" && o.x === 15 && o.y === 29);
+            const outRange = s.objects().find((o: any) => o.type === "container" && o.x === 10 && o.y === 44);
             return !!outRange && (outRange.hits ?? 0) <= 220000;
           },
           2 // staging settles
@@ -592,7 +633,7 @@ export function buildConstructionT2Cells(): GridCell[] {
         always(
           "the tower never over-repairs past the ceiling to full",
           (s) => {
-            const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
+            const inRange = s.objects().find((o: any) => o.type === "container" && o.x === 36 && o.y === 14);
             return !!inRange && (inRange.hits ?? 0) <= 248400; // 247500 ceiling + one 800 action of slack
           },
           2 // staging settles

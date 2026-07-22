@@ -343,6 +343,19 @@ export function isReservableRoom(roomName: string, myUsername: string | undefine
 export const INVADER_USERNAME = "Invader";
 
 /**
+ * Ticks OUR reservation on `roomName` has left, from the intel-stamped bound
+ * (see RoomIntel.reservedUntil). 0 for unknown, expired, or someone else's
+ * reservation - the conservative read (over-reserve, never lose the 3000
+ * rate). THE lens for the reserver duty cycle (spec 15 P5): the demand gate
+ * and any work-side release must both read this, never live vision.
+ */
+export function myReservationTicksLeft(roomName: string, myUsername: string | undefined): number {
+  const intel = typeof Memory !== "undefined" ? Memory.roomIntel?.[roomName] : undefined;
+  if (!intel?.reservedUntil || !myUsername || intel.reservedBy !== myUsername) return 0;
+  return Math.max(0, intel.reservedUntil - Game.time);
+}
+
+/**
  * Rooms currently held by hostiles, memoized per tick. Two flavors, one set:
  * hostile CREEPS (invaders, or any player's) sighted in the room, and an
  * invader CORE's controller reservation - the core is a structure the creep
@@ -427,6 +440,17 @@ export function hostileRooms(): Set<string> {
         delete stamped.invaderReservedUntil; // fresh sighting: reservation gone
         delete stamped.invaderCorePresent;
         blackBox("unmark", { room: roomName, kind: "reservation" });
+      }
+      // PLAYER reservation bound (spec 15 P5): stamp the absolute end-tick so
+      // the ReservationCorp can coast on a banked reservation with zero
+      // vision - the bound counts down exactly as the reservation does.
+      if (reservation && reservation.username !== INVADER_USERNAME) {
+        const target = stamped ?? (Memory.roomIntel[roomName] = { lastVisit: Game.time } as RoomIntel);
+        target.reservedUntil = Game.time + reservation.ticksToEnd;
+        target.reservedBy = reservation.username;
+      } else if (stamped?.reservedUntil !== undefined && !reservation) {
+        delete stamped.reservedUntil; // fresh sighting: no reservation stands
+        delete stamped.reservedBy;
       }
     }
     // Marks persist without vision until their TTL bound expires.

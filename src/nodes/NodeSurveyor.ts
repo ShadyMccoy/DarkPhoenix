@@ -1,4 +1,4 @@
-import { Node, NodeResource, NodeResourceType, PotentialCorp, getCorpsByType, getResourcesByType } from "./Node";
+import { Node, NodeResource, NodeResourceType, PotentialCorp, getResourcesByType } from "./Node";
 import { Position } from "../types/Position";
 import { spawnSiteValue } from "../economy/siteValue";
 
@@ -110,17 +110,8 @@ export class NodeSurveyor {
    * Evaluate potential for a mining corp at a source
    */
   private evaluateMiningCorp(node: Node, source: NodeResource): PotentialCorp | null {
-    // Check if we already have a mining corp for this source
-    const existingMiners = getCorpsByType(node, "mining");
-    const hasExistingMiner = existingMiners.some(
-      // In real implementation, would check sourceId
-      () => existingMiners.length > 0
-    );
-
-    if (hasExistingMiner && existingMiners.length >= getNodeSources(node).length) {
-      return null;
-    }
-
+    // Pre-spec-17 a gate here read node.corps - deleted market-era data that
+    // was ALWAYS empty, so it never fired; candidates are always proposed.
     // Calculate estimated ROI
     const sourceCapacity = source.capacity ?? 3000;
     const energyPerLifetime = (sourceCapacity / 300) * 1500; // ~15000 energy
@@ -144,11 +135,7 @@ export class NodeSurveyor {
    * Evaluate potential for a spawning corp at a spawn
    */
   private evaluateSpawningCorp(node: Node, spawn: NodeResource): PotentialCorp | null {
-    // Check if we already have a spawning corp
-    const existingSpawners = getCorpsByType(node, "spawning");
-    if (existingSpawners.length > 0) {
-      return null; // One spawn corp per spawn
-    }
+
 
     // A spawn is worth the chain it would stand up: price it with the planner
     // over this node's own sources, feeding its controller. This replaces a
@@ -177,11 +164,7 @@ export class NodeSurveyor {
    * Evaluate potential for an upgrading corp at a controller
    */
   private evaluateUpgradingCorp(node: Node, controller: NodeResource): PotentialCorp | null {
-    // Check if we already have an upgrading corp
-    const existingUpgraders = getCorpsByType(node, "upgrading");
-    if (existingUpgraders.length > 0) {
-      return null; // One upgrade corp per controller
-    }
+
 
     // Upgrading corps generate credits (the ultimate value)
     const workParts = 15;
@@ -326,44 +309,4 @@ export function createResource(
   };
 }
 
-/**
- * Estimate ROI for a mining operation (pure function)
- */
-export function estimateMiningROI(
-  sourceCapacity: number,
-  energyValue: number,
-  workTickCost: number,
-  workParts = 5,
-  creepLifetime = 1500
-): number {
-  const energyPerLifetime = (sourceCapacity / 300) * creepLifetime;
-  const revenue = energyPerLifetime * energyValue;
-  const cost = workParts * creepLifetime * workTickCost;
-  return cost > 0 ? (revenue - cost) / cost : 0;
-}
 
-/**
- * Estimate ROI for a hauling operation (pure function)
- */
-export function estimateHaulingROI(
-  distance: number,
-  energyValue: number,
-  carryTickCost: number,
-  destinationPremium = 1.2,
-  carryParts = 10,
-  creepLifetime = 1500
-): number {
-  const capacity = carryParts * 50;
-  const roundTripTime = Math.ceil(distance * 2 * 1.5);
-  if (roundTripTime === 0) return 0;
-
-  const trips = Math.floor(creepLifetime / roundTripTime);
-  const throughput = capacity * trips;
-
-  const energyCost = throughput * energyValue;
-  const carryTicksCost = carryParts * creepLifetime * carryTickCost;
-  const totalCost = energyCost + carryTicksCost;
-  const revenue = throughput * energyValue * destinationPremium;
-
-  return totalCost > 0 ? (revenue - totalCost) / totalCost : 0;
-}

@@ -27,14 +27,19 @@ export function buildPlannerT1Cells(): GridCell[] {
       id: "plan-t1-single-source-loop",
       tier: 1,
       avenue: "planning-economy",
-      // 900, thrice-measured: at d=22 the cold loop converges only via the
-      // starved-hold backstop - hauler #2 (the controller circuit, min 300)
-      // first demands at ~360, starves at ~660 (STARVATION_THRESHOLD=300),
-      // holds+spawns ~700, feeds the controller ~780. This cell is the
-      // spec-01 dead window quantified at realistic distance; shrinking the
-      // horizon is a bot-improvement job (e.g. a lower threshold), not an
-      // assertion job.
-      window: 900,
+      // 1200 (was 900, thrice-measured on the author's host): at d=22 the
+      // cold loop converges only via the starved-hold backstop - hauler #2
+      // (the controller circuit, min 300) first demands at ~360, starves at
+      // ~660 (STARVATION_THRESHOLD=300), holds+spawns ~700, feeds the
+      // controller ~780. The 900 window carried ZERO margin over that
+      // convergence and went red on slower hosts (2026-07-20: 4/4 timeouts
+      // on a container host INCLUDING the untouched base commit - the
+      // mockup's per-tick CPU limit truncates ticks under load, delaying
+      // tick-counted milestones). Widened per the pin-reconciliation
+      // doctrine: the pin encodes CONVERGENCE, not host speed. Shrinking
+      // the real dead window is a bot-improvement job (a lower starvation
+      // threshold - the first A/B-pipeline experiment), not an assertion job.
+      window: 1200,
       rooms: {
         home: (roomName: string) => new RoomBuilder(roomName).border().controller(25, 10).source(25, 47).toRoom(),
       },

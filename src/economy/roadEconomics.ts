@@ -99,6 +99,99 @@ export const MOVE_PER_CARRY_PLAIN = 1;
 export const MOVE_PER_CARRY_SWAMP = 5;
 export const MOVE_PER_CARRY_ROAD = 0.5;
 
+/**
+ * Loaded travel time (ticks) to cross ONE tile of terrain move-cost
+ * `terrainCost` (plain 2, road 1, swamp 10) for a hauler at `carryPerMove`
+ * CARRY:MOVE. The end-of-tick fatigue model: a loaded creep adds
+ * carryPerMove*terrainCost fatigue per MOVE-worth and clears 2 per MOVE/tick,
+ * giving max(1, ceil(carryPerMove*terrainCost/2)) ticks per tile. So 1:1
+ * clears plain AND road at 1 tick/tile (crawls swamp at 5); 2:1 clears road at
+ * 1 but plain at 2 (half speed) and swamp at 10. An EMPTY creep generates no
+ * fatigue and always moves 1 tile/tick - only the LOADED leg pays this.
+ */
+export function loadedTicksPerTile(terrainCost: number, carryPerMove: number): number {
+  return Math.max(1, Math.ceil((carryPerMove * terrainCost) / 2));
+}
+
+/**
+ * Round-trip TIME in ticks for a hauler at `carryPerMove` over a route of
+ * roadTiles/plainTiles/swampTiles: EMPTY out (1 tick/tile, always), LOADED back
+ * (terrain- and ratio-dependent via loadedTicksPerTile), plus 2 to load+unload.
+ * This is the tick-accurate round trip that CARRY sizing must use once a body's
+ * MOVE ratio no longer clears the terrain at full speed - the owner's
+ * ticks-not-tiles: the SAME tile distance is a different TIME (so a different
+ * CARRY count) on a 2:1 body over unpaved ground. For a 1:1 body on plain/road,
+ * or a 2:1 body on fully paved road, it equals primitives.roundTripTicks(tiles).
+ * `roadTiles` are tiles with a BUILT road (cost 1 regardless of underlying
+ * terrain); plain/swamp are the still-unpaved remainder.
+ */
+export function roundTripTicksForRoute(
+  roadTiles: number,
+  plainTiles: number,
+  swampTiles: number,
+  carryPerMove: number
+): number {
+  const tiles = roadTiles + plainTiles + swampTiles;
+  const loadedBack =
+    roadTiles * loadedTicksPerTile(1, carryPerMove) +
+    plainTiles * loadedTicksPerTile(2, carryPerMove) +
+    swampTiles * loadedTicksPerTile(10, carryPerMove);
+  return tiles + loadedBack + 2;
+}
+
+/**
+ * Paved fraction at which a route's haulers reprice to the 2:1 road body
+ * MID-BUILD (owner 2026-07-20: "even if the road is 32 out of 38 we could
+ * probably still optimize the body parts somewhat"). The exact breakeven is
+ * 1/3: total standing parts tie when 1.5*(d + d*(2-p)) = 2*2d <=> p = 1/3
+ * (empty legs are free at any ratio; only the loaded crawl differs). 1/2
+ * leaves margin over the model's +2 constants and rounding, so a trunk flips
+ * bodies once with a real win (~6% at the flip, 25% fully paved) instead of
+ * oscillating at the tie.
+ */
+export const PARTIAL_PAVE_REPRICE_FRACTION = 0.5;
+
+export interface PartialPaveVerdict {
+  /** Verified built/total, clamped to [0,1]; 0 when the total is unknown. */
+  fraction: number;
+  /** The winning hauler body at this fraction. */
+  ratio: "2:1" | "1:1";
+  /** Spawn build-parts per CARRY unit at that ratio (1.5 road, 2 plain). */
+  partsPerCarry: number;
+}
+
+/**
+ * The mid-build hauler-body verdict for a route with `builtTiles` of
+ * `totalTiles` verifiably paved (ConstructionCorp's survey receipt). Callers
+ * holding a bare fraction pass (fraction, 1).
+ */
+export function partialPaveRatio(builtTiles: number, totalTiles: number): PartialPaveVerdict {
+  const fraction = totalTiles > 0 ? Math.min(1, Math.max(0, builtTiles / totalTiles)) : 0;
+  const road = fraction >= PARTIAL_PAVE_REPRICE_FRACTION;
+  return {
+    fraction,
+    ratio: road ? "2:1" : "1:1",
+    partsPerCarry: road ? 1 + MOVE_PER_CARRY_ROAD : 1 + MOVE_PER_CARRY_PLAIN
+  };
+}
+
+/**
+ * The one-way distance that, fed to primitives.roundTripTicks/carryPartsFor,
+ * reproduces a partially-paved route's TRUE round-trip time for a body at
+ * `carryPerMove` CARRY:MOVE - so CARRY sizing covers the loaded crawl over
+ * the still-unpaved stretch (ticks, not tiles). Empty out is full speed on
+ * any surface; the loaded leg pays per-tile via loadedTicksPerTile (unpaved
+ * tiles modeled as plain - swamps are paved first / detoured by the planner).
+ * For a 1:1 body, or a 2:1 body on a fully paved route, this is the identity.
+ */
+export function effectiveOneWayTiles(oneWayTiles: number, pavedFraction: number, carryPerMove: number): number {
+  const paved = oneWayTiles * Math.min(1, Math.max(0, pavedFraction));
+  const unpaved = oneWayTiles - paved;
+  const loadedBack = paved * loadedTicksPerTile(1, carryPerMove) + unpaved * loadedTicksPerTile(2, carryPerMove);
+  return (oneWayTiles + loadedBack) / 2;
+}
+
+
 /** A haul route as the road planner sees it. */
 export interface RoadRouteSpec {
   /** One-way path length in tiles (the actual path, not chebyshev). */
@@ -219,6 +312,26 @@ export function evaluateRoadRoute(
     paybackTicks,
     worthPaving: oneWay > 0 && netSavingsPerTick > 0 && paybackTicks <= horizonTicks
   };
+}
+
+/**
+ * Flow rise that voids a cached `declined` verdict. A route judged
+ * not-worth-paving at some flow stays declined while flow holds near that
+ * level (the cache exists so routes are not re-planned every cooldown), but
+ * a MATERIAL rise re-opens the question: reservation doubles a remote source
+ * (5 -> 10 e/t), clearing this 1.5x bar by design; solver jitter does not.
+ */
+export const REJUDGE_FLOW_FACTOR = 1.5;
+
+/**
+ * Does a cached not-worth-paving verdict still stand at the current flow?
+ * Stands while currentFlow <= judgedFlow * REJUDGE_FLOW_FACTOR. A verdict
+ * with NO recorded flow (legacy entries predating the stamp) never stands
+ * against a live flow - it earns exactly one re-judge, which records
+ * judgedFlow for every verdict after it.
+ */
+export function declinedVerdictStands(judgedFlow: number | undefined, currentFlow: number): boolean {
+  return currentFlow <= (judgedFlow ?? 0) * REJUDGE_FLOW_FACTOR;
 }
 
 /**

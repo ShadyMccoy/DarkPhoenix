@@ -1,0 +1,198 @@
+{
+  "shard": "shard1",
+  "capturedAt": "2026-07-20T07:02:12.248Z",
+  "tick": 72447831,
+  "segments": [
+    0
+  ],
+  "data": {
+    "core": {
+      "version": 7,
+      "tick": 72447831,
+      "shard": "shard1",
+      "cpu": {
+        "used": 82.86664710000014,
+        "limit": 300,
+        "bucket": 10000,
+        "tickLimit": 500
+      },
+      "gcl": {
+        "level": 32,
+        "progress": 274268625.58056545,
+        "progressTotal": 300508132.580564
+      },
+      "colony": {
+        "nodeCount": 0,
+        "totalCorps": 0,
+        "activeCorps": 0
+      },
+      "creeps": {
+        "total": 33,
+        "tracked": 32,
+        "untracked": 1,
+        "byKind": {
+          "harvest": 6,
+          "upgrade": 1,
+          "construction": 5,
+          "reservation": 3,
+          "scout": 0,
+          "tender": 3,
+          "controllerFeeder": 1,
+          "coreBuster": 0,
+          "raidGuard": 1,
+          "carry": 12,
+          "bootstrap": 0
+        },
+        "countMismatch": [
+          {
+            "corpId": "hauling-W44N23-hauling-cbd5",
+            "claimed": 2,
+            "counted": 1
+          }
+        ]
+      },
+      "bodyParts": {
+        "total": 423,
+        "byPart": {
+          "work": 37,
+          "move": 180,
+          "claim": 6,
+          "carry": 195,
+          "attack": 5
+        }
+      },
+      "spawns": [
+        {
+          "id": "6a261309c1ca830013f516a5",
+          "name": "Spawn1",
+          "windowTicks": 487,
+          "utilization": 0.7351129363449692,
+          "partsPerTick": 0.24503764544832307,
+          "ceiling": 0.3333333333333333,
+          "queueDepth": 3
+        }
+      ],
+      "agenda": {
+        "6a261309c1ca830013f516a5": {
+          "tick": 72447831,
+          "fundingNeed": 300,
+          "queueDepth": 3,
+          "queue": [
+            {
+              "role": "hauler",
+              "corp": "hauling-W44N23-hauling-cbd5",
+              "minCost": 300,
+              "desiredCost": 2300,
+              "mustFund": false,
+              "why": "scale",
+              "since": 72447831,
+              "gate": "buy"
+            },
+            {
+              "role": "hauler",
+              "corp": "hauling-W42N22-hauling-cee0",
+              "minCost": 300,
+              "desiredCost": 2300,
+              "mustFund": false,
+              "why": "scale",
+              "since": 72447795,
+              "precondition": "after:hauling-W44N23-hauling-cbd5",
+              "gate": "queued"
+            },
+            {
+              "role": "hauler",
+              "corp": "hauling-W43N24-hauling-cd8e",
+              "minCost": 300,
+              "desiredCost": 1500,
+              "mustFund": true,
+              "why": "replacement",
+              "since": 72447795,
+              "precondition": "after:hauling-W42N22-hauling-cee0",
+              "gate": "queued"
+            }
+          ],
+          "executed": [
+            {
+              "tick": 72447603,
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "cost": 1300
+            },
+            {
+              "tick": 72447615,
+              "role": "hauler",
+              "corp": "hauling-W42N22-hauling-cee0",
+              "cost": 556
+            },
+            {
+              "tick": 72447645,
+              "role": "tanker",
+              "corp": "moving-W43N23-tender",
+              "cost": 600
+            },
+            {
+              "tick": 72447681,
+              "role": "guard",
+              "corp": "raidGuard-W43N23-raidGuard",
+              "cost": 650
+            },
+            {
+              "tick": 72447711,
+              "role": "hauler",
+              "corp": "hauling-W42N22-hauling-cee0",
+              "cost": 1406
+            },
+            {
+              "tick": 72447795,
+              "role": "miner",
+              "corp": "mining-W43N24-harvest-cd8d",
+              "cost": 650
+            },
+            {
+              "tick": 72447819,
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "cost": 1300
+            },
+            {
+              "tick": 72447831,
+              "role": "hauler",
+              "corp": "hauling-W44N23-hauling-cbd5",
+              "cost": 1500
+            }
+          ]
+        }
+      },
+      "remoteGate": {
+        "tick": 72447821,
+        "saturated": true,
+        "until": 72448082
+      },
+      "sourceBuffers": {
+        "dbcee0": 234,
+        "dbcd94": 0,
+        "dbcd90": 0,
+        "dbcd92": 6052,
+        "dbcd8d": 2307,
+        "dbcd8e": 513,
+        "dbcbd5": 0
+      },
+      "rooms": [
+        {
+          "name": "W43N23",
+          "rcl": 6,
+          "rclProgress": 57450,
+          "rclProgressTotal": 3645000,
+          "energyAvailable": 1500,
+          "energyCapacity": 2300,
+          "storageEnergy": 229963,
+          "controllerStock": 2000,
+          "feederActive": true,
+          "siteProgress": 0,
+          "siteTotal": 0,
+          "siteCount": 0
+        }
+      ]
+    }
+  }
+}

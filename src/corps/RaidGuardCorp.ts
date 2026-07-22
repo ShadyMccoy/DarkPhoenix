@@ -234,8 +234,17 @@ export class RaidGuardCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
 
+    // Sizing stamp (spec 14 / the raid post-mortem question): what the guard
+    // decision read, verbatim - per-armed-room raid meters and coverage. A
+    // wave's aftermath is answerable from one capture: was the meter armed,
+    // was a guard demanded, was the room covered when it hit.
+    const debts: { [room: string]: number } = {};
     const targets = this.guardTargets(spawn.room.name);
-    if (targets.length === 0) return [];
+    for (const r of targets) debts[r] = Memory.roomIntel?.[r]?.raidDebt ?? 0;
+    if (targets.length === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-targets" };
+      return [];
+    }
 
     const covered = new Set(
       this.getActiveCreeps()
@@ -243,10 +252,23 @@ export class RaidGuardCorp extends Corp {
         .filter((r): r is string => !!r)
     );
     const uncovered = targets.filter(t => !covered.has(t));
-    if (uncovered.length === 0) return [];
+    if (uncovered.length === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "covered", targets: targets.length, debts };
+      return [];
+    }
 
     const body = buildGuardBody(ctx.energyCapacity);
-    if (body.cost === 0) return []; // cannot field a viable guard yet
+    if (body.cost === 0) {
+      this.lastSizing = { tick: ctx.tick, gate: "no-body", targets: targets.length, debts };
+      return []; // cannot field a viable guard yet
+    }
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: "demand",
+      targets: targets.length,
+      uncovered: uncovered.length,
+      debts
+    };
     const floor = buildGuardBody(390); // the 3-pair viable floor
 
     return uncovered.map(() => ({

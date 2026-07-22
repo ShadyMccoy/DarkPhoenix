@@ -16,7 +16,7 @@
  */
 
 import { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../flow/FlowTypes";
-import { SPAWN_PARTS_PER_TICK } from "../corps/economics";
+import { RESERVER_DUTY, SPAWN_PARTS_PER_TICK } from "../corps/economics";
 
 export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS, SPAWN_PARTS_PER_TICK };
 
@@ -70,6 +70,20 @@ export function carryPartsFor(rate: number, distance: number): number {
   return (rate * roundTripTicks(distance)) / CARRY_CAPACITY;
 }
 
+/**
+ * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
+ * standing adjacent to both its bank and its sink (the link-fed controller
+ * feeder: storage on one side, core link on the other; owner 2026-07-22 "The
+ * feeder doesn't move at all"). The cycle is withdraw tick + transfer tick with
+ * zero travel, so carry = rate * 2 / CARRY_CAPACITY - roundTripTicks(1) would
+ * charge two phantom travel ticks and double the body. Continuous (fractional);
+ * callers round up when sizing an actual body.
+ */
+export const PARKED_RELAY_CYCLE_TICKS = 2;
+export function parkedRelayCarry(rate: number): number {
+  return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
+}
+
 export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 
@@ -116,6 +130,135 @@ export function staffsPost(ttl: number | undefined, bodyParts: number, travelTic
  */
 export function sustainableConsumptionRate(stock: number, inflow = 0): number {
   return inflow + stock / CREEP_LIFETIME;
+}
+
+/**
+ * Fraction of a crew's EFFECTIVE life (lifetime minus travel) a project
+ * should complete within (owner 2026-07-20: "limit the builders to the size
+ * that would complete the whole construction project during their lifetime
+ * ... Let's have a bit of a buffer. We don't want it 99% finished. And
+ * there's travel time. We can aim for around 1,000 but in any case it
+ * should be based on effective ttl (i.e. excluding travel time) not a hard
+ * constant. Since we might, for example, be trying to build up a spawn in a
+ * couple rooms over."). 2/3 of a full 1500 life = the owner's ~1000 at zero
+ * travel; a build site 100 tiles out gets 2/3 of 1400.
+ */
+export const PROJECT_COMPLETION_FRACTION = 2 / 3;
+
+/** The sizing horizon for a crew working `travelDistance` from its spawn. */
+export function projectBuildHorizon(travelDistance: number): number {
+  return Math.max(1, PROJECT_COMPLETION_FRACTION * effectiveLife(travelDistance));
+}
+
+/**
+ * The energy/tick a body of construction WORK can usefully absorb: finish the
+ * outstanding site work within the buffered effective life of the crew,
+ * floored at one small builder (5 e/t = 1 WORK - the granularity floor). A
+ * crew sized this way finishes with margin before it dies - no 99%-stranded
+ * projects, no spawned WORK-ticks idling long after completion; the
+ * un-claimed energy scores at the controller via the value pass ("the rest
+ * flows back to upgrading in the planner"). The SUM-OF-PROJECTS lens (owner
+ * 2026-07-19: "a construction project is a finite tile list with a computable
+ * total cost"), shared by the EXECUTION crew sizing (ConstructionCorp.
+ * builderPlan) and the PLAN's construction-sink capacity (flowAdapter) - the
+ * two MUST read the same formula, or the plan allocates energy the crew will
+ * never burn (measured prod t72444684: a 455-energy extension site was
+ * granted 124 e/t of bank draw, actual burn 0.45 e/t, warchest +7.66/t to
+ * 8.3x target while the controller got 2 e/t). Batching a structure SET into
+ * visible sites raises `remainingWork` and with it the crew cap - the
+ * owner's focused-burst lever under this rule.
+ */
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0): number {
+  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance));
+}
+
+/**
+ * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
+ * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
+ * energy allocation into the standing bodies that burn it.
+ */
+export const UPGRADER_PARTS_PER_WORK = 4 / 3;
+
+/**
+ * Spawn build-time (parts/tick) to MAINTAIN the upgrader fleet burning
+ * `energyPerTick` at a controller `distance` tiles from its spawn. One WORK
+ * burns UPGRADE_ENERGY_PER_WORK (1) e/t, each WORK rides in a body of
+ * UPGRADER_PARTS_PER_WORK parts, amortized over the effective life. This is
+ * the consumer side of the plan's spawn-parts ledger (spec 15 P4): energy
+ * allocations are wishes until the bodies that burn them are affordable in
+ * the spawn's OTHER currency.
+ */
+export function controllerWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  // Continuous, like carryPartsFor: planning math stays fractional and the
+  // body sizer rounds (workPartsForEnergyRate ceils - correct for bodies,
+  // wrong for a ledger, where the ceil made charge and audit disagree by a
+  // fraction of one WORK body).
+  const workParts = energyPerTick / UPGRADE_ENERGY_PER_WORK;
+  return (workParts * UPGRADER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
+/**
+ * Body parts per WORK of builder fleet (W-heavy build body: 5W1C3M = 1.8,
+ * rounded up for the shuttle tanker's share). With BUILD_ENERGY_PER_WORK = 5,
+ * a construction sink burns energy 5x more spawn-cheaply than a controller:
+ * the same e/t needs one fifth the WORK bodies.
+ */
+export const BUILDER_PARTS_PER_WORK = 1.8; // measured: 5W1C3M = 9 parts / 5 WORK
+
+/**
+ * Spawn build-time (parts/tick) to maintain the builder fleet burning
+ * `energyPerTick` at sites `distance` from the spawn - the construction-sink
+ * side of the plan's spawn-parts ledger (spec 15 P4), mirror of
+ * controllerWorkSpawnLoad. Continuous, like every planning formula here.
+ */
+export function constructionWorkSpawnLoad(energyPerTick: number, distance: number): number {
+  const workParts = energyPerTick / BUILD_ENERGY_PER_WORK;
+  return (workParts * BUILDER_PARTS_PER_WORK) / effectiveLife(distance);
+}
+
+/** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
+const FEEDER_NOMINAL_DISTANCE = 6;
+
+/**
+ * Spawn build-time (parts/tick) of the standing infrastructure the plan
+ * implies but does not commission through routeToSinks: the storage->
+ * controller feeder shuttle sized to `relayRate`, the extension tender
+ * detail, and one reserver per remote room. Priced at CURRENT behavior
+ * (reserver duty 1.0 - spec 15 P5; when the duty cycle ships this halves and
+ * frees the parts). Fed to the planner as ColonyProblem.infraPartsPerTick by
+ * the flow adapter, so the sink fill spends only what is truly left.
+ */
+export function infraSpawnLoad(
+  relayRate: number,
+  depotRoomCount: number,
+  remoteRoomCount: number,
+  linkFedRoomCount = 0
+): number {
+  // Feeder + tender are DEPOT movers: they exist only in rooms with a built
+  // storage (`depotRoomCount`). Charging them unconditionally taxed early
+  // worlds ~5-7% of the parts budget for infra that cannot exist there
+  // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
+  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
+  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th
+  // the CARRY for the same relay. Priced like the original: one feeder
+  // detail for the depot room (multi-depot pricing arrives with expansion).
+  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
+  // 2 tankers x measured 24-part body, per depot room (owner ratchet
+  // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
+  const TENDER_FLEET_PARTS = 48;
+  const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
+  const CLAIM_LIFETIME = 600;
+  const RESERVER_WALK = 60; // nominal remote-controller walk
+  // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
+  // corp coasts on the reservation bank, one stint per ~1080t. Holding this
+  // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
+  // reserves - defense preempts via priority when needed, it does not
+  // reserve capacity).
+  const reservers =
+    (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  return feeder + tender + reservers;
 }
 
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */

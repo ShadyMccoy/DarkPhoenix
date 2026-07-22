@@ -7,18 +7,11 @@
  * @module corps/SpawningCorp
  */
 
-import { BODY_PART_COST, CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
 import { drawOrder } from "./refillCircuit";
 import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
-import {
-  UpgraderStrategy,
-  buildGuardBody,
-  buildMinerBody,
-  buildReserverBody,
-  buildTankerBody,
-  buildUpgraderBody
-} from "../spawn/BodyBuilder";
+import { getCorpKind } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 
 /**
@@ -116,23 +109,16 @@ export class SpawningCorp extends Corp {
    * granted energy budget and spawn it. Returns true if a creep was spawned.
    *
    * This is the executor half of the demand-driven spawn pipeline: the
-   * SpawnScheduler decides WHAT to spawn and HOW MUCH energy to spend; this maps
-   * that to an actual body and a spawnCreep call.
+   * SpawnScheduler decides WHAT to spawn and HOW MUCH energy to spend; this
+   * dispatches to the buyer KIND's declarations - body shape via kind.body()
+   * and the creep's workType stamp via kind.roles - so a new kind's creeps
+   * spawn by registration alone. (The historical 12-role switch + workTypeMap
+   * this replaces are frozen as the reference in
+   * test/unit/framework/bodyEquivalence.test.ts.)
    */
   public executeSpawn(
-    role:
-      | "miner"
-      | "hauler"
-      | "upgrader"
-      | "builder"
-      | "scout"
-      | "tanker"
-      | "feeder"
-      | "reserver"
-      | "claimer"
-      | "guard"
-      | "buster"
-      | "striker",
+    kind: string,
+    role: string,
     buyerCorpId: string,
     energyBudget: number,
     tick: number,
@@ -143,49 +129,28 @@ export class SpawningCorp extends Corp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return false;
 
-    const body = this.buildBodyForRole(role, energyBudget, bodyParam, haulerRatio, bodyStrategy);
+    const corpKind = getCorpKind(kind);
+    const roleSpec = corpKind?.roles[role];
+    if (!corpKind || !roleSpec) {
+      // A wiring bug (unregistered kind / undeclared role), surfaced loudly:
+      // conformance asserts every kind's demand roles are declared.
+      console.log(`[Spawning] no registered kind/role for ${kind}/${role} (buyer ${buyerCorpId})`);
+      return false;
+    }
+
+    const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy });
     if (body.length === 0) return false;
 
     const bodyCost = this.calculateBodyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return false;
 
-    const workTypeMap: Record<
-      string,
-      "harvest" | "haul" | "tank" | "feed" | "upgrade" | "build" | "scout" | "reserve" | "claim" | "guard" | "buster" | "strike"
-    > = {
-      miner: "harvest",
-      hauler: "haul",
-      upgrader: "upgrade",
-      builder: "build",
-      scout: "scout",
-      reserver: "reserve",
-      claimer: "claim",
-      // A raid guard is the remote mines' bodyguard (spec 13): its own
-      // workType keeps it distinct for orphan re-adoption and the census.
-      guard: "guard",
-      // The core-buster mission's two phases (spec 13): ATTACK buster kills
-      // the invader core, CLAIM striker grinds off the leftover reservation.
-      buster: "buster",
-      striker: "strike",
-      // A tanker (carrier) is an INTRA-node feeder: it shuttles energy between
-      // local sinks and sources within one node (e.g. a hauler's drop-off -> the
-      // builder). That is a different job from a hauler, which does long-range
-      // INTER-node transport - even though both are CARRY+MOVE creeps. Keep them
-      // distinct so the economy can reason about (and instrument) each.
-      tanker: "tank",
-      // A feeder is the controller's dedicated intra-node mover: it relays energy
-      // from the storage bank to the controller input. Its own workType keeps it
-      // distinct from the extension tender (both are "moving" corps) for
-      // instrumentation and orphan re-adoption.
-      feeder: "feed"
-    };
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     // Drain in refill-circuit order (owner directive): spawning empties the
     // same stops in the same sequence the refill bus tops them up, so holes
     // form one contiguous run along the tour instead of scattered potholes.
     const energyStructures = drawOrder(spawn.room);
     const result = spawn.spawnCreep(body, name, {
-      memory: { corpId: buyerCorpId, workType: workTypeMap[role], spawnedBy: this.id },
+      memory: { corpId: buyerCorpId, workType: roleSpec.workType, spawnedBy: this.id },
       ...(energyStructures.length > 0 ? { energyStructures } : {})
     });
 
@@ -198,100 +163,6 @@ export class SpawningCorp extends Corp {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Build a body for the given role that costs at most `energyBudget`.
-   */
-  private buildBodyForRole(
-    role:
-      | "miner"
-      | "hauler"
-      | "upgrader"
-      | "builder"
-      | "scout"
-      | "tanker"
-      | "feeder"
-      | "reserver"
-      | "claimer"
-      | "guard"
-      | "buster"
-      | "striker",
-    energyBudget: number,
-    bodyParam?: number,
-    haulerRatio?: HaulerRatio,
-    bodyStrategy?: string
-  ): BodyPartConstant[] {
-    switch (role) {
-      case "miner":
-        // CARRY only for link-fed miners (the one job that uses it).
-        return buildMinerBody(bodyParam ?? 5, energyBudget, bodyStrategy === "linkFed").body;
-      case "upgrader":
-        return buildUpgraderBody(energyBudget, bodyParam ?? 5, bodyStrategy as UpgraderStrategy | undefined).body;
-      case "builder":
-        return buildUpgraderBody(energyBudget, 2).body;
-      case "tanker":
-        // Pure CARRY+MOVE feeder; bodyParam is the desired CARRY parts.
-        return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
-      case "feeder": {
-        // The controller feeder SHUTTLES storage <-> controller, so unlike the
-        // parked extension tender it must move at load speed - a balanced 1:1
-        // CARRY:MOVE body (bodyParam = desired CARRY parts).
-        const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
-        const feederBody: BodyPartConstant[] = [];
-        for (let i = 0; i < carry; i++) feederBody.push(CARRY);
-        for (let i = 0; i < carry; i++) feederBody.push(MOVE);
-        return feederBody;
-      }
-      case "scout":
-        return [MOVE];
-      case "reserver":
-        // bodyParam is the desired CLAIM count; defaults to 2.
-        return buildReserverBody(energyBudget, bodyParam ?? 2).body;
-      case "claimer":
-        // Claiming needs exactly one CLAIM part; same builder, capped at 1.
-        return buildReserverBody(energyBudget, bodyParam ?? 1).body;
-      case "guard":
-        // bodyParam is the desired ATTACK count; defaults to the engine-fact 5.
-        return buildGuardBody(energyBudget, bodyParam ?? 5).body;
-      case "buster":
-        // Core grinder: same ATTACK/MOVE shape, up to 10 pairs (cores are
-        // 100k hits and defenseless - bigger just finishes sooner).
-        return buildGuardBody(energyBudget, bodyParam ?? 10).body;
-      case "striker":
-        // Reservation stripper: CLAIM+MOVE pairs, attackController duty.
-        return buildReserverBody(energyBudget, bodyParam ?? 2).body;
-      case "hauler": {
-        const { carryRatio, moveRatio } = this.getPartRatios(haulerRatio ?? "1:1");
-        const costPerUnit = BODY_PART_COST.carry * carryRatio + BODY_PART_COST.move * moveRatio;
-        const partsPerUnit = carryRatio + moveRatio;
-        const maxByBudget = Math.floor(energyBudget / costPerUnit);
-        const maxBySize = Math.floor(50 / partsPerUnit);
-        const desiredUnits = bodyParam ? Math.ceil(bodyParam / carryRatio) : maxByBudget;
-        const units = Math.max(1, Math.min(desiredUnits, maxByBudget, maxBySize));
-        if (units < 1) return [];
-        const body: BodyPartConstant[] = [];
-        for (let i = 0; i < units * carryRatio; i++) body.push(CARRY);
-        for (let i = 0; i < units * moveRatio; i++) body.push(MOVE);
-        return body;
-      }
-    }
-  }
-
-  /**
-   * Get CARRY:MOVE part counts for a ratio string.
-   */
-  private getPartRatios(ratio: HaulerRatio): { carryRatio: number; moveRatio: number } {
-    switch (ratio) {
-      case "2:1":
-        return { carryRatio: 2, moveRatio: 1 }; // Road-optimized
-      case "1:1":
-        return { carryRatio: 1, moveRatio: 1 }; // Balanced (plains)
-      case "1:2":
-        return { carryRatio: 1, moveRatio: 2 }; // Swamp-capable
-      default:
-        return { carryRatio: 1, moveRatio: 1 };
-    }
   }
 
   /**

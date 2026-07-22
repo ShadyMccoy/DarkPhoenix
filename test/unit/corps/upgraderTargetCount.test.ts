@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { upgraderAllocation, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
 import { WARCHEST_TARGET, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
@@ -65,19 +65,55 @@ describe("upgraderAllocation", () => {
     expect(upgraderAllocation(15, 2000, null)).to.be.closeTo(sustainableConsumptionRate(2000, 2), 1e-9);
   });
 
-  it("surplus regime: the feeder relay is real inflow and the fleet scales to the plan", () => {
+  it("surplus regime: sized from ACTUALS - the plan is not a cap (prod t72448020)", () => {
     const banked = WARCHEST_TARGET + 100_000;
-    // plan opened to 30 by the bank draw; relay 35 + stock term clears it, so
-    // the PLAN caps the fleet (planner authority), not the drip-fed stock.
-    expect(upgraderAllocation(30, 2000, banked)).to.be.closeTo(30, 1e-9);
-    // and the uncapped sizing is exactly the shared-primitives formula
-    expect(upgraderAllocation(999, 2000, banked)).to.be.closeTo(
-      sustainableConsumptionRate(2000, feederRelayRate(banked)),
-      1e-9
-    );
+    // The old pin let the plan cap the surplus fleet; live, a
+    // parts-exhausted fill pinned planAllocated at the reserve 2 while
+    // stock 2000 + relay + 234k banked stood ready - the goal-plan cap
+    // held the burn at 2 e/t forever. Macro doctrine: consumers are sized
+    // from actual stock at the work site, never from the goal plan; the
+    // NOW-walk arbitrates spawn feasibility. In surplus BOTH calls now
+    // return the shared-primitives actuals formula, plan number ignored.
+    const actuals = sustainableConsumptionRate(2000, feederRelayRate(banked));
+    expect(upgraderAllocation(30, 2000, banked)).to.be.closeTo(actuals, 1e-9);
+    expect(upgraderAllocation(999, 2000, banked)).to.be.closeTo(actuals, 1e-9);
   });
 
   it("never sizes below the anti-downgrade floor", () => {
     expect(upgraderAllocation(15, 0, null)).to.equal(2);
+  });
+
+  it("surplus + a build-out that absorbs the whole draw: the plan is the cap again (owner 2026-07-21)", () => {
+    // "Construction is going to be an investment in our future upgrading
+    // abilities" - when the standing sites can genuinely EAT the surplus
+    // (constructionAbsorb >= the draw), the surplus belongs to the build
+    // set and upgraders eat the plan's residual (min(plan, sustainable)),
+    // exactly the save-regime shape. Same absorb lens as the feeder
+    // (buildPoolAbsorbRate), so the chain cannot fight itself.
+    const banked = WARCHEST_TARGET + 100_000;
+    const surplusDraw = feederRelayRate(banked);
+    const clamped = upgraderAllocation(12, 2000, banked, surplusDraw + 10);
+    expect(clamped).to.be.at.most(12);
+    // and without construction the unclamped actuals still rule:
+    expect(upgraderAllocation(12, 2000, banked, 0)).to.be.greaterThan(12);
+  });
+
+  it("surplus + construction absorbing only a trickle: the fleet eats the REST of the surplus (prod t72478939)", () => {
+    // The boolean form of this clamp treated 12 road sites (pool absorb
+    // ~5 e/t) exactly like a 100k build-out: allocated pinned at the plan
+    // residual 2 while surplus 115 stood and the build side ran 0.47 e/t
+    // measured - the freed energy BANKED (+20.18/t at 474k, 17x target).
+    // Construction-first, absorb-bounded: the build set eats what it CAN
+    // (the same projectAbsorbRate lens that sizes the crew and the plan's
+    // construction sink); the upgraders are sized to the remaining share
+    // as their inflow - the same relay the feeder will actually run.
+    const banked = WARCHEST_TARGET + 446_493; // prod t72478939
+    const poolAbsorb = 5; // 12 road sites, 3225 work remaining
+    const share = feederRelayRate(banked) - poolAbsorb; // 110
+    const { allocated, inflow } = upgraderSizing(2, 1607, banked, poolAbsorb);
+    expect(inflow, "inflow = the feeder's absorb-bounded relay").to.be.closeTo(share, 1e-9);
+    expect(allocated).to.be.closeTo(sustainableConsumptionRate(1607, share), 1e-9);
+    // never again the incident shape: allocated 2 with 110 e/t of unabsorbed surplus
+    expect(allocated).to.be.greaterThan(100);
   });
 });

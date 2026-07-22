@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
+import "../../../src/types/Memory";
 import { shouldQueueBehind, travelTo, travelToBypass, travelToQueued } from "../../../src/corps/movement";
 
 // Screeps direction constants (globals in-game).
@@ -335,5 +336,156 @@ describe("shouldQueueBehind (queue gate)", () => {
   it("does NOT queue behind a fatigued/spawning creep (handed to the force-swap gate)", () => {
     expect(shouldQueueBehind(make({ fatigue: 2 }) as any, CREEP_RANGE, target as any)).to.equal(false);
     expect(shouldQueueBehind(make({ spawning: true }) as any, CREEP_RANGE, target as any)).to.equal(false);
+  });
+});
+
+/**
+ * Road-lane travel for haul legs (owner 2026-07-21: "pathfind with ignoring
+ * creeps. so they stay on the road. the creeps can just bypass each other as
+ * necessary"). Pathing AROUND transient creeps steps the loaded leg off the
+ * pavement - at the 2:1 road body that tile is HALF speed - so the lane paths
+ * creep-blind and holds the road. Opposing lane traffic resolves itself (two
+ * creeps moving into each other's tiles swap through, the engine's
+ * mutual-move rule); only a STANDING blocker defeats that, so after
+ * LANE_PATIENCE stuck ticks one creep-aware repath detours around it.
+ */
+describe("travelToLane (haul legs hold the road; standing blockers get one detour)", () => {
+  const { travelToLane } = require("../../../src/corps/movement");
+
+  function laneCreep(x: number, y: number) {
+    const calls: any[] = [];
+    return {
+      name: "h1",
+      pos: pos(x, y, "W1N0"),
+      fatigue: 0,
+      memory: {} as any,
+      move: () => 0,
+      moveTo(_t: any, opts: any) {
+        calls.push(opts ?? {});
+        return 0;
+      },
+      calls
+    };
+  }
+
+  beforeEach(() => {
+    (global as any).Game = { time: 100 };
+  });
+
+  it("paths IGNORING creeps with a long reuse - the road is the lane", () => {
+    const c = laneCreep(10, 10);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    expect(c.calls[0].ignoreCreeps).to.equal(true);
+    expect(c.calls[0].reusePath, "stable lane, cheap CPU").to.be.greaterThan(5);
+  });
+
+  it("head-on traffic needs no detour: a MOVING creep never trips the patience", () => {
+    const c = laneCreep(10, 10);
+    for (let t = 0; t < 6; t++) {
+      (global as any).Game.time = 100 + t;
+      travelToLane(c as any, pos(30, 10, "W1N0") as any);
+      (c.pos as any).x += 1; // it moved (swapped through the oncoming creep)
+    }
+    expect(c.calls.every((o: any) => o.ignoreCreeps === true)).to.equal(true);
+  });
+
+  it("a STANDING blocker trips ONE creep-aware detour once patience runs out", () => {
+    const c = laneCreep(10, 10);
+    for (let t = 0; t < 4; t++) {
+      (global as any).Game.time = 100 + t;
+      travelToLane(c as any, pos(30, 10, "W1N0") as any); // never moves
+    }
+    const last = c.calls[c.calls.length - 1];
+    expect(last.ignoreCreeps, "the detour sees creeps").to.equal(false);
+    expect(last.reusePath, "fresh path, not the cached lane").to.equal(0);
+    expect(
+      c.calls.slice(0, -1).every((o: any) => o.ignoreCreeps === true),
+      "the lane held until patience ran out"
+    ).to.equal(true);
+    // the detour resets the clock: the next call is back on the lane
+    (global as any).Game.time = 104;
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    expect(c.calls[c.calls.length - 1].ignoreCreeps).to.equal(true);
+  });
+
+  it("fatigue is rest, not a jam: a fatigued creep never trips the detour", () => {
+    const c = laneCreep(10, 10);
+    c.fatigue = 4;
+    for (let t = 0; t < 6; t++) {
+      (global as any).Game.time = 100 + t;
+      travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    }
+    expect(c.calls.every((o: any) => o.ignoreCreeps === true)).to.equal(true);
+  });
+
+  it("a gap in calls (loading at the container) resets the patience", () => {
+    const c = laneCreep(10, 10);
+    for (const t of [100, 101, 102]) {
+      (global as any).Game.time = t;
+      travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    }
+    (global as any).Game.time = 110; // stood loading for 8 ticks, no travel calls
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    (global as any).Game.time = 111;
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    expect(c.calls.every((o: any) => o.ignoreCreeps === true)).to.equal(true);
+  });
+
+  it("caller opts ride along (range, visuals) but never the lane keys", () => {
+    const c = laneCreep(10, 10);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any, { range: 1 });
+    expect(c.calls[0].range).to.equal(1);
+    expect(c.calls[0].ignoreCreeps).to.equal(true);
+  });
+});
+
+describe("travelToLane EMPTY LANE (outbound off the pavement; loaded leg keeps it)", () => {
+  const { travelToLane, isFatigueFreeWhenEmpty } = require("../../../src/corps/movement");
+
+  function haulerStub(loaded: number, body: string[] = ["carry", "move"]) {
+    const calls: any[] = [];
+    return {
+      name: "h2",
+      pos: pos(10, 10, "W1N0"),
+      fatigue: 0,
+      memory: {} as any,
+      store: { getUsedCapacity: () => loaded },
+      body: body.map(type => ({ type })),
+      move: () => 0,
+      moveTo(_t: any, opts: any) {
+        calls.push(opts ?? {});
+        return 0;
+      },
+      calls
+    };
+  }
+
+  beforeEach(() => {
+    (global as any).Game = { time: 200, rooms: {} };
+  });
+
+  it("an EMPTY pure hauler paths terrain-blind (swamp = plain = 1), roads penalized", () => {
+    const c = haulerStub(0);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    const o = c.calls[0];
+    expect(o.plainCost).to.equal(1);
+    expect(o.swampCost).to.equal(1);
+    expect(o.ignoreCreeps, "the lane still ignores creeps").to.equal(true);
+    expect(typeof o.costCallback, "roads raised via the matrix").to.equal("function");
+  });
+
+  it("a LOADED hauler keeps the road-preferring defaults (no terrain-blind costs)", () => {
+    const c = haulerStub(100);
+    travelToLane(c as any, pos(30, 10, "W1N0") as any);
+    const o = c.calls[0];
+    expect(o.plainCost).to.equal(undefined);
+    expect(o.swampCost).to.equal(undefined);
+    expect(o.ignoreCreeps).to.equal(true);
+  });
+
+  it("a WORK-carrying creep never rides the empty lane (its WORK always weighs)", () => {
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "work" }, { type: "move" }] })).to.equal(false);
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(true);
+    expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 50 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(false);
   });
 });

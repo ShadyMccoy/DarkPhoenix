@@ -60,11 +60,15 @@ export interface SerializedCorp {
  * decision symmetry). Telemetry never recomputes these; the stamp IS the lens
  * the decision read. `tick` discloses staleness (gated paths may skip a tick's
  * stamp). Values are the decision's own units (energy/tick, counts); null
- * means "unmeasurable this tick", which is a different fact from zero.
+ * means "unmeasurable this tick", which is a different fact from zero. Gate
+ * verdicts (`gate: "no-miner"`) are strings - for infrastructure corps the
+ * gate IS the decision.
  */
 export interface CorpSizingRecord {
   tick: number;
-  [input: string]: number | boolean | null;
+  /** Inputs verbatim; a nested map is allowed for per-room readings (e.g. the
+   * reservation banks) - telemetry exports the record as JSON either way. */
+  [input: string]: number | string | boolean | null | { [key: string]: number };
 }
 
 export abstract class Corp {

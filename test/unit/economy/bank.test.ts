@@ -48,6 +48,15 @@ describe("economy/bank - the surplus spend primitives", () => {
     it("caps the draw so a 100k bank doesn't ask for an absurd consumer fleet", () => {
       expect(bankSurplusRate(WARCHEST_TARGET + 100_000)).to.equal(MAX_SURPLUS_DRAW);
     });
+    it("the cap is a runaway GUARD above the physical absorption ceiling, never a pacer (owner doctrine: FOCUS energy - surge the current objective)", () => {
+      // Controller-side absorption tops out well under 100 e/t at mid-game
+      // (parking tiles x per-body WORK). The guard bounds degenerate fleet
+      // math (a 570k bank must not commission a 100-feeder relay), but must
+      // never be the binding term against physics. Measured incident: at 20
+      // it capped the relay at 35 e/t while the plan allocated 105 - pacing
+      // the exact focus the bot exists to deliver.
+      expect(MAX_SURPLUS_DRAW).to.be.at.least(100);
+    });
     it("tapers to zero approaching the target (no flapping at the boundary)", () => {
       expect(bankSurplusRate(WARCHEST_TARGET + 150)).to.be.closeTo(1, 1e-9);
     });
