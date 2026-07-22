@@ -168,6 +168,44 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +362t) — RATCHET VERIFIED (duty 0.159, fleet 2); receipt-demand fielded the home builder; the cluster FLAPS with vision
+
+Capture t72489078. Verifications:
+
+- TENDER RATCHET: VERIFIED. Stamp reads target 2, staffing 2, gate
+  staffed, DUTY 0.159 (prediction: 0.10 -> 0.15+), fleet 37 parts (was
+  59-66; ~24 freed as priced). Caveat: endFill 0.844 vs the >=0.9 bar -
+  but the window carried 34 build-finishes in 362t (the deepest
+  sustained spawn pressure measured) plus the feeder outage; E5 0 runts
+  and S3 0 stalls say no actual spawn-gating harm. HOLD with explicit
+  revert criterion: endFill still <0.9 next window at normal load =>
+  revert the cap.
+- DEADLOCK FIX: the demand half VERIFIED - the home pool crew EXISTS
+  again (2W1C1M fielded from receipt-charged poolWork after ~750t
+  queued). trunk-blind-W43N22 still stamped; the march/vision half
+  resolves next window (cee0 still 35/50).
+- FEEDER: self-healed as predicted (gate staffed, 1/1, feederActive
+  true). E4 flipped FAIL (slope +10.3/t) and X1 stays FAIL (workUtil
+  0.62, 40 WORK standing) - the OUTAGE'S WAKE: consumers shrank during
+  the starvation and resize up from actual stock per doctrine
+  (controllerStock 810 -> 1399 rising). Recovery trajectory, not a new
+  leak; verify next window.
+
+NEW MEASURED FACT - the cluster FLAPS: last capture 15 construction
+sinks and cee0 fully clustered; this capture ZERO construction sinks,
+cee0 routing home, P2 back to 3 micro-routes - while all four road
+corps' local builders stand. The plan's sink set oscillates with
+whether a site room happened to be visible at solve time. This is the
+planner-level half of the vision-lens class: the durable fix is
+admitting RECEIPT-KNOWN trunk sites into the ColonyProblem without
+vision (positions from tiles3, remainder from built/total, refined by
+sight). Owner explicitly questioned this mechanism area this session -
+the planner-level change is DESIGNED but held for owner review; the
+crew-level fix already deployed covers the deadlock class meanwhile.
+
+Cycle verdict: VERIFIED x2 (ratchet, deadlock-demand), flap NAMED with
+data, E4/X1 on a recovery trajectory. No deploy this cycle.
+
 ### 2026-07-22 (cron cycle, +392t) — THE CLUSTER IS LIVE (remote end); X1 names a feeder gap; tender ratchet ships
 
 Capture t72488716. SPEC 25 WORKS END-TO-END LIVE for the first time:
