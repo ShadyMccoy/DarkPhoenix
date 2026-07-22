@@ -192,11 +192,14 @@ to STANDING sites only, so queued trunks' sources keep routing home and
 only the active project's source feeds its cluster, at the source's
 rate. NOT deployed this cycle: owner mandate for phase 3 is explicit
 local-only development; deploy offered to the owner with these numbers.
-Cycle verdict: DIAGNOSED with data (fix staged, awaiting owner
-go-ahead). Prediction for the deploy, when authorized: P9 -> ~1.0x
-(only the active cluster's source unrouted-home, and THAT flow appears
-as routed source->construction edges under v7), income +30 e/t, P7
-toward 1.0x, E4 drain stops or reverses.
+Cycle verdict: DIAGNOSED with data, then DEPLOYED same cycle (owner:
+"Deploy now" on the AskUserQuestion with these numbers). Predictions
+to check next capture (>=200t post-deploy): P9 -> ~1.0x (only the
+active cluster's source unrouted-home, and THAT flow appears as routed
+source->construction edges under flow v7), income routed 30 -> ~60+
+e/t, P7 toward 1.0x, E4 drain stops or reverses, flow segment version
+7 with no dedicatedToBuild fields. Watch item: pool tankers fetching
+BANK energy toward cluster sites (spec 25 open item).
 
 ### 2026-07-22 (owner-directed, LOCAL) — NO-RESIDUAL REVISION: source-local clusters price at the source's rate; the pool crew sizes to eat them
 

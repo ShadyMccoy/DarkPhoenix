@@ -38,8 +38,10 @@ mine during that time"). Two halves:
   builder" + MAX-not-SUM), constructionKind.test.ts (rate attribution +
   materialize threading + drop-to-zero on cluster completion).
 
-Gated locally (unit 1180 + build + trio); NOT yet deployed — owner
-directed local development. Open live-verification item for the deploy:
+Gated locally (unit 1180 + build + trio) and DEPLOYED 2026-07-22 on the
+owner's go-ahead (the t72487226 audit measured the flag-era mechanism
+dark-dedicating the trunk QUEUE — 30 e/t zero-routed and zero-building —
+and the owner chose immediate deploy over holding local). Open live-verification item for the deploy:
 the pool TANKER detail still fetches from the bank for whatever the pool
 head is — if the head is a source-funded cluster site, that is bank energy
 walking a route the plan funds from the mine; watch for it in the first
