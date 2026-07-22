@@ -112,6 +112,27 @@ describe("extension-sim mechanics (engine-verified rules)", () => {
     }
   });
 
+  it("circuit automaton: head-reset sweep keeps a HEAVY (2:1) tender at full utilization on its corridor", () => {
+    // Owner 2026-07-22: "I don't see how circuit patrol could lose" + "1:1
+    // on the tender is overkill". Confirmed once the sweep restarts at the
+    // circuit head each load (the stale-cursor elevator bug cost util 0.87
+    // measured). Fatigue recovers while standing to transfer, so the 2:1
+    // rest ticks hide inside the corridor's standing ticks.
+    const m = simulate(
+      base({
+        rcl: 7,
+        layout: spineLayout(50, 2),
+        drawOrder: "circuit",
+        tenderPolicy: "lane-patrol",
+        tenderBody: { carry: 33, move: 17 },
+        ticks: 5000
+      })
+    );
+    expect(m.utilization).to.equal(1);
+    expect(m.endFill).to.be.greaterThan(0.99);
+    expect(m.meanRefillLatency, "beats the 1:1 greedy bar (~107t) on the same board").to.be.lessThan(115);
+  });
+
   it("refill keeps a saturated RCL6 spine spawn above 0.95 utilization with one 1:1 tender (the first-principles claim)", () => {
     // Rate check: 46-part bodies need 2300/138 = 16.7 e/t; one tender
     // sustains ~25-30. If the sim disagrees wildly, the mechanics are wrong.

@@ -78,6 +78,8 @@ export interface World {
   extensions: EnergyStructure[];
   tenders: Tender[];
   tick: number;
+  /** The layout's patrol circuit (lane), for circuit-aligned draw order. */
+  circuit?: Pos[];
 }
 
 export interface Layout {
@@ -90,8 +92,13 @@ export interface Layout {
   lane?: Pos[];
 }
 
-/** Draw-order policy: which structures a spawn drains, in order. */
-export type DrawOrder = "engine-default" | "near-reload-first" | "far-first";
+/** Draw-order policy: which structures a spawn drains, in order.
+ * "circuit" aligns the drain with the tender's patrol circuit (owner: "we
+ * could always simply empty the extensions that are next on the circuit
+ * ... like a little automaton") - structures rank by the first circuit
+ * tile they are adjacent to, so the drained frontier always lies directly
+ * ahead of a tender walking the circuit. */
+export type DrawOrder = "engine-default" | "near-reload-first" | "far-first" | "circuit";
 
 /** Tender micro policy. Both transfer opportunistically every tick. */
 export type TenderPolicy = "greedy-nearest" | "lane-patrol";
@@ -154,7 +161,8 @@ export function buildWorld(s: Scenario): World {
       energy: extCap
     })),
     tenders: [],
-    tick: 0
+    tick: 0,
+    circuit: s.layout.lane
   };
   // Tenders start parked by the storage, loaded.
   for (let i = 0; i < s.tenderCount; i += 1) {
@@ -239,6 +247,19 @@ function drawStructures(world: World, spawn: SpawnSite, order: DrawOrder): Energ
       .sort((a, b) => chebyshev(a.pos, spawn.pos) - chebyshev(b.pos, spawn.pos));
     return [...spawns, ...exts];
   }
+  if (order === "circuit" && world.circuit && world.circuit.length > 0) {
+    // Rank each structure by the FIRST circuit tile it is adjacent to; the
+    // drain then marches along the circuit exactly as the tender does.
+    // Structures off the circuit rank last (near-reload among themselves).
+    const circuit = world.circuit;
+    const rank = (e: EnergyStructure): number => {
+      for (let i = 0; i < circuit.length; i += 1) {
+        if (chebyshev(circuit[i], e.pos) <= 1) return i;
+      }
+      return circuit.length + chebyshev(e.pos, world.storage);
+    };
+    return all.slice().sort((a, b) => rank(a) - rank(b));
+  }
   // energyStructures overrides: drain order is the list order, spawns included
   // wherever we put them (we put them first - they are next to the reload
   // path anyway and refilling the spawning spawn is free for the tender).
@@ -308,6 +329,12 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
   const capacity = t.carryParts * CARRY_CAPACITY;
   if (t.carried < capacity && chebyshev(t.pos, world.storage) <= 1) {
     t.carried = capacity;
+    // A fresh load restarts the sweep at the circuit HEAD: the circuit draw
+    // order drains head-first, so the frontier is contiguous from the head -
+    // resuming a stale mid-circuit cursor walks past fresh drains to finish
+    // old tail sections (measured: rcl8 flower util 0.87 with the stale
+    // cursor - the elevator problem).
+    if (policy === "lane-patrol") t.routeIdx = 0;
     acted = true;
   }
 
@@ -330,13 +357,24 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
       }
     }
   } else if (policy === "lane-patrol" && lane && lane.length > 0) {
-    // Drive the fixed lane while ANYTHING is needy. Advance the cursor only
-    // once nothing adjacent needs filling - a flower pack takes 6 standing
-    // ticks (transfer is 1/tick), and leaving after one would strand it.
-    if (needy(world).length > 0) {
-      const here = lane[t.routeIdx % lane.length];
-      const adjacentNeedy = needy(world).some(e => chebyshev(e.pos, t.pos) <= 1);
-      if (chebyshev(t.pos, here) === 0 && !adjacentNeedy) t.routeIdx = (t.routeIdx + 1) % lane.length;
+    // The automaton (owner): chase the drained FRONTIER along the circuit.
+    // Advance the cursor past circuit tiles with nothing needy adjacent -
+    // walking a full section to reach the frontier is the loss the original
+    // fixed-cursor patrol paid. Stand while anything adjacent needs filling
+    // (a flower pack takes 6 standing ticks; fatigue recovers while
+    // standing, which is what lets a CARRY-heavy body keep pace).
+    const need = needy(world);
+    if (need.length > 0) {
+      const adjacentNeedy = need.some(e => chebyshev(e.pos, t.pos) <= 1);
+      if (!adjacentNeedy) {
+        for (let i = 0; i < lane.length; i += 1) {
+          const idx = (t.routeIdx + i) % lane.length;
+          if (need.some(e => chebyshev(e.pos, lane[idx]) <= 1)) {
+            t.routeIdx = idx;
+            break;
+          }
+        }
+      }
       target = lane[t.routeIdx % lane.length];
       range = 0;
     }

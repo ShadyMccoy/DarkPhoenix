@@ -38,13 +38,42 @@ RCL 6/7/8 presets (1/2/3 spawns), 5000t.
    every tier — total trip length is what matters, not drive-by
    geometry. The layout goal is "dense and near the reload point", not
    "a beautiful lane".
-4. **Fixed-circuit patrol is dominated.** lane-patrol lost to
-   greedy-nearest in every arm and collapses at RCL8 ×1 (util 0.65,
-   5331 wait-ticks) — demand-driven targeting wins outright.
-5. **A second tender washes out everything** — util 1.000 and endFill
+4. **Fixed-circuit patrol is dominated** — REVISED 2026-07-22 (owner:
+   "I don't see how circuit patrol could lose ... think of it like a
+   little automaton"): the original loss was TWO experiment bugs, not
+   the concept. (a) The drain order was decoupled from the circuit;
+   aligning them (`drawOrder: "circuit"` — structures rank by the first
+   circuit tile they touch) makes the drained frontier march along the
+   circuit. (b) The patrol cursor never reset after reloading; since the
+   drain is head-first, the frontier is contiguous from the circuit head
+   and the sweep must restart there each load (stale cursor = the
+   elevator problem, measured util 0.87). With both fixed (see
+   `automaton.ts`): the automaton TIES greedy at RCL6, and WINS with
+   heavy bodies on dense corridors — rcl7 spine 2:1 102t vs greedy
+   116t; rcl7 spine 4:1 105t where greedy-4:1 collapses to 248t;
+   rcl8 spine 4:1 123t vs 171t. Greedy still wins for 1:1 bodies and on
+   sparse pack geometry.
+5. **1:1 tender bodies are overkill in dense geometry** (owner-called):
+   fatigue recovers while STANDING to transfer, and a corridor holds 2
+   extensions per lane tile at 1 transfer/tick — so a 2:1 body's
+   move-rest rhythm synchronizes with the geometry. Measured: rcl6
+   spine greedy 2:1 refills in 71t vs 89t for 1:1, on a cheaper body.
+   Under the 50-part cap, shed MOVE buys CARRY (25C25M=1250 but
+   33C17M=1650, 40C10M=2000): 2:1 is the general sweet spot; 4:1 only
+   pays on a dense corridor driven by the circuit automaton. Matching
+   rule: the body's rest ticks must fit inside the geometry's standing
+   ticks — flower packs 4 tiles apart cap out at 2:1.
+6. **A second tender washes out everything** — util 1.000 and endFill
    1.000 across the board. Over-provisioning substitutes for cleverness;
    our live fleet of 3 at RCL6 is deep in the can't-lose regime, which
    matches live endFill 0.915 with zero energy-blocked spawns.
+7. **Evolved layouts** (`evolve.ts`, (mu+lambda) hill-climb over
+   extension AND spawn positions, refill-only fitness): dense blobs
+   hugging the storage beat every hand seed — rcl6 73→65t, rcl7
+   114→77t (16C16M) / →72t (25C25M), rcl8 110→72t (16C16M) / →63t
+   (25C25M). Spawn positions barely matter under near-reload draw (far
+   structures drain last, so they rarely empty) — real spawn placement
+   should be decided by creep-delivery paths, not refill.
 
 Caveats: no creep-collision traffic, single room, the sim's endFill is
 room-total at build-finish (analogous, not identical, to the live
