@@ -55,6 +55,7 @@
     "cons-t3-build-and-repair-concurrent": "pass",
     "cons-t4-link-completes": "pass",
     "cons-t4-storage-completes": "pass",
+    "cons-tower-repairs-in-good-range": "pass",
     "def-t3-invader-defunds-source": "pass",
     "def-t4-raid-guard-holds-the-remote": "pass",
     "def-t5-core-buster-reclaims-remote": "pass",
