@@ -52,6 +52,8 @@ Conventions used by every spec:
 | 25 | [Emergent dedication](25-emergent-dedication.md) | **LANDED + VERIFIED LIVE 2026-07-22** — role-rule refinement + pool-room sink admission + poolAllocatedRate crew sizing; measured 30 e/t dark-dedicated → 70/70 routed after phase 3 | landed |
 | 26 | [Links as hub ports](26-links-as-hub-ports.md) | DEFERRED 2026-07-21 (owner: revisit after spec 25 — same routing seams) — deposit-side haulPos: remote haulers drop at the hub's link constellation; design + open questions banked in-spec | P3 |
 | 27 | [Extension relocation](27-extension-relocation.md) | PROPOSED 2026-07-22 (owner) — **next session's first work item**: phase-1 scorer + per-cluster table (size, distance, implied tender body), owner reviews before any destroy; folds in per-cluster tender sizing + the depot bridge economy fix (bus-regime red) | P0 |
+| 28 | [Source-Keeper mining](28-source-keeper-mining.md) | design overview only — not started (guarded-producer model + garrison tax primitive + KeeperGuardCorp) | P3 |
+| 29 | [CPU as a costed resource](29-cpu-as-costed-resource.md) | stub — deferred until CPU is the binding constraint (planner objective prices spawn-build-time + energy, not CPU) | P4 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
