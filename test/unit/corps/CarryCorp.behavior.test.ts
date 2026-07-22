@@ -90,6 +90,32 @@ function growFleet(nodeId: string, corp: CarryCorp, maxHaulers = 10): number[] {
   return carryParts;
 }
 
+describe("END-OF-LIFE recycle (owner 2026-07-22: 'less ttl than a round trip - recycle itself')", () => {
+  before(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).RESOURCE_ENERGY = "energy";
+  });
+
+  it("flags an EMPTY hauler below its shortest round trip; spares loaded and fresh ones", () => {
+    const corp = carryCorp("W1N1-hauling-eol");
+    corp.setHaulerAssignments([route("storage-x", 20, 5)]); // round trip 2*20+2 = 42
+    const mk = (ttl: number, carried: number): any => ({
+      memory: {},
+      spawning: false,
+      ticksToLive: ttl,
+      store: { getUsedCapacity: () => carried }
+    });
+    const dying = mk(30, 0); // cannot finish another trip, empty -> recycle
+    const loaded = mk(30, 100); // still carrying - deliver first, never strand cargo
+    const fresh = mk(500, 0); // plenty of trips left
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).flagEndOfLifeForRecycling([dying, loaded, fresh]);
+    expect(dying.memory.recycling, "empty + under one round trip: recycle").to.equal(true);
+    expect(loaded.memory.recycling, "loaded: finish the delivery").to.equal(undefined);
+    expect(fresh.memory.recycling, "fresh: keep hauling").to.equal(undefined);
+  });
+});
+
 describe("CarryCorp behaviour (trivial scenarios)", () => {
   afterEach(() => {
     // Leave a valid, full mock Game (empty fleet) in place rather than deleting

@@ -168,6 +168,46 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-directed, wrap-up tail) — source-approach exemption, EOL hauler recycle, X4 rounding meter, feeder truth-pricing
+
+Four owner calls closing the day (gate: unit 1200 + build + trio,
+deploy chained on green):
+
+- SOURCE-APPROACH TILES ("we don't need that very last bit of road
+  next to the source mine - possible to pave, just pointless"):
+  isSourceApproachTile (range 1 of the route's source) exempted from
+  the trunk survey, completion check, and new-path recording - same
+  defensive-skip mechanics as edge tiles, so cee0's stored route
+  (45/50 with a source-end tail) can complete WITHOUT the pointless
+  tiles. Prediction: cee0 receipts paved on the next placement pass.
+- EOL HAULER RECYCLE ("less ttl than a round trip after dropping off -
+  recycle itself"): an EMPTY hauler under its shortest route's round
+  trip flags recycling (refund > pointless last walk; loaded creeps
+  always deliver first; staffsPost already counts recycling creeps -
+  no double-order).
+- X4 LIFETIME QUANTIZATION ("this rounding factor is something we can
+  track"): new ledger row pricing trip-tail amortization from the
+  plan's routes (first read: 0.16 e/t); EOL recycle converts tails to
+  refunds.
+- FEEDER TRUTH-PRICING ("the feeder seems way too large"): the P4
+  feeder charge used the nominal 6-tile distance while the live feeder
+  is LINK-FED at distance 1 - a phantom ~46 parts inflating every P4
+  reading ~0.03 parts/t. Now reads the corp's own linkFed stamp: P4
+  0.98 -> 0.89x. The OTHER half of the owner's observation is real and
+  QUEUED (tomorrow, first item): the feeder BODY sizes to the surplus
+  valve (relay ~110 e/t, neededCarry 11) not consumer burn (~40 e/t) -
+  an actual-grounded cap on neededCarry is the fix shape, touching the
+  absorb-clamp seams (not rushed at wrap-up).
+
+TOMORROW'S QUEUE (with spec 27's remodel plan): (1) feeder body
+actual-grounded sizing; (2) hauler-g-cbd5 pacing investigation -
+suspects: the code-cop assignedSourceId delete-on-blind (finding 4,
+predicts exactly this creep class) and delivery-sink dither at the
+near-empty-bank moment; (3) home-source micro-hauler question (owner:
+"haulers should mostly just be for remote mines" - cd90/cd92 sit 1-11
+tiles from storage with links yet field 0.8-carry routes, the
+persistent P2 entries); (4) the extension remodel per spec 27.
+
 ### 2026-07-22 (cron cycle, +381t) — X1 CLOSED: workUtil 1.00; cee0 45/50 at 2:1; the cleanest board of the session
 
 Capture t72489965 (pre-3-small baseline; that deploy landed seconds

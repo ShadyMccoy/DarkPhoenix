@@ -27,7 +27,7 @@ import {
   RoadRouteSpec,
   UNMAINTAINED_ROAD_LIFE
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, isRoomEdgeTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
@@ -1322,7 +1322,7 @@ export class ConstructionCorp extends Corp {
       const key = trunk.sourceId.replace(/^source-/, "");
       const entry = routes[key];
       if (!entry || entry.paved || entry.declined || !entry.tiles3 || !entry.rooms) continue;
-      if (this.trunkBuilt(entry.rooms, entry.tiles3)) {
+      if (this.trunkBuilt(entry.rooms, entry.tiles3, trunk.pos)) {
         entry.paved = true;
         gate("trunk-paved");
         console.log(`[Construction] TRUNK to ${key} fully paved (${entry.tiles3.length / 3} tiles)`);
@@ -1350,7 +1350,7 @@ export class ConstructionCorp extends Corp {
         // 2026-07-20: "waiting-vision" stamped all day while the true state
         // was fully-placed-and-building - the remotes are mined, vision was
         // never the blocker; the ambiguity was).
-        const survey = this.placeTrunkSites(entry.rooms, entry.tiles3);
+        const survey = this.placeTrunkSites(entry.rooms, entry.tiles3, trunk.pos);
         // Survey receipt for the partial-pave repricing lens
         // (detectPavedSources): verified built RATCHETS - a blind pass sees
         // fewer tiles, not fewer roads, and counting down would flap the
@@ -1386,6 +1386,9 @@ export class ConstructionCorp extends Corp {
         // a cross-room path always includes them; recording them made the
         // trunk's completion condition unsatisfiable (prod t72483047).
         if (isRoomEdgeTile(p.x, p.y)) continue;
+        // Never record source-approach tiles on NEW paths (stored old
+        // routes rely on the survey/completion skips instead).
+        if (isSourceApproachTile(p.x, p.y, p.roomName, trunk.pos)) continue;
         let ri = roomsTable.indexOf(p.roomName);
         if (ri === -1) {
           ri = roomsTable.length;
@@ -1394,7 +1397,7 @@ export class ConstructionCorp extends Corp {
         tiles3.push(p.x, p.y, ri);
       }
       routes[key] = { tiles: [], tiles3, rooms: roomsTable };
-      const placed = this.placeTrunkSites(roomsTable, tiles3);
+      const placed = this.placeTrunkSites(roomsTable, tiles3, trunk.pos);
       gate(`trunk-judged-paving-${Math.round(verdict.paybackTicks)}t`);
       console.log(
         `[Construction] TRUNK to ${key}: ${tiles3.length / 3} tiles across ${roomsTable.length} rooms ` +
@@ -1434,7 +1437,7 @@ export class ConstructionCorp extends Corp {
   }
 
   /** Place trunk sites in every VISIBLE room; blind stretches wait for walkers. */
-  private placeTrunkSites(roomsTable: string[], tiles3: number[]): TrunkSurvey {
+  private placeTrunkSites(roomsTable: string[], tiles3: number[], sourcePos?: Position): TrunkSurvey {
     const survey: TrunkSurvey = { placed: 0, built: 0, total: 0, blind: [], missing: [] };
     const blind = new Set<string>();
     const paused = governorPlan().pauseConstruction;
@@ -1449,8 +1452,11 @@ export class ConstructionCorp extends Corp {
       // total, defensively skipped so routes STORED with edge tiles
       // (pre-fix paths) complete without migration.
       if (isRoomEdgeTile(x0, y0)) continue;
-      survey.total++;
       const roomName = roomsTable[tiles3[i + 2]];
+      // Source-approach tiles are not worth paving (owner 2026-07-22) -
+      // same defensive-skip class, so stored routes complete unmigrated.
+      if (isSourceApproachTile(x0, y0, roomName, sourcePos)) continue;
+      survey.total++;
       const r = Game.rooms[roomName];
       if (!r) {
         blind.add(roomName); // no vision this pass
@@ -1486,11 +1492,14 @@ export class ConstructionCorp extends Corp {
 
   /** All PLACEABLE trunk tiles verifiably built - a blind room cannot verify,
    * so false; border tiles carry creeps without roads and are exempt (the
-   * completion condition was otherwise unsatisfiable - prod t72483047). */
-  private trunkBuilt(roomsTable: string[], tiles3: number[]): boolean {
+   * completion condition was otherwise unsatisfiable - prod t72483047), as
+   * are source-approach tiles (owner 2026-07-22: not worth paving). */
+  private trunkBuilt(roomsTable: string[], tiles3: number[], sourcePos?: Position): boolean {
     for (let i = 0; i + 2 < tiles3.length; i += 3) {
       if (isRoomEdgeTile(tiles3[i], tiles3[i + 1])) continue;
-      const r = Game.rooms[roomsTable[tiles3[i + 2]]];
+      const roomName = roomsTable[tiles3[i + 2]];
+      if (isSourceApproachTile(tiles3[i], tiles3[i + 1], roomName, sourcePos)) continue;
+      const r = Game.rooms[roomName];
       if (!r) return false;
       if (!r.lookForAt(LOOK_STRUCTURES, tiles3[i], tiles3[i + 1]).some(s => s.structureType === STRUCTURE_ROAD)) {
         return false;

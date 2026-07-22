@@ -116,8 +116,18 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
     lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
   }
   const relay = feederRelayRate(banked);
-  const feederParts = 2 * carryPartsFor(relay, 6);
-  lines.push([`feeder @ relay ${Math.round(relay)}`, feederParts, feederParts / effectiveLife(6)]);
+  // LINK-FED feeder charges at distance 1, not the nominal 6 (owner
+  // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
+  // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03
+  // parts/t). Read the corp's own stamp - decision symmetry, not a guess.
+  const feederLinkFed = corps.find(c => (c.id ?? "").includes("controllerFeeder"))?.sizing?.linkFed === true;
+  const feederDist = feederLinkFed ? 1 : 6;
+  const feederParts = 2 * carryPartsFor(relay, feederDist);
+  lines.push([
+    `feeder @ relay ${Math.round(relay)}${feederLinkFed ? " (link-fed d1)" : ""}`,
+    feederParts,
+    feederParts / effectiveLife(feederDist)
+  ]);
 
   const tenderTarget = corps.find(c => c.kind === "tender")?.sizing?.target ?? 3;
   const tenderBody = fleetParts(corps, "tender", 24);
@@ -509,6 +519,45 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   }
 
   // ---- X3 census ----
+  // ---- X4 lifetime quantization (owner 2026-07-22: "this rounding factor
+  // is something we can track in telemetry as well for the future") ----
+  // A hauler's effective life divides into floor(life/roundTrip) full
+  // trips; the remainder ticks cannot fit another trip. With END-OF-LIFE
+  // recycling (same commit) that tail converts to a spawn refund; without
+  // it, the body walks its tail off and the amortization is lost. Priced
+  // from the PLAN's routes: remainder/life x standing body cost per tick.
+  {
+    const srcRoutes = (flow?.haulers ?? []).filter((h: any) => (h.sourceId ?? "").startsWith("source-"));
+    let waste = 0;
+    let worst = "";
+    let worstV = 0;
+    for (const h of srcRoutes) {
+      const d = +h.distance || 0;
+      const rt = 2 * d + 2;
+      const life = Math.max(1, 1500 - d);
+      const rem = life % rt;
+      const partsPerCarry = h.ratio === "2:1" ? 1.5 : 2;
+      const bodyPerTick = ((+h.carryParts || 0) * partsPerCarry * 50) / life;
+      const v = bodyPerTick * (rem / life);
+      waste += v;
+      if (v > worstV) {
+        worstV = v;
+        worst = `${String(h.sourceId ?? "").slice(-8)} rem ${rem}t of ${rt}t trips`;
+      }
+    }
+    rows.push({
+      id: "X4",
+      name: "lifetime quantization (trip rounding)",
+      value: +waste.toFixed(2),
+      unit: "e/t amortization in trip tails",
+      verdict: "ok",
+      detail:
+        srcRoutes.length > 0
+          ? `${srcRoutes.length} routes; worst ${worst}; EOL recycle converts tails to refunds`
+          : "no source routes"
+    });
+  }
+
   rows.push({
     id: "X3",
     name: "untracked creeps",

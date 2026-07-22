@@ -250,6 +250,27 @@ export function isRoomEdgeTile(x: number, y: number): boolean {
   return x === 0 || x === 49 || y === 0 || y === 49;
 }
 
+/**
+ * Trunk tiles WITHIN RANGE 1 of the route's source are not worth paving
+ * (owner 2026-07-22: "we don't need that very last bit of road next to the
+ * source mine"): the miner stands there permanently and haulers STOP there
+ * to load - fatigue clears during the standing tick, so the road saves
+ * nothing, while costing build energy + perpetual decay. Unlike edge tiles
+ * (which the engine REJECTS - err-7), these are perfectly placeable - just
+ * pointless (owner). Same skip mechanics as isRoomEdgeTile: the survey AND
+ * the completion check exempt them, so routes already stored with approach
+ * tiles complete without migration.
+ */
+export function isSourceApproachTile(
+  x: number,
+  y: number,
+  roomName: string,
+  source?: { x: number; y: number; roomName: string }
+): boolean {
+  if (!source || roomName !== source.roomName) return false;
+  return Math.max(Math.abs(x - source.x), Math.abs(y - source.y)) <= 1;
+}
+
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
   if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];

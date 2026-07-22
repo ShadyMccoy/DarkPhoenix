@@ -414,6 +414,38 @@ describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)"
     expect(routes.inprog.paved, "the in-progress trunk stays unpaved").to.equal(undefined);
   });
 
+  // SOURCE-APPROACH TILES (owner 2026-07-22: "we don't need that very last
+  // bit of road next to the source mine"): tiles within range 1 of the
+  // route's source are exempt like edge tiles - the miner stands there and
+  // haulers STOP there to load, so pavement saves nothing. The skip lives
+  // in the survey AND the completion check, so routes STORED with approach
+  // tiles complete without migration.
+  it("SOURCE TILES: the survey neither places nor counts tiles within range 1 of the source", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W2N1: mkRoom(new Set(["10,10"])) } as any;
+    const sourcePos = { x: 20, y: 20, roomName: "W2N1" };
+    // Route tail: (10,10) built, (19,20) and (20,21) hug the source.
+    const s = (corp as any).placeTrunkSites(["W2N1"], [10, 10, 0, 19, 20, 0, 20, 21, 0], sourcePos);
+    expect(s.total, "approach tiles are not placeable trunk tiles").to.equal(1);
+    expect(s.built).to.equal(1);
+    expect(s.placed).to.equal(0);
+    expect(s.missing).to.deep.equal([]);
+  });
+
+  it("SOURCE TILES: trunkBuilt completes with only the source-approach tail unbuilt (the cee0 45/50 shape)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W2N1: mkRoom(new Set(["10,10", "11,10"])) } as any;
+    const sourcePos = { x: 20, y: 20, roomName: "W2N1" };
+    const tiles3 = [10, 10, 0, 11, 10, 0, 19, 20, 0, 20, 21, 0, 21, 20, 0];
+    expect((corp as any).trunkBuilt(["W2N1"], tiles3, sourcePos), "approach tail exempt: paved").to.equal(true);
+    expect((corp as any).trunkBuilt(["W2N1"], tiles3), "without the source pos the tail still gates").to.equal(false);
+  });
+
   it("EDGE TILES: trunkBuilt completes when every PLACEABLE tile is roaded (the paved receipt un-sticks)", () => {
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
     (global as any).LOOK_STRUCTURES = "structure";

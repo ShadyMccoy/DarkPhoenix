@@ -351,12 +351,38 @@ export class CarryCorp extends Corp {
     const creeps = this.getAssignedCreeps();
 
     this.flagRuntForRecycling(creeps, room, spawn);
+    this.flagEndOfLifeForRecycling(creeps);
 
     for (const creep of creeps) {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
       } else {
         this.runHauler(creep, room, spawn);
+      }
+    }
+  }
+
+  /**
+   * END-OF-LIFE recycle (owner 2026-07-22: "a hauler with less ttl than it
+   * takes to round trip after dropping off the energy might be able to
+   * recycle itself"): an EMPTY hauler that cannot complete even its
+   * SHORTEST route's round trip would spend its last ticks walking out and
+   * dying - loaded at worst (cargo dropped mid-route), pointlessly at best.
+   * Recycling instead refunds the remaining-TTL share of its body cost at
+   * the spawn. Empty-only (never strands cargo), and min-distance
+   * conservative (a creep that can still finish SOME route keeps working).
+   * staffsPost already excludes these from staffing (recycling creeps order
+   * their successors - the trap-list rule), so no double-ordering.
+   */
+  private flagEndOfLifeForRecycling(creeps: Creep[]): void {
+    const assignments = this.getHaulerAssignments();
+    if (assignments.length === 0) return;
+    const minRoundTrip = Math.min(...assignments.map(a => 2 * a.distance + 2));
+    for (const creep of creeps) {
+      if (creep.memory.recycling || creep.spawning) continue;
+      if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0) continue;
+      if (creep.ticksToLive !== undefined && creep.ticksToLive < minRoundTrip) {
+        creep.memory.recycling = true;
       }
     }
   }
