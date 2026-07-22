@@ -25,6 +25,25 @@ describe("feederBodyRate (body from actuals, valve for pacing - SURPLUS regime o
     expect(feederBodyRate(15, 10, 0, 5000)).to.equal(15);
   });
 });
+
+import { parkedRelayCarry, carryPartsFor } from "../../../src/economy/primitives";
+
+/**
+ * The link-fed feeder is a PARKED post (owner 2026-07-22: "The feeder doesn't
+ * move at all. it's adjacent to the storage and the link both") - its cycle is
+ * withdraw tick + transfer tick, zero travel. carryPartsFor(rate, 1) charges
+ * roundTripTicks(1) = 4 (two travel ticks that never happen), doubling the body.
+ */
+describe("parkedRelayCarry (the stationary relay cycle - no phantom travel)", () => {
+  it("carry = rate * 2 / 50 (withdraw tick + transfer tick)", () => {
+    expect(parkedRelayCarry(60)).to.equal(2.4);
+    expect(parkedRelayCarry(110)).to.equal(4.4);
+  });
+  it("halves the link-fed body vs the trip model (live shape: bodyRate 60 -> 3 carry, not 6)", () => {
+    expect(Math.ceil(parkedRelayCarry(60) * 1.2)).to.equal(3);
+    expect(Math.ceil(carryPartsFor(60, 1) * 1.2)).to.equal(6); // the model this replaces
+  });
+});
 import "../../../src/types/Memory";
 import { feederRelayTarget } from "../../../src/corps/ControllerFeederCorp";
 import { WARCHEST_TARGET, bankSurplusRate, feederRelayRate } from "../../../src/economy/bank";

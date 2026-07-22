@@ -168,6 +168,80 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner rulings, bundle 2) — FAN-FILL RETIRED (accountability doctrine); feeder is a PARKED post; builder en-route road repair
+
+Three owner rulings landed as one gated bundle (unit 1219 + build +
+trio, deploy chained on green):
+
+- FAN-FILL RETIRED ("each corp needs to do their job, not cover for
+  each other ... they could orphan and adopt creeps if necessary"):
+  the hauler fallback that resumed extension-fanning whenever the
+  tender died is gone. New STRUCTURAL flag
+  `extensionTenderCovered` (depot + extensions exist, stamped by the
+  tender corp) read through ONE lens (`tenderOwnsExtensions`) at all
+  four CarryCorp sites; the old ACTIVE flag keyed the regime to CREEP
+  LIVENESS - exactly the flappy signal class the trap list bans. In a
+  covered room haulers bus source -> spawn structure + depot,
+  permanently; a dead tender is the tender corp's own problem - its
+  bootstrap re-fields one. Bootstrap widened from storage>10k to ANY
+  depot stock >= 300 (with no hauler bridge, stranded container stock
+  is the same emergency). Grid death cell converted to the new
+  doctrine and TIGHTENED (its refill assertion had latched vacuously
+  at tick 1, pre-drain): measured kill t15 -> ACTIVE clears t17
+  (COVERED holds) -> replacement tender alive t56 -> burst extensions
+  refilled t66. Self-recovery ~50t, zero hauler cover. Intent receipt
+  added (`lastDeliver: "extension-fan"` on any hauler extension fill)
+  after the bus-regime cell's spatial linger guard false-positived on
+  transit congestion - cells now assert the receipt, not geometry.
+- FEEDER = PARKED POST (owner: "The feeder doesn't move at all. it's
+  adjacent to the storage and the link both"): the link-fed body was
+  still sized by carryPartsFor(rate, d=1) - a trip model charging 4
+  ticks (2 phantom travel) per load. New primitive parkedRelayCarry
+  (withdraw tick + transfer tick, rate*2/50): bodyRate 60 -> 3 carry
+  (6-part body) vs 6 carry under the trip model and 11 under
+  yesterday's valve body. P4's plan-side charge deliberately KEEPS the
+  trip model (its budget-dry identity is constructed from plan
+  formulas; injecting realized bodies broke the t72420007 boundary pin
+  - measured, reverted); the shrink shows on the ACTUAL side.
+- BUILDER EN-ROUTE ROAD REPAIR (owner: "2 birds with one stone"):
+  repair stacks with move per the action-group rules the extension-sim
+  verified, so builders walking WITH energy repair the most-damaged
+  road in range 3 at 1 energy/WORK/tick - travel becomes maintenance.
+  Roads only; never fires empty or on WORK-less tankers (guards skip
+  even the search); never on a tick that built.
+
+ATTRIBUTION NOTE: haul-t4-tender-bus-regime is red on the DEPLOYED
+build too (3 identical draws fail @34 incl. HEAD; bundle 2 improves it
+- one draw satisfied "tender fills" @43, HEAD never does). TWO stacked
+causes, peeled in order: (1) the spatial linger guard false-positived
+on queued TRANSIT - the staged solid 10-wide extension wall forces
+controller trips to detour along the row and the 3-small fleet's
+congestion holds the queue in-band past any threshold; replaced with
+the intent receipt (above), guard now holds. (2) With the run no
+longer aborting early, the refill SLA breaches at ~t150: DEPOT_BUFFER
+150 (and the container bank target) were sized for the ONE-oversized-
+tender era, whose body was itself the magazine; the split fleet
+against a 150-energy bridge buffer misses back-to-back drains while
+near fuel rides in transit (the fuel-gated SLA correctly bills the
+apparatus). TRUE POSITIVE of a container-depot-era weakness - live
+storage rooms (173k cheap reloads) never hit it. Baselined "fail"
+honestly in this commit; the fix (bridge buffer / container bank
+target scaled to the tender fleet's wave, i.e. the extension bank
+capacity) is queued into tomorrow's remodel slate beside per-cluster
+tender sizing - same economy, one design pass.
+
+PREDICTIONS (recorded before deploy, verify on next capture):
+1. Covered stamp true for the home room; zero "extension-fan" receipts
+   ever again in covered rooms; cbd5-class fan trips end for good.
+2. Tender staffing >= 1 sustained (bundle 1 bootstrap); any tender
+   death recovers in ~60t live (grid-measured 41t kill->refill).
+3. Feeder stamp neededCarry 3 (bodyRate ~60), body ~6 parts vs 22
+   two days ago; controller inflow unchanged (pacing untouched).
+4. endFill recovers from 0.41 toward >= 0.8; spawn idle falls from
+   0.71 toward steady-state.
+5. Road hits on builder march routes tick UP between captures with no
+   drop in build throughput (repair spend <= 1 e/W/t of carried).
+
 ### 2026-07-22 (owner-reported live incident t72490325) — DARK REFILL POST: tender bootstrap priority; cbd5 pacing diagnosed as the fallback regime; feeder body from actuals
 
 Owner reported live: "no tenders ... we need tenders so we can spawn

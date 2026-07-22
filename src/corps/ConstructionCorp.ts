@@ -317,6 +317,26 @@ export function trunkGateFromSurvey(s: TrunkSurvey): string {
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
  */
+/**
+ * A builder walking with energy repairs the road under it (owner 2026-07-22:
+ * "2 birds with one stone. it moves faster, and roads get repaired") - repair
+ * stacks with move in the same tick (different action groups), so travel ticks
+ * become road maintenance at 1 energy/WORK/tick, and the roads the crew's own
+ * traffic wears stay at full speed. Roads only (structural maintenance stays
+ * the repair detail's job), most-damaged first. Guards keep it free: never
+ * fires empty (the refuel walk costs nothing) and never on WORK-less bodies
+ * (tankers), skipping even the range search.
+ */
+export function repairRoadEnRoute(creep: Creep): void {
+  if (creep.store[RESOURCE_ENERGY] === 0 || creep.getActiveBodyparts(WORK) === 0) return;
+  const roads = creep.pos.findInRange(FIND_STRUCTURES, 3, {
+    filter: (s: Structure) => s.structureType === STRUCTURE_ROAD && s.hits < s.hitsMax
+  });
+  if (roads.length === 0) return;
+  roads.sort((a, b) => a.hits - b.hits);
+  creep.repair(roads[0]);
+}
+
 export class ConstructionCorp extends Corp {
   /** ID of the spawn to use */
   private spawnId: string;
@@ -531,6 +551,7 @@ export class ConstructionCorp extends Corp {
       const targetRoom = this.nodeId.replace(/-construction$/, "");
       this.builders.run(creep => {
         travelTo(creep, new RoomPosition(25, 25, targetRoom));
+        repairRoadEnRoute(creep);
       }, spawn);
       return;
     }
@@ -662,7 +683,7 @@ export class ConstructionCorp extends Corp {
         creep =>
           creep.memory.repairDetail
             ? this.doMaintenance(creep, room)
-            : void travelTo(creep, new RoomPosition(25, 25, poolHead.roomName)),
+            : void (travelTo(creep, new RoomPosition(25, 25, poolHead.roomName)), repairRoadEnRoute(creep)),
         spawn
       );
       this.tankers.run(creep => this.runTanker(creep, room), spawn);
@@ -2318,6 +2339,7 @@ export class ConstructionCorp extends Corp {
         range: 3,
         visualizePathStyle: { stroke: "#ffaa00" }
       });
+      repairRoadEnRoute(creep);
       return;
     }
 
@@ -2387,6 +2409,7 @@ export class ConstructionCorp extends Corp {
         range: 3,
         visualizePathStyle: { stroke: "#ffaa00" }
       });
+      repairRoadEnRoute(creep);
       return;
     }
 
@@ -2396,6 +2419,9 @@ export class ConstructionCorp extends Corp {
     const result = creep.build(target);
     if (result === ERR_NOT_IN_RANGE) {
       creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      // Only on the walk: a same-tick build already claimed the work action
+      // group, and repair would cancel it.
+      repairRoadEnRoute(creep);
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
       this.recordProduction(workParts * 5);

@@ -14,11 +14,13 @@ const FIND_MY_STRUCTURES = 108;
  * per room. Without a depot the haulers still fill the network themselves, so no
  * tender is wanted.
  */
-function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean }): any {
+function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean; depotEnergy?: number }): any {
   const spawnPos = {
     x: 25, y: 25, roomName: "W0N0",
     findInRange: (type: number) =>
-      type === FIND_STRUCTURES && opts.depot ? [{ structureType: "container", pos: { x: 24, y: 25 } }] : []
+      type === FIND_STRUCTURES && opts.depot
+        ? [{ structureType: "container", pos: { x: 24, y: 25 }, store: { energy: opts.depotEnergy ?? 0 } }]
+        : []
   };
   const spawn = { id: "spawn1", pos: spawnPos, store: { getFreeCapacity: () => 0 } };
   // Default: one tight row (a single spatial cluster). scattered: three
@@ -34,6 +36,7 @@ function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean 
   }));
   return {
     name: "W0N0",
+    memory: {},
     find: (type: number, o?: any) => {
       if (type === FIND_MY_SPAWNS) return [spawn];
       if (type === FIND_MY_STRUCTURES) {
@@ -118,6 +121,50 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     const back = new ExtensionTenderCorp("W0N0-tender", "spawn1");
     back.deserialize(JSON.parse(JSON.stringify(corp.serialize())));
     expect((back as any).dutyTransfers).to.equal(30);
+  });
+
+  it("COVERED STAMP (owner accountability ruling): depot + extensions marks the room tender-covered, tender alive or not", () => {
+    // The structural flag the haulers key off: extension duty belongs to THIS
+    // corp wherever a depot and extensions exist. It must NOT flap with tender
+    // deaths (that liveness signal is extensionTenderActive, kept for the
+    // depot-reserve nuances) - a dead tender means the bootstrap re-fields
+    // one, never that haulers resume fanning.
+    const r = room({ depot: true, extensions: 10 });
+    const corp = corpFor(r);
+    Game.creeps = {}; // no tender alive - the exact dead-tender window
+    corp.work(100);
+    expect(r.memory.extensionTenderCovered, "structural: depot + extensions").to.equal(true);
+    expect(r.memory.extensionTenderActive, "liveness: no tender alive").to.equal(false);
+
+    const bare = room({ depot: false, extensions: 10 });
+    const corp2 = corpFor(bare);
+    corp2.work(100);
+    expect(bare.memory.extensionTenderCovered, "no depot: haulers still own the network").to.equal(false);
+  });
+
+  it("REFILL BOOTSTRAP covers CONTAINER depots too: haulers no longer bridge, so any stocked depot with a dark post is the emergency", () => {
+    // With fan-fill retired, depot stock is UNREACHABLE for the network while
+    // no tender lives - in a container-depot room (RCL2-3, no storage) an
+    // ordinary 96 can lose to income (100-146) for thousands of ticks. One
+    // spawn volley of stranded stock (>=300) triggers the same 150 rank.
+    const r = room({ depot: true, extensions: 10, depotEnergy: 400 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].value, "stranded container stock: same emergency rank").to.equal(150);
+    expect(demand[0].blocking).to.equal(false);
+  });
+
+  it("no bootstrap from a DRY depot: a tender with nothing to move is ordinary infrastructure", () => {
+    const r = room({ depot: true, extensions: 10, depotEnergy: 0 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].value, "empty depot: nothing stranded, no emergency").to.equal(96);
   });
 
   it("REFILL BOOTSTRAP (owner, live t72490325): a DARK post with a stocked bank outbids all income and blocks", () => {

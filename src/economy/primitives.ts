@@ -70,6 +70,20 @@ export function carryPartsFor(rate: number, distance: number): number {
   return (rate * roundTripTicks(distance)) / CARRY_CAPACITY;
 }
 
+/**
+ * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
+ * standing adjacent to both its bank and its sink (the link-fed controller
+ * feeder: storage on one side, core link on the other; owner 2026-07-22 "The
+ * feeder doesn't move at all"). The cycle is withdraw tick + transfer tick with
+ * zero travel, so carry = rate * 2 / CARRY_CAPACITY - roundTripTicks(1) would
+ * charge two phantom travel ticks and double the body. Continuous (fractional);
+ * callers round up when sizing an actual body.
+ */
+export const PARKED_RELAY_CYCLE_TICKS = 2;
+export function parkedRelayCarry(rate: number): number {
+  return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
+}
+
 export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 

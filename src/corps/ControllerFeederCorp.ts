@@ -23,7 +23,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
-import { carryPartsFor } from "../economy/primitives";
+import { carryPartsFor, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
@@ -332,12 +332,15 @@ export class ControllerFeederCorp extends Corp {
       return []; // infrastructure follows income
     }
 
-    // Balanced 1:1 body sized to sustain the relay over the round trip (the
-    // feeder travels, unlike the parked extension tender). The storage sits by
-    // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    // Link-fed rooms shrink the shuttle leg to storage -> core link (spec 24
-    // rung 3): the same relay rate needs ~1/6th the CARRY, and the plan's
-    // feeder pricing reads the same lens (infraSpawnLoad linkFedRoomCount).
+    // Balanced 1:1 body sized to sustain the relay. WALKING rooms (no link):
+    // the storage sits by the spawn, so the spawn->controller distance
+    // approximates the bank->controller leg. LINK-FED rooms (spec 24 rung 3)
+    // are a PARKED post - the feeder stands adjacent to the storage and the
+    // core link BOTH and never moves (owner 2026-07-22: "The feeder doesn't
+    // move at all"), so its cycle is withdraw tick + transfer tick with zero
+    // travel; carryPartsFor(rate, 1) would charge two phantom travel ticks
+    // and double the body. The plan's feeder pricing reads the same lens
+    // (infraSpawnLoad linkFedRoomCount).
     const linkFed = !!controllerLink(spawn.room);
     const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
@@ -362,7 +365,10 @@ export class ControllerFeederCorp extends Corp {
       if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
     }
     const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked);
-    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(bodyRate, distance) * 1.2));
+    const neededCarry = Math.max(
+      1,
+      Math.ceil((linkFed ? parkedRelayCarry(bodyRate) : carryPartsFor(bodyRate, distance)) * 1.2)
+    );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
     this.lastSizing = {

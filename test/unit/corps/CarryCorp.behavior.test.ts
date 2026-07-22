@@ -7,6 +7,7 @@ import {
   pickDeliverySink,
   shouldBankControllerLoad,
   shouldRefillFromDepot,
+  tenderOwnsExtensions,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
@@ -113,6 +114,30 @@ describe("END-OF-LIFE recycle (owner 2026-07-22: 'less ttl than a round trip - r
     expect(dying.memory.recycling, "empty + under one round trip: recycle").to.equal(true);
     expect(loaded.memory.recycling, "loaded: finish the delivery").to.equal(undefined);
     expect(fresh.memory.recycling, "fresh: keep hauling").to.equal(undefined);
+  });
+});
+
+describe("tenderOwnsExtensions (owner 2026-07-22: 'each corp needs to do their job, not cover for each other')", () => {
+  // The ONE lens every hauler fan-fill site reads. COVERED is structural
+  // (depot + extensions stamped by ExtensionTenderCorp.work) and does NOT
+  // flap with tender deaths - the fallback where haulers resumed fanning
+  // whenever the tender died is retired: it wasted hauler trips, masked the
+  // outage, and made the corps unscorable. A dead tender is the tender
+  // corp's problem (bootstrap value 150 re-fields it); haulers keep the
+  // SPAWN STRUCTURE topped either way, so nothing deadlocks.
+  it("covered room, tender DEAD: extensions still belong to the tender corp (the retired-fallback pin)", () => {
+    expect(tenderOwnsExtensions({ extensionTenderCovered: true, extensionTenderActive: false })).to.equal(true);
+  });
+  it("covered room, tender alive: unchanged", () => {
+    expect(tenderOwnsExtensions({ extensionTenderCovered: true, extensionTenderActive: true })).to.equal(true);
+  });
+  it("legacy stamp only (active, covered not yet written): still the tender's", () => {
+    expect(tenderOwnsExtensions({ extensionTenderActive: true })).to.equal(true);
+  });
+  it("uncovered (no depot, or pre-extension): haulers own the network, exactly as before", () => {
+    expect(tenderOwnsExtensions({})).to.equal(false);
+    expect(tenderOwnsExtensions(undefined)).to.equal(false);
+    expect(tenderOwnsExtensions({ extensionTenderCovered: false, extensionTenderActive: false })).to.equal(false);
   });
 });
 

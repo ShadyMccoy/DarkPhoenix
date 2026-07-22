@@ -191,10 +191,19 @@ export class ExtensionTenderCorp extends Corp {
     }
     this.dutyAlive += tenders.length;
 
-    // Signal the haulers: while a depot exists AND a tender is alive to drain it,
-    // haulers run the dumb source->depot bus instead of fanning across extensions.
-    // If the tender dies the flag clears and haulers resume filling the spawn
-    // network directly, so a dead tender can never deadlock the colony.
+    // Two regime flags for the haulers (owner 2026-07-22 accountability
+    // ruling: corps never do each other's jobs). COVERED is STRUCTURAL - a
+    // depot and extensions exist, so extension refill is THIS corp's job
+    // whether or not a tender is alive right now; a dead tender is
+    // re-fielded by the bootstrap demand below, never covered for by haulers
+    // (the old fallback wasted their trips and masked the outage - live
+    // t72490325: cbd5's back-and-forth and the 2-part hauler-g-4-37 fanning
+    // extensions were both this). ACTIVE still tracks liveness for telemetry
+    // and the depot-reserve buffer nuances.
+    const extensionCount = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_EXTENSION
+    }).length;
+    room.memory.extensionTenderCovered = !!depot && extensionCount > 0;
     room.memory.extensionTenderActive = !!depot && tenders.length > 0;
 
     // PER-CLUSTER assignment (refill SLA on split layouts): each tender owns
@@ -407,9 +416,10 @@ export class ExtensionTenderCorp extends Corp {
    * Demand one oversized tender once a depot exists and there are extensions to
    * keep filled. NON-blocking: it is infrastructure (it tops the topmost
    * consumption tier, above building/upgrading), not core income, so it must not
-   * hold the spawn ahead of the miners/haulers that produce the energy it moves -
-   * until it spawns, room.memory.extensionTenderActive stays false and the haulers
-   * keep filling the extensions themselves, so nothing is starved in the meantime.
+   * hold the spawn ahead of the miners/haulers that produce the energy it moves.
+   * In a COVERED room haulers no longer bridge the gap (owner 2026-07-22
+   * accountability ruling), so a dark post with stranded depot stock is an
+   * emergency the bootstrap rank below resolves - one tender, next spawn walk.
    * Sized to refill the whole extension set in ~one trip (a bit oversized, since it
    * works in bursts).
    */
@@ -428,8 +438,9 @@ export class ExtensionTenderCorp extends Corp {
     // draining spawn's 3t/part deadline, and hauler fan-fill measurably
     // cannot (organic breaches on the pre-ramped and pipeline worlds, both
     // depot-less). Without a depot it reloads from any container or pile and
-    // idles by the spawn; the extensionTenderActive regime flag still keys
-    // on the depot, so haulers keep fanning alongside it until one exists.
+    // idles by the spawn; the COVERED regime flag still keys on the depot,
+    // so haulers keep fanning alongside it until one exists (an UNcovered
+    // room is the one place hauler extension-fill remains their own job).
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
     if (extensions.length === 0) {
       this.lastSizing = { tick: ctx.tick, gate: "no-extensions" };
@@ -519,8 +530,14 @@ export class ExtensionTenderCorp extends Corp {
     // ticks on W2N6 (see SpawnScheduler's hold comment) and stays retired.
     // One live tender ends the emergency: topping back to target is
     // ordinary infrastructure again.
-    const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
-    const bootstrap = staffing === 0 && banked > 10_000;
+    // ANY stocked depot qualifies, not just a storage bank: with fan-fill
+    // retired (accountability ruling) depot stock is UNREACHABLE for the
+    // network while no tender lives, so in a container-depot room an
+    // ordinary 96 losing to income (100-146) would strand the colony at
+    // 300-energy bodies indefinitely. One spawn volley of stranded stock
+    // (>= 300) is the emergency line.
+    const depotStock = coreDepot(room)?.store?.[RESOURCE_ENERGY] ?? 0;
+    const bootstrap = staffing === 0 && depotStock >= 300;
     return [
       {
         buyerCorpId: this.id,

@@ -445,13 +445,24 @@ declare global {
     };
 
     /**
-     * True while a core depot exists AND a live extension tender is draining it.
-     * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
-     * source->depot bus instead of fanning across extensions; when the tender dies
-     * it clears and haulers resume filling the spawn network directly (so a dead
-     * tender can never deadlock the colony).
+     * LIVENESS: true while a core depot exists AND a live extension tender is
+     * draining it. Set by ExtensionTenderCorp each tick; kept for telemetry and
+     * the depot-reserve nuances (spawnNetworkHungry's bridge buffer).
      */
     extensionTenderActive?: boolean;
+
+    /**
+     * STRUCTURAL (owner 2026-07-22 accountability ruling: "each corp needs to
+     * do their job, not cover for each other"): true while a core depot AND
+     * extensions exist - extension refill is the tender corp's JOB here,
+     * whether or not a tender is alive this tick. Read via CarryCorp's
+     * tenderOwnsExtensions lens: haulers run the dumb source->depot bus and
+     * never fan across extensions in a covered room; a dead tender is
+     * re-fielded by the corp's own bootstrap demand (value 150), not covered
+     * for. Haulers still top the SPAWN STRUCTURE either way, so a tender gap
+     * can never deadlock the colony.
+     */
+    extensionTenderCovered?: boolean;
 
     /**
      * True while a storage bank exists AND a live controller feeder is relaying it

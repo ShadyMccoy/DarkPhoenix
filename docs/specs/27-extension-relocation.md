@@ -77,6 +77,15 @@ at 50-capacity prices.
 4. Post-remodel: re-derive tender fleet (count AND bodies) from the new
    cluster geometry; retire the interim equal-share if the remodel
    collapses the field to one compact group.
+5. Depot bridge economy for the split fleet (measured 2026-07-22,
+   haul-t4-tender-bus-regime baselined red): DEPOT_BUFFER 150 and the
+   container bank target date from the one-oversized-tender era, whose
+   body was itself the magazine. A split fleet against a 150-energy
+   bridge misses back-to-back drains (fuel-gated SLA breach ~t150).
+   Scale the bridge/bank target to the tender fleet's WAVE (the
+   extension bank capacity) - container-depot rooms only; storage rooms
+   reload cheap and never hit it. Same design pass as the per-cluster
+   table (item 1): one economy, sized once.
 
 ## Relation
 

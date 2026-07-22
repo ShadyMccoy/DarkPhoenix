@@ -120,6 +120,11 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
   // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03
   // parts/t). Read the corp's own stamp - decision symmetry, not a guess.
+  // NOTE: deliberately the PLAN-side trip model, NOT the corp's realized
+  // neededCarry stamp - P4's budget-dry identity is constructed from the
+  // plan's own formulas, and injecting actual bodies breaks it at every
+  // equilibrium (the t72420007 boundary pin). The parked-post body shrink
+  // (2026-07-22) shows up on the ACTUAL side of plan-vs-actual instead.
   const feederLinkFed = corps.find(c => (c.id ?? "").includes("controllerFeeder"))?.sizing?.linkFed === true;
   const feederDist = feederLinkFed ? 1 : 6;
   const feederParts = 2 * carryPartsFor(relay, feederDist);
