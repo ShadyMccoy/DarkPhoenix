@@ -168,6 +168,66 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72505602 (scheduled cycle) — DIAGNOSIS: top-line WARNs are a road-build spike; the upgrader "ramp" was preempted by construction (prior verification was premature)
+
+No FAIL lines. Three WARNs (P4 0.90x, E4 127k draining, P2 34/44
+micro-routes) - and all three trace to ONE dynamic: the W42N23 trunk
+(un-stalled by last cycle's tanker fix) placed ~30 road sites at once.
+
+Measured, not inferred:
+- **P2/P4 are a transient spike, not a leak.** Construction sinks
+  jumped 1-4 (steady, all prior captures) -> 30 this window; source
+  cedc pours into its local road cluster (spec-25 emergent dedication,
+  by design), emitting 20 micro hauler-edges (one per site). 26 of the
+  44 hauler edges go to construction sinks (31 of 173 source-route
+  parts, ~18%); strip them and P4 is 0.84x (ok). They never
+  materialize (cedc CarryCorp = 0 creeps - construction is crew-served
+  via pile-fed rung + pool tankers); P4 counts them as its only proxy
+  for construction-delivery cost, so 0.90x is honest and feasible
+  (<1.0). CPU 79/t (bucket full), spawn 0.875 util. P8 already shows
+  it draining (remote 37 -> 30). Self-resolves when the trunk paves.
+- **The real progress signal - upgrader fleet stuck at 2/6 - is
+  construction preemption, doctrine-correct.** Fleet 3 (t72504060) ->
+  2 (t72504737) -> 2 (t72505602); controller stock BACKING UP
+  430->592->752 (feeder relays 106 e/t link-fed, 2 upgraders at 40
+  WORK / workUtil 0.96 consume ~34, the rest piles). The upgrader is
+  ranked LAST (agenda position 7, gate "queued", why "campaign"):
+  construction (sink 70) + income + guard campaign all outrank
+  controller (<=50). 4 of 8 recent receipts are construction/infra.
+  This is the sink ladder + owner doctrine ("building takes priority
+  ... an investment in our future upgrading abilities") working as
+  intended - burn the warchest on ROADS first, upgrade after.
+
+**Correction to the t72504146 cycle's verdict (honesty):** that cycle
+declared the holdToFund upgrader fix "VERIFIED, all predictions
+landed" on a 591t window showing fleet 2->3 and an upgrader@2300
+receipt. That was PREMATURE. The fix's own downstream effect (the
+tanker fix un-stalled construction) then placed a big road build that
+preempted the upgrader ramp; the fleet decayed back to 2. The
+holdToFund wall is real but WEAK at last-rank: the walk buys the
+top-ranked affordable demand and rarely reaches a last-ranked
+consumer, so the wall holds energy against nothing below it. The fix
+is not wrong (a surplus consumer SHOULD be able to fund), it is
+INSUFFICIENT to grow the fleet against construction preemption - and
+one 591t verification window could not see the decay.
+
+Cycle verdict: DIAGNOSIS (blocker named with data; prior conclusion
+corrected). No code change - the upgrader stall is doctrine-correct
+construction-preemption during a transient road build, and a
+spawn-priority patch would (a) be a second patch on upgrader funding
+in two cycles - the trap-list "mechanism is the bug" warning - and (b)
+fight the explicit build>upgrade doctrine. The disciplined move is to
+let the trunk complete and re-measure, not to guess twice.
+
+FALSIFICATION for the next cycle (design the capture): after the
+W42N23 trunk paves (roadReceipts cedc built -> total, remoteSites
+drop, construction sinks return to 1-4), predict the upgrader fleet
+ramps 2 -> toward 6 and controller stock stops rising. If it DOES,
+transient-preemption confirmed (no fix needed; the holdToFund wall
+suffices once construction clears). If the fleet STAYS at 2 with
+construction light, THAT is the standing ranking bug - fix it then,
+red-first, with the preemption ruled out.
+
 ### 2026-07-22 t72504146 (scheduled cycle) — P8 named the trunk stall; the pool's fuel never crossed rooms: tanker delivery was same-room-blind
 
 First cycle with the remote-aware P8 (previous cycle's instrument):
