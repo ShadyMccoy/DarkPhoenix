@@ -168,6 +168,47 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-directed) — CODE COP: vision-lens sweep of every Game.rooms / getObjectById decision site
+
+All 53 Game.rooms references and decision-shaped getObjectById sites
+classified (execution reads - run what you see - are correct by class
+and excluded). The pattern rules that separate safe from broken:
+(1) DECISIONS read durable state (intel, receipts, Memory, the plan);
+(2) vision only REFRESHES durable state or drives execution;
+(3) Memory reads must never route through Game.rooms[x].memory - the
+Memory tree is not vision-gated, reading it through Game.rooms gates
+it accidentally.
+
+Ranked findings:
+1. main.ts construction-sink admission (KNOWN, fix designed + held for
+   owner): visible-rooms-only sites = the measured cluster flap.
+2. flowAdapter scavenge detection: transient scavenge sources exist
+   only while their room is sighted - routes flap with vision; this IS
+   the recurring E2 strand noise (the W44N23/W43N24 hauling entries in
+   the last three captures are scavenge corps). Self-limiting (piles
+   decay, strands age out); fix would be TTL'd intel stocks, ambiguous
+   value since piles are genuinely ephemeral. Filed, not urgent.
+3. detectPavedSources (flowAdapter:362) + Telemetry roadReceipts
+   export iterate Game.rooms to read MEMORY - rule (3) violations.
+   Zero live cost today (receipts live in the always-visible home
+   room); trivial hardening: iterate Memory.rooms. Filed.
+4. CarryCorp:545 (legacy round-robin fallback): deletes a creep's
+   assignedSourceId when the source fails to resolve (blind room) -
+   state revoked on vision blink, reassignment churn. Legacy path
+   only; the flow-assignment primary path is unaffected. Filed.
+5. HarvestCorp sourceIsLinkFed: false when blind -> CARRY-less miner
+   body; unreachable in practice (links are home-room infra). Latent.
+
+Verified SAFE by inspection: ReservationCorp (fully reformed post-
+incident - no Game.rooms reads, plan+intel lenses only); RoomDiscovery
+(vision refreshing intel IS the correct pattern); ClaimCorp/
+ExpansionCampaign (blind target keeps the campaign marching; arrival
+provides vision); HarvestCorp's documented blind-march fallback;
+owned-room iterations (owned structures grant vision); flowAdapter's
+controller/value/storage reads (explicit no-vision fallbacks);
+execution runners; Telemetry (honest gaps). buildPool: fixed this
+session (receipts).
+
 ### 2026-07-22 (cron cycle, +362t) — RATCHET VERIFIED (duty 0.159, fleet 2); receipt-demand fielded the home builder; the cluster FLAPS with vision
 
 Capture t72489078. Verifications:
