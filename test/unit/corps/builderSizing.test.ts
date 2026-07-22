@@ -87,6 +87,114 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
 });
 
 /**
+ * SPEC 25 PHASE 3 (owner: "there shouldn't be any residual we can just make
+ * a bigger builder if we need to consume all the energy from the source mine
+ * during that time"): the commission's poolAllocatedRate - the summed
+ * source-local cluster allocations of the SPAWNLESS rooms this spawn staffs,
+ * priced at the SOURCE'S rate by the adapter - lifts the pool crew's horizon
+ * cap. The crew works ONE project at a time (pool-head order), so it sizes to
+ * the MAX of the funding tracks, never their sum (owner: "body parts standing
+ * around, unable to do their job is one form of waste").
+ */
+describe("SPEC 25 PHASE 3: pool crew sizes up to the plan's source-funded cluster rate", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetGovernor();
+    const g = global as any;
+    g.FIND_MY_CONSTRUCTION_SITES = 114;
+    g.FIND_STRUCTURES = 107;
+    g.FIND_DROPPED_RESOURCES = 106;
+    g.STRUCTURE_CONTAINER = "container";
+    g.STRUCTURE_STORAGE = "storage";
+    g.RESOURCE_ENERGY = "energy";
+    Game.creeps = {};
+    (Memory as any).creeps = {};
+    // The HOME branch of builderPlan: the corp's spawn stands in the room it
+    // plans for, and the build pool spans Game.rooms.
+    Game.getObjectById = (() => ({
+      id: "spawn1",
+      pos: { x: 25, y: 25, roomName: "W1N1", getRangeTo: () => 0 }
+    })) as any;
+  });
+
+  afterEach(() => {
+    // The mock Game is a SHARED module singleton: leaving a resolving
+    // getObjectById behind poisons later files (CarryCorp reads .room off
+    // whatever this returns). Restore the mock default.
+    Game.getObjectById = () => null;
+    Game.rooms = {} as any;
+  });
+
+  const site = (remaining: number): any => ({
+    progressTotal: remaining,
+    progress: 0,
+    pos: { x: 30, y: 30, findInRange: () => [] }
+  });
+
+  const mkRoom = (name: string, sites: any[]): any => ({
+    name,
+    controller: { my: name === "W1N1" }, // home owned; the cluster room is not
+    storage: name === "W1N1" ? { my: true, store: { energy: 600_000 } } : undefined,
+    memory: {},
+    find: (type: number) => (type === 114 ? sites : [])
+  });
+
+  // remoteSites null = the cluster room is BLIND (no vision): the plan still
+  // knows its sites (intel), so poolAllocatedRate arrives while buildPool
+  // cannot see the work - a real live shape, not a mock artifact.
+  const planFor = (ownAllocated: number, poolRate: number, homeSites: any[], remoteSites: any[] | null): any => {
+    Game.rooms = { W1N1: mkRoom("W1N1", homeSites) } as any;
+    if (remoteSites) (Game.rooms as any).W2N1 = mkRoom("W2N1", remoteSites);
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    if (ownAllocated > 0) {
+      corp.setConstructionAllocations([
+        {
+          sinkId: "s",
+          sinkType: "construction",
+          allocated: ownAllocated,
+          demand: ownAllocated,
+          unmet: 0,
+          priority: 50,
+          sourceFlows: []
+        }
+      ] as any);
+    }
+    corp.setPoolAllocatedRate(poolRate);
+    return (corp as any).builderPlan(1300, Game.rooms.W1N1);
+  };
+
+  it("a source-funded cluster fields a BIGGER builder than the horizon rate alone (no residual)", () => {
+    // No home sites, no own allocation: all the pool's work is a remote
+    // cluster the plan funds at the source's 10 e/t. Without the pool rate
+    // the crew floors at 5 e/t (1 WORK); with it, the crew eats the mine.
+    const without = planFor(0, 0, [], [site(3000)]);
+    const withRate = planFor(0, 10, [], [site(3000)]);
+    expect(without.partsNeeded, "no pool rate: floored crew").to.equal(1);
+    expect(withRate.partsNeeded, "source-funded: 10 e/t -> 2 WORK, the whole mine consumed").to.equal(2);
+  });
+
+  it("MAX of the funding tracks, never the sum: a cluster under the horizon cap adds no parts", () => {
+    // A 30k home build-out absorbs 30 e/t (6 WORK, the lifetime-completion
+    // pin above); a 10 e/t cluster on top must NOT field 8 WORK - the crew
+    // is serial, so whichever project it stands at bounds its useful size.
+    // The cluster room is blind here: the plan's rate arrives via the
+    // commission regardless of vision.
+    const bankOnly = planFor(100, 0, [site(30_000)], null);
+    const bankPlusCluster = planFor(100, 10, [site(30_000)], null);
+    expect(bankOnly.partsNeeded).to.equal(6);
+    expect(bankPlusCluster.partsNeeded, "summing would idle parts; MAX holds the crew at 6").to.equal(6);
+  });
+
+  it("survives serialization: the pool rate round-trips (commission-owned but reset-safe)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    corp.setPoolAllocatedRate(10);
+    const back = new ConstructionCorp("W1N1-construction", "spawn1");
+    back.deserialize(JSON.parse(JSON.stringify(corp.serialize())));
+    expect((back as any).poolAllocatedRate).to.equal(10);
+  });
+});
+
+/**
  * Link-superseded containers leave the maintenance rolls (owner 2026-07-20:
  * "we keep repairing the container even though we don't use it anymore"):
  * once a source feeds its link, its legacy container is neither repaired

@@ -407,6 +407,49 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(ctrl.allocated, "controller mops up the freed draw").to.be.greaterThan(build.allocated);
   });
 
+  it("SOURCE-LOCAL sites price at the SOURCE'S RATE, not the completion horizon (owner: no residual - a bigger builder eats it)", () => {
+    // A road cluster beside a mined source is that source's whole economy
+    // during its build window: local building is ~5x spawn-cheaper per e/t
+    // than hauling the unpaved route home, so the sound plan consumes the
+    // full 10 e/t at-site (a ~2-WORK crew) and ships nothing. The horizon
+    // cap would price the cluster at ~5 e/t and force a residual hauler -
+    // the exact body class roads exist to eliminate.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    // two ROAD sites adjacent to s2 (at 25), in a REMOTE room (hub-room sites
+    // stay bank-funded - the clustering rule is for road-building remotes):
+    // dist(s2,site) ~ 1-2 << dist(s2,hub at 6) ~ 19
+    graph.addConstructionSite("roadA", "home", { x: 24, y: 25, roomName: "W1N0" }, 1500);
+    graph.addConstructionSite("roadB", "home", { x: 27, y: 25, roomName: "W1N0" }, 1500);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+    const total = builds.reduce((s, a) => s + a.demand, 0);
+    expect(total, "cluster demand = the local source's full rate").to.be.closeTo(10, 0.2);
+    // and the fill delivers it FROM s2 - no residual deposit from s2:
+    const s2Flows = sol.haulers.filter(h => h.fromId === "source-s2");
+    expect(
+      s2Flows.filter(h => h.toId.startsWith("construction")).reduce((s, h) => s + h.flowRate, 0),
+      "s2's whole output builds at-site"
+    ).to.be.closeTo(10, 0.2);
+    expect(s2Flows.some(h => h.toId.startsWith("storage")), "no residual leg home").to.equal(false);
+  });
+
+  it("PER-SITE FLOORS SHARE ONE POOL BUDGET: ten road sites sum to the pool absorb, not ten floors (spec 25 / t72480337)", () => {
+    // The boolean-era incident: 10 sites x the max(5,...) floor = 50 e/t of
+    // priority-70 plan demand against a pool absorbing ~5 - the demotion-
+    // freed ledger parts inflated the consumer plan around exactly this.
+    // The crew is ONE fleet sized against the whole pool; per-site demands
+    // are pro-rata shares of projectAbsorbRate(total remaining, farthest
+    // travel) and their SUM equals it.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    for (let i = 0; i < 10; i++) graph.addConstructionSite(`road${i}`, "home", at(9 + i), 300);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+    expect(builds.length).to.equal(10);
+    const totalDemand = builds.reduce((s, a) => s + a.demand, 0);
+    // pool: 3000 remaining, farthest travel 18 -> max(5, 3000/((2/3)*1482)) = 5
+    expect(totalDemand, "sum = ONE pool absorb, not 10 floors").to.be.closeTo(5, 0.1);
+  });
+
   it("a REAL build-out sizes to buffered-effective-life completion; the residual upgrades (owner 2026-07-20)", () => {
     // Horizon = 2/3 of effectiveLife(travel): the site sits 4 tiles from the
     // spawn, so 15k / ((2/3) * 1496) ~ 15 e/t - above the G6 flat-5 floor
@@ -701,36 +744,5 @@ describe("trunk-building sources (owner 2026-07-21: no hauling home until the ro
     g.Game = savedGame;
   });
 
-  it("detectTrunkBuildingSources: in-progress trunks only (not paved, not declined, not fresh in-room)", async () => {
-    const { detectTrunkBuildingSources } = await import("../../../src/economy/flowAdapter");
-    g.Game.rooms = {
-      W1N1: {
-        memory: {
-          roadRoutes: {
-            a: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], built: 0, total: 1 }, // surveyed: sites STAND
-            b: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], paved: true }, // done
-            c: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"], declined: true }, // not worth it
-            d: { tiles: [1, 1] }, // in-room legacy route, no trunk
-            e: { tiles: [], tiles3: [1, 1, 0], rooms: ["W2N1"] } // PLANNED only - no sites placed yet (t72474584: dedicating these cut 30 e/t for zero build progress)
-          }
-        }
-      }
-    };
-    const set = detectTrunkBuildingSources();
-    expect([...set]).to.deep.equal(["a"]);
-  });
 
-  it("a dedicated source keeps its MINER but ships NOTHING home (the pile is the road's fuel)", async () => {
-    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
-    const { planColony } = await import("../../../src/economy/CorpPlanner");
-    const graph = graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
-    const problem = buildColonyProblem(
-      graph, manhattan, [], new Map(), new Map(), [], 0, undefined, undefined, new Set(["s1"])
-    );
-    expect(problem.sources.find(s => s.id === "source-s1")!.dedicatedToBuild).to.equal(true);
-    const plan = planColony(problem);
-    expect(plan.miners.some(m => m.sourceId === "source-s1"), "the miner stands - the pile feeds the crew").to.equal(true);
-    expect(plan.haulers.some(h => h.sourceId === "source-s1"), "no haul route home while the trunk builds").to.equal(false);
-    expect(plan.haulers.some(h => h.sourceId === "source-s2"), "other sources haul normally").to.equal(true);
-  });
 });

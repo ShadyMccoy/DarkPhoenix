@@ -491,6 +491,85 @@ describe("economy/CorpPlanner", () => {
       expect(aDeposit!.flowRate).to.be.lessThan(19);
       expect(plan.haulers.some(h => h.sourceId === "B"), "no phantom B route").to.equal(false);
     });
+
+  });
+
+  describe("spec 25: emergent dedication - deposit sources may feed construction NEARER than their hub", () => {
+    // The dedicatedToBuild flag bypassed the router (pool zeroed) and needed
+    // three same-day exemption patches. The planner-native form: the
+    // hub-and-spoke role rule gains ONE refinement - a deposit-class source
+    // (mined or scavenge) may route to a CONSTRUCTION sink closer to it than
+    // its hub. Nearest-first then makes trunk dedication emergent from
+    // prices: source-adjacent road sites out-compete the long deposit leg,
+    // the residual banks, and completion re-routes everything home with no
+    // lifecycle code. 1-D world: spawn+hub at 0-2, remote source T at 46.
+    const world = (extraSinks: PlannerSink[], opts: Partial<ColonyProblem> = {}): ColonyProblem =>
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [source("T", 46, 10), stock("bank-home", 2, 200)],
+        sinks: [
+          sink("spawn-S", "spawn", 0, 100, 1),
+          sink("store", "storage", 2, 1, 1000),
+          ...extraSinks
+        ],
+        infraPartsPerTick: 0.05,
+        ...opts
+      });
+
+    it("1. EMERGENT DEDICATION: all of T feeds its adjacent road sinks; nothing ships home", () => {
+      const plan = planColony(
+        world([sink("road1", "construction", 44, 70, 5), sink("road2", "construction", 48, 70, 5)])
+      );
+      const toRoads = plan.haulers.filter(h => h.sourceId === "T" && h.sinkId.startsWith("road"));
+      expect(toRoads.reduce((s, h) => s + h.flowRate, 0), "T's whole rate builds at-site").to.be.closeTo(10, 1e-6);
+      expect(
+        plan.haulers.some(h => h.sourceId === "T" && h.sinkId === "store"),
+        "no deposit leg while the sites absorb the rate"
+      ).to.equal(false);
+      expect(plan.sourceVerdicts.find(v => v.sourceId === "T")!.verdict, "the miner stands, no flag").to.equal(
+        "funded"
+      );
+      // anti-pump intact: the bank never deposits
+      expect(plan.haulers.some(h => h.sourceId === "bank-home" && h.sinkId === "store")).to.equal(false);
+    });
+
+    it("2. RESIDUAL DEPOSITS: sites absorbing 4 of 10 leave 6 shipping home (partial dedication is just routing)", () => {
+      const plan = planColony(world([sink("road1", "construction", 44, 70, 4)]));
+      const toRoad = plan.haulers.find(h => h.sourceId === "T" && h.sinkId === "road1");
+      const toStore = plan.haulers.find(h => h.sourceId === "T" && h.sinkId === "store");
+      expect(toRoad!.flowRate).to.be.closeTo(4, 1e-6);
+      expect(toStore!.flowRate).to.be.closeTo(6, 1e-6);
+    });
+
+    it("3. COMPLETION TRANSITION: no road sinks -> the full rate deposits home (no lifecycle code)", () => {
+      const plan = planColony(world([]));
+      const toStore = plan.haulers.find(h => h.sourceId === "T" && h.sinkId === "store");
+      expect(toStore!.flowRate, "hauling home resumes purely by the sinks vanishing").to.be.closeTo(10, 1e-6);
+    });
+
+    it("4. ROLE GUARD: a construction sink FARTHER from T than its hub still draws the bank, never T", () => {
+      // site at 96: dist(T)=50 > hubDist(T)=44 - outside T's exception, even
+      // though T (50) is nearer the site than the bank (94). Home sites keep
+      // their bank funding; the exception is strictly source-LOCAL building.
+      const plan = planColony(world([sink("farSite", "construction", 96, 70, 5)]));
+      expect(plan.haulers.some(h => h.sourceId === "T" && h.sinkId === "farSite")).to.equal(false);
+      const fromBank = plan.haulers.find(h => h.sourceId === "bank-home" && h.sinkId === "farSite");
+      expect(fromBank, "the bank funds distant construction, as before").to.not.equal(undefined);
+    });
+
+    it("5. HUB ROLES OTHERWISE UNCHANGED: consumers other than construction never draw T", () => {
+      const plan = planColony(
+        world([sink("ctrl", "controller", 44, 50, 20)]) // adjacent to T, but NOT construction
+      );
+      expect(
+        plan.haulers.some(h => h.sourceId === "T" && h.sinkId === "ctrl"),
+        "the exception is construction-only; mined never feeds a controller directly in the hub era"
+      ).to.equal(false);
+      expect(plan.haulers.find(h => h.sourceId === "T" && h.sinkId === "store")!.flowRate).to.be.closeTo(
+        10,
+        1e-6
+      );
+    });
   });
 
   describe("recovery competes on route economics; SIZING keeps it from crowding (owner 2026-07-20)", () => {

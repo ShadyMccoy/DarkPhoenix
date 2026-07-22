@@ -116,8 +116,23 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
     lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
   }
   const relay = feederRelayRate(banked);
-  const feederParts = 2 * carryPartsFor(relay, 6);
-  lines.push([`feeder @ relay ${Math.round(relay)}`, feederParts, feederParts / effectiveLife(6)]);
+  // LINK-FED feeder charges at distance 1, not the nominal 6 (owner
+  // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
+  // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03
+  // parts/t). Read the corp's own stamp - decision symmetry, not a guess.
+  // NOTE: deliberately the PLAN-side trip model, NOT the corp's realized
+  // neededCarry stamp - P4's budget-dry identity is constructed from the
+  // plan's own formulas, and injecting actual bodies breaks it at every
+  // equilibrium (the t72420007 boundary pin). The parked-post body shrink
+  // (2026-07-22) shows up on the ACTUAL side of plan-vs-actual instead.
+  const feederLinkFed = corps.find(c => (c.id ?? "").includes("controllerFeeder"))?.sizing?.linkFed === true;
+  const feederDist = feederLinkFed ? 1 : 6;
+  const feederParts = 2 * carryPartsFor(relay, feederDist);
+  lines.push([
+    `feeder @ relay ${Math.round(relay)}${feederLinkFed ? " (link-fed d1)" : ""}`,
+    feederParts,
+    feederParts / effectiveLife(feederDist)
+  ]);
 
   const tenderTarget = corps.find(c => c.kind === "tender")?.sizing?.target ?? 3;
   const tenderBody = fleetParts(corps, "tender", 24);
@@ -328,7 +343,13 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const stampDt = res?.sizing?.tick && bres?.sizing?.tick ? res.sizing.tick - bres.sizing.tick : dt;
     if (banks1 && banks2 && stampDt > 0) {
       const rooms = Object.keys(banks2).filter(r => r in banks1);
-      const pumps = rooms.map(r => [r, Math.round(banks2[r] - (banks1[r] - stampDt))] as [string, number]);
+      // Expected decay is bounded by the starting bank (a bank at 0 cannot
+      // decay): pump = bank2 - (bank1 - min(bank1, dt)). The unbounded form
+      // fabricated "+dt banked per room" from four zero banks with no
+      // reservers fielded (live t72481477 vs t72481270).
+      const pumps = rooms.map(
+        r => [r, Math.round(banks2[r] - (banks1[r] - Math.min(banks1[r], stampDt)))] as [string, number]
+      );
       const zero = pumps.filter(([, p]) => p <= 0);
       const fielded = (res?.bodyParts ?? 0) > 0 && (bres?.bodyParts ?? 0) > 0;
       const totalPump = pumps.reduce((a, [, p]) => a + Math.max(0, p), 0);
@@ -399,17 +420,38 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const completion = count2 < count1 || total2 < total1;
       const standing = count1 > 0 && count2 > 0;
       const delivered = prog2 - prog1;
-      const flat = standing && !completion && delivered <= 0;
+      // REMOTE BUILD via receipts (gap measured 2026-07-22: P8 read "0 e/t
+      // built" all day while cee0's trunk went 35 -> 45 - the rooms[] site
+      // meter is home-only and remote build-out was INVISIBLE to the
+      // ledger). roadReceipts.built RATCHETS (never counts down), so its
+      // delta x ROAD_BUILD_COST is a floor on energy actually built into
+      // remote roads - swamp tiles cost more, so this undercounts, never
+      // overcounts.
+      const ROAD_BUILD_COST = 300;
+      const receiptsDelta = ((): number => {
+        const r1 = bcore.roadReceipts ?? {};
+        const r2 = core.roadReceipts ?? {};
+        let tiles = 0;
+        for (const k of Object.keys(r2)) {
+          const b2 = r2[k]?.built;
+          const b1 = r1[k]?.built;
+          if (typeof b2 === "number" && typeof b1 === "number" && b2 > b1) tiles += b2 - b1;
+        }
+        return tiles * ROAD_BUILD_COST;
+      })();
+      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0;
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
-        value: dt > 0 ? +(Math.max(0, delivered) / dt).toFixed(2) : 0,
+        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta) / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
-          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped`
-          : standing
+          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped` +
+            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
+          : standing || receiptsDelta > 0
           ? `sites ${count1}->${count2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+            (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
       });
@@ -429,6 +471,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // sink (this cycle) restore routed ~= produced.
   if (flow?.sources && flow?.haulers) {
     const isMined = (id: any): boolean => typeof id === "string" && id.startsWith("source-");
+    // Spec 25 phase 3: no dedication carve-out - a source building locally
+    // has ROUTES (source->construction) which count as routed below, so the
+    // plain produced-vs-routed test is honest for every source again.
     const produced = (flow.sources as any[]).reduce((a, s) => a + (+s.harvestRate || 0), 0);
     const minedHaulers = (flow.haulers as any[]).filter(h => isMined(h.sourceId));
     const routed = minedHaulers.reduce((a, h) => a + (+h.flowRate || 0), 0);
@@ -447,7 +492,77 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- X1 dry WORK ticks (owner doctrine 2026-07-21: "having body parts
+  // standing around, unable to do their job is one form of waste ... hauling
+  // and working grow in concert, spawned as a package") ----
+  // The upgrade meter (Memory.upgradeMeter, tallied at the upgradeController
+  // call site) stamps workUtil/dryShare into the upgrader sizing record.
+  // Idle standing WORK = work parts x (1 - workUtil): capacity the colony
+  // paid spawn time for that produced nothing. dryShare names the supply-
+  // starved share of it - the half the package-spawn remedy targets.
+  // Pre-meter captures (no workUtil in the stamp) skip the row.
+  {
+    const upg = (cap.data.corps?.corps ?? []).find((c: any) => c.kind === "upgrade" && c.sizing?.workUtil !== undefined);
+    const work = upg?.body?.work ?? 0;
+    if (upg && work > 0) {
+      const workUtil = +upg.sizing.workUtil;
+      const dryShare = +upg.sizing.dryShare || 0;
+      const idleWork = work * (1 - workUtil);
+      const meaningful = work > 10 && (upg.sizing.meterTicks ?? 0) > 100;
+      rows.push({
+        id: "X1",
+        name: "dry WORK ticks (standing-but-idle)",
+        value: +idleWork.toFixed(1),
+        unit: "WORK parts idle-equivalent",
+        verdict: meaningful && workUtil < 0.7 ? "FAIL" : meaningful && workUtil < 0.85 ? "WARN" : "ok",
+        detail:
+          `${work} WORK standing, workUtil ${workUtil.toFixed(2)} over ${upg.sizing.meterTicks}t; ` +
+          `dry (supply-starved) ${dryShare.toFixed(2)}` +
+          (meaningful && workUtil < 0.7 ? " - STANDING PARTS NOT WORKING (grow hauling+working as a package)" : "")
+      });
+    }
+  }
+
   // ---- X3 census ----
+  // ---- X4 lifetime quantization (owner 2026-07-22: "this rounding factor
+  // is something we can track in telemetry as well for the future") ----
+  // A hauler's effective life divides into floor(life/roundTrip) full
+  // trips; the remainder ticks cannot fit another trip. With END-OF-LIFE
+  // recycling (same commit) that tail converts to a spawn refund; without
+  // it, the body walks its tail off and the amortization is lost. Priced
+  // from the PLAN's routes: remainder/life x standing body cost per tick.
+  {
+    const srcRoutes = (flow?.haulers ?? []).filter((h: any) => (h.sourceId ?? "").startsWith("source-"));
+    let waste = 0;
+    let worst = "";
+    let worstV = 0;
+    for (const h of srcRoutes) {
+      const d = +h.distance || 0;
+      const rt = 2 * d + 2;
+      const life = Math.max(1, 1500 - d);
+      const rem = life % rt;
+      const partsPerCarry = h.ratio === "2:1" ? 1.5 : 2;
+      const bodyPerTick = ((+h.carryParts || 0) * partsPerCarry * 50) / life;
+      const v = bodyPerTick * (rem / life);
+      waste += v;
+      if (v > worstV) {
+        worstV = v;
+        worst = `${String(h.sourceId ?? "").slice(-8)} rem ${rem}t of ${rt}t trips`;
+      }
+    }
+    rows.push({
+      id: "X4",
+      name: "lifetime quantization (trip rounding)",
+      value: +waste.toFixed(2),
+      unit: "e/t amortization in trip tails",
+      verdict: "ok",
+      detail:
+        srcRoutes.length > 0
+          ? `${srcRoutes.length} routes; worst ${worst}; EOL recycle converts tails to refunds`
+          : "no source routes"
+    });
+  }
+
   rows.push({
     id: "X3",
     name: "untracked creeps",

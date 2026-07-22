@@ -28,6 +28,11 @@ import { staffsPost } from "../economy/primitives";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
   spawnId: string;
+  /** Transfer-duty meter (survives resets - a global reset mid-window
+   * must not read as a duty collapse). */
+  dutyTransfers?: number;
+  dutyAlive?: number;
+  dutySince?: number;
 }
 
 /** A spawn or extension the tender keeps topped up. */
@@ -43,12 +48,18 @@ export function towerNeedsFill(energy: number, capacity: number): boolean {
 
 /**
  * CARRY parts for the tender filling fleet slot `staffing` (pure, unit-tested).
- * The slot serves clusters[staffing % len] - one trip covers ITS cluster
- * (cluster size + the spawn's tile), floored at an equal share of one full
- * bank wave (ceil(bankCapacity / target / 50)) so the fleet's combined carry
- * still covers a whole drain, capped at what the room can afford. Sizing
- * every body to the BIGGEST cluster instead fielded 3 near-max bodies for a
- * 2300 bank (t72459426: 138p, 0.092 parts/t - the P4 ceiling breach).
+ * EQUAL SHARE of one full bank wave (ceil(bankCapacity / target / 50)),
+ * capped at what the room can afford - the fleet's combined carry covers a
+ * whole drain regardless of count, so raising the count SPLITS the same
+ * body-part total across more coverage points (owner 2026-07-22: "split
+ * the same amount of body parts across two or three creeps - that's gonna
+ * help with the rates while still alleviating the spawn capacity"). The
+ * old per-cluster term (slotSize + 1) sized bodies to their assigned
+ * cluster ON TOP of the share and re-inflated the fleet the moment
+ * clusters were large; coverage of a specific cluster is the ROUTE'S job
+ * (room-level SLA + drive-by transfers), not the body's. Sizing every body
+ * to the BIGGEST cluster fielded 3 near-max bodies for a 2300 bank
+ * (t72459426: 138p, 0.092 parts/t - the P4 ceiling breach).
  */
 export function tenderSlotCarry(
   clusterSizes: number[],
@@ -57,13 +68,24 @@ export function tenderSlotCarry(
   bankCapacity: number,
   maxCarry: number
 ): number {
-  const slotSize = clusterSizes.length > 0 ? clusterSizes[staffing % clusterSizes.length] : 0;
-  const shareFloor = Math.ceil(bankCapacity / Math.max(1, target) / 50);
-  return Math.max(1, Math.min(Math.max(slotSize + 1, shareFloor), maxCarry));
+  void clusterSizes;
+  void staffing;
+  const share = Math.ceil(bankCapacity / Math.max(1, target) / 50);
+  return Math.max(1, Math.min(share, maxCarry));
 }
 
 export class ExtensionTenderCorp extends Corp {
   private spawnId: string;
+
+  /** TRANSFER-DUTY METER (owner 2026-07-22: "the tender truth is somewhere
+   * between our current actual and the simulated ideal - we can ratchet
+   * that up a bit"): transfer intents per alive tender tick over a rolling
+   * window, stamped into lastSizing so captures verify each fleet ratchet
+   * against measured duty (sim reference: one saturated tender runs ~0.30;
+   * a fleet at ~0.10 each is 3x over-provisioned). */
+  private dutyTransfers = 0;
+  private dutyAlive = 0;
+  private dutySince = 0;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, customId);
@@ -159,10 +181,29 @@ export class ExtensionTenderCorp extends Corp {
     const depot = coreDepot(room);
     const tenders = this.getTenders();
 
-    // Signal the haulers: while a depot exists AND a tender is alive to drain it,
-    // haulers run the dumb source->depot bus instead of fanning across extensions.
-    // If the tender dies the flag clears and haulers resume filling the spawn
-    // network directly, so a dead tender can never deadlock the colony.
+    // Duty-meter window: one creep generation, then restart (same cadence
+    // as the upgrade meter - long enough to smooth bursts, short enough
+    // that a fleet change shows within two captures).
+    if (tick - this.dutySince >= 1500) {
+      this.dutyTransfers = 0;
+      this.dutyAlive = 0;
+      this.dutySince = tick;
+    }
+    this.dutyAlive += tenders.length;
+
+    // Two regime flags for the haulers (owner 2026-07-22 accountability
+    // ruling: corps never do each other's jobs). COVERED is STRUCTURAL - a
+    // depot and extensions exist, so extension refill is THIS corp's job
+    // whether or not a tender is alive right now; a dead tender is
+    // re-fielded by the bootstrap demand below, never covered for by haulers
+    // (the old fallback wasted their trips and masked the outage - live
+    // t72490325: cbd5's back-and-forth and the 2-part hauler-g-4-37 fanning
+    // extensions were both this). ACTIVE still tracks liveness for telemetry
+    // and the depot-reserve buffer nuances.
+    const extensionCount = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_EXTENSION
+    }).length;
+    room.memory.extensionTenderCovered = !!depot && extensionCount > 0;
     room.memory.extensionTenderActive = !!depot && tenders.length > 0;
 
     // PER-CLUSTER assignment (refill SLA on split layouts): each tender owns
@@ -299,6 +340,7 @@ export class ExtensionTenderCorp extends Corp {
       const adjacent = adjacentPool.find(t => creep.pos.isNearTo(t.pos));
       if (adjacent) {
         creep.transfer(adjacent, RESOURCE_ENERGY);
+        this.dutyTransfers += 1;
         this.recordProduction(
           Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY))
         );
@@ -374,9 +416,10 @@ export class ExtensionTenderCorp extends Corp {
    * Demand one oversized tender once a depot exists and there are extensions to
    * keep filled. NON-blocking: it is infrastructure (it tops the topmost
    * consumption tier, above building/upgrading), not core income, so it must not
-   * hold the spawn ahead of the miners/haulers that produce the energy it moves -
-   * until it spawns, room.memory.extensionTenderActive stays false and the haulers
-   * keep filling the extensions themselves, so nothing is starved in the meantime.
+   * hold the spawn ahead of the miners/haulers that produce the energy it moves.
+   * In a COVERED room haulers no longer bridge the gap (owner 2026-07-22
+   * accountability ruling), so a dark post with stranded depot stock is an
+   * emergency the bootstrap rank below resolves - one tender, next spawn walk.
    * Sized to refill the whole extension set in ~one trip (a bit oversized, since it
    * works in bursts).
    */
@@ -395,8 +438,9 @@ export class ExtensionTenderCorp extends Corp {
     // draining spawn's 3t/part deadline, and hauler fan-fill measurably
     // cannot (organic breaches on the pre-ramped and pipeline worlds, both
     // depot-less). Without a depot it reloads from any container or pile and
-    // idles by the spawn; the extensionTenderActive regime flag still keys
-    // on the depot, so haulers keep fanning alongside it until one exists.
+    // idles by the spawn; the COVERED regime flag still keys on the depot,
+    // so haulers keep fanning alongside it until one exists (an UNcovered
+    // room is the one place hauler extension-fill remains their own job).
     const extensions = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION });
     if (extensions.length === 0) {
       this.lastSizing = { tick: ctx.tick, gate: "no-extensions" };
@@ -436,7 +480,15 @@ export class ExtensionTenderCorp extends Corp {
     const clusters = extensionClusters(room);
     const bankCapacity = 300 + 50 * extensions.length;
     const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
+    // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
+    // the legacy scattered layout: "split the same amount of body parts
+    // across two or three creeps"): the SAME total carry (one bank wave,
+    // tenderSlotCarry equal-share) split across three coverage points -
+    // count beats size on scatter (mini-game: fleet count washed out every
+    // other factor), at the ratchet's parts budget, not the old 72-part
+    // fleet's. Duty meter + S3/E5 direct signals verify.
     const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    const duty = this.dutyAlive > 0 ? this.dutyTransfers / this.dutyAlive : null;
     this.lastSizing = {
       tick: ctx.tick,
       gate: staffing >= target ? "staffed" : "demand",
@@ -444,7 +496,8 @@ export class ExtensionTenderCorp extends Corp {
       hasMiner,
       clusters: clusters.length,
       staffing,
-      target
+      target,
+      ...(duty !== null ? { duty: Math.round(duty * 1000) / 1000, meterTicks: ctx.tick - this.dutySince } : {})
     };
     if (staffing >= target) return [];
 
@@ -462,12 +515,44 @@ export class ExtensionTenderCorp extends Corp {
       maxCarry
     );
 
+    // REFILL BOOTSTRAP (owner 2026-07-22, live incident t72490325: zero
+    // tenders, gate "demand" while endFill collapsed to 0.41 and the spawn
+    // idled at 0.71 - "since we have energy in the storage, tendering is
+    // higher value than more mining in terms of spawn priority"): with the
+    // refill post DARK and a stocked bank, every body the spawn builds
+    // without a tender is a runt bought from an unfillable room - the
+    // tender multiplies all later spawn capacity, so it outbids the whole
+    // income range (miners 100-146, haulers 90-110) by VALUE alone.
+    // Deliberately NOT blocking (owner: "don't do anything rash"): the
+    // scheduler buys at minCost immediately (afford-min-scaled), so value
+    // 150 fields a scaled tender on the next walk without freezing lower
+    // spends - the blocking-tender-stream era starved a held miner 3000
+    // ticks on W2N6 (see SpawnScheduler's hold comment) and stays retired.
+    // One live tender ends the emergency: topping back to target is
+    // ordinary infrastructure again.
+    // ANY stocked depot qualifies, not just a storage bank: with fan-fill
+    // retired (accountability ruling) depot stock is UNREACHABLE for the
+    // network while no tender lives, so in a container-depot room an
+    // ordinary 96 losing to income (100-146) would strand the colony at
+    // 300-energy bodies indefinitely. One spawn volley of stranded stock
+    // (>= 300) is the emergency line.
+    const depotStock = coreDepot(room)?.store?.[RESOURCE_ENERGY] ?? 0;
+    const bootstrap = staffing === 0 && depotStock >= 300;
     return [
       {
         buyerCorpId: this.id,
         role: "tanker",
-        value: 96, // infrastructure: above upgrading/building, below the core mining economy
-        blocking: false, // infrastructure, not core income - never hold the spawn ahead of producers
+        value: bootstrap ? 150 : 96, // emergency: above all income; else above upgrading/building, below mining
+        blocking: false, // never hold the spawn - minCost 200 buys instantly at this rank anyway
+        // The lane pierces holds/walls ONLY in the bootstrap emergency (dark
+        // post + stranded stock - incident t72499165: a walled miner's
+        // strict hold blocked the affordable tender that was the only way
+        // to fund the wall, 4,400 ticks). An UNCONDITIONAL flag was tried
+        // and measurably recreated the W2N6 stream in the cold-start trio:
+        // the fleet's top-ups pierced the first-hauler wall three times
+        // (tanker@310/369/419, hauler delayed to 498, hand-off probe red).
+        // One dark-post body per outage; top-ups wait like everyone else.
+        infrastructure: bootstrap,
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,
@@ -478,11 +563,20 @@ export class ExtensionTenderCorp extends Corp {
   }
 
   public serialize(): SerializedExtensionTenderCorp {
-    return { ...super.serialize(), spawnId: this.spawnId };
+    return {
+      ...super.serialize(),
+      spawnId: this.spawnId,
+      dutyTransfers: this.dutyTransfers,
+      dutyAlive: this.dutyAlive,
+      dutySince: this.dutySince
+    };
   }
 
   public deserialize(data: SerializedExtensionTenderCorp): void {
     super.deserialize(data);
     this.spawnId = data.spawnId ?? this.spawnId;
+    this.dutyTransfers = data.dutyTransfers ?? 0;
+    this.dutyAlive = data.dutyAlive ?? 0;
+    this.dutySince = data.dutySince ?? 0;
   }
 }

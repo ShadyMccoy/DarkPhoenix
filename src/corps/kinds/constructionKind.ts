@@ -37,6 +37,13 @@ export interface ConstructionAssignment {
   spawnId: string;
   allocations: SinkAllocation[];
   /**
+   * Spec 25 phase 3: the summed construction allocations of the SPAWNLESS
+   * rooms this spawn staffs - remote source-local clusters priced at the
+   * source's rate. The ONE pool crew (this room's corp) sizes to eat this
+   * on top of its own-room allocations ("make a bigger builder").
+   */
+  poolAllocatedRate?: number;
+  /**
    * Remote trunk candidates (owner 2026-07-19: a route is a string of sites,
    * not a room): the draft's FUNDED remote harvests staffed from this room's
    * spawn. The corp judges each with roadEconomics and paves the winners
@@ -153,8 +160,23 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       }
       homeSpawnByRoom.set(roomName, best.id);
     }
+    // POOL ALLOCATIONS (spec 25 phase 3, owner: "make a bigger builder ...
+    // consume all the energy from the source mine"): the plan now prices
+    // remote source-local clusters at the SOURCE'S RATE, and the ONE pool
+    // crew (the spawn's own room corp) must size to eat it - remote corps
+    // field no builders. Each spawn's room corp receives the SUM of the
+    // construction allocations in the spawnless rooms it staffs.
+    const poolAllocBySpawnRoom = new Map<string, number>();
+    for (const [roomName, spawnId] of homeSpawnByRoom) {
+      const spawnRoom = spawnRoomById.get(spawnId.replace("spawn-", "")) ?? roomName;
+      if (roomName === spawnRoom) continue; // own-room allocations ride `allocations`
+      const sum = (allocByRoom.get(roomName) ?? []).reduce((s, a) => s + a.allocated, 0);
+      if (sum > 0) poolAllocBySpawnRoom.set(spawnRoom, (poolAllocBySpawnRoom.get(spawnRoom) ?? 0) + sum);
+    }
+
     return [...homeSpawnByRoom].map(([roomName, spawnId]) => {
       const allocations = allocByRoom.get(roomName) ?? [];
+      const poolAllocatedRate = poolAllocBySpawnRoom.get(roomName) ?? 0;
       return {
         corpId: corpIdFor("construction", roomName),
         kind: "construction",
@@ -168,6 +190,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
           roomName,
           spawnId,
           allocations,
+          ...(poolAllocatedRate > 0 ? { poolAllocatedRate } : {}),
           ...(trunksByRoom.has(roomName) ? { remoteTrunks: trunksByRoom.get(roomName) } : {})
         } as ConstructionAssignment
       };
@@ -180,6 +203,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       existing.setConstructionAllocations(a.allocations);
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
       existing.setRemoteTrunks(a.remoteTrunks ?? []);
+      existing.setPoolAllocatedRate(a.poolAllocatedRate ?? 0);
       return existing;
     }
     // liveProblem (the host's auxiliary world) carries REAL game spawn ids, so no
@@ -188,6 +212,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     const corp = new ConstructionCorp(`${a.roomName}-construction`, a.spawnId);
     corp.setConstructionAllocations(a.allocations);
     corp.setRemoteTrunks(a.remoteTrunks ?? []);
+    corp.setPoolAllocatedRate(a.poolAllocatedRate ?? 0);
     return corp;
   },
 
@@ -215,5 +240,31 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // bodyParam-less demands) and CARRY tankers ferrying build energy.
     if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
     return buildUpgraderBody(energyBudget, 2).body;
+  },
+
+  // BUILDER HAND-OFF, adopt half (owner 2026-07-22: "they could orphan and
+  // adopt creeps if necessary"): a released/orphaned BUILDER goes to the
+  // nearest construction corp whose demand lens wants one (the corp's own
+  // wantsAnotherBuilder probe - never a recomputation here), so a finished
+  // remote stint walks straight to the next project instead of the measured
+  // fresh-4p-body-per-room churn. Tankers are the tender kind's rescue
+  // (roles.tanker readopt:false). No taker -> null -> grace -> recycle.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: ConstructionCorp }): string | null {
+    if (creep.memory.workType !== "build") return null;
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const id in corps) {
+      const corp = corps[id];
+      if (!corp.wantsAnotherBuilder()) continue;
+      const d =
+        typeof Game.map?.getRoomLinearDistance === "function"
+          ? Game.map.getRoomLinearDistance(creep.pos.roomName, corp.workRoomName())
+          : 0;
+      if (d < bestD || (d === bestD && (bestId === null || corp.id < bestId))) {
+        bestD = d;
+        bestId = corp.id;
+      }
+    }
+    return bestId;
   }
 };

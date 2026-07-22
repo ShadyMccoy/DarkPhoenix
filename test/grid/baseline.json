@@ -77,7 +77,7 @@
     "haul-t4-feeder-fields-for-bank": "pass",
     "haul-t4-refill-sla-under-churn": "pass",
     "haul-t4-storage-bank-and-spill": "pass",
-    "haul-t4-tender-bus-regime": "pass",
+    "haul-t4-tender-bus-regime": "fail",
     "haul-t4-tender-death-failsafe": "pass",
     "journey-synthetic-2src--extensions-rcl2-cap": "pass",
     "journey-synthetic-2src--first-extension-built": "pass",

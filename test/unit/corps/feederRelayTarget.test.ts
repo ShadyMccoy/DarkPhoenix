@@ -1,4 +1,49 @@
 import { expect } from "chai";
+import { feederBodyRate } from "../../../src/corps/ControllerFeederCorp";
+
+/**
+ * The feeder BODY sizes to consumer burn, not the surplus valve (owner
+ * 2026-07-22: "the feeder seems way too large" - live: relay 110 e/t sized
+ * an 11-carry 22-part body at DISTANCE 1 while the upgraders burned ~40).
+ * The relay TARGET (pacing) is untouched; the body just makes more trips.
+ */
+describe("feederBodyRate (body from actuals, valve for pacing - SURPLUS regime only)", () => {
+  const SURPLUS_BANK = 200_000;
+  it("caps the live shape: relay 110, 40 standing WORK -> body sized to 60", () => {
+    expect(feederBodyRate(110, 21, 40, SURPLUS_BANK)).to.equal(60);
+  });
+  it("floors at the plan flow during an upgrader resize dip", () => {
+    expect(feederBodyRate(110, 21, 0, SURPLUS_BANK)).to.equal(21);
+  });
+  it("a small relay passes through unchanged (never upsizes)", () => {
+    expect(feederBodyRate(15, 21, 40, SURPLUS_BANK)).to.equal(15);
+  });
+  it("no plan and no fleet: falls back to the relay (bootstrap rooms)", () => {
+    expect(feederBodyRate(30, undefined, 0, SURPLUS_BANK)).to.equal(30);
+  });
+  it("SAVE regime: untouched (a filling warchest sees no behavior change - the pinned contract)", () => {
+    expect(feederBodyRate(15, 10, 0, 5000)).to.equal(15);
+  });
+});
+
+import { parkedRelayCarry, carryPartsFor } from "../../../src/economy/primitives";
+
+/**
+ * The link-fed feeder is a PARKED post (owner 2026-07-22: "The feeder doesn't
+ * move at all. it's adjacent to the storage and the link both") - its cycle is
+ * withdraw tick + transfer tick, zero travel. carryPartsFor(rate, 1) charges
+ * roundTripTicks(1) = 4 (two travel ticks that never happen), doubling the body.
+ */
+describe("parkedRelayCarry (the stationary relay cycle - no phantom travel)", () => {
+  it("carry = rate * 2 / 50 (withdraw tick + transfer tick)", () => {
+    expect(parkedRelayCarry(60)).to.equal(2.4);
+    expect(parkedRelayCarry(110)).to.equal(4.4);
+  });
+  it("halves the link-fed body vs the trip model (live shape: bodyRate 60 -> 3 carry, not 6)", () => {
+    expect(Math.ceil(parkedRelayCarry(60) * 1.2)).to.equal(3);
+    expect(Math.ceil(carryPartsFor(60, 1) * 1.2)).to.equal(6); // the model this replaces
+  });
+});
 import "../../../src/types/Memory";
 import { feederRelayTarget } from "../../../src/corps/ControllerFeederCorp";
 import { WARCHEST_TARGET, bankSurplusRate, feederRelayRate } from "../../../src/economy/bank";
@@ -29,17 +74,43 @@ describe("feederRelayTarget (the relay serves actuals in surplus, the plan other
     expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked)).to.equal(surplusRate);
   });
 
-  it("SURPLUS + CONSTRUCTION STANDING: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
+  it("SURPLUS + a build-out that absorbs the whole draw: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
     // "When construction is around ... funnel energy to construction.
-    // Upgrading is secondary" - the surplus unclamp was built in a
-    // zero-construction era; with sites standing, the plan's controller
+    // Upgrading is secondary" - with sites standing that can genuinely EAT
+    // the surplus (constructionAbsorb >= the draw), the plan's controller
     // allocation IS the post-construction residual and the relay serves
     // exactly that. The plan already ranks construction (70) above the
     // mid-grind controller (~44 at RCL6), so honoring planFlow is the
     // aggressive-construction doctrine end to end.
     const banked = WARCHEST_TARGET + 312_715;
     const surplusRate = feederRelayRate(banked);
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, true)).to.equal(Math.min(surplusRate, PLAN_FLOOR + 5));
+    const absorbsEverything = surplusRate + 10;
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, absorbsEverything)).to.equal(
+      Math.min(surplusRate, PLAN_FLOOR + 5)
+    );
+  });
+
+  it("SURPLUS + construction that absorbs only a trickle: the relay serves the REST of the surplus (prod t72478939)", () => {
+    // The boolean form of this clamp treated 12 road sites (pool absorb ~5
+    // e/t) exactly like a 100k build-out: relay clamped to planFlow+5 = 7
+    // while surplus 115 stood - burn collapsed to 1 e/t, build ran 0.47
+    // e/t, and the difference BANKED (+20.18/t at 474k, 17x target).
+    // Construction-first means the build set eats what it CAN absorb
+    // (projectAbsorbRate - the same lens that sizes the crew and the
+    // plan's construction sink); the controller side gets the remainder,
+    // floored at the plan residual. It never means the remainder banks.
+    const banked = WARCHEST_TARGET + 446_493; // prod t72478939
+    const surplusRate = feederRelayRate(banked); // 115
+    const poolAbsorb = 5; // 12 road sites, 3225 work remaining, ~2-room travel
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, poolAbsorb)).to.equal(surplusRate - poolAbsorb);
+    // the plan residual is the floor, not the ceiling:
+    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, poolAbsorb)).to.be.greaterThan(PLAN_FLOOR + 5);
+  });
+
+  it("SURPLUS + construction, no known allocation (old commission): stays unclamped, exactly as before", () => {
+    const banked = WARCHEST_TARGET + 446_493;
+    const surplusRate = feederRelayRate(banked);
+    expect(feederRelayTarget(surplusRate, undefined, banked, 5)).to.equal(surplusRate);
   });
 
   it("NON-SURPLUS: keeps the plan clamp (t72421124 - no 90-part feeder into a full stock)", () => {

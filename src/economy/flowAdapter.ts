@@ -371,35 +371,6 @@ export function detectPavedSources(): Map<string, number> {
   return paved;
 }
 
-/**
- * Sources whose trunk road is IN PROGRESS (owner 2026-07-21: "feed the Z-to-A
- * remote builder from the source, and disable hauling anything home until the
- * road is finished"): tiles3 planned, not yet paved, not declined. While in
- * this set the source keeps its MINER (the pile is the road's fuel) but the
- * plan routes none of its output home and CarryCorp fields no haulers for it
- * (yieldsToBuild) - the whole 10 e/t builds the trunk from the source end,
- * and hauling resumes at the 2:1 road rate the moment the paved receipt
- * lands. Same receipts detectPavedSources reads; game ids (callers strip
- * "source-").
- */
-export function detectTrunkBuildingSources(): Set<string> {
-  const building = new Set<string>();
-  if (typeof Game === "undefined" || !Game.rooms) return building;
-  for (const roomName in Game.rooms) {
-    const routes = Game.rooms[roomName].memory?.roadRoutes;
-    for (const sourceId in routes ?? {}) {
-      const e = routes![sourceId];
-      // SURVEYED only (t72474584 regression: the planned-only lens dedicated
-      // all five remotes at once - three had no sites even PLACED, pure
-      // income loss for zero build progress). total is stamped by the first
-      // placement survey, so its presence = road sites actually stand and
-      // the Z-to-A crew has something to build.
-      if (e.tiles3 && !e.paved && !e.declined && e.total !== undefined) building.add(sourceId);
-    }
-  }
-  return building;
-}
-
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -409,8 +380,7 @@ export function buildColonyProblem(
   bankSources: PlannerSource[] = detectBankSources(),
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
-  prevBankDraw?: number,
-  trunkBuildingSources: Set<string> = detectTrunkBuildingSources()
+  prevBankDraw?: number
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -433,7 +403,6 @@ export function buildColonyProblem(
       maxMiners: s.maxMiners,
       haulPos: linkHaulPos.get(s.id),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
-      ...(trunkBuildingSources.has(s.id.replace("source-", "")) ? { dedicatedToBuild: true } : {}),
       ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
     };
   });
@@ -451,7 +420,6 @@ export function buildColonyProblem(
   // sized post-solve either way).
   const minedSupply = sources
     .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"))
-    .filter(s => !s.dedicatedToBuild) // its 10 e/t builds the trunk at-site, not the home economy
     .reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging), and so
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
@@ -521,6 +489,83 @@ export function buildColonyProblem(
     });
   }
 
+  // SPEC 25 / filed 2026-07-21: per-site construction capacities share ONE
+  // pool absorb budget instead of each carrying the max(5,...) floor - 10
+  // road sites summed to 50 e/t of priority-70 demand against a pool that
+  // absorbs ~7 (measured t72480337: the freed ledger parts inflated the
+  // consumer plan). Pool absorb = the SAME sum-of-projects formula the crew
+  // sizes with (primitives.projectAbsorbRate over total remaining work at
+  // the farthest site's travel); each site's capacity is its pro-rata share
+  // by remaining work. A single site degenerates to exactly the old number.
+  const constructionSites = graph
+    .getSinks()
+    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
+
+  // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
+  // residual - we can just make a bigger builder... consume all the energy
+  // from the source mine during that time"): a site nearer to a mined source
+  // than that source's hub is the source's whole economy during its build
+  // window - local building is ~5x spawn-cheaper per e/t than hauling the
+  // unpaved route home. Such clusters price at the SOURCE'S RATE (pro-rata
+  // by remaining work), not the completion horizon; the fill's local-build
+  // pre-pass then drains the source into its sites and NO residual route
+  // exists until the segment's remaining work tapers below the rate (the
+  // completion transition). Same nearer-than-hub rule as the fill.
+  const storagePositions = graph
+    .getSinks()
+    .filter(s => s.type === "storage")
+    .map(s => s.position);
+  const clusterSources = graph
+    .getSources()
+    .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"));
+  const clusters = new Map<string, { rate: number; remaining: number }>();
+  const sinkClusterSource = new Map<string, string>();
+  if (storagePositions.length > 0) {
+    for (const cs of constructionSites) {
+      // HUB-room sites are BANK-funded (G6: a home build-out may absorb the
+      // full surplus valve) - source-clustering is for the road-building
+      // REMOTES only (owner 2026-07-21), never a home site that merely sits
+      // near a source.
+      if (roomsWithStorage.has(cs.position.roomName)) continue;
+      let bestId: string | null = null;
+      let bestRate = 0;
+      let bestD = Infinity;
+      for (const src of clusterSources) {
+        const dSrc = dist(src.position, cs.position);
+        const hubD = Math.min(...storagePositions.map(p => dist(src.position, p)));
+        if (dSrc < hubD && dSrc < bestD) {
+          bestD = dSrc;
+          bestId = src.id;
+          bestRate = src.capacity;
+        }
+      }
+      if (bestId) {
+        sinkClusterSource.set(cs.id, bestId);
+        const c = clusters.get(bestId) ?? { rate: bestRate, remaining: 0 };
+        c.remaining += cs.progressRemaining ?? 0;
+        clusters.set(bestId, c);
+      }
+    }
+  }
+  /** A source-local site's capacity: its share of the local source's rate. */
+  const clusterCapacity = (sinkId: string, remaining: number): number | undefined => {
+    const srcId = sinkClusterSource.get(sinkId);
+    if (!srcId) return undefined;
+    const c = clusters.get(srcId)!;
+    return c.remaining > 0 ? c.rate * (remaining / c.remaining) : 0;
+  };
+
+  // The bank-funded pool budget covers only the UNclustered sites (spec 25 /
+  // filed 2026-07-21: per-site floors summed to 50 e/t against a pool
+  // absorbing ~7 - one horizon budget, pro-rata by remaining work).
+  const pooledSites = constructionSites.filter(s => !sinkClusterSource.has(s.id));
+  const poolRemaining = pooledSites.reduce((a, s) => a + (s.progressRemaining ?? 0), 0);
+  const poolTravel =
+    spawns.length === 0 || pooledSites.length === 0
+      ? 0
+      : Math.max(...pooledSites.map(s => Math.min(...spawns.map(sp => dist(sp.pos, s.position)))));
+  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel) : 0;
+
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
@@ -567,14 +612,17 @@ export function buildColonyProblem(
             // the warchest climbed to 8.3x target while upgrading starved.
             Math.min(
               Math.max(minedSupply + bankRate, 1),
-              // Horizon = the crew's buffered EFFECTIVE life: travel to the
-              // site (a founding a couple rooms over) shortens the working
-              // window, so the same work sizes a bigger crew there.
+              // Pro-rata share of the POOL absorb (spec 25 / the floor-sum
+              // fix): the crew is ONE fleet sized against the whole pool, so
+              // per-site demands must sum to what that fleet can eat - not
+              // to N independent floors. Horizon travel = the farthest
+              // site's spawn distance (the crew must finish the whole pool
+              // within its buffered effective life). SOURCE-LOCAL sites
+              // (owner: no residual) price at the local source's rate
+              // instead - the bigger builder eats the whole mine.
               sink.progressRemaining !== undefined
-                ? projectAbsorbRate(
-                    sink.progressRemaining,
-                    spawns.length === 0 ? 0 : Math.min(...spawns.map(sp => dist(sp.pos, sink.position)))
-                  )
+                ? clusterCapacity(sink.id, sink.progressRemaining) ??
+                  (poolRemaining > 0 ? poolAbsorb * (sink.progressRemaining / poolRemaining) : Number.POSITIVE_INFINITY)
                 : Number.POSITIVE_INFINITY
             )
           : kind === "storage"

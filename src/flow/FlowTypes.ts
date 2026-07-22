@@ -216,6 +216,7 @@ export interface MinerAssignment {
 
 
 
+
   /** CARRY parts for harvester (affects decay for drop mining) */
   harvesterCarryParts?: number;
 

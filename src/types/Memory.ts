@@ -240,7 +240,39 @@ declare global {
      * telemetry. `last` guards against double-counting a tick.
      */
     spawnMeter?: {
-      [spawnId: string]: { t0: number; last: number; ticks: number; busy: number };
+      [spawnId: string]: {
+        t0: number;
+        last: number;
+        ticks: number;
+        busy: number;
+        /** s.spawning at the previous observation - finish-event edge detector. */
+        wasBusy?: boolean;
+        /** Build-finish events observed WITH a gap after them (a back-to-back
+         * restart keeps spawning true, so it never registers - by design:
+         * every counted finish is a duty gap to explain). */
+        finishes?: number;
+        /** Sum over those finishes of energyAvailable/energyCapacityAvailable
+         * AT the finish tick (owner 2026-07-21: "refilling should happen
+         * while the other creeps are spawning - or we have to measure and
+         * fix that"). Low avg = refill lag (tender); high avg = the spawn
+         * was affordable and idled anyway (agenda/decision latency). */
+        fillSum?: number;
+      };
+    };
+
+    /**
+     * Rolling upgrade-WORK utilization per controller room (spawn-meter
+     * pattern), tallied at the upgradeController call site: `ticks` =
+     * parked upgrader creep-ticks observed, `fired` = ticks the intent
+     * returned OK, `dry` = ticks it returned ERR_NOT_ENOUGH_RESOURCES (the
+     * input starved the buffer). Prod t72482220: 100 WORK stood at both
+     * window endpoints with the stock endpoint full, yet burn averaged
+     * 48.7 of ~100 e/t - whether the missing half was supply or idling was
+     * unmeasurable. workUtil/dryShare in the upgrader sizing stamp read
+     * this window.
+     */
+    upgradeMeter?: {
+      [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
     };
 
     spawnAgenda?: {
@@ -413,13 +445,24 @@ declare global {
     };
 
     /**
-     * True while a core depot exists AND a live extension tender is draining it.
-     * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
-     * source->depot bus instead of fanning across extensions; when the tender dies
-     * it clears and haulers resume filling the spawn network directly (so a dead
-     * tender can never deadlock the colony).
+     * LIVENESS: true while a core depot exists AND a live extension tender is
+     * draining it. Set by ExtensionTenderCorp each tick; kept for telemetry and
+     * the depot-reserve nuances (spawnNetworkHungry's bridge buffer).
      */
     extensionTenderActive?: boolean;
+
+    /**
+     * STRUCTURAL (owner 2026-07-22 accountability ruling: "each corp needs to
+     * do their job, not cover for each other"): true while a core depot AND
+     * extensions exist - extension refill is the tender corp's JOB here,
+     * whether or not a tender is alive this tick. Read via CarryCorp's
+     * tenderOwnsExtensions lens: haulers run the dumb source->depot bus and
+     * never fan across extensions in a covered room; a dead tender is
+     * re-fielded by the corp's own bootstrap demand (value 150), not covered
+     * for. Haulers still top the SPAWN STRUCTURE either way, so a tender gap
+     * can never deadlock the colony.
+     */
+    extensionTenderCovered?: boolean;
 
     /**
      * True while a storage bank exists AND a live controller feeder is relaying it

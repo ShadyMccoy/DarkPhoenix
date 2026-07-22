@@ -51,7 +51,10 @@ describe("ConstructionCorp trunk verdicts re-judge when flow rises", () => {
     (corp as any).tryPlaceTrunkRoutes(mkRoom(), routes);
     expect(pathCalls(), "the voided trunk must be re-planned").to.equal(1);
     expect(routes.abc.declined, "the stale decline is gone").to.equal(undefined);
-    expect(routes.abc.tiles3, "50 (x,y,roomIdx) triples").to.have.length(150);
+    // 48, not 50: the stub path spans x=0..49 and the two border tiles are
+    // walkable-but-never-placeable (isRoomEdgeTile) - recording them made a
+    // trunk's completion unsatisfiable (prod t72483047, 36/38 forever).
+    expect(routes.abc.tiles3, "48 placeable (x,y,roomIdx) triples - edge tiles excluded").to.have.length(144);
     expect(routes.abc.rooms).to.deep.equal(["W2N1"]);
   });
 

@@ -235,6 +235,42 @@ export function bestAdjacentTile(
  * y==48) is judged only by its last-matching side's edge tiles - the y-side
  * list replaces the x-side one, same as the engine's checkConstructionSite.
  */
+/**
+ * The engine forbids ALL construction on the room border row (x or y = 0 or
+ * 49) - createConstructionSite returns ERR_INVALID_TARGET there for every
+ * structure type, roads included. Creeps traverse exits without roads, so a
+ * border tile on a cross-room path is walkable but never placeable: any tile
+ * list that feeds placement must exclude these (prod t72483047: a trunk's
+ * two border tiles read err-7 every pass for ~4400t and the paved receipt
+ * could never land - the completion condition was unsatisfiable by
+ * construction). Sibling of besideOpenExit below, which handles the
+ * engine's separate exit-BUFFER rule (x/y = 1 or 48, roads exempt).
+ */
+export function isRoomEdgeTile(x: number, y: number): boolean {
+  return x === 0 || x === 49 || y === 0 || y === 49;
+}
+
+/**
+ * Trunk tiles WITHIN RANGE 1 of the route's source are not worth paving
+ * (owner 2026-07-22: "we don't need that very last bit of road next to the
+ * source mine"): the miner stands there permanently and haulers STOP there
+ * to load - fatigue clears during the standing tick, so the road saves
+ * nothing, while costing build energy + perpetual decay. Unlike edge tiles
+ * (which the engine REJECTS - err-7), these are perfectly placeable - just
+ * pointless (owner). Same skip mechanics as isRoomEdgeTile: the survey AND
+ * the completion check exempt them, so routes already stored with approach
+ * tiles complete without migration.
+ */
+export function isSourceApproachTile(
+  x: number,
+  y: number,
+  roomName: string,
+  source?: { x: number; y: number; roomName: string }
+): boolean {
+  if (!source || roomName !== source.roomName) return false;
+  return Math.max(Math.abs(x - source.x), Math.abs(y - source.y)) <= 1;
+}
+
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
   if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];
@@ -498,7 +534,22 @@ export function controllerParkingTiles(controller: StructureController, input: R
     }
   }
   const distToController = (p: RoomPosition): number => Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy));
-  tiles.sort((a, b) => distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
+  // OFF-ROAD FIRST (owner 2026-07-22): road tiles in the ring are the
+  // delivery lanes - a parked upgrader there plugs them for every hauler and
+  // feeder trip. Road avoidance dominates the closest-first rule (every ring
+  // tile is within upgrade range, so distance is comfort, not function);
+  // road tiles stay in the ring as last-resort capacity. Precomputed once -
+  // never inside the comparator (lookForAt per comparison).
+  const roadTiles = new Set<string>();
+  if (typeof room.lookForAt === "function") {
+    for (const t of tiles) {
+      if (room.lookForAt(LOOK_STRUCTURES, t.x, t.y).some(s => s.structureType === STRUCTURE_ROAD)) {
+        roadTiles.add(`${t.x},${t.y}`);
+      }
+    }
+  }
+  const road = (p: RoomPosition): number => (roadTiles.has(`${p.x},${p.y}`) ? 1 : 0);
+  tiles.sort((a, b) => road(a) - road(b) || distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
   return tiles;
 }
 

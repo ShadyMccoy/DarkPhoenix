@@ -92,16 +92,6 @@ export interface PlannerSource {
    */
   pavedFraction?: number;
   /**
-   * The source's trunk road is IN PROGRESS (owner 2026-07-21: "feed the
-   * Z-to-A remote builder from the source, and disable hauling anything home
-   * until the road is finished"). The MINER stays funded - the pile is the
-   * road's fuel - but the fill routes none of this source's output home
-   * (pool rate 0), so no haul bodies are planned or spawned; CarryCorp's
-   * yieldsToBuild reads the same receipts for the standing fleet. Hauling
-   * resumes at the 2:1 road rate when the paved receipt lands.
-   */
-  dedicatedToBuild?: boolean;
-  /**
    * Strategic pin (spec 18): the searcher assigns this source to a SPECIFIC
    * spawn instead of the nearest-spawn default - the v0 restructuring
    * operator (a source the nearest spawn's budget dropped can be worked by
@@ -465,12 +455,11 @@ function routeToSinks(
   const nearestSpawnDist = (pos: Position): number =>
     problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => dist(s.pos, pos)));
 
-  // Remaining gross energy each supply point can still ship. A source
-  // dedicated to its own trunk build ships NOTHING home - its miner stands,
-  // its output builds the road at the source end (owner 2026-07-21).
-  const pool = new Map<string, number>(
-    supply.map(s => [s.sourceId, sourceById.get(s.sourceId)?.dedicatedToBuild ? 0 : s.rate])
-  );
+  // Remaining gross energy each supply point can still ship. Trunk
+  // dedication is EMERGENT (spec 25 phase 3): a source's nearer-than-hub
+  // construction sinks take their fill in the local-build pre-pass and the
+  // residual deposits home - no flag, no zeroed pool.
+  const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
 
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
@@ -484,7 +473,28 @@ function routeToSinks(
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBank(id);
 
-  const fill = (sink: PlannerSink, target: number): void => {
+  // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
+  // nuances into the planner, not tail-end flags): a deposit-class source may
+  // feed a CONSTRUCTION sink that is NEARER to it than its hub. A source's
+  // own trunk road sites sit tiles away while its hub is a room haul distant,
+  // so nearest-first routes the source's output into its road first, the
+  // residual deposits home, and completion re-routes everything with no
+  // lifecycle code - the behavior the dedicatedToBuild flag bypassed the
+  // router to fake (and needed three same-day exemption patches for). The
+  // exception is construction-ONLY: controllers/spawns never draw mined
+  // directly in the hub era. Per-source hub distance, computed once.
+  const hubDist = new Map<string, number>();
+  if (hasStorageSink) {
+    const storagePos = sinks.filter(s => s.kind === "storage").map(s => s.pos);
+    for (const sp of supply) {
+      const src = sourceById.get(sp.sourceId);
+      const from = src?.haulPos ?? src?.pos;
+      if (!from) continue;
+      hubDist.set(sp.sourceId, Math.min(...storagePos.map(p => dist(from, p))));
+    }
+  }
+
+  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false): void => {
     const acc = out.get(sink.id) ?? {
       sinkId: sink.id,
       kind: sink.kind,
@@ -518,7 +528,6 @@ function routeToSinks(
     // link-served source), not necessarily the source tile itself.
     const order = [...pool.keys()]
       .filter(id => (pool.get(id) ?? 0) > 1e-9)
-      .filter(id => (sink.kind === "storage" ? isDeposit(id) : !isDeposit(id)))
       .map(id => {
         const s = sourceById.get(id)!;
         // NEAREST-FIRST, no class ranking (owner 2026-07-20: "scavenging IS
@@ -532,6 +541,19 @@ function routeToSinks(
         // correct trade ("we sort of lose on the capex or the room
         // reservation a bit").
         return { id, d: dist(s.haulPos ?? s.pos, sink.pos) };
+      })
+      .filter(({ id, d }) => {
+        // Spec 25 local-build pre-pass mode: ONLY deposit sources nearer to
+        // this construction sink than their hub (the bank keeps its normal
+        // value-pass turn, so bank-funded construction stays BEHIND the
+        // deposit fill in the parts ledger - t72445337's order preserved).
+        if (localDepositsOnly) return isDeposit(id) && d < (hubDist.get(id) ?? Infinity);
+        return sink.kind === "storage"
+          ? isDeposit(id)
+          : !isDeposit(id) ||
+              // Spec 25 exception: deposit-class sources build LOCALLY - a
+              // construction sink nearer than the source's hub may draw it.
+              (sink.kind === "construction" && d < (hubDist.get(id) ?? Infinity));
       })
       .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
 
@@ -612,6 +634,17 @@ function routeToSinks(
   // routes the spawn cannot maintain.
   for (const sink of [...sinks].filter(s => s.kind === "spawn").sort(byValueThenId)) {
     fill(sink, sink.capacity);
+  }
+  // SPEC 25 LOCAL-BUILD PRE-PASS (owner 2026-07-21): a deposit source's
+  // nearer-than-hub construction is its energy's FIRST home - the trunk is
+  // production's own financing, built from the source end at 5 e/WORK-tick.
+  // Runs between spawn overhead and the deposit fill so deposit greed cannot
+  // strand the local build; restricted to LOCAL deposit sources, so
+  // bank-funded construction keeps its value-pass turn behind deposits
+  // (production-first, t72445337). With no construction sinks this is a
+  // no-op and the fill order is byte-identical to before.
+  for (const sink of [...sinks].filter(s => s.kind === "construction").sort(byValueThenId)) {
+    fill(sink, sink.capacity, true);
   }
   for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
     fill(sink, sink.capacity);
@@ -703,6 +736,10 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
         if (sf.amount > 1e-9) routedSources.add(sf.sourceId);
       }
     }
+    // Spec 25 phase 3: the dedicatedToBuild exemption is retired - a source
+    // building locally IS routed (to its construction sinks via the
+    // local-build pre-pass), so the plain zero-routed test is honest again
+    // (t72445337's contract, unqualified).
     const unroutedIds = new Set(miners.filter(m => !routedSources.has(m.sourceId)).map(m => m.sourceId));
     if (unroutedIds.size > 0) {
       plannedMiners = miners.filter(m => !unroutedIds.has(m.sourceId));

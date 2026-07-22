@@ -62,6 +62,7 @@ import {
   snapshotCorpVariance,
   startSpawnPlacement
 } from "./execution";
+import { constructionProjectLedger } from "./corps/ConstructionCorp";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
 import { FlowEconomy } from "./flow";
 import {
@@ -494,21 +495,25 @@ function getOrCreateColony(): Colony {
  * mover delivers energy to builders per the solver's allocation.
  */
 function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room.controller?.my) continue;
-
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) continue;
-
-    // A freshly claimed room has no analyzed nodes yet, but its founding
-    // spawn site must still be a sink (spec 06 audit: "the flow graph must
-    // admit construction sinks in rooms the colony can see") - fall back to
-    // anchoring on ANY node, nearest by room distance, until the room's own
+  // PROJECT LEDGER admission (owner 2026-07-22: "construction sites should
+  // be part of the corps memory so it can rehydrate and bypass Vision") -
+  // the sink set comes from the construction corps' durable ledger, NOT a
+  // Game.rooms scan. The scan was the measured cluster flap (t72489078:
+  // 15 sinks -> 0 across two captures, the solve keyed to which room
+  // happened to be sighted). Vision reconciles the ledger
+  // (ConstructionCorp.reconcileProjects); decisions read it here. Spec 25's
+  // admission rule is unchanged (any of OUR sites, per-site capacity
+  // pool-absorb/cluster bounded in the adapter) - only the data source
+  // moved from eyesight to the ledger.
+  for (const rec of constructionProjectLedger()) {
+    const roomName = rec.roomName;
+    // A room with no analyzed nodes yet (a freshly claimed founding, or a
+    // remote road room) still needs its sites in the graph (spec 06 audit) -
+    // anchor on the nearest node by room distance until the room's own
     // analysis lands. The anchor only shapes graph topology; haul pricing
     // uses the site's real position either way.
     let roomNodes = nodes.filter(n => n.roomName === roomName);
-    if (roomNodes.length === 0 && Memory.expansion?.roomName === roomName) {
+    if (roomNodes.length === 0) {
       let nearest: Node | undefined;
       let nearestDist = Infinity;
       for (const node of nodes) {
@@ -518,31 +523,25 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
           nearest = node;
         }
       }
-      if (nearest) {
-        roomNodes = [nearest];
-        console.log(`[Expansion] founding site in ${roomName} anchored to node ${nearest.id} (no local nodes yet)`);
-      }
+      if (nearest) roomNodes = [nearest];
     }
     if (roomNodes.length === 0) continue;
 
-    for (const site of sites) {
-      // Map the site to the nearest node in the same room.
-      let best: Node | undefined;
-      let bestDist = Infinity;
-      for (const node of roomNodes) {
-        const dx = node.peakPosition.x - site.pos.x;
-        const dy = node.peakPosition.y - site.pos.y;
-        const d = Math.abs(dx) + Math.abs(dy);
-        if (d < bestDist) {
-          bestDist = d;
-          best = node;
-        }
+    // Map the site to the nearest node in the same room.
+    let best: Node | undefined;
+    let bestDist = Infinity;
+    for (const node of roomNodes) {
+      const dx = node.peakPosition.x - rec.x;
+      const dy = node.peakPosition.y - rec.y;
+      const d = Math.abs(dx) + Math.abs(dy);
+      if (d < bestDist) {
+        bestDist = d;
+        best = node;
       }
-      if (!best) continue;
-
-      const remaining = site.progressTotal - site.progress;
-      economy.addConstructionSite(site.id, best.id, { x: site.pos.x, y: site.pos.y, roomName }, remaining);
     }
+    if (!best) continue;
+
+    economy.addConstructionSite(rec.id, best.id, { x: rec.x, y: rec.y, roomName }, rec.remaining);
   }
 }
 

@@ -65,6 +65,18 @@ Later families (same rule — one home):
 
 - **Delivery contract:** `deliveryLeadTime`, `staffsPost(ttl, parts, travel)` —
   the ONE staffing lens both demand and count sides must share (trap list).
+- **Project ledger (observe-and-remember):** a corp's decision-facing WORLD
+  state lives in its serialized memory; vision only RECONCILES it (ground
+  truth wins on sight, blind rooms persist, long-blind records decay);
+  decisions read the ledger through ONE lens, never `Game.rooms` (owner
+  2026-07-22: "construction sites should be part of the corps memory so it
+  can rehydrate and bypass Vision ... a general pattern, similar to
+  staffsPost"). First instance: `ConstructionCorp.projects` +
+  `constructionProjectLedger()` (the plan's construction-sink admission);
+  same family as roadRoutes receipts and RoomDiscovery intel. The measured
+  alternative was the cluster flap (t72489078: the sink set oscillated
+  with whichever room was sighted at solve time) and the stranded-trunk
+  deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
 - **Ledger charges:** `controllerWorkSpawnLoad`, `constructionWorkSpawnLoad`,
@@ -111,6 +123,28 @@ The live roster (KINDS, `execution/CommissionHost.ts`):
 Outside the framework (legacy registry, folded into the census by
 `completeCensus`): **bootstrap** (cold-start jacks) and **spawning**
 (infrastructure — executes spawn decisions; not really a commission).
+
+**Accountability doctrine** (owner 2026-07-22: "each corp needs to do their
+job, not cover for each other ... they could orphan and adopt creeps if
+necessary"): a corp's scope is its job and only its job — cross-corp
+coverage makes corps unscorable and masks outages. Two mechanisms replace
+coverage:
+
+- **Structural regime flags**, never creep-liveness flags: a room is
+  tender-COVERED (`extensionTenderCovered`: depot + extensions exist) and
+  extensions belong to the tender corp whether or not a tender is alive
+  this tick — a dead tender is re-fielded by its own demand, not covered
+  for by haulers (liveness-keyed regimes are the flapping-signal trap
+  class). Haulers always keep the SPAWN STRUCTURE topped, so a gap cannot
+  deadlock. One lens per regime (`tenderOwnsExtensions`), read by every
+  site on both demand and work sides.
+- **Creep hand-off via orphan/adopt**: a corp fielding more of a role than
+  its demand lens wants RELEASES the extras (corpId → a non-live marker;
+  rescue skips creeps with NO corpId), and the kind's `claimsOrphan`
+  adopts them into the nearest corp whose own probe wants one; no taker →
+  grace → recycle refund. Standing bodies walk between corps instead of
+  each corp buying fresh (measured: sequential 4-part builder purchases
+  per remote stint while finished builders aged out in place).
 
 ## 5. The CorpKind contract (registration-only integration)
 
@@ -161,6 +195,18 @@ The spawn **doctrine** — tier ladder (income ≫ blocking ≫ started ≫ valu
 starvation buckets, hold/wall semantics, miner precedence — is settled,
 measured, and lives entirely in `SpawnScheduler` as one swappable pure module.
 Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp gauge.
+
+**The infrastructure lane** (incident t72499165, owner ruling): a mustFund
+WALL saves the bank for one body and declines every lower spend — correct,
+except when the body being declined is the refill apparatus the bank's own
+growth depends on (three correct rules — age boost, wall, strict hold —
+interlocked into a 4,400-tick deadlock, colony 23 → 4 creeps).
+`SpawnDemand.infrastructure` pierces both hold paths, never displacing a
+real buy — and the corps declare it ONLY in the emergency it fixes: a DARK
+refill post with STRANDED stock (the tender's bootstrap condition; feeder:
+zero feeders + bank ≥ 10k). An unconditional flag measurably recreated the
+W2N6 stream in cold starts (fleet top-ups pierced the first-hauler wall
+three times); top-ups wait like everyone else.
 
 ## 7. The Plan (GOAP output)
 

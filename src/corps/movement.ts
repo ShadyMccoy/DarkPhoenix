@@ -348,3 +348,58 @@ export function travelToQueued(creep: Creep, target: MoveTarget, opts?: MoveToOp
   delete (creep.memory as CreepMemory & { queueHeld?: number }).queueHeld;
   return travelToBypass(creep, target, opts);
 }
+
+/**
+ * Standing workers prefer to stand OFF roads (owner 2026-07-22): an idle
+ * creep parked on a road plugs the delivery lane for everything moving
+ * through - roads decay per STEP, not per standing tick, so the cost of
+ * squatting one is congestion, not wear. When the creep is idle ON a road,
+ * step to an adjacent tile that keeps its work range to `anchor`: not a
+ * wall, not a road, structure-free (a container is somebody's post - a
+ * harvest spot, the controller input, the depot), and unoccupied. Plain
+ * beats swamp (entering swamp costs fatigue; standing is free either way).
+ * Nothing legal -> stay put: work range always beats lane-clearing.
+ * Returns true when it issued the step. Costs nothing off-road (one look).
+ */
+const OFF_ROAD_NEIGHBORS: Array<[number, number]> = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+  [-1, -1]
+];
+
+export function stepOffRoad(creep: Creep, anchor: { x: number; y: number }, range: number): boolean {
+  const room = creep.room;
+  if (typeof room?.lookForAt !== "function" || typeof room?.getTerrain !== "function") return false;
+  const onRoad = room
+    .lookForAt(LOOK_STRUCTURES, creep.pos.x, creep.pos.y)
+    .some(s => s.structureType === STRUCTURE_ROAD);
+  if (!onRoad) return false;
+
+  const terrain = room.getTerrain();
+  let best: { x: number; y: number } | null = null;
+  let bestSwamp = true;
+  for (const [dx, dy] of OFF_ROAD_NEIGHBORS) {
+    const x = creep.pos.x + dx;
+    const y = creep.pos.y + dy;
+    if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+    if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) > range) continue;
+    const t = terrain.get(x, y);
+    if (t === TERRAIN_MASK_WALL) continue;
+    if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue;
+    if (room.lookForAt(LOOK_CREEPS, x, y).length > 0) continue;
+    const swamp = t === TERRAIN_MASK_SWAMP;
+    if (best === null || (bestSwamp && !swamp)) {
+      best = { x, y };
+      bestSwamp = swamp;
+      if (!swamp) break; // first plain tile in neighbor order wins
+    }
+  }
+  if (!best) return false;
+  creep.moveTo(new RoomPosition(best.x, best.y, room.name));
+  return true;
+}

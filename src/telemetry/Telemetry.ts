@@ -232,6 +232,12 @@ export interface CoreTelemetry {
     ceiling: number;
     /** Current agenda queue length for this spawn (0 when no agenda). */
     queueDepth: number;
+    /** Gapped build-finish events in the window (back-to-back restarts never
+     * register - every counted finish is a duty gap). v12. */
+    finishes?: number;
+    /** Avg energyAvailable/capacity AT those finish ticks: low = refill did
+     * not overlap the build (tender lag); high = affordable-but-idle. */
+    endFill?: number;
   }[];
   /**
    * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
@@ -264,6 +270,16 @@ export interface CoreTelemetry {
    * zero sites are omitted.
    */
   remoteSites?: { [roomName: string]: number };
+  /**
+   * roadRoutes receipts, verbatim per key (v13 - prod t72485595): cd8e's
+   * plan price sat 1:1 for three windows after its road stood complete and
+   * WHY was uninferable from captures - the pave/dedication lenses both
+   * read these room-memory receipts, which no segment carried. Slim:
+   * built/total/paved/declined + tile count per key, rooms merged.
+   */
+  roadReceipts?: {
+    [key: string]: { built?: number; total?: number; paved?: boolean; declined?: boolean; tiles?: number };
+  };
   /**
    * P-CPU meter snapshot (v10): last tick's moveTo CPU per corp family
    * (Memory.pathMeter verbatim) - the BEFORE number for spec 23's cached
@@ -625,7 +641,20 @@ export class Telemetry {
       if (w.last === Game.time) continue;
       w.last = Game.time;
       w.ticks++;
-      if (s.spawning) w.busy++;
+      const busyNow = !!s.spawning;
+      if (busyNow) w.busy++;
+      // BUILD-FINISH fill probe (owner 2026-07-21: refill must overlap the
+      // build "or we have to measure and fix that"). A back-to-back restart
+      // keeps spawning true and never registers here - every counted finish
+      // is a duty GAP, and its fill ratio names the cause: low = the refill
+      // did NOT overlap the build (tender lag); high = affordable-but-idle
+      // (agenda/decision latency).
+      if (w.wasBusy && !busyNow) {
+        w.finishes = (w.finishes ?? 0) + 1;
+        const cap = s.room?.energyCapacityAvailable || 1;
+        w.fillSum = (w.fillSum ?? 0) + (s.room?.energyAvailable ?? 0) / cap;
+      }
+      w.wasBusy = busyNow;
     }
   }
 
@@ -776,6 +805,7 @@ export class Telemetry {
       const ticks = w?.ticks ?? 0;
       const busy = w?.busy ?? 0;
       const utilization = ticks > 0 ? busy / ticks : 0;
+      const finishes = w?.finishes ?? 0;
       spawns.push({
         id: s.id,
         name,
@@ -783,7 +813,10 @@ export class Telemetry {
         utilization,
         partsPerTick: utilization * SPAWN_PARTS_PER_TICK,
         ceiling: SPAWN_PARTS_PER_TICK,
-        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0
+        queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0,
+        // Gapped build-finishes + avg fill AT the finish (v12): low endFill =
+        // refill lag; high = affordable-but-idle. Absent until a gap occurs.
+        ...(finishes > 0 ? { finishes, endFill: +((w!.fillSum ?? 0) / finishes).toFixed(3) } : {})
       });
     }
 
@@ -797,14 +830,18 @@ export class Telemetry {
           tick: a.tick,
           fundingNeed: a.fundingNeed,
           queueDepth: a.queue.length,
-          queue: a.queue.slice(0, 4),
+          // The WHOLE queue, not 4 heads (v11 - prod t72483599): the upgrader
+          // demand sat at rank 5+ through a 550t staffing collapse and its
+          // `since` age - the anti-starvation clock, THE datum for "why no
+          // lift" - was invisible. ~100B/entry; depth is single digits.
+          queue: a.queue,
           executed: a.executed ?? []
         };
       }
     }
 
     const telemetry: CoreTelemetry = {
-      version: 10, // v9 remoteSites; v10 pathMeter (spec 23 step 1 - the pathing BEFORE number)
+      version: 13, // v12 endFill probe; v13 roadReceipts (the pave/dedication lens records, verbatim)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -829,6 +866,26 @@ export class Telemetry {
       agenda,
       ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
       ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+      ...(() => {
+        // roadRoutes receipts (v13): the exact records the pave-fraction and
+        // dedication lenses read, exported verbatim so a stuck pricing names
+        // its own state (entry deleted vs fractionless vs paved).
+        const receipts: NonNullable<CoreTelemetry["roadReceipts"]> = {};
+        for (const roomName in Game.rooms ?? {}) {
+          const routes = Game.rooms[roomName]?.memory?.roadRoutes;
+          for (const key in routes ?? {}) {
+            const e = routes![key];
+            receipts[key] = {
+              ...(e.built !== undefined ? { built: e.built } : {}),
+              ...(e.total !== undefined ? { total: e.total } : {}),
+              ...(e.paved ? { paved: true } : {}),
+              ...(e.declined ? { declined: true } : {}),
+              ...(e.tiles3 ? { tiles: e.tiles3.length / 3 } : {})
+            };
+          }
+        }
+        return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
+      })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
       rooms
     };
@@ -1174,8 +1231,10 @@ export class Telemetry {
       // v4: the fill's spawn-parts ledger trace (partsLedger + per-sink
       // partsLeft). v5: problem-assembly counts (graphSources/mined/
       // transient/bank) - names the layer that dropped sources in one
-      // capture (the warmup remote-drop lens).
-      version: 5,
+      // capture (the warmup remote-drop lens). v6 carried dedicatedToBuild;
+      // v7 RETIRES it (spec 25 phase 3: dedication is emergent routing -
+      // the audit reads source->construction ROUTES, not a flag).
+      version: 7,
       tick: Game.time,
       sources,
       haulers,

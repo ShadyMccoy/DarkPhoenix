@@ -61,10 +61,12 @@ describe("Telemetry NOW-plan mirror (segment 0, spec 14 phase 4)", () => {
     expect(a.tick).to.equal(99);
     expect(a.fundingNeed).to.equal(1950);
     expect(a.queueDepth).to.equal(6);
-    // heads: first 4 entries VERBATIM (deep-equal, not summarized)
-    expect(a.queue).to.have.length(4);
+    // The WHOLE queue verbatim (v11 - prod t72483599: the upgrader demand
+    // sat at rank 5+ through a 550t staffing collapse and its `since` age,
+    // the anti-starvation clock, was invisible behind a 4-head cap).
+    expect(a.queue).to.have.length(6);
     expect(a.queue[0]).to.deep.equal((Memory as any).spawnAgenda.sid1.queue[0]);
-    expect(a.queue[3]).to.deep.equal((Memory as any).spawnAgenda.sid1.queue[3]);
+    expect(a.queue[5]).to.deep.equal((Memory as any).spawnAgenda.sid1.queue[5]);
     // receipts verbatim
     expect(a.executed).to.deep.equal((Memory as any).spawnAgenda.sid1.executed);
   });

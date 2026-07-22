@@ -70,6 +70,20 @@ export function carryPartsFor(rate: number, distance: number): number {
   return (rate * roundTripTicks(distance)) / CARRY_CAPACITY;
 }
 
+/**
+ * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
+ * standing adjacent to both its bank and its sink (the link-fed controller
+ * feeder: storage on one side, core link on the other; owner 2026-07-22 "The
+ * feeder doesn't move at all"). The cycle is withdraw tick + transfer tick with
+ * zero travel, so carry = rate * 2 / CARRY_CAPACITY - roundTripTicks(1) would
+ * charge two phantom travel ticks and double the body. Continuous (fractional);
+ * callers round up when sizing an actual body.
+ */
+export const PARKED_RELAY_CYCLE_TICKS = 2;
+export function parkedRelayCarry(rate: number): number {
+  return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
+}
+
 export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 
@@ -230,7 +244,9 @@ export function infraSpawnLoad(
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
-  const TENDER_FLEET_PARTS = 72; // 3 tankers x measured 24-part body, per depot room
+  // 2 tankers x measured 24-part body, per depot room (owner ratchet
+  // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
+  const TENDER_FLEET_PARTS = 48;
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
   const CLAIM_LIFETIME = 600;

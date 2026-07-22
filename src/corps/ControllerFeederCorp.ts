@@ -23,9 +23,9 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
-import { carryPartsFor } from "../economy/primitives";
+import { carryPartsFor, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate } from "../economy/bank";
-import { buildPool } from "./ConstructionCorp";
+import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
   spawnId: string;
@@ -73,16 +73,51 @@ export function feederRelayTarget(
   surplusRate: number,
   planFlow: number | undefined,
   banked: number,
-  constructionStanding = false
+  constructionAbsorb = 0
 ): number {
-  // CONSTRUCTION-FIRST (owner 2026-07-21: "when construction is around ...
-  // funnel energy to construction. Upgrading is secondary"): with sites
-  // standing, the surplus belongs to the build set - the plan already ranks
-  // construction (70) above the mid-grind controller (~44 at RCL6), so the
-  // relay serves the plan's post-construction controller RESIDUAL, not the
-  // raw surplus formula. No sites -> the unclamped surplus draw stands.
-  if (bankSurplusRate(banked) > 0 && !constructionStanding) return surplusRate;
+  // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "when construction
+  // is around ... funnel energy to construction. Upgrading is secondary";
+  // prod t72478939): with sites standing, the build set eats what it CAN
+  // absorb (buildPoolAbsorbRate - the same projectAbsorbRate lens that sizes
+  // the crew and the plan's construction sink) and the relay serves the REST
+  // of the surplus, floored at the plan's post-construction controller
+  // residual. The boolean form of this clamp treated 12 road sites (pool
+  // absorb ~5 e/t) exactly like a 100k build-out: relay clamped to 7 while
+  // surplus 115 stood and construction ate 0.47 e/t measured - the freed
+  // energy BANKED (+20.18/t at 474k, 17x target). A build-out that absorbs
+  // the whole draw floors the relay at the plan residual - the link-era
+  // clamp, preserved. No sites -> the unclamped surplus draw stands.
+  if (bankSurplusRate(banked) > 0) {
+    if (constructionAbsorb <= 0 || planFlow === undefined) return surplusRate;
+    return Math.max(Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM), surplusRate - constructionAbsorb);
+  }
   return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
+}
+
+/**
+ * The rate the feeder's BODY is sized to (owner 2026-07-22: "the feeder
+ * seems way too large") - distinct from the RELAY TARGET above, which paces
+ * how much the feeder moves over time. The body only needs to keep pace
+ * with what the consumers can actually BURN: standing upgrader WORK x 1 e/t
+ * with 1.5x headroom (fleet growth + stock building), floored at the plan's
+ * controller flow so a mid-resize dip never starves the allocation. At the
+ * link-fed distance 1 the old body sized to the full surplus VALVE (~110
+ * e/t -> 11 carry, a 22-part creep) while the fleet burned ~40 - the valve
+ * pacing is unchanged, the feeder just makes more trips with a body sized
+ * from ACTUALS (sustainableConsumptionRate doctrine, applied to the relay).
+ */
+export function feederBodyRate(
+  relayRate: number,
+  planFlow: number | undefined,
+  standingWork: number,
+  banked: number
+): number {
+  // SURPLUS regime only: the save-regime relay is already small (the
+  // warchest trickle) and its sizing contract is pinned - a filling
+  // warchest must see no behavior change.
+  if (bankSurplusRate(banked) <= 0) return relayRate;
+  const burnCap = Math.max(planFlow ?? 0, standingWork * 1.5);
+  return burnCap > 0 ? Math.min(relayRate, burnCap) : relayRate;
 }
 
 export class ControllerFeederCorp extends Corp {
@@ -297,12 +332,15 @@ export class ControllerFeederCorp extends Corp {
       return []; // infrastructure follows income
     }
 
-    // Balanced 1:1 body sized to sustain the relay over the round trip (the
-    // feeder travels, unlike the parked extension tender). The storage sits by
-    // the spawn, so the spawn->controller distance approximates the bank->controller leg.
-    // Link-fed rooms shrink the shuttle leg to storage -> core link (spec 24
-    // rung 3): the same relay rate needs ~1/6th the CARRY, and the plan's
-    // feeder pricing reads the same lens (infraSpawnLoad linkFedRoomCount).
+    // Balanced 1:1 body sized to sustain the relay. WALKING rooms (no link):
+    // the storage sits by the spawn, so the spawn->controller distance
+    // approximates the bank->controller leg. LINK-FED rooms (spec 24 rung 3)
+    // are a PARKED post - the feeder stands adjacent to the storage and the
+    // core link BOTH and never moves (owner 2026-07-22: "The feeder doesn't
+    // move at all"), so its cycle is withdraw tick + transfer tick with zero
+    // travel; carryPartsFor(rate, 1) would charge two phantom travel ticks
+    // and double the body. The plan's feeder pricing reads the same lens
+    // (infraSpawnLoad linkFedRoomCount).
     const linkFed = !!controllerLink(spawn.room);
     const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
     const PART_PAIR = 100; // CARRY + MOVE
@@ -313,11 +351,24 @@ export class ControllerFeederCorp extends Corp {
     // t72421124). No allocation known (old commission) -> formula unclamped.
     const surplusRate = feederRelayRate(banked);
     const planFlow = this.controllerAllocation;
-    // ONE lens with the upgraders (owner 2026-07-21): sites standing =
-    // the surplus belongs to the build set; the relay serves the residual.
-    const constructionStanding = buildPool(spawn.pos.roomName).length > 0;
-    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionStanding);
-    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
+    // ONE absorb lens with the upgraders AND the crew (owner 2026-07-21 +
+    // prod t72478939): construction eats what it can absorb; the relay
+    // serves the rest of the surplus, floored at the plan residual.
+    const constructionAbsorb = buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos);
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionAbsorb);
+    // BODY sized to consumer burn, not the surplus valve (feederBodyRate -
+    // owner: "the feeder seems way too large"). Standing WORK read from the
+    // live upgrader fleet, the same actuals-first doctrine consumers use.
+    let standingWork = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
+    }
+    const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked);
+    const neededCarry = Math.max(
+      1,
+      Math.ceil((linkFed ? parkedRelayCarry(bodyRate) : carryPartsFor(bodyRate, distance)) * 1.2)
+    );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
     this.lastSizing = {
@@ -326,8 +377,11 @@ export class ControllerFeederCorp extends Corp {
       banked,
       hasMiner,
       relayRate,
+      bodyRate,
+      standingWork,
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
+      ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
       distance,
       ...(linkFed ? { linkFed: true } : {}),
       neededCarry,
@@ -345,6 +399,10 @@ export class ControllerFeederCorp extends Corp {
         // it must exist for the upgraders it serves, but never ahead of the producers.
         value: 95,
         blocking: false, // infra, not income: haulers feed the controller directly until it spawns
+        // Same emergency-only lane as the tender (see incident t72499165 +
+        // the cold-start stream lesson there): pierce holds only when the
+        // relay post is DARK while a real bank stands stranded behind it.
+        infrastructure: feeders === 0 && banked >= 10_000,
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,

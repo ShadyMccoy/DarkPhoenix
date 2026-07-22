@@ -95,9 +95,10 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(5); // v3 verdicts; v4 parts ledger; v5 assembly counts
+    expect(flow.version).to.equal(7); // v6 carried dedicatedToBuild; v7 retires it (spec 25 phase 3)
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
+
 
   it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4)", () => {
     const ledger = { capacity: 3, minerLoad: 0.9, infra: 0.4, budget: 1.7 };
