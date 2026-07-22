@@ -168,6 +168,38 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-directed, LOCAL) — NO-RESIDUAL REVISION: source-local clusters price at the source's rate; the pool crew sizes to eat them
+
+Owner redirected phase 3's behavior flip before it deployed: "I'm not so
+sure about road building remotes sending energy home ... only build one
+(or some) of the roads at a time, and just make sure to plan the economy
+as a sound economy around it. There shouldn't be any residual - we can
+just make a bigger builder if we need to consume all the energy from the
+source mine during that time." The residual-ships-home model is OUT; the
+plan is a sound economy around serial road projects.
+
+Implementation (spec 25, revised status there): flowAdapter clusters each
+remote site to its nearest hub-rule source and prices the cluster at the
+SOURCE'S RATE pro-rata by remaining work (no completion-horizon residual);
+the pool-absorb budget covers only unclustered sites. constructionKind
+attributes each spawnless room's cluster allocations to its staffing
+spawn's room corp as `poolAllocatedRate`; builderPlan sizes the pool crew
+to MAX(bank track capped by absorb horizon, source-funded cluster rate) -
+max, never sum (serial crew; summed parts idle). Source-funded rate joins
+after the home-stock clamp (its fuel is the mine, not the depot).
+
+Pins: flowAdapter "SOURCE-LOCAL sites price at the SOURCE'S RATE" (cluster
+demand = the source's 10, all flows to construction, no storage leg);
+builderSizing "bigger builder" (0-alloc + rate 10 -> 2 WORK vs floored 1)
+and MAX-not-SUM (30k home + cluster 10 stays 6 WORK); constructionKind
+attribution + materialize threading + drop-to-zero on cluster completion.
+One cross-file test-pollution fix rode along (the new describe restores
+the shared mock's getObjectById; it had poisoned CarryCorp.behavior).
+
+Gate: unit 1180 green, build clean, trio green. NOT DEPLOYED - owner
+mandate is local development for phase 3. Cycle verdict: FIXED (locally),
+deploy + live plan-vs-actual pending owner go-ahead.
+
 ### 2026-07-21 (cron cycle, +317t) — MEA CULPA: cd8e was 2:1 all along; the auditor's probe read the wrong field
 
 The roadReceipts export (v13) answered on its first capture - by

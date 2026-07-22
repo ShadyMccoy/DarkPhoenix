@@ -8,10 +8,43 @@ gone, the pool-zeroing and demotion exemption removed (the plain
 zero-routed contract is honest again), the waste-ledger P9 carve-out
 dropped, and CarryCorp's trunk-receipt stand-down retired (the plan's
 routes ARE the stand-down; the older home-room `dedicatedBuildSourceId`
-spill-guard mechanism remains). Behavior flip: trunk-building sources now
-feed their local sites first (pool-budgeted) and ship the RESIDUAL home.
-Gated locally (unit 1174 + trio); NOT yet deployed — owner directed local
-development.
+spill-guard mechanism remains).
+
+REVISED 2026-07-22 per the owner's no-residual directive ("I'm not so sure
+about road building remotes sending energy home ... only build one (or
+some) of the roads at a time, and just make sure to plan the economy as a
+sound economy around it. There shouldn't be any residual - we can just
+make a bigger builder if we need to consume all the energy from the source
+mine during that time"). Two halves:
+
+- **Plan (flowAdapter)**: remote construction sites cluster to the nearest
+  mined source that satisfies the hub rule (nearer to the source than the
+  source's hub; storage rooms excluded — home sites stay bank-funded).
+  A clustered site's sink capacity is the SOURCE'S RATE pro-rata by
+  remaining work — not the projectAbsorbRate completion horizon — so the
+  source's whole output routes to its cluster and NOTHING ships home while
+  the cluster stands. The pool-absorb budget now covers only UNCLUSTERED
+  sites. Pin: "SOURCE-LOCAL sites price at the SOURCE'S RATE"
+  (flowAdapter.test.ts).
+- **Crew (constructionKind → ConstructionCorp)**: each spawn-room
+  commission carries `poolAllocatedRate` — the summed construction
+  allocations of the SPAWNLESS rooms that spawn staffs. builderPlan's home
+  branch sizes the pool crew to the MAX of the two funding tracks (bank
+  work capped by the absorb horizon, cluster work at the plan's
+  source-funded rate) — max, never sum, because the crew works one project
+  at a time (owner: "body parts standing around ... is one form of
+  waste"). The source-funded rate joins AFTER the home-stock clamp: its
+  fuel is the mine, not the depot. Pins: builderSizing.test.ts ("bigger
+  builder" + MAX-not-SUM), constructionKind.test.ts (rate attribution +
+  materialize threading + drop-to-zero on cluster completion).
+
+Gated locally (unit 1180 + build + trio); NOT yet deployed — owner
+directed local development. Open live-verification item for the deploy:
+the pool TANKER detail still fetches from the bank for whatever the pool
+head is — if the head is a source-funded cluster site, that is bank energy
+walking a route the plan funds from the mine; watch for it in the first
+post-deploy capture (the crew's self-feed from the pile may make tankers
+moot there).
 
 Previously: PHASE 1 IMPLEMENTED 2026-07-21 (owner: "start on spec 25") —
 the role-rule refinement + remote-sink admission + pool-absorb budget, with

@@ -33,6 +33,8 @@ export interface SerializedConstructionCorp extends SerializedCorp {
   targetBuilders: number;
   /** Flow-based construction allocations (from FlowEconomy) */
   constructionAllocations?: SinkAllocation[];
+  /** Spec 25 phase 3: source-funded remote-cluster rate for the pool crew */
+  poolAllocatedRate?: number;
 }
 
 /**
@@ -237,6 +239,16 @@ export class ConstructionCorp extends Corp {
    * Each allocation specifies energy for a construction site.
    */
   private constructionAllocations: SinkAllocation[] = [];
+
+  /**
+   * Spec 25 phase 3 (owner: "no residual - we can just make a bigger
+   * builder"): the summed construction allocations of the SPAWNLESS rooms
+   * this spawn staffs - remote source-local clusters the plan prices at the
+   * SOURCE'S rate. Only the spawn's own-room corp (the pool crew's home)
+   * ever receives a non-zero value; it sizes the crew on top of the
+   * own-room allocations above.
+   */
+  private poolAllocatedRate = 0;
 
   /**
    * The builders, as a squad. Count scales with the energy budgeted to
@@ -635,6 +647,12 @@ export class ConstructionCorp extends Corp {
     // small and the spawn on the supply side; accumulated stock scales it up.
     const fuel = this.buildSideStock(room);
     buildEnergy = Math.min(buildEnergy, sustainableConsumptionRate(fuel, 5));
+    // SPEC 25 PHASE 3 (owner: "there shouldn't be any residual - we can just
+    // make a bigger builder"): the plan's source-funded cluster rate joins
+    // AFTER the stock clamp - its fuel is the remote source's continuous
+    // output at the site, not this room's depot, so an empty home depot
+    // cannot strangle a crew the plan funds from a mine.
+    buildEnergy += this.poolAllocatedRate;
     // SUM OF PROJECTS (owner 2026-07-19): a construction project is a finite
     // tile list with a computable total cost, so never size the crew to burn
     // more per tick than finishes the room's outstanding site work over the
@@ -668,8 +686,15 @@ export class ConstructionCorp extends Corp {
           : 0;
       if (siteWork > 0) absorb = projectAbsorbRate(siteWork, travel);
     }
-    if (absorb > 0) {
-      buildEnergy = Math.min(buildEnergy, absorb);
+    // The horizon cap still bounds BANK-funded pool work, but the crew may
+    // size up to the plan's source-funded cluster rate (spec 25 phase 3).
+    // The pool crew works ONE project at a time (pool-head order), so its
+    // size is the MAX of the two funding tracks, never their sum - a summed
+    // crew would field parts that idle at whichever project they are not at
+    // (owner: "body parts standing around, unable to do their job is one
+    // form of waste").
+    if (absorb > 0 || this.poolAllocatedRate > 0) {
+      buildEnergy = Math.min(buildEnergy, Math.max(absorb, this.poolAllocatedRate));
     }
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
@@ -2468,6 +2493,13 @@ export class ConstructionCorp extends Corp {
     this.remoteTrunks = trunks;
   }
 
+  /** Spec 25 phase 3: the plan's source-funded remote-cluster rate this
+   * spawn's pool crew must eat (owner: "make a bigger builder").
+   * Commission-owned, refreshed by materialize every round. */
+  public setPoolAllocatedRate(rate: number): void {
+    this.poolAllocatedRate = rate;
+  }
+
   public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
     // Adjust target builders based on total allocated energy
@@ -2524,7 +2556,8 @@ export class ConstructionCorp extends Corp {
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
       targetBuilders: this.targetBuilders,
-      constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined
+      constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
+      poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined
     };
   }
 
@@ -2536,6 +2569,7 @@ export class ConstructionCorp extends Corp {
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
     this.targetBuilders = data.targetBuilders || 0;
     this.constructionAllocations = data.constructionAllocations ?? [];
+    this.poolAllocatedRate = data.poolAllocatedRate ?? 0;
   }
 }
 

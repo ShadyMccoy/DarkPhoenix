@@ -152,6 +152,42 @@ describe("construction kind on the corp framework (rungs 2-4)", () => {
     expect(a.remoteTrunks![0].flow).to.equal(10);
   });
 
+  it("rung 2 - PLAN (spec 25 phase 3): a SPAWNLESS room's cluster allocations ride poolAllocatedRate on the spawn room's corp", () => {
+    // Owner: "there shouldn't be any residual we can just make a bigger
+    // builder" - the adapter prices remote source-local clusters at the
+    // SOURCE'S rate; the ONE pool crew (the spawn's own-room corp) must size
+    // to eat that sum. The remote corp keeps the allocations themselves (the
+    // accounting), but fields no pool builders and carries no pool rate.
+    const remoteBuild: Commission = {
+      ...buildCommission("sink-remote-road", 10),
+      produces: { valuePerTick: 10 * DEFAULT_SINK_VALUE.construction, at: { x: 30, y: 15, roomName: "W2N1" } }
+    };
+    const out = constructionKind.propose(world, [buildCommission("sink-build", 4), remoteBuild]);
+    const home = out.find(c => c.corpId === "construction-W1N1")!;
+    const remote = out.find(c => c.corpId === "construction-W2N1")!;
+    const ha = home.assignment as ConstructionAssignment;
+    const ra = remote.assignment as ConstructionAssignment;
+    expect(ha.poolAllocatedRate, "the spawn room's pool crew sizes to the cluster sum").to.equal(10);
+    expect(ha.allocations.map(x => x.allocated), "own-room allocations stay on the list, not the pool rate").to.deep.equal([4]);
+    expect(ra.allocations.map(x => x.allocated), "the cluster's allocations stay with its room (accounting)").to.deep.equal([10]);
+    expect(ra.poolAllocatedRate, "no pool rate on the spawnless corp - it fields no pool builders").to.equal(undefined);
+  });
+
+  it("rung 3 - BIND: materialize threads poolAllocatedRate onto new AND existing corps", () => {
+    const store: CorpStore = new Map();
+    const withPool = {
+      ...constructionCommission,
+      assignment: { ...constructionCommission.assignment, poolAllocatedRate: 10 } as ConstructionAssignment
+    };
+    materializeCommissions([withPool], store);
+    const corp = store.get("construction-W1N1")!.corp as ConstructionCorp;
+    expect((corp as unknown as { poolAllocatedRate: number }).poolAllocatedRate).to.equal(10);
+    // The cluster completes: the next round's commission carries no rate, and
+    // the SAME instance must drop back to bank-funded sizing (stale-rate rot).
+    materializeCommissions([constructionCommission], store);
+    expect((corp as unknown as { poolAllocatedRate: number }).poolAllocatedRate).to.equal(0);
+  });
+
   it("rung 3 - BIND: materialize sets the allocations and preserves the legacy id", () => {
     const store: CorpStore = new Map();
     materializeCommissions([constructionCommission], store);
