@@ -72,17 +72,6 @@ export interface PotentialCorp {
 }
 
 /**
- * Information about a reachable source from an adjacent node.
- * Used to calculate expansion scores.
- */
-export interface ReachableSource {
-  /** Source capacity (energy per regen cycle) */
-  capacity: number;
-  /** Distance from the target node's peak to this source */
-  distance: number;
-}
-
-/**
  * Potential corp ROI summary for a node.
  */
 export interface PotentialCorpROI {
@@ -277,7 +266,10 @@ export function deserializeNode(data: SerializedNode): Node {
  * @param peakHeight - The peak height from spatial analysis
  * @param ownedRooms - Set of owned room names for distance calculation
  * @param potentialCorps - Potential corps from NodeSurveyor (optional, for pre-computed survey)
- * @param reachableSources - Sources from adjacent nodes that could be mined if we expand here
+ * @param economicValue - The node's marginal contribution to the colony economy
+ *   (economy/siteValue.marginalSiteValue, computed by the caller). This is the
+ *   real driver of the score; reachable adjacent-node sources are already folded
+ *   in upstream via the shared source pool, so no per-node reachable list here.
  * @returns ROI metrics
  */
 export function calculateNodeROI(

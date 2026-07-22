@@ -105,6 +105,46 @@ describe("corps/repair", () => {
     });
   });
 
+  describe("nextRepairTarget sequential sweep (owner 2026-07-22: repair things sequentially, logistically)", () => {
+    // Routine maintenance is a SPATIAL sweep, not a fraction leaderboard: with
+    // nothing endangered, finishing a target hands the detail the NEAREST
+    // below-ceiling structure, so it works its way along a road instead of
+    // crisscrossing the room between whichever two structures happen to trade
+    // the lowest fraction. Structures below the spawn gate still preempt by
+    // fraction - the danger band never waits on geography.
+    interface RStruct {
+      id: string;
+      hits: number;
+      hitsMax: number;
+      pos: { x: number };
+    }
+    const rid = (id: string, hits: number, x: number, hitsMax = 5000): RStruct => ({ id, hits, hitsMax, pos: { x } });
+    const rangeFrom = (x: number) => (s: RStruct) => Math.abs(s.pos.x - x);
+
+    it("nothing endangered: the NEAREST below-ceiling structure wins, not the worst fraction", () => {
+      const nearMild = rid("near", 4700, 2); // 94%, two tiles away
+      const farWorse = rid("far", 3500, 40); // 70%, across the room
+      expect(nextRepairTarget([farWorse, nearMild], undefined, rangeFrom(0))).to.equal(nearMild);
+    });
+
+    it("an endangered structure (below the spawn gate) preempts the sweep even when farther", () => {
+      const nearMild = rid("near", 4700, 2); // 94%
+      const farLow = rid("low", 2500, 40); // 50% - below REPAIR_SPAWN_BELOW
+      expect(nextRepairTarget([nearMild, farLow], undefined, rangeFrom(0))).to.equal(farLow);
+    });
+
+    it("the latch still beats the sweep: finish the current target before the nearest next", () => {
+      const latched = rid("mine", 4000, 30); // 80%, mid-repair
+      const nearer = rid("near", 4700, 1);
+      expect(nextRepairTarget([nearer, latched], "mine", rangeFrom(0))).to.equal(latched);
+    });
+
+    it("without a range lens the old fraction order stands (callers without a position)", () => {
+      const worse = rid("worse", 4000, 40);
+      expect(nextRepairTarget([rid("mild", 4700, 2), worse], undefined)).to.equal(worse);
+    });
+  });
+
   describe("repair efficiency (WORK spent repairing, not commuting)", () => {
     // A builder that re-picks the lowest-fraction target EVERY tick ping-pongs
     // between two similarly-decayed structures: it repairs the worst a little,

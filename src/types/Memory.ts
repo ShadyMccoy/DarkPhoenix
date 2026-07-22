@@ -300,6 +300,16 @@ declare global {
     };
 
     /**
+     * Tower focus-fire memory (spec 07 v2), per owned room: last tick's hits by
+     * hostile id, so TowerRunner can read NET damage (hits<prev = the healer
+     * isn't covering that creep) and collapse fire on the uncovered wound. `tick`
+     * gates staleness — only the immediately-preceding tick's HP is a valid
+     * signal; anything older forces a fresh probe. Deleted when a room clears of
+     * hostiles.
+     */
+    towerTargeting?: { [roomName: string]: { tick: number; hits: { [id: string]: number } } };
+
+    /**
      * The colony's GOAL (spec 18): a weighted blend of named goal profiles,
      * compiled onto the sink-value ladder each solve. Absent = the default
      * profile (today's measured ladder). Set via global.setGoal.
@@ -445,6 +455,20 @@ declare global {
     };
 
     /**
+     * Empirical road-usage heatmap (execution/roadTracker + economy/roadScoring).
+     * `scores` maps a packed tile index (x*50+y) to the accumulated move-fatigue
+     * a road on that tile would have saved the creeps that stepped on it - the
+     * MEASURED counterpart to roadEconomics's a-priori route pricing. Decays on a
+     * cadence so it tracks recent traffic, and is trimmed to the hottest tiles to
+     * stay bounded. `updated` is the last tick a step was credited. Read via
+     * roadCandidateTiles to rank where roads should go.
+     */
+    roadScores?: {
+      scores: { [packed: number]: number };
+      updated: number;
+    };
+
+    /**
      * LIVENESS: true while a core depot exists AND a live extension tender is
      * draining it. Set by ExtensionTenderCorp each tick; kept for telemetry and
      * the depot-reserve nuances (spawnNetworkHungry's bridge buffer).
@@ -560,6 +584,16 @@ declare global {
      * topping up neither. Cleared when the target reaches the ceiling or is gone.
      */
     repairTargetId?: string;
+    /**
+     * The construction site a builder is currently building. The build-side
+     * twin of repairTargetId (owner 2026-07-22: "they can't ping-pong around
+     * ... they just go to a site, stay there, get tankers coming, and build"):
+     * a builder LATCHES to one site and finishes it before moving to the
+     * NEAREST next one - a sequential sweep over the project instead of a
+     * per-tick findClosestByPath that flips targets as the creep drifts and
+     * sites complete. Cleared when the site is gone (built) or none remain.
+     */
+    buildTargetId?: string;
     /** This crew member IS the standing repair detail (owner 2026-07-18:
      * repair and building are separate functions). Sticky for life. */
     repairDetail?: boolean;

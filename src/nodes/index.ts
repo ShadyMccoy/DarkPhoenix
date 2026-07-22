@@ -5,7 +5,6 @@ export {
   NodeROI,
   PotentialCorpROI,
   PotentialCorp,
-  ReachableSource,
   SerializedNode,
   createNodeId,
   createNode,
