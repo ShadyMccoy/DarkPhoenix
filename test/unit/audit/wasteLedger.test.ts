@@ -157,6 +157,42 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("completion window");
   });
 
+  it("P8 FAILS a remote-only stall: remote sites standing, receipts flat, crew funded (gap measured t72503018)", () => {
+    // The live 2026-07-22 window: home siteCount 0 at both ends, but W43N24
+    // held 3 standing remote sites (2 trunk tiles + a container) across 2171
+    // ticks with roadReceipts frozen at 36/38 and a funded 5-creep build
+    // corp - P8 read "ok / no sites standing" while the trunk pipeline was
+    // stalled. Remote sites are sites: the standing/flat predicate must see
+    // the segment-0 remoteSites census, not just the home rooms[] meter.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W43N24: 3 };
+    capA.data.core.remoteSites = { W43N24: 3 };
+    capB.data.core.roadReceipts = { r1: { built: 36, total: 38, paved: true } };
+    capA.data.core.roadReceipts = { r1: { built: 36, total: 38, paved: true } };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("FAIL");
+    expect(p8.detail).to.contain("CREW IDLE");
+    expect(p8.detail, "the remote census is named, not lumped into the home count").to.contain("remote");
+  });
+
+  it("P8 treats a remote-site count drop as a completion window (ambiguous, skipped)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W43N24: 3 };
+    capA.data.core.remoteSites = { W43N24: 1 }; // container finished mid-window
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("ok");
+    expect(p8.detail).to.contain("completion window");
+  });
+
   it("P9 catches mined production that is funded but never routed (#19, owner-caught 2026-07-19)", () => {
     // Live t72425058/t72424537: 7 funded mined sources = 70 e/t produced, ZERO
     // mined-source haulers, 0 routed. The leak that had NO ledger line - it

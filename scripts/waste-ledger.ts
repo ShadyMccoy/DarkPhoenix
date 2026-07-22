@@ -417,8 +417,19 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const prog2 = sum(core, "siteProgress");
       const total1 = sum(bcore, "siteTotal");
       const total2 = sum(core, "siteTotal");
-      const completion = count2 < count1 || total2 < total1;
-      const standing = count1 > 0 && count2 > 0;
+      // REMOTE SITES are sites (gap measured t72503018: home siteCount 0 at
+      // both ends while W43N24 held 3 standing sites across 2171t with the
+      // receipts frozen at 36/38 and a funded 5-creep crew - the stalled
+      // trunk pipeline read "ok / no sites standing"). The segment-0
+      // remoteSites census joins the standing/completion predicates; remote
+      // progress itself is only measurable via the receipts floor below, so
+      // a remote-only window with flat receipts is exactly the stall class.
+      const remoteCount = (c: any): number =>
+        Object.values(c.remoteSites ?? {}).reduce((a: number, n: any) => a + (+n || 0), 0);
+      const remotes1 = remoteCount(bcore);
+      const remotes2 = remoteCount(core);
+      const completion = count2 < count1 || total2 < total1 || remotes2 < remotes1;
+      const standing = count1 + remotes1 > 0 && count2 + remotes2 > 0;
       const delivered = prog2 - prog1;
       // REMOTE BUILD via receipts (gap measured 2026-07-22: P8 read "0 e/t
       // built" all day while cee0's trunk went 35 -> 45 - the rooms[] site
@@ -447,10 +458,10 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
-          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped` +
+          ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
             (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
           : standing || receiptsDelta > 0
-          ? `sites ${count1}->${count2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+          ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
