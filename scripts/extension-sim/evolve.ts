@@ -44,12 +44,18 @@ interface Preset {
   rcl: number;
   exts: number;
   spawns: number;
+  /** The tender the tier can actually field (owner: "we can build bigger
+   * tenders at higher RCL"). RCL6's 2300 caps a 1:1 at 16C16M (1600);
+   * RCL7+ affords the MAX_CREEP_SIZE body 25C25M (2500) - 1250 capacity,
+   * the permanent ceiling: even at RCL8 one load covers just 6 of the
+   * 200-cap extensions, so reload cadence never stops mattering. */
+  tenderBody: { carry: number; move: number };
 }
 
 const PRESETS: Preset[] = [
-  { name: "rcl6", rcl: 6, exts: 40, spawns: 1 },
-  { name: "rcl7", rcl: 7, exts: 50, spawns: 2 },
-  { name: "rcl8", rcl: 8, exts: 60, spawns: 3 }
+  { name: "rcl6", rcl: 6, exts: 40, spawns: 1, tenderBody: { carry: 16, move: 16 } },
+  { name: "rcl7", rcl: 7, exts: 50, spawns: 2, tenderBody: { carry: 25, move: 25 } },
+  { name: "rcl8", rcl: 8, exts: 60, spawns: 3, tenderBody: { carry: 25, move: 25 } }
 ];
 
 const SIZE = 30;
@@ -110,7 +116,7 @@ function evaluate(g: Genome, p: Preset): { cost: Cost; m: Metrics } {
     drawOrder: "near-reload-first",
     tenderPolicy: "greedy-nearest",
     tenderCount: 1,
-    tenderBody: { carry: 16, move: 16 },
+    tenderBody: p.tenderBody,
     ticks: TICKS
   };
   const m = simulate(s);
