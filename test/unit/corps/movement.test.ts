@@ -69,6 +69,33 @@ describe("travelTo (border-bounce-safe movement)", () => {
     expect(corner.calls.move).to.equal(DIRS.BOTTOM_RIGHT);
   });
 
+  it("biases the inward step toward the target so it lands DIAGONALLY onto the road", () => {
+    // The bug this fixes (owner 2026-07-22): a creep entering on the north edge
+    // whose road/target sits to the south-west used to step straight SOUTH, off
+    // the road, then pay an extra move-fatigue tick to slide onto it. The free
+    // (non-border) axis now points at the target, so the step is SW.
+    const nwTarget = creepAt(25, 0, "W1N0"); // north edge, target to the SW
+    travelTo(nwTarget as any, pos(10, 30, "W1N0") as any);
+    expect(nwTarget.calls.move, "north edge, target SW -> BOTTOM_LEFT").to.equal(DIRS.BOTTOM_LEFT);
+
+    const neTarget = creepAt(25, 0, "W1N0"); // north edge, target to the SE
+    travelTo(neTarget as any, pos(40, 30, "W1N0") as any);
+    expect(neTarget.calls.move, "north edge, target SE -> BOTTOM_RIGHT").to.equal(DIRS.BOTTOM_RIGHT);
+
+    const westTarget = creepAt(0, 25, "W1N0"); // west edge, target to the NE
+    travelTo(westTarget as any, pos(30, 10, "W1N0") as any);
+    expect(westTarget.calls.move, "west edge, target NE -> TOP_RIGHT").to.equal(DIRS.TOP_RIGHT);
+  });
+
+  it("does NOT bias the step onto an adjacent exit tile (that would re-arm a crossing)", () => {
+    // Near the top-left corner on the north edge (1,0): the target is due west,
+    // so the free-axis bias points at x=0 - an exit tile. The guard drops the
+    // bias and we step straight inward instead of re-crossing.
+    const nearCorner = creepAt(1, 0, "W1N0");
+    travelTo(nearCorner as any, pos(0, 30, "W1N0") as any);
+    expect(nearCorner.calls.move, "bias to x=0 is dropped -> straight BOTTOM").to.equal(DIRS.BOTTOM);
+  });
+
   it("uses normal pathfinding when NOT on an exit tile", () => {
     const creep = creepAt(25, 25, "W1N0");
     const target = pos(40, 40, "W1N0");
