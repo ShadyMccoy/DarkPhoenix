@@ -459,7 +459,7 @@ function lcg(seed: number): () => number {
   };
 }
 
-const STORAGE: Pos = { x: 6, y: 15 };
+export const STORAGE: Pos = { x: 6, y: 15 };
 
 function spawnRow(count: number): Pos[] {
   // Spawns sit OFF the tender lane (a structure on the lane severs it - the
@@ -478,15 +478,25 @@ function spawnStops(spawns: Pos[]): Pos[] {
   return spawns.map(sp => ({ x: sp.x - 1, y: sp.y }));
 }
 
-/** Every placed structure must leave every extension an adjacent walkable
- * tile REACHABLE from the storage's side, or the tender can drain it (the
- * spawn draw ignores walkability) but never refill it. BFS on the tentative
- * taken-set from a tile next to storage. */
-function allServiceable(taken: Set<string>, extensions: Pos[], size: number): boolean {
-  const start = { x: STORAGE.x + 1, y: STORAGE.y + 1 };
-  if (taken.has(key(start))) return false;
-  const seen = new Set<string>([key(start)]);
-  const queue = [start];
+/** Every placed structure must leave itself an adjacent walkable tile
+ * REACHABLE from the storage's side, or the tender can drain it (the spawn
+ * draw ignores walkability) but never refill it. BFS on the tentative
+ * taken-set, seeded from EVERY walkable tile beside the storage (a layout
+ * may legitimately occupy any particular neighbor). Exported: the layout
+ * evolver uses the same validity rule for its mutants. */
+export function allServiceable(taken: Set<string>, extensions: Pos[], size: number): boolean {
+  const seen = new Set<string>();
+  const queue: Pos[] = [];
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const p = { x: STORAGE.x + dx, y: STORAGE.y + dy };
+      if (p.x < 0 || p.y < 0 || p.x >= size || p.y >= size || taken.has(key(p))) continue;
+      seen.add(key(p));
+      queue.push(p);
+    }
+  }
+  if (queue.length === 0) return false;
   while (queue.length > 0) {
     const p = queue.shift()!;
     for (let dx = -1; dx <= 1; dx += 1) {
