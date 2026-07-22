@@ -168,6 +168,32 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72499712 (scheduled cycle) — RECOVERY VERIFIED; re-land live; S3 top-line was a capture-timing artifact
+
+~1,700 ticks after the rollback, ~an hour after the re-land deploy:
+
+- Census 4 -> 9 -> 18 (17/18 tracked). Executed receipts show the full
+  re-field: miners cd8d/cd90/cd92, hauler@1242, TENDER@1600,
+  FEEDER@800, guard@650 - eight buys in 270 ticks. The refill
+  apparatus stands again; feederActive TRUE.
+- E4 slope -14.67/t (bank 200k draining hard), P9 routes 70/70, E2
+  zero strands, E5 down to one recovery-era runt. P6 reservation
+  pumping resumed (W42N22: 241t banked). Upgraders queued next behind
+  the guard (2300 body) - P7 reads 0/0 while the plan's controller
+  allocation rebuilds post-collapse.
+- The flagged S3 "stall" (head guard@390 AFFORDABLE+IDLE) is a FALSE
+  POSITIVE: the head's recorded gate is "buy" and the receipt shows
+  guard@650 bought at t72499711 - the tick BEFORE the capture. S3
+  compared head-vs-bank one tick after its own buy. Ledger polish
+  queued (telemetry-only): S3 should discount a head that appears in
+  executed[] within its staleness window.
+
+Cycle verdict: RECOVERY VERIFIED (rollback + fan-fill bridge worked
+exactly as predicted; the emergency-gated lane + bundles 2-4 are live
+for the next dark-post event to prove). Watch next: upgrader fleet
+re-ramping, E4 continuing down, zero extension-fan receipts under the
+re-landed covered lens, no pierce anomalies in receipts.
+
 ### 2026-07-22 — INFRASTRUCTURE LANE (owner: option "a only") + re-land of bundles 2-4
 
 MECHANISM, fully named (from the walk's own code): three individually
