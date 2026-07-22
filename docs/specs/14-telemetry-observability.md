@@ -168,6 +168,36 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +1314t) — P9 FAIL IS REAL: the flag dedicates trunk QUEUE members, not the active project - 30 e/t dark
+
+Capture t72487226. The ledger's top line (P9 0.43x: funded 70 e/t,
+routed 30) is REAL WASTE on the deployed flag-era build, not the
+expected working-tree-ledger-vs-live skew: roadReceipts (v13) shows
+FOUR sources flag-dedicated but only ONE building - cee0 35/50 with 4
+sites standing (W43N22, the trunk gate stamps trunk-building-35/50),
+while cbd5 sits at 0/52 BUILT NOTHING, cd8d 34/56 and cedc 14/53 wait
+behind the one-project-at-a-time placement with NO standing sites.
+Three sources (30 e/t) route nothing home AND build nothing. The
+deployed detector dedicates every source with an unpaved route receipt
+the moment its route exists; placement serializes but dedication does
+not. Knock-ons measured: P7 0.50x (delivery 37.3 vs plan 74.5 - the
+GOAL plan budgets all 70), X1 workUtil 0.75 (dry 0.25, supply-starved),
+E4 draining -18.6/t (the bank is covering the income hole; 226k stock).
+Positive: endFill 0.917 (refill largely no longer collides with
+builds), P5 duty 0.50 on-price, P1 stable, E5 0 runts.
+
+The FIX IS ALREADY GATED in this branch: the phase-3 no-residual
+revision (previous entry) retires the flag - dedication becomes routes
+to STANDING sites only, so queued trunks' sources keep routing home and
+only the active project's source feeds its cluster, at the source's
+rate. NOT deployed this cycle: owner mandate for phase 3 is explicit
+local-only development; deploy offered to the owner with these numbers.
+Cycle verdict: DIAGNOSED with data (fix staged, awaiting owner
+go-ahead). Prediction for the deploy, when authorized: P9 -> ~1.0x
+(only the active cluster's source unrouted-home, and THAT flow appears
+as routed source->construction edges under v7), income +30 e/t, P7
+toward 1.0x, E4 drain stops or reverses.
+
 ### 2026-07-22 (owner-directed, LOCAL) — NO-RESIDUAL REVISION: source-local clusters price at the source's rate; the pool crew sizes to eat them
 
 Owner redirected phase 3's behavior flip before it deployed: "I'm not so
