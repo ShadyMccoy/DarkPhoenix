@@ -168,6 +168,49 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +196t) — PHASE 3 DEPLOY VERIFIED: routed 30 -> 69.7 e/t, all 7 sources; v7 live; repricing per-route correct
+
+Capture t72487422, 196t after the deploy. Every prediction confirmed:
+P9 1.0x (funded 70, routed 69.7 via 7 mined-source haulers - the three
+dark sources ship home again), flow v7 with no dedicatedToBuild fields,
+X1 workUtil 0.75 -> 0.81, E4 draining -48.4/t (consumers eating the
+hole's backlog), delivery 37.3 -> 53.9 e/t actual. Paved-fraction
+repricing correct per route against the receipts: cee0 35/50 and cd8d
+34/56 ride 2:1; cedc 14/53 and cbd5 0/52 stay 1:1 (the 0.5 threshold).
+NO FAIL lines.
+
+Transition facts, named as watch items (not leaks yet):
+- Cluster sinks ABSENT this solve: the trunk gate stamps
+  trunk-blind-W43N22 - the sites' room was dark at solve time, and
+  main.ts only admits VISIBLE rooms' sites. cee0 routes home meanwhile
+  (correct fallback). With haulers now walking the trunk rooms, vision
+  is intermittent: expect cluster sinks (and source->construction
+  edges) to flicker in per-solve. If they never appear across two
+  captures WITH vision, that is the next work item.
+- Trunk build PAUSED: the pool crew fields only its 16C6M tanker, zero
+  WORK - the spawn is 8 deep re-fielding the restored routes' haulers
+  (source-route haulers 41 -> 221 plan parts; P4 0.98x ceiling, the
+  spawn-bound regime made visible). Production-first says this is the
+  right order; VERIFY next capture that builders re-field and 35/50
+  grows once the wave clears.
+- E2 40 parts (W43N23-hauling-4-37 + W43N24-hauling-0-20): plan-shape
+  transition strands, defund-not-revoke lets them age out. Watch it
+  shrinks.
+- P7's ratio prints 26.96x against a 2.0 lower-endpoint plan (spawn
+  45.8 eats the GOAL plan's income during the rebuild; actual upgrading
+  rides stock per doctrine). Cosmetic: the line needs an endpoint floor
+  before its ratio means anything at tiny plans.
+
+Owner insight recorded this window (the load-context rule): several of
+last cycle's green lines (endFill 0.917, zero runts, comfortable
+utilization) were LOAD ARTIFACTS of the shrunken fleet, not health.
+This capture is the honest test - endFill held at 0.915 UNDER the
+rebuild wave at util 0.94, which is the real signal. Follow-up filed:
+a ledger REGIME line (spawn-bound / energy-bound / consumer-bound) so
+greens carry their load context.
+
+Cycle verdict: VERIFIED (deploy confirmed by prediction, on schedule).
+
 ### 2026-07-22 (cron cycle, +1314t) — P9 FAIL IS REAL: the flag dedicates trunk QUEUE members, not the active project - 30 e/t dark
 
 Capture t72487226. The ledger's top line (P9 0.43x: funded 70 e/t,
