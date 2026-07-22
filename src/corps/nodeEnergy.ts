@@ -534,7 +534,22 @@ export function controllerParkingTiles(controller: StructureController, input: R
     }
   }
   const distToController = (p: RoomPosition): number => Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy));
-  tiles.sort((a, b) => distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
+  // OFF-ROAD FIRST (owner 2026-07-22): road tiles in the ring are the
+  // delivery lanes - a parked upgrader there plugs them for every hauler and
+  // feeder trip. Road avoidance dominates the closest-first rule (every ring
+  // tile is within upgrade range, so distance is comfort, not function);
+  // road tiles stay in the ring as last-resort capacity. Precomputed once -
+  // never inside the comparator (lookForAt per comparison).
+  const roadTiles = new Set<string>();
+  if (typeof room.lookForAt === "function") {
+    for (const t of tiles) {
+      if (room.lookForAt(LOOK_STRUCTURES, t.x, t.y).some(s => s.structureType === STRUCTURE_ROAD)) {
+        roadTiles.add(`${t.x},${t.y}`);
+      }
+    }
+  }
+  const road = (p: RoomPosition): number => (roadTiles.has(`${p.x},${p.y}`) ? 1 : 0);
+  tiles.sort((a, b) => road(a) - road(b) || distToController(a) - distToController(b) || a.x - b.x || a.y - b.y);
   return tiles;
 }
 

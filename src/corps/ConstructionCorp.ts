@@ -9,7 +9,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
-import { travelTo } from "./movement";
+import { stepOffRoad, travelTo } from "./movement";
 import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
@@ -62,6 +62,8 @@ export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   lastPlacementAttempt: number;
   targetBuilders: number;
+  /** Builder count the demand lens last wanted (release/adopt hand-off). */
+  wantedBuilders?: number;
   /** Flow-based construction allocations (from FlowEconomy) */
   constructionAllocations?: SinkAllocation[];
   /** Spec 25 phase 3: source-funded remote-cluster rate for the pool crew */
@@ -327,6 +329,19 @@ export function trunkGateFromSurvey(s: TrunkSurvey): string {
  * fires empty (the refuel walk costs nothing) and never on WORK-less bodies
  * (tankers), skipping even the range search.
  */
+/**
+ * The non-live corpId a released builder carries so OrphanRescue picks it up
+ * (rescue SKIPS creeps with no corpId at all - "unmanaged by design" - so
+ * deletion would strand them). BUILDER HAND-OFF (owner 2026-07-22
+ * accountability ruling: "they could orphan and adopt creeps if necessary"):
+ * measured across three captures, the remote container/road corps each bought
+ * a fresh 4-part builder for their stint while the finished room's builder
+ * idled to TTL death - no retirement path existed ("their builders age out").
+ * Release -> constructionKind.claimsOrphan adopts into the nearest corp whose
+ * demand wants a builder; no taker -> ordinary grace -> recycle refund.
+ */
+export const RELEASED_BUILDER_CORP_ID = "released-builder";
+
 export function repairRoadEnRoute(creep: Creep): void {
   if (creep.store[RESOURCE_ENERGY] === 0 || creep.getActiveBodyparts(WORK) === 0) return;
   const roads = creep.pos.findInRange(FIND_STRUCTURES, 3, {
@@ -350,6 +365,17 @@ export class ConstructionCorp extends Corp {
 
   /** Target number of builders (computed during planning) */
   private targetBuilders = 0;
+
+  /**
+   * Builder count the demand lens wanted at its last walk - stashed by
+   * getSpawnDemand at every return path so release (work) and adoption
+   * (claimsOrphan) read the SAME decision the spawn side priced, never a
+   * recomputation (staffsPost symmetry). Serialized: survives resets.
+   * NULL = never stashed (fresh corp, or pre-hand-off memory at the deploy
+   * boundary): release must NO-OP then - treating unknown as 0 would have
+   * released every builder colony-wide on the first post-deploy tick.
+   */
+  private lastWantedBuilders: number | null = null;
 
   /**
    * Flow-based construction allocations from FlowEconomy.
@@ -416,6 +442,49 @@ export class ConstructionCorp extends Corp {
    * new room's corps attribute to the parent spawn until its own stands).
    * Falls back to the spawn's room without vision.
    */
+  /** The room this corp builds in, vision or not (the nodeId is the truth). */
+  public workRoomName(): string {
+    return this.nodeId.replace(/-construction$/, "");
+  }
+
+  /**
+   * Does this corp's demand lens want one more builder than it fields? Read
+   * by constructionKind.claimsOrphan to route a released builder here instead
+   * of letting the spawn buy a fresh body. Counts live members the same way
+   * the squad does; compares against the stashed demand decision.
+   */
+  public wantsAnotherBuilder(): boolean {
+    if (this.lastWantedBuilders === null || this.lastWantedBuilders <= 0) return false;
+    let members = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.corpId === this.id && c.memory.workType === "build" && !c.spawning) members++;
+    }
+    return members < this.lastWantedBuilders;
+  }
+
+  /**
+   * BUILDER HAND-OFF, release half (owner accountability ruling): builders
+   * beyond the demand lens's stashed want are RELEASED - corpId set to the
+   * non-live marker so OrphanRescue re-homes them (claimsOrphan -> the
+   * nearest corp that wants one; nobody -> grace -> recycle refund). Keeps
+   * the repair detail first (a standing function), then the freshest bodies
+   * (most remaining life = most value). Replaces the measured idle-to-death:
+   * "their builders age out" while sibling corps bought fresh 4p bodies.
+   */
+  private releaseExcessBuilders(): void {
+    if (this.lastWantedBuilders === null) return; // unknown want: never release on a guess
+    const wanted = Math.max(0, this.lastWantedBuilders);
+    const members = this.builders.members().filter(c => !c.memory.recycling);
+    if (members.length <= wanted) return;
+    const keepRank = (c: Creep): number => (c.memory.repairDetail ? 1_000_000 : 0) + (c.ticksToLive ?? 0);
+    const ordered = [...members].sort((a, b) => keepRank(b) - keepRank(a));
+    for (const creep of ordered.slice(wanted)) {
+      creep.memory.corpId = RELEASED_BUILDER_CORP_ID;
+      delete creep.memory.repairDetail;
+    }
+  }
+
   private workRoom(spawn: StructureSpawn): Room | null {
     const roomName = this.nodeId.replace(/-construction$/, "");
     const room = Game.rooms[roomName];
@@ -555,6 +624,9 @@ export class ConstructionCorp extends Corp {
       }, spawn);
       return;
     }
+    // Hand-off, release half: extras beyond the demand lens's want leave for
+    // adoption (or a grace-recycle refund) instead of aging out in place.
+    this.releaseExcessBuilders();
     const controller = room.controller;
     if (!controller) return;
 
@@ -931,6 +1003,10 @@ export class ConstructionCorp extends Corp {
       const stage = builders[0];
       if (stage && creep.pos.getRangeTo(stage) > 1) {
         creep.moveTo(stage, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      } else if (stage) {
+        // Staged and idle: clear the delivery lane (owner 2026-07-22 -
+        // standing workers stand off the roads), keeping hand-off range 1.
+        stepOffRoad(creep, stage.pos, 1);
       }
       return;
     }
@@ -975,6 +1051,10 @@ export class ConstructionCorp extends Corp {
     // Nothing to grab yet: wait at the source so we are ready when it drops.
     if (creep.pos.getRangeTo(source) > 1) {
       creep.moveTo(source, { range: 1, visualizePathStyle: { stroke: "#00ff00" } });
+    } else {
+      // Waiting and idle: stand off the road (the structure-free rule inside
+      // also keeps it off the miner's container tile).
+      stepOffRoad(creep, source.pos, 1);
     }
   }
 
@@ -2560,6 +2640,7 @@ export class ConstructionCorp extends Corp {
         filter: s => s.structureType === STRUCTURE_ROAD
       }).length;
       if (this.remoteContainerProject(workRoom) || roadSites > 0) plan.target += 1;
+      this.lastWantedBuilders = plan.target;
       return this.builders.spawnDemand(plan);
     }
 
@@ -2567,10 +2648,14 @@ export class ConstructionCorp extends Corp {
     if (poolWork === 0) {
       // No sites anywhere: only the standing repair detail may want staffing.
       // It self-fuels at containers/storage, so it never needs tankers.
-      return this.builders.spawnDemand(this.repairerPlan(ctx, workRoom));
+      const detailPlan = this.repairerPlan(ctx, workRoom);
+      this.lastWantedBuilders = detailPlan.target;
+      return this.builders.spawnDemand(detailPlan);
     }
 
-    const builderDemand = this.builders.spawnDemand(this.builderPlanWithDetail(ctx, workRoom));
+    const crewPlan = this.builderPlanWithDetail(ctx, workRoom);
+    this.lastWantedBuilders = crewPlan.target;
+    const builderDemand = this.builders.spawnDemand(crewPlan);
 
     // Get the first builder on the field before requesting feeders for it.
     if (this.builders.count() < 1) return builderDemand;
@@ -2761,6 +2846,7 @@ export class ConstructionCorp extends Corp {
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
       targetBuilders: this.targetBuilders,
+      wantedBuilders: this.lastWantedBuilders ?? undefined,
       constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
       poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined,
       projects: this.projects.length > 0 ? this.projects : undefined
@@ -2774,6 +2860,7 @@ export class ConstructionCorp extends Corp {
     super.deserialize(data);
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
     this.targetBuilders = data.targetBuilders || 0;
+    this.lastWantedBuilders = data.wantedBuilders ?? null;
     this.constructionAllocations = data.constructionAllocations ?? [];
     this.poolAllocatedRate = data.poolAllocatedRate ?? 0;
     this.projects = data.projects ?? [];

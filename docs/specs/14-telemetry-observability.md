@@ -168,6 +168,64 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner orders, bundles 3+4) — OFF-ROAD PARKING for standing workers; BUILDER HAND-OFF (release + adopt)
+
+BUNDLE 3, off-road parking (owner: "Id love to see the 'avoiding roads'
+mechanic for stationary workers like these upgraders and tankers"):
+
+- controllerParkingTiles sorts OFF-ROAD FIRST (road ring tiles are the
+  delivery lanes; avoidance dominates closest-first - every ring tile
+  is already in upgrade range, so distance was comfort, not function).
+  Road tiles remain last-resort capacity (ring count unchanged, so the
+  parking-tiles sizing cap is untouched).
+- One-time HOP: an upgrader cached on a road spot re-parks when a free
+  off-road slot exists (assignment prefers off-road; the new cache is
+  off-road so it never fires again - no shuffle, only untaken slots).
+- stepOffRoad (movement.ts): an idle creep ON a road steps to an
+  adjacent tile keeping its work range - never a wall/road/structure
+  (containers are somebody's post: harvest spots, the input, the
+  depot), never occupied, plain before swamp, stay put when nothing
+  legal. Wired at the tanker's two idle posts (staging beside the
+  builders; waiting at the source). Costs one look when off-road.
+
+BUNDLE 4, builder hand-off (owner: "one is arriving, one is leaving. I
+think it's re-assigning them or something"; ruling: "they could orphan
+and adopt creeps if necessary"):
+
+- DIAGNOSIS (measured, 3 captures): NOT re-assignment - sequential
+  fresh purchases. The remote container/road corps each bought a fresh
+  4-part builder for their stint (W42N23 -> W43N24 -> W42N22) while
+  the finished room's builder idled to TTL death; NO retirement path
+  existed (the code comment literally says "their builders age out").
+  All five corps persist across captures - commissions never vanished,
+  so orphan-rescue never engaged. The crossing builders the owner saw
+  were one room's dying stint and the next room's fresh buy.
+- FIX: release + adopt through the existing orphan machinery. Release:
+  a corp fielding more builders than its demand lens stashed
+  (lastWantedBuilders, written by getSpawnDemand at every path -
+  staffsPost symmetry, serialized) sets the extras' corpId to a
+  non-live marker (rescue SKIPS creeps with NO corpId, so deletion
+  would strand them); keeps the repair detail, then freshest bodies.
+  Adopt: constructionKind.claimsOrphan routes build orphans to the
+  NEAREST corp whose wantsAnotherBuilder() probe says yes. No taker ->
+  the ordinary 25t grace -> recycle refund (strictly better than
+  aging out: the body energy comes home).
+- DEPLOY-BOUNDARY GUARD (caught by the pool-march pin pre-ship):
+  unknown want (fresh corp / pre-hand-off memory) is NULL, never 0 -
+  treating it as 0 would have released every builder colony-wide on
+  the first post-deploy tick.
+- En-route road repair (bundle 2) already covers the owner's "dump
+  that energy into roads as they walk" - a full-hits road just takes
+  nothing.
+
+PREDICTIONS (before deploy, verify next captures): (1) remote-stint
+transitions stop buying fresh 4p bodies - the standing builder walks
+corp to corp (E2 strand list stays clean, builder spawn receipts drop);
+(2) upgrader ring occupancy shifts off the road spur (owner-visible;
+X1/P7 must NOT regress); (3) tanker idle posts clear the lanes; (4) no
+mass-release event at the deploy boundary (creep census stable through
+the global reset).
+
 ### 2026-07-22 t72492179 (scheduled cycle) — ALL GREEN: bank slope flipped NEGATIVE, ramp confirmed mid-flight, every bundle prediction now stamped
 
 No FAIL lines. The re-field-ramp thesis from last cycle is confirmed

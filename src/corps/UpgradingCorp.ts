@@ -364,15 +364,28 @@ export class UpgradingCorp extends Corp {
     if (tiles.length === 0) return null;
 
     const key = (p: { x: number; y: number }): string => `${p.x},${p.y}`;
-    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
-    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
-      return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
-    }
+    const room = controller.room as Room;
+    const isRoad = (p: { x: number; y: number }): boolean =>
+      typeof room.lookForAt === "function" &&
+      room.lookForAt(LOOK_STRUCTURES, p.x, p.y).some(s => s.structureType === STRUCTURE_ROAD);
     const taken = new Set<string>();
     for (const other of this.getActiveCreeps()) {
       if (other.name === creep.name) continue;
       const s = other.memory.upgradeSpot as { x: number; y: number } | undefined;
       if (s) taken.add(key(s));
+    }
+    const cached = creep.memory.upgradeSpot as { x: number; y: number } | undefined;
+    if (cached && tiles.some(t => t.x === cached.x && t.y === cached.y)) {
+      // OFF-ROAD HOP (owner 2026-07-22: standing workers stand off the
+      // roads): a spot cached in the road-blind era stays "valid", so a
+      // parked upgrader would plug a delivery lane for its whole life. If
+      // the cached tile is a road and a NON-road slot is genuinely free,
+      // drop the cache and fall through to assignment (which sorts off-road
+      // first) - one hop, then the new cache is off-road and this never
+      // fires again. No shuffle: the hop only ever targets an UNTAKEN slot.
+      const hop = isRoad(cached) && tiles.some(t => !taken.has(key(t)) && !isRoad(t));
+      if (!hop) return new RoomPosition(cached.x, cached.y, controller.pos.roomName);
+      delete creep.memory.upgradeSpot;
     }
     const free = tiles.find(t => !taken.has(key(t))) ?? tiles[0];
     creep.memory.upgradeSpot = { x: free.x, y: free.y };

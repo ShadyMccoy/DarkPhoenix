@@ -240,5 +240,31 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // bodyParam-less demands) and CARRY tankers ferrying build energy.
     if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
     return buildUpgraderBody(energyBudget, 2).body;
+  },
+
+  // BUILDER HAND-OFF, adopt half (owner 2026-07-22: "they could orphan and
+  // adopt creeps if necessary"): a released/orphaned BUILDER goes to the
+  // nearest construction corp whose demand lens wants one (the corp's own
+  // wantsAnotherBuilder probe - never a recomputation here), so a finished
+  // remote stint walks straight to the next project instead of the measured
+  // fresh-4p-body-per-room churn. Tankers are the tender kind's rescue
+  // (roles.tanker readopt:false). No taker -> null -> grace -> recycle.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: ConstructionCorp }): string | null {
+    if (creep.memory.workType !== "build") return null;
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const id in corps) {
+      const corp = corps[id];
+      if (!corp.wantsAnotherBuilder()) continue;
+      const d =
+        typeof Game.map?.getRoomLinearDistance === "function"
+          ? Game.map.getRoomLinearDistance(creep.pos.roomName, corp.workRoomName())
+          : 0;
+      if (d < bestD || (d === bestD && (bestId === null || corp.id < bestId))) {
+        bestD = d;
+        bestId = corp.id;
+      }
+    }
+    return bestId;
   }
 };
