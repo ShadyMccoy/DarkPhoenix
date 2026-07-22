@@ -612,6 +612,77 @@ export function spineLayout(extCount: number, spawnCount: number): Layout {
   return { name: "spine", storage: STORAGE, spawns, extensions, roads, lane: [...lane, ...spawnStops(spawns)] };
 }
 
+/** The community DIAGONAL pattern (owner 2026-07-22: "a sort of diagonal
+ * line ... 3 new extensions to fill w each step. 6 extensions neighbors
+ * total on each tile within the path"): walkable diagonal lanes every third
+ * stripe ((x+y) % 3 == 1, phase-aligned so lane 0 touches the storage),
+ * extensions on the two stripes between. Every lane tile's 6 off-lane
+ * neighbors are extensions; consecutive lane tiles share half. Built by
+ * walking the lanes near-to-far and claiming each tile's fresh neighbors,
+ * so the extension ORDER is the circuit order. NOTE: a full-field fill is
+ * not crossable between lanes - real rooms keep a crossing road; guest
+ * passability is a placement constraint this refill fitness does not see. */
+export function diagonalLayout(extCount: number, spawnCount: number): Layout {
+  const spawns = spawnRow(spawnCount);
+  const taken = new Set<string>([key(STORAGE), ...spawns.map(key)]);
+  const extensions: Pos[] = [];
+  const roads: Pos[] = [];
+  const lane: Pos[] = [];
+  const inField = (p: Pos): boolean => p.x >= 7 && p.x <= 26 && p.y >= 3 && p.y <= 26;
+  // Lane k: x + y = 22 + 3k (storage sits at sum 21; lane 0 brushes it).
+  for (let k = 0; k < 6 && extensions.length < extCount; k += 1) {
+    const sum = 22 + 3 * k;
+    for (let x = 7; x <= 26 && extensions.length < extCount; x += 1) {
+      const tile = { x, y: sum - x };
+      if (!inField(tile) || taken.has(key(tile))) continue;
+      roads.push(tile);
+      lane.push(tile);
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          if (dx === 0 && dy === 0) continue;
+          if (extensions.length >= extCount) break;
+          const p = { x: x + dx, y: tile.y + dy };
+          if (!inField(p) || (p.x + p.y) % 3 === 1 || taken.has(key(p))) continue;
+          taken.add(key(p));
+          extensions.push(p);
+        }
+      }
+    }
+  }
+  return { name: "diagonal", storage: STORAGE, spawns, extensions, roads, lane: [...lane, ...spawnStops(spawns)] };
+}
+
+/** ASCII board: O storage, S spawn, E extension, + lane/road tile. */
+export function renderLayout(l: Layout): string {
+  const all = [...l.spawns, ...l.extensions, l.storage, ...l.roads];
+  const minX = Math.min(...all.map(p => p.x)) - 1;
+  const maxX = Math.max(...all.map(p => p.x)) + 1;
+  const minY = Math.min(...all.map(p => p.y)) - 1;
+  const maxY = Math.max(...all.map(p => p.y)) + 1;
+  const spawnKeys = new Set(l.spawns.map(key));
+  const extKeys = new Set(l.extensions.map(key));
+  const roadKeys = new Set(l.roads.map(key));
+  const rows: string[] = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    let row = "";
+    for (let x = minX; x <= maxX; x += 1) {
+      const k = `${x},${y}`;
+      row +=
+        k === key(l.storage)
+          ? "O"
+          : spawnKeys.has(k)
+          ? "S"
+          : extKeys.has(k)
+          ? "E"
+          : roadKeys.has(k)
+          ? "+"
+          : ".";
+    }
+    rows.push(row);
+  }
+  return rows.join("\n");
+}
+
 /** Six-packs threaded on a through-lane: ring of 8 around each lane tile
  * minus the two lane neighbors (an unbroken 8-ring seals its own center).
  * Pack centers every 4 tiles keep a walkable seam between rings; the tender

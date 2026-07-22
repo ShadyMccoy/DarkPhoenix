@@ -79,7 +79,23 @@ Caveats: no creep-collision traffic, single room, the sim's endFill is
 room-total at build-finish (analogous, not identical, to the live
 meter), and the organic arm's compactness is generator-specific.
 
+8. **The DIAGONAL stripe is the best design measured** (owner-suggested,
+   `boards.ts`): walkable diagonal lanes every third stripe, extensions
+   on the two stripes between - measured 5.5 ext-neighbors per lane
+   tile and 3.6 FRESH per step (spine: 1.9), which is why it wins:
+   rcl6 automaton 2:1 refills in 58t mean (best of the session; evolved
+   blob 65t, spine 81t, flower 88t+), and 3:1 21C7M posts the tightest
+   worst-case (62t). rcl8: automaton 33C17M 72t vs greedy 79t. The
+   evolved blob still edges rcl8 on mean (63t) but is unstructured;
+   the diagonal is buildable, community-proven, and passable along its
+   lanes (between-lane crossing needs a real room's crossing road -
+   guest traffic and spawn-egress tiles are placement constraints this
+   fitness does not model; the spawn's 300-store also makes it the
+   best per-intent dump target, 6x an RCL6 extension per transfer).
+
 Live implications: adopt `energyStructures` near-reload ordering when we
-next touch the spawn path (free now, decisive at RCL7+); judge extension
-placement by summed trip distance to the reload point; skip fixed patrol
-circuits for tenders.
+next touch the spawn path (free now, decisive at RCL7+); the RCL7/8
+build-out target is the diagonal stripe field with circuit-aligned draw
+and a 2:1 tender (3:1 for worst-case tightness); judge ad-hoc extension
+placement by summed trip distance to the reload point; fixed patrol
+needs its draw order aligned and its sweep head-reset, else use greedy.
