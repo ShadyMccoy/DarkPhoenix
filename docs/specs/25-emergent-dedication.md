@@ -202,3 +202,53 @@ rule (CLAUDE.md sim trap) applied to this behavior.
 2. Verify live: trunk sources show source→site routes in a capture.
 3. Retire the flag end-to-end (tests 6–8, v7 bump, delete the exemptions).
 4. Verify live again; update spec 14's audit log with plan-vs-actual.
+
+## Phase 4 — A/Z aggregation: two sinks per trunk, not N (owner 2026-07-22)
+
+Phase 3 priced per-site construction correctly (source-cluster vs pool),
+but left the sinks **per-site**: a trunk places all its tiles as
+construction sites at once (roads don't hold the build queue), so a 20-tile
+trunk is 20 sinks, and the solver emits ONE micro hauler-edge per (source,
+site) pair — 20 sub-0.3-CARRY edges from one source (measured t72505602:
+construction sinks spiked 1–4 → 30, P2 34/44 micro-routes, ~18% of P4's
+source-route parts phantom-ish). They never materialize as distinct creeps
+(per-source carry aggregation), but they fragment the plan, the P2/P4
+ledger, and the solver's work.
+
+Owner directive: **split each trunk road into two AGGREGATE sinks** — `A`
+(home end, a project built by the home pool crew from the bank) and `Z`
+(source end, built by a builder+hauler funded from the source mine) —
+**split proportional to energy flow**: `f_Z = sourceRate / (sourceRate +
+homeSupply)`, where homeSupply is the bank-surplus draw (the pool tankers'
+fuel). Each end owns the share of the road its energy can push; the split
+is by cumulative REMAINING WORK from the source end (a swamp tile costs
+more, so work is the honest measure of reach).
+
+Implementation (aggregation is a PLAN concern; the crew still builds real
+per-tile game sites):
+- `economy/roadSegments.ts` (PURE): `splitRoadByEnergyFlow` (the f_Z split)
+  and `aggregateTrunkRoadSinks` (collapse matched trunk-road records into
+  one Z + one A per route; non-trunk construction — extensions, containers,
+  in-room roads, single-tile trunks — passes through per-site).
+- `economy/roadSegmentsGame.ts` (ADAPTER): `collectTrunkRoutes` decodes the
+  roadRoutes `tiles3` receipts into SOURCE→HOME ordered tiles + mine rate;
+  `homeBankSupply` reads the largest owned-storage surplus.
+- `main.ts addConstructionSitesToFlow`: aggregate BEFORE admission, so the
+  graph sees 2 sinks per trunk. The Z aggregate sits at the mine-most
+  standing tile → the phase-3 cluster test (nearer-source-than-hub)
+  classifies it to the source; A sits at the home-most tile → pooled. No
+  change to the fill or the cluster logic — they see 2 sinks and route one
+  source→Z edge + one home A project.
+
+The builder+hauler falls out of the existing machinery once Z is one clean
+sink: the source's per-source carry commission carries the single Z route
+(the hauler), and the source room's remote rung builds it (the builder) —
+no new corp.
+
+Acceptance (receipts-gated — the trio stages no roadRoutes, so this is the
+CLAUDE.md sim-trap blind spot): `test/unit/economy/roadSegments.test.ts`
+(16 pins on the split + aggregation) and
+`test/unit/economy/roadSegmentsGame.test.ts` (the tiles3 decode + the cedc
+20-sites→2-sinks incident staged end-to-end). Live verification: a
+trunk-building capture shows construction sinks return toward 1–4 (two per
+active trunk), P2 micro-routes drop, and the road still builds.

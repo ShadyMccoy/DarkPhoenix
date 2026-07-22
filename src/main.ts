@@ -63,6 +63,8 @@ import {
   startSpawnPlacement
 } from "./execution";
 import { constructionProjectLedger } from "./corps/ConstructionCorp";
+import { aggregateTrunkRoadSinks } from "./economy/roadSegments";
+import { collectTrunkRoutes, homeBankSupply } from "./economy/roadSegmentsGame";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
 import { FlowEconomy } from "./flow";
 import {
@@ -505,7 +507,18 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
   // admission rule is unchanged (any of OUR sites, per-site capacity
   // pool-absorb/cluster bounded in the adapter) - only the data source
   // moved from eyesight to the ledger.
-  for (const rec of constructionProjectLedger()) {
+  // TRUNK A/Z AGGREGATION (owner 2026-07-22): collapse each trunk road's
+  // per-tile sites into TWO aggregate sinks - Z (source end, the source's
+  // builder+hauler) and A (home end, the pool crew) - split proportional to
+  // energy flow. A 20-tile trunk was 20 sinks -> 20 micro hauler-edges from
+  // one source (t72505602: P2 34/44, P4 +18%); now it is 2 sinks -> one
+  // source->Z edge and one home A project. Non-trunk construction
+  // (extensions, containers, in-room roads) passes through per-site.
+  const graph = economy.getFlowGraph();
+  const routes = collectTrunkRoutes(id => graph.getSource(`source-${id}`)?.capacity);
+  const admitted = aggregateTrunkRoadSinks(constructionProjectLedger(), routes, homeBankSupply());
+
+  for (const rec of admitted) {
     const roomName = rec.roomName;
     // A room with no analyzed nodes yet (a freshly claimed founding, or a
     // remote road room) still needs its sites in the graph (spec 06 audit) -
