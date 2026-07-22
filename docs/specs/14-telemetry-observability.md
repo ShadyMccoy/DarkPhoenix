@@ -168,6 +168,47 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72491248 (scheduled cycle) — VERIFIED: tender incident closed, feeder 4 parts, fan-fill retired live; E4 = consumer re-field ramp
+
+Verification capture 923t after the incident baseline (both bundles
+live ~2700+ ticks). Predictions vs reads:
+
+1. TENDER RE-FIELDED ✓: 2 tenders / 29 parts (was 0 at t72490325);
+   the refill death spiral is closed - E5 runts 0/8, S3 clean, spawn
+   util 0.58 with queue depth 8 (busy, not stalled).
+2. FEEDER SHRUNK ✓ (beyond prediction): 2C2M = 4 parts, vs 22 two
+   days ago and ~6 predicted - the parked-cycle model + a bodyRate
+   below 60 at purchase time. P7 confirms the feeder is NOT the
+   constraint: input stock STOOD 716->796 while upgraders under-burned.
+3. FAN-FILL RETIRED ✓ (mechanism grid-proven; live receipt check
+   pending a memory-bearing capture): no fan symptoms - P9 routes
+   70.0/70.0 e/t of funded mining, zero runt purchases.
+4. endFill/idle: spawn util 0.58 and 8-deep queue vs the incident's
+   idle spiral; the sized meters (endFill stamp) missed this capture
+   (post-reset lastSizing not yet re-stamped - two global resets from
+   the two deploys), re-read next cycle.
+5. Road-repair delta: no P8 window (no sites standing); unverifiable
+   this capture, watch next.
+
+LEDGER: E4 FAIL is the standing top line - 186,880 banked (target
+27,650), slope +14.94/t, feederActive TRUE. DIAGNOSIS (from stamps,
+not vibes): this is the CONSUMER RE-FIELD RAMP, not a broken spend
+path - at t72490325 the upgrader corp already stamped targetCount 6,
+allocated 110.5 e/t, demandMin 2300, staffing 1; its one creep has
+since died (census 0 alive, agenda head = the replacement holding for
+a full-size bank at 1142/2300 behind the re-field queue). Burn 12.5
+e/t of plan-23 lower endpoint (P7 WARN) is one part-fleet's output.
+The machinery is correct and queued; tight assertions belong on
+actual-vs-NOW, and the NOW queue is draining. NO new live change this
+cycle (owner wrap-up directive) - the upgrader scale-up seam (parking
+8, cap 2300, target 6, spawn parts/tick budget) is tomorrow's
+first-principles item beside the remodel (spec 27).
+
+Cycle verdict: VERIFIED (all deployable predictions confirmed or
+mechanically explained) + E4 named with data (re-field ramp; watch
+next cycle for the 6-upgrader fleet standing and the bank slope
+flipping negative).
+
 ### 2026-07-22 (owner rulings, bundle 2) — FAN-FILL RETIRED (accountability doctrine); feeder is a PARKED post; builder en-route road repair
 
 Three owner rulings landed as one gated bundle (unit 1219 + build +
