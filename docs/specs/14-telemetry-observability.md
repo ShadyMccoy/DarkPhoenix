@@ -168,6 +168,75 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72503018 (scheduled cycle) — the "ramp" was a STALL: scaling upgraders can't fund; holdToFund honored for consumers
+
+The two prior cycles filed P7 under "ramp mid-flight; watch upgraders
+3-6 field". This capture (2,171t after the last) falsifies that story:
+staffing 2/6 UNCHANGED across the whole window (WORK 37 -> 39, i.e.
+replacements only), E4 idle capital 191k at 6.9x target with slope
++0.28/t (flat - the drain stopped), P7 21.9 vs 56.5 e/t (0.39x) with
+controllerStock STANDING at ~630 and workUtil 0.995. The energy is
+there, the standing fleet burns flat out, and the fleet does not grow.
+
+Mechanism (read from stamps + agenda + the walk, not inferred):
+
+- The corp demands correctly: sizing stamp allocated 110.5 (surplus
+  regime), targetCount 6, demandMin 2300 - a SCALING demand: blocking
+  false, replacement false, producesIncome false, min == desired ==
+  2300 == energyCapacity (runt policy: indivisible).
+- The walk gives such a demand no wall: `fundableIncome` honors
+  holdToFund/starvation for INCOME only; a passed consumer lets every
+  cheaper demand below it buy at partial fill ("afford-min-scaled"),
+  so the bank NEVER accumulates to 2300 while any cheap demand exists.
+  Its own clock resets on every buy (resetDemandClock), so each
+  purchase re-pays the full 300-600t starvation race.
+- Arithmetic closes: wins come only from lulls with an already-full
+  bank; measured cadence ~2-3 buys/2200t = replacement rate of a
+  2-creep fleet at 1500 life. The stall IS the equilibrium.
+- Agenda receipts confirm: upgrader queued age 222-1353 in every
+  capture today while builder@300/tanker@1100/reserver@1300 executed
+  around it (t72502920/932/998).
+
+Fix (live-behavior, full gate green - unit 1248 + trio): the walk now
+honors a DECLARED holdToFund for consumers too (`fundableConsumer`),
+and UpgradingCorp declares it from the same surplus lens that scaled
+the fleet up (upgraderSizing now exports its `surplus` verdict; stamp
+gains `hold: true`). One lens, two readers. Cold start unchanged: no
+surplus -> no declaration -> the energy-led "starved consumers lift
+but never hold" pin stands as-is. Consumer walls stay non-strict (a
+lower affordable income producer still buys through) and the infra
+lane still pierces, so neither W2N6 nor t72499165 can recur by this
+path. Side effect (intended): ClaimCorp's claimer, which has declared
+holdToFund all along, now actually walls - its declaration was
+silently ignored.
+
+Also this cycle: P8's standing-sites predicate was HOME-ONLY - the
+stalled W43N24 trunk (3 remote sites standing 2,171t, receipts frozen
+36/38, funded ~20 e/t, 5-creep crew) read "ok / no sites standing".
+remoteSites now joins standing/completion; the re-run ledger FAILs P8
+on this exact window. That stall is the NEXT cycle's candidate work
+item (do not fix blind: why is a staffed, funded trunk crew building
+nothing? placeAttempt stamps show container placement OK at
+t72501320).
+
+Predictions for post-deploy verification (~200+ ticks):
+1. upgrade sizing stamp shows `hold: true`; agenda upgrader entry
+   mustFund=true, gate "wall" when reached-unaffordable.
+2. Upgrader staffing 2 -> 3+ (first walled purchase within ~500t of a
+   quiet spawn window); receipts show upgrader@2300 buys.
+3. P7 actual rises from 21.9 toward 39+ as bodies land (full 56.5+
+   needs the ramp to finish; direction is the check, not the endpoint).
+4. E4 slope goes NEGATIVE once standing WORK exceeds ~110 relay
+   (fleet 5-6); early window: burn visibly above 39.
+5. No income regression: miners/haulers/reservers still in receipts;
+   S3 clean; no starved income demands behind upgrader walls.
+
+Cycle verdict: FIXED (mechanism proven from decision stamps; fix
+red-first tested; instrument extended). The prior cycles' "observe"
+verdicts were the correct call with the data they had - the ramp DID
+move 0 -> 1 -> 2 - but the growth phase was always going to freeze at
+the replacement equilibrium; it took a 2,171-tick window to see it.
+
 ### 2026-07-22 t72500847 (scheduled cycle) — ramp mid-flight: upgrader WORK 17 -> 37, income queue drained to the far remotes
 
 P7 FAIL 0.38x (23.8 vs plan 61.9) is the RAMP measured honestly, not

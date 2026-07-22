@@ -635,3 +635,109 @@ describe("top-ranked unaffordable income holds without starvation", () => {
     expect(result?.demand.buyerCorpId).to.equal("resv");
   });
 });
+
+/**
+ * holdToFund CONSUMERS (incident t72503018): a scaling upgrader whose full
+ * body costs exactly energyCapacity (2300) is never organically affordable -
+ * every cheaper demand buys at partial fill ("afford-min-scaled"), so the
+ * bank never reaches it and the fleet froze at 2 of a targetCount of 6 while
+ * 191k (6.9x the warchest target) idled in storage: controller delivery ran
+ * 0.39x the plan's lower endpoint with the controller-side stock STANDING
+ * (P7/E4, 2026-07-22 ledger). Measured cadence: ~2-3 upgrader buys per 2200
+ * ticks - replacement rate only, zero fleet growth.
+ *
+ * The walk honored holdToFund for INCOME demands only; a consumer declaring
+ * it (UpgradingCorp under a bank surplus, ClaimCorp's claimer) fell through
+ * to "passed" and the walk spent the accumulating bank on whatever ranked
+ * below. Honoring the declaration for every class lets idle capital actually
+ * convert to fleet: the corp only declares it when the warchest is above
+ * target (bankSurplusRate > 0), so cold start - where consumer holds were
+ * measured to cost ~2x cp@3000 - never sees a consumer wall.
+ *
+ * Mutation check: restrict the walk's gate back to producesIncome and the
+ * first case buys the builder.
+ */
+describe("holdToFund consumers wall the bank (incident t72503018: upgrader fleet froze at 2/6)", () => {
+  // The incident's numbers: upgrader min=desired=2300 = energyCapacity,
+  // bank 652, a 300 builder streaming below it.
+  const surplusUpgrader = () =>
+    demand({
+      buyerCorpId: "upgr",
+      role: "upgrader",
+      value: 90,
+      producesIncome: false,
+      holdToFund: true,
+      minCost: 2300,
+      desiredCost: 2300,
+      since: 995 // seen 15 ticks ago - no starvation aging involved
+    });
+  const cheapBuilder = () =>
+    demand({
+      buyerCorpId: "bld",
+      role: "builder",
+      value: 70,
+      producesIncome: false,
+      minCost: 300,
+      desiredCost: 300
+    });
+
+  it("the incident shape: the unaffordable holdToFund upgrader holds; the cheap builder below must not drain the bank", () => {
+    const result = scheduleSpawn(
+      [surplusUpgrader(), cheapBuilder()],
+      ctx({ energyAvailable: 652, energyCapacity: 2300, energyIncome: 20, tick: 1010 })
+    );
+    expect(result, "wall: bank accumulates toward the 2300 body").to.equal(null);
+  });
+
+  it("the hold releases into the upgrader once the bank fills", () => {
+    const result = scheduleSpawn(
+      [surplusUpgrader(), cheapBuilder()],
+      ctx({ energyAvailable: 2300, energyCapacity: 2300, energyIncome: 20, tick: 1010 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("upgr");
+    expect(result?.energyBudget).to.equal(2300);
+  });
+
+  it("the refill apparatus still pierces the consumer wall (tenders keep the bank filling)", () => {
+    const tender = demand({
+      buyerCorpId: "tender",
+      role: "tanker",
+      value: 60,
+      infrastructure: true,
+      minCost: 200,
+      desiredCost: 800
+    });
+    const result = scheduleSpawn(
+      [surplusUpgrader(), tender],
+      ctx({ energyAvailable: 652, energyCapacity: 2300, energyIncome: 20, tick: 1010 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("tender");
+  });
+
+  it("production first: an affordable income demand ranked above still wins the tick", () => {
+    const hauler = demand({
+      buyerCorpId: "carry",
+      role: "hauler",
+      producesIncome: true,
+      groupId: "s1",
+      groupStarted: true,
+      value: 110,
+      minCost: 300,
+      desiredCost: 2300
+    });
+    const result = scheduleSpawn(
+      [hauler, surplusUpgrader()],
+      ctx({ energyAvailable: 652, energyCapacity: 2300, energyIncome: 20, tick: 1010 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("carry");
+  });
+
+  it("a consumer WITHOUT holdToFund keeps the energy-led behavior: the builder buys", () => {
+    const plainUpgrader = { ...surplusUpgrader(), holdToFund: undefined };
+    const result = scheduleSpawn(
+      [plainUpgrader, cheapBuilder()],
+      ctx({ energyAvailable: 652, energyCapacity: 2300, energyIncome: 20, tick: 1010 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("bld");
+  });
+});
