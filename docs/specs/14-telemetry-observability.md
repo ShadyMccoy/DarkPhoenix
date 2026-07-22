@@ -237,6 +237,30 @@ verdicts were the correct call with the data they had - the ramp DID
 move 0 -> 1 -> 2 - but the growth phase was always going to freeze at
 the replacement equilibrium; it took a 2,171-tick window to see it.
 
+**VERIFIED t72504060 (~600t post-deploy, 220t clean window): every
+prediction landed.** (1) sizing stamp `hold: true`, agenda upgrader
+mustFund=true/campaign, fundingNeed 3600. (2) **upgrader@2300 receipt
+at t72503938** - the first walled scaling purchase; fleet 2 -> 3
+creeps, 39 -> 60 WORK. (3) P7 actual 40.7 e/t (was 21.9), comparator
+1.0x. (4) E4 slope **-24.41/t** (was +0.28); storage 191.2k ->
+171.5k, FAIL -> WARN. (5) income untouched: haulers @907/@1277 full
+bodies, E5 runts 0/8, P9 routes 1.00x, P4 0.84x ceiling, S3 clean.
+No FAIL lines on the verification ledger.
+
+Watch next cycle: X1 WARN (60 WORK standing, workUtil 0.81, dry 0.19
+- the feeder relay catching up to the burst fleet; relay target 115 >
+60 standing, should clear as the chain re-sizes); the ramp 3 -> 6
+continuing at wall cadence; and the P8 trunk stall (W43N24 3 sites,
+receipts frozen 36/38) - now reading CREW IDLE with plan alloc 0.0,
+i.e. an UNFUNDED standing crew, the next cycle's candidate work item.
+
+Grid attribution (parallel work this cycle): haul-t4-bank-surplus-
+upgrades (green, the changed regime) PASSES post-change; exp-t5 [T]
+and haul-t4-tender-bus-regime [T] IDENTICAL pre/post-change source
+(attribution runs) - both acquitted of this change; note tender-bus
+now presents as timeout where the baseline recorded "fail"
+(pre-existing drift, re-label at the next full-grid ratchet).
+
 ### 2026-07-22 t72500847 (scheduled cycle) — ramp mid-flight: upgrader WORK 17 -> 37, income queue drained to the far remotes
 
 P7 FAIL 0.38x (23.8 vs plan 61.9) is the RAMP measured honestly, not
