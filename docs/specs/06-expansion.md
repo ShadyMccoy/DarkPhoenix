@@ -1,8 +1,15 @@
 # 06 — Expansion: claim the next room ("spread like a disease")
 
-**Status:** not started. This is the payoff the node/ROI/spawn-placement
-machinery was built for, and the owner's stated strategy: losing rooms is fine,
-spreading is the win condition.
+**Status:** implemented. All three pieces are live — the pure `shouldExpand`
+trigger + campaign state machine (`economy/expansion.ts`), the ClaimCorp
+(`corps/kinds/claimKind.ts`, `corps/ClaimCorp.ts`), and sink-based founding via
+the flow planner's `NEW_SPAWN_SITE_VALUE`. Acceptance moved from the
+single-shot integration test the design named below to the T5 grid cells
+`exp-t5-claimer-claims-and-founds` and `exp-t5-founding-funnels-to-completion`
+(`test/grid/cells/expansion.ts`), which exercise the claim moment and the
+sink-founding moment against real terrain. This is the payoff the
+node/ROI/spawn-placement machinery was built for, and the owner's stated
+strategy: losing rooms is fine, spreading is the win condition.
 **Priority:** P2 (after the economy specs; an expansion that out-runs its
 economy just starves two rooms instead of one).
 
@@ -120,7 +127,15 @@ Three small pieces, all riding existing rails:
 
 ## Acceptance tests
 
-### Unit: `test/unit/expansion/shouldExpand.test.ts` — exact, exhaustive gate
+> Implemented locations (2026-07): the gate lives in
+> `test/unit/economy/expansion.test.ts`, claimer demand in
+> `test/unit/corps/ClaimCorp.test.ts` + `test/unit/framework/claimKind.test.ts`,
+> and the end-to-end arc in the T5 grid cells (`test/grid/cells/expansion.ts`)
+> rather than the standalone `test/integration/expansion.test.ts` the design
+> below sketched — that file was never created; the grid cells own its
+> acceptance. The scenarios below are the original design intent, preserved.
+
+### Unit: `test/unit/economy/expansion.test.ts` — exact, exhaustive gate
 
 1. GCL 2, 1 owned room, candidate score 50 (≥ threshold) → `true`.
 2. GCL 1, 1 owned room, any candidate → `false` (no GCL headroom).
@@ -137,7 +152,15 @@ Three small pieces, all riding existing rails:
 2. Claimer alive → no demand. Controller owned → no demand AND the corp
    reports demobilization (recycle flag), mirroring the reserver pin.
 
-### Integration: `test/integration/expansion.test.ts`
+### End-to-end: the T5 expansion grid cells (`test/grid/cells/expansion.ts`)
+
+Realised as two grid cells rather than the single integration test sketched
+here: `exp-t5-claimer-claims-and-founds` (the claim moment — held-funded
+claimer walks in, claims the controller, founding spawn site placed at the
+campaign's `spawnPos`) and `exp-t5-founding-funnels-to-completion` (the
+sink-founding moment — energy funnels cross-room to the site, the spawn
+completes, and the campaign closes). The original single-test design intent,
+preserved for reference:
 
 World: two real-terrain rooms side by side (W0N0 owned at RCL4 with the
 storage-depot layout; W1N0 with 2 sources + controller, layout via

@@ -3,8 +3,16 @@
  *
  * The natural "a player would plant here" spot: the open plain tile (all 8
  * neighbours plain) nearest the centroid of the room's sources and
- * controller, clear of the objects themselves. Used by the real-map sim
- * harness today and by expansion (spec 06) when the bot claims rooms itself.
+ * controller, clear of the objects themselves.
+ *
+ * SCOPE: this is a geometric heuristic used ONLY by the real-map sim harness
+ * (scripts/sim-real-rooms.ts, fixture-index.ts) to plant a starting spawn in a
+ * captured fixture room. It is NOT the live expansion placement: when the bot
+ * claims a room itself (spec 06), the founding spawn tile is the econ-optimal
+ * one from Memory.spawnPlacements (planner-backed spawnSiteValue via
+ * execution/SpawnPlacementScheduler + planning/SpawnPlacement), not this
+ * centroid pick. Do not wire this into the live founding path - it would swap
+ * planner economics for terrain geometry.
  *
  * Pure over a row-major terrain representation (50 strings of '.', '#', '~')
  * so it unit-tests without a live room; in-game callers build the rows from
