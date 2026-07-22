@@ -30,7 +30,7 @@ describe("buildPool (room-agnostic construction)", () => {
       }
     };
     const pool = buildPool("W43N23");
-    expect(pool.map(e => e.room.name)).to.deep.equal(["W43N23", "W43N24", "W42N22"]);
+    expect(pool.map(e => e.roomName)).to.deep.equal(["W43N23", "W43N24", "W42N22"]);
     expect(pool.map(e => e.work)).to.deep.equal([500, 1200, 100]);
   });
 
@@ -43,7 +43,7 @@ describe("buildPool (room-agnostic construction)", () => {
     };
     const pool = buildPool("W43N23");
     expect(pool).to.have.length(1);
-    expect(pool[0].room.name, "the crew marches to the trunk").to.equal("W43N24");
+    expect(pool[0].roomName, "the crew marches to the trunk").to.equal("W43N24");
     expect(pool[0].work).to.equal(3000);
   });
 

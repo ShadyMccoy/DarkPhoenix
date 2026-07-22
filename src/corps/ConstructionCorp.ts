@@ -20,7 +20,13 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
-import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec, UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import {
+  declinedVerdictStands,
+  evaluateRoadRoute,
+  ROAD_BUILD_COST,
+  RoadRouteSpec,
+  UNMAINTAINED_ROAD_LIFE
+} from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, isRoomEdgeTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
@@ -131,8 +137,15 @@ const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
  * segment), whose empty-room corps fielded self-ferrying 1-WORK runts:
  * trunk stalled at 32/38 for ~4300 ticks, measured.
  */
-export function buildPool(homeRoomName: string): { room: Room; work: number }[] {
-  const entries: { room: Room; work: number }[] = [];
+export interface BuildPoolEntry {
+  roomName: string;
+  /** Absent for a BLIND receipt entry - the crew's travel restores it. */
+  room?: Room;
+  work: number;
+}
+
+export function buildPool(homeRoomName: string): BuildPoolEntry[] {
+  const entries: BuildPoolEntry[] = [];
   if (typeof Game === "undefined" || !Game.rooms) return entries;
   for (const roomName in Game.rooms) {
     const r = Game.rooms[roomName];
@@ -142,10 +155,44 @@ export function buildPool(homeRoomName: string): { room: Room; work: number }[] 
     } catch {
       continue; // partial mocks
     }
-    if (work > 0) entries.push({ room: r, work });
+    if (work > 0) entries.push({ roomName, room: r, work });
+  }
+  // RECEIPT REMAINDERS (the stranded-trunk deadlock, prod t72488324): the
+  // vision scan above is a creep-position lens - when a trunk room went
+  // dark, poolWork hit 0, the crew stood down, and nobody was left to ever
+  // restore vision (trunk-blind-W43N22 for 1100+ ticks, cee0 frozen 35/50).
+  // The HOME room's roadRoutes receipts are the durable signal (CLAUDE.md:
+  // room state from intel, never vision): charge each BLIND route room its
+  // tile-share of the unbuilt remainder so the crew fields and marches -
+  // arrival restores vision and the ground-truth scan takes over. Visible
+  // rooms NEVER take a receipt charge (their standing sites are the truth).
+  const routes = Game.rooms[homeRoomName]?.memory?.roadRoutes;
+  if (routes) {
+    const blindWork = new Map<string, number>();
+    for (const key of Object.keys(routes)) {
+      const e = routes[key];
+      if (!e || e.paved || e.declined || !e.tiles3 || !e.rooms) continue;
+      const total = e.total ?? 0;
+      const remaining = total - (e.built ?? 0);
+      if (total <= 0 || remaining <= 0) continue;
+      const tileCount = e.tiles3.length / 3;
+      const perRoom = new Map<string, number>();
+      for (let i = 2; i < e.tiles3.length; i += 3) {
+        const rn = e.rooms[e.tiles3[i]];
+        if (rn) perRoom.set(rn, (perRoom.get(rn) ?? 0) + 1);
+      }
+      for (const [rn, count] of perRoom) {
+        if (Game.rooms[rn]) continue;
+        const share = (remaining * count) / tileCount;
+        blindWork.set(rn, (blindWork.get(rn) ?? 0) + share * ROAD_BUILD_COST);
+      }
+    }
+    for (const [roomName, work] of blindWork) {
+      if (work > 0) entries.push({ roomName, work });
+    }
   }
   const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
-  entries.sort((a, b) => rank(a.room.name) - rank(b.room.name));
+  entries.sort((a, b) => rank(a.roomName) - rank(b.roomName));
   return entries;
 }
 
@@ -173,7 +220,7 @@ export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition
   let travel = 0;
   for (const e of pool) {
     let t: number;
-    if (e.room.name === homeRoomName && spawnPos) {
+    if (e.roomName === homeRoomName && e.room && spawnPos) {
       let sitePos: RoomPosition | undefined;
       try {
         sitePos = e.room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos;
@@ -182,7 +229,8 @@ export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition
       }
       t = spawnPos.getRangeTo(sitePos ?? spawnPos);
     } else {
-      t = roomLinearDistance(homeRoomName, e.room.name) * 50;
+      // Blind receipt entries take this leg too - only the NAME is needed.
+      t = roomLinearDistance(homeRoomName, e.roomName) * 50;
     }
     if (t > travel) travel = t;
   }
@@ -503,6 +551,21 @@ export class ConstructionCorp extends Corp {
     // founding site two rooms over, wherever). runBuilder already drives and
     // refuels in whatever room it is handed (the remote rung proved it).
     const poolHead = buildPool(spawn.pos.roomName)[0];
+    if (poolHead && !poolHead.room) {
+      // BLIND receipt head (stranded-trunk deadlock): no vision anywhere in
+      // the pool - the crew's own travel is the only thing that can restore
+      // it. March the builders at the receipt room; the repair detail keeps
+      // its beat, tankers hold their home loop until a real site resolves.
+      this.builders.run(
+        creep =>
+          creep.memory.repairDetail
+            ? this.doMaintenance(creep, room)
+            : void travelTo(creep, new RoomPosition(25, 25, poolHead.roomName)),
+        spawn
+      );
+      this.tankers.run(creep => this.runTanker(creep, room), spawn);
+      return;
+    }
     const buildRoom = poolHead?.room ?? room;
     this.builders.run(
       creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom)),
@@ -2450,9 +2513,14 @@ export class ConstructionCorp extends Corp {
    * on where the project is).
    */
   private poolTankerSite(spawnRoomName: string): ConstructionSite | null {
-    const head = buildPool(spawnRoomName)[0];
-    if (!head) return null;
-    return (head.room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined) ?? null;
+    // First entry WITH vision: tankers need a real site to serve; blind
+    // receipt entries wait for the builders' vision bootstrap.
+    for (const entry of buildPool(spawnRoomName)) {
+      if (!entry.room) continue;
+      const site = entry.room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined;
+      if (site) return site;
+    }
+    return null;
   }
 
   private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {

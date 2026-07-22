@@ -168,6 +168,44 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +902t) — STRANDED-TRUNK DEADLOCK: buildPool was a vision lens; receipts now charge blind rooms
+
+Capture t72488324. Deploy verification holds a second window: P9 1.0x
+(70/70), workUtil 0.81 -> 0.92 (dry 0.08), delivery 53.9 -> 61.0 e/t,
+E4 -35.4/t toward target, E2 strands 40 -> 14 aging out as predicted.
+NO FAIL lines.
+
+The failed watch item is the cycle's work item: the trunk build is
+DEADLOCKED on vision. roadGate has stamped trunk-blind-W43N22 for
+1100+ ticks, cee0 frozen at 35/50, and the pool crew is ZERO bodies
+(the tanker died; nothing re-fielded). Chain: buildPool scans
+Game.rooms -> W43N22 dark -> its 4 standing sites invisible ->
+poolWork 0 -> no builder demand -> nobody ever walks there -> dark
+forever. Bootstrap deadlock in the documented trap class (room state
+from vision, not the durable signal) - and the durable signal exists:
+the HOME room's roadRoutes receipts carry tiles3/rooms/built/total.
+
+Fix (this commit, framework seam not bandaid): buildPool returns
+BuildPoolEntry {roomName, room?, work} and charges each BLIND route
+room its tile-share of the unbuilt remainder read from receipts
+(visible rooms keep ground truth - no double count; paved/declined/
+finished routes charge nothing). buildPoolAbsorbRate prices blind
+entries at linear-room travel; work() marches builders at a blind
+receipt head (travel IS the vision bootstrap - same doctrine as the
+rung-3 no-vision march); tankers wait for a sighted site. Receipts
+staged in the new unit pins per the sim-blind-spot rule (the trio
+stages none). Sizing composes with no-residual: blind-pool crew floors
+at 1 WORK (no plan sinks while blind) - a cheap scout-builder, not a
+fleet; the cluster machinery funds the real crew once vision returns.
+
+Predictions for next capture: construction corp fields >= 1 builder
+(or queued behind the 0.97-util wave); roadGate leaves trunk-blind
+within ~2 windows of the builder arriving; cee0 built ratchets past
+35/50; P9/delivery hold. Watch items carried: E5 4/8 runt purchases
+(rebuild-wave energy contention - runt recycling owns it); W43N24
+reservation bank hit 8t (reserver ordered, gate=demand - a lapse
+would flap P1 next capture).
+
 ### 2026-07-22 (cron cycle, +196t) — PHASE 3 DEPLOY VERIFIED: routed 30 -> 69.7 e/t, all 7 sources; v7 live; repricing per-route correct
 
 Capture t72487422, 196t after the deploy. Every prediction confirmed:
