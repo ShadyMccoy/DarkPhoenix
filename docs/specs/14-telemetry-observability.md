@@ -168,6 +168,31 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (cron cycle, +334t) — LEDGER BUILD DEPLOYED (trio green); first trunk progress in 2600t; endFill unadjudicable this window
+
+Capture t72489412 (seconds after the project-ledger deploy - this
+capture is the PRE-ledger baseline; the ledger's predictions verify
+next cycle). Board: NO FAIL lines. X1 left the board - the consumer
+resize-up is underway (S3 head = a 2300-cost upgrader, stock rising
+1399 -> 1574, P7 1.67x). E2 strands 40 -> 10. P4 0.94 -> 0.91.
+cee0 RATCHETED 35 -> 36/50: first trunk progress in ~2600 ticks (the
+remote-end pile-funded builder).
+
+Tender ratchet revert-criterion check: endFill printed 0.761 BUT
+finishes=1 (the deploy's global reset wiped the meter seconds before
+capture) and util 0.985 - a one-sample reading under abnormal load is
+not adjudicable. The trend (0.91 -> 0.844 -> 0.761) has run entirely
+inside the re-field + resize waves. PRECISE RULE for next capture:
+endFill < 0.9 with >= 10 finishes AND util <= 0.95 => revert the cap
+to 3; otherwise the ratchet stands verified on duty (0.159 measured).
+
+Watch items: P4's reserver charge line VANISHED this capture (was 16p
+= 0.030 every prior window; possibly a mid-reset solve artifact - one
+capture, do not chase yet); E5 1 runt (wave tail).
+
+Cycle verdict: SHIPPED (ledger deploy) + measured progress (36/50);
+verification cycle follows.
+
 ### 2026-07-22 (owner-directed) — PROJECT LEDGER: sites live in corp memory; the plan admits from the ledger, not eyesight
 
 Owner ruling ("construction sites should be part of the corps memory
