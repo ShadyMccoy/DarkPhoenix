@@ -544,6 +544,15 @@ export class ExtensionTenderCorp extends Corp {
         role: "tanker",
         value: bootstrap ? 150 : 96, // emergency: above all income; else above upgrading/building, below mining
         blocking: false, // never hold the spawn - minCost 200 buys instantly at this rank anyway
+        // The lane pierces holds/walls ONLY in the bootstrap emergency (dark
+        // post + stranded stock - incident t72499165: a walled miner's
+        // strict hold blocked the affordable tender that was the only way
+        // to fund the wall, 4,400 ticks). An UNCONDITIONAL flag was tried
+        // and measurably recreated the W2N6 stream in the cold-start trio:
+        // the fleet's top-ups pierced the first-hauler wall three times
+        // (tanker@310/369/419, hauler delayed to 498, hand-off probe red).
+        // One dark-post body per outage; top-ups wait like everyone else.
+        infrastructure: bootstrap,
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,

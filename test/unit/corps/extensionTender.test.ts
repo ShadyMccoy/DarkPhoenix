@@ -181,6 +181,7 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(dark[0].value, "emergency: above the whole income range").to.equal(150);
     expect(dark[0].blocking, "value wins the rank; never freeze the spawn (W2N6 scar)").to.equal(false);
     expect(dark[0].minCost, "a scaled tender fields on the next walk").to.equal(200);
+    expect(dark[0].infrastructure, "the emergency ALSO pierces holds/walls (incident t72499165)").to.equal(true);
 
     // One live tender: back to ordinary infrastructure priority.
     Game.creeps.t1 = {
@@ -192,6 +193,23 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     const staffedOne = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
     expect(staffedOne[0].value, "one alive: ordinary priority for the top-up").to.equal(96);
     expect(staffedOne[0].blocking).to.equal(false);
+    expect(staffedOne[0].infrastructure ?? false, "top-ups NEVER pierce walls (the cold-start stream lesson)").to.equal(
+      false
+    );
+  });
+
+  it("a DRY-depot dark post does not pierce walls either (cold start keeps its exact old ordering)", () => {
+    // The unconditional lane recreated the W2N6 stream in the cold-start
+    // trio: tender-fleet buys pierced the first-hauler wall three times
+    // (tanker@310/369/419, hauler@498, hand-off probe red). No stranded
+    // stock -> no emergency -> no pierce.
+    const r = room({ depot: true, extensions: 10, depotEnergy: 0 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
+    expect(demand[0].infrastructure ?? false).to.equal(false);
   });
 
   it("asks for NOTHING before the room has a miner (income before infrastructure)", () => {

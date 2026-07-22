@@ -168,6 +168,47 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 — INFRASTRUCTURE LANE (owner: option "a only") + re-land of bundles 2-4
+
+MECHANISM, fully named (from the walk's own code): three individually
+correct rules interlocked - (1) the anti-starvation age boost ranked
+the 4,400-tick-starved miner ABOVE the tender's 150; (2) its
+unaffordable mustFund body WALLED the spawn (bank saves toward 650);
+(3) the strict hold (the W2N6 fix: decline EVERY lower spend while
+holding) blocked the affordable 200-energy tender - the only body
+that could refill the bank the wall was waiting on.
+
+FIX (owner ruling, option a): SpawnDemand.infrastructure - the refill
+apparatus buys THROUGH holds and walls, at both hold paths (the
+zero-income holdForBlocking gate and the income-flowing outcome=null
+wall). A real buy is never displaced - only holds are pierced.
+
+LESSON INSIDE THE FIX (trio-caught, first gate run): the UNCONDITIONAL
+flag recreated the W2N6 stream in the cold start - the tender fleet's
+top-ups pierced the first-hauler wall THREE times (exec tanker@310/
+369/419, the blocking hauler delayed 353 -> 498, hand-off probe red).
+"Staffing-gated" was not stream-proof at fleet target 3. The lane is
+now EXACTLY as narrow as the emergency it fixes: the corps declare
+infrastructure only on a DARK post with STRANDED STOCK (the tender's
+bootstrap condition verbatim; feeder: zero feeders + bank >= 10k).
+Cold starts have no stranded stock, so they keep their old ordering
+to the tick. One dark-post body per outage; top-ups wait like
+everyone else. Pins: the incident shape pierces (both income paths);
+top-ups and dry-depot dark posts never pierce; below-wall non-infra
+stays held; unaffordable infra does not pierce; a higher-ranked
+affordable demand still wins its tick.
+
+RECOVERY (t72499395, ~230t after rollback): creeps 4 -> 9, spawn util
+0.06 -> 0.20, endFill 0.088 -> 0.262, the 650 wall GONE from the
+agenda head (fan-fill bridge funded it) - bundle 1's fallback broke
+the deadlock exactly as predicted. Tender still 0/3 (income re-field
+first - the bundle-1 ordering the lane now fixes).
+
+RE-LAND: with the lane green through the full gate, HEAD (bundles
+2-4: covered lens, off-road parking, builder hand-off) redeploys -
+the deadlock class that killed the covered-lens deploy is closed at
+the scheduler, the layer that owns it.
+
 ### 2026-07-22 t72499165 — INCIDENT: colony collapse 23 -> 4 creeps; spawn WALLED 4,400 ticks; ROLLED BACK to bundle 1 (80ca334)
 
 **DEPLOYED BUILD IS NOW 80ca334's bundle (bundle 1).** Branch HEAD

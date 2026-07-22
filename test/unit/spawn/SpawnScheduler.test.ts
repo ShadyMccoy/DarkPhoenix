@@ -31,6 +31,102 @@ function ctx(overrides: Partial<ScheduleContext>): ScheduleContext {
   };
 }
 
+describe("INFRASTRUCTURE LANE (incident t72499165: the wall starved the refill apparatus)", () => {
+  // Three individually-correct safety rules interlocked into a 4,400-tick
+  // deadlock (colony 23 -> 4 creeps): the starved miner's age boost ranked it
+  // above the tender's 150; its unaffordable mustFund body WALLED the spawn
+  // (bank saves toward 650); and the strict hold (W2N6: decline EVERY lower
+  // spend) blocked the affordable 200-energy tender - the only body that
+  // could refill the bank the wall was waiting on. Owner ruling: option (a)
+  // - INFRASTRUCTURE demands (the refill apparatus: tender, feeder) buy
+  // through holds and walls. Each such buy accelerates the wall's own
+  // funding; the class is staffing-gated (a fielded tender ends its demand),
+  // so it can never become the W2N6 blocking STREAM.
+  const walledMiner = () =>
+    demand({
+      buyerCorpId: "miner-cbd5",
+      value: 160, // the incident's age-boosted rank: above the tender's 150
+      producesIncome: true,
+      holdToFund: true,
+      minCost: 650,
+      desiredCost: 650
+    });
+  const bootstrapTender = () =>
+    demand({
+      buyerCorpId: "tender",
+      role: "tanker",
+      value: 150,
+      infrastructure: true,
+      minCost: 200,
+      desiredCost: 800
+    });
+
+  it("an affordable INFRA demand buys through the zero-income strict hold (the incident shape)", () => {
+    const result = scheduleSpawn(
+      [walledMiner(), bootstrapTender()],
+      ctx({ energyAvailable: 387, energyCapacity: 2300, energyIncome: 0 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("tender");
+    expect(result?.energyBudget, "scaled to the bank, not held").to.equal(387);
+  });
+
+  it("an affordable INFRA demand buys through the income-flowing wall too", () => {
+    const result = scheduleSpawn(
+      [walledMiner(), bootstrapTender()],
+      ctx({ energyAvailable: 387, energyCapacity: 2300, energyIncome: 20 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("tender");
+  });
+
+  it("a non-infra demand is STILL held through the wall (the W2N6 stream stays retired)", () => {
+    // The W2N6 shape: a cheap demand ranked BELOW the held income body must
+    // not drain the bank the wall is accumulating. (A blocking demand that
+    // RANKS ABOVE the wall buying first is ordinary priority order, not a
+    // pierce - the pin stages the below-the-wall case.)
+    const cheapBuilder = demand({
+      buyerCorpId: "stream-builder",
+      value: 10,
+      minCost: 200,
+      desiredCost: 200
+    });
+    const result = scheduleSpawn(
+      [walledMiner(), cheapBuilder],
+      ctx({ energyAvailable: 387, energyCapacity: 2300, energyIncome: 0 })
+    );
+    expect(result, "the wall holds everything below it that is not infrastructure").to.equal(null);
+  });
+
+  it("an UNAFFORDABLE infra demand does not pierce the wall", () => {
+    const bigTender = demand({
+      buyerCorpId: "tender",
+      value: 150,
+      infrastructure: true,
+      minCost: 500,
+      desiredCost: 800
+    });
+    const result = scheduleSpawn(
+      [walledMiner(), bigTender],
+      ctx({ energyAvailable: 387, energyCapacity: 2300, energyIncome: 0 })
+    );
+    expect(result).to.equal(null);
+  });
+
+  it("infra never displaces a real buy: a higher-ranked affordable demand still wins the tick", () => {
+    const affordableMiner = demand({
+      buyerCorpId: "miner",
+      value: 160,
+      producesIncome: true,
+      minCost: 300,
+      desiredCost: 650
+    });
+    const result = scheduleSpawn(
+      [affordableMiner, bootstrapTender()],
+      ctx({ energyAvailable: 387, energyCapacity: 2300, energyIncome: 0 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("miner");
+  });
+});
+
 describe("SpawnScheduler", () => {
   describe("scheduleSpawn()", () => {
     it("returns null when there are no demands", () => {

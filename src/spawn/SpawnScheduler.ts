@@ -75,6 +75,21 @@ export interface SpawnDemand {
    */
   replacement?: boolean;
   /**
+   * INFRASTRUCTURE LANE (owner ruling after incident t72499165): this demand
+   * is the spawn network's own refill apparatus (extension tender, controller
+   * feeder) - the thing every OTHER body's funding depends on. An affordable
+   * infrastructure demand buys THROUGH holds and walls: three individually
+   * correct rules (age boost ranking a starved miner first, its unaffordable
+   * mustFund body walling the bank, the strict hold declining every lower
+   * spend) interlocked into a 4,400-tick deadlock - the bank could never
+   * reach the walled 650 because the only body that refills the bank was
+   * itself held. Piercing is safe by construction: the class is
+   * staffing-gated (one fielded tender ends its demand), so it can never
+   * become the W2N6 blocking STREAM, and each buy accelerates the wall's own
+   * funding. Never displaces an actual buy - only pierces holds.
+   */
+  infrastructure?: boolean;
+  /**
    * An idle-window filler (task #11, owner 2026-07-18): bought ONLY when the
    * walk reaches the bottom with nothing else to do - never ages into the
    * starved tier, never buys during a hold. Reserved for opportunistic
@@ -536,6 +551,20 @@ function walkDemands(
   let outcome: ScheduleResult | null | undefined;
   for (const demand of ranked) {
     if (outcome !== undefined) {
+      // INFRASTRUCTURE LANE, wall-hold path: outcome === null means "hold
+      // the spawn, buy nothing" (an income-flowing wall above). The refill
+      // apparatus still buys through it - it is what funds the wall. A real
+      // buy (outcome set to a result) is never displaced.
+      if (outcome === null && demand.infrastructure && ctx.energyAvailable >= demand.minCost) {
+        const energyBudget = Math.min(demand.desiredCost, ctx.energyAvailable);
+        record?.(demand, "buy");
+        outcome = {
+          demand,
+          energyBudget,
+          reason: energyBudget >= demand.desiredCost ? "afford-desired" : "afford-min-scaled"
+        };
+        continue;
+      }
       record?.(demand, "queued");
       continue;
     }
@@ -556,7 +585,7 @@ function walkDemands(
       // chance earlier in this walk. The one exception: under a NON-strict
       // hold (held demand is a consumer), a lower income PRODUCER still
       // spawns - see holdStrict above.
-      if (holdForBlocking && (holdStrict || !demand.producesIncome)) {
+      if (holdForBlocking && (holdStrict || !demand.producesIncome) && !demand.infrastructure) {
         record?.(demand, "held");
         continue;
       }

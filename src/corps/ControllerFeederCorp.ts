@@ -399,6 +399,10 @@ export class ControllerFeederCorp extends Corp {
         // it must exist for the upgraders it serves, but never ahead of the producers.
         value: 95,
         blocking: false, // infra, not income: haulers feed the controller directly until it spawns
+        // Same emergency-only lane as the tender (see incident t72499165 +
+        // the cold-start stream lesson there): pierce holds only when the
+        // relay post is DARK while a real bank stands stranded behind it.
+        infrastructure: feeders === 0 && banked >= 10_000,
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,
