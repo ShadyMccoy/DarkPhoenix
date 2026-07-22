@@ -9,7 +9,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
-import { travelTo, travelToQueued } from "./movement";
+import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
@@ -158,6 +158,24 @@ export function shouldDrainDedicatedSource(
     if (containerEnergy >= containerCapacity * DEDICATED_SOURCE_DRAIN_FILL) return true;
   }
   return groundPile >= DEDICATED_SOURCE_DRAIN_PILE;
+}
+
+/**
+ * Do extensions belong to the tender corp in this room? The ONE lens every
+ * hauler fan-fill site reads (owner 2026-07-22 accountability ruling: "each
+ * corp needs to do their job, not cover for each other"). COVERED is the
+ * STRUCTURAL flag (depot + extensions exist, stamped by
+ * ExtensionTenderCorp.work) - it does NOT flap with tender deaths, so a dead
+ * tender no longer hands extension duty back to the haulers; the tender
+ * corp's own bootstrap demand (value 150) re-fields one instead. Haulers keep
+ * the SPAWN STRUCTURE topped in every regime, so a tender gap can never
+ * deadlock the colony. ACTIVE is OR-ed in only for rooms whose stamp predates
+ * the covered flag (a deploy-boundary nicety, not a doctrine).
+ */
+export function tenderOwnsExtensions(
+  mem?: { extensionTenderCovered?: boolean; extensionTenderActive?: boolean }
+): boolean {
+  return mem?.extensionTenderCovered === true || mem?.extensionTenderActive === true;
 }
 
 /**
@@ -351,12 +369,38 @@ export class CarryCorp extends Corp {
     const creeps = this.getAssignedCreeps();
 
     this.flagRuntForRecycling(creeps, room, spawn);
+    this.flagEndOfLifeForRecycling(creeps);
 
     for (const creep of creeps) {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
       } else {
         this.runHauler(creep, room, spawn);
+      }
+    }
+  }
+
+  /**
+   * END-OF-LIFE recycle (owner 2026-07-22: "a hauler with less ttl than it
+   * takes to round trip after dropping off the energy might be able to
+   * recycle itself"): an EMPTY hauler that cannot complete even its
+   * SHORTEST route's round trip would spend its last ticks walking out and
+   * dying - loaded at worst (cargo dropped mid-route), pointlessly at best.
+   * Recycling instead refunds the remaining-TTL share of its body cost at
+   * the spawn. Empty-only (never strands cargo), and min-distance
+   * conservative (a creep that can still finish SOME route keeps working).
+   * staffsPost already excludes these from staffing (recycling creeps order
+   * their successors - the trap-list rule), so no double-ordering.
+   */
+  private flagEndOfLifeForRecycling(creeps: Creep[]): void {
+    const assignments = this.getHaulerAssignments();
+    if (assignments.length === 0) return;
+    const minRoundTrip = Math.min(...assignments.map(a => 2 * a.distance + 2));
+    for (const creep of creeps) {
+      if (creep.memory.recycling || creep.spawning) continue;
+      if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0) continue;
+      if (creep.ticksToLive !== undefined && creep.ticksToLive < minRoundTrip) {
+        creep.memory.recycling = true;
       }
     }
   }
@@ -578,14 +622,14 @@ export class CarryCorp extends Corp {
       targetPos = new RoomPosition(p.x, p.y, p.roomName);
     }
 
-    // DEGRADED-MODE REFILL (owner SLA 2026-07-10: extensions refill before the
-    // draining spawn finishes): when NO tender is alive, the depot's bank is
-    // otherwise invisible to refill - only tenders move depot -> extensions -
-    // so a drained bank waits a full source round-trip while 2000 energy sits
-    // one tile from the spawn. A spawn-circuit hauler reloads from the stocked
-    // depot instead of trekking to its source whenever the network is short.
-    // Tender alive -> the flag is true and this never triggers (the depot
-    // stays the tender's exclusive reserve).
+    // DEGRADED-MODE REFILL, UNCOVERED rooms only (a depot exists but no
+    // extensions yet - early RCL2): the depot's bank is otherwise invisible
+    // to refill, so a spawn-circuit hauler reloads from the stocked depot
+    // instead of trekking to its source whenever the network is short. In a
+    // COVERED room this never fires, tender alive or dead (owner 2026-07-22
+    // accountability ruling): the depot is the tender corp's exclusive
+    // reserve, and a dead tender is re-fielded by its bootstrap demand, not
+    // covered for by hauler trips.
     // Unassigned haulers (pre-first-circuit) count as spawn-circuit here: the
     // earliest drains land exactly when nothing has flipped to working yet.
     //
@@ -598,7 +642,7 @@ export class CarryCorp extends Corp {
     // hauler AT HOME still tops up from the depot rather than run a whole remote
     // round-trip - but one out at (or walking toward) its far/remote source is left
     // to pick up there instead of being dragged home (see shouldRefillFromDepot).
-    if ((creep.memory.homeSink ?? "spawn") === "spawn" && room.memory.extensionTenderActive !== true) {
+    if ((creep.memory.homeSink ?? "spawn") === "spawn" && !tenderOwnsExtensions(room.memory)) {
       const depot = coreDepot(room);
       const rangeToDepot = depot && creep.room.name === room.name ? creep.pos.getRangeTo(depot) : Infinity;
       const rangeToPickup =
@@ -613,7 +657,7 @@ export class CarryCorp extends Corp {
         })
       ) {
         if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+          travelToLane(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         }
         return;
       }
@@ -623,7 +667,7 @@ export class CarryCorp extends Corp {
     if (!targetPos) return;
 
     if (targetPos.roomName !== creep.room.name) {
-      travelTo(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+      travelToLane(creep, targetPos, { visualizePathStyle: { stroke: "#ffaa00" } });
       return;
     }
 
@@ -685,7 +729,7 @@ export class CarryCorp extends Corp {
    * controller got nothing.
    */
   private spawnNetworkCritical(room: Room): boolean {
-    if (room.memory.extensionTenderActive) return this.spawnNetworkHungry(room);
+    if (tenderOwnsExtensions(room.memory)) return this.spawnNetworkHungry(room);
     let used = 0;
     let cap = 0;
     for (const s of this.getSpawnZoneStructures(room)) {
@@ -710,7 +754,7 @@ export class CarryCorp extends Corp {
     // extensions here (which the tender fills, slower than haulers used to) would
     // keep the network looking perpetually hungry and divert EVERY controller-bound
     // hauler to the spawn, starving the controller.
-    if (room.memory.extensionTenderActive) {
+    if (tenderOwnsExtensions(room.memory)) {
       const spawn = room.find(FIND_MY_SPAWNS)[0];
       if ((spawn?.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) >= SPAWN_PRIORITY_FREE_CAPACITY) return true;
       // The depot is the tender's reserve. Keep only a SMALL buffer there: divert a
@@ -838,7 +882,7 @@ export class CarryCorp extends Corp {
     if (!storage || !storage.my) return false; // route gone; caller re-assigns / falls back
     if (storage.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false; // bank full: spill to consumers
     if (creep.pos.getRangeTo(storage) > 1) {
-      travelTo(creep, storage, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
+      travelToLane(creep, storage, { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
       return true;
     }
     const moved = Math.min(creep.store[RESOURCE_ENERGY], storage.store.getFreeCapacity(RESOURCE_ENERGY));
@@ -863,7 +907,7 @@ export class CarryCorp extends Corp {
     const site = Game.getObjectById(sinkId.replace("construction-", "") as Id<ConstructionSite>);
     if (!site) return false;
     if (creep.room.name !== site.pos.roomName || creep.pos.getRangeTo(site.pos) > 1) {
-      travelTo(creep, site.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
+      travelToLane(creep, site.pos, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       return true;
     }
     const builder = creep.pos.findInRange(FIND_MY_CREEPS, 1, {
@@ -885,12 +929,13 @@ export class CarryCorp extends Corp {
    * Returns false when there is no spawn structure that needs energy.
    */
   private deliverToSpawn(creep: Creep, room: Room): boolean {
-    // When the extension tender is active, haulers run the dumb source->depot bus:
-    // keep the spawn STRUCTURE itself topped (one tile, no fanning across extensions)
-    // so a dead tender can never deadlock the colony, then dump everything else into
-    // the depot for the tender to distribute. This is what stops the schooling - the
-    // haulers no longer chase a dozen half-full extensions.
-    if (room.memory.extensionTenderActive) {
+    // In a tender-COVERED room haulers run the dumb source->depot bus,
+    // PERMANENTLY (tender alive or dead - accountability ruling): keep the
+    // spawn STRUCTURE itself topped (one tile, no fanning across extensions)
+    // so a tender gap can never deadlock the colony, then dump everything else
+    // into the depot for the tender to distribute. This is what stops the
+    // schooling - the haulers never chase a dozen half-full extensions.
+    if (tenderOwnsExtensions(room.memory)) {
       const spawnNeedsEnergy = room.find(FIND_MY_SPAWNS).find(s => s.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
       const depot = coreDepot(room);
       // Fill the spawn structure first (keep it alive), then top the depot only to
@@ -904,7 +949,7 @@ export class CarryCorp extends Corp {
         spawnNeedsEnergy ?? (depot && depot.store[RESOURCE_ENERGY] < depotBankTarget(depot) ? depot : undefined);
       if (!busTarget) return false;
       const r = creep.transfer(busTarget, RESOURCE_ENERGY);
-      if (r === ERR_NOT_IN_RANGE) travelTo(creep, busTarget, { visualizePathStyle: { stroke: "#ffffff" } });
+      if (r === ERR_NOT_IN_RANGE) travelToLane(creep, busTarget, { visualizePathStyle: { stroke: "#ffffff" } });
       else if (r === OK)
         this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], busTarget.store.getFreeCapacity(RESOURCE_ENERGY)));
       return true;
@@ -939,7 +984,7 @@ export class CarryCorp extends Corp {
       );
       if (tender && creep.store[RESOURCE_ENERGY] > 0) {
         const r = creep.transfer(tender, RESOURCE_ENERGY);
-        if (r === ERR_NOT_IN_RANGE) travelTo(creep, tender, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        if (r === ERR_NOT_IN_RANGE) travelToLane(creep, tender, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
         else if (r === OK)
           this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], tender.store.getFreeCapacity(RESOURCE_ENERGY)));
         return true;
@@ -956,7 +1001,16 @@ export class CarryCorp extends Corp {
     if (adjacent) {
       const r = creep.transfer(adjacent, RESOURCE_ENERGY);
       if (r === OK) {
-        this.recordProduction(Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY)));
+        const amount = Math.min(creep.store[RESOURCE_ENERGY], adjacent.store.getFreeCapacity(RESOURCE_ENERGY));
+        this.recordProduction(amount);
+        // Intent receipt for the accountability doctrine (owner 2026-07-22):
+        // a hauler filling an EXTENSION is the legacy fan path, legitimate
+        // ONLY in uncovered rooms - harnesses assert this receipt never
+        // appears in a tender-covered room (spatial linger proxies false-
+        // positived on transit congestion; the receipt cannot).
+        if (adjacent.structureType === STRUCTURE_EXTENSION) {
+          creep.memory.lastDeliver = { to: "extension-fan", amount, tick: Game.time };
+        }
       }
       if (adjacent.id === creep.memory.deliveryTargetId) delete creep.memory.deliveryTargetId;
       return true;
@@ -1346,6 +1400,11 @@ export class CarryCorp extends Corp {
    * so haulers stay stood down.
    */
   private yieldsToBuild(): boolean {
+    // Spec 25 phase 3: the trunk-receipt stand-down is retired - the PLAN now
+    // routes a trunk-building source's output (local sinks first, residual
+    // home), and this corp fields haulers only for planned routes, so the
+    // stand-down is the routing itself. Only the home-room dedicated-source
+    // mechanism below remains (spill-guarded, predates trunks).
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
     if (!dedicated || this.mySourceId() !== dedicated) return false;

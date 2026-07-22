@@ -7,17 +7,7 @@
  * @module types/Memory
  */
 
-import {
-  SerializedBootstrapCorp,
-  SerializedCarryCorp,
-  SerializedConstructionCorp,
-  SerializedExtensionTenderCorp,
-  SerializedHarvestCorp,
-  SerializedReservationCorp,
-  SerializedScoutCorp,
-  SerializedSpawningCorp,
-  SerializedUpgradingCorp
-} from "../corps";
+import { SerializedBootstrapCorp, SerializedSpawningCorp } from "../corps";
 import { SerializedColony } from "../colony/Colony";
 import { SerializedNode } from "../nodes/Node";
 
@@ -45,6 +35,16 @@ declare global {
      * refreshes on every sighting rather than being exact.
      */
     invaderReservedUntil?: number;
+    /**
+     * A PLAYER reservation on this room's controller ends ~this tick, held by
+     * `reservedBy`. Unlike the invader bound this one is EXACT while blind:
+     * a reservation decays 1/tick, the same countdown the bound encodes, so
+     * only a hostile CLAIM grind diverges it (next sighting corrects). The
+     * ReservationCorp's duty cycle (spec 15 P5) coasts on it: no reserver is
+     * bought while our banked reservation sits above the refresh floor.
+     */
+    reservedUntil?: number;
+    reservedBy?: string;
     /**
      * Energy OUR corps harvested in this room since the last observed raid -
      * a tick-exact mirror of the engine's per-room invader fuse (spec 13:
@@ -234,6 +234,47 @@ declare global {
      * agenda-fidelity cell asserts spawns match the head, and the flow
      * adapter (phase 2) routes fundingNeed toward the spawn network.
      */
+    /**
+     * Spawn-meter windows (spec 14 phase 3): measured busy ticks per spawn
+     * over a rolling ~1500-tick window, accumulated every observed tick by
+     * telemetry. `last` guards against double-counting a tick.
+     */
+    spawnMeter?: {
+      [spawnId: string]: {
+        t0: number;
+        last: number;
+        ticks: number;
+        busy: number;
+        /** s.spawning at the previous observation - finish-event edge detector. */
+        wasBusy?: boolean;
+        /** Build-finish events observed WITH a gap after them (a back-to-back
+         * restart keeps spawning true, so it never registers - by design:
+         * every counted finish is a duty gap to explain). */
+        finishes?: number;
+        /** Sum over those finishes of energyAvailable/energyCapacityAvailable
+         * AT the finish tick (owner 2026-07-21: "refilling should happen
+         * while the other creeps are spawning - or we have to measure and
+         * fix that"). Low avg = refill lag (tender); high avg = the spawn
+         * was affordable and idled anyway (agenda/decision latency). */
+        fillSum?: number;
+      };
+    };
+
+    /**
+     * Rolling upgrade-WORK utilization per controller room (spawn-meter
+     * pattern), tallied at the upgradeController call site: `ticks` =
+     * parked upgrader creep-ticks observed, `fired` = ticks the intent
+     * returned OK, `dry` = ticks it returned ERR_NOT_ENOUGH_RESOURCES (the
+     * input starved the buffer). Prod t72482220: 100 WORK stood at both
+     * window endpoints with the stock endpoint full, yet burn averaged
+     * 48.7 of ~100 e/t - whether the missing half was supply or idling was
+     * unmeasurable. workUtil/dryShare in the upgrader sizing stamp read
+     * this window.
+     */
+    upgradeMeter?: {
+      [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
+    };
+
     spawnAgenda?: {
       [spawnId: string]: {
         tick: number;
@@ -244,10 +285,14 @@ declare global {
           minCost: number;
           desiredCost: number;
           mustFund: boolean;
+          /** First tick the director saw this demand (starvation-age export). */
+          since?: number;
           /** The transition this acquisition implements (spec 11 phase 3). */
           why?: string;
           /** "bank>=N" (head, unaffordable) or "after:<corpId>". */
           precondition?: string;
+          /** The decision walk's verdict on this entry (spec 17: "buy" IS the action). */
+          gate?: string;
         }[];
         /** Execution receipts (actual-vs-NOW): the last ~8 spawns bought here. */
         executed?: { tick: number; role: string; corp: string; cost: number }[];
@@ -255,27 +300,57 @@ declare global {
     };
 
     /**
+     * The colony's GOAL (spec 18): a weighted blend of named goal profiles,
+     * compiled onto the sink-value ladder each solve. Absent = the default
+     * profile (today's measured ladder). Set via global.setGoal.
+     */
+    goal?: { blend: { [profileName: string]: number } };
+
+    /**
+     * The last solve's realized bank draw (controller + construction
+     * allocations) - the feeder-pricing signal (flowAdapter, the starvation
+     * loop). In Memory because the FlowEconomy instance is replaced on every
+     * graph rebuild: instance-held history never survived to a second solve
+     * (prod t72447816).
+     */
+    lastBankDraw?: number;
+
+    /**
+     * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
+     * CPU joins energy and spawn build-time as a metered, pullable resource.
+     * `corpsTotal` is the sum over every commissioned corp this tick -
+     * reconcile it against the loop's whole-tick usage to see the
+     * infrastructure residual (planner solve, host, telemetry).
+     */
+    /**
+     * P-CPU meter (spec 23 step 1): moveTo CPU per corp FAMILY this tick,
+     * the measured BEFORE number for the cached-routes doctrine. Written by
+     * corps/movement.meteredMoveTo, reset on tick change, exported in core
+     * telemetry (v10).
+     */
+    pathMeter?: {
+      tick: number;
+      calls: number;
+      cpu: number;
+      byCorp: { [family: string]: { calls: number; cpu: number } };
+    };
+
+    corpCpu?: {
+      tick: number;
+      corpsTotal: number;
+      byKind: { [kind: string]: number };
+      /** Worst offenders by ~100-tick EMA, dashboard-sized. */
+      top: { corpId: string; kind: string; cpu: number; avg: number }[];
+      /** Named infrastructure buckets (spec 20 P2): the bulkheaded phases. */
+      infra?: { [bucket: string]: number };
+      /** Whole-tick CPU at publish - the reconciliation anchor. */
+      wholeTick?: number;
+    };
+
+    /**
      * Serialized bootstrap corps by room name.
      */
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };
-
-    /**
-     * @deprecated Harvest/carry/upgrade corps live in commissionedCorps since
-     * the framework cutover; these keys are no longer written and exist only in
-     * old saves.
-     */
-    harvestCorps?: { [sourceId: string]: SerializedHarvestCorp };
-    /** @deprecated see harvestCorps. */
-    haulingCorps?: { [sourceId: string]: SerializedCarryCorp };
-    /** @deprecated see harvestCorps. */
-    upgradingCorps?: { [roomName: string]: SerializedUpgradingCorp };
-
-    /**
-     * Serialized scout corps by room name.
-     * @deprecated Scout corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    scoutCorps?: { [roomName: string]: SerializedScoutCorp };
 
     /**
      * The commissioned-corp store (execution/CommissionHost): every corp of a
@@ -286,28 +361,10 @@ declare global {
     commissionedCorps?: import("../economy/CorpKind").SerializedCorpStore;
 
     /**
-     * Serialized construction corps by room name.
-     */
-    constructionCorps?: { [roomName: string]: SerializedConstructionCorp };
-
-    /**
-     * Serialized reservation corps by room name.
-     * @deprecated Reservation corps live in commissionedCorps since the
-     * framework port; this key is no longer written and exists only in old saves.
-     */
-    reservationCorps?: { [roomName: string]: SerializedReservationCorp };
-
-    /**
-     * Serialized spawning corps by spawn ID.
+     * Serialized spawning corps by spawn ID (one of the two legacy-registry
+     * kinds still outside the commission store - see completeCensus).
      */
     spawningCorps?: { [spawnId: string]: SerializedSpawningCorp };
-
-    /**
-     * Serialized extension tender corps (local movers) by room name.
-     * @deprecated Tender corps live in commissionedCorps since the framework
-     * port; this key is no longer written and exists only in old saves.
-     */
-    extensionTenderCorps?: { [roomName: string]: SerializedExtensionTenderCorp };
   }
 
   /**
@@ -318,6 +375,14 @@ declare global {
      * Node IDs associated with this room.
      */
     nodeIds?: string[];
+
+    /**
+     * Tiles createConstructionSite proved permanently invalid (-7), keyed
+     * "x,y" -> tick recorded. Written by placeSite, excluded by
+     * bestAdjacentTile so candidate generators stop proposing them (the
+     * eaten-ladder loop: one bad candidate retried every cooldown forever).
+     */
+    deadTiles?: { [key: string]: number };
 
     /**
      * Cached refill bus circuit over spawn + extensions (corps/refillCircuit):
@@ -343,10 +408,40 @@ declare global {
      * is the planned route as flat [x0,y0,x1,y1,...]. `paved` is the receipt that
      * every tile has a built road - read by flowAdapter.detectPavedSources to
      * stamp the route's haulers with the 2:1 road body ratio. `declined` caches a
-     * not-worth-paving verdict so the route is not re-evaluated every cooldown.
+     * not-worth-paving verdict AT the flow it was judged with (`judgedFlow`) so
+     * the route is not re-evaluated every cooldown - but the verdict is VOIDED
+     * and re-judged when live flow rises materially past the judged level
+     * (roadEconomics.declinedVerdictStands; reservation's 5->10 doubling of a
+     * remote source clears the bar by design).
      */
     roadRoutes?: {
-      [sourceId: string]: { tiles: number[]; paved?: boolean; declined?: boolean };
+      [sourceId: string]: {
+        /** In-room route: flat (x,y) pairs in THIS room (legacy format). */
+        tiles: number[];
+        /**
+         * Cross-room TRUNK route (owner 2026-07-19): flat (x,y,roomIdx)
+         * triples indexed into `rooms`. Present only on trunk routes; such
+         * routes keep `tiles` empty.
+         */
+        tiles3?: number[];
+        /** Room-name table for tiles3 roomIdx values. */
+        rooms?: string[];
+        paved?: boolean;
+        /**
+         * Trunk build progress, survey-persisted each placement pass:
+         * verified built road tiles (RATCHETS up - a vision-lost pass never
+         * counts down, or the hauler body would flap around the repricing
+         * threshold) out of `total` route tiles. detectPavedSources reads
+         * built/total as the paved fraction; at >= 1/2 (roadEconomics.
+         * PARTIAL_PAVE_REPRICE_FRACTION) the source's haulers reprice to the
+         * 2:1 road body BEFORE the binary `paved` receipt lands.
+         */
+        built?: number;
+        total?: number;
+        declined?: boolean;
+        /** Flow (e/t) the declined verdict was judged at (absent on legacy entries). */
+        judgedFlow?: number;
+      };
     };
 
     /**
@@ -364,13 +459,24 @@ declare global {
     };
 
     /**
-     * True while a core depot exists AND a live extension tender is draining it.
-     * Set by ExtensionTenderCorp, read by CarryCorp: when set, haulers run the dumb
-     * source->depot bus instead of fanning across extensions; when the tender dies
-     * it clears and haulers resume filling the spawn network directly (so a dead
-     * tender can never deadlock the colony).
+     * LIVENESS: true while a core depot exists AND a live extension tender is
+     * draining it. Set by ExtensionTenderCorp each tick; kept for telemetry and
+     * the depot-reserve nuances (spawnNetworkHungry's bridge buffer).
      */
     extensionTenderActive?: boolean;
+
+    /**
+     * STRUCTURAL (owner 2026-07-22 accountability ruling: "each corp needs to
+     * do their job, not cover for each other"): true while a core depot AND
+     * extensions exist - extension refill is the tender corp's JOB here,
+     * whether or not a tender is alive this tick. Read via CarryCorp's
+     * tenderOwnsExtensions lens: haulers run the dumb source->depot bus and
+     * never fan across extensions in a covered room; a dead tender is
+     * re-fielded by the corp's own bootstrap demand (value 150), not covered
+     * for. Haulers still top the SPAWN STRUCTURE either way, so a tender gap
+     * can never deadlock the colony.
+     */
+    extensionTenderCovered?: boolean;
 
     /**
      * True while a storage bank exists AND a live controller feeder is relaying it
@@ -393,29 +499,14 @@ declare global {
     corpId?: string;
 
     /**
-     * The type of work this creep performs.
-     * - harvest: Mining energy from sources
-     * - haul: Edge-based transport (source to sink via paths)
-     * - tank: Node-based local distribution (fill extensions/spawns)
-     * - upgrade: Controller upgrading
-     * - build: Construction
-     * - repair: Structure repair
-     * - scout: Room scouting
+     * The type of work this creep performs. Values are DECLARED by each corp
+     * kind (CorpKind.roles[].workType - e.g. harvest/haul/tank/feed/upgrade/
+     * build/scout/reserve/claim/guard/buster/strike), not enumerated here: a
+     * closed union at this distance was an undeclared second registration
+     * point every new kind had to find (spec 17). Validity is enforced by the
+     * kind-conformance suite against the registry's declarations.
      */
-    workType?:
-      | "harvest"
-      | "haul"
-      | "tank"
-      | "feed"
-      | "upgrade"
-      | "build"
-      | "repair"
-      | "scout"
-      | "reserve"
-      | "claim"
-      | "guard"
-      | "buster"
-      | "strike";
+    workType?: string;
 
     /**
      * Target ID for current task.
@@ -483,6 +574,9 @@ declare global {
      * topping up neither. Cleared when the target reaches the ceiling or is gone.
      */
     repairTargetId?: string;
+    /** This crew member IS the standing repair detail (owner 2026-07-18:
+     * repair and building are separate functions). Sticky for life. */
+    repairDetail?: boolean;
 
     /**
      * ID of the SpawningCorp that spawned this creep.

@@ -153,6 +153,30 @@ describe("bestAdjacentTile (excludes source and mineral tiles)", () => {
     const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
     expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 10, y: 10 });
   });
+
+  it("keeps clear of caller-marked positions (unwalkable structures beside a spawn lock in units)", () => {
+    // Owner 2026-07-19: a tower/storage/link on a spawn-adjacent tile can trap
+    // freshly spawned creeps. Generators for unwalkable structures pass the
+    // room's spawn positions; tiles within range 1 of any are never proposed.
+    const room = roomWith({});
+    const spawnPos = { x: 10, y: 10, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, spawnPos, 2, spawnPos, [spawnPos])!;
+    expect(
+      Math.max(Math.abs(tile.x - 10), Math.abs(tile.y - 10)),
+      "no tile within range 1 of the avoided spawn"
+    ).to.be.greaterThan(1);
+  });
+
+  it("does not pick a tile placement already proved dead (-7 blacklist in room memory)", () => {
+    // placeSite records permanently-invalid tiles (ERR_INVALID_TARGET) in
+    // room.memory.deadTiles; the generator must stop proposing them or the
+    // ladder retries the same tile forever.
+    const room = roomWith({});
+    (room as any).memory = { deadTiles: { "12,10": 1 } };
+    const spawnPos = { x: 13, y: 10, roomName: "W0N0" } as any; // (12,10) is nearest otherwise
+    const tile = bestAdjacentTile(room, { x: 11, y: 10 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.not.deep.equal({ x: 12, y: 10 });
+  });
 });
 
 /**
@@ -184,7 +208,7 @@ describe("bestAdjacentTile (exit-restricted structures shun the open-exit buffer
   it("returns null for a LINK when the only candidates sit beside an open exit (W43N23 repro)", () => {
     const room = roomWithWalls(POCKET);
     const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
-    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK);
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, undefined, STRUCTURE_LINK);
     expect(tile).to.equal(null);
   });
 
@@ -192,7 +216,7 @@ describe("bestAdjacentTile (exit-restricted structures shun the open-exit buffer
     // Same pocket, but the east edge is walled - no exit, so the engine allows it.
     const room = roomWithWalls([...POCKET, "49,11", "49,12", "49,13", "49,14", "49,15"]);
     const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
-    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK)!;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, undefined, STRUCTURE_LINK)!;
     expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 48, y: 12 });
   });
 
@@ -201,14 +225,14 @@ describe("bestAdjacentTile (exit-restricted structures shun the open-exit buffer
     // is strictly nearest - the old picker chose it and looped on -7.
     const room = roomWithWalls(["46,12", "46,13", "46,14", "47,14"]);
     const spawnPos = { x: 48, y: 40, roomName: "W0N0" } as any;
-    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_LINK)!;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, undefined, STRUCTURE_LINK)!;
     expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 47, y: 12 });
   });
 
   it("containers are exempt - the engine allows them beside exits", () => {
     const room = roomWithWalls(POCKET);
     const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
-    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, STRUCTURE_CONTAINER)!;
+    const tile = bestAdjacentTile(room, { x: 47, y: 13 } as any, 1, spawnPos, undefined, STRUCTURE_CONTAINER)!;
     expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 48, y: 12 });
   });
 
@@ -222,7 +246,81 @@ describe("bestAdjacentTile (exit-restricted structures shun the open-exit buffer
   it("applies the same rule on the y side (bottom edge)", () => {
     const room = roomWithWalls(["12,46", "13,46", "14,46", "12,47", "14,47"]);
     const spawnPos = { x: 25, y: 25, roomName: "W0N0" } as any;
-    const tile = bestAdjacentTile(room, { x: 13, y: 47 } as any, 1, spawnPos, STRUCTURE_LINK);
+    const tile = bestAdjacentTile(room, { x: 13, y: 47 } as any, 1, spawnPos, undefined, STRUCTURE_LINK);
     expect(tile).to.equal(null);
+  });
+});
+
+/**
+ * Swamp-favored building placement (owner 2026-07-21: "build buildings
+ * slightly more favorably on swamps. leave the plains available for walking
+ * on ... build the buildings on a swamp adjacent to a plain ... 'waste' a
+ * non-walkable tile on a swamp"). An unwalkable building blots out its tile
+ * either way, so at EQUAL distance it takes the swamp and leaves the plain
+ * as a walking lane; among swamps one with an adjacent plain wins (the
+ * servicing creep parks on the plain - standing creeps pay no fatigue, only
+ * the approach does). Distance still rules: the preference is a tie-break,
+ * never a longer walk for every future servicing trip. Roads and containers
+ * are walkable, so they stay terrain-neutral - a container on swamp would
+ * tax every visitor 5x fatigue.
+ */
+describe("bestAdjacentTile (unwalkable buildings blot swamps, not plains)", () => {
+  beforeEach(() => setupGlobals());
+
+  /** Bare room with chosen swamp tiles (2), optional walls (1), else plain. */
+  function roomWithSwamps(swamps: string[], walls: string[] = []): any {
+    const swampSet = new Set(swamps);
+    const wallSet = new Set(walls);
+    return {
+      name: "W0N0",
+      getTerrain: () => ({
+        get: (x: number, y: number) => (wallSet.has(`${x},${y}`) ? 1 : swampSet.has(`${x},${y}`) ? 2 : 0)
+      }),
+      find: () => []
+    };
+  }
+
+  // Target at (10,10), spawn due east at (40,10): ring tiles (11,9), (11,10),
+  // (11,11) all tie at chebyshev 29 - the tie the preference resolves.
+  const target = { x: 10, y: 10, roomName: "W0N0" } as any;
+  const spawnPos = { x: 40, y: 10, roomName: "W0N0" } as any;
+
+  it("an UNWALKABLE building takes the swamp at equal distance (plain stays a lane)", () => {
+    const room = roomWithSwamps(["11,10"]);
+    const tile = bestAdjacentTile(room, target, 1, spawnPos, undefined, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 10 });
+  });
+
+  it("never pays extra walking distance for a swamp (nearest-to-spawn still rules)", () => {
+    // The only swamp is a ring tile FARTHER from the spawn - the building
+    // stays on the nearest plain; every servicing trip would pay the extra
+    // tiles forever.
+    const room = roomWithSwamps(["9,10"]);
+    const tile = bestAdjacentTile(room, target, 1, spawnPos, undefined, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 9 });
+  });
+
+  it("among tied swamps, prefers one ADJACENT TO A PLAIN (the servicing stand)", () => {
+    // (11,9) and (11,10) both swamp at d=29, but every neighbour of (11,9)
+    // is swamp/wall while (11,10) has plains below it - the serviceable
+    // swamp wins even though (11,9) is seen first.
+    const room = roomWithSwamps(
+      ["11,9", "11,10", "10,8", "11,8", "12,8", "10,9", "12,9", "12,10"],
+      ["10,10"] // the target tile itself (sources sit on walls)
+    );
+    const tile = bestAdjacentTile(room, target, 1, spawnPos, undefined, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 10 });
+  });
+
+  it("containers stay terrain-neutral (walkable - swamp would tax every visitor)", () => {
+    const room = roomWithSwamps(["11,10"]);
+    const tile = bestAdjacentTile(room, target, 1, spawnPos, undefined, STRUCTURE_CONTAINER)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 9 });
+  });
+
+  it("stand-tile queries (no structure type) are unchanged", () => {
+    const room = roomWithSwamps(["11,10"]);
+    const tile = bestAdjacentTile(room, target, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 9 });
   });
 });

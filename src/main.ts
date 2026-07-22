@@ -23,7 +23,6 @@
  * - FlowEconomy: Solver for optimal energy routing
  *
  * ## Console Commands
- * - global.survey() - Force run survey phase
  * - global.plan() - Force run flow economy planning
  * - global.status() - Show orchestration status
  * - global.flowStatus() - Show flow economy details
@@ -33,12 +32,12 @@
 
 import "./types/Memory";
 import { Colony, createColony } from "./colony";
-import { updateExpansionCampaign } from "./economy/expansion";
+import { updateExpansionCampaign } from "./execution/ExpansionCampaign";
 import {
   CorpRegistry,
-  CorpCensusEntry,
   allCommissionedCorps,
   cleanupDeadCreeps,
+  completeCensus,
   commissionedCorpsOfKind,
   createCorpRegistry,
   getAnalysisCache,
@@ -65,14 +64,13 @@ import {
   startSpawnPlacement,
   trackRoadUsage
 } from "./execution";
+import { constructionProjectLedger } from "./corps/ConstructionCorp";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
-import { FlowEconomy, PriorityContext, PriorityManager } from "./flow";
+import { FlowEconomy } from "./flow";
 import {
   PLANNING_INTERVAL,
   initCorps,
-  runSurveyPhase,
   setLastPlanningTick,
-  setLastSurveyTick,
   shouldRunPlanning
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
@@ -96,17 +94,16 @@ declare global {
       flowEconomy: FlowEconomy | undefined;
       nodeNavigator: NodeNavigator | undefined;
       // Orchestration commands
-      survey: () => void;
       plan: () => void;
       status: () => void;
       flowStatus: () => void;
       // Legacy commands
       recalculateTerrain: () => void;
+      setGoal: (profile?: string, weight?: number) => void;
       resetAnalysis: () => void;
       showNodes: () => void;
       exportNodes: () => string;
       clearSpawnQueue: () => void;
-      marketStatus: () => void;
       forceBootstrap: () => void;
       sourceEfficiency: () => void;
       roadHeatmap: (roomName?: string) => void;
@@ -154,13 +151,40 @@ const corps: CorpRegistry = createCorpRegistry();
  * loop moves on.
  */
 function bulkhead(name: string, fn: () => void): void {
+  // spec 20 P2: every bulkheaded phase is a named INFRASTRUCTURE bucket in
+  // the CPU ledger - the residual the corp accounting can't attribute is
+  // named, never hidden (the reconciliation invariant).
+  const before = typeof Game !== "undefined" && Game.cpu?.getUsed ? Game.cpu.getUsed() : null;
   try {
     fn();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[Bulkhead:${name}] ${msg}\n${e instanceof Error ? e.stack ?? "" : ""}`);
     blackBoxRecord("err", { phase: name, msg });
+  } finally {
+    if (before !== null) infraCpu[name] = (infraCpu[name] ?? 0) + (Game.cpu.getUsed() - before);
   }
+}
+
+/** This tick's named infrastructure CPU buckets (reset each loop). */
+let infraCpu: { [bucket: string]: number } = {};
+
+/**
+ * Publish the infrastructure half of the CPU ledger beside the host's
+ * per-corp half (spec 20 P2): Memory.corpCpu.infra + wholeTick complete the
+ * reconciliation - wholeTick - corpsTotal - Σinfra = the still-unnamed
+ * remainder (governor, cleanup, planning-phase work outside bulkheads).
+ */
+function publishInfraCpu(): void {
+  if (typeof Memory === "undefined" || typeof Game === "undefined" || !Game.cpu?.getUsed) return;
+  const ledger = Memory.corpCpu;
+  if (ledger && ledger.tick === Game.time) {
+    const rounded: { [bucket: string]: number } = {};
+    for (const bucket in infraCpu) rounded[bucket] = Number(infraCpu[bucket].toFixed(3));
+    ledger.infra = rounded;
+    ledger.wholeTick = Number(Game.cpu.getUsed().toFixed(3));
+  }
+  infraCpu = {};
 }
 
 export const loop = ErrorMapper.wrapLoop(() => {
@@ -304,11 +328,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // than waiting for the first cadence tick. Without this, a fresh colony has
   // no miners/upgraders until tick PLANNING_INTERVAL and never bootstraps.
 
+  const economyHasProducers = allCommissionedCorps().some(e => e.commissionShape === "produce");
   const economyNeedsBootstrap =
-    colony.getNodes().length > 0 &&
-    Object.keys(commissionedCorpsOfKind("harvest")).length === 0 &&
-    !isAnalysisInProgress() &&
-    Game.time % 10 === 0;
+    colony.getNodes().length > 0 && !economyHasProducers && !isAnalysisInProgress() && Game.time % 10 === 0;
 
   // Re-solve the flow economy on a light cadence so it adapts to changes the
   // initial solve couldn't see: RCL-ups, new construction sites, etc. Without
@@ -359,9 +381,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       global.nodeNavigator = nodeNavigator;
       global.flowEconomy = flowEconomy;
 
-      // Build priority context from game state
-      const context = buildPriorityContext(corps);
-      flowEconomy.update(context, true); // Force update during planning
+      flowEconomy.update(Game.time); // Force update during planning
 
       // Log flow economy status
       const solution = flowEconomy.getSolution();
@@ -424,6 +444,9 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (Game.time % 100 === 0) {
     logStats(colony, corps);
   }
+
+  // The CPU ledger's infrastructure half + whole-tick reconciliation anchor.
+  publishInfraCpu();
 });
 
 // =============================================================================
@@ -482,21 +505,25 @@ function getOrCreateColony(): Colony {
  * mover delivers energy to builders per the solver's allocation.
  */
 function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room.controller?.my) continue;
-
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    if (sites.length === 0) continue;
-
-    // A freshly claimed room has no analyzed nodes yet, but its founding
-    // spawn site must still be a sink (spec 06 audit: "the flow graph must
-    // admit construction sinks in rooms the colony can see") - fall back to
-    // anchoring on ANY node, nearest by room distance, until the room's own
+  // PROJECT LEDGER admission (owner 2026-07-22: "construction sites should
+  // be part of the corps memory so it can rehydrate and bypass Vision") -
+  // the sink set comes from the construction corps' durable ledger, NOT a
+  // Game.rooms scan. The scan was the measured cluster flap (t72489078:
+  // 15 sinks -> 0 across two captures, the solve keyed to which room
+  // happened to be sighted). Vision reconciles the ledger
+  // (ConstructionCorp.reconcileProjects); decisions read it here. Spec 25's
+  // admission rule is unchanged (any of OUR sites, per-site capacity
+  // pool-absorb/cluster bounded in the adapter) - only the data source
+  // moved from eyesight to the ledger.
+  for (const rec of constructionProjectLedger()) {
+    const roomName = rec.roomName;
+    // A room with no analyzed nodes yet (a freshly claimed founding, or a
+    // remote road room) still needs its sites in the graph (spec 06 audit) -
+    // anchor on the nearest node by room distance until the room's own
     // analysis lands. The anchor only shapes graph topology; haul pricing
     // uses the site's real position either way.
     let roomNodes = nodes.filter(n => n.roomName === roomName);
-    if (roomNodes.length === 0 && Memory.expansion?.roomName === roomName) {
+    if (roomNodes.length === 0) {
       let nearest: Node | undefined;
       let nearestDist = Infinity;
       for (const node of nodes) {
@@ -506,31 +533,25 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
           nearest = node;
         }
       }
-      if (nearest) {
-        roomNodes = [nearest];
-        console.log(`[Expansion] founding site in ${roomName} anchored to node ${nearest.id} (no local nodes yet)`);
-      }
+      if (nearest) roomNodes = [nearest];
     }
     if (roomNodes.length === 0) continue;
 
-    for (const site of sites) {
-      // Map the site to the nearest node in the same room.
-      let best: Node | undefined;
-      let bestDist = Infinity;
-      for (const node of roomNodes) {
-        const dx = node.peakPosition.x - site.pos.x;
-        const dy = node.peakPosition.y - site.pos.y;
-        const d = Math.abs(dx) + Math.abs(dy);
-        if (d < bestDist) {
-          bestDist = d;
-          best = node;
-        }
+    // Map the site to the nearest node in the same room.
+    let best: Node | undefined;
+    let bestDist = Infinity;
+    for (const node of roomNodes) {
+      const dx = node.peakPosition.x - rec.x;
+      const dy = node.peakPosition.y - rec.y;
+      const d = Math.abs(dx) + Math.abs(dy);
+      if (d < bestDist) {
+        bestDist = d;
+        best = node;
       }
-      if (!best) continue;
-
-      const remaining = site.progressTotal - site.progress;
-      economy.addConstructionSite(site.id, best.id, { x: site.pos.x, y: site.pos.y, roomName }, remaining);
     }
+    if (!best) continue;
+
+    economy.addConstructionSite(rec.id, best.id, { x: rec.x, y: rec.y, roomName }, rec.remaining);
   }
 }
 
@@ -600,8 +621,7 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
 
     // Run initial solve if we have sources (don't wait for planning cycle)
     if (economy.getFlowGraph().getSources().length > 0) {
-      const context = buildPriorityContext(corps);
-      economy.update(context, true);
+      economy.update(Game.time);
 
       // Corps come from the solve's commissions via CommissionHost; no separate
       // materialize step.
@@ -617,70 +637,6 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
   return { navigator, economy };
 }
 
-/**
- * Builds a PriorityContext from current game state.
- *
- * This context is used by the flow economy to calculate dynamic
- * sink priorities (e.g., higher priority for towers during attack).
- */
-function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
-  // Find the first owned room to use as context
-  let targetRoom: Room | undefined;
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (room.controller?.my) {
-      targetRoom = room;
-      break;
-    }
-  }
-
-  if (!targetRoom) {
-    // Return mock context if no owned rooms
-    return PriorityManager.createMockContext({ tick: Game.time });
-  }
-
-  const controller = targetRoom.controller;
-  const storage = targetRoom.storage;
-  const hostiles = targetRoom.find(FIND_HOSTILE_CREEPS);
-  const sites = targetRoom.find(FIND_CONSTRUCTION_SITES);
-
-  // Calculate extension energy
-  const extensions = targetRoom.find(FIND_MY_STRUCTURES, {
-    filter: s => s.structureType === STRUCTURE_EXTENSION
-  }) as StructureExtension[];
-
-  let extensionEnergy = 0;
-  let extensionCapacity = 0;
-  for (const ext of extensions) {
-    extensionEnergy += ext.store[RESOURCE_ENERGY];
-    extensionCapacity += ext.store.getCapacity(RESOURCE_ENERGY);
-  }
-
-  // Calculate spawn queue size from spawning corps
-  let spawnQueueSize = 0;
-  for (const spawnId in activeCorps.spawningCorps) {
-    spawnQueueSize += activeCorps.spawningCorps[spawnId].getPendingOrderCount();
-  }
-
-  // Track RCL upgrade time (using memory if available)
-  const lastRclUpTick = Memory.lastRclUpTick ?? 0;
-  const ticksSinceRclUp = Game.time - lastRclUpTick;
-
-  return {
-    tick: Game.time,
-    rcl: controller?.level ?? 0,
-    rclProgress: controller ? controller.progress / controller.progressTotal : 0,
-    constructionSites: sites.length,
-    hostileCreeps: hostiles.length,
-    storageEnergy: storage?.store[RESOURCE_ENERGY] ?? 0,
-    spawnQueueSize,
-    underAttack: hostiles.length > 0,
-    ticksSinceRclUp,
-    extensionEnergy,
-    extensionCapacity
-  };
-}
-
 // =============================================================================
 // TELEMETRY & STATS
 // =============================================================================
@@ -690,15 +646,9 @@ function buildPriorityContext(activeCorps: CorpRegistry): PriorityContext {
  */
 function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void {
   const telemetry = getTelemetry();
-  // Complete corp census: every commissioned kind + the two legacy-registry
-  // kinds (bootstrap, spawning), mirroring OrphanRescue.liveCorpIds. This is
-  // the single source of truth so no creep-owning kind is left uncounted.
-  const census: CorpCensusEntry[] = [
-    ...allCommissionedCorps(),
-    ...Object.entries(activeCorps.bootstrapCorps).map(([corpId, corp]) => ({ corpId, kind: "bootstrap", corp })),
-    ...Object.entries(activeCorps.spawningCorps).map(([corpId, corp]) => ({ corpId, kind: "spawning", corp }))
-  ];
-  telemetry.update(activeColony, census, flowEconomy?.getSolution() ?? undefined);
+  // The complete corp census (store + legacy registry kinds), folded in ONE
+  // place - completeCensus - so no consumer maintains its own append.
+  telemetry.update(activeColony, completeCensus(activeCorps), flowEconomy?.getSolution() ?? undefined);
 }
 
 /**
@@ -757,33 +707,6 @@ function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
 // ORCHESTRATION COMMANDS
 // -----------------------------------------------------------------------------
 
-/**
- * Run survey phase to create corps from node resources.
- * Call from console: `global.survey()`
- *
- * Survey examines all nodes and creates corps based on resources:
- * - Source -> MiningCorp
- * - Spawn -> SpawningCorp
- * - Owned room -> HaulingCorp, UpgradingCorp
- */
-global.survey = () => {
-  if (!colony) {
-    console.log("[Survey] No colony exists. Run global.recalculateTerrain() first.");
-    return;
-  }
-
-  const result = runSurveyPhase(colony, corps, Game.time);
-  setLastSurveyTick(Game.time);
-
-  console.log("\n=== Survey Results ===");
-  console.log(`Nodes surveyed: ${result.nodesSurveyed}`);
-  console.log(
-    `Resources found: ${result.resourcesFound.sources} sources, ${result.resourcesFound.controllers} controllers, ${result.resourcesFound.spawns} spawns`
-  );
-  console.log(
-    `Corps created: ${result.corpsCreated.harvest} harvest, ${result.corpsCreated.hauling} hauling, ${result.corpsCreated.upgrading} upgrading, ${result.corpsCreated.spawning} spawning`
-  );
-};
 
 /**
  * Force run flow economy planning phase.
@@ -818,9 +741,7 @@ global.plan = () => {
     global.nodeNavigator = nodeNavigator;
     global.flowEconomy = flowEconomy;
 
-    // Build priority context from game state
-    const context = buildPriorityContext(corps);
-    flowEconomy.update(context, true); // Force update
+    flowEconomy.update(Game.time); // Force update
 
     // Get solution and show results
     const solution = flowEconomy.getSolution();
@@ -860,6 +781,25 @@ global.plan = () => {
  * - Active chains and contracts
  * - Corp counts by type
  */
+/**
+ * Set the colony's GOAL (spec 18): a named profile, optionally blended with
+ * the default. `global.setGoal()` reverts to the default profile;
+ * `global.setGoal("growController")` commits fully;
+ * `global.setGoal("growController", 0.7)` blends 70/30 with the default.
+ * Compiled onto the sink ladder next solve (invariants enforced - a bad
+ * profile name is ignored by the compiler and default applies).
+ */
+global.setGoal = (profile?: string, weight?: number) => {
+  if (!profile) {
+    delete Memory.goal;
+    console.log("[Goal] reverted to the default profile");
+    return;
+  }
+  const w = weight === undefined ? 1 : Math.max(0, Math.min(1, weight));
+  Memory.goal = w >= 1 ? { blend: { [profile]: 1 } } : { blend: { [profile]: w, default: 1 - w } };
+  console.log(`[Goal] set: ${JSON.stringify(Memory.goal.blend)}`);
+};
+
 global.status = () => {
   console.log("\n=== Orchestration Status ===");
   console.log(`Current tick: ${Game.time}`);
@@ -868,13 +808,11 @@ global.status = () => {
   console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
 
   console.log("\n=== Corps ===");
-  console.log(`Mining: ${Object.keys(commissionedCorpsOfKind("harvest")).length}`);
-  console.log(`Hauling: ${Object.keys(commissionedCorpsOfKind("carry")).length}`);
-  console.log(`Upgrading: ${Object.keys(commissionedCorpsOfKind("upgrade")).length}`);
-  console.log(`Spawning: ${Object.keys(corps.spawningCorps).length}`);
-  console.log(`Bootstrap: ${Object.keys(corps.bootstrapCorps).length}`);
-  console.log(`Scout: ${Object.keys(commissionedCorpsOfKind("scout")).length}`);
-  console.log(`Construction: ${Object.keys(commissionedCorpsOfKind("construction")).length}`);
+  const corpCountByKind: { [kind: string]: number } = {};
+  for (const { kind } of completeCensus(corps)) corpCountByKind[kind] = (corpCountByKind[kind] ?? 0) + 1;
+  for (const kind of Object.keys(corpCountByKind).sort()) {
+    console.log(`${kind}: ${corpCountByKind[kind]}`);
+  }
 
   if (colony) {
     console.log("\n=== Colony ===");
@@ -1123,94 +1061,6 @@ global.clearSpawnQueue = () => {
 };
 
 /**
- * Show current economy status for debugging.
- * Call from console: `global.marketStatus()`
- */
-/**
- * Force bootstrap corps to activate immediately.
- * Call from console: `global.forceBootstrap()`
- *
- * This bypasses the normal starvation detection by setting the starvation
- * start tick to a time in the past, making the bootstrap think it's been
- * starving long enough to activate.
- */
-global.forceBootstrap = () => {
-  let activated = 0;
-
-  for (const roomName in corps.bootstrapCorps) {
-    const bootstrap = corps.bootstrapCorps[roomName];
-    // Set starvation start tick to force activation (access private field)
-    (bootstrap as unknown as { starvationStartTick: number }).starvationStartTick = Game.time - 100;
-    activated++;
-    console.log(`[GodMode] Forced bootstrap activation for ${roomName}`);
-  }
-
-  if (activated === 0) {
-    console.log(`[GodMode] No bootstrap corps found. They will be created automatically.`);
-  } else {
-    console.log(`[GodMode] Activated ${activated} bootstrap corps. They will spawn jacks on next tick.`);
-  }
-};
-
-/**
- * Show all sources with their efficiency scores.
- * Call from console: `global.sourceEfficiency()`
- *
- * Displays:
- * - Source ID and node
- * - Harvest rate
- * - Distance from spawn
- * - Efficiency percentage (net energy / harvest rate)
- */
-global.sourceEfficiency = () => {
-  if (!flowEconomy) {
-    console.log("[Sources] Flow economy not initialized.");
-    return;
-  }
-
-  const solution = flowEconomy.getSolution();
-  if (!solution) {
-    console.log("[Sources] No solution computed. Run global.plan() first.");
-    return;
-  }
-
-  if (solution.miners.length === 0) {
-    console.log("[Sources] No miners assigned.");
-    return;
-  }
-
-  // Sort by efficiency descending
-  const sortedMiners = [...solution.miners].sort((a, b) => b.efficiency - a.efficiency);
-
-  console.log("\n=== Source Efficiency Scores ===\n");
-  console.log("Source ID         | Node               | Harvest | Dist | Efficiency");
-  console.log("------------------|--------------------|---------+------+-----------");
-
-  for (const miner of sortedMiners) {
-    const sourceShort = miner.sourceId.replace("source-", "").slice(-12);
-    const nodeShort = miner.nodeId?.slice(0, 18) || "unknown";
-    const effStr = miner.efficiency.toFixed(1).padStart(5) + "%";
-    const distStr = miner.spawnDistance.toString().padStart(4);
-    const harvestStr = miner.harvestRate.toFixed(1).padStart(5);
-
-    console.log(`${sourceShort.padEnd(17)} | ${nodeShort.padEnd(18)} | ${harvestStr} | ${distStr} | ${effStr}`);
-  }
-
-  // Summary stats
-  const avgEfficiency = sortedMiners.reduce((sum, m) => sum + m.efficiency, 0) / sortedMiners.length;
-  const minEff = sortedMiners[sortedMiners.length - 1].efficiency;
-  const maxEff = sortedMiners[0].efficiency;
-
-  console.log("\n=== Summary ===");
-  console.log(`Total sources: ${sortedMiners.length}`);
-  console.log(`Avg efficiency: ${avgEfficiency.toFixed(1)}%`);
-  console.log(`Min efficiency: ${minEff.toFixed(1)}%`);
-  console.log(`Max efficiency: ${maxEff.toFixed(1)}%`);
-  console.log(`Total harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
-  console.log(`Net energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
-};
-
-/**
  * Show the empirical road-usage heatmap: the tiles where our creeps walked on
  * unpaved ground and paid move-fatigue a road would have saved, ranked hottest
  * first. Paints a RoomVisual heat overlay when the room is visible.
@@ -1226,43 +1076,4 @@ global.roadHeatmap = (roomName?: string) => {
     return;
   }
   for (const name of names) console.log(renderRoadScores(name));
-};
-
-global.marketStatus = () => {
-  console.log("\n=== Economy Status ===\n");
-
-  // Show corp stats
-  console.log("=== Corps ===");
-  const showCorpStats = (
-    name: string,
-    corpMap: { [id: string]: { id: string; getCreepCount?: () => number; getPendingOrderCount?: () => number } }
-  ) => {
-    const count = Object.keys(corpMap).length;
-    if (count === 0) return;
-
-    let totalCreeps = 0;
-    for (const id in corpMap) {
-      const corp = corpMap[id];
-      if (typeof corp.getCreepCount === "function") totalCreeps += corp.getCreepCount();
-      else if (typeof corp.getPendingOrderCount === "function") totalCreeps += corp.getPendingOrderCount();
-    }
-    console.log(`  ${name}: ${count} corps, ${totalCreeps} creeps`);
-  };
-
-  showCorpStats("Mining", commissionedCorpsOfKind("harvest"));
-  showCorpStats("Hauling", commissionedCorpsOfKind("carry"));
-  showCorpStats("Upgrading", commissionedCorpsOfKind("upgrade"));
-  showCorpStats("Spawning", corps.spawningCorps);
-  showCorpStats("Construction", commissionedCorpsOfKind("construction"));
-  showCorpStats("Scout", commissionedCorpsOfKind("scout"));
-  showCorpStats("Bootstrap", corps.bootstrapCorps);
-
-  // Show spawn queue status
-  console.log("\n=== Spawn Queues ===");
-  for (const id in corps.spawningCorps) {
-    const sc = corps.spawningCorps[id];
-    console.log(`  ${sc.id}: ${sc.getPendingOrderCount()} pending orders`);
-  }
-
-  console.log("");
 };

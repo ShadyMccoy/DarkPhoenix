@@ -9,19 +9,8 @@
  */
 
 import "../types/Memory";
-import {
-  BootstrapCorp,
-  CarryCorp,
-  ConstructionCorp,
-  Corp,
-  HarvestCorp,
-  ScoutCorp,
-  SpawningCorp,
-  UpgradingCorp,
-  createBootstrapCorp,
-  createSpawningCorp
-} from "../corps";
-import { commissionedCorpsOfKind } from "./CommissionHost";
+import { BootstrapCorp, Corp, SpawningCorp, createBootstrapCorp, createSpawningCorp } from "../corps";
+import { completeCensus } from "./CommissionHost";
 
 /**
  * Container for all active corps, organized by type.
@@ -150,20 +139,10 @@ export interface CorpVarianceRow {
   variance: number;
 }
 
-/** Every budgeted corp (off-budget corps return null variance). Economy corps
- * (harvest/carry/upgrade) live in the commission store; the rest in the registry. */
+/** Every corp, via the complete census - a new kind's corps join the variance
+ * snapshot by registration (off-budget corps return null variance and drop out). */
 function allCorps(registry: CorpRegistry): Corp[] {
-  const out: Corp[] = [];
-  const groups: { [id: string]: Corp }[] = [
-    commissionedCorpsOfKind("harvest"),
-    commissionedCorpsOfKind("carry"),
-    commissionedCorpsOfKind("upgrade"),
-    commissionedCorpsOfKind("construction"),
-    registry.bootstrapCorps,
-    registry.spawningCorps
-  ];
-  for (const g of groups) for (const k in g) out.push(g[k]);
-  return out;
+  return completeCensus(registry).map(e => e.corp);
 }
 
 /**
@@ -196,40 +175,19 @@ export function snapshotCorpVariance(registry: CorpRegistry, tick: number): Corp
 }
 
 /**
- * Log corp statistics.
+ * Log per-kind creep counts, derived from the complete census - every
+ * registered kind with creeps prints, none by name.
  */
 export function logCorpStats(registry: CorpRegistry): void {
-  let totalJacks = 0;
-  for (const roomName in registry.bootstrapCorps) {
-    totalJacks += registry.bootstrapCorps[roomName].getCreepCount();
+  const byKind: { [kind: string]: number } = {};
+  for (const { kind, corp } of completeCensus(registry)) {
+    const counter = corp as Partial<{ getCreepCount(): number }>;
+    if (typeof counter.getCreepCount !== "function") continue;
+    byKind[kind] = (byKind[kind] ?? 0) + counter.getCreepCount!();
   }
-  console.log(`  Bootstrap Jacks: ${totalJacks}`);
-
-  let totalHarvesters = 0;
-  let totalHaulers = 0;
-  let totalUpgraders = 0;
-
-  for (const corp of Object.values(commissionedCorpsOfKind<HarvestCorp>("harvest"))) {
-    totalHarvesters += corp.getCreepCount();
-  }
-  for (const corp of Object.values(commissionedCorpsOfKind<CarryCorp>("carry"))) {
-    totalHaulers += corp.getCreepCount();
-  }
-  for (const corp of Object.values(commissionedCorpsOfKind<UpgradingCorp>("upgrade"))) {
-    totalUpgraders += corp.getCreepCount();
-  }
-
-  let totalScouts = 0;
-  for (const corp of Object.values(commissionedCorpsOfKind<ScoutCorp>("scout"))) {
-    totalScouts += corp.getCreepCount();
-  }
-
-  let totalBuilders = 0;
-  for (const corp of Object.values(commissionedCorpsOfKind<ConstructionCorp>("construction"))) {
-    totalBuilders += corp.getCreepCount();
-  }
-
-  console.log(
-    `  Harvesters: ${totalHarvesters}, Haulers: ${totalHaulers}, Upgraders: ${totalUpgraders}, Scouts: ${totalScouts}, Builders: ${totalBuilders}`
-  );
+  const line = Object.keys(byKind)
+    .sort()
+    .map(kind => `${kind}: ${byKind[kind]}`)
+    .join(", ");
+  console.log(`  Creeps by kind - ${line || "none"}`);
 }

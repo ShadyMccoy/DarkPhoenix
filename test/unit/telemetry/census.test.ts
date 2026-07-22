@@ -48,10 +48,12 @@ describe("Telemetry creep census (segments 0 & 4)", () => {
     new Telemetry().update(undefined, census, undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.creeps.miners).to.equal(2);
-    expect(core.creeps.haulers).to.equal(1);
-    expect(core.creeps.reservers).to.equal(1);
-    expect(core.creeps.tankers).to.equal(1);
+    expect(core.creeps.byKind).to.deep.equal({
+      harvest: 2,
+      carry: 1,
+      reservation: 1,
+      tender: 1
+    });
     // spawning contributes NO creeps to the buckets
     expect(core.creeps.tracked).to.equal(5);
     expect(core.creeps.total).to.equal(6);

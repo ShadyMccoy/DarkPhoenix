@@ -22,9 +22,10 @@ import {
   runCommissionedCorps,
   serializeStore
 } from "../../../src/economy/CorpKind";
-import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
+import { ConstructionCorp, trunkGateFromSurvey } from "../../../src/corps/ConstructionCorp";
 import { constructionKind, ConstructionAssignment } from "../../../src/corps/kinds/constructionKind";
 import { describeCorpKindConformance } from "./conformance";
+import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 const ROOM = "W1N1";
 
@@ -119,6 +120,74 @@ describe("construction kind on the corp framework (rungs 2-4)", () => {
     expect(out[0].consumes.energyRate).to.equal(5); // summed
   });
 
+  it("rung 2 - PLAN: threads REMOTE trunk candidates from the draft's harvest commissions (owner: routes are site strings, not rooms)", () => {
+    // The corp paves what the plan MINES: funded remote sources become trunk
+    // candidates (sourceId, pos, flow) on the home corp's assignment. Home
+    // sources are excluded - the in-room scan already covers them.
+    const draft = [
+      {
+        corpId: "harvest-src-home",
+        kind: "harvest",
+        shape: "produce",
+        consumes: { spawnPartsPerTick: 0.1 },
+        produces: { energyRate: 10, at: { x: 20, y: 20, roomName: "W1N1" } },
+        assignment: { sourceId: "src-home", rate: 10, distance: 12 }
+      },
+      {
+        corpId: "harvest-src-remote",
+        kind: "harvest",
+        shape: "produce",
+        consumes: { spawnPartsPerTick: 0.1 },
+        produces: { energyRate: 10, at: { x: 30, y: 15, roomName: "W2N1" } },
+        assignment: { sourceId: "src-remote", rate: 10, distance: 55 }
+      }
+    ] as never[];
+    const out = constructionKind.propose(world, draft);
+    const a = out[0].assignment as ConstructionAssignment & {
+      remoteTrunks?: { sourceId: string; pos: { x: number; y: number; roomName: string }; flow: number }[];
+    };
+    expect(a.remoteTrunks, "remote harvest -> trunk candidate").to.have.length(1);
+    expect(a.remoteTrunks![0].sourceId).to.equal("src-remote");
+    expect(a.remoteTrunks![0].pos.roomName).to.equal("W2N1");
+    expect(a.remoteTrunks![0].flow).to.equal(10);
+  });
+
+  it("rung 2 - PLAN (spec 25 phase 3): a SPAWNLESS room's cluster allocations ride poolAllocatedRate on the spawn room's corp", () => {
+    // Owner: "there shouldn't be any residual we can just make a bigger
+    // builder" - the adapter prices remote source-local clusters at the
+    // SOURCE'S rate; the ONE pool crew (the spawn's own-room corp) must size
+    // to eat that sum. The remote corp keeps the allocations themselves (the
+    // accounting), but fields no pool builders and carries no pool rate.
+    const remoteBuild: Commission = {
+      ...buildCommission("sink-remote-road", 10),
+      produces: { valuePerTick: 10 * DEFAULT_SINK_VALUE.construction, at: { x: 30, y: 15, roomName: "W2N1" } }
+    };
+    const out = constructionKind.propose(world, [buildCommission("sink-build", 4), remoteBuild]);
+    const home = out.find(c => c.corpId === "construction-W1N1")!;
+    const remote = out.find(c => c.corpId === "construction-W2N1")!;
+    const ha = home.assignment as ConstructionAssignment;
+    const ra = remote.assignment as ConstructionAssignment;
+    expect(ha.poolAllocatedRate, "the spawn room's pool crew sizes to the cluster sum").to.equal(10);
+    expect(ha.allocations.map(x => x.allocated), "own-room allocations stay on the list, not the pool rate").to.deep.equal([4]);
+    expect(ra.allocations.map(x => x.allocated), "the cluster's allocations stay with its room (accounting)").to.deep.equal([10]);
+    expect(ra.poolAllocatedRate, "no pool rate on the spawnless corp - it fields no pool builders").to.equal(undefined);
+  });
+
+  it("rung 3 - BIND: materialize threads poolAllocatedRate onto new AND existing corps", () => {
+    const store: CorpStore = new Map();
+    const withPool = {
+      ...constructionCommission,
+      assignment: { ...constructionCommission.assignment, poolAllocatedRate: 10 } as ConstructionAssignment
+    };
+    materializeCommissions([withPool], store);
+    const corp = store.get("construction-W1N1")!.corp as ConstructionCorp;
+    expect((corp as unknown as { poolAllocatedRate: number }).poolAllocatedRate).to.equal(10);
+    // The cluster completes: the next round's commission carries no rate, and
+    // the SAME instance must drop back to bank-funded sizing (stale-rate rot).
+    materializeCommissions([constructionCommission], store);
+    expect((corp as unknown as { poolAllocatedRate: number }).poolAllocatedRate).to.equal(0);
+  });
+
   it("rung 3 - BIND: materialize sets the allocations and preserves the legacy id", () => {
     const store: CorpStore = new Map();
     materializeCommissions([constructionCommission], store);
@@ -142,6 +211,37 @@ describe("construction kind on the corp framework (rungs 2-4)", () => {
     expect(second.getTotalAllocatedEnergy()).to.equal(0);
   });
 
+  it("rung 3 - EXECUTE: a cross-room corp with NO vision marches members toward the work room", () => {
+    // Live incident 2026-07-19: four remote-room builders idled at the home
+    // spawn for ~600t. Demand saw the remote sites (intel/vision at order
+    // time); work() gated on vision EVERY tick and an idle member at the home
+    // spawn provides none - a deadlock only the member's own travel can break.
+    const store: CorpStore = new Map();
+    const remote = {
+      ...constructionCommission,
+      corpId: "construction-W9N9",
+      assignment: { ...constructionCommission.assignment, roomName: "W9N9", allocations: [] }
+    };
+    materializeCommissions([remote], store);
+    const spawnStub = { id: "spawn1", room: { name: ROOM }, pos: { x: 25, y: 25, roomName: ROOM } };
+    Game.getObjectById = (() => spawnStub) as never;
+    Game.rooms = {}; // no vision anywhere - especially not W9N9
+    const moves: unknown[][] = [];
+    (Game.creeps as Record<string, unknown>).mb1 = {
+      name: "mb1",
+      spawning: false,
+      memory: { corpId: "building-W9N9-construction", workType: "build" },
+      pos: { x: 26, y: 25, roomName: ROOM, isEqualTo: () => false, isNearTo: () => false, getRangeTo: () => 99, inRangeTo: () => false },
+      store: { getFreeCapacity: () => 50, getUsedCapacity: () => 0, energy: 0 },
+      moveTo: (...a: unknown[]) => { moves.push(a); return 0; },
+      move: (...a: unknown[]) => { moves.push(a); return 0; },
+      say: () => 0
+    };
+    runCommissionedCorps(store, Game.time);
+    expect(moves.length, "vision-less member must be ORDERED to travel, not left idle").to.be.greaterThan(0);
+    expect(JSON.stringify(moves[0])).to.contain("W9N9"); // marched at the work room
+  });
+
   it("rung 3 - EXECUTE/PERSIST: run() never throws with no vision; store round-trips allocations", () => {
     const store: CorpStore = new Map();
     materializeCommissions([constructionCommission], store);
@@ -160,5 +260,198 @@ describe("construction kind rung 1", () => {
     problem: world,
     commission: constructionCommission,
     expectedSpawnPartsPerTick: 0
+  });
+});
+
+describe("cross-room trunk helpers (owner 2026-07-19: sites wherever they lead)", () => {
+  beforeEach(() => {
+    resetCorpKinds();
+    resetWorld();
+    resetGovernor(); // module-level governor state leaks across test files
+  });
+
+  const mkRoom = (roads: Set<string>, sites: Set<string> = new Set()): any => ({
+    lookForAt: (look: string, x: number, y: number) => {
+      if (look === "structure") return roads.has(`${x},${y}`) ? [{ structureType: "road" }] : [];
+      return sites.has(`${x},${y}`) ? [{ structureType: "road" }] : [];
+    },
+    createConstructionSite: () => 0
+  });
+
+  it("places trunk sites ONLY in rooms with vision (blind stretches wait for walkers)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set()) } as any; // W2N1 blind
+    const s = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 10, 10, 1, 11, 10, 1]);
+    expect(s.placed, "two visible-room tiles placed; two blind-room tiles skipped").to.equal(2);
+  });
+
+  it("SURVEYS the pass: built / placed / blind rooms named (the waiting-vision misnomer, owner 2026-07-20)", () => {
+    // Live incident: the gate stamped "trunk-waiting-vision" all day while
+    // the true state was "fully placed, crews building" - placed=0 conflated
+    // blind rooms with nothing-left-to-place, and the owner had to object
+    // ("we're mining the rooms, of course we have vision"). The survey
+    // separates the states so the stamp can name which one it is.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    // W1N1 visible: (5,5) built road, (6,5) standing site, (7,5) empty -> 1 new placement
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"]), new Set(["6,5"])) } as any; // W2N1 blind
+    const s = (corp as any).placeTrunkSites(["W1N1", "W2N1"], [5, 5, 0, 6, 5, 0, 7, 5, 0, 10, 10, 1]);
+    expect(s.placed).to.equal(1);
+    expect(s.built, "built roads counted").to.equal(1);
+    expect(s.total).to.equal(4);
+    expect(s.blind, "blind rooms NAMED").to.deep.equal(["W2N1"]);
+  });
+
+  it("maps the survey to an unambiguous gate stamp", () => {
+    expect(trunkGateFromSurvey({ placed: 3, built: 0, total: 9, blind: [], missing: [] })).to.equal("trunk-placing-3");
+    expect(trunkGateFromSurvey({ placed: 0, built: 2, total: 9, blind: ["W3N2"], missing: [] })).to.equal(
+      "trunk-blind-W3N2"
+    );
+    expect(trunkGateFromSurvey({ placed: 0, built: 7, total: 9, blind: [], missing: ["W3N2:5,5:site"] })).to.equal(
+      "trunk-building-7/9"
+    );
+  });
+
+  it("persists the pass survey (built/total) onto the route entry - the partial-pave repricing receipt", () => {
+    // The binary paved receipt made every trunk wait for the LAST tile before
+    // its haulers repriced (owner 2026-07-20: "even if the road is 32 out of
+    // 38 we could probably still optimize"). The survey's verified built count
+    // now lands in room memory each pass, where detectPavedSources turns it
+    // into the fraction the planner reprices from.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.getObjectById = (() => ({ pos: { x: 25, y: 25, roomName: "W1N1" } })) as never;
+    corp.setRemoteTrunks([{ sourceId: "source-abc", pos: { x: 20, y: 20, roomName: "W2N1" }, flow: 10 }]);
+    // W1N1 visible: (5,5), (6,5) built roads, (7,5) empty; W2N1 blind.
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5", "6,5"])) } as never;
+    const routes: any = {
+      abc: { tiles: [], tiles3: [5, 5, 0, 6, 5, 0, 7, 5, 0, 10, 10, 1], rooms: ["W1N1", "W2N1"] }
+    };
+    const room: any = { name: "W1N1", memory: {}, find: () => [] };
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "verified built tiles persisted").to.equal(2);
+    expect(routes.abc.total, "route length persisted").to.equal(4);
+
+    // A vision-lost pass verifies fewer tiles, not fewer ROADS: the receipt
+    // RATCHETS (counting down would flap the hauler body around the 1/2
+    // threshold every time a remote goes dark).
+    Game.rooms = {} as never;
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.abc.built, "blind pass never regresses the count").to.equal(2);
+    expect(routes.abc.total).to.equal(4);
+  });
+
+  it("never declares a trunk paved while any room is blind (unverifiable != built)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])) } as any; // W2N1 blind
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 10, 10, 1])).to.equal(false);
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 10, 10, 1])).to.equal(true);
+  });
+
+  // ROOM-EDGE TILES (prod t72483047, the 36/38-forever trunk): a cross-room
+  // path necessarily includes border tiles (x/y = 0 or 49), and the engine
+  // forbids ALL construction there - createConstructionSite returned -7
+  // every pass for ~4400t while creeps walked the exits fine. Exit tiles
+  // carry creeps WITHOUT roads, so they simply do not belong in a trunk's
+  // placeable tile list: the survey and the completion check skip them
+  // (which un-sticks routes already stored with edge tiles), and new paths
+  // never record them.
+  it("EDGE TILES: the survey neither places, counts, nor 'misses' border tiles (the err-7-forever state)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    // The live shape: 2 built tiles + the border crossing (43,49 / 43,0).
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5", "6,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    const s = (corp as any).placeTrunkSites(
+      ["W1N1", "W2N1"],
+      [5, 5, 0, 6, 5, 0, 43, 49, 0, 43, 0, 1, 10, 10, 1]
+    );
+    expect(s.total, "edge tiles are not placeable trunk tiles").to.equal(3);
+    expect(s.built).to.equal(3);
+    expect(s.placed).to.equal(0);
+    expect(s.missing, "no err-7-forever entries for edge tiles").to.deep.equal([]);
+  });
+
+  it("a COMPLETED trunk receipts even when an in-progress trunk precedes it (prod t72484878: cd8e starved of its paved receipt)", () => {
+    // The one-project-at-a-time RETURN lives in the survey path, so an
+    // in-progress trunk earlier in remoteTrunks order took the pass every
+    // time and the fully-built trunk behind it was NEVER re-checked: no
+    // paved receipt -> no pave fraction -> the plan priced its haulers
+    // 1:1 (carry 14.8 vs ~11) for two full windows after the road stood
+    // complete. Completion is cheap and idempotent - it must sweep ALL
+    // entries before the serialized placement pass.
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.getObjectById = (() => ({ pos: { x: 25, y: 25, roomName: "W1N1" } })) as never;
+    corp.setRemoteTrunks([
+      { sourceId: "source-inprog", pos: { x: 20, y: 20, roomName: "W2N1" }, flow: 10 },
+      { sourceId: "source-done", pos: { x: 30, y: 30, roomName: "W2N1" }, flow: 10 }
+    ]);
+    // inprog: tile (5,5) unbuilt with a site standing; done: both tiles roaded.
+    Game.rooms = {
+      W1N1: mkRoom(new Set(["10,10", "11,10"]), new Set(["5,5"]))
+    } as never;
+    const routes: any = {
+      inprog: { tiles: [], tiles3: [5, 5, 0], rooms: ["W1N1"] },
+      done: { tiles: [], tiles3: [10, 10, 0, 11, 10, 0], rooms: ["W1N1"] }
+    };
+    const room: any = { name: "W1N1", memory: {}, find: () => [] };
+    (corp as any).tryPlaceTrunkRoutes(room, routes);
+    expect(routes.done.paved, "the completed trunk's receipt lands despite the in-progress head").to.equal(true);
+    expect(routes.inprog.paved, "the in-progress trunk stays unpaved").to.equal(undefined);
+  });
+
+  // SOURCE-APPROACH TILES (owner 2026-07-22: "we don't need that very last
+  // bit of road next to the source mine"): tiles within range 1 of the
+  // route's source are exempt like edge tiles - the miner stands there and
+  // haulers STOP there to load, so pavement saves nothing. The skip lives
+  // in the survey AND the completion check, so routes STORED with approach
+  // tiles complete without migration.
+  it("SOURCE TILES: the survey neither places nor counts tiles within range 1 of the source", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W2N1: mkRoom(new Set(["10,10"])) } as any;
+    const sourcePos = { x: 20, y: 20, roomName: "W2N1" };
+    // Route tail: (10,10) built, (19,20) and (20,21) hug the source.
+    const s = (corp as any).placeTrunkSites(["W2N1"], [10, 10, 0, 19, 20, 0, 20, 21, 0], sourcePos);
+    expect(s.total, "approach tiles are not placeable trunk tiles").to.equal(1);
+    expect(s.built).to.equal(1);
+    expect(s.placed).to.equal(0);
+    expect(s.missing).to.deep.equal([]);
+  });
+
+  it("SOURCE TILES: trunkBuilt completes with only the source-approach tail unbuilt (the cee0 45/50 shape)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W2N1: mkRoom(new Set(["10,10", "11,10"])) } as any;
+    const sourcePos = { x: 20, y: 20, roomName: "W2N1" };
+    const tiles3 = [10, 10, 0, 11, 10, 0, 19, 20, 0, 20, 21, 0, 21, 20, 0];
+    expect((corp as any).trunkBuilt(["W2N1"], tiles3, sourcePos), "approach tail exempt: paved").to.equal(true);
+    expect((corp as any).trunkBuilt(["W2N1"], tiles3), "without the source pos the tail still gates").to.equal(false);
+  });
+
+  it("EDGE TILES: trunkBuilt completes when every PLACEABLE tile is roaded (the paved receipt un-sticks)", () => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).STRUCTURE_ROAD = "road";
+    Game.rooms = { W1N1: mkRoom(new Set(["5,5"])), W2N1: mkRoom(new Set(["10,10"])) } as any;
+    // 36/38-forever, in miniature: both real tiles roaded, two edge tiles never can be.
+    expect((corp as any).trunkBuilt(["W1N1", "W2N1"], [5, 5, 0, 43, 49, 0, 43, 0, 1, 10, 10, 1])).to.equal(true);
   });
 });

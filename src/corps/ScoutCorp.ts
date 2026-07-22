@@ -336,7 +336,7 @@ export class ScoutCorp extends Corp {
     // MAX_SCOUTS, cooldown, stale-room check) so they do not meaningfully
     // compete with the economy; routing them through the value scheduler would
     // add complexity for no benefit.
-    const spawned = spawningCorp.executeSpawn("scout", this.id, 50, tick);
+    const spawned = spawningCorp.executeSpawn("scout", "scout", this.id, 50, tick);
     if (!spawned) return false;
 
     this.lastPurchaseTick = tick;

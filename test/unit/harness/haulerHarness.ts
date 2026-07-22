@@ -148,6 +148,7 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
       if (!result) break; // scheduler chose to wait
 
       const ok = spawning.executeSpawn(
+        result.demand.kind ?? "",
         result.demand.role,
         result.demand.buyerCorpId,
         result.energyBudget,

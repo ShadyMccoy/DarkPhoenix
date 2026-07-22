@@ -23,6 +23,7 @@ export {
 export {
   commissionedCorpsOfKind,
   allCommissionedCorps,
+  completeCensus,
   CorpCensusEntry,
   runCommissionHost,
   resetCommissionHost

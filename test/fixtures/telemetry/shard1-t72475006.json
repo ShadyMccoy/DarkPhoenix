@@ -1,0 +1,618 @@
+{
+  "shard": "shard1",
+  "capturedAt": "2026-07-21T11:31:05.678Z",
+  "tick": 72475006,
+  "segments": [
+    0,
+    4,
+    6
+  ],
+  "data": {
+    "core": {
+      "version": 10,
+      "tick": 72475006,
+      "shard": "shard1",
+      "cpu": {
+        "used": 78.78569830000015,
+        "limit": 300,
+        "bucket": 10000,
+        "tickLimit": 500
+      },
+      "gcl": {
+        "level": 32,
+        "progress": 274717904.58056545,
+        "progressTotal": 300508132.580564
+      },
+      "colony": {
+        "nodeCount": 480,
+        "totalCorps": 26,
+        "activeCorps": 21
+      },
+      "creeps": {
+        "total": 28,
+        "tracked": 27,
+        "untracked": 1,
+        "byKind": {
+          "harvest": 3,
+          "upgrade": 1,
+          "construction": 7,
+          "reservation": 0,
+          "scout": 0,
+          "tender": 3,
+          "controllerFeeder": 1,
+          "coreBuster": 0,
+          "raidGuard": 2,
+          "carry": 10,
+          "bootstrap": 0
+        },
+        "countMismatch": [
+          {
+            "corpId": "hauling-W42N23-hauling-37-6",
+            "claimed": 2,
+            "counted": 1
+          }
+        ]
+      },
+      "bodyParts": {
+        "total": 472,
+        "byPart": {
+          "carry": 250,
+          "move": 189,
+          "work": 23,
+          "attack": 10
+        }
+      },
+      "spawns": [
+        {
+          "id": "6a261309c1ca830013f516a5",
+          "name": "Spawn1",
+          "windowTicks": 659,
+          "utilization": 0.9499241274658573,
+          "partsPerTick": 0.3166413758219524,
+          "ceiling": 0.3333333333333333,
+          "queueDepth": 2
+        }
+      ],
+      "agenda": {
+        "6a261309c1ca830013f516a5": {
+          "tick": 72474907,
+          "fundingNeed": 0,
+          "queueDepth": 2,
+          "queue": [
+            {
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-37-6",
+              "minCost": 300,
+              "desiredCost": 2300,
+              "mustFund": false,
+              "why": "scale",
+              "since": 72474907,
+              "gate": "buy"
+            },
+            {
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "minCost": 600,
+              "desiredCost": 600,
+              "mustFund": false,
+              "why": "consume",
+              "since": 72474907,
+              "precondition": "after:hauling-W42N23-hauling-37-6",
+              "gate": "queued"
+            }
+          ],
+          "executed": [
+            {
+              "tick": 72474646,
+              "role": "tanker",
+              "corp": "building-W43N23-construction",
+              "cost": 1100
+            },
+            {
+              "tick": 72474712,
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-37-6",
+              "cost": 200
+            },
+            {
+              "tick": 72474724,
+              "role": "tanker",
+              "corp": "moving-W43N23-tender",
+              "cost": 1600
+            },
+            {
+              "tick": 72474790,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474802,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474814,
+              "role": "tanker",
+              "corp": "building-W43N23-construction",
+              "cost": 1100
+            },
+            {
+              "tick": 72474895,
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "cost": 600
+            },
+            {
+              "tick": 72474907,
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-37-6",
+              "cost": 2300
+            }
+          ]
+        }
+      },
+      "sourceBuffers": {
+        "dbcedc": 5315,
+        "dbcd94": 0,
+        "dbcd90": 263,
+        "dbcd92": 1914,
+        "dbcd8d": 1138,
+        "dbcd8e": 375,
+        "dbcbd5": 1646
+      },
+      "remoteSites": {
+        "W43N22": 17,
+        "W43N24": 12,
+        "W44N23": 15
+      },
+      "pathMeter": {
+        "tick": 72475006,
+        "calls": 7,
+        "cpu": 1.9140471000009711,
+        "byCorp": {
+          "hauling": {
+            "calls": 6,
+            "cpu": 1.8898697000013271
+          },
+          "raidGuard": {
+            "calls": 1,
+            "cpu": 0.024177399999643967
+          }
+        }
+      },
+      "rooms": [
+        {
+          "name": "W43N23",
+          "rcl": 6,
+          "rclProgress": 506729,
+          "rclProgressTotal": 3645000,
+          "energyAvailable": 2300,
+          "energyCapacity": 2300,
+          "storageEnergy": 385287,
+          "controllerStock": 1803,
+          "feederActive": true,
+          "siteProgress": 454,
+          "siteTotal": 12900,
+          "siteCount": 43
+        }
+      ]
+    },
+    "corps": {
+      "version": 4,
+      "tick": 72475006,
+      "corps": [
+        {
+          "id": "mining-W43N23-harvest-cd92",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N23-harvest-cd92",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "mining-W43N23-harvest-cd90",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N23-harvest-cd90",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 9,
+          "body": {
+            "work": 5,
+            "carry": 1,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "upgrading-W43N23-upgrading",
+          "kind": "upgrade",
+          "type": "upgrading",
+          "nodeId": "W43N23-upgrading",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "work": 2,
+            "carry": 1,
+            "move": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "building-W43N23-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W43N23-construction",
+          "roomName": "W43N23",
+          "creepCount": 6,
+          "bodyParts": 96,
+          "body": {
+            "carry": 66,
+            "move": 26,
+            "work": 4
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "reservation-W43N23-reservation",
+          "kind": "reservation",
+          "type": "reservation",
+          "nodeId": "W43N23-reservation",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "scout-W43N23-scout",
+          "kind": "scout",
+          "type": "scout",
+          "nodeId": "W43N23-scout",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "moving-W43N23-tender",
+          "kind": "tender",
+          "type": "moving",
+          "nodeId": "W43N23-tender",
+          "roomName": "W43N23",
+          "creepCount": 3,
+          "bodyParts": 75,
+          "body": {
+            "carry": 55,
+            "move": 20
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "moving-W43N23-controllerFeeder",
+          "kind": "controllerFeeder",
+          "type": "moving",
+          "nodeId": "W43N23-controllerFeeder",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 6,
+          "body": {
+            "carry": 3,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "coreBuster-W43N23-coreBuster",
+          "kind": "coreBuster",
+          "type": "coreBuster",
+          "nodeId": "W43N23-coreBuster",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "raidGuard-W43N23-raidGuard",
+          "kind": "raidGuard",
+          "type": "raidGuard",
+          "nodeId": "W43N23-raidGuard",
+          "roomName": "W43N23",
+          "creepCount": 2,
+          "bodyParts": 20,
+          "body": {
+            "attack": 10,
+            "move": 10
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W43N23-hauling-cd92",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-cd92",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 9,
+          "body": {
+            "carry": 6,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W43N23-hauling-cd90",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-cd90",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 3,
+          "body": {
+            "carry": 2,
+            "move": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W42N22-hauling-cee0",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N22-hauling-cee0",
+          "roomName": "W42N22",
+          "creepCount": 1,
+          "bodyParts": 46,
+          "body": {
+            "carry": 23,
+            "move": 23
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W44N23-hauling-cbd5",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W44N23-hauling-cbd5",
+          "roomName": "W44N23",
+          "creepCount": 1,
+          "bodyParts": 46,
+          "body": {
+            "carry": 23,
+            "move": 23
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W43N24-hauling-cd8d",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-cd8d",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 46,
+          "body": {
+            "carry": 23,
+            "move": 23
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "mining-W42N23-harvest-cedc",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W42N23-harvest-cedc",
+          "roomName": "W42N23",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W42N23-hauling-cedc",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N23-hauling-cedc",
+          "roomName": "W42N23",
+          "creepCount": 1,
+          "bodyParts": 30,
+          "body": {
+            "carry": 15,
+            "move": 15
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "building-W44N23-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W44N23-construction",
+          "roomName": "W44N23",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "work": 2,
+            "carry": 1,
+            "move": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W43N24-hauling-7-38",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-7-38",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "carry": 2,
+            "move": 2
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W43N24-hauling-0-20",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-0-20",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "carry": 2,
+            "move": 2
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W42N22-hauling--8-7",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N22-hauling--8-7",
+          "roomName": "W42N22",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "carry": 2,
+            "move": 2
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "hauling-W42N23-hauling-37-6",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N23-hauling-37-6",
+          "roomName": "W42N23",
+          "creepCount": 1,
+          "bodyParts": 50,
+          "body": {
+            "carry": 25,
+            "move": 25
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "bootstrap-W52N54-bootstrap",
+          "kind": "bootstrap",
+          "type": "bootstrap",
+          "nodeId": "W52N54-bootstrap",
+          "roomName": "W52N54",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 67539147,
+          "lastActivityTick": 67540007
+        },
+        {
+          "id": "bootstrap-W43N23-bootstrap",
+          "kind": "bootstrap",
+          "type": "bootstrap",
+          "nodeId": "W43N23-bootstrap",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 71517050,
+          "lastActivityTick": 72475006
+        },
+        {
+          "id": "spawning-W52N54-spawn-da09",
+          "kind": "spawning",
+          "type": "spawning",
+          "nodeId": "W52N54-spawn-da09",
+          "roomName": "W52N54",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 67539147,
+          "lastActivityTick": 67540007
+        },
+        {
+          "id": "spawning-W43N23-spawn-16a5",
+          "kind": "spawning",
+          "type": "spawning",
+          "nodeId": "W43N23-spawn-16a5",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 71517050,
+          "lastActivityTick": 72475006
+        }
+      ],
+      "summary": {
+        "totalCorps": 26,
+        "activeCorps": 19,
+        "corpsByKind": {
+          "harvest": 3,
+          "upgrade": 1,
+          "construction": 2,
+          "reservation": 1,
+          "scout": 1,
+          "tender": 1,
+          "controllerFeeder": 1,
+          "coreBuster": 1,
+          "raidGuard": 1,
+          "carry": 10,
+          "bootstrap": 2,
+          "spawning": 2
+        }
+      }
+    },
+    "flow": {
+      "version": 5,
+      "tick": 72475006,
+      "sources": [],
+      "haulers": [],
+      "sinks": [],
+      "candidates": [],
+      "summary": {
+        "totalHarvest": 0,
+        "totalOverhead": 0,
+        "netEnergy": 0,
+        "efficiency": 0,
+        "isSustainable": false,
+        "minerCount": 0,
+        "haulerCount": 0
+      },
+      "warnings": []
+    }
+  }
+}

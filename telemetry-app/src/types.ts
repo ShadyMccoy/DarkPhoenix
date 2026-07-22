@@ -44,16 +44,8 @@ export interface CoreTelemetry {
     total: number;
     tracked: number;
     untracked: number;
-    bootstrap: number;
-    miners: number;
-    haulers: number;
-    upgraders: number;
-    scouts: number;
-    builders: number;
-    reservers: number;
-    tankers: number;
-    feeders: number;
-    claimers: number;
+    /** Creep counts keyed by commission kind (harvest/carry/...). */
+    byKind: { [kind: string]: number };
   };
   rooms: {
     name: string;

@@ -93,3 +93,47 @@ describe("buildAgendaQueue (the published NOW plan)", () => {
     expect(queue).to.have.length(8);
   });
 });
+
+/**
+ * Starvation observability (spec 15 S3 line, live incident t72402541-72403593:
+ * tender stuck in gate "demand" for 1000+ ticks with a healthy starvation
+ * backstop in the ranking). The agenda must carry each entry's `since` so a
+ * capture distinguishes a resetting clock (demand flicker) from a ranking/buy
+ * failure - the two remaining hypotheses, undecidable without it.
+ */
+describe("agenda carries demand age (since) for starvation diagnosis", () => {
+  it("each queue entry carries its demand's since verbatim", () => {
+    const { queue } = buildAgendaQueue(
+      [demand({ buyerCorpId: "a", since: 12345 }), demand({ buyerCorpId: "b", since: 0 })],
+      13000,
+      300
+    );
+    expect(queue[0].since).to.equal(12345);
+    expect(queue[1].since).to.equal(0);
+  });
+
+  it("a starved demand outranks fresh income (the backstop, pinned via the queue)", () => {
+    const { queue } = buildAgendaQueue(
+      [
+        demand({ buyerCorpId: "fresh-miner", value: 10000, blocking: true, since: 12990 }),
+        demand({ buyerCorpId: "starved-tanker", role: "tanker", producesIncome: false, value: 96, since: 12000 })
+      ],
+      13000, // starved-tanker age 1000 >= 300 threshold
+      300
+    );
+    expect(queue[0].corp).to.equal("starved-tanker");
+  });
+
+  it("a starved demand a full threshold-bucket older wins outright; value orders within a bucket (live incident t72403765: tender age 1371 = bucket 4 outranks starved scale-haulers <=1134 = bucket 3)", () => {
+    const { queue } = buildAgendaQueue(
+      [
+        demand({ buyerCorpId: "starved-hauler", role: "hauler", producesIncome: true, value: 110, since: 11866 }), // age 1134
+        demand({ buyerCorpId: "starved-tanker", role: "tanker", producesIncome: false, value: 96, since: 11629 }), // age 1371
+        demand({ buyerCorpId: "starved-upgrader", role: "upgrader", producesIncome: false, value: 90, since: 11977 }) // age 1023
+      ],
+      13000,
+      300
+    );
+    expect(queue.map(q => q.corp)).to.deep.equal(["starved-tanker", "starved-hauler", "starved-upgrader"]);
+  });
+});

@@ -174,14 +174,30 @@ describe("corps/repair", () => {
     });
   });
 
-  describe("wantsCriticalRecovery (divert hysteresis)", () => {
-    it("holds the diversion until nothing remains in the idle-maintenance band", () => {
+  describe("wantsCriticalRecovery (divert hysteresis, both sides explicit)", () => {
+    // The 2026-07-19 concurrent-cell finding: implemented one-sided (release
+    // band only), a routine 43% container read as "critical" and the
+    // last-builder guard's emergency exception held the lone builder on
+    // maintenance for 240 ticks while a site sat untouched. The hysteresis
+    // needs the in-diversion state as an INPUT: start at REPAIR_CRITICAL,
+    // hold-to-REPAIR_SPAWN_BELOW only once genuinely started.
+    it("does NOT start for a routine maintenance-band dip (the measured false-critical)", () => {
+      const routineDip = c(107500); // 43% - the staged cell's container A
+      expect(wantsCriticalRecovery([routineDip], false)).to.equal(false);
+    });
+    it("starts only below the critical gate", () => {
+      const critical = c(Math.floor(250000 * REPAIR_CRITICAL) - 1);
+      expect(wantsCriticalRecovery([critical], false)).to.equal(true);
+      const justAbove = c(Math.floor(250000 * REPAIR_CRITICAL) + 1);
+      expect(wantsCriticalRecovery([justAbove], false)).to.equal(false);
+    });
+    it("holds a STARTED diversion until nothing remains in the idle-maintenance band", () => {
       // Repaired past the critical gate but still under the idle start gate -> keep going.
       const stillLow = c(Math.floor(250000 * REPAIR_SPAWN_BELOW) - 1);
-      expect(wantsCriticalRecovery([stillLow])).to.equal(true);
+      expect(wantsCriticalRecovery([stillLow], true)).to.equal(true);
       // Once clear of the idle band, release the diversion and resume building.
       const recovered = c(Math.floor(250000 * REPAIR_SPAWN_BELOW) + 1);
-      expect(wantsCriticalRecovery([recovered])).to.equal(false);
+      expect(wantsCriticalRecovery([recovered], true)).to.equal(false);
     });
   });
 });

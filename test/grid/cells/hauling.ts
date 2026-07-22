@@ -160,7 +160,6 @@ export function buildHaulingT4Cells(): GridCell[] {
   let depotSeen150 = false;
   let ctrlKept = true;
   let sawBankDeposit = false;
-  const haulerLinger: Record<string, number> = {};
 
   return [
     {
@@ -285,21 +284,21 @@ export function buildHaulingT4Cells(): GridCell[] {
           const box = s.objects().find((o: any) => o.type === "container" && o.x === 25 && o.y === 12);
           return !!box && (box.store?.energy ?? 0) >= 250;
         }),
-        always("haulers never fan across the extensions", (s) => {
-          // Fanning means SERVING the row - PARKING at extensions - not
-          // walking past them (spill trips to the controller legitimately
-          // cross the row; box checks kept catching transit). A hauler that
-          // LINGERS >= 4 consecutive samples within reach of the row is
-          // serving it; a passer-by clears in 1-3.
-          for (const name of ["h1", "h2"]) {
-            const c = s.creep(name);
-            if (!c) {
-              haulerLinger[name] = 0;
-              continue;
-            }
-            const nearRow = c.y >= 20 && c.y <= 22 && c.x >= 19 && c.x <= 30;
-            haulerLinger[name] = nearRow ? (haulerLinger[name] ?? 0) + 1 : 0;
-            if ((haulerLinger[name] ?? 0) >= 4) return false;
+        always("haulers never fan across the extensions (intent receipts)", (s) => {
+          // INTENT-LEVEL, not spatial: any hauler extension fill stamps
+          // lastDeliver.to = "extension-fan" (CarryCorp adjacent-first path,
+          // the only extension transfer a hauler has). The old linger proxy
+          // ("in reach of the row >= 4 samples") false-positived the moment
+          // the 3-small tender fleet added row congestion: the staged row is
+          // a solid wall, so controller-bound TRANSIT must detour along it
+          // and a queue holds transits in-band past any threshold. The
+          // receipt cannot be tripped by walking, only by serving. Checks
+          // every hauler, spawned successors included.
+          const creeps = s.memory?.creeps ?? {};
+          for (const name in creeps) {
+            const mem = creeps[name];
+            if (mem?.workType !== "haul") continue;
+            if (mem?.lastDeliver?.to === "extension-fan") return false;
           }
           return true;
         }),
@@ -307,12 +306,20 @@ export function buildHaulingT4Cells(): GridCell[] {
     },
 
     {
-      // The dead-tender fail-safe: killing the tender clears the flag within
-      // ~2 ticks and haulers revert to filling extensions DIRECTLY.
+      // The dead-tender recovery, POST-fan-fill-retirement (owner 2026-07-22
+      // accountability ruling): killing the tender clears the ACTIVE flag but
+      // NOT the room's covered status - haulers never fan back across the
+      // extensions. Recovery is the tender corp's own job: its bootstrap
+      // demand (stranded depot stock + dark post -> value 150) re-fields a
+      // tender, and THAT tender refills the burst extensions from the depot.
+      // Window sized for the full loop: kill -> demand -> spawn (3t/part) ->
+      // fill trips. Measured draws: refield @56 both draws; refill @66 fast
+      // draw, >110 slow draw (reload-stagger + wall-detour jitter) - 150
+      // covers the slow tail without masking a real breakage.
       id: "haul-t4-tender-death-failsafe",
       tier: 4,
       avenue: "logistics",
-      window: 60,
+      window: 150,
       rooms: { home: tenderRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
@@ -341,11 +348,22 @@ export function buildHaulingT4Cells(): GridCell[] {
       },
       assertions: [
         eventually("the regime was active before the kill", (s) => s.memory?.rooms?.[s.room()]?.extensionTenderActive === true),
-        eventually("the flag clears within ticks of the death", (s) => {
+        eventually("the ACTIVE flag clears within ticks of the death; COVERED holds", (s) => {
           if (s.tick < 16) return false;
-          return s.memory?.rooms?.[s.room()]?.extensionTenderActive === false;
+          const mem = s.memory?.rooms?.[s.room()];
+          return mem?.extensionTenderActive === false && mem?.extensionTenderCovered === true;
         }),
-        eventually("haulers refill the burst extensions directly", (s) => {
+        eventually("a REPLACEMENT tender re-fields (the corp's own bootstrap, never hauler cover)", (s) => {
+          // ACTIVE = depot && a live tender: it cleared at the kill, so it
+          // flipping back true IS the replacement standing up.
+          if (s.tick < 18) return false;
+          return s.memory?.rooms?.[s.room()]?.extensionTenderActive === true;
+        }),
+        eventually("the replacement refills the burst extensions", (s) => {
+          // Tick-gated past the t15 burst: the staged 50s must not satisfy
+          // this before the drain even happens (the old assertion latched at
+          // tick 1 and verified nothing).
+          if (s.tick < 20) return false;
           const drained = s
             .objects()
             .filter((o: any) => o.type === "extension" && o.y === 21 && o.x >= 20 && o.x <= 23);

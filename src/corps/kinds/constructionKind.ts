@@ -22,12 +22,13 @@
 import { Commission, corpIdFor } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
+import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildUpgraderBody } from "../../spawn/BodyBuilder";
+import { buildTankerBody, buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
-import { hostileRooms } from "../../utils/RoomDiscovery";
+import { roomLinearDistance } from "../../utils/RoomDiscovery";
 
 /** The construction commission's binding: the room, its spawn, and the flow's
  * construction-energy allocations for that room (for builder sizing). */
@@ -35,26 +36,41 @@ export interface ConstructionAssignment {
   roomName: string;
   spawnId: string;
   allocations: SinkAllocation[];
+  /**
+   * Spec 25 phase 3: the summed construction allocations of the SPAWNLESS
+   * rooms this spawn staffs - remote source-local clusters priced at the
+   * source's rate. The ONE pool crew (this room's corp) sizes to eat this
+   * on top of its own-room allocations ("make a bigger builder").
+   */
+  poolAllocatedRate?: number;
+  /**
+   * Remote trunk candidates (owner 2026-07-19: a route is a string of sites,
+   * not a room): the draft's FUNDED remote harvests staffed from this room's
+   * spawn. The corp judges each with roadEconomics and paves the winners
+   * cross-room; the paved receipt reprices that source's haulers at 2:1.
+   */
+  remoteTrunks?: { sourceId: string; pos: Position; flow: number }[];
 }
 
 /**
- * Rooms our miners currently work that nobody owns (mirrors
- * ReservationCorp.targetRooms): candidates for the remote source-container
- * rung. Hostile-marked rooms are excluded (defense economics) and SK /
- * controller-less rooms are skipped - we only invest where we can hold the
- * ground with a reservation.
+ * Rooms the draft plan MINES outside our spawn rooms (the same durable lens
+ * reservationKind uses): candidates for the remote source-container rung.
+ * Pre-spec-17 this scanned Game.creeps for standing miners - the documented
+ * creep-position trap class (a dead miner made the commission set flap and
+ * took the room's vision with it). The DRAFT is the durable signal: a room is
+ * remote-worked exactly when a harvest commission targets one of its sources.
+ * Hostile-marked rooms are excluded (defense economics) via the problem's
+ * host-assembled hostileRooms fact.
  */
-function remoteMinedRooms(): Set<string> {
+function remoteMinedRooms(problem: ColonyProblem, draft: readonly Commission[]): Set<string> {
+  const home = new Set(problem.spawns.map(s => s.pos.roomName));
+  const danger = new Set(problem.hostileRooms ?? []);
   const out = new Set<string>();
-  if (typeof Game === "undefined" || !Game.creeps) return out;
-  const danger = hostileRooms();
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    if (creep.memory.workType !== "harvest") continue;
-    const controller = creep.room?.controller;
-    if (!controller || controller.my || controller.owner) continue;
-    if (danger.has(creep.room.name)) continue;
-    out.add(creep.room.name);
+  for (const c of draft) {
+    if (c.kind !== "harvest") continue;
+    const room = c.produces.at?.roomName;
+    if (!room || home.has(room) || danger.has(room)) continue;
+    out.add(room);
   }
   return out;
 }
@@ -74,6 +90,8 @@ function constructionAllocation(k: CommissionedSink): SinkAllocation {
 
 export const constructionKind: CorpKind<ConstructionCorp> = {
   kind: "construction",
+  // Tankers are rescued by the tender kind (pre-spec-17 ROLE_KIND mapping).
+  roles: { builder: { workType: "build" }, tanker: { workType: "tank", readopt: false } },
   runOrder: 30, // consume tier, alongside upgrade
 
   /**
@@ -98,6 +116,27 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     for (const s of problem.spawns) {
       if (!homeSpawnByRoom.has(s.pos.roomName)) homeSpawnByRoom.set(s.pos.roomName, s.id);
     }
+    // Remote trunk candidates (owner 2026-07-19): each FUNDED harvest whose
+    // source lies OUTSIDE its staffing spawn's room. The trunk belongs to the
+    // spawn's room corp - the home end of the route.
+    const spawnRoomById = new Map(problem.spawns.map(s => [s.id, s.pos.roomName]));
+    const trunksByRoom = new Map<string, { sourceId: string; pos: Position; flow: number }[]>();
+    for (const c of draft) {
+      if (c.kind !== "harvest") continue;
+      const at = c.produces.at;
+      if (!at) continue;
+      const m = c.assignment as { sourceId?: string; spawnId?: string; rate?: number };
+      // Two id spaces cross here: solver commissions carry flow-prefixed
+      // spawn ids ("spawn-<gameId>"), the live problem carries raw game ids.
+      // Normalize before the lookup - without this it ALWAYS missed and every
+      // remote trunk fell through to the first spawn's room (audit find).
+      const spawnKey = m.spawnId?.replace("spawn-", "");
+      const homeRoom = (spawnKey && spawnRoomById.get(spawnKey)) ?? [...spawnRoomById.values()][0];
+      if (!homeRoom || at.roomName === homeRoom) continue; // home sources: the in-room scan covers them
+      const list = trunksByRoom.get(homeRoom) ?? [];
+      list.push({ sourceId: m.sourceId ?? c.corpId.replace(/^harvest-/, ""), pos: at, flow: c.produces.energyRate ?? 0 });
+      trunksByRoom.set(homeRoom, list);
+    }
     // A room with build allocations but NO spawn of its own (the expansion
     // founding: spec 06 audit "attribute the new room's corps to the PARENT
     // spawn until the new spawn stands") still gets its construction corp,
@@ -106,25 +145,38 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // path (remote source containers): the corp's remote rung is pile-gated
     // and pile-funded, so commissioning one for every room our miners work
     // costs nothing until a source is measurably bleeding on the ground.
-    const spawnlessRooms = new Set([...allocByRoom.keys(), ...remoteMinedRooms()]);
+    const spawnlessRooms = new Set([...allocByRoom.keys(), ...remoteMinedRooms(problem, draft)]);
     for (const roomName of spawnlessRooms) {
       if (homeSpawnByRoom.has(roomName)) continue;
       let best = problem.spawns[0];
       if (!best) continue;
-      if (typeof Game !== "undefined" && Game.map?.getRoomLinearDistance) {
-        let bestDist = Infinity;
-        for (const s of problem.spawns) {
-          const d = Game.map.getRoomLinearDistance(s.pos.roomName, roomName);
-          if (d < bestDist) {
-            bestDist = d;
-            best = s;
-          }
+      let bestDist = Infinity;
+      for (const s of problem.spawns) {
+        const d = roomLinearDistance(s.pos.roomName, roomName);
+        if (d < bestDist) {
+          bestDist = d;
+          best = s;
         }
       }
       homeSpawnByRoom.set(roomName, best.id);
     }
+    // POOL ALLOCATIONS (spec 25 phase 3, owner: "make a bigger builder ...
+    // consume all the energy from the source mine"): the plan now prices
+    // remote source-local clusters at the SOURCE'S RATE, and the ONE pool
+    // crew (the spawn's own room corp) must size to eat it - remote corps
+    // field no builders. Each spawn's room corp receives the SUM of the
+    // construction allocations in the spawnless rooms it staffs.
+    const poolAllocBySpawnRoom = new Map<string, number>();
+    for (const [roomName, spawnId] of homeSpawnByRoom) {
+      const spawnRoom = spawnRoomById.get(spawnId.replace("spawn-", "")) ?? roomName;
+      if (roomName === spawnRoom) continue; // own-room allocations ride `allocations`
+      const sum = (allocByRoom.get(roomName) ?? []).reduce((s, a) => s + a.allocated, 0);
+      if (sum > 0) poolAllocBySpawnRoom.set(spawnRoom, (poolAllocBySpawnRoom.get(spawnRoom) ?? 0) + sum);
+    }
+
     return [...homeSpawnByRoom].map(([roomName, spawnId]) => {
       const allocations = allocByRoom.get(roomName) ?? [];
+      const poolAllocatedRate = poolAllocBySpawnRoom.get(roomName) ?? 0;
       return {
         corpId: corpIdFor("construction", roomName),
         kind: "construction",
@@ -134,7 +186,13 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
           spawnPartsPerTick: 0
         },
         produces: { valuePerTick: 0 },
-        assignment: { roomName, spawnId, allocations } as ConstructionAssignment
+        assignment: {
+          roomName,
+          spawnId,
+          allocations,
+          ...(poolAllocatedRate > 0 ? { poolAllocatedRate } : {}),
+          ...(trunksByRoom.has(roomName) ? { remoteTrunks: trunksByRoom.get(roomName) } : {})
+        } as ConstructionAssignment
       };
     });
   },
@@ -144,6 +202,8 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     if (existing) {
       existing.setConstructionAllocations(a.allocations);
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
+      existing.setRemoteTrunks(a.remoteTrunks ?? []);
+      existing.setPoolAllocatedRate(a.poolAllocatedRate ?? 0);
       return existing;
     }
     // liveProblem (the host's auxiliary world) carries REAL game spawn ids, so no
@@ -151,6 +211,8 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // (`building-${room}-construction`) so live builders' memory.corpId resolves.
     const corp = new ConstructionCorp(`${a.roomName}-construction`, a.spawnId);
     corp.setConstructionAllocations(a.allocations);
+    corp.setRemoteTrunks(a.remoteTrunks ?? []);
+    corp.setPoolAllocatedRate(a.poolAllocatedRate ?? 0);
     return corp;
   },
 
@@ -172,8 +234,37 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // Builders are WORK creeps; bodyParam caps the WORK parts.
-    return buildUpgraderBody(energyBudget, bodyParam ?? 5).body;
+  body(role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+    // The corp fields two shapes: WORK builders (the live executor pins the
+    // WORK cap at 2 - upsizing is the ConstructionCorp's own fleet logic via
+    // bodyParam-less demands) and CARRY tankers ferrying build energy.
+    if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+    return buildUpgraderBody(energyBudget, 2).body;
+  },
+
+  // BUILDER HAND-OFF, adopt half (owner 2026-07-22: "they could orphan and
+  // adopt creeps if necessary"): a released/orphaned BUILDER goes to the
+  // nearest construction corp whose demand lens wants one (the corp's own
+  // wantsAnotherBuilder probe - never a recomputation here), so a finished
+  // remote stint walks straight to the next project instead of the measured
+  // fresh-4p-body-per-room churn. Tankers are the tender kind's rescue
+  // (roles.tanker readopt:false). No taker -> null -> grace -> recycle.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: ConstructionCorp }): string | null {
+    if (creep.memory.workType !== "build") return null;
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const id in corps) {
+      const corp = corps[id];
+      if (!corp.wantsAnotherBuilder()) continue;
+      const d =
+        typeof Game.map?.getRoomLinearDistance === "function"
+          ? Game.map.getRoomLinearDistance(creep.pos.roomName, corp.workRoomName())
+          : 0;
+      if (d < bestD || (d === bestD && (bestId === null || corp.id < bestId))) {
+        bestD = d;
+        bestId = corp.id;
+      }
+    }
+    return bestId;
   }
 };

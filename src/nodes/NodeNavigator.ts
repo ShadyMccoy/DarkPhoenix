@@ -808,32 +808,7 @@ export class NodeNavigator {
     this.edgeData.set(edgeKey, { type, weight });
   }
 
-  /**
-   * Gets all nodes that have corps (economically significant nodes).
-   */
-  public getCorpHostingNodes(): Node[] {
-    const result: Node[] = [];
-    for (const node of this.nodes.values()) {
-      if (node.corps && node.corps.length > 0) {
-        result.push(node);
-      }
-    }
-    return result;
   }
-
-  /**
-   * Gets IDs of all nodes that have corps (economically significant nodes).
-   */
-  public getCorpHostingNodeIds(): Set<string> {
-    const result = new Set<string>();
-    for (const node of this.nodes.values()) {
-      if (node.corps && node.corps.length > 0) {
-        result.add(node.id);
-      }
-    }
-    return result;
-  }
-}
 
 /**
  * Creates a NodeNavigator from nodes and a set of edge keys.
@@ -857,84 +832,3 @@ export function createNodeNavigator(
 /**
  * Maximum number of closest neighbors to keep for each node in the economic network.
  */
-const MAX_ECONOMIC_NEIGHBORS = 10;
-
-/**
- * Builds economic edges between corp-hosting nodes, limited to top N closest neighbors.
- *
- * For each corp-hosting node, computes the shortest path to all other corp nodes
- * via spatial edges, then keeps only the top MAX_ECONOMIC_NEIGHBORS closest neighbors.
- * An edge is included if either endpoint considers the other a top-N neighbor.
- *
- * @param navigator - NodeNavigator with spatial edges already set up
- * @returns Map of economic edge keys to their weights (path costs)
- */
-export function buildEconomicEdges(navigator: NodeNavigator): Map<EdgeKey, number> {
-  const economicEdges = new Map<EdgeKey, number>();
-  const corpNodes = navigator.getCorpHostingNodeIds();
-
-  if (corpNodes.size < 2) {
-    return economicEdges;
-  }
-
-  const nodeIds = Array.from(corpNodes);
-
-  // Compute all pairwise distances first
-  const allDistances = new Map<string, { neighbor: string; distance: number }[]>();
-
-  for (const nodeId of nodeIds) {
-    allDistances.set(nodeId, []);
-  }
-
-  for (let i = 0; i < nodeIds.length; i++) {
-    for (let j = i + 1; j < nodeIds.length; j++) {
-      const nodeId1 = nodeIds[i];
-      const nodeId2 = nodeIds[j];
-
-      // Compute shortest path using spatial edges
-      const result = navigator.findPath(nodeId1, nodeId2, "spatial");
-
-      if (result.found && result.distance < Infinity) {
-        allDistances.get(nodeId1)!.push({ neighbor: nodeId2, distance: result.distance });
-        allDistances.get(nodeId2)!.push({ neighbor: nodeId1, distance: result.distance });
-      }
-    }
-  }
-
-  // For each node, keep only top N closest neighbors
-  const topNeighbors = new Set<EdgeKey>();
-
-  for (const [nodeId, neighbors] of allDistances) {
-    // Sort by distance ascending
-    neighbors.sort((a, b) => a.distance - b.distance);
-
-    // Keep top N
-    const topN = neighbors.slice(0, MAX_ECONOMIC_NEIGHBORS);
-    for (const { neighbor, distance } of topN) {
-      const edgeKey = createEdgeKey(nodeId, neighbor);
-      topNeighbors.add(edgeKey);
-      // Store the distance (may be set twice for same edge, but values are identical)
-      economicEdges.set(edgeKey, distance);
-    }
-  }
-
-  return economicEdges;
-}
-
-/**
- * Adds economic edges to an existing navigator.
- *
- * Computes economic edges between all corp-hosting nodes and adds
- * them to the navigator. Economic edges have the total travel cost
- * via spatial edges as their weight.
- *
- * @param navigator - NodeNavigator to add economic edges to
- */
-export function addEconomicEdgesToNavigator(navigator: NodeNavigator): void {
-  const economicEdges = buildEconomicEdges(navigator);
-
-  for (const [edgeKey, weight] of economicEdges) {
-    const [nodeId1, nodeId2] = parseEdgeKey(edgeKey);
-    navigator.addEdge(nodeId1, nodeId2, weight, "economic");
-  }
-}

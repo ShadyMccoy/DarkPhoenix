@@ -15,6 +15,7 @@
 import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
+import { constructionWorkSpawnLoad, controllerWorkSpawnLoad } from "./primitives";
 import { Position } from "../types/Position";
 
 /**
@@ -101,11 +102,23 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
   // CONSUME - one commission per sink that turns energy into value. Spawn and
   // storage sinks are delivery TARGETS (the transport commissions end there),
   // not corps, so they emit nothing here.
+  //
+  // The envelope's spawnPartsPerTick is the SAME charge the planner's parts
+  // ledger paid for this sink (spec 15 P4: workSpawnLoad at the nearest-spawn
+  // distance, linear in the allocation) - the commission is the economics
+  // record variance/telemetry read, so it must not under-report (the audit
+  // found it hardcoded 0 under a stale "not yet budgeted" comment).
+  const nearestSpawnDist = (pos: Position | undefined): number =>
+    !pos || problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => problem.dist(s.pos, pos)));
   for (const k of plan.sinks) {
     if (k.allocated <= 1e-9) continue;
     const kind = k.kind === "controller" ? "upgrade" : k.kind === "construction" ? "build" : null;
     if (!kind) continue;
     const sink = sinkById.get(k.sinkId);
+    const spawnPartsPerTick =
+      k.kind === "controller"
+        ? controllerWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos))
+        : constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos));
     out.push({
       corpId: corpIdFor(kind, k.sinkId),
       kind,
@@ -113,9 +126,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
       consumes: {
         energyRate: k.allocated,
         at: sink?.pos,
-        // Consumer build-time is not yet budgeted by the solver (only the
-        // mining fraction is); 0 until the planner models it.
-        spawnPartsPerTick: 0
+        spawnPartsPerTick
       },
       produces: { valuePerTick: k.allocated * k.value, at: sink?.pos },
       assignment: { sink: k, spawnId: servingSpawnId(problem, sink?.pos) } as ConsumeAssignment

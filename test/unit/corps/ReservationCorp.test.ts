@@ -145,6 +145,56 @@ describe("ReservationCorp demand (reserve rooms the PLAN mines - no vision, no m
   });
 });
 
+/**
+ * The reserver purchase loop (live incident, shard1 t72401489-72401575: four
+ * 1300-energy reservers in ~90 ticks, ~53% of spawn build-time). The demand
+ * lens was newborn-blind twice over: getActiveCreeps excludes `spawning` (a
+ * 24-tick build) and `covered` required memory.targetRoom, assigned only after
+ * birth - so the banked mustFund demand re-fired during every build. The
+ * staffsPost-symmetry trap, verbatim. The demand lens must count every LIVING
+ * corp reserver - spawning and unassigned included - mirroring work()'s
+ * invariant that every living reserver ends up covering one target.
+ */
+describe("ReservationCorp demand counts newborns (purchase-loop regression)", () => {
+  it("a SPAWNING newborn already counts toward coverage - no re-demand during its build", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    expect(c.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("an active-but-unassigned newborn counts too (work() has not run yet)", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: false }
+    });
+    intel("W1N0");
+    expect(c.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("coverage is by COUNT: one newborn against two planned rooms still demands the second", () => {
+    const c = corp(["W1N0", "W2N1"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    intel("W2N1");
+    expect(c.getSpawnDemand(ctx)).to.have.length(1);
+  });
+
+  it("stamps its sizing record so the loop's absence is verifiable from telemetry", () => {
+    const c = corp(["W1N0"]);
+    setWorld({
+      newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true }
+    });
+    intel("W1N0");
+    c.getSpawnDemand(ctx);
+    expect(c.lastSizing).to.deep.include({ gate: "staffed", targets: 1, staffed: 1 });
+  });
+});
+
 describe("ReservationCorp work (assignments survive miner death and vision loss)", () => {
   afterEach(() => {
     (global as any).Game = { ...MockGame, creeps: {}, time: tick };
@@ -192,24 +242,48 @@ describe("ReservationCorp work (assignments survive miner death and vision loss)
     expect(creep.moves).to.have.length.greaterThan(0);
   });
 
-  it("revokes the assignment when the room leaves the plan", () => {
+  it("holds its post when the room leaves the plan (one-way mission, owner 2026-07-19)", () => {
+    // Retargeting a fielded reserver burns walk-ticks off a <=600t CLAIM life
+    // and the abandoned post buys a relief - the measured churn. A plan-drop
+    // is often a flap (P1 watches funded flips); the bank it keeps pumping
+    // holds 5000t. One-way: assignment survives EVERYTHING for the creep's
+    // remaining life.
     const c = corp([]);
     setWorld();
     const creep = reserverCreep(c, "W1N0");
     Game.creeps.r1 = creep;
     c.work(tick);
-    expect(creep.memory.targetRoom).to.equal(undefined);
-    expect(creep.moves).to.have.length(0);
+    expect(creep.memory.targetRoom, "one-way: plan moves never revoke").to.equal("W1N0");
+    expect(creep.moves, "still marching at its post").to.have.length.greaterThan(0);
   });
 
-  it("revokes the assignment when intel says another player took the controller", () => {
-    const c = corp(["W1N0"]);
+  it("holds its post even when intel says a rival took it (loss bounded by CLAIM life)", () => {
+    const c = corp(["W1N0", "W2N0"]);
     setWorld();
     intel("W1N0", { controllerOwner: "rival" });
+    intel("W2N0");
     const creep = reserverCreep(c, "W1N0");
     Game.creeps.r1 = creep;
     c.work(tick);
-    expect(creep.memory.targetRoom).to.equal(undefined);
+    expect(creep.memory.targetRoom, "one-way: never walks off to another post").to.equal("W1N0");
+  });
+
+  it("never steals a duplicate to another room (the relief-churn incident, owner 2026-07-19)", () => {
+    // Two reservers latched to the same room (restart artifact): the old code
+    // re-spread the second to the next target mid-life - it walked off, the
+    // room read uncovered, a relief spawned. Double-pumping banks toward the
+    // 5000 cap; walking wastes the clock. Both STAY.
+    const c = corp(["W1N0", "W2N0"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N0");
+    const a = reserverCreep(c, "W1N0");
+    const b = { ...reserverCreep(c, "W1N0"), name: "r2" };
+    Game.creeps.r1 = a;
+    Game.creeps.r2 = b;
+    c.work(tick);
+    expect(a.memory.targetRoom).to.equal("W1N0");
+    expect(b.memory.targetRoom, "duplicates are never re-spread").to.equal("W1N0");
   });
 
   it("reserves the controller once in the target room", () => {
@@ -228,5 +302,131 @@ describe("ReservationCorp work (assignments survive miner death and vision loss)
     Game.creeps.r1 = creep;
     c.work(tick);
     expect(reserved).to.deep.equal([controller]);
+  });
+});
+
+/**
+ * The reserver duty cycle (spec 15 P5). A reservation BANKS: reserveController
+ * adds CLAIM parts of ticks per tick (cap 5000) while decay costs 1/tick, so a
+ * room holding a fat reservation needs no reserver until it runs down near the
+ * refresh floor. The corp priced this (reserverTollPerRoom x RESERVER_DUTY 0.5)
+ * but the demand gate re-staffed continuously - 2x the priced spawn+energy
+ * cost, and twice the 1300 holdToFund walls at the spawn (measured live: a
+ * 1000+ tick queue hold banking one). The gate now reads the intel-stamped
+ * reservation bound (durable: the bound counts down exactly as the reservation
+ * does, so it stays correct with zero vision).
+ */
+describe("reservation duty cycle (coast on the banked reservation)", () => {
+  const bank = (room: string, ticksLeft: number, by = "me"): void => {
+    (Memory as any).roomIntel[room].reservedUntil = tick + ticksLeft;
+    (Memory as any).roomIntel[room].reservedBy = by;
+  };
+
+  it("a target banked above the refresh floor asks for NO real reserver (topup offer is opportunistic-only)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 2000);
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    // The duty cycle coasts: nothing that walls, holds, or ages upward. The
+    // one thing on offer is the idle-window topup (task #11) - bottom value,
+    // opportunistic, ignorable by a busy spawn forever.
+    expect(demands.filter(d => !d.opportunistic)).to.have.length(0);
+    expect(demands.every(d => d.opportunistic && !d.blocking && d.holdToFund !== true)).to.equal(true);
+  });
+
+  it("a target below the floor demands, and the sizing stamp carries the bank verbatim", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 300);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
+    const s = (c as any).lastSizing;
+    expect(s.gate).to.equal("demand");
+    expect(s.needy).to.equal(1);
+    expect(s.banks["W1N0"]).to.equal(300);
+  });
+
+  it("a reserver latched to a HEALTHY room does not cover a needy one (per-room coverage, one-way era)", () => {
+    // One-way missions mean a fielded reserver can never be re-spread, so the
+    // blunt living-count lens goes blind: 1 living >= 1 needy said "staffed"
+    // while the living one was latched elsewhere for life. Coverage is now
+    // per-room (assigned) plus wildcards (unassigned newborns).
+    const c = corp(["W1N0", "W2N0"]);
+    const latched = { memory: { corpId: c.id, workType: "reserve", targetRoom: "W1N0" }, spawning: false };
+    setWorld({ r1: latched });
+    intel("W1N0");
+    intel("W2N0");
+    bank("W1N0", 4000); // healthy - its reserver holds this post regardless
+    bank("W2N0", 200); // needy - no assignment, no wildcard
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands, "the latched reserver cannot serve W2N0 - buy one").to.have.length(1);
+    expect((c as any).lastSizing.gate).to.equal("demand");
+  });
+
+  it("emits an OPPORTUNISTIC topup when banked-but-below-cap (owner idea: bank reserve in idle windows)", () => {
+    // All targets above the refresh floor (no needy demand) but the lowest
+    // bank has >=1000 ticks of headroom to the 5000 cap: offer a bottom-value
+    // opportunistic reserver the scheduler may buy in an idle window. It
+    // never walls, never starves upward, and work() latches it one-way to
+    // the lowest bank.
+    const c = corp(["W1N0", "W2N0"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N0");
+    bank("W1N0", 3000);
+    bank("W2N0", 2000); // headroom 3000 to cap - worth banking
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands).to.have.length(1);
+    expect(demands[0].opportunistic).to.equal(true);
+    expect(demands[0].blocking).to.not.equal(true);
+    expect((c as any).lastSizing.gate).to.equal("opportunistic-topup");
+  });
+
+  it("no topup when every bank is near the cap (nothing worth banking)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 4500); // headroom 500 < the 1000 threshold
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
+    expect((c as any).lastSizing.gate).to.equal("reservation-banked");
+  });
+
+  it("no topup while an unassigned corp reserver exists (one wildcard at a time)", () => {
+    const c = corp(["W1N0"]);
+    const wildcard = { memory: { corpId: c.id, workType: "reserve" }, spawning: true };
+    setWorld({ w1: wildcard });
+    intel("W1N0");
+    bank("W1N0", 2000);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
+  });
+
+  it("mixed targets: only the needy room is priced (banked one costs nothing)", () => {
+    const c = corp(["W1N0", "W2N1"]);
+    setWorld();
+    intel("W1N0");
+    intel("W2N1");
+    bank("W1N0", 4000);
+    bank("W2N1", 100);
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands).to.have.length(1);
+    const s = (c as any).lastSizing;
+    expect(s.targets).to.equal(2);
+    expect(s.needy).to.equal(1);
+  });
+
+  it("another player's reservation banks NOTHING for us (still needy)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    bank("W1N0", 4000, "rival");
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
+  });
+
+  it("no stamp at all means needy (conservative: over-reserve, never lose the 3000 rate)", () => {
+    const c = corp(["W1N0"]);
+    setWorld();
+    intel("W1N0");
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(1);
   });
 });

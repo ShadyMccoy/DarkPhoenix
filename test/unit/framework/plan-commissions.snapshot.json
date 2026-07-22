@@ -86,7 +86,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.005387
       },
       "produces": {
         "at": {
@@ -114,7 +114,8 @@
               "amount": 4,
               "distance": 35
             }
-          ]
+          ],
+          "partsLeft": 0.306205
         },
         "spawnId": "spawn1"
       }
@@ -132,7 +133,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.001203
       },
       "produces": {
         "at": {
@@ -155,7 +156,8 @@
               "amount": 5,
               "distance": 8
             }
-          ]
+          ],
+          "partsLeft": 0.312222
         },
         "spawnId": "spawn1"
       }
@@ -312,7 +314,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.008097
       },
       "produces": {
         "at": {
@@ -345,7 +347,8 @@
               "amount": 5,
               "distance": 30
             }
-          ]
+          ],
+          "partsLeft": 0.296739
         },
         "spawnId": "spawn1"
       }
@@ -438,7 +441,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0
+        "spawnPartsPerTick": 0.005442
       },
       "produces": {
         "at": {
@@ -466,7 +469,8 @@
               "amount": 4,
               "distance": 60
             }
-          ]
+          ],
+          "partsLeft": 0.295367
         },
         "spawnId": "spawn1"
       }

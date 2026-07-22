@@ -78,6 +78,19 @@ describe("flow hand-off probe", () => {
       samples.push(
         `tick ${t}: RCL ${ctrl?.level ?? 0} prog ${ctrl?.progress ?? 0} | creeps ${JSON.stringify(byType)} | ${corps} | variance [${variance}]`
       );
+      // The NOW-plan mirror: what the scheduler expects to buy (ranked, with
+      // each entry's age clock + precondition) and its receipts - the exact
+      // lens for "why does creep X never spawn".
+      const spawnObj = objects.find((o: any) => o.type === "spawn");
+      const agenda = mem.spawnAgenda || {};
+      const agLines = Object.entries(agenda).map(([sid, a]: [string, any]) => {
+        const q = (a.queue || [])
+          .map((e: any) => `${e.role}:${e.minCost}s${e.since}${e.precondition ? `(${e.precondition})` : ""}`)
+          .join(" ");
+        const ex = (a.executed || []).map((e: any) => `${e.role}@${e.tick}`).join(" ");
+        return `${sid.slice(-4)} q=[${q}] need=${a.fundingNeed} exec=[${ex}]`;
+      });
+      samples.push(`tick ${t} AGENDA energy=${spawnObj?.store?.energy ?? "?"} ${agLines.join(" || ") || "EMPTY"}`);
     }
 
     console.log("\n=== flow hand-off probe ===");
