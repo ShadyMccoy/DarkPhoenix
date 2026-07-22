@@ -14,7 +14,13 @@ import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
-import { pickCriticalRepairTarget, wantsCriticalRecovery, wantsMaintenanceBuilder, nextRepairTarget } from "./repair";
+import {
+  pickCriticalRepairTarget,
+  wantsCriticalRecovery,
+  wantsMaintenanceBuilder,
+  nextRepairTarget,
+  nextBuildTarget
+} from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -341,6 +347,10 @@ export function trunkGateFromSurvey(s: TrunkSurvey): string {
  * demand wants a builder; no taker -> ordinary grace -> recycle refund.
  */
 export const RELEASED_BUILDER_CORP_ID = "released-builder";
+
+// Re-exported so the builder-assignment tests and callers reach the build-side
+// latch through the corp that owns it (its twin nextRepairTarget lives here too).
+export { nextBuildTarget };
 
 export function repairRoadEnRoute(creep: Creep): void {
   if (creep.store[RESOURCE_ENERGY] === 0 || creep.getActiveBodyparts(WORK) === 0) return;
@@ -2348,8 +2358,13 @@ export class ConstructionCorp extends Corp {
   private doMaintenance(creep: Creep, room: Room): void {
     // Latch onto one structure and repair it to the ceiling before switching, so
     // the builder finishes a structure instead of ping-ponging to whichever is
-    // momentarily most decayed (see nextRepairTarget).
-    const target = nextRepairTarget(this.roomRepairables(room), creep.memory.repairTargetId);
+    // momentarily most decayed. With nothing endangered the latch hands over the
+    // NEAREST below-ceiling structure next (the range lens), so the detail sweeps
+    // sequentially along a road instead of crisscrossing the room (see
+    // nextRepairTarget); endangered structures still preempt by fraction.
+    const target = nextRepairTarget(this.roomRepairables(room), creep.memory.repairTargetId, s =>
+      creep.pos.getRangeTo(s.pos)
+    );
     if (!target) {
       delete creep.memory.repairTargetId; // all healthy: idle until plan() retires this builder
       return;
@@ -2364,6 +2379,10 @@ export class ConstructionCorp extends Corp {
     const result = creep.repair(target);
     if (result === ERR_NOT_IN_RANGE) {
       creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      // ERR_NOT_IN_RANGE means the target repair did NOT fire, so the work
+      // action group is free: repair the road underfoot on the walk (most
+      // damaged first), turning the commute into maintenance too.
+      repairRoadEnRoute(creep);
     }
   }
 
@@ -2477,7 +2496,9 @@ export class ConstructionCorp extends Corp {
   private doBuild(creep: Creep, room: Room): void {
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     if (sites.length === 0) {
-      // No construction sites - stay put
+      // No construction sites - stay put, and drop the latch so a stale id
+      // never survives into the next build-out.
+      delete creep.memory.buildTargetId;
       return;
     }
 
@@ -2493,14 +2514,22 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    const target = creep.pos.findClosestByPath(sites) ?? sites[0];
+    // LATCH to one site and finish it before moving to the nearest next (owner
+    // 2026-07-22: "they just go to a site, stay there ... and build"). The old
+    // findClosestByPath re-picked every tick, so a builder drifting along a
+    // paving route kept re-choosing whichever tile was momentarily closest and
+    // ping-ponged; nextBuildTarget holds the site until it is built, then hands
+    // over the nearest remaining one - a sequential sweep.
+    const target = nextBuildTarget(sites, creep.memory.buildTargetId, s => creep.pos.getRangeTo(s.pos)) ?? sites[0];
     if (!target) return;
+    creep.memory.buildTargetId = target.id;
 
     const result = creep.build(target);
     if (result === ERR_NOT_IN_RANGE) {
       creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
       // Only on the walk: a same-tick build already claimed the work action
-      // group, and repair would cancel it.
+      // group, and repair would cancel it. Spending carried energy on the road
+      // underfoot also lightens the load, so the walk itself is faster.
       repairRoadEnRoute(creep);
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
@@ -2515,6 +2544,10 @@ export class ConstructionCorp extends Corp {
   private doPickup(creep: Creep, _room: Room): void {
     const PICKUP_RANGE = 4; // Only grab energy within this range
 
+    // Any walk here can carry a partial load (the builder tops up over several
+    // ticks), so every moveTo repairs the road underfoot in the same tick -
+    // repairRoadEnRoute no-ops when the store is empty, so a fully-drained
+    // builder just walks (faster, unladen) and only a laden one maintains.
     // Check for dropped energy within range
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
       filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
@@ -2523,6 +2556,7 @@ export class ConstructionCorp extends Corp {
       const target = dropped[0];
       if (creep.pickup(target) === ERR_NOT_IN_RANGE) {
         creep.moveTo(target);
+        repairRoadEnRoute(creep);
       }
       return;
     }
@@ -2535,6 +2569,7 @@ export class ConstructionCorp extends Corp {
       const target = tombstones[0];
       if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.moveTo(target);
+        repairRoadEnRoute(creep);
       }
       return;
     }
@@ -2547,6 +2582,7 @@ export class ConstructionCorp extends Corp {
       const target = ruins[0];
       if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.moveTo(target);
+        repairRoadEnRoute(creep);
       }
       return;
     }
@@ -2559,18 +2595,25 @@ export class ConstructionCorp extends Corp {
       const target = containers[0];
       if (creep.withdraw(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.moveTo(target);
+        repairRoadEnRoute(creep);
       }
       return;
     }
 
-    // No energy in reach: park beside the site instead of freezing where we
-    // stand - deliveries (home tankers, the founding hauler lane) land AT the
-    // site, and a builder stranded outside doPickup's range-4 scan starves
-    // next to nothing (measured: the founding builder deadlocked empty on the
-    // border tile all window).
-    const site = _room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+    // No energy in reach: park beside the builder's OWN latched site instead of
+    // freezing where we stand - deliveries (home tankers, the founding hauler
+    // lane) land AT the site, and a builder stranded outside doPickup's range-4
+    // scan starves next to nothing (measured: the founding builder deadlocked
+    // empty on the border tile all window). The latch keeps it walking back to
+    // the site it is building, not to whichever site find() happens to list
+    // first (a second site across the room would drag it off its own work).
+    const latched = creep.memory.buildTargetId
+      ? (Game.getObjectById(creep.memory.buildTargetId as Id<ConstructionSite>) as ConstructionSite | null)
+      : null;
+    const site = latched ?? (_room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined);
     if (site && creep.pos.getRangeTo(site.pos) > PICKUP_RANGE) {
       creep.moveTo(site.pos, { range: 2, visualizePathStyle: { stroke: "#ffaa00" } });
+      repairRoadEnRoute(creep);
     }
   }
 

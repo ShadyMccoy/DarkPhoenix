@@ -584,6 +584,16 @@ declare global {
      * topping up neither. Cleared when the target reaches the ceiling or is gone.
      */
     repairTargetId?: string;
+    /**
+     * The construction site a builder is currently building. The build-side
+     * twin of repairTargetId (owner 2026-07-22: "they can't ping-pong around
+     * ... they just go to a site, stay there, get tankers coming, and build"):
+     * a builder LATCHES to one site and finishes it before moving to the
+     * NEAREST next one - a sequential sweep over the project instead of a
+     * per-tick findClosestByPath that flips targets as the creep drifts and
+     * sites complete. Cleared when the site is gone (built) or none remain.
+     */
+    buildTargetId?: string;
     /** This crew member IS the standing repair detail (owner 2026-07-18:
      * repair and building are separate functions). Sticky for life. */
     repairDetail?: boolean;
