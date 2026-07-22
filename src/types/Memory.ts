@@ -300,6 +300,16 @@ declare global {
     };
 
     /**
+     * Tower focus-fire memory (spec 07 v2), per owned room: last tick's hits by
+     * hostile id, so TowerRunner can read NET damage (hits<prev = the healer
+     * isn't covering that creep) and collapse fire on the uncovered wound. `tick`
+     * gates staleness — only the immediately-preceding tick's HP is a valid
+     * signal; anything older forces a fresh probe. Deleted when a room clears of
+     * hostiles.
+     */
+    towerTargeting?: { [roomName: string]: { tick: number; hits: { [id: string]: number } } };
+
+    /**
      * The colony's GOAL (spec 18): a weighted blend of named goal profiles,
      * compiled onto the sink-value ladder each solve. Absent = the default
      * profile (today's measured ladder). Set via global.setGoal.
