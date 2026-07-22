@@ -80,9 +80,64 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     expect(flow.sources[0].workParts).to.equal(5); // ceil(10 / 2 energy-per-WORK)
   });
 
-  it("bumps the flow segment version for the new plan fields", () => {
+  it("exports planner source verdicts verbatim as candidates (spec 14 phase 5)", () => {
+    const verdicts = [
+      { sourceId: "s1", rate: 10, distance: 12, net: 8.1, tax: 0, parts: 9, verdict: "funded" },
+      { sourceId: "remote", rate: 10, distance: 54, net: -1.2, tax: 6.5, parts: 12, verdict: "unprofitable" },
+      { sourceId: "far", rate: 10, distance: 30, net: 4.0, tax: 0, parts: 11, verdict: "over-budget" }
+    ];
+    new Telemetry().update(undefined, [], { ...solution, sourceVerdicts: verdicts });
+    const flow = JSON.parse(RawMemory.segments[6]);
+
+    expect(flow.candidates).to.deep.equal(verdicts); // verbatim - the pricing the decision read
+  });
+
+  it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(2);
+    expect(flow.version).to.equal(7); // v6 carried dedicatedToBuild; v7 retires it (spec 25 phase 3)
+    expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
+  });
+
+
+  it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4)", () => {
+    const ledger = { capacity: 3, minerLoad: 0.9, infra: 0.4, budget: 1.7 };
+    const withTrace = {
+      ...solution,
+      partsLedger: ledger,
+      sinkAllocations: solution.sinkAllocations.map((k: any) =>
+        k.sinkType === "controller" ? { ...k, partsLeft: 0.25 } : k
+      )
+    };
+    new Telemetry().update(undefined, [], withTrace);
+    const flow = JSON.parse(RawMemory.segments[6]);
+
+    // the ledger the fill decision read, verbatim - an allocation collapse is named in one capture
+    expect(flow.partsLedger).to.deep.equal(ledger);
+    const ctrl = flow.sinks.find((s: any) => s.type === "controller");
+    expect(ctrl.partsLeft).to.equal(0.25);
+    // sinks the fill never charged carry no partsLeft key at all
+    const spawn = flow.sinks.find((s: any) => s.type === "spawn");
+    expect(spawn).to.not.have.property("partsLeft");
+  });
+
+  it("threads the problem-assembly counts verbatim (v5: names the warmup remote-drop layer)", () => {
+    const withAssembly = { ...solution, assembly: { graphSources: 9, mined: 7, transient: 1, bank: 1 } };
+    new Telemetry().update(undefined, [], withAssembly);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow.assembly).to.deep.equal({ graphSources: 9, mined: 7, transient: 1, bank: 1 });
+  });
+
+  it("omits assembly when the solution predates it", () => {
+    new Telemetry().update(undefined, [], solution);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow).to.not.have.property("assembly");
+  });
+
+  it("omits the ledger entirely when the planner produced none (old plans stay readable)", () => {
+    new Telemetry().update(undefined, [], solution);
+    const flow = JSON.parse(RawMemory.segments[6]);
+    expect(flow).to.not.have.property("partsLedger");
+    for (const s of flow.sinks) expect(s).to.not.have.property("partsLeft");
   });
 });

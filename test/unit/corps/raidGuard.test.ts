@@ -175,3 +175,25 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
     expect(guard.memory.recycling, "liquidates after the quiet window").to.equal(true);
   });
 });
+
+describe("RaidGuardCorp sizing stamp (the raid post-mortem lens, spec 14)", () => {
+  beforeEach(install);
+
+  it("a demand stamps gate/targets/uncovered and the per-room meter verbatim", () => {
+    (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: RAID_ARM_FLOOR };
+    installPlannedMine();
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    corp.getSpawnDemand(ctx);
+    const s = (corp as any).lastSizing;
+    expect(s.gate).to.equal("demand");
+    expect(s.targets).to.equal(1);
+    expect(s.uncovered).to.equal(1);
+    expect(s.debts[REMOTE]).to.equal(RAID_ARM_FLOOR);
+  });
+
+  it("a quiet map stamps no-targets (the wave post-mortem can prove the meter was NOT armed)", () => {
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    corp.getSpawnDemand(ctx);
+    expect((corp as any).lastSizing.gate).to.equal("no-targets");
+  });
+});

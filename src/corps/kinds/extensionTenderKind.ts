@@ -30,6 +30,7 @@ export interface ExtensionTenderAssignment {
 
 export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   kind: "tender",
+  roles: { tanker: { workType: "tank" } },
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {

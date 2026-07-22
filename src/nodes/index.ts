@@ -9,10 +9,8 @@ export {
   SerializedNode,
   createNodeId,
   createNode,
-  getCorpsByType,
   getResourcesByType,
   hasResourceType,
-  hasCorpForResource,
   serializeNode,
   deserializeNode,
   calculateNodeROI,
@@ -25,9 +23,7 @@ export {
   SurveyConfig,
   SurveyResult,
   DEFAULT_SURVEY_CONFIG,
-  createResource,
-  estimateMiningROI,
-  estimateHaulingROI
+  createResource
 } from "./NodeSurveyor";
 
 export {
@@ -41,7 +37,5 @@ export {
   estimateWalkingDistance,
   pathDistance,
   clearPathDistanceCache,
-  createNodeNavigator,
-  buildEconomicEdges,
-  addEconomicEdgesToNavigator
+  createNodeNavigator
 } from "./NodeNavigator";

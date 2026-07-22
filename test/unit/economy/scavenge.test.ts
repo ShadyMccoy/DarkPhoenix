@@ -7,7 +7,6 @@ import {
   CONTROLLER_BUCKET_RANGE,
   EnergyFind,
   SCAVENGE_THRESHOLD,
-  SCAVENGE_DRAIN_TICKS,
   MAX_SCAVENGE_RATE
 } from "../../../src/economy/scavenge";
 
@@ -18,7 +17,11 @@ describe("economy/scavenge", () => {
   describe("scavengeRate", () => {
     it("drains a stock over the target horizon", () => {
       // 1500 energy over 150 ticks = 10/tick
-      expect(scavengeRate(1500)).to.be.closeTo(1500 / SCAVENGE_DRAIN_TICKS, 1e-9);
+      // Owner 2026-07-20: halfway amount over effective ttl - a 1500 stock
+      // at the spawn's doorstep asks 1500/2/1500 = 0.5 e/t (waste-free),
+      // and DISTANCE lowers it further (shorter working life).
+      expect(scavengeRate(1500)).to.be.closeTo(1500 / 2 / 1500, 1e-9);
+      expect(scavengeRate(1500, 100), "travel shortens the working life").to.be.greaterThan(scavengeRate(1500));
     });
     it("caps the rate so a huge pile doesn't ask for an absurd fleet", () => {
       expect(scavengeRate(1_000_000)).to.equal(MAX_SCAVENGE_RATE);
@@ -80,5 +83,21 @@ describe("economy/scavenge", () => {
       expect(src.pos.x).to.equal(12);
       expect(src.rate).to.be.closeTo(scavengeRate(1500), 1e-9);
     });
+  });
+});
+
+/**
+ * The micro-route floor (owner 2026-07-20: "we should look into those micro
+ * routes"): stocks whose sized rate lands under SCAVENGE_RATE_FLOOR plan
+ * sub-1-CARRY routes and feed the E2/E5 churn loop (runt spawned, pile
+ * decays away, corp strands). They stay with opportunistic pickup instead.
+ */
+describe("scavenge micro-route floor", () => {
+  it("a threshold-hugging pile sizes under the floor; a real overflow pile clears it", async () => {
+    const { scavengeRate, SCAVENGE_RATE_FLOOR } = await import("../../../src/economy/scavenge");
+    // 750 at the spawn's doorstep: 375/1500 = 0.25 - churn, not recovery
+    expect(scavengeRate(750, 10)).to.be.lessThan(SCAVENGE_RATE_FLOOR);
+    // the fid-t4 recapture class (2k+ overflow near the controller) stays in
+    expect(scavengeRate(2000, 20)).to.be.greaterThan(SCAVENGE_RATE_FLOOR);
   });
 });

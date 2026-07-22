@@ -16,25 +16,17 @@
 
 import "../types/Memory";
 import {
+  AcquisitionPlan,
   ScheduleContext,
   SpawnDemand,
   SpawnDemandContext,
-  buildAgendaQueue,
-  scheduleSpawn
+  planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
 import { CorpRegistry } from "./CorpRunner";
-import { commissionedCorpsOfKind } from "./CommissionHost";
-import { ReservationCorp } from "../corps/ReservationCorp";
-import { RaidGuardCorp } from "../corps/RaidGuardCorp";
-import { CoreBusterCorp } from "../corps/CoreBusterCorp";
-import { ExtensionTenderCorp } from "../corps/ExtensionTenderCorp";
-import { ControllerFeederCorp } from "../corps/ControllerFeederCorp";
-import { HarvestCorp } from "../corps/HarvestCorp";
-import { CarryCorp } from "../corps/CarryCorp";
-import { UpgradingCorp } from "../corps/UpgradingCorp";
-import { ConstructionCorp } from "../corps/ConstructionCorp";
-import { ClaimCorp } from "../corps/ClaimCorp";
+import { allCommissionedCorps } from "./CommissionHost";
+import { Corp } from "../corps/Corp";
+import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -81,29 +73,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       };
 
       const demands = collectDemands(registry, spawn.id, demandCtx);
-      // Stamp each demand's first-seen tick (carrying forward a prior one) so
-      // the scheduler sees how long it has been waiting. Deliberately stamps
-      // precedence-FILTERED demands too: a route's clock starts when its
-      // demand appears, not when its miner lands, so a hauler whose source
-      // sat unhauled fires starved-lifted soon after the miner arrives. A
-      // freeze-while-filtered variant was tried and REVERTED: it delayed the
-      // d=22 loop's first hauler by ~300 ticks (grid cell
-      // plan-t1-single-source-loop went red) - the "aging while unspawnable"
-      // encodes the real starvation of the route's energy on the ground.
-      for (const d of demands) {
-        const key = `${spawn.id}:${d.buyerCorpId}:${d.role}`;
-        seenThisTick.add(key);
-        const first = firstSeen[key] ?? (firstSeen[key] = Game.time);
-        d.since = first;
-      }
-      // THE NOW PLAN (spec 11): publish this spawn's ordered acquisition
-      // queue - what the scheduler EXPECTS to buy, in rank order, with each
-      // entry's TRANSITION label and precondition (phase 3) - plus the
-      // outstanding producer funding need (which the flow adapter routes to
-      // the spawn sink so energy streams here while production has bodies to
-      // buy). The scheduler still decides; deviations are signal.
-      publishSpawnAgenda(spawn.id, demands, room.energyAvailable);
-      if (demands.length === 0) continue;
+      stampDemandAges(demands, spawn.id, firstSeen, seenThisTick, Game.time);
 
       const ctx: ScheduleContext = {
         energyAvailable: room.energyAvailable,
@@ -112,17 +82,27 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
         tick: Game.time
       };
 
-      const result = scheduleSpawn(demands, ctx);
+      // THE NOW PLAN (spec 11 / spec 17): ONE planner call yields both the
+      // published acquisition queue - each entry annotated with the decision
+      // walk's own gate verdict - and this tick's buy, which is by
+      // construction the entry gated "buy". The director executes the plan
+      // mechanically; it holds no decision logic of its own.
+      const plan = planAcquisitions(demands, ctx);
+      publishSpawnAgenda(spawn.id, plan, room.energyAvailable);
+      if (demands.length === 0) continue;
+
+      const result = plan.decision;
       if (!result) {
         // Flight recorder (rate-limited): an evaluated spawn with live
         // demands that bought nothing is the wedge signature the incident
         // pipeline hunts - record WHAT was waiting and on how much bank.
-        if (Game.time % 25 === 0) {
-          const head = [...demands].sort((a, b) => b.value - a.value)[0];
+        // The agenda head IS the walk's own ranking.
+        if (Game.time % 25 === 0 && plan.agenda.length > 0) {
+          const head = plan.agenda[0];
           blackBox("hold", {
             spawn: spawn.id,
             role: head.role,
-            corp: head.buyerCorpId,
+            corp: head.corp,
             minCost: head.minCost,
             bank: room.energyAvailable
           });
@@ -132,6 +112,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
 
       const d = result.demand;
       const spawned = spawningCorp.executeSpawn(
+        d.kind ?? "",
         d.role,
         d.buyerCorpId,
         result.energyBudget,
@@ -146,6 +127,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       if (spawned) {
         recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
         blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
+        resetDemandClock(firstSeen, spawn.id, d.buyerCorpId, d.role);
       }
     }
   }
@@ -159,180 +141,157 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
   }
 }
 
+/** Clock key for a demand stream at a spawn - one clock per spawn+corp+role. */
+function demandClockKey(spawnId: string, buyerCorpId: string, role: string): string {
+  return `${spawnId}:${buyerCorpId}:${role}`;
+}
+
 /**
- * Collect spawn demands from every corp that spawns at the given spawn.
+ * Stamp each demand's first-seen tick (carrying forward a prior one) so the
+ * scheduler sees how long it has been waiting. Deliberately stamps
+ * precedence-FILTERED demands too: a route's clock starts when its demand
+ * appears, not when its miner lands, so a hauler whose source sat unhauled
+ * fires starved-lifted soon after the miner arrives. A freeze-while-filtered
+ * variant was tried and REVERTED: it delayed the d=22 loop's first hauler by
+ * ~300 ticks (grid cell plan-t1-single-source-loop went red) - the "aging
+ * while unspawnable" encodes the real starvation of the route's energy on
+ * the ground.
  *
- * A source's miner (harvestCorps[id]) and that source's haulers (haulingCorps[id])
- * are both keyed by the same source id, so they form one *income unit* (groupId
- * = source id). A unit is "started" once the source has a miner in the field;
- * from then on its remaining demands (its haulers, any second miner) are flagged
- * groupStarted so the scheduler finishes funding that source before opening a
- * fresh one - the "fund one corp fully, then move on" strategy.
- *
- * Exported so the spawn-decision harness can drive the real grouping logic (not
- * a re-implementation) when freezing "what spawns next" regression moments.
+ * Exported (with {@link resetDemandClock}) so the clock's semantics are
+ * unit-pinned: age measures UNSERVED waiting.
  */
-export function collectDemands(registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
+export function stampDemandAges(
+  demands: SpawnDemand[],
+  spawnId: string,
+  firstSeen: { [key: string]: number },
+  seenThisTick: Set<string>,
+  tick: number
+): void {
+  for (const d of demands) {
+    const key = demandClockKey(spawnId, d.buyerCorpId, d.role);
+    seenThisTick.add(key);
+    const first = firstSeen[key] ?? (firstSeen[key] = tick);
+    d.since = first;
+  }
+}
+
+/**
+ * Reset a demand stream's age clock after its spawn bought it a creep: age
+ * must measure UNSERVED waiting, not time-since-first-request. A standing
+ * multi-creep demand (a scaling hauler fleet, a 3-tanker tender) keeps its
+ * key alive across purchases, so without the reset its clock is "the whole
+ * era" and - under FIFO-among-starved - a stream that is being served every
+ * ~100 ticks permanently outranks a demand that has NEVER been served (live
+ * incident t72403765: four hauler buys in ~160t while the tender, age 1371,
+ * and the upgrader, age 1023, starved behind them; sim: flow-handoff's
+ * bootstrap-era demands walled out the whole flow fleet). The reset restores
+ * STARVED_TIER's documented one-shot contract: served means the meter starts
+ * over.
+ */
+export function resetDemandClock(
+  firstSeen: { [key: string]: number },
+  spawnId: string,
+  buyerCorpId: string,
+  role: string
+): void {
+  delete firstSeen[demandClockKey(spawnId, buyerCorpId, role)];
+}
+
+/** The shape a corp must expose to participate in the demand pipeline. */
+interface DemandingCorp extends Corp {
+  getSpawnId(): string;
+  getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[];
+  getCreepCount?(): number;
+}
+
+function isDemandingCorp(corp: Corp): corp is DemandingCorp {
+  const c = corp as Partial<DemandingCorp>;
+  return typeof c.getSpawnId === "function" && typeof c.getSpawnDemand === "function";
+}
+
+/**
+ * The cross-kind execution facts kinds' demandGroup policies may read, built
+ * once per collection from the commission store. "Mined" is declared, not
+ * hardcoded: any kind whose sourceOf names a source contributes when its corp
+ * has a creep in the field (getCreepCount > 0 - which counts recycling creeps,
+ * per the trap list). Global across spawns, exactly like the pre-spec-17
+ * minedSources set: a source mined from another spawn still counts as started.
+ */
+function buildDemandWorld(): DemandWorld {
+  const mined = new Set<string>();
+  for (const { kind: kindName, corp } of allCommissionedCorps()) {
+    const kind = getCorpKind(kindName);
+    if (!kind?.sourceOf) continue;
+    const sourceId = (kind.sourceOf as (c: Corp) => string | null)(corp);
+    if (!sourceId) continue;
+    const count = (corp as Partial<DemandingCorp>).getCreepCount?.() ?? 0;
+    if (count > 0) mined.add(sourceId);
+  }
+  return { isSourceMined: id => mined.has(id) };
+}
+
+/**
+ * Collect spawn demands from every commissioned corp that spawns at the given
+ * spawn - ONE generic loop over the registry, in kind execution order. Per
+ * corp: the uniform (getSpawnId, !retiring) filter, the corp's own
+ * getSpawnDemand, then the KIND's declared demandGroup decoration (income-unit
+ * grouping: harvest/carry's shared source key, the military/reservation
+ * forced-started stamps - see each kind file for the measured rationale, and
+ * test/unit/execution/collectDemandsPolicy.test.ts for the pins). Corps
+ * without a demand surface (scout self-spawns; bootstrap pre-dates the
+ * scheduler) contribute nothing, exactly as before.
+ *
+ * Exported so the spawn-decision harness can drive the real grouping logic
+ * (not a re-implementation) when freezing "what spawns next" moments.
+ */
+export function collectDemands(_registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
-
-  // Harvest/carry/upgrade are framework-commissioned (the commission store).
-  // A source's miner and haulers must share a groupId so withMinerPrecedence
-  // couples them; their commission ids (harvest-<src> / carry-<src>) differ, so
-  // the shared key is the source id (harvest's getSourceId, == carry's id minus
-  // the "carry-" prefix).
-  const harvestCorps = commissionedCorpsOfKind<HarvestCorp>("harvest");
-  const carryCorps = commissionedCorpsOfKind<CarryCorp>("carry");
-  const upgradeCorps = commissionedCorpsOfKind<UpgradingCorp>("upgrade");
-
-  // Sources with a miner actually in the field (their income unit is "started").
-  // Keyed by the real game source id (flow "source-" prefix stripped) so harvest
-  // and carry agree regardless of id format.
-  const sourceKey = (s: string): string => s.replace("source-", "");
-  const minedSources = new Set<string>();
-  for (const id in harvestCorps) {
-    if (harvestCorps[id].getCreepCount() > 0) minedSources.add(sourceKey(harvestCorps[id].getSourceId()));
+  const world = buildDemandWorld();
+  const byKind = new Map<string, { corpId: string; corp: Corp }[]>();
+  for (const entry of allCommissionedCorps()) {
+    const list = byKind.get(entry.kind) ?? [];
+    list.push(entry);
+    byKind.set(entry.kind, list);
   }
 
-  for (const id in harvestCorps) {
-    const c = harvestCorps[id];
-    if (c.getSpawnId() !== spawnId || c.retiring) continue;
-    const sourceId = sourceKey(c.getSourceId());
-    const started = minedSources.has(sourceId);
-    for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = sourceId;
-      d.groupStarted = started;
-      demands.push(d);
+  for (const kind of listCorpKinds()) {
+    for (const { corpId, corp } of byKind.get(kind.kind) ?? []) {
+      if (!isDemandingCorp(corp)) continue;
+      if (corp.getSpawnId() !== spawnId || corp.retiring) continue;
+      const group = kind.demandGroup ? (kind.demandGroup as (c: Corp, id: string, w: DemandWorld) => { groupId: string; started: boolean } | null)(corp, corpId, world) : null;
+      for (const d of corp.getSpawnDemand(ctx)) {
+        if (group) {
+          d.groupId = group.groupId;
+          d.groupStarted = group.started;
+        }
+        d.kind = kind.kind;
+        demands.push(d);
+      }
     }
-  }
-  for (const id in carryCorps) {
-    const c = carryCorps[id];
-    if (c.getSpawnId() !== spawnId || c.retiring) continue;
-    // Shared source key, matching harvest's getSourceId() (the real game id). Take
-    // it from the route's fromId (stripped of the flow "source-" prefix) so a
-    // source's miner and haulers land in the same group regardless of id format;
-    // fall back to the commission corpId when there are no routes yet.
-    const fromId = c.getHaulerAssignments()[0]?.fromId;
-    const sourceId = sourceKey(fromId ?? id.replace(/^carry-/, ""));
-    // A scavenger's energy is already on the ground (no miner to wait for), so its
-    // income unit is always "started" - otherwise withMinerPrecedence would drop it
-    // for having no miner and the scavenger could never spawn.
-    const started = sourceId.startsWith("scavenge-") || minedSources.has(sourceId);
-    for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = sourceId;
-      d.groupStarted = started;
-      demands.push(d);
-    }
-  }
-  for (const id in upgradeCorps) {
-    const c = upgradeCorps[id];
-    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
-  }
-  const constructionCorps = commissionedCorpsOfKind<ConstructionCorp>("construction");
-  for (const id in constructionCorps) {
-    const c = constructionCorps[id];
-    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
-  }
-  // Extension tenders live in the commission store (framework-ported); their
-  // tankers still compete here on the value-ranked path (infrastructure tier).
-  const tenderCorps = commissionedCorpsOfKind<ExtensionTenderCorp>("tender");
-  for (const id in tenderCorps) {
-    const c = tenderCorps[id];
-    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
-  }
-  // Controller feeders live in the commission store (framework-ported); their
-  // feeders compete here on the same value-ranked infrastructure tier as tenders.
-  const controllerFeederCorps = commissionedCorpsOfKind<ControllerFeederCorp>("controllerFeeder");
-  for (const id in controllerFeederCorps) {
-    const c = controllerFeederCorps[id];
-    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
-  }
-  // Reservation corps live in the commission store (framework-ported), but
-  // their reservers still compete here on the value-ranked path.
-  const reservationCorps = commissionedCorpsOfKind<ReservationCorp>("reservation");
-  for (const id in reservationCorps) {
-    const c = reservationCorps[id];
-    if (c.getSpawnId() !== spawnId || c.retiring) continue;
-    for (const d of c.getSpawnDemand(ctx)) {
-      // The reserver is INCOME work: it unlocks +5 e/tick on every source in the
-      // remote room it holds. Give it a groupId so spawnPriority places it in the
-      // income tier (it already declares producesIncome) - otherwise it sits at its
-      // base value (92), below every income corp AND every blocking consumer, and is
-      // starved forever while the colony ramps, so the remote never gets reserved and
-      // stays at the unreserved half-rate.
-      //
-      // It is also groupStarted: the reserver's demand only exists once a miner is
-      // already harvesting that remote (ReservationCorp.targetRooms gates on it), so
-      // the reserved-mining OP is already underway - reserving merely doubles an
-      // already-committed source (infra built, miner fielded). Treating it as a fresh
-      // unit would rank it BELOW opening a brand-new source (1e6+92 < 1e6+100), so the
-      // planner would open new sources before reserving one it already mines - the
-      // opposite of the intent that reserved mining outranks plain mining. As a
-      // started unit it leads all fresh source-opening while still yielding to the
-      // higher-value started haulers that move the base energy.
-      d.groupId = c.id;
-      d.groupStarted = true;
-      demands.push(d);
-    }
-  }
-  // Raid guards (spec 13): producer protection at value 105 - above the
-  // hauler band's floor, below the reserver 115. The corp's own demand logic
-  // is deliberately EXEMPT from hostileRooms() (it exists to enter exactly
-  // the rooms the economy flees), so no gate here. Same income-tier
-  // treatment as the reserver, for the same measured reason: at base tier
-  // the guard starved behind income churn through the whole pre-raid window
-  // (def-t4 cell) and the remote fleet it protects died. groupStarted: the
-  // income it preserves is already committed (armed meter = we mined 65k+
-  // there), so fresh source-openings (blocking) still outrank it while
-  // scaling haulers compete with it on value.
-  const raidGuardCorps = commissionedCorpsOfKind<RaidGuardCorp>("raidGuard");
-  for (const id in raidGuardCorps) {
-    const c = raidGuardCorps[id];
-    if (c.getSpawnId() !== spawnId || c.retiring) continue;
-    for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = c.id;
-      d.groupStarted = true;
-      demands.push(d);
-    }
-  }
-  // Core busters (spec 13 ph4): the kill+strip mission that reclaims an
-  // invader-occupied remote. Same military exemption and income-tier
-  // treatment as the guard (value 104 - the mission RESTORES zeroed income),
-  // but never blocking: an occupation is a long siege, not a kill window.
-  const coreBusterCorps = commissionedCorpsOfKind<CoreBusterCorp>("coreBuster");
-  for (const id in coreBusterCorps) {
-    const c = coreBusterCorps[id];
-    if (c.getSpawnId() !== spawnId || c.retiring) continue;
-    for (const d of c.getSpawnDemand(ctx)) {
-      d.groupId = c.id;
-      d.groupStarted = true;
-      demands.push(d);
-    }
-  }
-  // The claim corp (spec 06 expansion): CAPEX, not income - it keeps its
-  // investment-tier value (80, below every income corp) and competes here
-  // only through its holdToFund flag, banking the indivisible 650 once it
-  // tops an otherwise-satisfied queue.
-  const claimCorps = commissionedCorpsOfKind<ClaimCorp>("claim");
-  for (const id in claimCorps) {
-    const c = claimCorps[id];
-    if (c.getSpawnId() === spawnId && !c.retiring) demands.push(...c.getSpawnDemand(ctx));
   }
 
   return demands;
 }
 
 /**
- * Crude estimate of energy delivery into the spawn network: any hauler or
- * bootstrap jack counts as a deliverer. The scheduler only needs a
- * positive/zero signal (whether it is safe to wait for a blocking demand to
- * become affordable, versus needing to spawn an income producer first).
+ * Crude estimate of energy delivery into the spawn network: any creep of a
+ * role declared deliversEnergy (today: the flow hauler) or a bootstrap jack
+ * counts as a deliverer. The scheduler only needs a positive/zero signal
+ * (whether it is safe to wait for a blocking demand to become affordable,
+ * versus needing to spawn an income producer first).
  */
 function estimateIncome(registry: CorpRegistry, room: Room): number {
+  const deliveringWorkTypes = new Set<string>();
+  for (const kind of listCorpKinds()) {
+    for (const role in kind.roles) {
+      if (kind.roles[role].deliversEnergy) deliveringWorkTypes.add(kind.roles[role].workType);
+    }
+  }
   let deliverers = 0;
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
     if (creep.room.name !== room.name) continue;
-    if (creep.memory.workType === "haul") deliverers++;
+    if (creep.memory.workType && deliveringWorkTypes.has(creep.memory.workType)) deliverers++;
   }
   const bootstrap = registry.bootstrapCorps[room.name];
   if (bootstrap) deliverers += bootstrap.getCreepCount();
@@ -340,24 +299,28 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
 }
 
 /**
- * Publish the NOW plan (docs/specs/11): the ordered acquisition queue this
- * spawn expects to work through, derived from the same demands and ranking
- * the scheduler uses. Observability first - W2N6-class sequencing bugs
- * ("granted 6x minerB against target 1", "reserver waited 1800 ticks")
- * become one-line agenda-vs-actual violations instead of archaeology. The
+ * Publish the NOW plan (docs/specs/11, prescriptive since spec 17): the
+ * acquisition queue this spawn works through, straight from planAcquisitions -
+ * so the published order, gate verdicts, and this tick's buy are ONE record
+ * that cannot disagree with what the spawn does. W2N6-class sequencing bugs
+ * ("granted 6x minerB against target 1", "reserver waited 1800 ticks") read
+ * as one-line agenda-vs-actual violations instead of archaeology. The
  * fundingNeed sums the minimum bodies of must-fund demands (blocking,
  * replacement, holdToFund): the energy production is asking for RIGHT NOW,
  * for the flow adapter to route toward the spawn network (spec 11 phase 2).
- * Phase 3: entries carry their transition label (`why`) and precondition,
- * and execution receipts accumulate beside the queue (recordAgendaExecution).
+ * Execution receipts accumulate beside the queue (recordAgendaExecution).
  */
-function publishSpawnAgenda(spawnId: string, demands: SpawnDemand[], energyAvailable: number): void {
+function publishSpawnAgenda(spawnId: string, plan: AcquisitionPlan, _energyAvailable: number): void {
   if (typeof Memory === "undefined") return;
-  const { queue, fundingNeed } = buildAgendaQueue(demands, Game.time, energyAvailable);
   const table = (Memory.spawnAgenda ??= {});
   // Receipts survive the per-tick republish - they are the actual-vs-NOW half.
   const executed = table[spawnId]?.executed;
-  table[spawnId] = { tick: Game.time, fundingNeed, queue, ...(executed ? { executed } : {}) };
+  table[spawnId] = {
+    tick: Game.time,
+    fundingNeed: plan.fundingNeed,
+    queue: plan.agenda,
+    ...(executed ? { executed } : {})
+  };
 }
 
 /** Ring size for a spawn's execution receipts (enough for a fidelity window). */

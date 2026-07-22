@@ -26,11 +26,10 @@
  * @module execution/OrphanRescue
  */
 
-import { CarryCorp } from "../corps/CarryCorp";
 import { Corp } from "../corps/Corp";
+import { CorpKind, listCorpKinds } from "../economy/CorpKind";
 import { CorpRegistry } from "./CorpRunner";
-import { HarvestCorp } from "../corps/HarvestCorp";
-import { commissionedCorpsOfKind } from "./CommissionHost";
+import { allCommissionedCorps, commissionedCorpsOfKind } from "./CommissionHost";
 import { driveRecycle } from "../corps/recycle";
 
 /**
@@ -67,86 +66,65 @@ export function orphanAction(
   return now - since >= grace ? "recycle" : "wait";
 }
 
-/** workType -> the corp kind that owns that role, for same-room re-adoption. */
-const ROLE_KIND: Record<string, string> = {
-  upgrade: "upgrade",
-  build: "construction",
-  reserve: "reservation",
-  scout: "scout",
-  tank: "tender",
-  feed: "controllerFeeder",
-  guard: "raidGuard",
-  buster: "coreBuster",
-  strike: "coreBuster"
-};
-
-/** Every live corp id this tick: the union of what each runner claims creeps by. */
+/**
+ * Every live corp id this tick: the whole commission-store census plus the two
+ * legacy-registry corps (bootstrap, spawning). Registry-derived - a newly
+ * registered kind's corps are live by construction, never by remembering to
+ * extend a list here (the pre-spec-17 hand-maintained 11-kind list is gone).
+ */
 function liveCorpIds(registry: CorpRegistry): Set<string> {
   const ids = new Set<string>();
-  for (const kind of [
-    "harvest",
-    "carry",
-    "upgrade",
-    "construction",
-    "scout",
-    "reservation",
-    "raidGuard",
-    "coreBuster",
-    "claim",
-    "tender",
-    "controllerFeeder"
-  ]) {
-    const corps = commissionedCorpsOfKind<Corp>(kind);
-    for (const id in corps) ids.add(corps[id].id);
-  }
+  for (const entry of allCommissionedCorps()) ids.add(entry.corp.id);
   for (const room in registry.bootstrapCorps) ids.add(registry.bootstrapCorps[room].id);
   for (const spawnId in registry.spawningCorps) ids.add(registry.spawningCorps[spawnId].id);
   return ids;
 }
 
 /**
- * Find a live corp that legitimately owns this creep's work, by role and target.
- * Returns its id (to stamp onto the creep), or null when no live corp covers the
- * job - in which case the creep is recycled instead of re-adopted.
+ * The registered kinds that may re-adopt an orphan of the given workType, in
+ * kind execution order. Derived from each kind's roles declaration
+ * (RoleSpec.readopt gates kinds that stamp a workType but cede its rescue,
+ * e.g. construction's tankers belong to the tender kind). Exported for the
+ * registration-only conformance test.
+ */
+export function readoptKindsFor(workType: string): CorpKind[] {
+  const kinds: CorpKind[] = [];
+  for (const kind of listCorpKinds()) {
+    for (const role in kind.roles) {
+      const spec = kind.roles[role];
+      if (spec.workType === workType && spec.readopt !== false) {
+        kinds.push(kind);
+        break;
+      }
+    }
+  }
+  return kinds;
+}
+
+/**
+ * Find a live corp that legitimately owns this creep's work. Returns its id
+ * (to stamp onto the creep), or null when no live corp covers the job - in
+ * which case the creep is recycled instead of re-adopted.
+ *
+ * Ownership is declared by the kinds: a kind with claimsOrphan applies its own
+ * rule (harvest: the source under the creep's feet; carry: the corp routing
+ * its assigned source); the default is any same-room corp of a kind that
+ * declared the creep's workType.
  */
 function readoptTarget(creep: Creep): string | null {
-  const role = creep.memory.workType;
+  const workType = creep.memory.workType;
+  if (!workType) return null;
 
-  // A miner belongs to the harvest corp for the source it is standing on (or its
-  // remembered source). If that source is no longer commissioned there is no such
-  // corp, so it falls through to recycle.
-  if (role === "harvest") {
-    const source =
-      creep.pos.findInRange(FIND_SOURCES, 1)[0] ??
-      (creep.memory.assignedSourceId
-        ? Game.getObjectById(creep.memory.assignedSourceId as Id<Source>) ?? undefined
-        : undefined);
-    if (!source) return null;
-    const corps = commissionedCorpsOfKind<HarvestCorp>("harvest");
-    for (const id in corps) {
-      if (corps[id].getSourceId() === source.id) return corps[id].id;
+  for (const kind of readoptKindsFor(workType)) {
+    const corps = commissionedCorpsOfKind<Corp>(kind.kind);
+    if (kind.claimsOrphan) {
+      const claimed = (kind.claimsOrphan as (c: Creep, cs: { [id: string]: Corp }) => string | null)(creep, corps);
+      if (claimed) return claimed;
+      continue;
     }
-    return null;
-  }
-
-  // A hauler belongs to the carry corp that routes its assigned source.
-  if (role === "haul") {
-    const sourceId = creep.memory.assignedSourceId;
-    if (!sourceId) return null;
-    const corps = commissionedCorpsOfKind<CarryCorp>("carry");
     for (const id in corps) {
-      if (corps[id].getAssignmentForSource(sourceId)) return corps[id].id;
+      if (corps[id].getPosition().roomName === creep.pos.roomName) return corps[id].id;
     }
-    return null;
-  }
-
-  // Other roles are tied to a place, not a source: re-adopt into a live corp of
-  // the matching kind in the same room (upgrader/builder/reserver/scout/tender).
-  const kind = role ? ROLE_KIND[role] : undefined;
-  if (!kind) return null;
-  const corps = commissionedCorpsOfKind<Corp>(kind);
-  for (const id in corps) {
-    if (corps[id].getPosition().roomName === creep.pos.roomName) return corps[id].id;
   }
   return null;
 }

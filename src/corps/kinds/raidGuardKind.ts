@@ -29,6 +29,7 @@ export interface RaidGuardAssignment {
 
 export const raidGuardKind: CorpKind<RaidGuardCorp> = {
   kind: "raidGuard",
+  roles: { guard: { workType: "guard" } },
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
@@ -77,5 +78,13 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
 
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
     return buildGuardBody(energyBudget, bodyParam ?? 5).body;
+  },
+
+  // Producer protection funds as an already-started income unit (spec 13): the
+  // income it preserves is committed (the armed meter says we mined 65k+
+  // there). At base tier the guard starved behind income churn through the
+  // whole pre-raid window (def-t4) and the remote fleet it protects died.
+  demandGroup(corp: RaidGuardCorp) {
+    return { groupId: corp.id, started: true };
   }
 };

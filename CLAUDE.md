@@ -53,6 +53,18 @@ whose operators are corps. Read order for architecture truth:
 
 ## Trap list (each of these has burned a session)
 
+- **Bandaid rules: question the mechanism, not just its failure** (owner
+  2026-07-20): a rule whose distress response is REVOCATION — retire
+  commissions, strand the standing fleet — is the wrong class regardless of
+  its trigger. Standing assets keep working their profitable routes; scarcity
+  acts at the SPAWN (defund: no NEW bodies, via priority), and the planner
+  prices — it doesn't gate. The retired remote gate took TWO patches (sticky
+  window, then agenda reads) across two incidents (t72444963, t72448082: 238
+  parts stranded, income 46→20, a 2150 hauler bought for an already-dropped
+  route) before the rule itself was questioned. If you are writing the SECOND
+  patch on the same mechanism, the mechanism is the bug — stop and interrogate
+  it. (Correct-class contrast already in-tree: the hostile-route rule spawns
+  no new haulers but strands nobody.)
 - **Recycling counts as staffing**: do NOT exclude `recycling` creeps from
   staffing counts — the pounce-recycle path orders its own successor;
   excluding them double-orders (measured collapse to a 7-runt fleet).
@@ -71,16 +83,24 @@ whose operators are corps. Read order for architecture truth:
   mockup db's `$set` with dotted paths (`"store.energy"`) silently NO-OPS —
   write whole objects. Staged storage needs the OWNED schema
   (user + storeCapacityResource).
-- **New corp kinds** must be added to OrphanRescue `liveCorpIds` AND
-  SpawnDirector `collectDemands`, or their creeps get orphan-recycled / never
-  spawn. Every kind's `materialize` must refresh `spawnId` on existing corps
-  (immortal consumer corps otherwise keep a dead spawn's id forever —
-  conformance test enforces).
+- **New corp kinds** integrate by REGISTRATION ONLY (spec 17): one kind file +
+  one `KINDS` entry in CommissionHost. Demand policy, body building, orphan
+  rescue, and the census all derive from the kind's declarations (`roles`,
+  `demandGroup`, `sourceOf`, `claimsOrphan`, `body`) — if adding a kind seems
+  to need an edit anywhere else, that's a framework regression; fix the seam,
+  don't hand-wire. Enroll every kind in the conformance suite
+  (`describeCorpKindConformance`). Every kind's `materialize` must refresh
+  `spawnId` on existing corps (immortal consumer corps otherwise keep a dead
+  spawn's id forever — conformance test enforces).
 - **Corp id prefixes**: planner ids are pure (`harvest-{flowSourceId}`); kinds
   strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
   live creeps.
 - **Sim blind spots**: sims never churn spawn ids, never lose room vision,
-  and never generate NPC raids (raid generation is a backend wall-clock cron
+  never generate NPC raids, and STAGE NO roadRoutes receipts - a code path
+  gated on them (paved repricing, trunk dedication) never executes in the
+  integration trio, so its gate can pass for the wrong reason (measured
+  t72475006: empty-plan crash live, trio green). Stage the receipts in a
+  grid cell for any receipts-gated behavior (raid generation is a backend wall-clock cron
   the mockup doesn't run — invader noise is a LIVE-ONLY effect class; grid
   cells stage their raids by db insert). Don't claim live-readiness from
   sims alone.
