@@ -1,4 +1,30 @@
 import { expect } from "chai";
+import { feederBodyRate } from "../../../src/corps/ControllerFeederCorp";
+
+/**
+ * The feeder BODY sizes to consumer burn, not the surplus valve (owner
+ * 2026-07-22: "the feeder seems way too large" - live: relay 110 e/t sized
+ * an 11-carry 22-part body at DISTANCE 1 while the upgraders burned ~40).
+ * The relay TARGET (pacing) is untouched; the body just makes more trips.
+ */
+describe("feederBodyRate (body from actuals, valve for pacing - SURPLUS regime only)", () => {
+  const SURPLUS_BANK = 200_000;
+  it("caps the live shape: relay 110, 40 standing WORK -> body sized to 60", () => {
+    expect(feederBodyRate(110, 21, 40, SURPLUS_BANK)).to.equal(60);
+  });
+  it("floors at the plan flow during an upgrader resize dip", () => {
+    expect(feederBodyRate(110, 21, 0, SURPLUS_BANK)).to.equal(21);
+  });
+  it("a small relay passes through unchanged (never upsizes)", () => {
+    expect(feederBodyRate(15, 21, 40, SURPLUS_BANK)).to.equal(15);
+  });
+  it("no plan and no fleet: falls back to the relay (bootstrap rooms)", () => {
+    expect(feederBodyRate(30, undefined, 0, SURPLUS_BANK)).to.equal(30);
+  });
+  it("SAVE regime: untouched (a filling warchest sees no behavior change - the pinned contract)", () => {
+    expect(feederBodyRate(15, 10, 0, 5000)).to.equal(15);
+  });
+});
 import "../../../src/types/Memory";
 import { feederRelayTarget } from "../../../src/corps/ControllerFeederCorp";
 import { WARCHEST_TARGET, bankSurplusRate, feederRelayRate } from "../../../src/economy/bank";

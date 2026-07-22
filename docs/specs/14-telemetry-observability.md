@@ -168,6 +168,48 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-reported live incident t72490325) — DARK REFILL POST: tender bootstrap priority; cbd5 pacing diagnosed as the fallback regime; feeder body from actuals
+
+Owner reported live: "no tenders ... we need tenders so we can spawn
+full sized creeps, full time. big opportunity cost ... tendering is
+higher value than more mining in terms of spawn priority." Capture
+confirmed: tender gate "demand", staffing 0 vs target 3, endFill
+COLLAPSED to 0.41, spawn idling at 0.71 - the refill death spiral (no
+tender -> empty extensions -> unaffordable bodies). Root cause of the
+starvation: tender value 96 vs miners 100-146 and haulers 90-110 - the
+re-field wave outbid the refill apparatus indefinitely.
+
+FIX (owner's rule encoded): REFILL BOOTSTRAP - staffing 0 + bank >10k
+lifts the tender bid to value 150, above the whole income range. NOT
+blocking (owner mid-fix: "don't do anything rash" - verified the
+scheduler buys at minCost immediately via afford-min-scaled, so value
+alone fields a scaled tender on the next walk; the blocking-tender-
+stream era's W2N6 scar, documented in SpawnScheduler, stays retired).
+One live tender ends the emergency (96 for top-ups).
+
+CBD5 PACING (owner: "keeps walking back and forth"): diagnosed as the
+SAME incident - with extensionTenderActive false (no tender alive),
+haulers enter the designed fan-fill fallback (depot -> extensions ->
+empty -> depot) and spawnNetworkCritical re-rolls the between-trip
+destination as extensions drain. hauler-g-4-37 (the 2-part E2 strand
+filling extensions) is the same regime. depart() fixes per-trip
+destinations, so no mid-route thrash exists; the code-cop
+assignedSourceId suspect is downgraded (cbd5 uses the per-source
+assignment path, not the legacy round-robin). Prediction: pacing stops
+the moment the bootstrap tender fields.
+
+FEEDER BODY FROM ACTUALS (owner: "way too large", queued yesterday):
+feederBodyRate - in the SURPLUS regime only, the body sizes to
+min(relay, max(planFlow, standingUpgraderWORK x 1.5)) instead of the
+full valve; the relay TARGET (pacing) is untouched, the body makes
+more trips at distance 1. Live shape: relay 110 -> body rate 60 ->
+~12-14 parts vs the 22-part valve body. Save regime pinned unchanged
+(the filling-warchest contract).
+
+Queued (owner): idle creeps preferring to stand OFF roads (parking
+polish - roads decay per creep STEP not per standing tick, so the win
+is lane-blocking, not wear; fold into the remodel's parking spots).
+
 ### 2026-07-22 (owner-directed, wrap-up tail) — source-approach exemption, EOL hauler recycle, X4 rounding meter, feeder truth-pricing
 
 Four owner calls closing the day (gate: unit 1200 + build + trio,

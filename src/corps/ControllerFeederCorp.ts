@@ -94,6 +94,32 @@ export function feederRelayTarget(
   return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
 }
 
+/**
+ * The rate the feeder's BODY is sized to (owner 2026-07-22: "the feeder
+ * seems way too large") - distinct from the RELAY TARGET above, which paces
+ * how much the feeder moves over time. The body only needs to keep pace
+ * with what the consumers can actually BURN: standing upgrader WORK x 1 e/t
+ * with 1.5x headroom (fleet growth + stock building), floored at the plan's
+ * controller flow so a mid-resize dip never starves the allocation. At the
+ * link-fed distance 1 the old body sized to the full surplus VALVE (~110
+ * e/t -> 11 carry, a 22-part creep) while the fleet burned ~40 - the valve
+ * pacing is unchanged, the feeder just makes more trips with a body sized
+ * from ACTUALS (sustainableConsumptionRate doctrine, applied to the relay).
+ */
+export function feederBodyRate(
+  relayRate: number,
+  planFlow: number | undefined,
+  standingWork: number,
+  banked: number
+): number {
+  // SURPLUS regime only: the save-regime relay is already small (the
+  // warchest trickle) and its sizing contract is pinned - a filling
+  // warchest must see no behavior change.
+  if (bankSurplusRate(banked) <= 0) return relayRate;
+  const burnCap = Math.max(planFlow ?? 0, standingWork * 1.5);
+  return burnCap > 0 ? Math.min(relayRate, burnCap) : relayRate;
+}
+
 export class ControllerFeederCorp extends Corp {
   private spawnId: string;
   /** The plan's controller-side flow (commission-owned, refreshed every round). */
@@ -327,7 +353,16 @@ export class ControllerFeederCorp extends Corp {
     // serves the rest of the surplus, floored at the plan residual.
     const constructionAbsorb = buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos);
     const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionAbsorb);
-    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(relayRate, distance) * 1.2));
+    // BODY sized to consumer burn, not the surplus valve (feederBodyRate -
+    // owner: "the feeder seems way too large"). Standing WORK read from the
+    // live upgrader fleet, the same actuals-first doctrine consumers use.
+    let standingWork = 0;
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
+    }
+    const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked);
+    const neededCarry = Math.max(1, Math.ceil(carryPartsFor(bodyRate, distance) * 1.2));
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
     this.lastSizing = {
@@ -336,6 +371,8 @@ export class ControllerFeederCorp extends Corp {
       banked,
       hasMiner,
       relayRate,
+      bodyRate,
+      standingWork,
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
       ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),

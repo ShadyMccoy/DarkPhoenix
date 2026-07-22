@@ -120,6 +120,33 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect((back as any).dutyTransfers).to.equal(30);
   });
 
+  it("REFILL BOOTSTRAP (owner, live t72490325): a DARK post with a stocked bank outbids all income and blocks", () => {
+    // Zero tenders + banked energy = every spawn tick without a tender
+    // buys runts from an unfillable room. Emergency value 150 beats miners
+    // (100-146) and haulers (90-110); one live tender ends the emergency.
+    const r = room({ depot: true, extensions: 40, scattered: true });
+    (r as any).storage = { my: true, store: { energy: 173_000 } };
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
+    };
+    const dark = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    expect(dark[0].value, "emergency: above the whole income range").to.equal(150);
+    expect(dark[0].blocking, "value wins the rank; never freeze the spawn (W2N6 scar)").to.equal(false);
+    expect(dark[0].minCost, "a scaled tender fields on the next walk").to.equal(200);
+
+    // One live tender: back to ordinary infrastructure priority.
+    Game.creeps.t1 = {
+      memory: { corpId: (corp as any).id, workType: "tank" },
+      body: { length: 8 },
+      ticksToLive: 1400,
+      room: { name: "W0N0" }
+    } as any;
+    const staffedOne = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    expect(staffedOne[0].value, "one alive: ordinary priority for the top-up").to.equal(96);
+    expect(staffedOne[0].blocking).to.equal(false);
+  });
+
   it("asks for NOTHING before the room has a miner (income before infrastructure)", () => {
     const corp = corpFor(room({ depot: true, extensions: 5 }));
     Game.creeps = {}; // no miner yet

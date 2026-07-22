@@ -504,12 +504,29 @@ export class ExtensionTenderCorp extends Corp {
       maxCarry
     );
 
+    // REFILL BOOTSTRAP (owner 2026-07-22, live incident t72490325: zero
+    // tenders, gate "demand" while endFill collapsed to 0.41 and the spawn
+    // idled at 0.71 - "since we have energy in the storage, tendering is
+    // higher value than more mining in terms of spawn priority"): with the
+    // refill post DARK and a stocked bank, every body the spawn builds
+    // without a tender is a runt bought from an unfillable room - the
+    // tender multiplies all later spawn capacity, so it outbids the whole
+    // income range (miners 100-146, haulers 90-110) by VALUE alone.
+    // Deliberately NOT blocking (owner: "don't do anything rash"): the
+    // scheduler buys at minCost immediately (afford-min-scaled), so value
+    // 150 fields a scaled tender on the next walk without freezing lower
+    // spends - the blocking-tender-stream era starved a held miner 3000
+    // ticks on W2N6 (see SpawnScheduler's hold comment) and stays retired.
+    // One live tender ends the emergency: topping back to target is
+    // ordinary infrastructure again.
+    const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
+    const bootstrap = staffing === 0 && banked > 10_000;
     return [
       {
         buyerCorpId: this.id,
         role: "tanker",
-        value: 96, // infrastructure: above upgrading/building, below the core mining economy
-        blocking: false, // infrastructure, not core income - never hold the spawn ahead of producers
+        value: bootstrap ? 150 : 96, // emergency: above all income; else above upgrading/building, below mining
+        blocking: false, // never hold the spawn - minCost 200 buys instantly at this rank anyway
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,
