@@ -96,13 +96,74 @@ interface Repairable {
  */
 export function nextRepairTarget<T extends Repairable & { id: string }>(
   structures: T[],
-  latchedId: string | undefined
+  latchedId: string | undefined,
+  rangeOf?: (s: T) => number
 ): T | null {
   if (latchedId) {
     const latched = structures.find(s => s.id === latchedId);
     if (latched && latched.hits < latched.hitsMax * REPAIR_TO) return latched;
   }
+  // SEQUENTIAL SWEEP (owner 2026-07-22: "repair things that are sequential
+  // logistically"): with a position lens, routine maintenance walks the
+  // NEAREST below-ceiling structure next, so the detail sweeps along a road
+  // instead of crisscrossing the room between whichever two structures trade
+  // the lowest fraction. Genuinely endangered structures (below the spawn
+  // gate, ~one full decay band down) still preempt by fraction - the danger
+  // band never waits on geography. Without a lens the fraction order stands
+  // (callers with no position, and the pure unit tests).
+  if (rangeOf) {
+    const endangered = pickRepairTarget(structures, REPAIR_SPAWN_BELOW);
+    if (endangered) return endangered;
+    return nearestBelowCeiling(structures, rangeOf);
+  }
   return pickRepairTarget(structures, REPAIR_TO);
+}
+
+/** The closest structure still under the repair ceiling, or null if all are healthy. */
+function nearestBelowCeiling<T extends Repairable>(structures: T[], rangeOf: (s: T) => number): T | null {
+  let best: T | null = null;
+  let bestRange = Infinity;
+  for (const s of structures) {
+    if (s.hits >= s.hitsMax * REPAIR_TO) continue;
+    const r = rangeOf(s);
+    if (r < bestRange) {
+      bestRange = r;
+      best = s;
+    }
+  }
+  return best;
+}
+
+/**
+ * The construction site a builder should build THIS tick - the build-side twin
+ * of {@link nextRepairTarget} (owner 2026-07-22: "they just go to a site, stay
+ * there ... and build"). It LATCHES to its current site until that site is
+ * gone (built - completed sites vanish from FIND_MY_CONSTRUCTION_SITES), then
+ * picks the NEAREST remaining one, so the builder finishes a site before
+ * walking to the logistically-adjacent next instead of re-deciding every tick
+ * (the old per-tick findClosestByPath flipped the target as the creep drifted
+ * along a paving route and tiles completed - the measured ping-pong). Pure and
+ * position-agnostic (the `rangeOf` lens) so it is unit-tested without a room.
+ */
+export function nextBuildTarget<T extends { id: string }>(
+  sites: T[],
+  latchedId: string | undefined,
+  rangeOf: (s: T) => number
+): T | null {
+  if (latchedId) {
+    const latched = sites.find(s => s.id === latchedId);
+    if (latched) return latched; // still standing => not finished => keep building it
+  }
+  let best: T | null = null;
+  let bestRange = Infinity;
+  for (const s of sites) {
+    const r = rangeOf(s);
+    if (r < bestRange) {
+      bestRange = r;
+      best = s;
+    }
+  }
+  return best;
 }
 
 /**
