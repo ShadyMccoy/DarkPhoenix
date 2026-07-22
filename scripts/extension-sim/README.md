@@ -93,6 +93,17 @@ meter), and the organic arm's compactness is generator-specific.
    fitness does not model; the spawn's 300-store also makes it the
    best per-intent dump target, 6x an RCL6 extension per transfer).
 
+9. **Pave only the early circuit** (owner-called, `roadprofile.ts`):
+   only LOADED carry generates fatigue, so the tender is heavy exactly
+   on the full-load deadhead from storage to the frontier (the early
+   lane) and light working the late lane. Measured on the diagonal,
+   automaton: rcl8 half-pavement EQUALS full pavement to the tick
+   (33C17M 72/90t, 40C10M 75/93t) at half the build cost and half the
+   decay upkeep - the second-half roads do nothing. rcl6: half gets
+   within 1-2t of full at 55% capex; even ZERO roads costs the 2:1
+   only ~6t mean (still beating every other layout fully paved).
+   Rule: pavement tracks the cargo-weight profile, not the route.
+
 Live implications: adopt `energyStructures` near-reload ordering when we
 next touch the spawn path (free now, decisive at RCL7+); the RCL7/8
 build-out target is the diagonal stripe field with circuit-aligned draw
