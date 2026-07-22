@@ -14,16 +14,22 @@ const FIND_MY_STRUCTURES = 108;
  * per room. Without a depot the haulers still fill the network themselves, so no
  * tender is wanted.
  */
-function room(opts: { depot?: boolean; extensions?: number }): any {
+function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean }): any {
   const spawnPos = {
     x: 25, y: 25, roomName: "W0N0",
     findInRange: (type: number) =>
       type === FIND_STRUCTURES && opts.depot ? [{ structureType: "container", pos: { x: 24, y: 25 } }] : []
   };
   const spawn = { id: "spawn1", pos: spawnPos, store: { getFreeCapacity: () => 0 } };
+  // Default: one tight row (a single spatial cluster). scattered: three
+  // well-separated groups - the legacy-layout shape the fleet count serves.
+  const groupAnchor = (i: number): { x: number; y: number } =>
+    i % 3 === 0 ? { x: 10, y: 10 } : i % 3 === 1 ? { x: 40, y: 10 } : { x: 25, y: 40 };
   const extensions = Array.from({ length: opts.extensions ?? 0 }, (_, i) => ({
     structureType: "extension",
-    pos: { x: 20 + i, y: 20 },
+    pos: opts.scattered
+      ? { x: groupAnchor(i).x + Math.floor(i / 3), y: groupAnchor(i).y }
+      : { x: 20 + i, y: 20 },
     store: { getFreeCapacity: () => 50 }
   }));
   return {
@@ -77,18 +83,22 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
 
-  it("FLEET CAP 2 (owner ratchet 2026-07-22): a 40-extension room targets two tenders, never three", () => {
-    // The old cap-3 encoded RCL2-3 physics (400-carry tenders vs 650
-    // drains); at RCL6 coverage math says 2 (2300 bank / 1150 load) and the
-    // refill sim holds ONE saturated tender at util 1.000 on every layout.
-    const r = room({ depot: true, extensions: 40 });
+  it("FLEET OF 3 SMALL (owner 2026-07-22): a 40-extension room targets three EQUAL-SHARE tenders", () => {
+    // "Split the same amount of body parts across two or three creeps" -
+    // the cap returns to 3 but tenderSlotCarry's equal share keeps the
+    // TOTAL at one bank wave (~the cap-2 ratchet's parts budget), so the
+    // scattered legacy layout gets three coverage points, not the old
+    // 72-part fleet back.
+    const r = room({ depot: true, extensions: 40, scattered: true });
     const corp = corpFor(r);
     Game.creeps = {
       m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any
     };
-    corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    const demand = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
     const sizing = (corp as any).lastSizing;
-    expect(sizing.target, "capped at two").to.equal(2);
+    expect(sizing.target, "three coverage points on scatter").to.equal(3);
+    // Equal share: ceil(2300/3/50) = 16 carry -> a ~32-part 1:1 body request.
+    expect(demand[0]?.bodyParam, "equal-share body, not cluster-inflated").to.equal(16);
   });
 
   it("stamps the transfer-duty meter into lastSizing (the ratchet's verification instrument)", () => {

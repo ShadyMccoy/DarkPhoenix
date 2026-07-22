@@ -48,12 +48,18 @@ export function towerNeedsFill(energy: number, capacity: number): boolean {
 
 /**
  * CARRY parts for the tender filling fleet slot `staffing` (pure, unit-tested).
- * The slot serves clusters[staffing % len] - one trip covers ITS cluster
- * (cluster size + the spawn's tile), floored at an equal share of one full
- * bank wave (ceil(bankCapacity / target / 50)) so the fleet's combined carry
- * still covers a whole drain, capped at what the room can afford. Sizing
- * every body to the BIGGEST cluster instead fielded 3 near-max bodies for a
- * 2300 bank (t72459426: 138p, 0.092 parts/t - the P4 ceiling breach).
+ * EQUAL SHARE of one full bank wave (ceil(bankCapacity / target / 50)),
+ * capped at what the room can afford - the fleet's combined carry covers a
+ * whole drain regardless of count, so raising the count SPLITS the same
+ * body-part total across more coverage points (owner 2026-07-22: "split
+ * the same amount of body parts across two or three creeps - that's gonna
+ * help with the rates while still alleviating the spawn capacity"). The
+ * old per-cluster term (slotSize + 1) sized bodies to their assigned
+ * cluster ON TOP of the share and re-inflated the fleet the moment
+ * clusters were large; coverage of a specific cluster is the ROUTE'S job
+ * (room-level SLA + drive-by transfers), not the body's. Sizing every body
+ * to the BIGGEST cluster fielded 3 near-max bodies for a 2300 bank
+ * (t72459426: 138p, 0.092 parts/t - the P4 ceiling breach).
  */
 export function tenderSlotCarry(
   clusterSizes: number[],
@@ -62,9 +68,10 @@ export function tenderSlotCarry(
   bankCapacity: number,
   maxCarry: number
 ): number {
-  const slotSize = clusterSizes.length > 0 ? clusterSizes[staffing % clusterSizes.length] : 0;
-  const shareFloor = Math.ceil(bankCapacity / Math.max(1, target) / 50);
-  return Math.max(1, Math.min(Math.max(slotSize + 1, shareFloor), maxCarry));
+  void clusterSizes;
+  void staffing;
+  const share = Math.ceil(bankCapacity / Math.max(1, target) / 50);
+  return Math.max(1, Math.min(share, maxCarry));
 }
 
 export class ExtensionTenderCorp extends Corp {
@@ -462,12 +469,14 @@ export class ExtensionTenderCorp extends Corp {
     const clusters = extensionClusters(room);
     const bankCapacity = 300 + 50 * extensions.length;
     const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
-    // FLEET CAP 2 (owner ratchet 2026-07-22): the per-cluster term encoded
-    // RCL2-3 physics (400-carry tenders losing 650-drain deadlines); at
-    // RCL6 the coverage math itself says 2 (2300 bank / 1150 per load), and
-    // the refill sim holds ONE saturated tender at util 1.000 on every
-    // layout. Duty meter + endFill verify the cut; a breach reverts it.
-    const target = Math.min(2, Math.max(1, clusters.length, forCoverage));
+    // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
+    // the legacy scattered layout: "split the same amount of body parts
+    // across two or three creeps"): the SAME total carry (one bank wave,
+    // tenderSlotCarry equal-share) split across three coverage points -
+    // count beats size on scatter (mini-game: fleet count washed out every
+    // other factor), at the ratchet's parts budget, not the old 72-part
+    // fleet's. Duty meter + S3/E5 direct signals verify.
+    const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
     const duty = this.dutyAlive > 0 ? this.dutyTransfers / this.dutyAlive : null;
     this.lastSizing = {
       tick: ctx.tick,

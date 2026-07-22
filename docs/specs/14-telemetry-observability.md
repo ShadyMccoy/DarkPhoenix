@@ -168,6 +168,23 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-directed) — FLEET OF 3 SMALL: same parts, more coverage points (equal-share slot bodies)
+
+Owner, on the cap-2 ratchet vs the legacy scattered layout: "it's
+gonna require a little bit more tenders ... we can also split the same
+amount of body parts across two or three creeps - that's gonna help
+with the rates while still alleviating the spawn capacity." Shipped:
+cap back to 3, tenderSlotCarry becomes a PURE EQUAL SHARE of one bank
+wave (ceil(bank/target/50), the per-cluster slotSize+1 term retired -
+a specific cluster's coverage is the route's job, not the body's).
+Totals pinned within one body's rounding at any count (2x23 vs 3x16
+carry), so the scattered layout gets three coverage points at the
+ratchet's parts budget - NOT the old 72-part fleet back.
+TENDER_FLEET_PARTS stays 48 (P5: measure actual next captures, true
+the price if drifted). Predictions: staffing -> 3 small (~32p bodies
+requested, purchases smaller under partial energy), duty per tender
+~0.10-0.12, S3/E5 stay 0, total tender parts <= ~55.
+
 ### 2026-07-22 (cron cycle, +172t) — TRUNK UNSTUCK FOR REAL: blind cleared, 41/50 and climbing; ledger admission live; ratchet stands
 
 Capture t72489584. The day's three fixes verify together:
