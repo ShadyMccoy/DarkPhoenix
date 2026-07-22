@@ -27,7 +27,7 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   const solution: any = {
     miners: [{ sourceId: "s1", nodeId: "W1N1-1-1", harvestRate: 10, efficiency: 90, spawnDistance: 12 }],
     haulers: [
-      { edgeId: "e1", fromId: "s1", toId: "controller-W1N1", distance: 20, carryParts: 8, flowRate: 10, spawnCostPerTick: 0.5, spawnId: "spawn1", haulerRatio: "1:1" },
+      { edgeId: "e1", fromId: "s1", toId: "controller-W1N1", distance: 20, carryParts: 8, flowRate: 10, spawnCostPerTick: 0.5, spawnParts: 0.011, spawnId: "spawn1", haulerRatio: "1:1" },
       { edgeId: "e2", fromId: "s1", toId: "spawn-W1N1", distance: 5, carryParts: 3, flowRate: 6, spawnCostPerTick: 0.2, spawnId: "spawn1" }
     ],
     sinkAllocations: [
@@ -55,6 +55,11 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     expect(h.flowRate).to.equal(10);
     expect(h.distance).to.equal(20);
     expect(h.ratio).to.equal("1:1");
+    // v8: the planner's OWN paved-aware parts/tick, carried verbatim so the P4
+    // ledger echoes it instead of re-deriving (drift eliminated at the root).
+    expect(h.spawnParts).to.equal(0.011);
+    // a route the planner left without spawnParts stays absent (never null/0)
+    expect(flow.haulers.find((x: any) => x.sinkId === "spawn-W1N1").spawnParts).to.equal(undefined);
     // total planned hauler carry, directly comparable to actual carry in segment 4
     expect(flow.haulers.reduce((a: number, x: any) => a + x.carryParts, 0)).to.equal(11);
   });
@@ -95,7 +100,7 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(7); // v6 carried dedicatedToBuild; v7 retires it (spec 25 phase 3)
+    expect(flow.version).to.equal(8); // v7 retired dedicatedToBuild; v8 exports haulers[].spawnParts
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 

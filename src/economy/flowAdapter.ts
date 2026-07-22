@@ -806,6 +806,10 @@ export function solveColony(
     carryParts: h.carryParts,
     flowRate: h.flowRate,
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
+    // The planner's paved-aware parts/tick, verbatim - the number the P4
+    // ledger echoes (owner 2026-07-22: eliminate the ledger/planner drift by
+    // sharing this one value instead of the ledger re-deriving it).
+    spawnParts: h.spawnParts,
     spawnId: h.spawnId,
     // The paved verdict rides through to telemetry (audit t72469936: the
     // plan HAD repriced cd8e at 2:1 with crawl-corrected CARRY, but seg 6

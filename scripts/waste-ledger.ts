@@ -96,8 +96,19 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
     tp = 0,
     tl = 0;
   for (const h of flow.haulers ?? []) {
-    const parts = 2 * h.carryParts;
-    const load = parts / effectiveLife(h.distance);
+    // ECHO the planner's OWN per-route spawn-parts (CorpPlanner sets
+    // `spawnParts = ((paved?1.5:2)*carryPartsFor(take,dEff))/effectiveLife(d)`)
+    // rather than re-deriving it here (owner 2026-07-22: "eliminate the ledger
+    // vs planner drift at the root by having them share the same code"). The
+    // old recompute `2*carryParts` hardcoded the UNPAVED body for every route,
+    // so a paved-remote colony over-counted its hauler load and P4 read
+    // infeasible (t72508069: 1.01x FAIL where the planner's paved-aware number
+    // is 0.90x). The parts figure (display) backs out of the load over the
+    // same effectiveLife so the "Np" reads consistently. Legacy captures with
+    // no spawnParts fall back to the conservative 2x recompute (no crash).
+    const life = effectiveLife(h.distance);
+    const load = h.spawnParts ?? (2 * h.carryParts) / life;
+    const parts = h.spawnParts !== undefined ? h.spawnParts * life : 2 * h.carryParts;
     const transient = h.sourceId.startsWith("scavenge") || h.sourceId.startsWith("bank");
     if (transient) {
       tp += parts;

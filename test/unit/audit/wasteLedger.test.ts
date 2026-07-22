@@ -49,6 +49,32 @@ describe("waste ledger (spec 15 phase 1)", () => {
     }
   });
 
+  it("P4 READS the planner's own hauler spawnParts - no re-derivation, so no drift", () => {
+    // ROOT-CAUSE of the ledger/planner drift (owner 2026-07-22): the ledger
+    // RECOMPUTED hauler load as 2*carryParts/effectiveLife - a second
+    // implementation of the planner's ((paved?1.5:2)*carryPartsFor)/life. On a
+    // paved-remote colony the 2x-all over-count read P4 1.01x FAIL where the
+    // planner's paved-aware number was 0.90x (t72508069). The fix shares the
+    // ONE number: the planner exports its per-route spawnParts, the ledger
+    // echoes it. This pins the "echo, don't recompute" contract with a sentinel
+    // value the recompute could never produce.
+    const mk = (haulers: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers, sinks: [] }, corps: { corps: [] }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const sentinel = 0.01234; // arbitrary; only an echo (not a recompute) yields it
+    const load = (r: { lines: Array<[string, number, number]> }): number =>
+      r.lines.find(([n]) => n === "source-route haulers")![2];
+    const echoed = planSpawnLoad(
+      mk([{ sourceId: "source-aaa", carryParts: 10, distance: 50, flowRate: 5, spawnParts: sentinel }])
+    );
+    expect(load(echoed), "the planner's spawnParts, verbatim").to.equal(sentinel);
+    // Legacy capture (pre-export, no spawnParts): fall back to the recompute so
+    // old fixtures still produce a number - no crash, no NaN.
+    const legacy = planSpawnLoad(mk([{ sourceId: "source-bbb", carryParts: 10, distance: 50, flowRate: 5 }]));
+    expect(load(legacy), "legacy fallback still computes").to.be.greaterThan(0);
+  });
+
   it("P6 measures per-room reservation PUMP from the bank stamps (reservers not reserving)", () => {
     // t72420978 -> t72421124 (owner marathon directive): stamp-window dt=156,
     // pump_r = bank2 - (bank1 - dt). Two of four needy rooms saw ZERO pump
