@@ -65,6 +65,18 @@ Later families (same rule — one home):
 
 - **Delivery contract:** `deliveryLeadTime`, `staffsPost(ttl, parts, travel)` —
   the ONE staffing lens both demand and count sides must share (trap list).
+- **Project ledger (observe-and-remember):** a corp's decision-facing WORLD
+  state lives in its serialized memory; vision only RECONCILES it (ground
+  truth wins on sight, blind rooms persist, long-blind records decay);
+  decisions read the ledger through ONE lens, never `Game.rooms` (owner
+  2026-07-22: "construction sites should be part of the corps memory so it
+  can rehydrate and bypass Vision ... a general pattern, similar to
+  staffsPost"). First instance: `ConstructionCorp.projects` +
+  `constructionProjectLedger()` (the plan's construction-sink admission);
+  same family as roadRoutes receipts and RoomDiscovery intel. The measured
+  alternative was the cluster flap (t72489078: the sink set oscillated
+  with whichever room was sighted at solve time) and the stranded-trunk
+  deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
 - **Ledger charges:** `controllerWorkSpawnLoad`, `constructionWorkSpawnLoad`,

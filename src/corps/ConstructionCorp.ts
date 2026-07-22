@@ -31,6 +31,31 @@ import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreL
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
 /**
+ * One entry of the corp's PROJECT LEDGER (the observe-and-remember pattern,
+ * owner 2026-07-22: "construction sites should be part of the corps memory
+ * so it can rehydrate and bypass Vision. That's a general pattern we should
+ * work towards - similar to staffsPost"): a durable record of a standing
+ * construction site, written/refreshed whenever its room is SIGHTED, read
+ * by decisions (the plan's sink admission) regardless of vision. Ground
+ * truth wins on sight; a record unseen for PROJECT_LEDGER_DECAY retires
+ * (hostiles can stomp sites in unowned rooms while we are blind).
+ */
+export interface ProjectRecord {
+  id: string;
+  x: number;
+  y: number;
+  roomName: string;
+  structureType: string;
+  /** Energy remaining (progressTotal - progress) at last sight. */
+  remaining: number;
+  /** Tick of last reconciliation against vision. */
+  seen: number;
+}
+
+/** Ticks a ledger record survives without sight before it retires. */
+export const PROJECT_LEDGER_DECAY = 10_000;
+
+/**
  * Serialized state specific to ConstructionCorp
  */
 export interface SerializedConstructionCorp extends SerializedCorp {
@@ -41,6 +66,30 @@ export interface SerializedConstructionCorp extends SerializedCorp {
   constructionAllocations?: SinkAllocation[];
   /** Spec 25 phase 3: source-funded remote-cluster rate for the pool crew */
   poolAllocatedRate?: number;
+  /** The project ledger (pattern above). */
+  projects?: ProjectRecord[];
+}
+
+/**
+ * THE ONE LENS for "what construction projects stand, colony-wide" - read
+ * from the serialized corp store in Memory (durable across resets, never
+ * vision-gated), deduped by site id across corps. The plan's sink
+ * admission, crew reasoning and telemetry must all read THIS, never scan
+ * Game.rooms (the staffsPost symmetry rule applied to world state; the
+ * measured alternative was the cluster flap - 15 sinks -> 0 across two
+ * captures with the solve keyed to which room happened to be sighted).
+ */
+export function constructionProjectLedger(): ProjectRecord[] {
+  const out = new Map<string, ProjectRecord>();
+  if (typeof Memory === "undefined" || !Memory.commissionedCorps) return [];
+  for (const key of Object.keys(Memory.commissionedCorps)) {
+    const entry = Memory.commissionedCorps[key] as { kind?: string; corp?: { projects?: ProjectRecord[] } };
+    if (entry?.kind !== "construction") continue;
+    for (const rec of entry.corp?.projects ?? []) {
+      if (rec.remaining > 0) out.set(rec.id, rec);
+    }
+  }
+  return [...out.values()];
 }
 
 /**
@@ -298,6 +347,11 @@ export class ConstructionCorp extends Corp {
    */
   private poolAllocatedRate = 0;
 
+  /** The project ledger (see ProjectRecord): durable site records, written
+   * only by reconcileProjects (sight), read by everyone via
+   * constructionProjectLedger. */
+  private projects: ProjectRecord[] = [];
+
   /**
    * The builders, as a squad. Count scales with the energy budgeted to
    * construction (see getSpawnDemand): one big builder when energy is scarce,
@@ -365,6 +419,46 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
+   * Reconcile the project ledger against every SIGHTED room: replace each
+   * visible room's records with ground truth (sites gone -> records gone;
+   * progress -> remaining updated), keep blind rooms' records verbatim,
+   * retire records unseen for PROJECT_LEDGER_DECAY. Vision is a
+   * reconciliation event here, never a data source for decisions - the
+   * ledger IS the data source (owner 2026-07-22 pattern ruling).
+   */
+  public reconcileProjects(tick: number): void {
+    const keep: ProjectRecord[] = [];
+    const visibleRecorded = new Set<string>();
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      let sites: ConstructionSite[];
+      try {
+        sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+      } catch {
+        continue; // partial mocks
+      }
+      visibleRecorded.add(roomName);
+      for (const s of sites) {
+        keep.push({
+          id: s.id,
+          x: s.pos.x,
+          y: s.pos.y,
+          roomName,
+          structureType: s.structureType,
+          remaining: s.progressTotal - s.progress,
+          seen: tick
+        });
+      }
+    }
+    for (const rec of this.projects) {
+      if (visibleRecorded.has(rec.roomName)) continue; // ground truth replaced it
+      if (tick - rec.seen > PROJECT_LEDGER_DECAY) continue; // blind too long
+      keep.push(rec);
+    }
+    this.projects = keep;
+  }
+
+  /**
    * Plan construction operations.
    */
   public plan(tick: number): void {
@@ -418,6 +512,14 @@ export class ConstructionCorp extends Corp {
 
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
+
+    // PROJECT LEDGER reconciliation (single writer: the spawn's own-room
+    // corp). Every sighted room's records go to ground truth; blind rooms'
+    // records persist - the plan's sink admission reads the ledger, so the
+    // sink set stops flapping with whichever room was visible at solve time.
+    if (spawn.pos.roomName === this.nodeId.replace(/-construction$/, "")) {
+      this.reconcileProjects(tick);
+    }
 
     const room = this.workRoom(spawn);
     if (!room) {
@@ -2625,7 +2727,8 @@ export class ConstructionCorp extends Corp {
       lastPlacementAttempt: this.lastPlacementAttempt,
       targetBuilders: this.targetBuilders,
       constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
-      poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined
+      poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined,
+      projects: this.projects.length > 0 ? this.projects : undefined
     };
   }
 
@@ -2638,6 +2741,7 @@ export class ConstructionCorp extends Corp {
     this.targetBuilders = data.targetBuilders || 0;
     this.constructionAllocations = data.constructionAllocations ?? [];
     this.poolAllocatedRate = data.poolAllocatedRate ?? 0;
+    this.projects = data.projects ?? [];
   }
 }
 

@@ -168,6 +168,35 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 (owner-directed) — PROJECT LEDGER: sites live in corp memory; the plan admits from the ledger, not eyesight
+
+Owner ruling ("construction sites should be part of the corps memory
+so it can rehydrate and bypass Vision. That's a general pattern we
+should work towards - similar to staffsPost") + explicit "Yes" to
+implementation. Shipped:
+
+- ConstructionCorp.projects: durable ProjectRecord ledger (id, pos,
+  type, remaining, seen), serialized with the corp (rehydrates across
+  resets). reconcileProjects: every SIGHTED room's records go to
+  ground truth; blind rooms persist verbatim; records unseen for
+  PROJECT_LEDGER_DECAY (10k) retire (hostiles stomp sites). Single
+  writer: the spawn's own-room corp, every tick.
+- constructionProjectLedger(): THE ONE LENS - reads the serialized
+  store from Memory.commissionedCorps (never Game.rooms), dedupes by
+  site id, filters zero-remaining.
+- main.ts addConstructionSitesToFlow now iterates the LEDGER; the
+  Game.rooms scan (the measured cluster flap, 15 sinks -> 0 across two
+  captures) is retired. Admission semantics otherwise unchanged.
+- Pattern documented in ONTOLOGY as a peer of staffsPost; 4 unit pins
+  (reconcile/blind-persist/ground-truth-wins, decay, one-lens from
+  Memory, reset round-trip).
+
+Predictions for the post-deploy captures: construction sinks STOP
+flapping (present in consecutive solves while cee0's sites stand,
+regardless of sight); the cluster re-forms and STAYS; cee0 built
+ratchets past 35/50; P2's cluster micro-route set stable between
+captures. Gate: unit 1197 + build + trio (in flight at entry time).
+
 ### 2026-07-22 (owner-directed) — CODE COP: vision-lens sweep of every Game.rooms / getObjectById decision site
 
 All 53 Game.rooms references and decision-shaped getObjectById sites
