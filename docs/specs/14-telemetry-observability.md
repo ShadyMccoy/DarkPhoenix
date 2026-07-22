@@ -168,6 +168,24 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72500847 (scheduled cycle) — ramp mid-flight: upgrader WORK 17 -> 37, income queue drained to the far remotes
+
+P7 FAIL 0.38x (23.8 vs plan 61.9) is the RAMP measured honestly, not
+breakage: 2/6 upgraders fielded, 37 WORK standing at 0.981 util (the
+window average trails a fleet that doubled mid-window), and the spawn
+receipts show the recovery queue draining production-first - the far
+remotes cbd5 + cedc got their miners back this window (@650 each),
+LAST in line exactly as the macro doctrine orders. E4 -9.28/t;
+reservation depth the day's best (banks 350-664, P6 2002t/474t);
+routes 70/70; fleet 34; S3's AFFORDABLE+IDLE head is the known
+capture-timing artifact (gate "buy", bought t72500830 vs capture
+t72500847). P2 7/13 micro-routes: new small routes from the deepened
+reservations - informational.
+
+Cycle verdict: observe; the P7 gap closes as upgraders 3-6 field
+behind the now-drained income queue. Watch next cycle: upgrader count
+toward 6, P7 toward 1x, E4 slope steepening.
+
 ### 2026-07-22 t72500407 (scheduled cycle) — ALL GREEN under the re-land: fleet 33, tender 3/3, endFill 0.444 and climbing
 
 No FAIL lines, ~700 ticks after the previous cycle:
