@@ -405,17 +405,38 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const completion = count2 < count1 || total2 < total1;
       const standing = count1 > 0 && count2 > 0;
       const delivered = prog2 - prog1;
-      const flat = standing && !completion && delivered <= 0;
+      // REMOTE BUILD via receipts (gap measured 2026-07-22: P8 read "0 e/t
+      // built" all day while cee0's trunk went 35 -> 45 - the rooms[] site
+      // meter is home-only and remote build-out was INVISIBLE to the
+      // ledger). roadReceipts.built RATCHETS (never counts down), so its
+      // delta x ROAD_BUILD_COST is a floor on energy actually built into
+      // remote roads - swamp tiles cost more, so this undercounts, never
+      // overcounts.
+      const ROAD_BUILD_COST = 300;
+      const receiptsDelta = ((): number => {
+        const r1 = bcore.roadReceipts ?? {};
+        const r2 = core.roadReceipts ?? {};
+        let tiles = 0;
+        for (const k of Object.keys(r2)) {
+          const b2 = r2[k]?.built;
+          const b1 = r1[k]?.built;
+          if (typeof b2 === "number" && typeof b1 === "number" && b2 > b1) tiles += b2 - b1;
+        }
+        return tiles * ROAD_BUILD_COST;
+      })();
+      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0;
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
-        value: dt > 0 ? +(Math.max(0, delivered) / dt).toFixed(2) : 0,
+        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta) / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
-          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped`
-          : standing
+          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped` +
+            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
+          : standing || receiptsDelta > 0
           ? `sites ${count1}->${count2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+            (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
       });

@@ -41,7 +41,19 @@ mine during that time"). Two halves:
 Gated locally (unit 1180 + build + trio) and DEPLOYED 2026-07-22 on the
 owner's go-ahead (the t72487226 audit measured the flag-era mechanism
 dark-dedicating the trunk QUEUE — 30 e/t zero-routed and zero-building —
-and the owner chose immediate deploy over holding local). Open live-verification item for the deploy:
+and the owner chose immediate deploy over holding local).
+
+**VERIFIED LIVE END-TO-END 2026-07-22** (captures t72488716→t72489965):
+income restored to all 7 sources on deploy (+30 e/t, routed 70/70 since);
+the cee0 cluster formed live (15 construction sinks, source→site routes
+in the plan, zero flags anywhere); mid-build 2:1 repricing engaged at
+paved ≥0.5 exactly per `partialPaveRatio`; the trunk built 35→45/50 in
+one day after 2,600 ticks frozen. Companion mechanisms that made it
+stick: the project ledger (sink admission from corp memory — retired the
+vision flap) and receipt-charged buildPool (retired the blind-room
+crew deadlock). The completion transition (sinks vanish → full rate
+home) is the one acceptance behavior not yet observed live; expected
+within ~2 windows at the current build rate. Open live-verification item for the deploy:
 the pool TANKER detail still fetches from the bank for whatever the pool
 head is — if the head is a source-funded cluster site, that is bank energy
 walking a route the plan funds from the mine; watch for it in the first

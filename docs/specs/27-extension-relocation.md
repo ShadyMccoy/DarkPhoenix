@@ -58,6 +58,26 @@ at 50-capacity prices.
 4. **Verify live**: endFill/duty hold through each move; the scored gain
    materializes at RCL7 (re-measure then).
 
+## Tomorrow's execution plan (owner 2026-07-22: "plan out the next steps
+## (extensions remodeling?) for tmrw")
+
+1. **Phase-1 scorer** (first thing): rank live extensions by summed trip
+   distance to the reload point vs the best free tile; export the scored
+   list, total modeled gain, and — per the owner's per-cluster note ("our
+   clusters are different sizes and different distances from storage, so
+   you can estimate the tender size each one needs") — a PER-CLUSTER
+   table: size, distance, and the tender body it implies. The current
+   equal-share fleet is the deliberate interim ("leave it as is for now,
+   take care of it when we do the extension remodeling").
+2. **Owner reviews the scored plan** (cost 3000e + labor per move, modeled
+   gain, target shape: diagonal where terrain allows, compact blob
+   fallback, passability + spawn-egress constraints held out).
+3. **Migration executor** under the spec's rails (one in flight,
+   surplus-gated, trunks-first, kill switch) — only after the review.
+4. Post-remodel: re-derive tender fleet (count AND bodies) from the new
+   cluster geometry; retire the interim equal-share if the remodel
+   collapses the field to one compact group.
+
 ## Relation
 
 - Spec 15 (waste ledger): phase 1's export is an X-class line (standing
