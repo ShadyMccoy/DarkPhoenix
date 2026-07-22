@@ -48,6 +48,7 @@ import {
   refreshNodeResourcesFromCache,
   renderNodeVisuals,
   renderSpatialVisuals,
+  renderRoadScores,
   rescueOrphans,
   resetAnalysis,
   restoreVisualizationCache,
@@ -60,7 +61,8 @@ import {
   runSpawningCorps,
   runTowers,
   snapshotCorpVariance,
-  startSpawnPlacement
+  startSpawnPlacement,
+  trackRoadUsage
 } from "./execution";
 import { constructionProjectLedger } from "./corps/ConstructionCorp";
 import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
@@ -104,6 +106,7 @@ declare global {
       clearSpawnQueue: () => void;
       forceBootstrap: () => void;
       sourceEfficiency: () => void;
+      roadHeatmap: (roomName?: string) => void;
     }
   }
 }
@@ -222,6 +225,13 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // ===========================================================================
   // PHASE 1: EXECUTE - Run all corps (every tick)
   // ===========================================================================
+
+  // Track where our creeps walked on unpaved ground and paid move-fatigue a road
+  // would have saved (execution/roadTracker -> RoomMemory.roadScores). A durable
+  // statistical heatmap the road planner mines for where to pave; reads this
+  // tick's engine-resolved creep positions, so run it before anything issues new
+  // move intents.
+  bulkhead("road-tracker", () => trackRoadUsage(Game.time));
 
   // Run spawning corps first (they process pending spawn orders)
   bulkhead("spawning-corps", () => runSpawningCorps(corps));
@@ -1050,3 +1060,20 @@ global.clearSpawnQueue = () => {
   console.log(`[GodMode] Cleared ${totalCleared} total pending spawn orders`);
 };
 
+/**
+ * Show the empirical road-usage heatmap: the tiles where our creeps walked on
+ * unpaved ground and paid move-fatigue a road would have saved, ranked hottest
+ * first. Paints a RoomVisual heat overlay when the room is visible.
+ * Call from console: `global.roadHeatmap()` (all owned rooms) or
+ * `global.roadHeatmap("W1N1")`.
+ */
+global.roadHeatmap = (roomName?: string) => {
+  const names = roomName
+    ? [roomName]
+    : Object.keys(Memory.rooms ?? {}).filter(r => Memory.rooms?.[r]?.roadScores);
+  if (names.length === 0) {
+    console.log("[roadScores] No road-usage data yet.");
+    return;
+  }
+  for (const name of names) console.log(renderRoadScores(name));
+};

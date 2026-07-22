@@ -32,6 +32,7 @@ const PURE: string[] = [
   "commissionPlan.ts",
   "siteValue.ts",
   "roadEconomics.ts",
+  "roadScoring.ts",
   "bank.ts",
   "expansion.ts",
   "goals.ts",

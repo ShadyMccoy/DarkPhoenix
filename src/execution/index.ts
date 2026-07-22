@@ -51,6 +51,8 @@ export {
 
 export { renderNodeVisuals, renderSpatialVisuals } from "./Visualization";
 
+export { trackRoadUsage, roadCandidateTiles, renderRoadScores } from "./roadTracker";
+
 export {
   isSpawnPlacementInProgress,
   resetSpawnPlacement,
