@@ -168,6 +168,30 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72500407 (scheduled cycle) — ALL GREEN under the re-land: fleet 33, tender 3/3, endFill 0.444 and climbing
+
+No FAIL lines, ~700 ticks after the previous cycle:
+
+- Census 18 -> 33 (32/33 tracked) - the post-incident re-field is
+  essentially complete, the day's largest fleet.
+- Tender fleet 3/3 STAFFED (45p, duty 0.186 - inside the ratchet's
+  measured band); feeder 16p active; endFill 0.088 -> 0.262 -> 0.444.
+  The re-landed covered lens is running with a live apparatus - no
+  fan symptoms.
+- Reservers fully staffed for the first time today: all four remote
+  banks pumping (P6 658t/645t; W42N22:190 W42N23:268 W43N24:116
+  W44N23:84).
+- X1 workUtil 0.99 on the re-fielded upgrader (17W); P7 14.0 vs 25.0
+  mid-ramp (plan wants 108p of upgrader WORK - the ramp continues).
+- E4 bank 194.6k draining; P9 routes 70/70; S3 clean (util 0.71,
+  spawn busy building).
+
+Cycle verdict: VERIFIED, observe only. The incident arc is closed:
+collapse -> rollback -> root cause -> emergency-gated lane -> re-land
+-> full recovery, all measured. Watch next: upgrader fleet toward the
+plan's 108p, E4 slope, the 4-37 strand clearing (EOL), and the first
+LIVE dark-post pierce whenever a tender generation turns over.
+
 ### 2026-07-22 t72499712 (scheduled cycle) — RECOVERY VERIFIED; re-land live; S3 top-line was a capture-timing artifact
 
 ~1,700 ticks after the rollback, ~an hour after the re-land deploy:
