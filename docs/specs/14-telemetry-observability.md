@@ -168,6 +168,64 @@ and funded/miner symmetry; telemetry test asserts verbatim export + v3.
 
 ## Audit log
 
+### 2026-07-22 t72499165 — INCIDENT: colony collapse 23 -> 4 creeps; spawn WALLED 4,400 ticks; ROLLED BACK to bundle 1 (80ca334)
+
+**DEPLOYED BUILD IS NOW 80ca334's bundle (bundle 1).** Branch HEAD
+(515de7a) carries bundles 2-4 (fan-fill retirement / covered lens,
+off-road parking, builder hand-off) which are LIVE-SUSPENDED pending
+the deadlock fix below. Do NOT redeploy HEAD until it lands.
+
+THE MECHANISM (all from the capture, corps running, no crash):
+
+1. The post-incident fleet was born in one burst (~t72490400-91000),
+   so it DIES in bursts - a cohort effect. Around t72494797 a die-off
+   wave included both tenders (TTL, born of the bootstrap era).
+2. The re-field wave jammed the spawn agenda: 8 entries, ALL mustFund
+   new-units for the income economy, head = miner@650
+   (mining-W44N23-harvest-cbd5), precondition bank>=650, gate:"wall" -
+   a funding wall that holds every lower spend (the W2N6 semantics,
+   via the NOW-plan lane).
+3. Extensions stood at 387/2300: zero tenders alive, and bundle 2 had
+   RETIRED the hauler fan-fill fallback - the exact mechanism whose
+   old comment read "so a dead tender can never deadlock the colony".
+4. The tender corp's own stamp: gate "demand", staffing 0, target 3,
+   hasMiner true - the demand FIRED but never reached the spawn: the
+   agenda queue (capped at 8) held only mustFund walls. The bootstrap
+   value 150 wins the DEMAND walk, but the mustFund lane bypasses
+   value ordering. The bank could not reach 650 without a tender; no
+   tender could field behind the wall. Deadlock, 4,400 ticks: spawn
+   util 0.06, endFill 0.088, every replacement starved, fleet aged
+   out to 4 creeps. E5 shows two hauler@100 drained-spawn runts as
+   the spawn's only purchases.
+
+ATTRIBUTION: bundles 3/4 (parking, hand-off) touch no spawn path and
+are likely innocent bystanders; the lethal pair is bundle 2's
+fallback retirement meeting the agenda's mustFund wall during a
+cohort die-off. The bootstrap's value-150 reasoning (bundle 1) was
+verified in the DEMAND lane and missed the wall lane entirely. The
+t72492179 all-green capture ran the covered lens safely only because
+tenders were alive.
+
+ACTION: emergency rollback src -> 80ca334 (bundle 1: fan-fill
+fallback intact as the deadlock breaker; keeps bootstrap 150, feeder
+body-from-actuals, EOL recycle), build + deploy executed. Expected
+recovery: haulers fan-fill + degraded-reload from the 208k storage ->
+bank climbs past 650 -> wall funds -> re-field cascade -> tender
+bootstrap fields -> normal regime. Verify next capture: creep census
+rising, endFill recovering, wall head cleared.
+
+THE REAL FIX (design before re-landing bundles 2-4, owner decision):
+the refill apparatus must be un-starvable by the wall lane. Options:
+(a) an INFRASTRUCTURE LANE in the agenda - tender/feeder demands ride
+above mustFund walls (they multiply all later spawn capacity);
+(b) walls DOWNSCALE when starved (afford-min-scaled for mustFund
+heads - a 650 miner wall at a 387 ceiling buys a smaller miner);
+(c) a BOUNDED deadlock-breaker: haulers bridge extensions ONLY while
+no tender lives AND the spawn is wall-starved (energyAvailable below
+the wall head's cost) - preserves the accountability doctrine in all
+normal operation, reinstates the survival valve for exactly this
+alignment. Recommendation: (c) now + (a) as the doctrine fix.
+
 ### 2026-07-22 (owner orders, bundles 3+4) — OFF-ROAD PARKING for standing workers; BUILDER HAND-OFF (release + adopt)
 
 BUNDLE 3, off-road parking (owner: "Id love to see the 'avoiding roads'
