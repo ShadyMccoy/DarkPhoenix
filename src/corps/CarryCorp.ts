@@ -391,6 +391,19 @@ export class CarryCorp extends Corp {
     const room = spawn.room;
     const creeps = this.getAssignedCreeps();
 
+    // Stranded-hauler diagnostic (4-30 lingers across captures despite the
+    // retiring-recycle fix): stamp the exact state the recycle paths read -
+    // is the corp retiring? how many routes does it still hold? how many of
+    // its creeps are LOADED (flagRetiringForRecycling skips loaded ones)? One
+    // recapture resolves whether it's stuck-loaded vs never-flagged-retiring.
+    this.lastSizing = {
+      tick,
+      retiring: this.retiring,
+      routes: this.getHaulerAssignments().length,
+      creeps: creeps.length,
+      loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length
+    };
+
     this.flagRuntForRecycling(creeps, room, spawn);
     this.flagEndOfLifeForRecycling(creeps);
     this.flagRetiringForRecycling(creeps);
