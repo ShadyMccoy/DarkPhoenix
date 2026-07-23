@@ -2,7 +2,11 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
 import { setupGlobals, Game } from "../mock";
-import { ExtensionTenderCorp } from "../../../src/corps/ExtensionTenderCorp";
+import {
+  ExtensionTenderCorp,
+  tenderBootstrapPierce,
+  TENDER_BOOTSTRAP_ABUNDANT_STOCK
+} from "../../../src/corps/ExtensionTenderCorp";
 
 const FIND_MY_SPAWNS = 112;
 const FIND_STRUCTURES = 107;
@@ -48,6 +52,43 @@ function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean;
     _spawn: spawn
   };
 }
+
+/**
+ * tenderBootstrapPierce (pure): the spawn-wall pierce decision, unit-pinned so
+ * the scheduler-deadlock fix (spec-26 collapse aftermath) has cheap coverage.
+ * Two emergencies pierce; a normal ramp must not.
+ */
+describe("tenderBootstrapPierce (pure wall-pierce decision)", () => {
+  it("PIERCES a dark post (staffing 0) with a stocked depot - the original rule", () => {
+    expect(tenderBootstrapPierce(0, 3, 300)).to.equal(true);
+    expect(tenderBootstrapPierce(0, 1, 300)).to.equal(true);
+  });
+
+  it("does NOT pierce a dark post with a dry depot (nothing stranded)", () => {
+    expect(tenderBootstrapPierce(0, 3, 0)).to.equal(false);
+    expect(tenderBootstrapPierce(0, 3, 299)).to.equal(false);
+  });
+
+  it("PIERCES a death spiral: below target AND depot abundant (spec-26 collapse fix)", () => {
+    // One tender alive, fleet short of target, and the depot is hoarding stock
+    // the fleet can't drain fast enough - the exact scheduler-wedge signature.
+    expect(tenderBootstrapPierce(1, 3, TENDER_BOOTSTRAP_ABUNDANT_STOCK)).to.equal(true);
+    expect(tenderBootstrapPierce(2, 3, 61_000)).to.equal(true);
+  });
+
+  it("does NOT pierce below target on a NORMAL ramp (stock below the abundant line)", () => {
+    // The whole point of the high gate: an ordinary cold-start ramp banks far
+    // less than TENDER_BOOTSTRAP_ABUNDANT_STOCK before its first tender, so the
+    // broadened pierce never recreates the W2N6 blocking-stream hold.
+    expect(tenderBootstrapPierce(1, 3, 300)).to.equal(false);
+    expect(tenderBootstrapPierce(1, 3, TENDER_BOOTSTRAP_ABUNDANT_STOCK - 1)).to.equal(false);
+  });
+
+  it("does NOT pierce once the fleet is at/above target (emergency over)", () => {
+    expect(tenderBootstrapPierce(3, 3, 61_000)).to.equal(false);
+    expect(tenderBootstrapPierce(4, 3, 61_000)).to.equal(false);
+  });
+});
 
 describe("ExtensionTenderCorp spawn demand (local mover)", () => {
   beforeEach(() => {
@@ -170,7 +211,9 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
   it("REFILL BOOTSTRAP (owner, live t72490325): a DARK post with a stocked bank outbids all income and blocks", () => {
     // Zero tenders + banked energy = every spawn tick without a tender
     // buys runts from an unfillable room. Emergency value 150 beats miners
-    // (100-146) and haulers (90-110); one live tender ends the emergency.
+    // (100-146) and haulers (90-110). With an ABUNDANT bank (173k) the
+    // emergency ends only when the fleet REACHES TARGET (spec-26 death-spiral
+    // fix): one surviving tender against a hoarding depot is still the wedge.
     const r = room({ depot: true, extensions: 40, scattered: true });
     (r as any).storage = { my: true, store: { energy: 173_000 } };
     const corp = corpFor(r);
@@ -183,19 +226,51 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     expect(dark[0].minCost, "a scaled tender fields on the next walk").to.equal(200);
     expect(dark[0].infrastructure, "the emergency ALSO pierces holds/walls (incident t72499165)").to.equal(true);
 
-    // One live tender: back to ordinary infrastructure priority.
-    Game.creeps.t1 = {
-      memory: { corpId: (corp as any).id, workType: "tank" },
-      body: { length: 8 },
-      ticksToLive: 1400,
-      room: { name: "W0N0" }
-    } as any;
-    const staffedOne = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
-    expect(staffedOne[0].value, "one alive: ordinary priority for the top-up").to.equal(96);
-    expect(staffedOne[0].blocking).to.equal(false);
-    expect(staffedOne[0].infrastructure ?? false, "top-ups NEVER pierce walls (the cold-start stream lesson)").to.equal(
-      false
-    );
+    // Fleet at TARGET (staffing 3): emergency over - no demand at all.
+    for (const n of ["t1", "t2", "t3"]) {
+      Game.creeps[n] = {
+        memory: { corpId: (corp as any).id, workType: "tank" },
+        body: { length: 8 },
+        ticksToLive: 1400,
+        room: { name: "W0N0" },
+        spawning: false
+      } as any;
+    }
+    expect(corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any), "at target: no demand").to.have.length(0);
+  });
+
+  it("DEATH SPIRAL (spec-26 collapse): one tender alive, fleet short, depot hoarding -> emergency pierce", () => {
+    // The scheduler-wedge signature: a mustFund income demand walls the drained
+    // network; one surviving tender can't drain the abundant depot fast enough
+    // to fund the wall. The tender must pierce to top the fleet back up from the
+    // stranded stock (proven live via the manual rescue-console bootstrap).
+    const r = room({ depot: true, extensions: 40, scattered: true, depotEnergy: 61_000 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any,
+      t1: { room: { name: "W0N0" }, memory: { corpId: (corp as any).id, workType: "tank" }, spawning: false } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    const sizing = (corp as any).lastSizing;
+    expect(sizing.staffing, "one tender alive").to.equal(1);
+    expect(sizing.target, "three coverage points on scatter").to.equal(3);
+    expect(demand[0].value, "abundant stranded stock: emergency rank").to.equal(150);
+    expect(demand[0].infrastructure, "pierces the mustFund wall to refill the fleet").to.equal(true);
+    expect(demand[0].blocking, "still never freezes the spawn").to.equal(false);
+  });
+
+  it("no death-spiral pierce on a normal ramp: below target but depot below the abundant line", () => {
+    // Same shape but modest stock (a cold-start ramp): the pierce must NOT fire,
+    // or it recreates the W2N6 blocking-stream hold the high gate exists to avoid.
+    const r = room({ depot: true, extensions: 40, scattered: true, depotEnergy: 800 });
+    const corp = corpFor(r);
+    Game.creeps = {
+      m1: { room: { name: "W0N0" }, memory: { workType: "harvest", corpId: "mining-x" } } as any,
+      t1: { room: { name: "W0N0" }, memory: { corpId: (corp as any).id, workType: "tank" }, spawning: false } as any
+    };
+    const demand = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 } as any);
+    expect(demand[0].value, "modest stock: ordinary top-up priority").to.equal(96);
+    expect(demand[0].infrastructure ?? false, "no wall pierce on a normal ramp").to.equal(false);
   });
 
   it("a DRY-depot dark post does not pierce walls either (cold start keeps its exact old ordering)", () => {

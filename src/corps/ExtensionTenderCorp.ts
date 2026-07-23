@@ -74,6 +74,38 @@ export function tenderSlotCarry(
   return Math.max(1, Math.min(share, maxCarry));
 }
 
+/**
+ * A stocked depot this abundant means the network is not merely bootstrapping
+ * a dark post - it is DRAINING: haulers/miners are stranding energy the fleet
+ * can't move fast enough, the signature of the spec-26 collapse (61k stored,
+ * 4-creep fleet, scheduler wedged behind a mustFund miner the drained network
+ * can't afford). Set well above any cold-start ramp: an ordinary empty-store
+ * cold start (W2N6 stream) never banks this much before its first tender, so
+ * broadening the pierce here cannot recreate that hold.
+ */
+export const TENDER_BOOTSTRAP_ABUNDANT_STOCK = 10000;
+
+/**
+ * Should the tender pierce the spawn wall/holds (infrastructure lane) this walk?
+ * Pure so the scheduler-deadlock fix is unit-pinned.
+ *
+ * Two emergencies qualify, both requiring a stocked depot (>= 300, one spawn
+ * volley of otherwise-unreachable stock):
+ *  1. DARK POST (staffing 0): the original rule - with no tender alive, depot
+ *     stock is unreachable for the network and every body the spawn builds is a
+ *     runt bought from an unfillable room. One dark-post body ends the outage.
+ *  2. DEATH SPIRAL (staffing below target AND depot abundant): one tender lives
+ *     but the fleet is too small to drain a hoarding depot; the scheduler can
+ *     wedge behind a mustFund income demand the drained network can't afford
+ *     (spec-26 incident). Pierce to top the fleet back up from stranded stock.
+ *     Gated at TENDER_BOOTSTRAP_ABUNDANT_STOCK so a normal ramp never triggers.
+ */
+export function tenderBootstrapPierce(staffing: number, target: number, depotStock: number): boolean {
+  if (depotStock < 300) return false;
+  if (staffing === 0) return true;
+  return staffing < target && depotStock >= TENDER_BOOTSTRAP_ABUNDANT_STOCK;
+}
+
 export class ExtensionTenderCorp extends Corp {
   private spawnId: string;
 
@@ -536,8 +568,18 @@ export class ExtensionTenderCorp extends Corp {
     // ordinary 96 losing to income (100-146) would strand the colony at
     // 300-energy bodies indefinitely. One spawn volley of stranded stock
     // (>= 300) is the emergency line.
+    // DEATH-SPIRAL EXTENSION (spec-26 collapse, 2026-07-23): the dark-post rule
+    // (staffing 0) alone left a latent scheduler deadlock - when a fleet drain
+    // left ONE tender alive while a mustFund income demand walled the drained
+    // network, the survivor couldn't drain the (61k) hoarding depot fast enough
+    // to fund the wall, and the wall's strict hold blocked the very tenders that
+    // would have refilled it (fleet 30->4, income stalled). A stocked-but-not-
+    // draining depot is a bootstrap; an ABUNDANT one being hoarded past a short
+    // fleet is a death spiral - both pierce. The manual rescue-console bootstrap
+    // proved the fix live; tenderBootstrapPierce automates it. Gated high so a
+    // normal cold-start ramp (empty store) never trips it (the W2N6 scar).
     const depotStock = coreDepot(room)?.store?.[RESOURCE_ENERGY] ?? 0;
-    const bootstrap = staffing === 0 && depotStock >= 300;
+    const bootstrap = tenderBootstrapPierce(staffing, target, depotStock);
     return [
       {
         buyerCorpId: this.id,
