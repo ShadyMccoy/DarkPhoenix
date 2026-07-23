@@ -3649,3 +3649,72 @@ tracked number). No live-behavior change shipped: the `afford-min-scaled`
 undersizing is a candidate future fix, but X5 shows home churn is zero, so
 there is no bot leak to attack this cycle — the instrument now guards against a
 regression that would raise it. Fixture t72509559 (0,4,5,6) committed.
+
+---
+
+**SESSION HANDOFF 2026-07-23 — waste-elimination cycles + links-as-hub-ports design (PR ready to merge).**
+
+The PR (`claude/production-audit-cdj4sb`) is the multi-cycle waste-elimination
+arc. Merged origin/master clean (movement.ts + tests; unit 1338 green).
+
+LANDED (committed, gated; the live-behavior ones deployed + verified):
+- **Surplus consumers fund** — `holdToFund` honored for non-income demands, so
+  the drawdown upgraders wall the spawn instead of freezing at 2/6 (verified
+  live t72504060).
+- **Pool tankers deliver cross-room** and never to the repair detail (trunk
+  stall cleared, t72504737).
+- **Trunk A/Z aggregation (spec 25 phase 4)** — a trunk road becomes TWO
+  construction sinks (road-A home-aggregate + road-Z mine-aggregate, split by
+  energy flow) instead of N micro-haulers. Verified live: cedc 30 sinks → 2,
+  P2 34/44 → 5/13 (t72506645).
+- **P4 ledger/planner drift eliminated at the ROOT** — the planner exports its
+  own paved-aware `spawnParts` (segment 6 v8) and the waste-ledger ECHOES it
+  instead of re-deriving `(paved?1.5:2)`. P4 1.01x FAIL (a ledger artifact, not
+  real infeasibility) → 0.90x, verified live t72508624.
+- **X5 rebuild-churn ledger line (spec 15)** — early-death respawn energy from
+  the blackbox (segment 5), census-cross-checked to exclude fleet GROWTH,
+  weighted by unlived life-fraction, split HOME (bot signal) vs REMOTE (invader/
+  revoke noise). Measured live: 11% of spawn spend, home 0% — the remote-mining
+  floor, no bot bug. Capture default bumped to segments 0,4,5,6. Ledger
+  FAIL-free; E4 draining steadily (−28/t), the surplus self-metering as
+  designed.
+
+DESIGNED TODAY, NOT built (owner: "document the proposed effort ... don't
+build") — **spec 26 links-as-hub-ports**, un-deferred and scoped:
+- Deposit-side port pricing (a `depositPos` mirror of the existing `haulPos`):
+  a mined route prices its delivery to the nearest link that reaches the hub,
+  emergently — cheaper-distance port wins, no flag. Shrinks CARRY:MOVE.
+- Owner **backpressure reframe** retires the surplus-gate: a controller-link
+  drop does NOT bypass the bank — the core fires less into a full link and the
+  feeder pulls less from storage, so the drop DISPLACES a bank drawdown of equal
+  size (net storage = income − consumption either way). Partial banking for
+  free; the bank level self-meters consumption via sustainableConsumptionRate;
+  no regime gate. The t72434228 "spending our savings" incident was the plan
+  re-routing mined to the controller SINK (starving storage) — a different,
+  worse design.
+- **Backpressure trace (done):** the runtime chain already holds — `LinkRunner`
+  fires core→controller only on `ctrl` free capacity, and `coreLinkLoadRoom`
+  drives feeder load to ~0 on a full core. Gaps are all in the PLAN (price the
+  ports; shrink feeder sizing for port-fed flow; keep mined a hub deposit).
+- **Measured on our colony (t72509559 geometry):** ~29 CARRY+MOVE parts (~17%
+  of the mined fleet) ideal, concentrated on the N/E routes that pass the
+  NE source link; derated by the 800-cap port-full fallback. Source/controller
+  split (~79/21) is a layout accident, could invert.
+- **Base-layout payoff:** priced ports make "add a link at P" a number (perturb
+  → replan → read spawn-parts delta), so link PLACEMENT becomes greedy
+  search-by-replanning — and the evaluator IS the runtime pricer (no drift).
+  This is the load-bearing primitive for the base-layout leg, not a one-off.
+
+NEXT, in order:
+1. Build spec 26 MINIMAL, red-first on the confirmed backpressure foundation:
+   `detectLinkDepositPorts` + `routeToSinks` min(storage, port) pricing with
+   honest port-full fallback + 3% toll in net-energy; `CarryCorp` delivery with
+   storage fallback + one shared eligibility lens; feeder relay credits port-fed
+   controller flow; telemetry echoes `depositPos`. Gate: unit + trio + a GRID
+   CELL staging our real links on a remote route (receipts-gated, mockup blind
+   spot). Deploy; verify throughput-derated per-route CARRY:MOVE vs plan.
+2. Then the base-layout evaluator: candidate link positions → replan → greedy
+   place to the RCL link budget; generalize the perturb-replan-read scorer to
+   storage/extension/spawn placement.
+3. Carry-forward gauges: X5 in steady state (this window was post-deploy);
+   warchest-target-as-spend-rate (spec 26 open Q3).
