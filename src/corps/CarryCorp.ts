@@ -393,6 +393,7 @@ export class CarryCorp extends Corp {
 
     this.flagRuntForRecycling(creeps, room, spawn);
     this.flagEndOfLifeForRecycling(creeps);
+    this.flagRetiringForRecycling(creeps);
 
     for (const creep of creeps) {
       if (creep.memory.recycling) {
@@ -415,6 +416,28 @@ export class CarryCorp extends Corp {
    * staffsPost already excludes these from staffing (recycling creeps order
    * their successors - the trap-list rule), so no double-ordering.
    */
+  /**
+   * RETIRING recycle: the planner stopped commissioning this corp (its route
+   * vanished) but it is kept while it has live creeps (materializeCommissions'
+   * hysteresis, so they're never orphaned). A hauler with no route has no work
+   * to "finish", so "run to natural death" meant idling ~1500 ticks (live
+   * t72525241: hauling-W44N23-hauling-4-30, a stranded 6-part creep with no plan
+   * route). Recycle an EMPTY retiring hauler NOW - refunds the body, orders no
+   * successor (retiring already cuts demand). A LOADED one keeps working so
+   * runHauler delivers its cargo first (never strand it); it recycles next tick
+   * once empty. Generalises the scavenger-stock recycle (pickupEnergy) to any
+   * route that vanished.
+   */
+  private flagRetiringForRecycling(creeps: Creep[]): void {
+    if (!this.retiring) return;
+    for (const creep of creeps) {
+      if (creep.memory.recycling || creep.spawning) continue;
+      if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) === 0) {
+        creep.memory.recycling = true;
+      }
+    }
+  }
+
   private flagEndOfLifeForRecycling(creeps: Creep[]): void {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return;

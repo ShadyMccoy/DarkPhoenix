@@ -118,6 +118,45 @@ describe("END-OF-LIFE recycle (owner 2026-07-22: 'less ttl than a round trip - r
   });
 });
 
+describe("RETIRING recycle (a hauler whose plan route vanished should not idle out its life)", () => {
+  before(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).RESOURCE_ENERGY = "energy";
+  });
+
+  // The stranded-hauler linger (live t72525241: hauling-W44N23-hauling-4-30, a
+  // 6-part creep with NO matching plan route). materializeCommissions RETAINS a
+  // corp whose commission vanished (flagged retiring) so its creeps aren't
+  // orphaned - but a hauler with no route has no work to "finish", so "run to
+  // natural death" meant idling ~1500 ticks. An empty retiring hauler recycles
+  // now (refunds the body); a loaded one delivers first, never stranding cargo.
+  const mk = (carried: number): any => ({
+    memory: {},
+    spawning: false,
+    store: { getUsedCapacity: () => carried }
+  });
+
+  it("flags an EMPTY creep on a retiring corp; spares a loaded one", () => {
+    const corp = carryCorp("W1N1-hauling-retire");
+    corp.retiring = true;
+    const empty = mk(0);
+    const loaded = mk(100);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).flagRetiringForRecycling([empty, loaded]);
+    expect(empty.memory.recycling, "retiring + empty: recycle now").to.equal(true);
+    expect(loaded.memory.recycling, "retiring + loaded: deliver first").to.equal(undefined);
+  });
+
+  it("does NOT recycle an empty creep on a corp that is NOT retiring (ordinary between-trips)", () => {
+    const corp = carryCorp("W1N1-hauling-active");
+    corp.retiring = false;
+    const empty = mk(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).flagRetiringForRecycling([empty]);
+    expect(empty.memory.recycling, "active corp: an empty hauler is just between trips").to.equal(undefined);
+  });
+});
+
 describe("tenderOwnsExtensions (owner 2026-07-22: 'each corp needs to do their job, not cover for each other')", () => {
   // The ONE lens every hauler fan-fill site reads. COVERED is structural
   // (depot + extensions stamped by ExtensionTenderCorp.work) and does NOT
