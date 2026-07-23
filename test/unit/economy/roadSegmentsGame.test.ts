@@ -2,7 +2,7 @@
 import { expect } from "chai";
 import { collectTrunkRoutes, homeBankSupply } from "../../../src/economy/roadSegmentsGame";
 import { aggregateTrunkRoadSinks, ConstructionRecord } from "../../../src/economy/roadSegments";
-import { WARCHEST_TARGET, bankSurplusRate } from "../../../src/economy/bank";
+import { BASE_RESERVE, bankSurplusRate } from "../../../src/economy/bank";
 
 /**
  * The receipts-gated wiring for trunk A/Z aggregation. CLAUDE.md trap: no
@@ -87,23 +87,29 @@ describe("collectTrunkRoutes (roadRoutes receipt decode)", () => {
 
 describe("homeBankSupply (bank-surplus draw across owned storages)", () => {
   let saved: any;
+  let savedMemory: any;
   beforeEach(() => {
     saved = (global as any).Game;
+    savedMemory = (global as any).Memory;
+    // Pin the reserve target the same way the plan would publish it, so the
+    // surplus math is deterministic regardless of cross-test Memory leakage.
+    (global as any).Memory = { warchestTarget: BASE_RESERVE };
   });
   afterEach(() => {
     (global as any).Game = saved;
+    (global as any).Memory = savedMemory;
   });
 
   it("takes the largest surplus draw across owned storages", () => {
-    const banked = WARCHEST_TARGET + 100_000;
+    const banked = BASE_RESERVE + 100_000;
     (global as any).Game = {
       rooms: {
         W1N1: { storage: { my: true, store: { energy: banked } } },
-        W2N2: { storage: { my: true, store: { energy: WARCHEST_TARGET + 10_000 } } },
+        W2N2: { storage: { my: true, store: { energy: BASE_RESERVE + 10_000 } } },
         W3N3: { storage: { my: false, store: { energy: 999_999 } } } // not ours: ignored
       }
     };
-    expect(homeBankSupply()).to.be.closeTo(bankSurplusRate(banked), 1e-9);
+    expect(homeBankSupply()).to.be.closeTo(bankSurplusRate(banked, BASE_RESERVE), 1e-9);
   });
 
   it("zero while the warchest is still filling (no surplus, source owns the road)", () => {
@@ -127,11 +133,15 @@ describe("homeBankSupply (bank-surplus draw across owned storages)", () => {
  */
 describe("receipt->aggregate pipeline (cedc micro-hauler incident, staged)", () => {
   let saved: any;
+  let savedMemory: any;
   beforeEach(() => {
     saved = (global as any).Game;
+    savedMemory = (global as any).Memory;
+    (global as any).Memory = { warchestTarget: BASE_RESERVE };
   });
   afterEach(() => {
     (global as any).Game = saved;
+    (global as any).Memory = savedMemory;
   });
 
   it("collapses a 20-tile trunk's per-site sinks to one Z + one A (no micro-haulers)", () => {
@@ -143,7 +153,7 @@ describe("receipt->aggregate pipeline (cedc micro-hauler incident, staged)", () 
       rooms: {
         W43N23: {
           // home room owns the route receipt + the banked surplus
-          storage: { my: true, store: { energy: WARCHEST_TARGET + 100_000 } },
+          storage: { my: true, store: { energy: BASE_RESERVE + 100_000 } },
           memory: { roadRoutes: { cedc: { tiles3, rooms: ["W42N23"] } } }
         }
       }

@@ -6,6 +6,11 @@ gap so the objective-function hole is on the record, not scheduling the work.
 
 **Priority:** P4 (dormant until the bucket drains under real load).
 
+**Strategic companion:** [GRAND_STRATEGY.md](../GRAND_STRATEGY.md) argues why
+`value/intent` is the late-game objective this spec is reaching for — the whole
+convertibility ladder (energy, GCL, military → intents) and why CPU is the one
+resource you cannot manufacture.
+
 ---
 
 ## The gap

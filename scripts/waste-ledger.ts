@@ -24,7 +24,7 @@ import {
   effectiveLife,
   haulerOverhead
 } from "../src/economy/primitives";
-import { WARCHEST_TARGET, feederRelayRate } from "../src/economy/bank";
+import { BASE_RESERVE, feederRelayRate } from "../src/economy/bank";
 import { CLAIM_LIFETIME, RESERVER_DUTY } from "../src/corps/economics";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -127,7 +127,7 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
     const parts = ctrl.workParts * upgraderPartsPerWork(corps);
     lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
   }
-  const relay = feederRelayRate(banked);
+  const relay = feederRelayRate(banked, BASE_RESERVE);
   // LINK-FED feeder charges at distance 1, not the nominal 6 (owner
   // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
   // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03
@@ -320,14 +320,18 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   if (room) {
     const broom = (bcore.rooms ?? []).find((r: any) => r.name === room.name);
     const slope = broom ? (room.storageEnergy - broom.storageEnergy) / dt : 0;
-    const excess = room.storageEnergy - WARCHEST_TARGET;
+    // The reserve is now income-scaled (Memory.warchestTarget); telemetry
+    // fixtures don't carry it, so this diagnostic uses the hard floor as a
+    // conservative threshold - it flags idle capital ABOVE the minimum
+    // reserve, which is the waste signal regardless of the dynamic top.
+    const excess = room.storageEnergy - BASE_RESERVE;
     rows.push({
       id: "E4",
       name: "idle capital",
       value: excess,
-      unit: "energy above warchest",
-      verdict: excess > WARCHEST_TARGET && slope >= 0 ? "FAIL" : excess > WARCHEST_TARGET ? "WARN" : "ok",
-      detail: `storage ${room.storageEnergy} vs target ${WARCHEST_TARGET}, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
+      unit: "energy above base reserve",
+      verdict: excess > BASE_RESERVE && slope >= 0 ? "FAIL" : excess > BASE_RESERVE ? "WARN" : "ok",
+      detail: `storage ${room.storageEnergy} vs base reserve ${BASE_RESERVE}, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
     });
   }
 

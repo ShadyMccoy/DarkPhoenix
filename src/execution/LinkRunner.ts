@@ -15,7 +15,7 @@
 import { controllerLink, coreLink } from "../corps/nodeEnergy";
 import { recordLinkFire } from "../telemetry/LinkMeter";
 import { routeSourceVolley } from "./linkRouting";
-import { WARCHEST_TARGET } from "../economy/bank";
+import { resolveReserveTarget } from "../economy/bank";
 
 /**
  * Don't fire a dribble: wait until the source link holds at least this much, so
@@ -49,7 +49,10 @@ export function runLinks(): void {
     // The instrument (LinkMeter) measures the resulting direct share; a tighter
     // feederRelayRate cap is the v2 refinement if this over-feeds.
     const banked = room.storage?.my ? room.storage.store?.[RESOURCE_ENERGY] ?? 0 : 0;
-    const preferControllerDirect = banked >= WARCHEST_TARGET;
+    // Spec 129 made the reserve a dynamic liquidity buffer; read the published
+    // target through resolveReserveTarget so runtime and plan share ONE number.
+    const preferControllerDirect =
+      banked >= resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
 
     for (const link of links) {
       if (link.id === core.id) continue;

@@ -312,9 +312,13 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(store.allocated).to.be.closeTo(30, 1e-9);
   });
 
-  it("detectBankSources reads live storages: surplus rooms emit, filling rooms don't", async () => {
+  it("detectBankSources reads live storages against the plan-persisted reserve: surplus rooms emit, filling rooms don't", async () => {
     const { detectBankSources } = await import("../../../src/economy/flowAdapter");
-    const { WARCHEST_TARGET, bankSurplusRate } = await import("../../../src/economy/bank");
+    const { bankSurplusRate } = await import("../../../src/economy/bank");
+    // The plan published this reserve target last solve; detectBankSources
+    // reads it (resolveReserveTarget) so emission and consumer sizing agree.
+    const reserveTarget = 30_000;
+    g.Memory.warchestTarget = reserveTarget;
     const storageAt = (roomName: string, energy: number) => ({
       controller: { my: true },
       storage: {
@@ -324,14 +328,14 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
       }
     });
     g.Game.rooms = {
-      W0N0: storageAt("W0N0", WARCHEST_TARGET + 3000), // surplus: draws
-      W1N0: storageAt("W1N0", 9800) // still filling: saves
+      W0N0: storageAt("W0N0", reserveTarget + 3000), // surplus: draws
+      W1N0: storageAt("W1N0", reserveTarget - 200) // still filling: saves
     };
 
     const banks = detectBankSources();
     expect(banks).to.have.length(1);
     expect(banks[0].id).to.equal("bank-W0N0");
-    expect(banks[0].rate).to.be.closeTo(bankSurplusRate(WARCHEST_TARGET + 3000), 1e-9);
+    expect(banks[0].rate).to.be.closeTo(bankSurplusRate(reserveTarget + 3000, reserveTarget), 1e-9);
     expect(banks[0].transient).to.equal(true);
     expect(banks[0].maxMiners).to.equal(0);
   });
@@ -377,6 +381,25 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(p.drainSourceId, "drained by the owning source's hauler").to.equal("source-SRC1");
     expect(p.drainFrom, "drain emerges at the core link").to.deep.equal({ x: 11, y: 10, roomName: "W0N0" });
     expect(p.headroom).to.equal(DEPOSIT_PORT_HEADROOM);
+  });
+
+  it("detectBankSources falls back to BASE_RESERVE before the first solve publishes a target", async () => {
+    const { detectBankSources } = await import("../../../src/economy/flowAdapter");
+    const { BASE_RESERVE, bankSurplusRate } = await import("../../../src/economy/bank");
+    delete g.Memory.warchestTarget; // no solve yet
+    g.Game.rooms = {
+      W0N0: {
+        controller: { my: true },
+        storage: {
+          my: true,
+          pos: { x: 24, y: 24, roomName: "W0N0" },
+          store: { energy: BASE_RESERVE + 3000, getUsedCapacity: () => BASE_RESERVE + 3000 }
+        }
+      }
+    };
+    const banks = detectBankSources();
+    expect(banks).to.have.length(1);
+    expect(banks[0].rate).to.be.closeTo(bankSurplusRate(BASE_RESERVE + 3000, BASE_RESERVE), 1e-9);
   });
 });
 

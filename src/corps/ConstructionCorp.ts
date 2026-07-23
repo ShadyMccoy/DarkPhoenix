@@ -25,7 +25,7 @@ import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
-import { feederRelayRate, spendableBankSurplus } from "../economy/bank";
+import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
 import {
   declinedVerdictStands,
   evaluateRoadRoute,
@@ -713,7 +713,7 @@ export class ConstructionCorp extends Corp {
       // build; judged routes drop their whole tile set at once and the
       // sum-of-projects crew sizing absorbs them like any other work.
       room.storage?.my &&
-      spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0 &&
+      spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0 &&
       tick - this.lastRoadAttempt >= PLACEMENT_COOLDOWN &&
       this.wantsRoadWork(room)
     ) {
@@ -872,7 +872,8 @@ export class ConstructionCorp extends Corp {
     // expansion warchest floor stays untouchable. Without this a road site
     // near the spine saw no container and sized a 5 e/t token crew against a
     // 600k bank.
-    if (room.storage?.my) stock += spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0);
+    if (room.storage?.my)
+      stock += spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget));
     return stock;
   }
 
@@ -1038,7 +1039,7 @@ export class ConstructionCorp extends Corp {
     // is what lets road projects burn banked energy instead of waiting on a
     // committed source's trickle.
     const bank = room.storage;
-    if (bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0) {
+    if (bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0) {
       if (creep.withdraw(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.moveTo(bank, { visualizePathStyle: { stroke: "#00ff00" } });
       }
@@ -1190,7 +1191,11 @@ export class ConstructionCorp extends Corp {
     //     one 5k build. While the warchest is still FILLING the ladder is
     //     unchanged (rung 3 below) - cons-ext-before-ctrl-container and
     //     cons-link-core-first pin that ordering.
-    if (containersOpen && room.storage?.my && spendableBankSurplus(room.storage.store.energy ?? 0) > 0) {
+    if (
+      containersOpen &&
+      room.storage?.my &&
+      spendableBankSurplus(room.storage.store.energy ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0
+    ) {
       const ctrlContainer = this.findMissingControllerContainer(room);
       if (ctrlContainer) {
         this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER);
@@ -1322,7 +1327,9 @@ export class ConstructionCorp extends Corp {
       if (!this.routeSettled(e, trunk.flow)) return true;
     }
     const feeder = room.memory.roadRoutes?.["feeder"];
-    const feederFlow = room.storage?.my ? feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0) : 0;
+    const feederFlow = room.storage?.my
+      ? feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+      : 0;
     if (!this.routeSettled(feeder, feederFlow) && room.storage?.my) {
       const ctrl = room.controller;
       if (ctrl && ctrl.pos.findInRange(FIND_STRUCTURES, 3, { filter: s => s.structureType === STRUCTURE_CONTAINER }).length > 0)
@@ -1381,7 +1388,9 @@ export class ConstructionCorp extends Corp {
       // SURPLUS (owner 2026-07-18: a 600k bank is the surplus signal - the
       // full-bank tick almost never occurred while the spawn ran pinned, so
       // zero routes were ever judged despite the fattest bank all session).
-      const surplusBanked = room.storage?.my && spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0) > 0;
+      const surplusBanked =
+        room.storage?.my &&
+        spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
       if (room.energyAvailable < room.energyCapacityAvailable && !surplusBanked) {
         // The last silent exit in the road scan (spec 14): an unjudged source
         // behind this wall blocks the feeder trunk below it every pass.
@@ -1642,7 +1651,10 @@ export class ConstructionCorp extends Corp {
     if (
       entry?.declined &&
       bank?.my &&
-      !declinedVerdictStands(entry.judgedFlow, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0))
+      !declinedVerdictStands(
+        entry.judgedFlow,
+        feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+      )
     ) {
       delete routes["feeder"]; // the relay rate outgrew the cached verdict - re-judge
       entry = undefined;
@@ -1676,7 +1688,10 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    if (spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) <= 0 && room.energyAvailable < room.energyCapacityAvailable) {
+    if (
+      spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) <= 0 &&
+      room.energyAvailable < room.energyCapacityAvailable
+    ) {
       gate("feeder-no-surplus");
       return;
     }
@@ -1692,7 +1707,11 @@ export class ConstructionCorp extends Corp {
     }
     const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
     // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
-    const spec = this.roadRouteSpec(room, tiles, feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0));
+    const spec = this.roadRouteSpec(
+      room,
+      tiles,
+      feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+    );
     const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
     if (!verdict.worthPaving) {
       routes["feeder"] = { tiles: [], declined: true, judgedFlow: spec.flow };
@@ -1809,6 +1828,18 @@ export class ConstructionCorp extends Corp {
     this.stampSizing({ placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result });
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
+      // A container makes any road ON its tile redundant (owner 2026-07-23):
+      // the miner stands there statically and haulers STOP to load, so fatigue
+      // clears while standing and the road saves nothing (the isSourceApproachTile
+      // rationale) - it would just decay-tax us forever under the container.
+      // Container + road is engine-legal (they coexist), so this is cleanup, not
+      // a placement requirement: bestAdjacentTile now lands the container on the
+      // paved harvest tile and we remove the redundant road it sat on.
+      if (type === STRUCTURE_CONTAINER) {
+        for (const s of room.lookForAt(LOOK_STRUCTURES, x, y)) {
+          if (s.structureType === STRUCTURE_ROAD) s.destroy();
+        }
+      }
     } else {
       if (result === ERR_INVALID_TARGET) {
         // Permanently invalid for this tile (wall/occupant/near-exit rule the
@@ -1934,6 +1965,15 @@ export class ConstructionCorp extends Corp {
       // the miner dropping energy on a tile the haulers never visit.
       const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
       const spot = sourceHarvestSpot(source, spawn?.pos);
+      // No buildable adjacent tile: every neighbour is a natural wall (a road
+      // no longer disqualifies one - bestAdjacentTile places containers on
+      // roads now, so a paved harvest tile is used, not skipped). With nothing
+      // adjacent, bestAdjacentTile returned null and sourceHarvestSpot fell back
+      // to the source's OWN tile - a container can never sit on a source (-7
+      // forever), and that fallback bypasses the deadTiles loop entirely
+      // (bestAdjacentTile already excludes the source tile, so blacklisting it
+      // is a no-op). There is nowhere to put this source's container - skip it.
+      if (spot.x === source.pos.x && spot.y === source.pos.y) continue;
       return { x: spot.x, y: spot.y };
     }
     return null;
@@ -2802,7 +2842,8 @@ export class ConstructionCorp extends Corp {
   private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
     const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
     const bank = room.storage;
-    const surplusBanked = bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0) > 0;
+    const surplusBanked =
+      bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
     const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
     // A pool site can sit in ANOTHER room (same-room getRangeTo is Infinity
     // across rooms - an unfixed count would be Infinity, not a fleet): price

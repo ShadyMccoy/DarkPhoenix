@@ -11,7 +11,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation
-import { bankSurplusRate } from "./bank";
+import { bankSurplusRate, resolveReserveTarget } from "./bank";
 import { TrunkRouteTiles } from "./roadSegments";
 
 /**
@@ -22,10 +22,11 @@ import { TrunkRouteTiles } from "./roadSegments";
  */
 export function homeBankSupply(): number {
   if (typeof Game === "undefined" || !Game.rooms) return 0;
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
   let best = 0;
   for (const roomName in Game.rooms) {
     const storage = Game.rooms[roomName].storage;
-    if (storage?.my) best = Math.max(best, bankSurplusRate(storage.store[RESOURCE_ENERGY] ?? 0));
+    if (storage?.my) best = Math.max(best, bankSurplusRate(storage.store[RESOURCE_ENERGY] ?? 0, reserveTarget));
   }
   return best;
 }

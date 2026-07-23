@@ -25,7 +25,7 @@ import { linkLedger } from "./LinkMeter";
 import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
 import { Position } from "../types/Position";
 import { pathDistance } from "../nodes/NodeNavigator";
-import { feederRelayRate } from "../economy/bank";
+import { feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -1292,7 +1292,7 @@ export class Telemetry {
       // the terminal link fills. Surface the cap so the DEP line never over-
       // counts controller-bound deposit flow.
       report.controllerLinkId = ctrl.id;
-      report.controllerCapacity = feederRelayRate(banked);
+      report.controllerCapacity = feederRelayRate(banked, resolveReserveTarget(Memory.warchestTarget));
     }
     return report;
   }

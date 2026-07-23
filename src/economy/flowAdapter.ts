@@ -58,7 +58,7 @@ export const ANTI_DOWNGRADE_RESERVE = 2;
  * module); re-exported here for the existing import sites.
  */
 export { STORAGE_UPGRADE_TARGET } from "./bank";
-import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId } from "./bank";
+import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId, resolveReserveTarget } from "./bank";
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
@@ -375,15 +375,31 @@ export function detectLinkDepositPorts(): DepositPort[] {
  */
 export function detectBankSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
+  // The reserve target the last solve published (colony income x coverage);
+  // falls back to the hard floor before the first solve. One number, shared
+  // with every execution consumer, so surplus emission and consumer sizing
+  // agree on where the reserve sits.
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
   const out: PlannerSource[] = [];
   for (const roomName in Game.rooms) {
     const storage = Game.rooms[roomName].storage;
     if (!storage || !storage.my) continue;
     const banked = storage.store.energy ?? 0;
-    const source = bankToTransientSource(roomName, { x: storage.pos.x, y: storage.pos.y, roomName }, banked);
+    const source = bankToTransientSource(roomName, { x: storage.pos.x, y: storage.pos.y, roomName }, banked, reserveTarget);
     if (source) out.push(source);
   }
   return out;
+}
+
+/**
+ * Whether a source id counts as SUSTAINED mined income (excludes intel-only
+ * prospects - rooms scouted before their real source ids were recorded, which
+ * are not income; the t72444684 phantom guard). One home for the rule so the
+ * plan's income sum (buildColonyProblem minedSupply) and the reserve's income
+ * (FlowEconomy warchestTarget) classify identically and cannot drift.
+ */
+export function isMinedIncomeId(id: string): boolean {
+  return !id.startsWith("source-intel-") && !id.startsWith("intel-");
 }
 
 /**
@@ -476,9 +492,7 @@ export function buildColonyProblem(
   // still count (indistinguishable from mined by id alone - an accepted
   // residual, bounded by the fill's bank-pool cap which is funded-credit
   // sized post-solve either way).
-  const minedSupply = sources
-    .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"))
-    .reduce((sum, s) => sum + s.rate, 0);
+  const minedSupply = sources.filter(s => isMinedIncomeId(s.id)).reduce((sum, s) => sum + s.rate, 0);
   // Ground stocks join as miner-less transient sources (scavenging), and so
   // do SURPLUS storage banks (spec 03 withdrawal: a bank above its warchest
   // is a ground-stock-shaped supply at the storage position).

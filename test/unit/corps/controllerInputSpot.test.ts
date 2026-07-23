@@ -20,6 +20,7 @@ function controllerWith(opts: {
   buffers?: { x: number; y: number; type?: string }[]; // containers/links near the controller
   walls?: Set<string>;
   roads?: Set<string>; // road structures on ring tiles ("x,y")
+  deadTiles?: string[]; // tiles the engine already rejected (-7), keyed "x,y"
 }): any {
   const roomName = opts.roomName ?? "W0N0";
   const buffers = (opts.buffers ?? []).map(b => ({
@@ -32,7 +33,10 @@ function controllerWith(opts: {
     name: roomName,
     getTerrain: () => ({ get: (x: number, y: number) => (opts.walls?.has(`${x},${y}`) ? 1 : 0) }),
     lookForAt: (type: string, x: number, y: number) =>
-      type === (global as any).LOOK_STRUCTURES && opts.roads?.has(`${x},${y}`) ? [{ structureType: "road" }] : []
+      type === (global as any).LOOK_STRUCTURES && opts.roads?.has(`${x},${y}`) ? [{ structureType: "road" }] : [],
+    memory: opts.deadTiles
+      ? { deadTiles: opts.deadTiles.reduce((m: any, k) => ((m[k] = 1), m), {}) }
+      : undefined
   };
   return {
     pos: {
@@ -107,6 +111,24 @@ describe("controllerInputSpot / controllerParkingTiles", () => {
     const c = controllerWith({ cx: 25, cy: 10, buffers: [{ x: 24, y: 11, type: STRUCTURE_LINK }] });
     const spot = controllerInputSpot(c);
     expect({ x: spot.pos.x, y: spot.pos.y }).to.deep.equal({ x: 24, y: 11 });
+  });
+
+  it("does not propose a fresh tile the engine already rejected (-7 deadTiles blacklist)", () => {
+    // findMissingControllerContainer places a container ON this spot. If the
+    // best park-ring tile is one createConstructionSite rejects forever (a road
+    // or structure already there, an exit-buffer tile), placeSite records it in
+    // room.memory.deadTiles - but controllerInputSpot re-picked the SAME tile
+    // every cooldown, so "[Construction] Failed to place container ...: -7"
+    // looped forever (the eaten-ladder loop bestAdjacentTile already guards
+    // against for source/depot containers). The spot must skip dead tiles too.
+    const openBest = { x: 23, y: 8 }; // the deterministic top-left range-2 pick in open terrain
+    const fresh = controllerInputSpot(controllerWith({ cx: 25, cy: 10 }));
+    expect({ x: fresh.pos.x, y: fresh.pos.y }, "control: open terrain picks (23,8)").to.deep.equal(openBest);
+
+    const c = controllerWith({ cx: 25, cy: 10, deadTiles: ["23,8"] });
+    const spot = controllerInputSpot(c);
+    expect({ x: spot.pos.x, y: spot.pos.y }, "the dead tile is skipped").to.not.deep.equal(openBest);
+    expect(spot.structure, "still a bare buildable tile").to.equal(undefined);
   });
 
   it("with no buffer, picks a deterministic walkable tile within range 2 of the controller", () => {

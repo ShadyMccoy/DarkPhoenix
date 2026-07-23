@@ -497,8 +497,9 @@ export function buildHaulingT4Cells(): GridCell[] {
     },
 
     {
-      // Spec 03 withdrawal, the SURPLUS half: a bank ABOVE the warchest target
-      // (WARCHEST_TARGET = 27,650; 60k staged) is spendable, and the spend is
+      // Spec 03 withdrawal, the SURPLUS half: a bank ABOVE the reserve target
+      // (income-scaled warchestTarget, floored at BASE_RESERVE ~22.6k; 60k
+      // staged sits well above it either way) is spendable, and the spend is
       // EMERGENT - the bank joins the solve as a transient source, the
       // controller reverts to mop-up, and the feeder relay + stock-grounded
       // upgraders drain it into controller progress. The staged fleet mirrors
