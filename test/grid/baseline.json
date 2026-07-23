@@ -103,7 +103,6 @@
     "plan-t2-sink-source-pairing": "pass",
     "plan-t3-budget-subset": "pass",
     "plan-t3-netzero-maze-excluded": "pass",
-    "plan-t4-link-deposit-port": "pass",
     "plan-t4-link-haul-pricing": "pass",
     "plan-t4-two-spawn-nearest": "pass",
     "plan-t5-remote-pipeline": "fail",

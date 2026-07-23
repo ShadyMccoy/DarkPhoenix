@@ -1,19 +1,41 @@
 # 26 — Links as hub ports (deposit-side haulPos)
 
-**Status:** MINIMAL SHIPPED (2026-07-23) — CONTROLLER-LINK ports only,
-deployed to `master` at ~t72512031 and verified live (3 routes engaged the
-home controller link; P4 hauler slice 157p→149p; X1 upgrader util 0.50→0.79;
-see docs/specs/14 cycle verdict 2026-07-23 for the numbers).
+**Status:** SHIPPED THEN REVERTED — FAILED (2026-07-23). CONTROLLER-LINK ports
+were deployed at ~t72512031, **slow-collapsed the live colony** (fleet 30→13
+over ~1400t), and were reverted to pre-spec-26 on `master` (colony recovered).
+`detectLinkDepositPorts` now returns `[]` so the feature is INERT; the planner
+pricing, the shared mapper, `pickStorageDeposit`, and their unit tests are kept
+for a correct redesign. The earlier "verified live" claim was WRONG — it read
+plan-side telemetry (segment 6 showed the port) and a grid cell whose "link
+fills" assertion was a FALSE POSITIVE (the core→ctrl relay fills the link
+regardless of haulers). See docs/specs/14 for the incident writeup.
 
-**Scope refinement from the design review:** source-link ports were dropped
-from v1. A remote drop into a source link forwards to the core link, but the
-core→storage drain is staffed only for the home source's own rate (the feeder
-only LOADS the core) — the injected flow is unstaffed, so the plan would price
-a saving the physical path can't deliver. That is the ~79% of the measured
-ideal below, now the deferred follow-up (§"Proposed effort" item 1 needs a
-commissioned core→storage drain leg — the same core/relay work as gap #2). The
-CONTROLLER-LINK port is the honest class (consumed in place, bank-neutral by
-backpressure, no toll, no drain hauler) — that is what shipped.
+**Why it failed — two faults:**
+1. **Delivery never landed.** In prod the core→controller relay keeps the
+   controller link topped, so a hauler finds ~no free room and falls back to
+   storage. Reproduced: a staged loaded hauler on a ported route wrote NO
+   `deposit-port` receipt in 240t. So the plan under-sized the ported haulers
+   for a delivery that always fell back to the hub — a plan-vs-actual lie. A
+   working controller-link port REQUIRES the relay to RESERVE drop room
+   (symmetric to `CORE_LINK_INCOME_RESERVE`) plus the feeder credit — the
+   deferred work is a hard PREREQUISITE, not optional.
+2. **Latent recovery deadlock (its own incident).** The fleet collapse drained
+   the spawn network and killed the tender; with the warchest at 2× target, a
+   "campaign" upgrader (`mustFund`, `gate: wall`) then held the spawn ahead of
+   the income fleet — a death spiral. Pre-existing scheduler fault (spend
+   outranks income when the fleet is depleted); spec-26 only triggered it.
+
+**Blind spot that let it ship:** the integration trio and the grid link cells
+never staged a storage hub + controller link together, so none exercised the
+port DELIVERY path. Any redesign MUST assert a real hauler delivery RECEIPT
+(not link fill) AND run a steady-state cell WITH the feeder relay present.
+
+**Original design refinement (kept for the redesign):** source-link ports were
+already dropped from v1 — a remote drop into a source link forwards to the core,
+but core→storage is staffed only for the home source's own rate, so the injected
+flow is unstaffed. Both port classes therefore need core/relay sizing work
+(source-link: a commissioned core→storage drain; controller-link: the relay
+drop-reserve + feeder credit) BEFORE any port pricing is honest.
 
 ## The idea (owner 2026-07-21)
 

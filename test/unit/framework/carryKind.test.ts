@@ -126,6 +126,25 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
     expect(haulerAssignmentFromCommissioned(routes[0]).haulerRatio).to.equal(undefined);
   });
 
+  it("rung 3 - BIND: the spec-26 deposit port rides plan->commission->corp (mapper AND materialize)", () => {
+    // The mapper carries it (both reconstruction paths share this).
+    const port = { x: 41, y: 30, roomName: ROOM };
+    const mapped = haulerAssignmentFromCommissioned({ ...routes[0], sinkId: "storage-game1", depositPos: port });
+    expect(mapped.depositPos, "mapper carries depositPos").to.deep.equal(port);
+    expect(haulerAssignmentFromCommissioned(routes[0]).depositPos, "no port -> undefined").to.equal(undefined);
+
+    // And it survives the LIVE materialize path onto the executing CarryCorp.
+    const store: CorpStore = new Map();
+    materializeCommissions(
+      [{ ...carryCommission, assignment: [{ ...routes[0], sinkId: "storage-game1", depositPos: port }] }],
+      store
+    );
+    const corp = store.get("carry-source-abcd1234")!.corp as CarryCorp;
+    expect(corp.getHaulerAssignments()[0].depositPos, "materialized corp assignment carries depositPos").to.deep.equal(
+      port
+    );
+  });
+
   it("rung 3 - BIND: preserves the legacy id and strips the spawn prefix", () => {
     const store: CorpStore = new Map();
     materializeCommissions([carryCommission], store);

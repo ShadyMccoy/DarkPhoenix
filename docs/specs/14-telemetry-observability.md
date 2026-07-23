@@ -3705,7 +3705,50 @@ build") — **spec 26 links-as-hub-ports**, un-deferred and scoped:
   search-by-replanning — and the evaluator IS the runtime pricer (no drift).
   This is the load-bearing primitive for the base-layout leg, not a one-off.
 
-## Cycle verdict 2026-07-23 — spec 26 minimal (controller-link ports): FIXED
+## INCIDENT 2026-07-23 — spec 26 (controller-link ports) FAILED, reverted
+
+**The earlier "FIXED" verdict below was WRONG and is retracted.** The
+controller-link ports deployed at ~t72512031 caused a **slow colony collapse**
+(spawn fleet 30→28→…→13 over ~1400t, harvest 7→2), owner-observed as "haulers
+walk past the link to the core", "traffic jam at the spawn", and finally a
+"no-spawn wedge" watchdog. Reverted `src` to pre-spec-26 (`7bf55fc`), rebuilt,
+deployed to `master`; the colony recovered (util 0→0.58, tender respawned,
+total climbing) ~300-400t after the revert. `detectLinkDepositPorts` now
+returns `[]` on the branch (feature inert) pending a correct redesign.
+
+**Two faults (root-caused with data):**
+1. **Ports never delivered.** The core→controller relay keeps the controller
+   link topped, so haulers found ~no free room and fell back to storage —
+   reproduced in a grid cell (a staged loaded ported hauler wrote NO
+   `deposit-port` receipt in 240t). The plan under-sized the ported haulers
+   for a hub delivery they always made — a plan-vs-actual lie. The design
+   review had flagged exactly this ("treat controller-link headroom as ~0 until
+   the feeder credit lands"); it was shipped anyway. Prerequisite for any
+   redesign: the relay must RESERVE drop room + the feeder must be credited.
+2. **Latent spawn-scheduler deadlock (its own incident vs the DEPLOYED build).**
+   Fleet collapse drained the spawn network and killed the tender; warchest at
+   2× target → a "campaign" upgrader (minCost 2300, `mustFund`, `gate: wall`,
+   `why: campaign`) held the spawn AHEAD of the income miners/haulers (all
+   queued `after:upgrading-…`) — a death spiral the code revert alone couldn't
+   undrain (a global reset moves neither energy nor creeps). Recovery came only
+   as the tender re-fielded and refilled the network. FIX CANDIDATE: a spend
+   campaign must never `wall` the spawn ahead of blocking income demand when the
+   income fleet is depleted (spawn-network below a bootstrap floor).
+
+**Process failures to fix:**
+- The integration trio + grid link cells never staged a storage hub + a
+  controller link together, so NONE exercised the port DELIVERY path — the same
+  blind-spot class as the sim-blind-spots trap list. A link-delivery cell MUST
+  assert a real hauler `deposit-port` RECEIPT (link fill is a false positive:
+  the relay fills it) AND run WITH the feeder relay present (steady state).
+- I reported "X1 resolved / FIXED" from plan-side telemetry (segment 6) + a
+  false-positive grid assertion, without confirming a physical port delivery.
+  Telemetry that reads the PLAN (segment 6) can show a feature "working" that
+  the executing corps never perform. Verify at the RECEIPT/behavior layer.
+
+---
+
+### (RETRACTED) Cycle verdict 2026-07-23 — spec 26 minimal (controller-link ports): FIXED
 
 Shipped `detectLinkDepositPorts` + `routeToSinks` port pricing + `CarryCorp`
 port delivery + telemetry/roster echo, deployed to `master` at ~t72512031.

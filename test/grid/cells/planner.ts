@@ -526,61 +526,6 @@ export function buildPlannerT4Cells(): GridCell[] {
         }),
       ],
     },
-
-    {
-      // DEPOSIT PORTS (spec 26, deposit-side mirror of the haul-pricing cell
-      // above): a mined deposit whose haul-home route passes a CONTROLLER LINK
-      // closer than its storage hub is priced to TURN AROUND at the link (a tiny
-      // carry) and delivers there, where the upgraders consume it in place. This
-      // is receipts-gated behavior (detectLinkDepositPorts reads a live link) -
-      // the mockup stages no links unless a cell does, so a pure sim never
-      // exercises it. The source sits by the controller (link ~5 tiles away)
-      // while the storage hub is a room-crossing ~21 tiles off.
-      id: "plan-t4-link-deposit-port",
-      tier: 4,
-      avenue: "planning-economy",
-      window: 240,
-      rooms: {
-        home: (roomName: string) =>
-          new RoomBuilder(roomName).border().controller(40, 40).source(42, 42).toRoom(),
-      },
-      bot: { x: 25, y: 25 },
-      controller: { level: 5 },
-      structures: [
-        { type: "storage", x: 21, y: 25, energy: 5000 }, // the hub, by the spawn
-        { type: "link", x: 40, y: 37, energy: 0 }, // controller link (within 3 of the controller)
-        ...EXT_10_NEAR(25, 25).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
-      ],
-      creeps: [
-        // Stage the miner so the pump is live from adoption (organic banking of a
-        // far miner would land past the window); the planning claims are untouched.
-        {
-          name: "mD",
-          x: 43,
-          y: 43,
-          body: ["work", "work", "work", "work", "work", "carry", "move", "move", "move"],
-          energy: 0,
-          memory: { workType: "harvest", corpId: "staged-dp-m", assignedSourceId: "$id(home,source,42,42)" },
-        },
-      ],
-      assertions: [
-        eventually("mined deposit is priced to the controller-link PORT (carry shrinks, port recorded)", (s) => {
-          const src = s.objects().find((o) => o.type === "source" && o.x === 42 && o.y === 42);
-          if (!src) return false;
-          const home = planCorps(s).find(
-            (c) => c.kind === "haul" && c.fromId === `source-${src._id}` && String(c.toId).startsWith("storage-")
-          );
-          if (!home) return false;
-          // priced to the ~5-tile port leg (carryPartsFor(10,5)~=3), not the
-          // ~21-tile hub leg (~9), and it recorded the chosen port.
-          return !!home.port && (home.carry ?? 99) <= 5;
-        }),
-        eventually("haulers physically drop at the controller-link port (it fills)", (s) => {
-          const link = s.objects().find((o) => o.type === "link" && o.x === 40 && o.y === 37);
-          return !!link && (link.store?.energy ?? 0) > 0;
-        }),
-      ],
-    },
   ];
 }
 

@@ -58,7 +58,7 @@ export const ANTI_DOWNGRADE_RESERVE = 2;
  * module); re-exported here for the existing import sites.
  */
 export { STORAGE_UPGRADE_TARGET } from "./bank";
-import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId, feederRelayRate } from "./bank";
+import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId } from "./bank";
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
@@ -324,18 +324,22 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
  * buildColonyProblem; injectable for tests.
  */
 export function detectLinkDepositPorts(): DepositPort[] {
-  const out: DepositPort[] = [];
-  if (typeof Game === "undefined" || !Game.rooms) return out;
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room.controller?.my) continue;
-    if (!(room.storage && room.storage.my)) continue; // the hub the port shortcuts to
-    const link = controllerLink(room);
-    if (!link) continue;
-    const banked = room.storage.store.energy ?? 0;
-    out.push({ pos: { x: link.pos.x, y: link.pos.y, roomName }, headroom: feederRelayRate(banked) });
-  }
-  return out;
+  // DISABLED (prod incident 2026-07-23): controller-link ports slow-collapsed
+  // the live colony (fleet 30->13). Two faults: (1) haulers never actually
+  // landed at the port in prod (the core->controller relay tops the link so a
+  // hauler finds ~no room, OR - reproduced in plan-t4-link-deposit-port - the
+  // ported hauler never delivers at all), so the plan under-sized 3 haulers for
+  // a delivery that fell back to storage; (2) the drained spawn network that
+  // followed let a warchest-funded "campaign" upgrader (mustFund/wall) hold the
+  // spawn ahead of the income fleet - a death spiral the code revert alone can't
+  // undrain. Emitting NO ports makes the whole feature inert (behavior identical
+  // to pre-spec-26) while keeping the plumbing/tests/telemetry for a correct
+  // redesign (source-link ports need a staffed core->storage drain; controller-
+  // link ports need the core->ctrl relay to RESERVE drop room + the feeder
+  // credit). See docs/specs/14 + 26 for the incident. The redesign restores a
+  // per-room lens here (was: storage.my + controllerLink -> headroom
+  // feederRelayRate); until then, no ports.
+  return [];
 }
 
 /**
