@@ -3604,3 +3604,48 @@ NEXT STEPS, in order:
 5. Infra: the 20-min audit cron is session-local (dies with the container);
    server-side Routine creation is still blocked by an MCP approval that
    never reaches the owner - unresolved.
+
+---
+
+### 2026-07-23 (audit cycle) — X5 rebuild-churn line added; churn measured, home 0%
+
+Owner directive this cycle: "continue investigating these types of churns and
+wastes ... they might seem small but the bot is so constrained in screeps that
+they all add up." Ledger was FAIL-free (the P4 drift fix from 07-22 held at
+0.90x). Top WARN E4 (idle capital) confirmed a self-correcting drain, NOT the
+broken-pump signature: storage 94k->84k, slope -27.8/t over 935t, feederActive
+TRUE, upgrader workUtil 1.00, P7 delivery 1.38x plan with stock STANDING
+(energy kept up). Consumer sized right by sustainableConsumptionRate (allocated
+115 e/t, targetCount 6); the drain is gated by the single-spawn RCL6 throughput
+ceiling (upgrader plateaued 3/6 because producers fund first — the surplus is
+the fuel being burned to reach RCL7, which unlocks the 2nd spawn).
+
+CHURN INVESTIGATION (the cycle's work): the blackbox spawn log (segment 5)
+showed remote haulers spawned small then replaced full a few hundred ticks
+later (cbd5 1550->2200 @189t, cd8d 900->2300 @120t) and a reserver re-ordered
+25t after itself — below a claim body's ~78t spawn time, so a double-order, not
+a sequential death. Traced the small->big to `SpawnScheduler.ts:566-609`
+`afford-min-scaled` (body scaled to the momentary extension energy, despite 84k
+in storage) compounded by early death. CRITICAL caveat caught: the window
+straddled the 07-22 drift-fix deploy (t72508624) — a global reset does not kill
+creeps but its re-plan/re-adopt double-orders inflate churn for ~1 window. A
+raw hand-count read 28%; excluding the upgrader RAMP (census cross-check) and
+weighting by unlived life-fraction, the true figure is 11%, and it is ALL
+remote (home 0%) — the invader/revocation floor of remote mining, not a bot
+bug. The 25t reserver double-order rolled OUT of the window as recovery
+completed (X5 verdict ok), confirming it was reset-transient.
+
+INSTRUMENTED (script-only, no deploy — ledger reads dist-independent): X5
+rebuild churn (spec 15). Per corp, spawns beyond current staffing died-and-were
+-replaced (excludes growth); each weighted by gap/lifetime (natural EOL ~0);
+home-role churn (bot signal) split from remote-exposed (noise); WARN on home
+>12% OR any respawn gap <60t (loop/double-order). Enrolled red-first (4 tests,
+unit 1332->1336). Capture default bumped to segments 0,4,5,6 so X5 computes
+every cycle; a HIGH X5 is to be read against the deploy log.
+
+Cycle verdict: **INSTRUMENTED** (X5 landed) + **MEASURED** (churn 11%, home 0%
+— the home-bot-bug hypothesis is cleared, the remote-noise floor is now a
+tracked number). No live-behavior change shipped: the `afford-min-scaled`
+undersizing is a candidate future fix, but X5 shows home churn is zero, so
+there is no bot leak to attack this cycle — the instrument now guards against a
+regression that would raise it. Fixture t72509559 (0,4,5,6) committed.

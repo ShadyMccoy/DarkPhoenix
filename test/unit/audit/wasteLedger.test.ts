@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -268,5 +268,82 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const firstOk = rows.findIndex(r => r.verdict === "ok");
     const lastFail = rows.map(r => r.verdict).lastIndexOf("FAIL");
     expect(lastFail).to.be.lessThan(firstOk === -1 ? rows.length : firstOk);
+  });
+
+  // ---- X5 rebuild churn (owner 2026-07-23: "continue investigating these
+  // types of churns ... the bot is so constrained in screeps that they all add
+  // up"). Discovered live t72509177: remote haulers spawned small then replaced
+  // big (cbd5 1550->2200 @189t, cd8d 900->2300 @120t) and a reserver respawn
+  // 25t apart - below one creep's spawn time, so a double-order, not a death.
+  const mkChurnCap = (rows: any[], corps: any[]): any => ({
+    tick: 1000,
+    data: { blackbox: { v: 1, tick: 1000, rows }, corps: { corps } }
+  });
+
+  it("X5 counts an early-death remote respawn but EXCLUDES fleet growth (census cross-check)", () => {
+    // The load-bearing correctness point: a corp whose spawn-count in the window
+    // is <= its current staffing GREW - none of those spawns died. The upgrader
+    // ramp (2->3) must NOT read as churn (my first hand-count wrongly did, 28%
+    // vs the true 18% once growth is excluded).
+    const churn = computeChurn(
+      mkChurnCap(
+        [
+          // remote hauler cbd5: spawned 900, replaced by 2200 120t later, now 1 alive => 1 died
+          { t: 100, k: "spawn", d: { corp: "hauling-W44N23-hauling-cbd5", role: "hauler", cost: 900 } },
+          { t: 220, k: "spawn", d: { corp: "hauling-W44N23-hauling-cbd5", role: "hauler", cost: 2200 } },
+          // home upgrader: two spawns but 2 alive => the fleet GREW, zero churn
+          { t: 150, k: "spawn", d: { corp: "upgrading-W43N23-upgrading", role: "upgrader", cost: 2300 } },
+          { t: 540, k: "spawn", d: { corp: "upgrading-W43N23-upgrading", role: "upgrader", cost: 2300 } }
+        ],
+        [
+          { id: "hauling-W44N23-hauling-cbd5", creepCount: 1 },
+          { id: "upgrading-W43N23-upgrading", creepCount: 2 }
+        ]
+      )
+    )!;
+    // cbd5: gap 120, unlived 1-120/1500 = 0.92, waste 900*0.92 = 828, REMOTE role
+    expect(churn.remoteChurn).to.be.closeTo(828, 1);
+    // the upgrader grew (staffing 2 >= 2 spawns) - excluded, so home churn is 0
+    expect(churn.homeChurn).to.equal(0);
+    expect(churn.totalSpawnEnergy).to.equal(900 + 2200 + 2300 + 2300);
+  });
+
+  it("X5 weights by UNLIVED fraction: a near-EOL replacement is ~0, an early one is ~full cost", () => {
+    const nearEol = computeChurn(
+      mkChurnCap(
+        [
+          { t: 0, k: "spawn", d: { corp: "hauling-W44N23-hauling-x", role: "hauler", cost: 1000 } },
+          { t: 1450, k: "spawn", d: { corp: "hauling-W44N23-hauling-x", role: "hauler", cost: 1000 } }
+        ],
+        [{ id: "hauling-W44N23-hauling-x", creepCount: 1 }]
+      )
+    )!;
+    expect(nearEol.churnEnergy).to.be.lessThan(50); // gap 1450 ~ life 1500 => barely churn
+  });
+
+  it("X5 returns null (row absent) when the capture predates the blackbox segment", () => {
+    expect(computeChurn({ tick: 1, data: { corps: { corps: [] } } })).to.equal(null);
+    const x5 = computeLedger(cap72411542, cap72404213).find(r => r.id === "X5");
+    expect(x5, "pre-blackbox fixtures produce no X5 row").to.equal(undefined);
+  });
+
+  it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
+    // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
+    // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order
+    // (the stranded-reserver trap's signature, or a post-reset double-order).
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    cap.data.blackbox = {
+      v: 1,
+      tick: cap.tick,
+      rows: [
+        { t: 100, k: "spawn", d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 } },
+        { t: 125, k: "spawn", d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 } }
+      ]
+    };
+    cap.data.corps.corps.push({ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 1 });
+    const x5 = computeLedger(cap, cap72404213).find(r => r.id === "X5")!;
+    expect(x5, "X5 present once a blackbox is captured").to.not.equal(undefined);
+    expect(x5.verdict).to.equal("WARN");
+    expect(x5.detail).to.contain("FAST RESPAWN");
   });
 });

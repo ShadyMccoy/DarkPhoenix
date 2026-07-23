@@ -38,7 +38,7 @@ One hypothesis at a time; design the next capture to falsify it.
 ## 0. Instruments (all reads, no Memory pulls needed)
 
 ```
-SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,6
+SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,5,6
 npm run audit:ledger        # spec 15: latest capture vs previous, every leak a number
 ```
 
@@ -48,6 +48,11 @@ npm run audit:ledger        # spec 15: latest capture vs previous, every leak a 
   queue heads + executed receipts).
 - Segment 4 (corps): per-corp actual `body`/`bodyParts`, `sizing` stamps
   (decision inputs; infra corps stamp the GATE that fired).
+- Segment 5 (blackbox): the rolling spawn log the X5 churn line reads — every
+  spawn `{corp, role, cost}` over the window. Capture it every cycle so X5
+  computes; without it the line skips silently. Read a HIGH X5 against the
+  deploy log — a global reset inflates churn for ~1 window (the recovery
+  double-orders and re-plans, not steady state).
 - Segment 6 (flow): GOAL plan — `sources[].workParts`, `haulers[].carryParts`,
   sink `workParts`, and `candidates[]` (per-source funding verdicts with
   net/tax pricing).
