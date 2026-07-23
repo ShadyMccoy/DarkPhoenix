@@ -36,6 +36,41 @@ remote — it is a **one-off drain**, not a standing garrison. The convoy
 demobilises the instant the store is empty, exactly like a scavenger whose pile
 decayed below threshold.
 
+### The canonical target: the derelict bot (owner 2026-07-23)
+
+The archetype that motivates the whole feature is not a live, momentarily-weak
+player — it is an **old bot that is still running but breaking down**:
+accumulating resources for a long time (~1M in the storage) yet **energy-starved
+and mis-coded**, so its defenses have **decayed past its own ability to restore
+them**. The tell is a **dark tower it cannot refill** — a tower with no energy,
+owned by a bot whose storage/controller is starved and whose code no longer
+routes energy to defense. We can **literally walk in and take it**.
+
+That reframes the weakness signal precisely, and it matters for the design:
+
+- The golden condition is not "**un**defended" — it is "**can no longer defend**":
+  a defense apparatus present on the map but non-functional and **un-restorable
+  by the owner** (dark tower + starved storage + decaying controller + no repair/
+  build activity). A momentarily-empty tower on a healthy bot refills next tick;
+  a dark tower on a derelict never does. Same observation, opposite verdict —
+  which is exactly why the read must be **probed over time**, not snapshotted.
+- Cheap **breaches** are legitimate and may be worth it — a dark tower is a
+  one-off kill (nobody refills it), a rampart may have a **hole**, a wall may be
+  low. "Undefended-only" (below) is the *phase-1 conservatism*, not a permanent
+  ceiling: taking down a dead tower or slipping a rampart gap is a natural
+  refinement once the probe is trustworthy. Left deliberately open here so the
+  idea isn't lost — refine it when picked up.
+
+### The probe IS the feature; the hauling is straightforward (owner 2026-07-23)
+
+Be clear about where the work is. Moving 1M energy out of a store is ordinary
+CarryCorp mechanics — a big convoy, solved. **The hard, interesting, novel part
+is learning to PROBE**: deciding, from durable observation over time, that a base
+is genuinely a walk-in and not a trap. That judgement — reading tower energy,
+owner starvation, controller decay, repair cadence, `safeMode`, and how they
+*trend* — is the actual capability this spec adds. Build the probe as the
+first-class deliverable; the haul rides on existing rails.
+
 ## Why this is a corp (and where it slots)
 
 Raiding is a **guarded transient source in a hostile foreign room**. It maps
@@ -103,7 +138,9 @@ compounds and minerals you can't easily produce).
 - **enemy `storage`/`terminal` contents** (the loot amount — the whole target
   signal),
 - **tower count / positions / tower energy** (the dominant defense signal —
-  a tower with energy is a raid-killer; an *empty* tower is a green light),
+  a tower with energy is a raid-killer; a *dark* tower is a green light **only
+  if the owner can't refill it** — see the derelict archetype above: read tower
+  energy as a TREND, not a snapshot),
 - **controller downgrade / decay state** (`controller.ticksToDowngrade`,
   progress — a decaying controller is the strongest "owner has quit / code is
   down" signal),
@@ -131,6 +168,12 @@ towers are empty right now, go."* That is the **room-state-from-creep-positions
 / vision** trap. A trigger keyed to what one creep sees this tick **flaps on
 every death and goes blind with the vision the dead creep provided** — precisely
 when a raid convoy is deepest in a hostile room and most needs a stable read.
+It is also the *wrong measurement*: a snapshot cannot distinguish a
+momentarily-empty tower on a healthy bot (refills next tick — a trap) from a
+dark tower on a derelict (never refills — a walk-in). **The verdict lives in the
+TREND, not the snapshot** — did the tower stay dark across several sightings
+while the owner's storage/controller stayed starved and nothing got repaired?
+That is what "learning to probe" means, and it is the feature.
 
 The rules, non-negotiable:
 
@@ -275,10 +318,19 @@ forgotten at build time.
 1. **The convoy + escort.** `RaidingCorp` + `raidingKind` + the wiring
    checklist. Behavior: escort walks to the target, suppresses/tanks the weak
    defense, raid haulers empty the store into home storage, everyone retreats on
-   drain/abort. Simplest viable tactic first — target **only truly-undefended**
-   stores (empty towers, no defenders) so the escort is minimal; leave real
-   tower-dancing / defended raids as a later optimization.
-2. **Typed loot.** Once the §9 typed-resource extension lands, `lootValue`
+   drain/abort. Simplest viable tactic first — target **only walk-ins**: a store
+   the probe marks as unreachably-defended-no-longer (dark unrefillable tower, no
+   live defenders, no `safeMode`), so the escort is minimal or unneeded. This is
+   the derelict-bot case, and it is the whole of phase 1.
+2. **Cheap breaches.** The refinement the owner flagged (2026-07-23): when the
+   probe says the defense is dead but *present* — a dark tower that won't refill,
+   a rampart with a **hole**, a low wall — spend a little to breach it (one-off
+   kill the dead tower, path through the gap). Priced by `netLoot` like
+   everything else: the breach cost is just added overhead, and a target clears
+   the bar iff the loot still beats it. Gated behind phase 1 so the probe is
+   trustworthy first; **do not** let this creep into tower-*dancing* against a
+   live, refilling defender (that is conquest-adjacent, spec 21).
+3. **Typed loot.** Once the §9 typed-resource extension lands, `lootValue`
    prices minerals/compounds and the terminal sink absorbs them. This is where
    raiding becomes actually valuable; phases 0–1 are the plumbing.
 
