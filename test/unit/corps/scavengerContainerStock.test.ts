@@ -156,12 +156,18 @@ describe("scavenger at a container-backed stock (live incident 2026-07-17)", () 
     expect(creep.memory.deliverSinkId, "runs its normal delivery circuit").to.equal("spawn");
   });
 
-  it("stays put when the stock is gone and it has nothing aboard", () => {
-    // An empty-handed scavenger has nothing to deliver: it waits for the corp to
-    // dissolve (re-detection drops the stock) and OrphanRescue to collect it.
+  it("RECYCLES when the stock is gone and it has nothing aboard (no lingering runt)", () => {
+    // Corrected 2026-07-23 (investigation): the old assumption was that an
+    // empty-handed scavenger "waits for OrphanRescue to collect it" - but the
+    // retiring corp is RETAINED (!hasLiveCreeps keeps it), so it is never
+    // orphaned and OrphanRescue never fires. Left alone the creep idles beside
+    // the dead stock for the rest of its ~1500-tick life. It has nothing left to
+    // scavenge (re-detection dropped the stock, demand already cut), so it must
+    // recycle NOW - the direct "fewer creeps" fix.
     const creep = scavenger(0);
     (scavCorp() as any).pickupEnergy(creep, room);
 
-    expect(creep.memory.working).to.not.equal(true);
+    expect(creep.memory.recycling, "empty + drained stock -> recycle now, not idle").to.equal(true);
+    expect(creep.memory.working, "not starting a delivery - nothing aboard").to.not.equal(true);
   });
 });

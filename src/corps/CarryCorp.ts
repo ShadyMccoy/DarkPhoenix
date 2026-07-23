@@ -710,6 +710,15 @@ export class CarryCorp extends Corp {
         // froze the scavenger beside its dead stock for the rest of its life
         // (observed live 2026-07-17, 744/800 aboard).
         this.depart(creep, room);
+      } else {
+        // Drained stock AND empty-handed: this scavenger will never scavenge
+        // again (re-detection dropped the stock; the corp is retiring and its
+        // demand is already cut, so no successor is ordered). RECYCLE NOW.
+        // The retained-but-retiring corp is NOT orphaned, so OrphanRescue never
+        // collects the creep (investigation 2026-07-23) - without this it idles
+        // beside the dead stock for the rest of its ~1500-tick life, the parked
+        // runt the "fewer creeps" goal is about. driveRecycle refunds the body.
+        creep.memory.recycling = true;
       }
       return;
     }
