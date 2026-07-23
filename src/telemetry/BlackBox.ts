@@ -24,6 +24,7 @@ export const BLACKBOX_SEGMENT = 5;
 /** Row kinds. Keep the vocabulary tiny and stable - dashboards parse it. */
 export type BlackBoxKind =
   | "spawn" // a creep was bought: {role, corp, cost}
+  | "renew" // an idle, full spawn renewed an adjacent creep: {creep, ttl}
   | "hold" // an evaluated spawn bought nothing: {why, top role/corp, bank}
   | "churn" // commission set changed: {created, demobilized}
   | "watch" // periodic sample: {dt: downgradeTicks, bucket, creeps}

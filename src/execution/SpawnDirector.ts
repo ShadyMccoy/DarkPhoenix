@@ -27,6 +27,7 @@ import { CorpRegistry } from "./CorpRunner";
 import { allCommissionedCorps } from "./CommissionHost";
 import { Corp } from "../corps/Corp";
 import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
+import { staffsPost } from "../economy/primitives";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -89,10 +90,30 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       // mechanically; it holds no decision logic of its own.
       const plan = planAcquisitions(demands, ctx);
       publishSpawnAgenda(spawn.id, plan, room.energyAvailable);
-      if (demands.length === 0) continue;
 
-      const result = plan.decision;
-      if (!result) {
+      let spawned = false;
+      const result = demands.length > 0 ? plan.decision : undefined;
+      if (result) {
+        const d = result.demand;
+        spawned = spawningCorp.executeSpawn(
+          d.kind ?? "",
+          d.role,
+          d.buyerCorpId,
+          result.energyBudget,
+          Game.time,
+          d.bodyParam,
+          d.haulerRatio,
+          d.bodyStrategy
+        );
+        // Execution receipt (actual-vs-NOW): what the spawn actually bought,
+        // appended beside the published queue so fidelity cells and telemetry
+        // compare intent to action without diffing creep lists from outside.
+        if (spawned) {
+          recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
+          blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
+          resetDemandClock(firstSeen, spawn.id, d.buyerCorpId, d.role);
+        }
+      } else if (demands.length > 0) {
         // Flight recorder (rate-limited): an evaluated spawn with live
         // demands that bought nothing is the wedge signature the incident
         // pipeline hunts - record WHAT was waiting and on how much bank.
@@ -107,28 +128,20 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
             bank: room.energyAvailable
           });
         }
-        continue;
       }
 
-      const d = result.demand;
-      const spawned = spawningCorp.executeSpawn(
-        d.kind ?? "",
-        d.role,
-        d.buyerCorpId,
-        result.energyBudget,
-        Game.time,
-        d.bodyParam,
-        d.haulerRatio,
-        d.bodyStrategy
-      );
-      // Execution receipt (actual-vs-NOW): what the spawn actually bought,
-      // appended beside the published queue so fidelity cells and telemetry
-      // compare intent to action without diffing creep lists from outside.
-      if (spawned) {
-        recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
-        blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
-        resetDemandClock(firstSeen, spawn.id, d.buyerCorpId, d.role);
-      }
+      // SPARE SPAWN CAPACITY (owner 2026-07-23): on a tick that spawns
+      // nothing, spend the otherwise-idle spawn on renewing an adjacent creep.
+      // The extension tender that idles beside the spawn is the usual
+      // beneficiary, but any eligible range-1 creep qualifies. Renew is
+      // energy-PARITY with respawning (cost/1500 per tick of life) paid as a
+      // trickle on spare spawn-ticks instead of a spawn-time block, so a
+      // standing post needs full respawns less often and never darkens for a
+      // spawn->post walk: the schedule smooths. Rare in a spawn-constrained
+      // room by construction (an idle, FULL spawn is exactly the slack we
+      // fill); cheap when it does not fire (one range-1 scan, gated on a full
+      // room).
+      if (!spawned) renewAdjacentCreep(spawn, room);
     }
   }
 
@@ -334,4 +347,96 @@ function recordAgendaExecution(spawnId: string, role: string, corp: string, cost
   const executed = (entry.executed ??= []);
   executed.push({ tick: Game.time, role, corp, cost });
   if (executed.length > AGENDA_EXECUTED_MAX) executed.splice(0, executed.length - AGENDA_EXECUTED_MAX);
+}
+
+/**
+ * Engine renew mechanics (StructureSpawn.renewCreep) as a pure formula, so the
+ * decision is unit-testable without a live spawn. One renew execution on an
+ * idle spawn grants floor(SPAWN_RENEW_RATIO * CREEP_LIFE_TIME / CREEP_SPAWN_TIME
+ * / bodySize) = floor(600 / bodySize) ticks of life and costs
+ * ceil(bodyCost / 2.5 / bodySize) energy, so a whole lifetime of renewal costs
+ * ~one body: energy PARITY with respawning, just paid as a trickle on spare
+ * spawn-ticks instead of a spawn-time block. That parity is the point - renew
+ * buys no cheaper energy; it converts otherwise-wasted idle spawn-ticks into
+ * deferred respawn bursts.
+ */
+const RENEW_MAX_LIFE = 1500; // CREEP_LIFE_TIME for a no-CLAIM body
+
+/** Ticks of life one renew execution grants a body of `bodySize` parts. */
+export function renewTicksGained(bodySize: number): number {
+  if (bodySize <= 0) return 0;
+  return Math.floor(600 / bodySize);
+}
+
+/** One adjacent creep the spawn could renew this tick, reduced to pure facts. */
+export interface RenewCandidate {
+  ticksToLive: number | undefined;
+  bodySize: number;
+  hasClaim: boolean;
+  recycling: boolean;
+}
+
+/**
+ * Pick which adjacent creep an idle spawn should renew this tick, or null if
+ * none is worth it. Each eligibility guard is load-bearing:
+ *   - a LIVE body (ticksToLive defined - a still-spawning creep cannot renew);
+ *   - no CLAIM part (the engine forbids renewing those);
+ *   - NOT flagged for recycling (memory.recycling) - a runt walking to the
+ *     spawn to die so a full-size replacement can spawn; renewing it there is
+ *     the keep-a-runt-alive-forever trap (CLAUDE.md);
+ *   - it still STAFFS its post by the SAME staffsPost lens the demand side uses
+ *     (post at the spawn, travel 0) - once an incumbent falls out of the
+ *     staffing band a successor is already being ordered, so we let it die
+ *     rather than renew it into a standing double (staffsPost-symmetry trap);
+ *   - room for a WHOLE renew increment below the 1500 cap, so we never spend
+ *     the spawn's action topping up a near-max creep by a sliver.
+ * Among the eligible we renew the MOST URGENT (lowest ticksToLive, nearest to
+ * falling out of the staffing band), ties to the lower index for determinism -
+ * the same shape as the tower target picks.
+ */
+export function pickRenewTarget(candidates: RenewCandidate[]): number | null {
+  let best: number | null = null;
+  let bestTtl = Infinity;
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (c.ticksToLive === undefined) continue;
+    if (c.hasClaim || c.recycling || c.bodySize <= 0) continue;
+    if (!staffsPost(c.ticksToLive, c.bodySize, 0)) continue;
+    const increment = renewTicksGained(c.bodySize);
+    if (increment <= 0 || c.ticksToLive > RENEW_MAX_LIFE - increment) continue;
+    if (c.ticksToLive < bestTtl) {
+      bestTtl = c.ticksToLive;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Spend an idle, full spawn on renewing its best adjacent creep. Gated on a
+ * FULL room (energyAvailable === capacity): the surplus signal that no spawn
+ * drain is imminent and nothing is being saved for, so the renew's few energy
+ * are genuinely spare rather than stolen from a wanted body. The self-limiting
+ * property matters - a room that cannot keep itself full never renews, so an
+ * under-tended (or growing) room falls back to ordinary respawn dynamics that
+ * upsize the fleet. The tender idling beside the spawn is the usual
+ * beneficiary; any range-1 creep qualifies.
+ */
+function renewAdjacentCreep(spawn: StructureSpawn, room: Room): void {
+  if (room.energyAvailable < room.energyCapacityAvailable) return;
+  const adjacent = spawn.pos.findInRange(FIND_MY_CREEPS, 1) as Creep[];
+  if (adjacent.length === 0) return;
+  const idx = pickRenewTarget(
+    adjacent.map(c => ({
+      ticksToLive: c.ticksToLive,
+      bodySize: c.body?.length ?? 0,
+      hasClaim: !!c.body?.some(p => p.type === CLAIM),
+      recycling: !!c.memory.recycling
+    }))
+  );
+  if (idx === null) return;
+  const target = adjacent[idx];
+  if (spawn.renewCreep(target) === OK) {
+    blackBox("renew", { spawn: spawn.id, creep: target.name, ttl: target.ticksToLive ?? 0 });
+  }
 }
