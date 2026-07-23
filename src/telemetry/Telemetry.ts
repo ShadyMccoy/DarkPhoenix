@@ -460,8 +460,10 @@ export interface CorpsTelemetry {
 export interface FlowTelemetry {
   version: number;
   tick: number;
-  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget. */
-  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget.
+   * v9 adds spent/dry: the spawn shadow-price signal (dry=true => spawn
+   * capacity is the binding constraint; the scavenge-gate precondition). */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number; spent?: number; dry?: boolean };
   /** Problem-assembly counts (v5): names the layer that dropped sources. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   /** Source nodes (energy producers) */
@@ -1251,7 +1253,9 @@ export class Telemetry {
       // the audit reads source->construction ROUTES, not a flag). v8 exports
       // haulers[].spawnParts (the planner's paved-aware parts/tick) so the P4
       // ledger echoes it instead of re-deriving - drift eliminated at the root.
-      version: 8,
+      // v9 adds partsLedger.spent/dry - the spawn shadow-price signal for the
+      // scavenge economic gate (instrument-first, 2026-07-23).
+      version: 9,
       tick: Game.time,
       sources,
       haulers,

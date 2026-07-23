@@ -395,6 +395,43 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(e5.verdict).to.equal("WARN");
   });
 
+  const scavCap = (dry: boolean, scavRate: number, scavParts: number): any => {
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    capA.data.flow.partsLedger = { capacity: 0.333, minerLoad: 0.05, infra: 0.1, budget: 0.18, spent: 0.18, dry };
+    capA.data.flow.haulers = [
+      // a strong real source route (the funded margin the scavenger is judged against)
+      { sourceId: "source-aaaa", carryParts: 1, distance: 1, flowRate: 10, spawnParts: 0.001 },
+      // the scavenger under test
+      { sourceId: "scavenge-W1N1-10-20", carryParts: 1, distance: 1, flowRate: scavRate, spawnParts: scavParts }
+    ];
+    return capA;
+  };
+
+  it("SCAV WARNs only when spawn parts BIND and a scavenger is below the funded margin", () => {
+    // dry=true (spawn is the binding constraint) + a scavenger whose net-e/part
+    // (~0.73/0.002 = 366) sits far below the real route's (~9930): displacement.
+    const scav = computeLedger(scavCap(true, 0.8, 0.002), cap72404213).find(r => r.id === "SCAV")!;
+    expect(scav.verdict).to.equal("WARN");
+    expect(scav.value, "one scavenger below margin").to.equal(1);
+    expect(scav.detail).to.contain("DRY (binding)");
+  });
+
+  it("SCAV stays ok when spawn parts have SLACK (a low ratio spends parts nothing else wants)", () => {
+    // Same low-ratio scavenger, but dry=false: parts are free at the margin, so
+    // scavenging costs nothing it would otherwise use. No gate signal.
+    const scav = computeLedger(scavCap(false, 0.8, 0.002), cap72404213).find(r => r.id === "SCAV")!;
+    expect(scav.verdict).to.equal("ok");
+    expect(scav.detail).to.contain("slack");
+  });
+
+  it("SCAV stays ok when the scavenger clears the funded margin even under bind", () => {
+    // dry=true but a high-yield scavenger (~7.9/0.0005 = 15860) beats the real
+    // route's margin - worth its parts even when the spawn binds.
+    const scav = computeLedger(scavCap(true, 8, 0.0005), cap72404213).find(r => r.id === "SCAV")!;
+    expect(scav.verdict).to.equal("ok");
+    expect(scav.value).to.equal(0);
+  });
+
   it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
     // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
     // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order

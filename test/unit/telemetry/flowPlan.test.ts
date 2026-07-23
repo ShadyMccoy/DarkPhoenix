@@ -100,13 +100,13 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(8); // v7 retired dedicatedToBuild; v8 exports haulers[].spawnParts
+    expect(flow.version).to.equal(9); // v8 exports haulers[].spawnParts; v9 adds partsLedger.spent/dry (spawn shadow price)
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 
 
-  it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4)", () => {
-    const ledger = { capacity: 3, minerLoad: 0.9, infra: 0.4, budget: 1.7 };
+  it("threads the fill ledger verbatim: partsLedger + per-sink partsLeft (v4; v9 spent/dry)", () => {
+    const ledger = { capacity: 3, minerLoad: 0.9, infra: 0.4, budget: 1.7, spent: 1.7, dry: true };
     const withTrace = {
       ...solution,
       partsLedger: ledger,

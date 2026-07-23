@@ -21,7 +21,8 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
-  effectiveLife
+  effectiveLife,
+  haulerOverhead
 } from "../src/economy/primitives";
 import { WARCHEST_TARGET, feederRelayRate } from "../src/economy/bank";
 import { CLAIM_LIFETIME, RESERVER_DUTY } from "../src/corps/economics";
@@ -422,6 +423,42 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     verdict: runts.length > 1 ? "WARN" : "ok",
     detail: runts.map((e: any) => `${e.role}@${e.cost}`).join(", ") || "none"
   });
+
+  // ---- SCAV scavenge economics (instrument-first for the economic gate) ----
+  // Each scavenger's net-energy-per-spawn-part vs the MARGINAL funded source
+  // route (the least efficient real route we already pay for = the opportunity
+  // cost of a spawn part). The spawn shadow price only BITES when parts bind
+  // (partsLedger.dry): with slack, a scavenger spends parts nothing else wants,
+  // so a low ratio is free; when dry, a scavenger below the margin is displacing
+  // a better use. This is the read that will calibrate the gate's threshold.
+  const netPerPart = (h: any): number => {
+    const carry = h.carryParts ?? carryPartsFor(h.flowRate, h.distance);
+    const net = h.flowRate - haulerOverhead(carry, h.distance);
+    return h.spawnParts > 0 ? net / h.spawnParts : 0;
+  };
+  const scavHaulers = (flow.haulers ?? []).filter((h: any) => String(h.sourceId).startsWith("scavenge-"));
+  const realRoutes = (flow.haulers ?? []).filter(
+    (h: any) => !String(h.sourceId).startsWith("scavenge-") && !String(h.sourceId).startsWith("bank-")
+  );
+  const dry = flow.partsLedger?.dry ?? false;
+  if (scavHaulers.length > 0) {
+    const margin = realRoutes.length > 0 ? Math.min(...realRoutes.map(netPerPart)) : Infinity;
+    const scavRatios = scavHaulers.map((h: any) => ({ id: String(h.sourceId).replace(/^scavenge-/, ""), r: netPerPart(h) }));
+    const belowMargin = scavRatios.filter((s: { r: number }) => s.r < margin);
+    rows.push({
+      id: "SCAV",
+      name: "scavenge economics (net-e/part vs margin)",
+      value: belowMargin.length,
+      unit: `of ${scavHaulers.length} scavengers below the funded margin`,
+      // Instrument-first: only WARN when spawn parts BIND and a scavenger sits
+      // below the marginal funded route - the calibrated displacement signal.
+      verdict: dry && belowMargin.length > 0 ? "WARN" : "ok",
+      detail:
+        `spawn parts ${dry ? "DRY (binding)" : `slack (spent ${(flow.partsLedger?.spent ?? 0).toFixed(3)}/${(flow.partsLedger?.budget ?? 0).toFixed(3)})`}` +
+        `; margin ${margin === Infinity ? "n/a" : margin.toFixed(2)} net-e/part; ` +
+        scavRatios.map((s: { id: string; r: number }) => `${s.id} ${s.r.toFixed(2)}`).join(", ")
+    });
+  }
 
   // ---- S3 scheduler stall: idle spawn with an AFFORDABLE head ----
   const spawn = core.spawns?.[0];

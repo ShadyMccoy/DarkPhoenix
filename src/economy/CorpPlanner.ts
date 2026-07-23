@@ -268,7 +268,7 @@ export interface ColonyPlan {
   spawnPartsUsed: Map<string, number>;
   /** The fill's spawn-parts ledger, traced (spec 15 P4): what the budget was,
    * what standing deductions took, what routing had to work with. */
-  partsLedger: { capacity: number; minerLoad: number; infra: number; budget: number };
+  partsLedger: { capacity: number; minerLoad: number; infra: number; budget: number; spent: number; dry: boolean };
   /** Sum of delivered energy weighted by sink value - the objective. */
   valueDelivered: number;
   /** delivered >= overhead: the income covers the creeps that earn it. */
@@ -470,7 +470,7 @@ function routeToSinks(
   problem: ColonyProblem,
   supply: SupplyPoint[],
   partsBudget: number
-): { haulers: CommissionedHauler[]; sinks: CommissionedSink[] } {
+): { haulers: CommissionedHauler[]; sinks: CommissionedSink[]; partsRemaining: number } {
   const { sinks, dist } = problem;
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
   const spawnBySource = new Map(supply.map(s => [s.sourceId, s.spawnId]));
@@ -736,7 +736,7 @@ function routeToSinks(
     fill(sink, sink.capacity);
   }
 
-  return { haulers, sinks: [...out.values()] };
+  return { haulers, sinks: [...out.values()], partsRemaining };
 }
 
 /**
@@ -790,13 +790,22 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   // currencies; routing and consumers spend what remains.
   const minerLoad = miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
   const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
+  const { haulers, sinks, partsRemaining } = routeToSinks(problem, supply, partsBudget);
+  // SPAWN SHADOW-PRICE SIGNAL (instrument-first for the scavenge gate, 2026-07-23):
+  // `spent`/`dry` say whether the routing exhausted the parts budget. dry=true
+  // means SPAWN CAPACITY IS THE BINDING CONSTRAINT - the precondition for gating
+  // a marginal scavenger at all (mining is nowhere near the ceiling; the hauler/
+  // consumer side is what binds). dry=false means parts are ~free at the margin,
+  // so scavenging costs nothing it would otherwise spend. Read against each
+  // scavenger's net-energy-per-part (waste-ledger SCAVENGE line) to calibrate.
   const partsLedger = {
     capacity: problem.spawns.length * SPAWN_PARTS_PER_TICK,
     minerLoad,
     infra: problem.infraPartsPerTick ?? 0,
-    budget: partsBudget
+    budget: partsBudget,
+    spent: Math.max(0, partsBudget - partsRemaining),
+    dry: partsRemaining <= 1e-6
   };
-  const { haulers, sinks } = routeToSinks(problem, supply, partsBudget);
 
   // FUNDED => ROUTED (leak #19 in plan form): in the hub era a funded source
   // whose deposit routing got ZERO parts would field a miner for pure rot -
