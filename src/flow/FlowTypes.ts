@@ -247,6 +247,16 @@ export interface HaulerAssignment {
   /** Spawn cost per tick for these haulers */
   spawnCostPerTick: number;
 
+  /**
+   * Planner's own spawn-PARTS/tick for this route (parts, not energy):
+   * `((paved?1.5:2)*carryPartsFor(take,dEff))/effectiveLife(d)`, carried
+   * verbatim from the CommissionedHauler so the waste ledger's P4 can ECHO the
+   * planner's paved-aware number instead of re-deriving it (owner 2026-07-22:
+   * share the code, don't duplicate the pricing). Optional: the corp-side
+   * materialization path (haulerAssignmentFromCommissioned) leaves it unset.
+   */
+  spawnParts?: number;
+
   /** Nearest spawn for these haulers */
   spawnId: string;
 

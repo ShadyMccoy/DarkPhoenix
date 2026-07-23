@@ -102,8 +102,8 @@ export function upgraderSizing(
   bankedBehindFeeder: number | null,
   reserveTarget: number,
   constructionAbsorb = 0
-): { allocated: number; inflow: number | null } {
-  if (stock === null) return { allocated: planAllocated, inflow: null };
+): { allocated: number; inflow: number | null; surplus: boolean } {
+  if (stock === null) return { allocated: planAllocated, inflow: null, surplus: false };
   const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder, reserveTarget) > 0;
   // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
   // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
@@ -134,7 +134,10 @@ export function upgraderSizing(
       ? planAllocated + FEEDER_STOCK_HEADROOM
       : 2;
   const sustainable = sustainableConsumptionRate(stock, inflow);
-  return { allocated: Math.max(2, unclamped ? sustainable : Math.min(planAllocated, sustainable)), inflow };
+  // `surplus` is exported as the sizing's capital verdict: the demand's
+  // holdToFund reads it (incident t72503018), so the fleet the surplus scaled
+  // UP is one the spawn walk can actually finance - one lens, two readers.
+  return { allocated: Math.max(2, unclamped ? sustainable : Math.min(planAllocated, sustainable)), inflow, surplus };
 }
 
 export function upgraderAllocation(
@@ -502,7 +505,13 @@ export class UpgradingCorp extends Corp {
     // to the remaining share of the surplus.
     const constructionAbsorb = spawn?.pos?.roomName ? buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos) : 0;
     const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
-    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder, reserveTarget, constructionAbsorb);
+    const { allocated, inflow, surplus } = upgraderSizing(
+      planAllocated,
+      stock,
+      bankedBehindFeeder,
+      reserveTarget,
+      constructionAbsorb
+    );
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
@@ -550,6 +559,7 @@ export class UpgradingCorp extends Corp {
             meterTicks: meterW.ticks
           }
         : {}),
+      ...(surplus ? { hold: true } : {}),
       demand: "demanded"
     };
     // Delivery-aware staffing (staffsPost): an upgrader inside its replacement
@@ -615,6 +625,16 @@ export class UpgradingCorp extends Corp {
         // Excluded live incumbents make this a replacement: it must HOLD
         // (mustFund) or cheap streams starve it until the incumbent dies.
         replacement: this.getCreepCount() > current,
+        // SCALING under a bank surplus holds too (incident t72503018): the
+        // full-capacity body (min == desired == cap, runt policy) is never
+        // organically affordable against cheap partial-fill buys, so without
+        // a wall the fleet grows only at starvation-lull cadence - measured
+        // frozen at 2 of targetCount 6 for 2600+ ticks while 191k idled
+        // (6.9x warchest) and controller delivery ran 0.39x the plan with
+        // the controller-side stock STANDING. Same lens that scaled the
+        // fleet up (upgraderSizing's surplus): cold start / save regime
+        // never sets it, so the fleet-first doctrine is untouched there.
+        ...(surplus ? { holdToFund: true } : {}),
         producesIncome: false,
         desiredCost: desired.cost,
         minCost: min.cost,

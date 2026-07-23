@@ -95,4 +95,128 @@ describe("corp getSpawnDemand()", () => {
       expect(demands[0].value).to.equal(90);
     });
   });
+
+  /**
+   * holdToFund wiring (incident t72503018): a SCALING upgrader under a bank
+   * surplus is an indivisible full-capacity body (min == desired == cap, the
+   * runt policy) that the walk's partial-fill buys otherwise starve forever -
+   * the fleet froze at 2 of targetCount 6 for 2600+ ticks while 191k (6.9x
+   * the warchest target) idled and controller delivery ran 0.39x plan. The
+   * corp declares holdToFund from the SAME surplus verdict its sizing scaled
+   * the fleet up with (upgraderSizing().surplus - one lens, two readers), so
+   * the demand it emits is one the scheduler can actually finance.
+   */
+  describe("UpgradingCorp holdToFund under a bank surplus (incident t72503018)", () => {
+    const ROOM = "W43N23";
+    const SPAWN_ID = "spawn1";
+    let savedGame: any;
+    let savedMemory: any;
+
+    beforeEach(() => {
+      savedGame = (global as any).Game;
+      savedMemory = (global as any).Memory;
+      (global as any).FIND_DROPPED_RESOURCES = 106.5; // distinct sentinel for the type switch below
+      (global as any).FIND_STRUCTURES = 107;
+      (global as any).RESOURCE_ENERGY = "energy";
+      (global as any).STRUCTURE_LINK = "link";
+      (global as any).STRUCTURE_STORAGE = "storage";
+      (global as any).STRUCTURE_ROAD = "road";
+      (global as any).TERRAIN_MASK_WALL = 1;
+      (global as any).WORK = "work";
+      (global as any).CARRY = "carry";
+      (global as any).MOVE = "move";
+      (global as any).RoomPosition =
+        (global as any).RoomPosition ??
+        class {
+          public constructor(public x: number, public y: number, public roomName: string) {}
+          public findInRange(): any[] {
+            return [];
+          }
+        };
+    });
+
+    afterEach(() => {
+      (global as any).Game = savedGame;
+      (global as any).Memory = savedMemory;
+    });
+
+    /** Stage the incident's room: controller container stocked, storage banked. */
+    function stageRoom(bankedEnergy: number, upgraderCorpId: string | null) {
+      const container: any = {
+        structureType: (global as any).STRUCTURE_CONTAINER ?? "container",
+        pos: { x: 25, y: 12, roomName: ROOM, findInRange: () => [] },
+        store: { energy: 1607 }
+      };
+      (global as any).STRUCTURE_CONTAINER = container.structureType;
+      const room: any = {
+        name: ROOM,
+        memory: { controllerFeederActive: true },
+        storage: { my: true, store: { energy: bankedEnergy } },
+        getTerrain: () => ({ get: () => 0 }),
+        lookForAt: () => [],
+        // roomHasHauler: the delivery loop is closed (a real flow hauler exists).
+        find: () => [{ memory: { workType: "haul", corpId: "hauling-W43N23-x" } }]
+      };
+      const controller: any = {
+        id: "ctrl-1",
+        level: 6,
+        room,
+        pos: {
+          x: 25,
+          y: 10,
+          roomName: ROOM,
+          findInRange: (type: number) => (type === (global as any).FIND_STRUCTURES ? [container] : [])
+        }
+      };
+      room.controller = controller;
+      const spawn: any = {
+        id: SPAWN_ID,
+        spawning: false,
+        room,
+        pos: {
+          x: 30,
+          y: 20,
+          roomName: ROOM,
+          getRangeTo: (t: any) => Math.max(Math.abs(30 - t.x), Math.abs(20 - t.y))
+        }
+      };
+      (global as any).Memory = { creeps: {}, rooms: {} };
+      (global as any).Game = {
+        time: 100,
+        rooms: {},
+        creeps: upgraderCorpId
+          ? {
+              u1: {
+                spawning: false,
+                ticksToLive: 1400,
+                body: new Array(26),
+                memory: { corpId: upgraderCorpId, workType: "upgrade" }
+              }
+            }
+          : {},
+        getObjectById: (id: string) => (id === SPAWN_ID ? spawn : null)
+      };
+    }
+
+    it("a scaling upgrader under surplus declares holdToFund on its indivisible body", () => {
+      const corp = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID);
+      stageRoom(191_613, corp.id); // the incident's bank, one incumbent -> scaling demand
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      const d = demands[0];
+      expect(d.blocking, "an incumbent exists - this is fleet growth").to.equal(false);
+      expect(d.minCost, "runt policy: scaling bodies are indivisible").to.equal(d.desiredCost);
+      expect(d.holdToFund, "surplus capital: the walk must be able to bank toward it").to.equal(true);
+      expect(corp.lastSizing?.hold, "the stamp records the verdict").to.equal(true);
+    });
+
+    it("below the warchest target the demand carries no hold (save regime untouched)", () => {
+      const corp = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID);
+      stageRoom(10_000, null); // bank still filling, no incumbent -> blocking first upgrader
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      expect(demands[0].holdToFund, "cold start / save regime never consumer-walls").to.equal(undefined);
+      expect(corp.lastSizing?.hold).to.equal(undefined);
+    });
+  });
 });

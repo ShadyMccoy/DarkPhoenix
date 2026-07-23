@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -47,6 +47,32 @@ describe("waste ledger (spec 15 phase 1)", () => {
     for (const cls of ["miners", "source-route haulers", "transient-route", "upgraders", "feeder", "tenders", "reservers"]) {
       expect(names).to.contain(cls);
     }
+  });
+
+  it("P4 READS the planner's own hauler spawnParts - no re-derivation, so no drift", () => {
+    // ROOT-CAUSE of the ledger/planner drift (owner 2026-07-22): the ledger
+    // RECOMPUTED hauler load as 2*carryParts/effectiveLife - a second
+    // implementation of the planner's ((paved?1.5:2)*carryPartsFor)/life. On a
+    // paved-remote colony the 2x-all over-count read P4 1.01x FAIL where the
+    // planner's paved-aware number was 0.90x (t72508069). The fix shares the
+    // ONE number: the planner exports its per-route spawnParts, the ledger
+    // echoes it. This pins the "echo, don't recompute" contract with a sentinel
+    // value the recompute could never produce.
+    const mk = (haulers: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers, sinks: [] }, corps: { corps: [] }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const sentinel = 0.01234; // arbitrary; only an echo (not a recompute) yields it
+    const load = (r: { lines: Array<[string, number, number]> }): number =>
+      r.lines.find(([n]) => n === "source-route haulers")![2];
+    const echoed = planSpawnLoad(
+      mk([{ sourceId: "source-aaa", carryParts: 10, distance: 50, flowRate: 5, spawnParts: sentinel }])
+    );
+    expect(load(echoed), "the planner's spawnParts, verbatim").to.equal(sentinel);
+    // Legacy capture (pre-export, no spawnParts): fall back to the recompute so
+    // old fixtures still produce a number - no crash, no NaN.
+    const legacy = planSpawnLoad(mk([{ sourceId: "source-bbb", carryParts: 10, distance: 50, flowRate: 5 }]));
+    expect(load(legacy), "legacy fallback still computes").to.be.greaterThan(0);
   });
 
   it("P6 measures per-room reservation PUMP from the bank stamps (reservers not reserving)", () => {
@@ -157,6 +183,42 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("completion window");
   });
 
+  it("P8 FAILS a remote-only stall: remote sites standing, receipts flat, crew funded (gap measured t72503018)", () => {
+    // The live 2026-07-22 window: home siteCount 0 at both ends, but W43N24
+    // held 3 standing remote sites (2 trunk tiles + a container) across 2171
+    // ticks with roadReceipts frozen at 36/38 and a funded 5-creep build
+    // corp - P8 read "ok / no sites standing" while the trunk pipeline was
+    // stalled. Remote sites are sites: the standing/flat predicate must see
+    // the segment-0 remoteSites census, not just the home rooms[] meter.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W43N24: 3 };
+    capA.data.core.remoteSites = { W43N24: 3 };
+    capB.data.core.roadReceipts = { r1: { built: 36, total: 38, paved: true } };
+    capA.data.core.roadReceipts = { r1: { built: 36, total: 38, paved: true } };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("FAIL");
+    expect(p8.detail).to.contain("CREW IDLE");
+    expect(p8.detail, "the remote census is named, not lumped into the home count").to.contain("remote");
+  });
+
+  it("P8 treats a remote-site count drop as a completion window (ambiguous, skipped)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W43N24: 3 };
+    capA.data.core.remoteSites = { W43N24: 1 }; // container finished mid-window
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("ok");
+    expect(p8.detail).to.contain("completion window");
+  });
+
   it("P9 catches mined production that is funded but never routed (#19, owner-caught 2026-07-19)", () => {
     // Live t72425058/t72424537: 7 funded mined sources = 70 e/t produced, ZERO
     // mined-source haulers, 0 routed. The leak that had NO ledger line - it
@@ -206,5 +268,82 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const firstOk = rows.findIndex(r => r.verdict === "ok");
     const lastFail = rows.map(r => r.verdict).lastIndexOf("FAIL");
     expect(lastFail).to.be.lessThan(firstOk === -1 ? rows.length : firstOk);
+  });
+
+  // ---- X5 rebuild churn (owner 2026-07-23: "continue investigating these
+  // types of churns ... the bot is so constrained in screeps that they all add
+  // up"). Discovered live t72509177: remote haulers spawned small then replaced
+  // big (cbd5 1550->2200 @189t, cd8d 900->2300 @120t) and a reserver respawn
+  // 25t apart - below one creep's spawn time, so a double-order, not a death.
+  const mkChurnCap = (rows: any[], corps: any[]): any => ({
+    tick: 1000,
+    data: { blackbox: { v: 1, tick: 1000, rows }, corps: { corps } }
+  });
+
+  it("X5 counts an early-death remote respawn but EXCLUDES fleet growth (census cross-check)", () => {
+    // The load-bearing correctness point: a corp whose spawn-count in the window
+    // is <= its current staffing GREW - none of those spawns died. The upgrader
+    // ramp (2->3) must NOT read as churn (my first hand-count wrongly did, 28%
+    // vs the true 18% once growth is excluded).
+    const churn = computeChurn(
+      mkChurnCap(
+        [
+          // remote hauler cbd5: spawned 900, replaced by 2200 120t later, now 1 alive => 1 died
+          { t: 100, k: "spawn", d: { corp: "hauling-W44N23-hauling-cbd5", role: "hauler", cost: 900 } },
+          { t: 220, k: "spawn", d: { corp: "hauling-W44N23-hauling-cbd5", role: "hauler", cost: 2200 } },
+          // home upgrader: two spawns but 2 alive => the fleet GREW, zero churn
+          { t: 150, k: "spawn", d: { corp: "upgrading-W43N23-upgrading", role: "upgrader", cost: 2300 } },
+          { t: 540, k: "spawn", d: { corp: "upgrading-W43N23-upgrading", role: "upgrader", cost: 2300 } }
+        ],
+        [
+          { id: "hauling-W44N23-hauling-cbd5", creepCount: 1 },
+          { id: "upgrading-W43N23-upgrading", creepCount: 2 }
+        ]
+      )
+    )!;
+    // cbd5: gap 120, unlived 1-120/1500 = 0.92, waste 900*0.92 = 828, REMOTE role
+    expect(churn.remoteChurn).to.be.closeTo(828, 1);
+    // the upgrader grew (staffing 2 >= 2 spawns) - excluded, so home churn is 0
+    expect(churn.homeChurn).to.equal(0);
+    expect(churn.totalSpawnEnergy).to.equal(900 + 2200 + 2300 + 2300);
+  });
+
+  it("X5 weights by UNLIVED fraction: a near-EOL replacement is ~0, an early one is ~full cost", () => {
+    const nearEol = computeChurn(
+      mkChurnCap(
+        [
+          { t: 0, k: "spawn", d: { corp: "hauling-W44N23-hauling-x", role: "hauler", cost: 1000 } },
+          { t: 1450, k: "spawn", d: { corp: "hauling-W44N23-hauling-x", role: "hauler", cost: 1000 } }
+        ],
+        [{ id: "hauling-W44N23-hauling-x", creepCount: 1 }]
+      )
+    )!;
+    expect(nearEol.churnEnergy).to.be.lessThan(50); // gap 1450 ~ life 1500 => barely churn
+  });
+
+  it("X5 returns null (row absent) when the capture predates the blackbox segment", () => {
+    expect(computeChurn({ tick: 1, data: { corps: { corps: [] } } })).to.equal(null);
+    const x5 = computeLedger(cap72411542, cap72404213).find(r => r.id === "X5");
+    expect(x5, "pre-blackbox fixtures produce no X5 row").to.equal(undefined);
+  });
+
+  it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
+    // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
+    // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order
+    // (the stranded-reserver trap's signature, or a post-reset double-order).
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    cap.data.blackbox = {
+      v: 1,
+      tick: cap.tick,
+      rows: [
+        { t: 100, k: "spawn", d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 } },
+        { t: 125, k: "spawn", d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 } }
+      ]
+    };
+    cap.data.corps.corps.push({ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 1 });
+    const x5 = computeLedger(cap, cap72404213).find(r => r.id === "X5")!;
+    expect(x5, "X5 present once a blackbox is captured").to.not.equal(undefined);
+    expect(x5.verdict).to.equal("WARN");
+    expect(x5.detail).to.contain("FAST RESPAWN");
   });
 });
