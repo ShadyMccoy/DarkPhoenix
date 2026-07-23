@@ -432,6 +432,30 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(scav.value).to.equal(0);
   });
 
+  it("LINK surfaces the throughput ledger and flags 0%-direct controller flow as a missed win", () => {
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    capA.data.core.links = [
+      { room: "W43N23", windowTicks: 200, toHubRate: 12, toControllerRate: 30, directShare: 0, taxRate: 1.26 }
+    ];
+    const link = computeLedger(capA, cap72404213).find(r => r.id === "LINK")!;
+    expect(link.verdict).to.equal("ok"); // instrument-first: never gates
+    expect(link.detail).to.contain("hub 12.0");
+    expect(link.detail).to.contain("ctrl 30.0 (direct 0%)");
+    expect(link.detail, "0% direct + real controller flow = the easy win").to.contain("double-hopping");
+  });
+
+  it("LINK does not flag a healthy direct share, and skips a dead network", () => {
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    capA.data.core.links = [
+      { room: "W43N23", windowTicks: 200, toHubRate: 5, toControllerRate: 20, directShare: 0.8, taxRate: 0.75 },
+      { room: "W44N24", windowTicks: 200, toHubRate: 0, toControllerRate: 0, directShare: 0, taxRate: 0 }
+    ];
+    const link = computeLedger(capA, cap72404213).find(r => r.id === "LINK")!;
+    expect(link.detail).to.contain("direct 80%");
+    expect(link.detail).to.not.contain("double-hopping");
+    expect(link.value, "only the room with live fires counts as active").to.equal(1);
+  });
+
   it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
     // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
     // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order

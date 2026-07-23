@@ -13,6 +13,7 @@
  */
 
 import { controllerLink, coreLink } from "../corps/nodeEnergy";
+import { recordLinkFire } from "../telemetry/LinkMeter";
 
 /**
  * Don't fire a dribble: wait until the source link holds at least this much, so
@@ -59,7 +60,12 @@ export function runLinks(): void {
           : coreFree > 0
           ? core
           : null;
-      if (target) link.transferEnergy(target);
+      if (target) {
+        // Instrument (LinkMeter): the intended volley = what fits at the target.
+        const amount = Math.min(link.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
+        link.transferEnergy(target);
+        recordLinkFire(room.name, ctrl && target.id === ctrl.id ? "controllerDirect" : "hub", amount, Game.time);
+      }
     }
 
     if (
@@ -68,7 +74,9 @@ export function runLinks(): void {
       core.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD &&
       ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
     ) {
+      const amount = Math.min(core.store[RESOURCE_ENERGY], ctrl.store.getFreeCapacity(RESOURCE_ENERGY));
       core.transferEnergy(ctrl);
+      recordLinkFire(room.name, "controllerRelay", amount, Game.time);
     }
   }
 }

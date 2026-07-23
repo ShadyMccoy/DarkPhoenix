@@ -460,6 +460,36 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- LINK link-throughput instrument (spec-26, read-only knowledge) ----
+  // ACTUAL e/t the link network carries: hub inflow, controller DELIVERY receipt
+  // (what the first spec-26 never measured), the cheap 1-hop direct share, and
+  // the 3% tax. Informational until the planner models links; a controller flow
+  // with 0% direct share is a visible missed easy-win (always double-hopping).
+  const links = core.links ?? [];
+  if (links.length > 0) {
+    const active = links.filter((l: any) => l.toHubRate + l.toControllerRate > 0.01);
+    const missedDirect = active.filter((l: any) => l.toControllerRate > 0.5 && l.directShare < 0.01);
+    rows.push({
+      id: "LINK",
+      name: "link throughput (hub / controller receipt / direct / tax)",
+      value: active.length,
+      unit: "rooms with a live link network",
+      verdict: "ok", // instrument-first: surface numbers, don't gate behavior yet
+      detail:
+        (active.length === 0
+          ? "no link fires in the window"
+          : active
+              .map(
+                (l: any) =>
+                  `${l.room} hub ${l.toHubRate.toFixed(1)} ctrl ${l.toControllerRate.toFixed(1)} (direct ${(l.directShare * 100).toFixed(0)}%) tax ${l.taxRate.toFixed(2)} /${l.windowTicks}t`
+              )
+              .join("; ")) +
+        (missedDirect.length > 0
+          ? ` | double-hopping to controller in ${missedDirect.map((l: any) => l.room).join(",")} (0% direct - easy win)`
+          : "")
+    });
+  }
+
   // ---- S3 scheduler stall: idle spawn with an AFFORDABLE head ----
   const spawn = core.spawns?.[0];
   if (spawn && room) {

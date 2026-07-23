@@ -21,6 +21,7 @@
 import { Colony } from "../colony/Colony";
 import { Corp, CorpSizingRecord } from "../corps/Corp";
 import { controllerSideStock } from "../corps/nodeEnergy";
+import { linkLedger } from "./LinkMeter";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -291,6 +292,17 @@ export interface CoreTelemetry {
     cpu: number;
     byCorp: { [family: string]: { calls: number; cpu: number } };
   };
+  /** Per-room link throughput (v14, spec-26 instrument): ACTUAL e/t carried -
+   * to the hub vs DELIVERED to the controller (the receipt), the 1-hop direct
+   * share, and the 3% tax paid. Read-only measurement ahead of the planner. */
+  links?: {
+    room: string;
+    windowTicks: number;
+    toHubRate: number;
+    toControllerRate: number;
+    directShare: number;
+    taxRate: number;
+  }[];
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -856,7 +868,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 13, // v12 endFill probe; v13 roadReceipts (the pave/dedication lens records, verbatim)
+      version: 14, // v13 roadReceipts; v14 links (spec-26 link-throughput instrument)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -902,6 +914,10 @@ export class Telemetry {
         return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
       })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
+      ...(() => {
+        const links = linkLedger(Game.time);
+        return links.length > 0 ? { links } : {};
+      })(),
       rooms
     };
 
