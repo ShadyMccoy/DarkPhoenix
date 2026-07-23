@@ -323,23 +323,47 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
  * Requires a storage hub (the port is a shortcut TO that hub). Live default for
  * buildColonyProblem; injectable for tests.
  */
+/** v1 conservative per-port deposit cap (e/t). Bounds the drain + blast radius
+ * while the source-link port stabilises; the measured opportunity is ~30 e/t. */
+export const DEPOSIT_PORT_HEADROOM = 30;
+
 export function detectLinkDepositPorts(): DepositPort[] {
-  // DISABLED (prod incident 2026-07-23): controller-link ports slow-collapsed
-  // the live colony (fleet 30->13). Two faults: (1) haulers never actually
-  // landed at the port in prod (the core->controller relay tops the link so a
-  // hauler finds ~no room, OR - reproduced in plan-t4-link-deposit-port - the
-  // ported hauler never delivers at all), so the plan under-sized 3 haulers for
-  // a delivery that fell back to storage; (2) the drained spawn network that
-  // followed let a warchest-funded "campaign" upgrader (mustFund/wall) hold the
-  // spawn ahead of the income fleet - a death spiral the code revert alone can't
-  // undrain. Emitting NO ports makes the whole feature inert (behavior identical
-  // to pre-spec-26) while keeping the plumbing/tests/telemetry for a correct
-  // redesign (source-link ports need a staffed core->storage drain; controller-
-  // link ports need the core->ctrl relay to RESERVE drop room + the feeder
-  // credit). See docs/specs/14 + 26 for the incident. The redesign restores a
-  // per-room lens here (was: storage.my + controllerLink -> headroom
-  // feederRelayRate); until then, no ports.
-  return [];
+  // SOURCE-LINK PORTS (spec-26 stage 4 redesign, owner 2026-07-23): a remote
+  // hauler deposits at a home-room SOURCE link it passes (measured: 3 routes,
+  // ~13 tiles saved each) instead of walking to storage. The link fires to the
+  // core; the drain is STAFFED (the missing v1 leg) by attributing the deposited
+  // flow to the port's owning link-served source, whose hauler already picks up
+  // at the core (sourcePickupSpot). Controller-link ports (bank-neutral, no
+  // drain) stay OUT of v1 - they need the relay to reserve drop room (the stage-2
+  // lesson). Requires a storage hub (the port is a shortcut TO it).
+  if (typeof Game === "undefined" || !Game.rooms) return [];
+  const out: DepositPort[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my || !room.storage?.my) continue;
+    const core = coreLink(room);
+    if (!core) continue;
+    const ctrl = controllerLink(room);
+    const links = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_LINK
+    }) as StructureLink[];
+    const sources = room.find(FIND_SOURCES);
+    for (const link of links) {
+      if (link.id === core.id) continue; // the hub itself, not a shortcut
+      if (ctrl && link.id === ctrl.id) continue; // controller port = v2 (bank-neutral, no drain)
+      // The link's owning source: its hauler already drains the core, so it
+      // staffs the deposit drain. No adjacent source => not a source-link.
+      const owner = sources.find(s => s.pos.inRangeTo(link.pos, 2));
+      if (!owner) continue;
+      out.push({
+        pos: { x: link.pos.x, y: link.pos.y, roomName },
+        headroom: DEPOSIT_PORT_HEADROOM,
+        drainFrom: { x: core.pos.x, y: core.pos.y, roomName },
+        drainSourceId: `source-${owner.id}`
+      });
+    }
+  }
+  return out;
 }
 
 /**

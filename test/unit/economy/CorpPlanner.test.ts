@@ -379,6 +379,47 @@ describe("economy/CorpPlanner", () => {
       expect(h2.depositPos).to.deep.equal(port);
     });
 
+    it("STAGE 4: a source-link port with a drain staffs the short core->storage haul for the deposited flow", () => {
+      // The leg v1 punted on: energy deposited at a source-link port emerges at
+      // the CORE and must be drained to storage, or it backs up and the remote
+      // hauler (sized to the shortened leg) silently falls back. The plan adds a
+      // 1-tile drain hauler for the deposited flow, attributed to the port's
+      // owning link-served source (home), whose hauler picks up at the core.
+      const port = at(42);
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          // remote m1 (dHub 20) deposits at the port; home (dHub 2) owns the drain.
+          sources: [source("m1", 30, 10), source("home", 48, 10), stock("bank-home", 50, 100)],
+          sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
+          depositPorts: [{ pos: port, headroom: 15, drainFrom: at(49), drainSourceId: "home" }]
+        })
+      );
+      const h1 = plan.haulers.find(x => x.sourceId === "m1" && x.sinkId === "store")!;
+      expect(h1.depositPos, "m1 deposits at the port (shortened leg)").to.deep.equal(port);
+      expect(h1.distance, "sized to the port leg 30->42, not the hub 30->50").to.equal(12);
+      // A drain hauler for the deposited 10 e/t, from the core (49) to storage (50).
+      const drain = plan.haulers.find(x => x.sourceId === "home" && Math.abs(x.distance - 1) < 0.01);
+      expect(drain, "a 1-tile core->storage drain was staffed").to.not.equal(undefined);
+      expect(drain!.flowRate, "drain sized to the deposited flow (m1's 10)").to.be.closeTo(10, 1e-6);
+    });
+
+    it("no drain when nothing deposits (a port that never absorbs adds no hauler)", () => {
+      // Port FARTHER than the hub => no deposit => no drain hauler.
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("m1", 30, 10), source("home", 48, 10), stock("bank-home", 50, 100)],
+          sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
+          depositPorts: [{ pos: at(60), headroom: 15, drainFrom: at(49), drainSourceId: "home" }]
+        })
+      );
+      expect(
+        plan.haulers.find(x => x.sourceId === "home" && Math.abs(x.distance - 1) < 0.01),
+        "no deposits => no drain"
+      ).to.equal(undefined);
+    });
+
     it("ignores ports with no storage hub (pre-storage: mined feeds consumers directly)", () => {
       const plan = planColony(
         problem({

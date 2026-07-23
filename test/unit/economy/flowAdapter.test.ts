@@ -335,6 +335,49 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(banks[0].transient).to.equal(true);
     expect(banks[0].maxMiners).to.equal(0);
   });
+
+  it("detectLinkDepositPorts emits a source-link port with a staffed core drain, excludes core & controller links", async () => {
+    const { detectLinkDepositPorts, DEPOSIT_PORT_HEADROOM } = await import("../../../src/economy/flowAdapter");
+    (global as any).FIND_MY_STRUCTURES = 108;
+    (global as any).FIND_SOURCES = 105;
+    (global as any).STRUCTURE_LINK = "link";
+    const cheb = (a: any, b: any) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+    const linkPos = (x: number, y: number, links: any[]) => ({
+      x,
+      y,
+      roomName: "W0N0",
+      inRangeTo: (o: any, range: number) => cheb({ x, y }, o) <= range,
+      findInRange: (_t: number, range: number, o?: any) => {
+        const near = links.filter(l => cheb(l.pos, { x, y }) <= range);
+        return o?.filter ? near.filter(o.filter) : near;
+      }
+    });
+    // storage(10,10) + core-link(11,10); controller(40,40) + controller-link(41,40);
+    // source(25,25) + source-link(26,26). Only the source-link is a shortcut port.
+    const links: any[] = [];
+    const core = { id: "core", structureType: "link", pos: linkPos(11, 10, links) };
+    const ctrl = { id: "ctrl", structureType: "link", pos: linkPos(41, 40, links) };
+    const srcLink = { id: "srcLink", structureType: "link", pos: linkPos(26, 26, links) };
+    links.push(core, ctrl, srcLink);
+    const source = { id: "SRC1", pos: linkPos(25, 25, links) };
+    const room: any = {
+      controller: { my: true, pos: linkPos(40, 40, links) },
+      storage: { my: true, pos: linkPos(10, 10, links) },
+      find: (t: number, o?: any) => {
+        if (t === (global as any).FIND_SOURCES) return [source];
+        return o?.filter ? links.filter(o.filter) : links;
+      }
+    };
+    g.Game.rooms = { W0N0: room };
+
+    const ports = detectLinkDepositPorts();
+    expect(ports, "exactly one shortcut port (core & controller excluded)").to.have.length(1);
+    const p = ports[0];
+    expect(p.pos, "port sits on the source link").to.deep.equal({ x: 26, y: 26, roomName: "W0N0" });
+    expect(p.drainSourceId, "drained by the owning source's hauler").to.equal("source-SRC1");
+    expect(p.drainFrom, "drain emerges at the core link").to.deep.equal({ x: 11, y: 10, roomName: "W0N0" });
+    expect(p.headroom).to.equal(DEPOSIT_PORT_HEADROOM);
+  });
 });
 
 /**

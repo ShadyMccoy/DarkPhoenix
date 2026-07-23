@@ -141,6 +141,17 @@ export interface DepositPort {
   pos: Position;
   /** e/t of external deposits the port can absorb, shared across sources. */
   headroom: number;
+  /** Where the deposited energy EMERGES and must be drained to storage from - a
+   * source-link port forwards to the core link (spec-26 stage 4). The plan
+   * staffs a short drain hauler from here so deposits don't back up (the
+   * unstaffed leg the v1 source-link port punted on). Absent = consumed in place
+   * (a controller-link port), no drain needed. */
+  drainFrom?: Position;
+  /** The link-served home source that OWNS this port link. Its hauler already
+   * picks up at the core (sourcePickupSpot redirect), so the drain is staffed by
+   * adding the deposited flow to that source's core->storage route - no new
+   * execution path. */
+  drainSourceId?: string;
 }
 
 export interface ColonyProblem {
@@ -734,6 +745,34 @@ function routeToSinks(
   // already at target - their re-fill is a no-op).
   for (const sink of [...sinks].sort(byValueThenId)) {
     fill(sink, sink.capacity);
+  }
+
+  // STAGE-4 DEPOSIT DRAIN (spec-26): energy deposited at a source-link port
+  // emerges at the CORE (the port fired it there); staff the short core->storage
+  // drain by adding the deposited flow to the port's OWNING link-served source,
+  // whose hauler already picks up at the core (sourcePickupSpot redirect). This
+  // is the leg v1 punted on - without it the deposits back up and the remote
+  // haulers, sized to the shortened leg, fall back to the full haul (the silent
+  // collapse). Cheap (~1 tile). The take never exceeds headroom, so a
+  // parts-limited fill drains only what it actually routed.
+  for (const port of problem.depositPorts ?? []) {
+    if (!port.drainFrom || !port.drainSourceId) continue;
+    const deposited = port.headroom - (portRemaining.get(port) ?? port.headroom);
+    if (deposited <= 1e-9) continue;
+    const storageSink = sinks.find(s => s.kind === "storage" && s.pos.roomName === port.pos.roomName);
+    if (!storageSink) continue;
+    const dDrain = Math.max(1, dist(port.drainFrom, storageSink.pos));
+    const drainParts = (2 * carryPartsFor(deposited, dDrain)) / effectiveLife(dDrain);
+    haulers.push({
+      sourceId: port.drainSourceId,
+      sinkId: storageSink.id,
+      spawnId: spawnBySource.get(port.drainSourceId) ?? problem.spawns[0]?.id ?? "",
+      distance: dDrain,
+      flowRate: deposited,
+      carryParts: carryPartsFor(deposited, dDrain),
+      spawnParts: drainParts
+    });
+    partsRemaining -= drainParts;
   }
 
   return { haulers, sinks: [...out.values()], partsRemaining };
