@@ -2,6 +2,7 @@
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
 import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
+import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 /**
  * SOURCE CONTAINER ON THE SOURCE TILE (prod W44N23, "[Construction] Failed to
@@ -26,7 +27,13 @@ describe("findMissingSourceContainer (never proposes the source's own tile)", ()
 
   beforeEach(() => {
     setupGlobals();
+    resetGovernor();
+    Game.time = 100;
     const g = global as any;
+    g.OK = 0;
+    g.ERR_INVALID_TARGET = -7;
+    g.LOOK_STRUCTURES = "structure";
+    g.STRUCTURE_ROAD = "road";
     g.FIND_SOURCES = FIND_SOURCES;
     g.FIND_MINERALS = FIND_MINERALS;
     g.FIND_STRUCTURES = FIND_STRUCTURES;
@@ -98,5 +105,36 @@ describe("findMissingSourceContainer (never proposes the source's own tile)", ()
     const room = roomWith(33, 29, walls);
     const spot = (corp as any).findMissingSourceContainer(room);
     expect(spot).to.deep.equal({ x: 34, y: 29 });
+  });
+
+  it("deletes the redundant road under a freshly placed container (owner 2026-07-23)", () => {
+    // A container is legal on a road, but the road under it is dead weight: the
+    // miner stands there statically and haulers stop to load, so the road saves
+    // no fatigue and just decay-taxes us forever. placeSite removes it.
+    const corp = new ConstructionCorp("W44N23-construction", "spawn1");
+    let destroyed = false;
+    const road = { structureType: "road", destroy: () => ((destroyed = true), 0) };
+    const room: any = {
+      name: "W44N23",
+      memory: {},
+      createConstructionSite: () => 0, // OK
+      lookForAt: (type: string) => (type === "structure" ? [road] : [])
+    };
+    (corp as any).placeSite(room, 11, 11, "container");
+    expect(destroyed, "the road under the new container is removed").to.equal(true);
+  });
+
+  it("leaves a road in place when the placed structure is NOT a container", () => {
+    const corp = new ConstructionCorp("W44N23-construction", "spawn1");
+    let destroyed = false;
+    const road = { structureType: "road", destroy: () => ((destroyed = true), 0) };
+    const room: any = {
+      name: "W44N23",
+      memory: {},
+      createConstructionSite: () => 0, // OK
+      lookForAt: (type: string) => (type === "structure" ? [road] : [])
+    };
+    (corp as any).placeSite(room, 11, 11, "link");
+    expect(destroyed, "a link/tower/road placement must not destroy roads").to.equal(false);
   });
 });

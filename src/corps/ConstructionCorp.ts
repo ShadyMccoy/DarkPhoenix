@@ -1809,6 +1809,18 @@ export class ConstructionCorp extends Corp {
     this.stampSizing({ placeAttempt: `${type}@${room.name}:${x},${y}`, placeResult: result });
     if (result === OK) {
       console.log(`[Construction] Placed ${type} site at ${room.name} (${x}, ${y})`);
+      // A container makes any road ON its tile redundant (owner 2026-07-23):
+      // the miner stands there statically and haulers STOP to load, so fatigue
+      // clears while standing and the road saves nothing (the isSourceApproachTile
+      // rationale) - it would just decay-tax us forever under the container.
+      // Container + road is engine-legal (they coexist), so this is cleanup, not
+      // a placement requirement: bestAdjacentTile now lands the container on the
+      // paved harvest tile and we remove the redundant road it sat on.
+      if (type === STRUCTURE_CONTAINER) {
+        for (const s of room.lookForAt(LOOK_STRUCTURES, x, y)) {
+          if (s.structureType === STRUCTURE_ROAD) s.destroy();
+        }
+      }
     } else {
       if (result === ERR_INVALID_TARGET) {
         // Permanently invalid for this tile (wall/occupant/near-exit rule the
