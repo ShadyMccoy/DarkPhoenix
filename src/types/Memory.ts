@@ -326,6 +326,16 @@ declare global {
     lastBankDraw?: number;
 
     /**
+     * The current liquidity reserve target (economy/bank.warchestTarget of the
+     * last solve's measured income). Persisted so every consumer - the plan's
+     * bank-surplus emission and the execution corps that size off it - reads
+     * ONE number and cannot drift. Written by FlowEconomy.update; read through
+     * bank.resolveReserveTarget, which falls back to BASE_RESERVE before the
+     * first solve publishes one.
+     */
+    warchestTarget?: number;
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

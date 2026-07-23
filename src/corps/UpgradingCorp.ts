@@ -16,7 +16,7 @@ import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
-import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 import { travelTicksPerTile } from "./economics";
@@ -100,10 +100,11 @@ export function upgraderSizing(
   planAllocated: number,
   stock: number | null,
   bankedBehindFeeder: number | null,
+  reserveTarget: number,
   constructionAbsorb = 0
 ): { allocated: number; inflow: number | null } {
   if (stock === null) return { allocated: planAllocated, inflow: null };
-  const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder) > 0;
+  const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder, reserveTarget) > 0;
   // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
   // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
   // stock 2000 + relay 115 + 234k banked stood ready - the goal-plan cap
@@ -125,7 +126,7 @@ export function upgraderSizing(
   // (share <= planAllocated + headroom) returns the plan's residual clamp -
   // the link-era behavior, preserved. While the warchest FILLS, the
   // plan-capped sip remains the pinned save regime.
-  const share = surplus ? feederRelayRate(bankedBehindFeeder!) - constructionAbsorb : 0;
+  const share = surplus ? feederRelayRate(bankedBehindFeeder!, reserveTarget) - constructionAbsorb : 0;
   const unclamped = surplus && (constructionAbsorb <= 0 || share > planAllocated + FEEDER_STOCK_HEADROOM);
   const inflow = unclamped
     ? share
@@ -140,9 +141,10 @@ export function upgraderAllocation(
   planAllocated: number,
   stock: number | null,
   bankedBehindFeeder: number | null,
+  reserveTarget: number,
   constructionAbsorb = 0
 ): number {
-  return upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionAbsorb).allocated;
+  return upgraderSizing(planAllocated, stock, bankedBehindFeeder, reserveTarget, constructionAbsorb).allocated;
 }
 
 /**
@@ -499,7 +501,8 @@ export class UpgradingCorp extends Corp {
     // t72478939): construction eats what it can absorb; the fleet is sized
     // to the remaining share of the surplus.
     const constructionAbsorb = spawn?.pos?.roomName ? buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos) : 0;
-    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder, constructionAbsorb);
+    const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
+    const { allocated, inflow } = upgraderSizing(planAllocated, stock, bankedBehindFeeder, reserveTarget, constructionAbsorb);
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
