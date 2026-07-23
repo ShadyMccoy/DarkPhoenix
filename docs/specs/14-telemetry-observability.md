@@ -3821,3 +3821,37 @@ Cycle verdict: **FIXED** (E5 false positive eliminated + regression-pinned) +
 **MEASURED** (spend path restored, storage draining −4.79/t, controller
 28.8 e/t, no FAIL lines). Next candidate: X5 steady-state churn once past the
 post-reset window; the source-link deferred ~79% remains the bigger P4 lever.
+
+---
+
+### SPEC-26 STAGE 2 — REVERTED (relay-yield starved the controller); instrument earned its keep
+
+Stage 1 (link-throughput instrument) measured the controller-link is fed 13-35 e/t
+at **0% direct** (all double-hop source->core->controller). Stage 2 made source
+links deposit DIRECT into the controller link above warchest. First deploy read
+0% direct still - the core->controller RELAY fires every tick and refills the
+link, leaving no room for a source volley. Fix attempt: gate the relay to yield
+above a low-water mark (400). **That REGRESSED P7 to 0 e/t** (controller delivery
+collapsed; energy banked instead, +16/t) - reverted immediately (doctrine).
+
+Diagnosis (post-revert, static): the controller LINK *is* the upgrader input
+(controllerInputSpot returns it), and the upgrader draw is small (~15-26 e/t) vs
+the 800 link capacity - so the link sits mostly full, rarely draining below 400.
+Gating the relay at low-water deadlocked it: link stuck ~768, relay yielding,
+source volleys (>=100) can't fit the ~32 free, controller not draining fast
+enough to open room. The ungated relay was load-bearing: it keeps the link
+topped for the trickle draw.
+
+**Verdict: the controller-link direct win is MARGINAL and FIDDLY.** The tax saved
+by 1-hop vs 2-hop on ~20 e/t of controller flow is ~0.5 e/t; the relay is
+load-bearing for the small draw, so capturing it safely needs reserved headroom
+(coreLinkLoadRoom-style), not a gate - complexity out of proportion to ~0.5 e/t.
+The instrument did exactly its job: it QUANTIFIED that this "easy win" is small
+and risky, and caught the regression in ONE cycle via a real delivery receipt -
+the thing spec-26 v1 never had. Kept: stage 1 (instrument) + stage 2's harmless
+source-direct preference (dormant while the relay tops the link). The real link
+lever is the SOURCE side (hub throughput 9-11 e/t and 31 over-budget remotes) -
+stage 4, where the throughput actually is.
+
+Cycle verdict: **REGRESSION REVERTED same-cycle** (P7 0->restored) + **FALSIFIED**
+(controller-link direct win is marginal; instrument-first saved the over-invest).
