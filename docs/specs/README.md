@@ -54,6 +54,7 @@ Conventions used by every spec:
 | 27 | [Extension relocation](27-extension-relocation.md) | PROPOSED 2026-07-22 (owner) — **next session's first work item**: phase-1 scorer + per-cluster table (size, distance, implied tender body), owner reviews before any destroy; folds in per-cluster tender sizing + the depot bridge economy fix (bus-regime red) | P0 |
 | 28 | [Source-Keeper mining](28-source-keeper-mining.md) | design overview only — not started (guarded-producer model + garrison tax primitive + KeeperGuardCorp) | P3 |
 | 29 | [CPU as a costed resource](29-cpu-as-costed-resource.md) | stub — deferred until CPU is the binding constraint (planner objective prices spawn-build-time + energy, not CPU) | P4 |
+| 30 | [RaidingCorp: haul the loot out of soft targets](30-raiding.md) | PROPOSED 2026-07-23 (owner backlog) — grab-and-go loot hauling from weakly-defended enemy stores as a guarded transient source (scavenge + military exemption); blocked on typed resources (loot is mostly non-energy) and new "easy-pickings" intel (enemy store contents + tower/decay state unrecorded today) | P3 |
 
 Recently completed (for context): economy consolidation onto
 `economy/primitives` + CorpPlanner (FlowSolver deleted); storage-as-core-depot
