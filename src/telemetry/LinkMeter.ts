@@ -13,10 +13,13 @@
  * Module state that re-inits on a global reset (a rolling window since the reset,
  * exactly like the tender duty meter). Rates = counter / (now - sinceTick).
  *
- * Vocabulary (owner-locked): a link is a relay-SOURCE, never a sink. "hub" is the
- * core relay-source; "controller*" is the terminal relay-source feeding the
- * controller SINK. `direct` is the subset that skipped the hub (correspondent
- * settlement, 1 hop instead of 2).
+ * Vocabulary (owner-locked): a link is neither source nor sink - it's transit;
+ * energy passes through. What defines it is what a CREEP does to it: a DEPOSIT
+ * node (a creep loads it - miner at a source-link, feeder at the core) or a
+ * WITHDRAW node (a creep unloads it - hauler at the core, upgrader at the
+ * controller link). "hub" is the core deposit target; "controller*" deposits
+ * into the controller's withdraw-only link. `direct` is the subset that skipped
+ * the hub (correspondent settlement, 1 hop instead of 2).
  *
  * @module telemetry/LinkMeter
  */
