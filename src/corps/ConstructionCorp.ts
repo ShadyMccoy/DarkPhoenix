@@ -999,18 +999,29 @@ export class ConstructionCorp extends Corp {
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
-      // Deliver to the nearest builder with room. Builders are static, so "nearest"
-      // is a fixed pick, not a moving target - no thrash.
-      const builders = this.builders.members();
-      const target = creep.pos.findClosestByRange(builders.filter(b => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0));
+      // Deliver to the POOL CREW only - the repair detail self-fuels at
+      // containers/storage by design (repairerPlan) and must never soak the
+      // pool's fuel (incident t72504146: three full ~800-energy tankers
+      // orbited the wandering detail at home while the cross-room pool
+      // builder burned its own 50 carry at the cd8d trunk and stood dry to
+      // TTL death - trunk frozen at 51/53 for 3,300+ ticks, ledger P8 FAIL).
+      const crew = this.builders.members().filter(b => !b.memory.repairDetail);
+      const eligible = crew.filter(b => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+      // findClosestByRange is SAME-ROOM-ONLY - the t72504146 blindness: a
+      // pool builder in another room was invisible to the pick. Nearest
+      // local crew wins as before; with NO local crew the tanker marches at
+      // the cross-room builder (transfer returns ERR_NOT_IN_RANGE until it
+      // arrives - moveTo paths between rooms).
+      const target = creep.pos.findClosestByRange(eligible) ?? eligible[0];
       if (target) {
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
         }
         return;
       }
-      // Everyone topped off: stage next to a builder so the hand-off is instant.
-      const stage = builders[0];
+      // Everyone topped off: stage next to the POOL crew (never the detail)
+      // so the hand-off is instant when a buffer opens.
+      const stage = crew[0];
       if (stage && creep.pos.getRangeTo(stage) > 1) {
         creep.moveTo(stage, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
       } else if (stage) {

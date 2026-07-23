@@ -497,6 +497,12 @@ export interface FlowTelemetry {
     spawnId: string;
     /** CARRY:MOVE ratio the variant optimizer chose ("2:1" paved, "1:1", "1:2") */
     ratio?: string;
+    /**
+     * The planner's OWN spawn-parts/tick for this route (paved-aware). The
+     * waste ledger's P4 echoes this instead of re-deriving hauler load, so the
+     * ledger cannot drift from the bot it audits (owner 2026-07-22).
+     */
+    spawnParts?: number;
   }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
@@ -1203,7 +1209,8 @@ export class Telemetry {
           flowRate: hauler.flowRate,
           distance: hauler.distance,
           spawnId: hauler.spawnId,
-          ratio: hauler.haulerRatio
+          ratio: hauler.haulerRatio,
+          ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {})
         });
       }
 
@@ -1233,8 +1240,10 @@ export class Telemetry {
       // transient/bank) - names the layer that dropped sources in one
       // capture (the warmup remote-drop lens). v6 carried dedicatedToBuild;
       // v7 RETIRES it (spec 25 phase 3: dedication is emergent routing -
-      // the audit reads source->construction ROUTES, not a flag).
-      version: 7,
+      // the audit reads source->construction ROUTES, not a flag). v8 exports
+      // haulers[].spawnParts (the planner's paved-aware parts/tick) so the P4
+      // ledger echoes it instead of re-deriving - drift eliminated at the root.
+      version: 8,
       tick: Game.time,
       sources,
       haulers,

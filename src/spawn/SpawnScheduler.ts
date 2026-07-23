@@ -122,9 +122,17 @@ export interface SpawnDemand {
   /** Tick the demand was first observed, for anti-starvation aging. */
   since: number;
   /**
-   * Bank toward this demand whenever it is top-ranked and unaffordable, no
-   * starvation wait - for indivisible income bodies (e.g. the reserver's
-   * CLAIM pair) that cheaper demands would otherwise starve forever.
+   * Bank toward this demand whenever the walk reaches it unaffordable, no
+   * starvation wait - for indivisible bodies that cheaper demands would
+   * otherwise starve forever: income bodies like the reserver's CLAIM pair,
+   * and full-capacity consumer bodies under a bank surplus (incident
+   * t72503018: the scaling upgrader's min == desired == energyCapacity was
+   * never organically affordable - every cheaper demand bought at partial
+   * fill, the fleet froze at 2/6 for 2600+ ticks and 191k idled at 6.9x the
+   * warchest target). The DECLARING corp owns the funding claim: a consumer
+   * must only set this when the colony's capital state justifies displacing
+   * cheap spends (UpgradingCorp: bankSurplusRate > 0), so cold start - where
+   * blanket consumer holds measured ~2x cp@3000 - never sees one.
    */
   holdToFund?: boolean;
   /**
@@ -627,9 +635,23 @@ function walkDemands(
     // A/B: it parks the spawn for 700-cost miner top-ups that fleet-first
     // tempo should not wait on.
     const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
+    // A CONSUMER that DECLARES holdToFund walls too (incident t72503018): the
+    // scaling upgrader's indivisible full-capacity body (min == desired ==
+    // 2300 == energyCapacity) is never organically affordable - every cheaper
+    // demand's partial-fill buy resets the bank, so "one guaranteed slot when
+    // affordable" was vacuous and the fleet froze at 2/6 while 191k idled at
+    // 6.9x the warchest target (delivery 0.39x plan, the energy standing).
+    // Unlike the starved-consumer rank lift (which stays hold-free - the
+    // energy-led refinement above), this is opt-in per demand: the corp only
+    // declares it when idle capital justifies displacing cheap spends, so the
+    // cold-start fleet-first doctrine is untouched. The wall stays non-strict
+    // for consumers (holdStrict below): a lower affordable income PRODUCER
+    // still spawns, so it can never re-create the W2N6 cold-start deadlock.
+    const fundableConsumer = !demand.producesIncome && demand.holdToFund === true;
+    const fundable = fundableIncome || fundableConsumer;
     // An opportunistic demand NEVER walls the spawn (it soaks idle windows;
     // holding for one would manufacture the idleness it exists to fill).
-    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome);
+    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundable);
     let walled = false;
     if (mustFund && canEverAfford) {
       walled = true;

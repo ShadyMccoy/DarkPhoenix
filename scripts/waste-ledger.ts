@@ -96,8 +96,19 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
     tp = 0,
     tl = 0;
   for (const h of flow.haulers ?? []) {
-    const parts = 2 * h.carryParts;
-    const load = parts / effectiveLife(h.distance);
+    // ECHO the planner's OWN per-route spawn-parts (CorpPlanner sets
+    // `spawnParts = ((paved?1.5:2)*carryPartsFor(take,dEff))/effectiveLife(d)`)
+    // rather than re-deriving it here (owner 2026-07-22: "eliminate the ledger
+    // vs planner drift at the root by having them share the same code"). The
+    // old recompute `2*carryParts` hardcoded the UNPAVED body for every route,
+    // so a paved-remote colony over-counted its hauler load and P4 read
+    // infeasible (t72508069: 1.01x FAIL where the planner's paved-aware number
+    // is 0.90x). The parts figure (display) backs out of the load over the
+    // same effectiveLife so the "Np" reads consistently. Legacy captures with
+    // no spawnParts fall back to the conservative 2x recompute (no crash).
+    const life = effectiveLife(h.distance);
+    const load = h.spawnParts ?? (2 * h.carryParts) / life;
+    const parts = h.spawnParts !== undefined ? h.spawnParts * life : 2 * h.carryParts;
     const transient = h.sourceId.startsWith("scavenge") || h.sourceId.startsWith("bank");
     if (transient) {
       tp += parts;
@@ -145,6 +156,95 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
   return { total, lines };
+}
+
+/** HOME-room roles run inside the owned room; an early death there is a bot
+ * signal, not the invader/revocation noise the remote-exposed roles (haul,
+ * mine, reserve, scout, fight) eat as the price of leaving the walls. */
+const HOME_ROLES = new Set(["upgrader", "tanker", "tender", "controllerFeeder", "builder", "bootstrap"]);
+
+/**
+ * X5 churn analysis (spec 15): spawn energy lost to EARLY-DEATH rebuilds, read
+ * from the blackbox spawn log (segment 5). Discovered live t72509177 - remote
+ * haulers were spawned small then replaced full a few hundred ticks later
+ * (afford-min-scaled body under a momentary extension dip), and a reserver
+ * respawned 25t after itself (below a claim body's ~78t spawn time - a
+ * re-order, not a death). Method, so the number can't lie:
+ *
+ *  - per corp, spawns BEYOND its current staffing are the ones that died and
+ *    were replaced (census cross-check) - so fleet GROWTH, e.g. the upgrader
+ *    2->3 ramp, never counts as churn (my first hand-count wrongly did);
+ *  - each dead spawn is weighted by the fraction of life it did NOT live (gap
+ *    to its successor / lifetime), so a natural end-of-life replacement scores
+ *    ~0 and only genuinely-early deaths accrue;
+ *  - HOME vs REMOTE-exposed split by role: home churn is the bot-controllable
+ *    signal the verdict keys on; remote churn is reported but largely
+ *    unavoidable (a global reset inflates BOTH for ~1 window - read against the
+ *    deploy log).
+ *
+ * Returns null when the capture predates the blackbox segment (graceful skip).
+ */
+export function computeChurn(cap: any): {
+  churnEnergy: number;
+  homeChurn: number;
+  remoteChurn: number;
+  totalSpawnEnergy: number;
+  windowTicks: number;
+  worst: string;
+  worstGap: number;
+} | null {
+  const spawns: Array<{ t: number; corp: string; role: string; cost: number }> = (cap.data?.blackbox?.rows ?? [])
+    .filter((r: any) => r.k === "spawn" && r.d)
+    .map((r: any) => ({ t: r.t, corp: String(r.d.corp), role: String(r.d.role), cost: +r.d.cost || 0 }));
+  if (spawns.length < 2) return null;
+
+  const corpsList: any[] = cap.data?.corps?.corps ?? [];
+  const staffingOf = (corp: string): number => {
+    const c = corpsList.find((x: any) => x.id === corp);
+    return c?.creepCount ?? c?.staffing ?? 0;
+  };
+
+  const byCorp = new Map<string, Array<{ t: number; role: string; cost: number }>>();
+  for (const s of spawns) {
+    const arr = byCorp.get(s.corp) ?? [];
+    arr.push({ t: s.t, role: s.role, cost: s.cost });
+    byCorp.set(s.corp, arr);
+  }
+
+  let homeChurn = 0;
+  let remoteChurn = 0;
+  let worst = "none";
+  let worstV = 0;
+  let worstGap = Infinity;
+  for (const [corp, ss] of byCorp) {
+    if (ss.length < 2) continue;
+    ss.sort((a, b) => a.t - b.t);
+    // the LAST spawn is always the incumbent (alive or in-progress); only
+    // spawns beyond current staffing died and were replaced.
+    const churned = Math.max(0, Math.min(ss.length - staffingOf(corp), ss.length - 1));
+    for (let i = 0; i < churned; i++) {
+      const gap = ss[i + 1].t - ss[i].t;
+      const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
+      const waste = ss[i].cost * Math.max(0, 1 - gap / life);
+      if (HOME_ROLES.has(ss[i].role)) homeChurn += waste;
+      else remoteChurn += waste;
+      if (waste > worstV) {
+        worstV = waste;
+        worst = `${corp.replace(/^(hauling|mining|reservation|upgrading|building|moving)-/, "")} ${ss[i].cost}e@${gap}t`;
+        worstGap = gap;
+      }
+    }
+  }
+  const ts = spawns.map(s => s.t);
+  return {
+    churnEnergy: homeChurn + remoteChurn,
+    homeChurn,
+    remoteChurn,
+    totalSpawnEnergy: spawns.reduce((a, s) => a + s.cost, 0),
+    windowTicks: Math.max(1, Math.max(...ts) - Math.min(...ts)),
+    worst,
+    worstGap: worstV > 0 ? worstGap : Infinity
+  };
 }
 
 export function computeLedger(cap: any, base: any): LedgerRow[] {
@@ -417,8 +517,19 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const prog2 = sum(core, "siteProgress");
       const total1 = sum(bcore, "siteTotal");
       const total2 = sum(core, "siteTotal");
-      const completion = count2 < count1 || total2 < total1;
-      const standing = count1 > 0 && count2 > 0;
+      // REMOTE SITES are sites (gap measured t72503018: home siteCount 0 at
+      // both ends while W43N24 held 3 standing sites across 2171t with the
+      // receipts frozen at 36/38 and a funded 5-creep crew - the stalled
+      // trunk pipeline read "ok / no sites standing"). The segment-0
+      // remoteSites census joins the standing/completion predicates; remote
+      // progress itself is only measurable via the receipts floor below, so
+      // a remote-only window with flat receipts is exactly the stall class.
+      const remoteCount = (c: any): number =>
+        Object.values(c.remoteSites ?? {}).reduce((a: number, n: any) => a + (+n || 0), 0);
+      const remotes1 = remoteCount(bcore);
+      const remotes2 = remoteCount(core);
+      const completion = count2 < count1 || total2 < total1 || remotes2 < remotes1;
+      const standing = count1 + remotes1 > 0 && count2 + remotes2 > 0;
       const delivered = prog2 - prog1;
       // REMOTE BUILD via receipts (gap measured 2026-07-22: P8 read "0 e/t
       // built" all day while cee0's trunk went 35 -> 45 - the rooms[] site
@@ -447,10 +558,10 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
-          ? `completion window (sites ${count1}->${count2}) - progress delta ambiguous, skipped` +
+          ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
             (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
           : standing || receiptsDelta > 0
-          ? `sites ${count1}->${count2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+          ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
@@ -561,6 +672,32 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           ? `${srcRoutes.length} routes; worst ${worst}; EOL recycle converts tails to refunds`
           : "no source routes"
     });
+  }
+
+  // ---- X5 rebuild churn (needs the blackbox spawn log, segment 5) ----
+  {
+    const churn = computeChurn(cap);
+    if (churn && churn.totalSpawnEnergy > 0) {
+      const homeShare = churn.homeChurn / churn.totalSpawnEnergy;
+      // a gap below one creep's ~60t spawn floor cannot be a sequential death -
+      // it is a re-order/loop (the stranded-reserver trap, or a post-reset
+      // double-order). Flag it regardless of home/remote.
+      const loop = churn.worstGap < 60;
+      rows.push({
+        id: "X5",
+        name: "rebuild churn (early-death respawns)",
+        value: +(churn.churnEnergy / churn.totalSpawnEnergy).toFixed(2),
+        unit: "of spawn spend",
+        verdict: homeShare > 0.12 || loop ? "WARN" : "ok",
+        detail:
+          `${churn.churnEnergy.toFixed(0)}e of ${churn.totalSpawnEnergy}e over ${churn.windowTicks}t ` +
+          `(home ${((100 * churn.homeChurn) / churn.totalSpawnEnergy).toFixed(0)}% bot-signal, ` +
+          `remote ${((100 * churn.remoteChurn) / churn.totalSpawnEnergy).toFixed(0)}% invader/revoke noise); ` +
+          `worst ${churn.worst}` +
+          (loop ? " - FAST RESPAWN (<60t = double-order/loop; check vs deploy log + P5/P6)" : "") +
+          (homeShare > 0.12 && !loop ? " - HOME churn high (a reset inflates it ~1 window; read deploy log)" : "")
+      });
+    }
   }
 
   rows.push({

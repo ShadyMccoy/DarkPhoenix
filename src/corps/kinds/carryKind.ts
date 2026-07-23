@@ -35,6 +35,10 @@ export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerA
     carryParts: h.carryParts,
     flowRate: h.flowRate,
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
+    // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes
+    // it) - the same field flowAdapter sets, so the two reconstruction paths
+    // stay identical (solver-bridge pin).
+    spawnParts: h.spawnParts,
     spawnId: h.spawnId,
     // A paved route spawns road haulers: CarryCorp forwards this to the spawn
     // demand and SpawningCorp.getPartRatios packs 2 CARRY per MOVE.
