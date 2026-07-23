@@ -511,7 +511,13 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           .slice(0, 6)
           .map((c: any) => `${c.sourceId.slice(-4)} saves ${c.saving} (haul ${c.haulDist}->${c.linkDist}) @${c.flowRate.toFixed(1)}e/t`)
           .join("; ") +
-        ` | per-link deposit flow: ${(dep.perLink ?? []).map((l: any) => `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}`).join(", ")}` +
+        ` | per-link deposit flow: ${(dep.perLink ?? [])
+          .map((l: any) => {
+            const ctrl = l.linkId === dep.controllerLinkId;
+            const cap = ctrl && dep.controllerCapacity !== undefined ? ` (controller: bank-neutral <=${dep.controllerCapacity.toFixed(0)}e/t)` : "";
+            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${cap}`;
+          })
+          .join(", ")}` +
         ` | ${totalFlow.toFixed(0)}e/t over ${cands.length} routes, ~${Math.round(savedPartsProxy)} tile*e/t saved`
     });
   }

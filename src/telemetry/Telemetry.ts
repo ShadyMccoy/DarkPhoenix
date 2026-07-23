@@ -24,6 +24,7 @@ import { controllerSideStock, coreLink, controllerLink } from "../corps/nodeEner
 import { linkLedger } from "./LinkMeter";
 import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
 import { estimateCrossRoomDistance, Position } from "../types/Position";
+import { feederRelayRate } from "../economy/bank";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -487,6 +488,10 @@ export interface FlowTelemetry {
   depositSavings?: {
     candidates: { sourceId: string; haulDist: number; linkId: string; linkDist: number; saving: number; flowRate: number }[];
     perLink: { linkId: string; depositFlow: number; sources: number }[];
+    /** The controller link (a bank-neutral deposit target up to controllerCapacity
+     * e/t - it displaces the relay). */
+    controllerLinkId?: string;
+    controllerCapacity?: number;
   };
   /** Source nodes (energy producers) */
   sources: {
@@ -1245,14 +1250,21 @@ export class Telemetry {
     }
     if (!home || !home.storage) return undefined;
     const ctrl = controllerLink(home);
+    // Include the CONTROLLER link as a candidate (owner 2026-07-23): a deposit
+    // there displaces an equal core->controller relay feed (bank-neutral, up to
+    // the controller's feed rate) - not a misroute. Exclude only the CORE link
+    // itself (it sits on storage; depositing there saves nothing and the core is
+    // the hub, not a shortcut).
+    const core = coreLink(home);
     const links: DepositLink[] = (
       home.find(FIND_MY_STRUCTURES, {
-        filter: s => s.structureType === STRUCTURE_LINK && (!ctrl || s.id !== ctrl.id)
+        filter: s => s.structureType === STRUCTURE_LINK && (!core || s.id !== core.id)
       }) as StructureLink[]
     ).map(l => ({ id: l.id, pos: { x: l.pos.x, y: l.pos.y, roomName: home!.name } }));
     if (links.length === 0) return undefined;
 
     const storagePos: Position = { x: home.storage.pos.x, y: home.storage.pos.y, roomName: home.name };
+    const banked = home.storage.store?.[RESOURCE_ENERGY] ?? 0;
     const flowBySource = new Map<string, number>();
     for (const h of haulers) flowBySource.set(h.sourceId, (flowBySource.get(h.sourceId) ?? 0) + h.flowRate);
 
@@ -1269,7 +1281,16 @@ export class Telemetry {
         haulDist: estimateCrossRoomDistance(pos, storagePos)
       });
     }
-    return computeDepositSavings(depSources, links, estimateCrossRoomDistance);
+    const report = computeDepositSavings(depSources, links, estimateCrossRoomDistance);
+    if (ctrl) {
+      // A deposit at the controller link is bank-neutral only up to the
+      // controller's feed rate (it displaces that much relay draw); beyond it
+      // the terminal link fills. Surface the cap so the DEP line never over-
+      // counts controller-bound deposit flow.
+      report.controllerLinkId = ctrl.id;
+      report.controllerCapacity = feederRelayRate(banked);
+    }
+    return report;
   }
 
   private updateFlowTelemetry(flowSolution?: FlowSolution): void {

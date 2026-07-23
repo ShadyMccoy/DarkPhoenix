@@ -66,6 +66,14 @@ export interface LinkLoad {
 export interface DepositSavingsReport {
   candidates: DepositCandidate[];
   perLink: LinkLoad[];
+  /** The terminal controller link, when it is among the deposit candidates. A
+   * deposit here is NOT a misroute: it displaces an equal core->controller relay
+   * feed (bank-neutral) - but only UP TO `controllerCapacity` e/t (the
+   * controller's feed rate). Deposit flow beyond that can't be absorbed (the
+   * controller link is terminal and fills). Set by the caller, which knows the
+   * feed rate; the routing enforces the cap, the instrument just surfaces it. */
+  controllerLinkId?: string;
+  controllerCapacity?: number;
 }
 
 /**

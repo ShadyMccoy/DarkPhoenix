@@ -461,9 +461,14 @@ describe("waste ledger (spec 15 phase 1)", () => {
     capA.data.flow.depositSavings = {
       candidates: [
         { sourceId: "source-aaaa", haulDist: 54, linkId: "link-gw01", linkDist: 39, saving: 15, flowRate: 10 },
-        { sourceId: "source-bbbb", haulDist: 46, linkId: "link-gw01", linkDist: 20, saving: 26, flowRate: 8 }
+        { sourceId: "source-bbbb", haulDist: 46, linkId: "link-ctrl9", linkDist: 20, saving: 26, flowRate: 8 }
       ],
-      perLink: [{ linkId: "link-gw01", depositFlow: 18, sources: 2 }]
+      perLink: [
+        { linkId: "link-gw01", depositFlow: 10, sources: 1 },
+        { linkId: "link-ctrl9", depositFlow: 8, sources: 1 }
+      ],
+      controllerLinkId: "link-ctrl9",
+      controllerCapacity: 15
     };
     const dep = computeLedger(capA, cap72404213).find(r => r.id === "DEP")!;
     expect(dep.verdict).to.equal("ok"); // instrument-first: never gates
@@ -471,7 +476,9 @@ describe("waste ledger (spec 15 phase 1)", () => {
     // sorted by saving desc: bbbb (26) before aaaa (15)
     expect(dep.detail.indexOf("bbbb")).to.be.lessThan(dep.detail.indexOf("aaaa"));
     expect(dep.detail).to.contain("saves 26");
-    expect(dep.detail).to.contain("gw01 18.0e/t x2"); // per-link throughput
+    // the controller link deposit is annotated bank-neutral up to its feed rate
+    expect(dep.detail).to.contain("trl9 8.0e/t"); // "link-ctrl9".slice(-4)
+    expect(dep.detail).to.contain("controller: bank-neutral <=15e/t");
   });
 
   it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
