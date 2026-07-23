@@ -243,7 +243,8 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     // The scheduler-wedge signature: a mustFund income demand walls the drained
     // network; one surviving tender can't drain the abundant depot fast enough
     // to fund the wall. The tender must pierce to top the fleet back up from the
-    // stranded stock (proven live via the manual rescue-console bootstrap).
+    // stranded stock. (Hardening of a logical gap in the staffing===0 dark-post
+    // rule; the live spec-26 collapse recovered autonomously, no manual bootstrap.)
     const r = room({ depot: true, extensions: 40, scattered: true, depotEnergy: 61_000 });
     const corp = corpFor(r);
     Game.creeps = {

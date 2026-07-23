@@ -1,12 +1,19 @@
 /**
- * One-off live-console rescue (spec 26 incident 2026-07-23): the colony wedged
- * in a scheduler deadlock (a mustFund miner walls the drained spawn network; the
- * tender that would refill it only pierces the wall at staffing===0, so with 1
- * tender alive the network can't reach the miner's cost -> fleet death spiral).
- * This injects extra tenders (corpId moving-W43N23-tender, which the live
- * ExtensionTenderCorp adopts and counts as staffing) to refill the network from
- * the 61k storage and break the wall. Low-risk: extra tenders self-correct once
- * staffing >= target. Runs the SAME proxy/api dance as deploy-code.ts.
+ * Emergency live-console tool (authored for the spec-26 incident 2026-07-23).
+ * NOTE (owner-corrected 2026-07-23): this tool was NOT confirmed to have run,
+ * and the live collapse recovered autonomously (no manual bootstrap) - most
+ * likely the existing staffing===0 dark-post pierce once the fleet fully
+ * drained. Kept as an available manual break-glass, not a record of what
+ * recovered the colony.
+ *
+ * What it does if run: injects extra tenders (corpId moving-W43N23-tender,
+ * which the live ExtensionTenderCorp adopts and counts as staffing) to refill
+ * the spawn network from storage and break a scheduler wall. The wall shape it
+ * targets: a mustFund miner walls the drained network while only 1 tender is
+ * alive (below the staffing===0 dark-post trigger) - the death-spiral gap the
+ * tenderBootstrapPierce hardening now covers in code. Low-risk: extra tenders
+ * self-correct once staffing >= target. Runs the SAME proxy/api dance as
+ * deploy-code.ts.
  *
  * Usage: SCREEPS_TOKEN=... npx ts-node -P tsconfig.test.json scripts/rescue-console.ts
  */

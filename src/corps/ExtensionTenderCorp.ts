@@ -569,15 +569,18 @@ export class ExtensionTenderCorp extends Corp {
     // 300-energy bodies indefinitely. One spawn volley of stranded stock
     // (>= 300) is the emergency line.
     // DEATH-SPIRAL EXTENSION (spec-26 collapse, 2026-07-23): the dark-post rule
-    // (staffing 0) alone left a latent scheduler deadlock - when a fleet drain
-    // left ONE tender alive while a mustFund income demand walled the drained
-    // network, the survivor couldn't drain the (61k) hoarding depot fast enough
-    // to fund the wall, and the wall's strict hold blocked the very tenders that
-    // would have refilled it (fleet 30->4, income stalled). A stocked-but-not-
-    // draining depot is a bootstrap; an ABUNDANT one being hoarded past a short
-    // fleet is a death spiral - both pierce. The manual rescue-console bootstrap
-    // proved the fix live; tenderBootstrapPierce automates it. Gated high so a
-    // normal cold-start ramp (empty store) never trips it (the W2N6 scar).
+    // (staffing 0) alone leaves a LOGICAL gap - when a fleet drain leaves ONE
+    // tender alive (never hitting the staffing===0 trigger) while a mustFund
+    // income demand walls the drained network, the survivor may not drain a
+    // hoarding depot fast enough to fund the wall, and the wall's strict hold
+    // blocks the very tenders that would refill it. A stocked-but-not-draining
+    // depot is a bootstrap; an ABUNDANT one hoarded past a short fleet is a
+    // death spiral - both pierce. NOTE (owner-corrected 2026-07-23): the live
+    // spec-26 collapse (fleet 30->4) recovered AUTONOMOUSLY - most likely the
+    // existing staffing===0 dark-post pierce once the fleet fully drained; no
+    // manual bootstrap ran. This staffing∈[1,target) case is a tested hardening
+    // of that gap, NOT a fix validated by a reproduced live receipt. Gated high
+    // so a normal cold-start ramp (empty store) never trips it (the W2N6 scar).
     const depotStock = coreDepot(room)?.store?.[RESOURCE_ENERGY] ?? 0;
     const bootstrap = tenderBootstrapPierce(staffing, target, depotStock);
     return [
