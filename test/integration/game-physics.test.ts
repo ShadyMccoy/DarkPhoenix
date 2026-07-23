@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
-import { loadLayout } from "./loadLayout";
+import { loadLayout, padNeighborTerrain } from "./loadLayout";
 
 /**
  * GAME-PHYSICS PROBES (owner 2026-07-20): tiny micro-bot scenarios against
@@ -220,5 +220,122 @@ describe("game physics probes (micro-bot, real engine)", () => {
     // tiles around this belt can send EMPTY haulers straight across, saving
     // (D + detourLength - beltWidth) empty-leg ticks per round trip - which
     // is fewer CARRY parts in flight for the same flow.
+  });
+
+  // ROAD-ACROSS-BORDERS probe (owner 2026-07-22): pin the room-crossing
+  // geometry the trunk-road planner assumes. Two adjacent rooms E0N0 | E1N0
+  // share the vertical border E0N0 x=49 <-> E1N0 x=0. A [MOVE] creep is driven
+  // with RAW moves (never moveTo, so the pathfinder can't mask the raw engine
+  // physics). It walks east along row 25 into E1N0, then takes ONE diagonal
+  // step off the entry edge tile. The test reads BOTH rooms every tick and
+  // pins two facts the road planner depends on - both traced to the engine
+  // source (@screeps/engine), not memory:
+  //
+  //   1. STRAIGHT CROSSING. creeps/tick.js:52-73 transfers an edge creep to
+  //      the adjacent room at the MIRROR tile, preserving the perpendicular
+  //      coordinate (x==49 -> x=0, SAME y). And movement.js:88-91 clamps any
+  //      out-of-bounds move back onto the edge, so a diagonal at the border
+  //      slides ALONG it rather than carrying you across diagonally. Net: you
+  //      cannot cross a border diagonally - the crossing is a pure mirror.
+  //      => a creep on row 25 in E0N0 lands on row 25 in E1N0.
+  //
+  //   2. DIAGONAL STEP OFF THE ENTRY TILE IS LEGAL. Once transferred in, the
+  //      creep sits on the x=0 edge; a normal in-room diagonal move to
+  //      (1, y+/-1) is unclamped and un-transferred (destination isn't an
+  //      edge), and Screeps does not corner-block diagonals. => a creep that
+  //      enters at (0,25) CAN step to (1,26) - it can walk straight onto a
+  //      road tile placed one diagonal off the crossing.
+  //
+  // Together these say the trunk planner is safe: PathFinder (which obeys the
+  // same crossing rules) returns border crossings that are straight across on
+  // a shared row/column, and ConstructionCorp's isRoomEdgeTile skip leaves
+  // only the two unpaveable edge tiles bare - the lane stays continuous.
+  it("ROOM CROSSING: border crossing is straight, and a diagonal step off the entry tile is legal", async function () {
+    this.timeout(240000);
+
+    const MAIN = `
+      module.exports.loop = function () {
+        const spawn = Object.values(Game.spawns)[0];
+        const c = Game.creeps.walker;
+        if (!c) { if (spawn && !spawn.spawning) spawn.spawnCreep([MOVE], "walker"); return; }
+        if (c.spawning) return;
+        const m = c.memory;
+        const r = c.pos.roomName, x = c.pos.x, y = c.pos.y;
+
+        // In the ORIGIN room: get onto row 25 near the east side (moveTo routes
+        // around the spawn), then walk STRAIGHT east with raw RIGHT moves. The
+        // last interior tile sampled is (48,25); the next raw RIGHT steps onto
+        // the edge (49,25) and the engine transfers us the SAME tick to the
+        // mirror tile E1N0 (0,25) - so (49,25) is never seen at a tick boundary.
+        if (r === "E0N0") {
+          if (!(y === 25 && x >= 45)) { c.moveTo(new RoomPosition(45, 25, "E0N0")); return; }
+          c.move(RIGHT);
+          return;
+        }
+
+        // In the DESTINATION room: we entered on the x=0 edge. Take exactly one
+        // DIAGONAL step inward (BOTTOM_RIGHT -> (1, y+1)) to prove a diagonal
+        // road tile is reachable from the entry tile, then hold position.
+        if (r === "E1N0") {
+          if (!m.stepped) { c.move(BOTTOM_RIGHT); m.stepped = true; }
+          return;
+        }
+      };
+    `;
+
+    await helper.beforeEach(async world => {
+      // E0N0: owned room (controller + spawn). E1N0: plain neighbour to walk into.
+      await loadLayout(world, [
+        { room: "E0N0", terrain: Array.from({ length: 50 }, () => ".".repeat(50)), objects: [{ type: "controller", x: 10, y: 10 }] },
+        { room: "E1N0", terrain: Array.from({ length: 50 }, () => ".".repeat(50)) }
+      ]);
+      // Wall-pad the OTHER neighbours so the engine never reads empty terrain.
+      await padNeighborTerrain(world, ["E0N0", "E1N0"], 1, "wall");
+      await world.addBot({ username: "prober", room: "E0N0", x: 25, y: 10, modules: { main: MAIN } });
+    });
+
+    const readCreep = async (): Promise<{ room: string; x: number; y: number } | null> => {
+      for (const room of ["E0N0", "E1N0"]) {
+        const objs = await helper.server.world.roomObjects(room);
+        const cr = objs.find((o: any) => o.type === "creep");
+        if (cr) return { room, x: cr.x, y: cr.y };
+      }
+      return null;
+    };
+
+    const traj: { room: string; x: number; y: number }[] = [];
+    for (let t = 0; t < 60; t++) {
+      await helper.server.tick();
+      const cur = await readCreep();
+      if (cur) {
+        const last = traj[traj.length - 1];
+        if (!last || last.room !== cur.room || last.x !== cur.x || last.y !== cur.y) traj.push(cur);
+      }
+    }
+
+    console.log("\n=== room crossing trajectory ===");
+    for (const p of traj) console.log(`  ${p.room} (${p.x},${p.y})`);
+
+    // The last tile in the origin room and the first tile in the destination.
+    const idxCross = traj.findIndex(p => p.room === "E1N0");
+    assert.isAbove(idxCross, 0, "creep must cross into E1N0");
+    const lastE0 = traj[idxCross - 1];
+    const firstE1 = traj[idxCross];
+    console.log(`crossing: E0N0 (${lastE0.x},${lastE0.y}) -> E1N0 (${firstE1.x},${firstE1.y})`);
+
+    // FACT 1: the crossing is STRAIGHT - the creep approached the east border
+    // along row 25 (last interior tile (48,25)) and arrived in E1N0 on the
+    // mirror tile (0,25), the SAME row. The engine transfers an edge creep to
+    // (0, y) with y preserved (creeps/tick.js:66-68), so landing on (0,25)
+    // after leaving row 25 is proof the perpendicular coordinate carries over
+    // unchanged - you cannot gain lateral position by crossing.
+    assert.strictEqual(lastE0.y, 25, "approached the east border along row 25");
+    assert.deepEqual({ x: firstE1.x, y: firstE1.y }, { x: 0, y: 25 }, "lands on the mirror tile (0,25) - perpendicular coord preserved");
+
+    // FACT 2: the diagonal step off the entry edge tile succeeded - the creep
+    // reached (1,26), one tile diagonally in from where it entered.
+    const afterStep = traj[idxCross + 1];
+    assert.ok(afterStep && afterStep.room === "E1N0", "creep stepped inward, staying in E1N0 (no border bounce)");
+    assert.deepEqual({ x: afterStep.x, y: afterStep.y }, { x: 1, y: 26 }, "diagonal step off the entry tile lands on (1,26)");
   });
 });
