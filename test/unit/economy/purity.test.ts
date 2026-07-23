@@ -37,7 +37,8 @@ const PURE: string[] = [
   "bank.ts",
   "expansion.ts",
   "goals.ts",
-  "strategy.ts"
+  "strategy.ts",
+  "depositSavings.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */

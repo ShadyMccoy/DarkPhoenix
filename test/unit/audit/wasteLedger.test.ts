@@ -456,6 +456,24 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(link.value, "only the room with live fires counts as active").to.equal(1);
   });
 
+  it("DEP surfaces the deposit-side link opportunity (remote haul shortened), sorted by saving", () => {
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    capA.data.flow.depositSavings = {
+      candidates: [
+        { sourceId: "source-aaaa", haulDist: 54, linkId: "link-gw01", linkDist: 39, saving: 15, flowRate: 10 },
+        { sourceId: "source-bbbb", haulDist: 46, linkId: "link-gw01", linkDist: 20, saving: 26, flowRate: 8 }
+      ],
+      perLink: [{ linkId: "link-gw01", depositFlow: 18, sources: 2 }]
+    };
+    const dep = computeLedger(capA, cap72404213).find(r => r.id === "DEP")!;
+    expect(dep.verdict).to.equal("ok"); // instrument-first: never gates
+    expect(dep.value).to.equal(2);
+    // sorted by saving desc: bbbb (26) before aaaa (15)
+    expect(dep.detail.indexOf("bbbb")).to.be.lessThan(dep.detail.indexOf("aaaa"));
+    expect(dep.detail).to.contain("saves 26");
+    expect(dep.detail).to.contain("gw01 18.0e/t x2"); // per-link throughput
+  });
+
   it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
     // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
     // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order

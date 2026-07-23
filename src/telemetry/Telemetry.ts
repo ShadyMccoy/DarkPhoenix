@@ -20,8 +20,10 @@
 
 import { Colony } from "../colony/Colony";
 import { Corp, CorpSizingRecord } from "../corps/Corp";
-import { controllerSideStock } from "../corps/nodeEnergy";
+import { controllerSideStock, coreLink, controllerLink } from "../corps/nodeEnergy";
 import { linkLedger } from "./LinkMeter";
+import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
+import { estimateCrossRoomDistance, Position } from "../types/Position";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -478,6 +480,14 @@ export interface FlowTelemetry {
   partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number; spent?: number; dry?: boolean };
   /** Problem-assembly counts (v5): names the layer that dropped sources. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
+  /** DEPOSIT-side link instrument (v10, spec-26 stage 4): for each REMOTE
+   * source, the nearest deposit-capable home-room link and the haul it would
+   * save by dropping there (a creep bridges the rooms; the link does the in-room
+   * hop). Plus per-link deposit flow (the throughput headroom). Read-only. */
+  depositSavings?: {
+    candidates: { sourceId: string; haulDist: number; linkId: string; linkDist: number; saving: number; flowRate: number }[];
+    perLink: { linkId: string; depositFlow: number; sources: number }[];
+  };
   /** Source nodes (energy producers) */
   sources: {
     id: string;
@@ -1200,6 +1210,68 @@ export class Telemetry {
    * Updates flow telemetry (Segment 6).
    * Shows flow economy state: sources, sinks, and energy allocations.
    */
+  /**
+   * DEPOSIT-side link instrument (spec-26 stage 4): for each REMOTE source (a
+   * different room from the home link network), the nearest deposit-capable
+   * home-room link and the haul a creep would save by dropping there instead of
+   * walking to storage. In-room sources are excluded (their own source links are
+   * already modeled via haulPos); the terminal controller link is excluded (a
+   * bank deposit must not misroute into the controller). Estimate-distance only
+   * (read-only knowledge before any routing change).
+   */
+  private buildDepositInstrument(
+    sources: FlowTelemetry["sources"],
+    haulers: FlowTelemetry["haulers"]
+  ): DepositSavingsReport | undefined {
+    try {
+      return this.buildDepositInstrumentUnsafe(sources, haulers);
+    } catch {
+      return undefined; // a read-only instrument must never break the telemetry tick
+    }
+  }
+
+  private buildDepositInstrumentUnsafe(
+    sources: FlowTelemetry["sources"],
+    haulers: FlowTelemetry["haulers"]
+  ): DepositSavingsReport | undefined {
+    if (typeof Game === "undefined" || !Game.rooms) return undefined;
+    let home: Room | undefined;
+    for (const name in Game.rooms) {
+      const r = Game.rooms[name];
+      if (r.controller?.my && r.storage?.my && coreLink(r)) {
+        home = r;
+        break;
+      }
+    }
+    if (!home || !home.storage) return undefined;
+    const ctrl = controllerLink(home);
+    const links: DepositLink[] = (
+      home.find(FIND_MY_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_LINK && (!ctrl || s.id !== ctrl.id)
+      }) as StructureLink[]
+    ).map(l => ({ id: l.id, pos: { x: l.pos.x, y: l.pos.y, roomName: home!.name } }));
+    if (links.length === 0) return undefined;
+
+    const storagePos: Position = { x: home.storage.pos.x, y: home.storage.pos.y, roomName: home.name };
+    const flowBySource = new Map<string, number>();
+    for (const h of haulers) flowBySource.set(h.sourceId, (flowBySource.get(h.sourceId) ?? 0) + h.flowRate);
+
+    const depSources: DepositSource[] = [];
+    for (const s of sources) {
+      const m = /^(.+)-(\d+)-(\d+)$/.exec(s.nodeId);
+      if (!m) continue;
+      const pos: Position = { roomName: m[1], x: +m[2], y: +m[3] };
+      if (pos.roomName === home.name) continue; // in-room sources use haulPos already
+      depSources.push({
+        id: s.id,
+        pos,
+        flowRate: flowBySource.get(s.id) ?? s.harvestRate,
+        haulDist: estimateCrossRoomDistance(pos, storagePos)
+      });
+    }
+    return computeDepositSavings(depSources, links, estimateCrossRoomDistance);
+  }
+
   private updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // Build source data from miner assignments
     const sources: FlowTelemetry["sources"] = [];
@@ -1270,12 +1342,17 @@ export class Telemetry {
       // haulers[].spawnParts (the planner's paved-aware parts/tick) so the P4
       // ledger echoes it instead of re-deriving - drift eliminated at the root.
       // v9 adds partsLedger.spent/dry - the spawn shadow-price signal for the
-      // scavenge economic gate (instrument-first, 2026-07-23).
-      version: 9,
+      // scavenge economic gate (instrument-first, 2026-07-23). v10 adds
+      // depositSavings - the deposit-side link instrument (spec-26 stage 4).
+      version: 10,
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      ...(() => {
+        const dep = this.buildDepositInstrument(sources, haulers);
+        return dep && dep.candidates.length > 0 ? { depositSavings: dep } : {};
+      })(),
       ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
       ...(flowSolution?.assembly ? { assembly: flowSolution.assembly } : {}),
       candidates: flowSolution?.sourceVerdicts ?? [],

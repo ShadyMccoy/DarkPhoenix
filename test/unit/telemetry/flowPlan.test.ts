@@ -100,7 +100,7 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(9); // v8 exports haulers[].spawnParts; v9 adds partsLedger.spent/dry (spawn shadow price)
+    expect(flow.version).to.equal(10); // v9 partsLedger.spent/dry; v10 depositSavings (deposit-side link instrument)
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 

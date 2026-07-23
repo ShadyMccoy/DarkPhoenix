@@ -490,6 +490,32 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- DEP deposit-side link instrument (spec-26 stage 4, read-only) ----
+  // For each REMOTE source, the haul a hauler would save by depositing at a
+  // home-room link it passes instead of walking to storage, plus the deposit
+  // flow that would pile on each link (throughput headroom). Informational: it
+  // sizes the potential lever before the depositPos routing is re-activated.
+  const dep = flow.depositSavings;
+  if (dep && (dep.candidates ?? []).length > 0) {
+    const cands = [...dep.candidates].sort((a: any, b: any) => b.saving - a.saving);
+    const totalFlow = cands.reduce((a: number, c: any) => a + c.flowRate, 0);
+    const savedPartsProxy = cands.reduce((a: number, c: any) => a + c.saving * c.flowRate, 0);
+    rows.push({
+      id: "DEP",
+      name: "deposit-side link opportunity (remote haul shortened)",
+      value: cands.length,
+      unit: "remote sources that could deposit at a home link",
+      verdict: "ok", // instrument-first: surface the lever, don't route yet
+      detail:
+        cands
+          .slice(0, 6)
+          .map((c: any) => `${c.sourceId.slice(-4)} saves ${c.saving} (haul ${c.haulDist}->${c.linkDist}) @${c.flowRate.toFixed(1)}e/t`)
+          .join("; ") +
+        ` | per-link deposit flow: ${(dep.perLink ?? []).map((l: any) => `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}`).join(", ")}` +
+        ` | ${totalFlow.toFixed(0)}e/t over ${cands.length} routes, ~${Math.round(savedPartsProxy)} tile*e/t saved`
+    });
+  }
+
   // ---- S3 scheduler stall: idle spawn with an AFFORDABLE head ----
   const spawn = core.spawns?.[0];
   if (spawn && room) {
