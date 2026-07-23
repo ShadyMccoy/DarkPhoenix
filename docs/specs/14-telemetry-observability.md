@@ -3705,16 +3705,39 @@ build") — **spec 26 links-as-hub-ports**, un-deferred and scoped:
   search-by-replanning — and the evaluator IS the runtime pricer (no drift).
   This is the load-bearing primitive for the base-layout leg, not a one-off.
 
+## Cycle verdict 2026-07-23 — spec 26 minimal (controller-link ports): FIXED
+
+Shipped `detectLinkDepositPorts` + `routeToSinks` port pricing + `CarryCorp`
+port delivery + telemetry/roster echo, deployed to `master` at ~t72512031.
+**Scope refinement (design review):** CONTROLLER-LINK ports only. Source-link
+ports were dropped from v1 — a remote drop into a source link forwards to the
+core, but the core→storage drain is staffed only for the home source's own
+rate (the feeder only LOADS the core), so the injected flow is unstaffed →
+the plan would price a saving the physical path can't deliver (a plan-vs-actual
+lie on the deterministic grid cell). The controller-link port is the honest
+class: consumed IN PLACE by the upgraders, which by the LinkRunner backpressure
+displaces an equal bank→controller relay (bank-neutral, no toll, no drain
+hauler). This deleted the whole toll subsystem — `allocated == take`.
+
+**Measured (t72512341, ~310t post-deploy, vs baseline t72512031):**
+- 3 deposit routes engaged the home controller link (41,30): cd92 carry
+  4.8→3.2 (dist 11→7), cee0 18.8→18.0 (46→44), cedc 22.0→19.6 (54→48).
+- P4 source-route hauler slice 157p/0.108 → 149p/0.103 parts/t (clean read
+  from the plan — the port CARRY reduction).
+- X1 (was the TOP LINE) workUtil 0.50→0.79, dry 0.50→0.21 — upgraders far
+  better supplied (HYPOTHESIS: the controller-link drops feed them directly;
+  window spans the deploy, so a longer clean-window read would confirm).
+- No FAIL lines, P7 controller delivery on-plan (40.2/40.2), no crash through
+  the global reset, hub invariant held (sink still storage, port is delivery).
+Modest as expected (the honest ~21% controller-link share of the 29-part ideal).
+
 NEXT, in order:
-1. Build spec 26 MINIMAL, red-first on the confirmed backpressure foundation:
-   `detectLinkDepositPorts` + `routeToSinks` min(storage, port) pricing with
-   honest port-full fallback + 3% toll in net-energy; `CarryCorp` delivery with
-   storage fallback + one shared eligibility lens; feeder relay credits port-fed
-   controller flow; telemetry echoes `depositPos`. Gate: unit + trio + a GRID
-   CELL staging our real links on a remote route (receipts-gated, mockup blind
-   spot). Deploy; verify throughput-derated per-route CARRY:MOVE vs plan.
-2. Then the base-layout evaluator: candidate link positions → replan → greedy
-   place to the RCL link budget; generalize the perturb-replan-read scorer to
-   storage/extension/spawn placement.
-3. Carry-forward gauges: X5 in steady state (this window was post-deploy);
-   warchest-target-as-spend-rate (spec 26 open Q3).
+1. Source-link ports (the deferred ~79%): needs a commissioned core→storage
+   drain leg (or an upsized home hauler) so the injected remote flow is staffed
+   — same core/relay sizing work as the feeder credit (spec 26 open Q2). This
+   is the bigger P4 lever (the −9/−8/−6 N/E routes) but must not price an
+   unstaffed drain.
+2. The base-layout evaluator: candidate link positions → replan → greedy place
+   to the RCL link budget; the deposit-port pricer is now the scorer.
+3. Carry-forward gauges: X1 over a clean (non-deploy) window to nail the
+   attribution; X5 steady-state; warchest-target-as-spend-rate (open Q3).

@@ -1,10 +1,19 @@
 # 26 — Links as hub ports (deposit-side haulPos)
 
-**Status:** SCOPED — ready to build (owner design session 2026-07-23). The
-2026-07-21 deferral (below) is lifted: spec 25 (emergent dedication) has
-landed, and the owner's backpressure reframe (§"The banking question") retires
-the surplus-gate that made the controller-link half risky. Build is NOT started
-(owner: "document the proposed effort ... don't build").
+**Status:** MINIMAL SHIPPED (2026-07-23) — CONTROLLER-LINK ports only,
+deployed to `master` at ~t72512031 and verified live (3 routes engaged the
+home controller link; P4 hauler slice 157p→149p; X1 upgrader util 0.50→0.79;
+see docs/specs/14 cycle verdict 2026-07-23 for the numbers).
+
+**Scope refinement from the design review:** source-link ports were dropped
+from v1. A remote drop into a source link forwards to the core link, but the
+core→storage drain is staffed only for the home source's own rate (the feeder
+only LOADS the core) — the injected flow is unstaffed, so the plan would price
+a saving the physical path can't deliver. That is the ~79% of the measured
+ideal below, now the deferred follow-up (§"Proposed effort" item 1 needs a
+commissioned core→storage drain leg — the same core/relay work as gap #2). The
+CONTROLLER-LINK port is the honest class (consumed in place, bank-neutral by
+backpressure, no toll, no drain hauler) — that is what shipped.
 
 ## The idea (owner 2026-07-21)
 
