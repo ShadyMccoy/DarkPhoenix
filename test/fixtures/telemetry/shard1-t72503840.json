@@ -1,0 +1,311 @@
+{
+  "shard": "shard1",
+  "capturedAt": "2026-07-22T18:30:05.675Z",
+  "tick": 72503840,
+  "segments": [
+    0
+  ],
+  "data": {
+    "core": {
+      "version": 13,
+      "tick": 72503840,
+      "shard": "shard1",
+      "cpu": {
+        "used": 77.87975649999862,
+        "limit": 300,
+        "bucket": 10000,
+        "tickLimit": 500
+      },
+      "gcl": {
+        "level": 32,
+        "progress": 275333048.58056545,
+        "progressTotal": 300508132.580564
+      },
+      "colony": {
+        "nodeCount": 480,
+        "totalCorps": 33,
+        "activeCorps": 25
+      },
+      "creeps": {
+        "total": 32,
+        "tracked": 31,
+        "untracked": 1,
+        "byKind": {
+          "harvest": 6,
+          "upgrade": 2,
+          "construction": 6,
+          "reservation": 2,
+          "scout": 0,
+          "tender": 2,
+          "controllerFeeder": 1,
+          "coreBuster": 0,
+          "raidGuard": 2,
+          "carry": 10,
+          "bootstrap": 0
+        },
+        "countMismatch": [
+          {
+            "corpId": "moving-W43N23-tender",
+            "claimed": 3,
+            "counted": 2
+          }
+        ]
+      },
+      "bodyParts": {
+        "total": 428,
+        "byPart": {
+          "work": 76,
+          "carry": 194,
+          "move": 146,
+          "claim": 4,
+          "attack": 8
+        }
+      },
+      "spawns": [
+        {
+          "id": "6a261309c1ca830013f516a5",
+          "name": "Spawn1",
+          "windowTicks": 996,
+          "utilization": 0.8795180722891566,
+          "partsPerTick": 0.2931726907630522,
+          "ceiling": 0.3333333333333333,
+          "queueDepth": 8,
+          "finishes": 28,
+          "endFill": 0.654
+        }
+      ],
+      "agenda": {
+        "6a261309c1ca830013f516a5": {
+          "tick": 72503819,
+          "fundingNeed": 3600,
+          "queueDepth": 8,
+          "queue": [
+            {
+              "role": "tanker",
+              "corp": "moving-W43N23-tender",
+              "minCost": 200,
+              "desiredCost": 1600,
+              "mustFund": false,
+              "why": "infra",
+              "since": 72503478,
+              "gate": "buy"
+            },
+            {
+              "role": "builder",
+              "corp": "building-W43N23-construction",
+              "minCost": 600,
+              "desiredCost": 600,
+              "mustFund": false,
+              "why": "consume",
+              "since": 72503436,
+              "precondition": "after:moving-W43N23-tender",
+              "gate": "queued"
+            },
+            {
+              "role": "upgrader",
+              "corp": "upgrading-W43N23-upgrading",
+              "minCost": 2300,
+              "desiredCost": 2300,
+              "mustFund": true,
+              "why": "campaign",
+              "since": 72503247,
+              "precondition": "after:building-W43N23-construction",
+              "gate": "queued"
+            },
+            {
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "minCost": 1300,
+              "desiredCost": 1300,
+              "mustFund": true,
+              "why": "campaign",
+              "since": 72503819,
+              "precondition": "after:upgrading-W43N23-upgrading",
+              "gate": "queued"
+            },
+            {
+              "role": "hauler",
+              "corp": "hauling-W42N22-hauling-cee0",
+              "minCost": 300,
+              "desiredCost": 2300,
+              "mustFund": false,
+              "why": "scale",
+              "since": 72503819,
+              "precondition": "after:reservation-W43N23-reservation",
+              "gate": "queued"
+            },
+            {
+              "role": "builder",
+              "corp": "building-W43N24-construction",
+              "minCost": 300,
+              "desiredCost": 300,
+              "mustFund": false,
+              "why": "consume",
+              "since": 72503589,
+              "precondition": "after:hauling-W42N22-hauling-cee0",
+              "gate": "queued"
+            },
+            {
+              "role": "builder",
+              "corp": "building-W44N23-construction",
+              "minCost": 300,
+              "desiredCost": 300,
+              "mustFund": false,
+              "why": "consume",
+              "since": 72503635,
+              "precondition": "after:building-W43N24-construction",
+              "gate": "queued"
+            },
+            {
+              "role": "tanker",
+              "corp": "building-W43N23-construction",
+              "minCost": 100,
+              "desiredCost": 1100,
+              "mustFund": false,
+              "why": "infra",
+              "since": 72503589,
+              "precondition": "after:building-W44N23-construction",
+              "gate": "queued"
+            }
+          ],
+          "executed": [
+            {
+              "tick": 72503478,
+              "role": "guard",
+              "corp": "raidGuard-W43N23-raidGuard",
+              "cost": 450
+            },
+            {
+              "tick": 72503496,
+              "role": "guard",
+              "corp": "raidGuard-W43N23-raidGuard",
+              "cost": 470
+            },
+            {
+              "tick": 72503514,
+              "role": "hauler",
+              "corp": "hauling-W43N24-hauling-cd8e",
+              "cost": 810
+            },
+            {
+              "tick": 72503559,
+              "role": "guard",
+              "corp": "raidGuard-W43N23-raidGuard",
+              "cost": 650
+            },
+            {
+              "tick": 72503681,
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "cost": 1300
+            },
+            {
+              "tick": 72503693,
+              "role": "hauler",
+              "corp": "hauling-W42N22-hauling-cee0",
+              "cost": 907
+            },
+            {
+              "tick": 72503747,
+              "role": "hauler",
+              "corp": "hauling-W43N24-hauling-0-20",
+              "cost": 1277
+            },
+            {
+              "tick": 72503819,
+              "role": "tanker",
+              "corp": "moving-W43N23-tender",
+              "cost": 1600
+            }
+          ]
+        }
+      },
+      "sourceBuffers": {
+        "dbcee0": 10,
+        "dbcedc": 0,
+        "dbcd90": 0,
+        "dbcd92": 174,
+        "dbcd8d": 6604,
+        "dbcd8e": 4138,
+        "dbcbd5": 707
+      },
+      "remoteSites": {
+        "W43N24": 3
+      },
+      "roadReceipts": {
+        "5982fc1db097071b4adbcd90": {
+          "paved": true
+        },
+        "5982fc1db097071b4adbcd92": {
+          "paved": true
+        },
+        "feeder": {
+          "paved": true
+        },
+        "5982fc1db097071b4adbcd8e": {
+          "built": 36,
+          "total": 38,
+          "paved": true,
+          "tiles": 38
+        },
+        "5982fc28b097071b4adbcee0": {
+          "built": 48,
+          "total": 49,
+          "paved": true,
+          "tiles": 54
+        },
+        "5982fc11b097071b4adbcbd5": {
+          "built": 48,
+          "total": 49,
+          "paved": true,
+          "tiles": 52
+        },
+        "5982fc1db097071b4adbcd8d": {
+          "built": 51,
+          "total": 53,
+          "tiles": 56
+        },
+        "5982fc28b097071b4adbcedc": {
+          "built": 14,
+          "total": 53,
+          "tiles": 53
+        }
+      },
+      "pathMeter": {
+        "tick": 72503840,
+        "calls": 8,
+        "cpu": 2.174720699997124,
+        "byCorp": {
+          "mining": {
+            "calls": 1,
+            "cpu": 0.2612429999990127
+          },
+          "hauling": {
+            "calls": 6,
+            "cpu": 1.8267208999968716
+          },
+          "moving": {
+            "calls": 1,
+            "cpu": 0.08675680000123975
+          }
+        }
+      },
+      "rooms": [
+        {
+          "name": "W43N23",
+          "rcl": 6,
+          "rclProgress": 1121873,
+          "rclProgressTotal": 3645000,
+          "energyAvailable": 1357,
+          "energyCapacity": 2300,
+          "storageEnergy": 176863,
+          "controllerStock": 712,
+          "feederActive": true,
+          "siteProgress": 0,
+          "siteTotal": 0,
+          "siteCount": 0
+        }
+      ]
+    }
+  }
+}

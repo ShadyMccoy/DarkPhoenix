@@ -33,6 +33,7 @@ const PURE: string[] = [
   "siteValue.ts",
   "roadEconomics.ts",
   "roadScoring.ts",
+  "roadSegments.ts",
   "bank.ts",
   "expansion.ts",
   "goals.ts",
@@ -40,7 +41,7 @@ const PURE: string[] = [
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
-const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts"];
+const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts", "roadSegmentsGame.ts"];
 
 /**
  * Explicit debt: economy/ files known to violate purity. EMPTY since the

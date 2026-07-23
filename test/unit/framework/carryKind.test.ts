@@ -112,6 +112,7 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
       carryParts: 6,
       flowRate: 4,
       spawnCostPerTick: haulerOverhead(6, 20),
+      spawnParts: 0.4, // the planner's paved-aware parts/tick, carried through for the P4 ledger echo
       spawnId: "spawn-game1"
     });
     expect(got[1].toId).to.equal("ctrl-9");

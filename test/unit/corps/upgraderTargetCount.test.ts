@@ -116,4 +116,17 @@ describe("upgraderAllocation", () => {
     // never again the incident shape: allocated 2 with 110 e/t of unabsorbed surplus
     expect(allocated).to.be.greaterThan(100);
   });
+
+  it("exports its surplus verdict, the same lens the demand's holdToFund reads (incident t72503018)", () => {
+    // One computation, two readers (the staffsPost symmetry rule): the sizing
+    // that scales the fleet up under a bank surplus and the demand flag that
+    // lets those scaling bodies actually FUND at the spawn must read the same
+    // verdict, or the corp demands a fleet the walk never finances - measured
+    // 2026-07-22: allocated 110.5 / targetCount 6 with staffing frozen at 2
+    // for 2600+ ticks, 191k idle (6.9x target), delivery 0.39x plan.
+    expect(upgraderSizing(2, 1607, WARCHEST_TARGET + 163_513, 0).surplus).to.equal(true);
+    expect(upgraderSizing(2, 1607, 10_000, 0).surplus, "warchest still filling: save regime").to.equal(false);
+    expect(upgraderSizing(2, 1607, null, 0).surplus, "no active feeder relay").to.equal(false);
+    expect(upgraderSizing(2, null, null, 0).surplus, "unmeasurable stock trusts the plan, no hold").to.equal(false);
+  });
 });
