@@ -1934,6 +1934,15 @@ export class ConstructionCorp extends Corp {
       // the miner dropping energy on a tile the haulers never visit.
       const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
       const spot = sourceHarvestSpot(source, spawn?.pos);
+      // No buildable adjacent tile: every neighbour is a natural wall (a road
+      // no longer disqualifies one - bestAdjacentTile places containers on
+      // roads now, so a paved harvest tile is used, not skipped). With nothing
+      // adjacent, bestAdjacentTile returned null and sourceHarvestSpot fell back
+      // to the source's OWN tile - a container can never sit on a source (-7
+      // forever), and that fallback bypasses the deadTiles loop entirely
+      // (bestAdjacentTile already excludes the source tile, so blacklisting it
+      // is a no-op). There is nowhere to put this source's container - skip it.
+      if (spot.x === source.pos.x && spot.y === source.pos.y) continue;
       return { x: spot.x, y: spot.y };
     }
     return null;

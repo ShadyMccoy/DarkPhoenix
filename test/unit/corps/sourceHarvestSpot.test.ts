@@ -24,7 +24,7 @@ function sourceWith(opts: {
   containers?: { x: number; y: number }[];
   sites?: { x: number; y: number }[];
   walls?: Set<string>;
-  occupied?: { x: number; y: number }[];
+  occupied?: { x: number; y: number; structureType?: string }[];
 }): any {
   const roomName = opts.roomName ?? "W0N0";
   const containers = (opts.containers ?? []).map(c => ({
@@ -35,7 +35,7 @@ function sourceWith(opts: {
     structureType: STRUCTURE_CONTAINER,
     pos: { x: c.x, y: c.y, roomName },
   }));
-  const occupiedStructures = (opts.occupied ?? []).map(o => ({ pos: { x: o.x, y: o.y, roomName } }));
+  const occupiedStructures = (opts.occupied ?? []).map(o => ({ structureType: o.structureType, pos: { x: o.x, y: o.y, roomName } }));
   const within1 = (px: number, py: number, arr: any[]) =>
     arr.filter(s => Math.max(Math.abs(s.pos.x - px), Math.abs(s.pos.y - py)) <= 1);
 
@@ -98,6 +98,20 @@ describe("sourceHarvestSpot (miner / container / pickup converge on one tile)", 
     expect({ x: spot.x, y: spot.y }).to.deep.equal({ x: 11, y: 9 });
   });
 
+  it("USES a paved harvest tile - a container is legal on a road (prod W44N23)", () => {
+    // The trunk paved the only open source neighbour. A road never blocks a
+    // container (engine checkConstructionSite exempts roads) and creeps walk on
+    // roads, so the harvest/container tile must be that road tile - NOT skipped
+    // as "occupied", which left the container looping -7 on the source tile.
+    const source = sourceWith({
+      sx: 10, sy: 10,
+      walls: new Set(["9,9", "10,9", "11,9", "9,10", "11,10", "9,11", "10,11"]), // all but (11,11)
+      occupied: [{ x: 11, y: 11, structureType: (global as any).STRUCTURE_ROAD }] as any
+    });
+    const spot = sourceHarvestSpot(source, { x: 40, y: 40, roomName: "W0N0" } as any);
+    expect({ x: spot.x, y: spot.y }, "the paved neighbour is used, not the source tile").to.deep.equal({ x: 11, y: 11 });
+  });
+
   it("skips walls and occupied tiles when choosing the harvest tile", () => {
     // Block the natural nearest tile (11,11) and an alternative, so it must pick the
     // next-nearest walkable, unoccupied adjacent tile.
@@ -109,6 +123,46 @@ describe("sourceHarvestSpot (miner / container / pickup converge on one tile)", 
     const spot = sourceHarvestSpot(source, { x: 40, y: 40, roomName: "W0N0" } as any);
     // (11,11) walled, (11,10) occupied -> next nearest to the SE spawn is (10,11).
     expect({ x: spot.x, y: spot.y }).to.deep.equal({ x: 10, y: 11 });
+  });
+});
+
+/**
+ * A BUILT road never blocks a container (engine checkConstructionSite exempts
+ * existing roads for every type) and creeps walk on roads, so bestAdjacentTile
+ * must place containers / pick stand tiles ON roads. Only OBSTACLE structures
+ * (links/towers/storage) shun roads - an unwalkable building plugs the lane.
+ */
+describe("bestAdjacentTile (roads are walkable - containers may sit on them, obstacles may not)", () => {
+  beforeEach(() => setupGlobals());
+
+  function roomWithRoad(roadAt: { x: number; y: number }): any {
+    const roads = [{ structureType: STRUCTURE_ROAD, pos: { x: roadAt.x, y: roadAt.y, roomName: "W0N0" } }];
+    return {
+      name: "W0N0",
+      getTerrain: () => ({ get: () => 0 }),
+      find: (type: number) => (type === FIND_STRUCTURES ? roads : [])
+    };
+  }
+
+  it("places a CONTAINER on a road tile (the paved harvest tile converges with the miner)", () => {
+    const room = roomWithRoad({ x: 11, y: 11 }); // the SE-nearest neighbour toward the spawn
+    const spawnPos = { x: 40, y: 40, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 10, y: 10 } as any, 1, spawnPos, undefined, STRUCTURE_CONTAINER)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 11 });
+  });
+
+  it("a bare STAND tile (no structure type) may also sit on a road", () => {
+    const room = roomWithRoad({ x: 11, y: 11 });
+    const spawnPos = { x: 40, y: 40, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 10, y: 10 } as any, 1, spawnPos)!;
+    expect({ x: tile.x, y: tile.y }).to.deep.equal({ x: 11, y: 11 });
+  });
+
+  it("an OBSTACLE structure (link) shuns the road tile and takes the next-best", () => {
+    const room = roomWithRoad({ x: 11, y: 11 });
+    const spawnPos = { x: 40, y: 40, roomName: "W0N0" } as any;
+    const tile = bestAdjacentTile(room, { x: 10, y: 10 } as any, 1, spawnPos, undefined, STRUCTURE_LINK)!;
+    expect({ x: tile.x, y: tile.y }, "a link on the road would block the lane").to.not.deep.equal({ x: 11, y: 11 });
   });
 });
 
