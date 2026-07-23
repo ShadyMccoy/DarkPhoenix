@@ -3724,9 +3724,12 @@ hauler). This deleted the whole toll subsystem — `allocated == take`.
   4.8→3.2 (dist 11→7), cee0 18.8→18.0 (46→44), cedc 22.0→19.6 (54→48).
 - P4 source-route hauler slice 157p/0.108 → 149p/0.103 parts/t (clean read
   from the plan — the port CARRY reduction).
-- X1 (was the TOP LINE) workUtil 0.50→0.79, dry 0.50→0.21 — upgraders far
-  better supplied (HYPOTHESIS: the controller-link drops feed them directly;
-  window spans the deploy, so a longer clean-window read would confirm).
+- X1 (was the TOP LINE) workUtil 0.50→0.79→**0.88**, dry 0.50→0.21→**0.13**,
+  idle-equiv 20.1→12.8→**2.5** — CONFIRMED over a clean 2047t window
+  (t72512784): the controller-link drops feed the upgraders directly, so X1 is
+  resolved to [ok]. Spawn util planned 0.86 / actual 0.88 (queueDepth 5) — the
+  spawn is now the binding constraint, so the source-link follow-up (item 1
+  below) is the next real lever.
 - No FAIL lines, P7 controller delivery on-plan (40.2/40.2), no crash through
   the global reset, hub invariant held (sink still storage, port is delivery).
 Modest as expected (the honest ~21% controller-link share of the 29-part ideal).
