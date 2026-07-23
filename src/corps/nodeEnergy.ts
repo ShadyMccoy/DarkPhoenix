@@ -159,8 +159,28 @@ export function bestAdjacentTile(
   forStructure?: BuildableStructureConstant
 ): RoomPosition | null {
   const terrain = room.getTerrain();
+  // Obstacle placements (links/towers/storage/extensions) block their tile; the
+  // walkable ones (containers, and the bare stand tile) do not. This predicate
+  // is reused below for the exit-buffer shun.
+  const obstaclePlacement =
+    forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
   const occupied = new Set<string>();
-  for (const s of room.find(FIND_STRUCTURES)) occupied.add(`${s.pos.x},${s.pos.y}`);
+  // A BUILT road never blocks a container site or a creep's stand tile: the
+  // engine (checkConstructionSite) exempts existing roads for every structure
+  // type, and creeps walk on roads. So when placing a container (or picking a
+  // bare harvest/stand tile) a road underfoot is NOT occupied - the paved
+  // harvest tile is exactly where the container should land, converging with
+  // the miner's drop (prod W44N23: the trunk paved the only open source
+  // neighbour, this scan then excluded it, bestAdjacentTile returned null, and
+  // sourceHarvestSpot fell back to the source's own tile -> "-7" forever). The
+  // wall-terrain check below still applies, so a road ON a wall stays rejected.
+  // OBSTACLE structures still shun roads (an unwalkable building plugs the lane).
+  for (const s of room.find(FIND_STRUCTURES)) {
+    if (s.structureType === STRUCTURE_ROAD && !obstaclePlacement) continue;
+    occupied.add(`${s.pos.x},${s.pos.y}`);
+  }
+  // Construction SITES of ANY type block a new site (the engine forbids two
+  // sites on one tile), roads included - so these are never exempted.
   for (const s of room.find(FIND_CONSTRUCTION_SITES)) occupied.add(`${s.pos.x},${s.pos.y}`);
   // Sources and minerals are NOT structures, so the two scans above miss them -
   // but no buildable structure can sit on their tile (createConstructionSite
@@ -175,8 +195,7 @@ export function bestAdjacentTile(
   // (W43N23 link@48,13 looped ~forever before the stamp made it visible).
   for (const key of Object.keys(room.memory?.deadTiles ?? {})) occupied.add(key);
 
-  const shunExitBuffer =
-    forStructure !== undefined && forStructure !== STRUCTURE_ROAD && forStructure !== STRUCTURE_CONTAINER;
+  const shunExitBuffer = obstaclePlacement;
 
   // Swamp-favored placement (owner 2026-07-21): an UNWALKABLE building blots
   // out its tile either way, so at EQUAL distance "waste" a swamp and leave
@@ -449,6 +468,15 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
   const terrain = room.getTerrain();
   const cx = controller.pos.x;
   const cy = controller.pos.y;
+  // Tiles createConstructionSite proved permanently invalid (-7): the fresh
+  // spot IS the future controller-container tile (findMissingControllerContainer
+  // places one there), so a dead tile must not be CHOSEN or that placement
+  // retries it every cooldown forever - the eaten-ladder loop bestAdjacentTile
+  // already guards for source/depot containers ("Failed to place container ...:
+  // -7" looping). Excluded from the candidate pick only, NOT from the park-ring
+  // count below: an upgrader can still STAND on a dead tile (a road), it just
+  // can't host a container there.
+  const dead = new Set<string>(Object.keys(room.memory?.deadTiles ?? {}));
   const walkable = (x: number, y: number): boolean =>
     x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
   const inUpgradeRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
@@ -471,7 +499,7 @@ export function controllerInputSpot(controller: StructureController): EnergySpot
     for (let dy = -2; dy <= 2; dy++) {
       const x = cx + dx;
       const y = cy + dy;
-      if ((dx === 0 && dy === 0) || !walkable(x, y) || !inUpgradeRange(x, y)) continue;
+      if ((dx === 0 && dy === 0) || !walkable(x, y) || !inUpgradeRange(x, y) || dead.has(`${x},${y}`)) continue;
       const score = parkRing(x, y);
       const better =
         !best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)));
