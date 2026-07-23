@@ -327,6 +327,74 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(x5, "pre-blackbox fixtures produce no X5 row").to.equal(undefined);
   });
 
+  it("E5 does NOT flag a hauler bought small for a planned MICRO route (scavenge/short-haul)", () => {
+    // t72523980: both E5-flagged runts were hauling-W43N24-hauling-0-20, the
+    // scavenge route scavenge-W43N24-30-20 the planner sizes at carryParts 1.41.
+    // A 200e (2 CARRY) hauler for a <3-carry route is RIGHT-sized, not a
+    // drained-spawn purchase. Flagging it trained us to ignore E5.
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    const spawnId = Object.keys(capA.data.core.agenda)[0];
+    capA.data.core.agenda[spawnId].executed = [
+      { tick: 0, role: "hauler", corp: "hauling-W43N24-hauling-0-20", cost: 200 },
+      { tick: 0, role: "hauler", corp: "hauling-W43N24-hauling-0-20", cost: 200 }
+    ];
+    capA.data.flow.haulers = [
+      {
+        edgeId: "scavenge-W43N24-30-20|storage-x",
+        sourceId: "scavenge-W43N24-30-20",
+        sinkId: "storage-x",
+        carryParts: 1.41,
+        flowRate: 0.6,
+        distance: 55,
+        spawnId
+      }
+    ];
+    const e5 = computeLedger(capA, cap72404213).find(r => r.id === "E5")!;
+    expect(e5.value, "a plan-micro hauler is not a runt").to.equal(0);
+    expect(e5.verdict).to.equal("ok");
+  });
+
+  it("E5 STILL flags a hauler bought small for a planned NON-micro route (a real drained-spawn runt)", () => {
+    // The genuine leak the detector must keep: the plan wanted a 14.8-carry
+    // trunk hauler (distance-36 source route) but the drained spawn bought a
+    // 200e runt. Plan >> actual = a real drained-spawn purchase.
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    const spawnId = Object.keys(capA.data.core.agenda)[0];
+    capA.data.core.agenda[spawnId].executed = [
+      { tick: 0, role: "hauler", corp: "hauling-W43N23-hauling-cd8e", cost: 200 },
+      { tick: 0, role: "hauler", corp: "hauling-W43N23-hauling-cd8e", cost: 200 }
+    ];
+    capA.data.flow.haulers = [
+      {
+        edgeId: "source-5982fc1db097071b4adbcd8e|storage-x",
+        sourceId: "source-5982fc1db097071b4adbcd8e",
+        sinkId: "storage-x",
+        carryParts: 14.8,
+        flowRate: 10,
+        distance: 36,
+        spawnId
+      }
+    ];
+    const e5 = computeLedger(capA, cap72404213).find(r => r.id === "E5")!;
+    expect(e5.value, "plan-big but bought-small = runt").to.equal(2);
+    expect(e5.verdict).to.equal("WARN");
+  });
+
+  it("E5 flags an UNMAPPABLE small hauler (no matching plan route = off-plan/stranded)", () => {
+    // Conservative default: a small hauler with no plan route to vouch for its
+    // size stays a runt - never hide a possible drained/stranded purchase.
+    const capA: any = JSON.parse(JSON.stringify(cap72411542));
+    const spawnId = Object.keys(capA.data.core.agenda)[0];
+    capA.data.core.agenda[spawnId].executed = [
+      { tick: 0, role: "hauler", corp: "hauling-W99N99-hauling-9999", cost: 200 },
+      { tick: 0, role: "hauler", corp: "hauling-W99N99-hauling-9999", cost: 200 }
+    ];
+    capA.data.flow.haulers = [];
+    const e5 = computeLedger(capA, cap72404213).find(r => r.id === "E5")!;
+    expect(e5.value).to.equal(2);
+    expect(e5.verdict).to.equal("WARN");
+  });
+
   it("X5 WARNs on a fast respawn (<60t = below one creep's spawn time, a double-order/loop)", () => {
     // The reserver 25t-gap shape live at t72509177 - a claim body takes ~78t to
     // SPAWN, so two 25t apart cannot be sequential deaths; it is a re-order

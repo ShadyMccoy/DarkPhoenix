@@ -3787,3 +3787,37 @@ NEXT, in order:
    to the RCL link budget; the deposit-port pricer is now the scorer.
 3. Carry-forward gauges: X1 over a clean (non-deploy) window to nail the
    attribution; X5 steady-state; warchest-target-as-spend-rate (open Q3).
+
+---
+
+### AUDIT CYCLE t72523980 — E5 runt detector made attribution-aware (standing false positive killed)
+
+Ledger on the fresh capture (baseline t72519086, dt 4894, ~5k ticks post the
+scheduler-fix reset): **no FAIL lines**, colony healthy and recovering well —
+E4 storage 53.5k draining at **−4.79/t** toward the 27.6k warchest (was 77k and
+rising last cycle; the spend path is back), P7 controller delivery **28.8 e/t**,
+S3 scheduler stall **0**, P9 all mined energy routed (no rot), X1 WORK 99%
+utilized. The scheduler death-spiral fix (this session) holds.
+
+Two WARN lines. X5 rebuild churn 0.20 is mostly remote invader/revoke noise
+(a LIVE-ONLY class) plus post-reset recovery — not sim-actionable. **E5 runt
+purchases (2 of last 8) was a 100% FALSE POSITIVE**: both flagged runts were
+the SAME corp `hauling-W43N24-hauling-0-20`, the scavenge route
+`scavenge-W43N24-30-20` the planner deliberately sizes at carryParts **1.41**.
+A 200e (2-CARRY) hauler for a <3-carry route is RIGHT-sized, not a
+drained-spawn purchase. The plan-blind `cost<300` test flagged every scavenge
+and distance-1 short-haul hauler forever — a standing cry-wolf that trains us
+to ignore E5 and would mask a real drained runt.
+
+**Fix (ledger-accuracy, tooling-only — not in dist/main.js, no deploy):**
+E5 now cross-references the flow plan. A hauler runt counts only when the plan
+wanted a real body (route carryParts ≥ 3) OR no plan route vouches for the size
+(conservative default keeps off-plan/stranded small haulers flagged).
+Red-first pinned by three tests (micro-route → not flagged; non-micro
+plan-big-bought-small → still flagged; unmappable → still flagged). Live E5
+→ **[ok] 0/none**. Unit suite 1357 passing.
+
+Cycle verdict: **FIXED** (E5 false positive eliminated + regression-pinned) +
+**MEASURED** (spend path restored, storage draining −4.79/t, controller
+28.8 e/t, no FAIL lines). Next candidate: X5 steady-state churn once past the
+post-reset window; the source-link deferred ~79% remains the bigger P4 lever.

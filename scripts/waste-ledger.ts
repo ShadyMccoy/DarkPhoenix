@@ -391,7 +391,29 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
 
   // ---- E5 runt purchases ----
   const agenda: any = Object.values(core.agenda ?? {})[0] ?? {};
-  const runts = (agenda.executed ?? []).filter((e: any) => e.cost < 300 && !["reserver", "scout"].includes(e.role));
+  // Attribution-aware (t72523980): a hauler bought small for a route the PLANNER
+  // sizes small (scavenge / distance-1 short-haul, carryParts < 3) is RIGHT-sized,
+  // not a drained-spawn purchase. The plan-blind cost<300 test flagged every
+  // scavenge hauler forever (2/2 flagged runts were scavenge-W43N24-30-20, plan
+  // carryParts 1.41) - a standing false positive that trains us to ignore E5 and
+  // would mask a REAL drained runt. Keep the runt verdict only when the plan
+  // wanted a real body (carryParts >= 3) or no plan route vouches for the size.
+  const routeCarry = new Map<string, number>();
+  for (const h of (flow.haulers ?? []) as any[]) {
+    const suf = String(h.sourceId).replace(/^source-|^scavenge-[EW]\d+[NS]\d+-|^bank-/, "").slice(-4);
+    routeCarry.set(suf, Math.max(routeCarry.get(suf) ?? 0, h.carryParts));
+  }
+  const plannedMicroHauler = (corp: string): boolean => {
+    const suf = String(corp).replace(/^hauling-[EW]\d+[NS]\d+-hauling-/, "").slice(-4);
+    const carry = routeCarry.get(suf);
+    return carry !== undefined && carry < 3; // plan owns this route AND sizes it small
+  };
+  const runts = (agenda.executed ?? []).filter(
+    (e: any) =>
+      e.cost < 300 &&
+      !["reserver", "scout"].includes(e.role) &&
+      !(e.role === "hauler" && plannedMicroHauler(e.corp))
+  );
   rows.push({
     id: "E5",
     name: "runt purchases",
