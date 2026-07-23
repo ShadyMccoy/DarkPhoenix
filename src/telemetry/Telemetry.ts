@@ -503,6 +503,13 @@ export interface FlowTelemetry {
      * ledger cannot drift from the bot it audits (owner 2026-07-22).
      */
     spawnParts?: number;
+    /**
+     * Deposit port (spec 26): the link this route drops at instead of the storage
+     * hub, when the plan priced a shorter port leg. Present only on ported routes,
+     * so a dashboard can see which mined deposits turn around early (and compare
+     * this route's shrunken `carryParts`/`distance` against the no-port baseline).
+     */
+    port?: { x: number; y: number; roomName: string };
   }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
@@ -1210,7 +1217,8 @@ export class Telemetry {
           distance: hauler.distance,
           spawnId: hauler.spawnId,
           ratio: hauler.haulerRatio,
-          ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {})
+          ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {}),
+          ...(hauler.depositPos ? { port: hauler.depositPos } : {})
         });
       }
 

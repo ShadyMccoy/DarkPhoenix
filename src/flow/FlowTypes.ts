@@ -260,6 +260,13 @@ export interface HaulerAssignment {
   /** Nearest spawn for these haulers */
   spawnId: string;
 
+  /**
+   * Deposit port (spec 26): a link position the plan chose as a shorter delivery
+   * leg to the storage hub. When set, this route's `distance`/`carryParts` are
+   * already priced to the port leg and CarryCorp delivers HERE first (falling
+   * back to the storage on port-full). Carried verbatim from CommissionedHauler.
+   */
+  depositPos?: Position;
 
   /** Terrain profile for this route */
 

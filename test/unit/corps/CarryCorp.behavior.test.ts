@@ -8,6 +8,7 @@ import {
   shouldBankControllerLoad,
   shouldRefillFromDepot,
   tenderOwnsExtensions,
+  pickStorageDeposit,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
@@ -468,6 +469,31 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(
         shouldBankControllerLoad({ hasBankCapacity: false, feederActive: true, controllerInputStock: 5000 })
       ).to.equal(false);
+    });
+  });
+
+  // Spec 26: a storage-bound (deposit) load prefers the plan's DEPOSIT PORT (a
+  // controller link it turns around at early) while that link has room, else the
+  // storage hub, else nowhere - so a full port + full storage spills the load to a
+  // hungry spawn/controller (deliverToStorage returns false) rather than camping.
+  describe("deposit-port delivery routing (pickStorageDeposit)", () => {
+    const port = { x: 41, y: 30, roomName: "W1N1" };
+
+    it("goes to the PORT when the plan chose one and it has room", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 200, storageFree: 1000 })).to.equal("port");
+    });
+
+    it("falls back to STORAGE when the port is full (the port-full fallback)", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000 })).to.equal("storage");
+    });
+
+    it("uses STORAGE directly when the plan chose no port", () => {
+      expect(pickStorageDeposit({ depositPos: undefined, portFree: 0, storageFree: 1000 })).to.equal("storage");
+    });
+
+    it("returns NONE when the port is full AND the storage is full - so the caller spills to spawn/controller", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 0 })).to.equal("none");
+      expect(pickStorageDeposit({ depositPos: undefined, portFree: 0, storageFree: 0 })).to.equal("none");
     });
   });
 

@@ -323,6 +323,76 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
+  describe("deposit ports (depositPos) - spec 26 (deposit-side haulPos)", () => {
+    // The symmetric mirror of haulPos: a link CLOSER to a mined deposit than its
+    // storage hub lets the hauler TURN AROUND early and drop there (the link
+    // consumes/forwards the energy on to the hub). The energy still belongs to
+    // the storage sink - the port only shortens the delivery leg, exactly as
+    // haulPos shortens the pickup leg. depositPorts is problem data (the flow
+    // adapter's detectLinkDepositPorts lens); the planner prices min(hub, port).
+    const hubWorld = (
+      sources: PlannerSource[],
+      ports: { pos: Position; headroom: number }[]
+    ): ColonyProblem =>
+      problem({
+        spawns: [spawn("S", 0)],
+        sources: [...sources, stock("bank-home", 50, 100)],
+        sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
+        depositPorts: ports
+      });
+
+    it("prices a deposit's haul-home to a NEARER port (turn around early), not the full hub leg", () => {
+      // mined at 30, hub at 50 (dHub 20), a port at 42 (dPort 12) between them.
+      const port = at(42);
+      const plan = planColony(hubWorld([source("m", 30, 10)], [{ pos: port, headroom: 15 }]));
+      const h = plan.haulers.find(x => x.sourceId === "m" && x.sinkId === "store")!;
+      expect(h, "mined still hauls home to the hub").to.not.equal(undefined);
+      expect(h.distance, "priced at the port leg (30->42), not the hub leg (30->50)").to.equal(12);
+      expect(h.carryParts, "CARRY sized to the short port leg").to.be.closeTo(carryPartsFor(10, 12), 1e-9);
+      expect(h.depositPos, "carries the chosen port").to.deep.equal(port);
+      expect(plan.miners.find(m => m.sourceId === "m")!.distance, "miner keeps the real distance").to.equal(30);
+    });
+
+    it("ignores a port FARTHER than the hub (no shortcut = no port)", () => {
+      const plan = planColony(hubWorld([source("m", 30, 10)], [{ pos: at(60), headroom: 15 }]));
+      const h = plan.haulers.find(x => x.sourceId === "m" && x.sinkId === "store")!;
+      expect(h.distance, "full hub leg").to.equal(20);
+      expect(h.depositPos).to.equal(undefined);
+    });
+
+    it("shares a port's throughput headroom across deposits; the residual prices at the hub leg", () => {
+      // Two deposits (10 e/t each) through one port of headroom 12: the first
+      // (nearest the hub) takes its full 10 via the port, the second gets the
+      // remaining 2 there and hauls its other 8 the long way (blended leg).
+      const port = at(42);
+      const plan = planColony(
+        hubWorld([source("m1", 30, 10), source("m2", 31, 10)], [{ pos: port, headroom: 12 }])
+      );
+      const h1 = plan.haulers.find(x => x.sourceId === "m1" && x.sinkId === "store")!;
+      const h2 = plan.haulers.find(x => x.sourceId === "m2" && x.sinkId === "store")!;
+      // m2 (dHub 19) sorts first, takes the full port leg (31->42 = 11).
+      expect(h2.distance, "first deposit turns around fully at the port").to.equal(11);
+      // m1 (dHub 20) gets the residual 2 e/t via the port, 8 the long way:
+      // blend = (2/10)*12 + (8/10)*20 = 18.4.
+      expect(h1.distance, "residual deposit blends port + hub legs").to.be.closeTo(18.4, 1e-6);
+      expect(h1.depositPos).to.deep.equal(port);
+      expect(h2.depositPos).to.deep.equal(port);
+    });
+
+    it("ignores ports with no storage hub (pre-storage: mined feeds consumers directly)", () => {
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("m", 30, 10)],
+          sinks: [sink("ctrl", "controller", 50, 50, 100)],
+          depositPorts: [{ pos: at(42), headroom: 15 }]
+        })
+      );
+      const h = plan.haulers.find(x => x.sourceId === "m")!;
+      expect(h.depositPos, "no hub -> ports never apply").to.equal(undefined);
+    });
+  });
+
   describe("hub-and-spoke: mined DEPOSITS to storage, the hub SPENDS to consumers (owner 2026-07-19)", () => {
     // Owner's model, replacing the production-first/nearest-first regime gates:
     // when a storage HUB exists, mined (and scavenge) is a DEPOSIT source - its

@@ -18,8 +18,7 @@ import {
   HaulerAssignment,
   MinerAssignment,
   SinkAllocation,
-  SinkType,
-  createEdgeId
+  SinkType
 } from "../flow/FlowTypes";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
@@ -28,7 +27,6 @@ import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   INVADER_TAX_PER_ENERGY,
   UPGRADE_ENERGY_PER_WORK,
-  haulerOverhead,
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate
@@ -38,6 +36,7 @@ import { partialPaveRatio } from "./roadEconomics";
 import {
   ColonyProblem,
   DEFAULT_SINK_VALUE,
+  DepositPort,
   PlannerSink,
   PlannerSource,
   PlannerSpawn,
@@ -48,6 +47,7 @@ import { Commission } from "./Commission";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
+import { haulerAssignmentFromCommissioned } from "../flow/haulerAssignment";
 
 /** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
 export const ANTI_DOWNGRADE_RESERVE = 2;
@@ -58,7 +58,7 @@ export const ANTI_DOWNGRADE_RESERVE = 2;
  * module); re-exported here for the existing import sites.
  */
 export { STORAGE_UPGRADE_TARGET } from "./bank";
-import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId } from "./bank";
+import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId, feederRelayRate } from "./bank";
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
@@ -310,6 +310,35 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
 }
 
 /**
+ * Detect DEPOSIT PORTS (spec 26, deposit-side mirror of detectLinkHaulPositions):
+ * links a mined deposit may turn around at instead of walking to its storage hub.
+ * v1 emits CONTROLLER links only - energy dropped there is consumed IN PLACE by
+ * the upgraders, which by the LinkRunner backpressure displaces an equal bank->
+ * controller relay (bank-neutral), so no drain hauler and no transit toll are
+ * needed. (Source links FORWARD to the core, whose core->storage drain is staffed
+ * only for the home source's own rate - an unstaffed leg the plan cannot honestly
+ * price yet, so they are a follow-up.) The port's headroom is the controller's
+ * bank-fed consumption rate (feederRelayRate) - what a mined drop can displace and
+ * what the link can drain - a FINITE, plan-computable bound the pricing shares.
+ * Requires a storage hub (the port is a shortcut TO that hub). Live default for
+ * buildColonyProblem; injectable for tests.
+ */
+export function detectLinkDepositPorts(): DepositPort[] {
+  const out: DepositPort[] = [];
+  if (typeof Game === "undefined" || !Game.rooms) return out;
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+    if (!(room.storage && room.storage.my)) continue; // the hub the port shortcuts to
+    const link = controllerLink(room);
+    if (!link) continue;
+    const banked = room.storage.store.energy ?? 0;
+    out.push({ pos: { x: link.pos.x, y: link.pos.y, roomName }, headroom: feederRelayRate(banked) });
+  }
+  return out;
+}
+
+/**
  * Detect SURPLUS storage banks across visible owned rooms and turn each into a
  * transient bank source at its storage position (spec 03 withdrawal, surplus
  * half - see economy/bank.ts). A bank still filling its warchest emits nothing:
@@ -380,7 +409,8 @@ export function buildColonyProblem(
   bankSources: PlannerSource[] = detectBankSources(),
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
-  prevBankDraw?: number
+  prevBankDraw?: number,
+  depositPorts: DepositPort[] = detectLinkDepositPorts()
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -679,7 +709,7 @@ export function buildColonyProblem(
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick };
+    sources, sinks, dist, infraPartsPerTick, depositPorts };
 }
 
 /**
@@ -711,7 +741,11 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
       carry: Math.max(1, Math.ceil(h.carryParts)),
       fromId: h.sourceId,
       toId: h.sinkId,
-      spawnId: h.spawnId
+      spawnId: h.spawnId,
+      // Deposit port (spec 26): the link this route turns around at (shrinks
+      // its carry). Present only on ported routes - the plan-vs-fielded gauge
+      // and the grid read it to confirm the shortcut was priced.
+      ...(h.depositPos ? { port: h.depositPos } : {})
     });
   }
   for (const k of plan.sinks) {
@@ -798,24 +832,10 @@ export function solveColony(
     efficiency: m.efficiency
   }));
 
-  const haulers: HaulerAssignment[] = plan.haulers.map(h => ({
-    edgeId: createEdgeId(h.sourceId, h.sinkId),
-    fromId: h.sourceId,
-    toId: h.sinkId,
-    distance: h.distance,
-    carryParts: h.carryParts,
-    flowRate: h.flowRate,
-    spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
-    // The planner's paved-aware parts/tick, verbatim - the number the P4
-    // ledger echoes (owner 2026-07-22: eliminate the ledger/planner drift by
-    // sharing this one value instead of the ledger re-deriving it).
-    spawnParts: h.spawnParts,
-    spawnId: h.spawnId,
-    // The paved verdict rides through to telemetry (audit t72469936: the
-    // plan HAD repriced cd8e at 2:1 with crawl-corrected CARRY, but seg 6
-    // dropped the flag and the audit nearly called the repricing dead).
-    ...(h.paved ? { haulerRatio: "2:1" as const } : {})
-  }));
+  // The ONE CommissionedHauler -> HaulerAssignment mapper, shared with
+  // carryKind.materialize (solver-bridge pin): paved verdict, spawnParts, and
+  // the spec-26 depositPos all ride through identically on both paths.
+  const haulers: HaulerAssignment[] = plan.haulers.map(haulerAssignmentFromCommissioned);
 
   const sinkTypeById = new Map(graph.getSinks().map(s => [s.id, s.type]));
   const sinkAllocations: SinkAllocation[] = plan.sinks.map(k => ({

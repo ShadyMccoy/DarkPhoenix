@@ -15,36 +15,15 @@
 import { Commission, corpIdFor } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedHauler } from "../../economy/CorpPlanner";
-import { haulerOverhead } from "../../economy/primitives";
-import { HaulerAssignment, createEdgeId } from "../../flow/FlowTypes";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { CarryCorp, SerializedCarryCorp } from "../CarryCorp";
 
-/**
- * Reconstruct a flow-shaped HaulerAssignment from one commissioned route, exactly
- * as flowAdapter does when it builds the FlowSolution. spawnCostPerTick is the
- * one derived field, recomputed from the canonical primitive (no private formula).
- */
-export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerAssignment {
-  return {
-    edgeId: createEdgeId(h.sourceId, h.sinkId),
-    fromId: h.sourceId,
-    toId: h.sinkId,
-    distance: h.distance,
-    carryParts: h.carryParts,
-    flowRate: h.flowRate,
-    spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
-    // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes
-    // it) - the same field flowAdapter sets, so the two reconstruction paths
-    // stay identical (solver-bridge pin).
-    spawnParts: h.spawnParts,
-    spawnId: h.spawnId,
-    // A paved route spawns road haulers: CarryCorp forwards this to the spawn
-    // demand and SpawningCorp.getPartRatios packs 2 CARRY per MOVE.
-    ...(h.paved ? { haulerRatio: "2:1" as const } : {})
-  };
-}
+// The CommissionedHauler -> HaulerAssignment mapper is shared with flowAdapter
+// (one source of truth for the solver-bridge pin); re-exported here for the
+// existing import sites (carryKind.test, solverBridge.test).
+export { haulerAssignmentFromCommissioned } from "../../flow/haulerAssignment";
+import { haulerAssignmentFromCommissioned } from "../../flow/haulerAssignment";
 
 /**
  * The CarryCorp's legacy runtime nodeId (and id `hauling-${nodeId}`) is

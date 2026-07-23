@@ -123,6 +123,26 @@ export interface PlannerSink {
   reserve?: number;
 }
 
+/**
+ * A DEPOSIT PORT (spec 26): a link a mined DEPOSIT source may drop its haul-home
+ * load at instead of walking all the way to its storage hub - a shorter delivery
+ * leg the hub reclaims (the symmetric mirror of a source's `haulPos`, which
+ * shortens the PICKUP leg). The energy still belongs to the storage sink; the
+ * port is only a physical shortcut, so pricing keeps mined -> storage and merely
+ * turns the hauler around early. v1 ports are CONTROLLER links: energy dropped
+ * there is consumed IN PLACE by the upgraders, which by the LinkRunner
+ * backpressure displaces an equal bank->controller relay (bank-neutral), so no
+ * transit toll and no drain hauler is needed. `headroom` is the e/t of deposits
+ * the port can absorb (the controller's bank-fed consumption rate), SHARED across
+ * the sources that route through it; a source's residual prices at the full hub
+ * leg (the emergent port-full fallback).
+ */
+export interface DepositPort {
+  pos: Position;
+  /** e/t of external deposits the port can absorb, shared across sources. */
+  headroom: number;
+}
+
 export interface ColonyProblem {
   /** Assembly counts (flow v5): how many sources each layer contributed. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
@@ -131,6 +151,13 @@ export interface ColonyProblem {
   sinks: PlannerSink[];
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
+  /**
+   * Deposit ports (spec 26): links a mined deposit may turn around at instead of
+   * walking to its storage hub. Priced as a shorter delivery leg into the STORAGE
+   * sink; empty/absent = today's behaviour (haul the full hub leg). Assembled by
+   * the flow adapter (detectLinkDepositPorts).
+   */
+  depositPorts?: DepositPort[];
   /**
    * Spawn build-time (parts/tick) of standing infrastructure the plan implies
    * but does not commission here (feeder shuttle, tender detail, reservers) -
@@ -186,6 +213,13 @@ export interface CommissionedHauler {
   spawnParts: number;
   /** Route is paved: spawn the haulers at the 2:1 road CARRY:MOVE ratio. */
   paved?: boolean;
+  /**
+   * Deposit port (spec 26): a link position the plan chose as a shorter delivery
+   * leg to the storage hub. When set, `distance`/`carryParts` are already priced
+   * to the (blended) port leg and the hauler delivers HERE first, falling back to
+   * the storage on port-full. Absent = deliver to the storage sink as before.
+   */
+  depositPos?: Position;
 }
 
 export interface CommissionedSink {
@@ -461,6 +495,15 @@ function routeToSinks(
   // residual deposits home - no flag, no zeroed pool.
   const pool = new Map<string, number>(supply.map(s => [s.sourceId, s.rate]));
 
+  // DEPOSIT PORTS (spec 26): remaining throughput of each port, SHARED across the
+  // deposits that route through it and consumed as real flow lands (below, on the
+  // confirmed `take` - not up-front, so a parts-ledger-limited take never over-
+  // debits a port). One map for the whole solve so the two storage fills (pre-
+  // pass + value pass) can't double-charge: a source drained in the first is
+  // filtered out of the second, and any residual it re-routes debits only its
+  // additional take.
+  const portRemaining = new Map<DepositPort, number>((problem.depositPorts ?? []).map(p => [p, p.headroom]));
+
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
 
@@ -577,10 +620,43 @@ function routeToSinks(
       // EFFECTIVE distance (ticks not tiles - roadEconomics), or the fleet
       // under-carries until the last tile lands.
       const src = sourceById.get(id);
+      // DEPOSIT PORT leg (spec 26): a mined deposit routing to the STORAGE hub
+      // may TURN AROUND at a nearer link port (dPort < d) instead of walking the
+      // full hub leg. Physical delivery distance blends the port leg (the share
+      // the port's throughput absorbs) with the residual hub leg (the emergent
+      // port-full fallback). `frac` is against the residual `avail` (already
+      // drained by the spec-25 local-build pre-pass), so a source building
+      // locally never credits a port for energy that never reached it; the
+      // headroom is DEBITED below on the confirmed `take`, not this candidate
+      // rate, so a parts-ledger-limited take can't over-consume the shared port.
+      // Non-storage sinks keep physD = d (untouched).
+      let physD = d;
+      let depositPos: Position | undefined;
+      let chosenPort: DepositPort | undefined;
+      let portShare = 0;
+      if (sink.kind === "storage" && avail > 1e-9) {
+        const from = src?.haulPos ?? src?.pos;
+        if (from) {
+          let best: { port: DepositPort; dPort: number } | undefined;
+          for (const p of problem.depositPorts ?? []) {
+            if (p.pos.roomName !== sink.pos.roomName) continue;
+            if ((portRemaining.get(p) ?? 0) <= 1e-9) continue;
+            const dp = dist(from, p.pos);
+            if (dp < d && (!best || dp < best.dPort)) best = { port: p, dPort: dp };
+          }
+          if (best) {
+            portShare = Math.min(avail, portRemaining.get(best.port) ?? 0);
+            const frac = portShare / avail;
+            physD = frac * best.dPort + (1 - frac) * d;
+            depositPos = best.port.pos;
+            chosenPort = best.port;
+          }
+        }
+      }
       const paved = src?.paved === true;
-      const dEff = paved ? effectiveOneWayTiles(d, src?.pavedFraction ?? 1, 2) : d;
+      const dEff = paved ? effectiveOneWayTiles(physD, src?.pavedFraction ?? 1, 2) : physD;
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
-      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(d) + workPerUnit;
+      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(physD) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
       const take = Math.min(avail, target - acc.allocated, maxByParts);
       if (take <= 1e-9) {
@@ -596,17 +672,22 @@ function routeToSinks(
       }
       partsRemaining -= take * chargePerUnit;
       pool.set(id, avail - take);
+      // Debit the port's shared throughput by what ACTUALLY flowed via it
+      // (min of the routed take and the share this source claimed) so idle
+      // headroom is re-offered to later deposits.
+      if (chosenPort) portRemaining.set(chosenPort, (portRemaining.get(chosenPort) ?? 0) - Math.min(take, portShare));
       acc.allocated += take;
-      acc.sources.push({ sourceId: id, amount: take, distance: d });
+      acc.sources.push({ sourceId: id, amount: take, distance: physD });
       haulers.push({
         sourceId: id,
         sinkId: sink.id,
         spawnId: spawnBySource.get(id) ?? "",
-        distance: d,
+        distance: physD,
         flowRate: take,
         carryParts: carryPartsFor(take, dEff),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(d),
-        ...(paved ? { paved } : {})
+        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(physD),
+        ...(paved ? { paved } : {}),
+        ...(depositPos ? { depositPos } : {})
       });
     }
     acc.partsLeft = partsRemaining;

@@ -97,6 +97,29 @@ export function shouldBankControllerLoad(params: {
 }
 
 /**
+ * Where a storage-bound (deposit) load should go THIS tick (spec 26): the plan's
+ * DEPOSIT PORT (a controller link the hauler turns around at early) when one was
+ * chosen and it has room, else the storage hub, else nowhere. Returning "none"
+ * (port full AND storage full) lets deliverToStorage return false so deliverEnergy
+ * spills the load to a hungry spawn/controller instead of camping the port - the
+ * same escape valve the pre-port code relies on. Pure so it is unit-testable, and
+ * the delivery reads the plan's chosen port rather than re-deriving one (delivery/
+ * pricing symmetry - the staffsPost-symmetry class).
+ */
+export function pickStorageDeposit(params: {
+  /** The port the plan priced this route to (undefined = no port, haul the hub leg). */
+  depositPos?: Position;
+  /** Free capacity in the port link right now (0 when full or the link is gone). */
+  portFree: number;
+  /** Free capacity in the storage hub right now. */
+  storageFree: number;
+}): "port" | "storage" | "none" {
+  if (params.depositPos && params.portFree > 0) return "port";
+  if (params.storageFree > 0) return "storage";
+  return "none";
+}
+
+/**
  * Small energy buffer kept in the core depot so the extension tender always has a
  * load on hand. Deliberately modest: it only needs to bridge between hauler drop-offs,
  * not bankroll the whole network - a large buffer would pull haulers off the
@@ -879,6 +902,35 @@ export class CarryCorp extends Corp {
    */
   private deliverToStorage(creep: Creep, room: Room): boolean {
     const storage = room.storage;
+    // DEPOSIT PORT (spec 26): the plan may have priced this deposit's haul-home to
+    // a nearer link (a controller link) it turns around at. Deliver there first;
+    // on a FULL drop the clean-bus state machine flips to pickup next tick (the
+    // hauler turns around, round trip = the short port leg). A PARTIAL drop leaves
+    // energy aboard, so next tick the now-full port yields "storage" and the
+    // remainder hauls on to the hub - the emergent port-full fallback. The port is
+    // read from the plan's assignment, never re-derived (delivery/pricing symmetry).
+    const depositPos = this.storageDepositPort();
+    const port = depositPos ? this.resolvePortLink(depositPos) : null;
+    const decision = pickStorageDeposit({
+      depositPos,
+      portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0
+    });
+    if (decision === "port" && port) {
+      if (creep.pos.getRangeTo(port.pos) > 1) {
+        travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+        return true;
+      }
+      const moved = Math.min(creep.store[RESOURCE_ENERGY], port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0);
+      if (creep.transfer(port, RESOURCE_ENERGY) === OK) {
+        this.recordProduction(moved);
+        creep.memory.lastDeliver = { to: "deposit-port", amount: moved, tick: Game.time };
+      }
+      return true;
+    }
+    // "storage" or "none": the existing hub delivery. "none" (port + storage both
+    // full) falls through to the return-false below so deliverEnergy spills the
+    // load to a hungry spawn/controller (never camp a full port).
     if (!storage || !storage.my) return false; // route gone; caller re-assigns / falls back
     if (storage.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false; // bank full: spill to consumers
     if (creep.pos.getRangeTo(storage) > 1) {
@@ -893,6 +945,31 @@ export class CarryCorp extends Corp {
       creep.memory.lastDeliver = { to: "storage", amount: moved, tick: Game.time };
     }
     return true;
+  }
+
+  /**
+   * The deposit port the plan chose for this corp's haul-home route (spec 26),
+   * read FRESH from the storage-bound assignment every call - assignments are
+   * fully replaced each solve (setHaulerAssignments), so this can never go stale
+   * the way a sticky corp field would (immortal-field trap). Undefined = no port,
+   * haul the full hub leg.
+   */
+  private storageDepositPort(): Position | undefined {
+    for (const a of this.haulerAssignments) {
+      if ((a.toId ?? "").startsWith("storage-") && a.depositPos) return a.depositPos;
+    }
+    return undefined;
+  }
+
+  /** Resolve a deposit port position to its live link, or null if it is gone /
+   * not ours (delivery then falls back to the storage hub). */
+  private resolvePortLink(pos: Position): StructureLink | null {
+    const room = Game.rooms[pos.roomName];
+    if (!room) return null;
+    const link = room
+      .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
+      .find(s => s.structureType === STRUCTURE_LINK) as StructureLink | undefined;
+    return link && link.my ? link : null;
   }
 
   /**
