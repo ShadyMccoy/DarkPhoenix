@@ -117,6 +117,31 @@ describe("controller link network (spec 24 rung 3)", () => {
     expect(ctrl.fired, "the controller link never sends (invariant holds)").to.deep.equal([]);
   });
 
+  it("STAGE 2: at warchest the relay YIELDS to direct - it does not top a full-ish controller link", () => {
+    // The first stage-2 deploy read 0% direct: the relay refilled the controller
+    // link every tick, so source volleys never found room. Above low-water the
+    // relay must hold and let source links deposit direct.
+    const core = mkLink("core", 20, 20, 800); // core full - old relay would fire every tick
+    const ctrl = mkLink("ctrl", 42, 32, 600); // above low-water (400): relay must yield
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src], banked: 30_000 });
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired, "source deposits direct into the room the controller link left").to.deep.equal(["ctrl"]);
+    expect(core.fired, "relay HOLDS above low-water - direct wins the 1 hop").to.deep.equal([]);
+  });
+
+  it("STAGE 2: the relay still fires as a fallback when direct falls behind (controller below low-water)", () => {
+    const core = mkLink("core", 20, 20, 800);
+    const ctrl = mkLink("ctrl", 42, 32, 200); // below low-water (400): controller needs topping
+    const room = mkRoom({ core, ctrl, banked: 30_000 }); // no source links this tick
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(core.fired, "controller below low-water: the relay is the safety net").to.deep.equal(["ctrl"]);
+  });
+
   /**
    * The hub-congestion fix (owner 2026-07-21: "the 'other' link from the
    * source has nowhere to send its energy to. so either the hub should

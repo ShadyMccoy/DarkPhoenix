@@ -24,6 +24,17 @@ import { WARCHEST_TARGET } from "../economy/bank";
  */
 const LINK_FIRE_THRESHOLD = 100;
 
+/**
+ * At/above warchest the core->controller RELAY yields to direct source deposits:
+ * it only tops the controller link once it drains below this low-water mark
+ * (direct fell behind). Without this the relay refills the controller link every
+ * tick, leaving no room for a source volley - so direct share stayed 0% (measured
+ * t72528xxx, the first stage-2 deploy). Above low-water, source links keep it
+ * topped 1-hop; below, the relay is the safety net so the controller never
+ * starves. Below warchest the relay is unchanged (bank-first regime).
+ */
+const CONTROLLER_LINK_LOW_WATER = 400;
+
 /** Run the link network of every owned room. */
 export function runLinks(): void {
   for (const roomName in Game.rooms) {
@@ -71,8 +82,14 @@ export function runLinks(): void {
       }
     }
 
+    // The relay is a FALLBACK at warchest: fire only once the controller link
+    // drains below low-water, so source links get the room to deposit direct
+    // (1 hop). Below warchest it fires whenever there's room (bank-first regime,
+    // source links go to the core - the relay does the controller feed).
+    const relayYieldsToDirect = preferControllerDirect && ctrl && ctrl.store[RESOURCE_ENERGY] >= CONTROLLER_LINK_LOW_WATER;
     if (
       ctrl &&
+      !relayYieldsToDirect &&
       core.cooldown === 0 &&
       core.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD &&
       ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
