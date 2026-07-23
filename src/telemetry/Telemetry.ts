@@ -23,7 +23,8 @@ import { Corp, CorpSizingRecord } from "../corps/Corp";
 import { controllerSideStock, coreLink, controllerLink } from "../corps/nodeEnergy";
 import { linkLedger } from "./LinkMeter";
 import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
-import { estimateCrossRoomDistance, Position } from "../types/Position";
+import { Position } from "../types/Position";
+import { pathDistance } from "../nodes/NodeNavigator";
 import { feederRelayRate } from "../economy/bank";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
@@ -1278,10 +1279,13 @@ export class Telemetry {
         id: s.id,
         pos,
         flowRate: flowBySource.get(s.id) ?? s.harvestRate,
-        haulDist: estimateCrossRoomDistance(pos, storagePos)
+        // REAL walking distance (PathFinder, cached) - the crude
+        // estimateCrossRoomDistance mis-composed the in-room term across rooms
+        // and undercounted savings (owner saw 3 routes >5 tiles vs my 2 @5).
+        haulDist: pathDistance(pos, storagePos)
       });
     }
-    const report = computeDepositSavings(depSources, links, estimateCrossRoomDistance);
+    const report = computeDepositSavings(depSources, links, pathDistance);
     if (ctrl) {
       // A deposit at the controller link is bank-neutral only up to the
       // controller's feed rate (it displaces that much relay draw); beyond it
