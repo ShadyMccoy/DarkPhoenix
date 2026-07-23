@@ -31,16 +31,55 @@ import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
 
 /**
- * Banked energy the colony KEEPS: the expansion campaign's full cost plus a
- * doubled safety reserve. Derived - never a second hardcoded number - because
- * a drain floor below EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE would pin the
- * bank under the capital trigger and permanently disable expansion (the exact
- * failure mode the pre-#98 STORAGE_BANK=10k spill caused). The extra reserve
- * is headroom so consumer-fleet attrition lag (upgraders sized at the peak
- * draw outliving the taper) can overshoot the target without dipping the bank
- * below the trigger.
+ * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
+ * single safety reserve. The reserve target never drops below this - a floor
+ * under EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE would pin the bank beneath
+ * the capital trigger and permanently disable expansion (the exact failure mode
+ * the pre-#98 STORAGE_BANK=10k spill caused). Derived, never a second hardcoded
+ * number. Doubles as the safe fallback before the first solve publishes a
+ * measured reserve target (resolveReserveTarget).
  */
-export const WARCHEST_TARGET = EXPANSION_CAPEX + 2 * EXPANSION_SAFETY_RESERVE;
+export const BASE_RESERVE = EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE;
+
+/**
+ * Coverage horizon (ticks) for the LIQUIDITY reserve above the hard floor: the
+ * storage keeps roughly this many ticks of the colony's own income on hand, so
+ * a shock that dips income below burn (a raided remote, dead miners) is ridden
+ * out of savings before it can starve the spawn - "never bankrupt, never
+ * cash-poor". THE tuning knob: raise it to bank harder (more temporal damper,
+ * more idle energy), lower it to run leaner (spend more aggressively, thinner
+ * buffer). Income is the conservative proxy for the non-discretionary "payroll"
+ * that keeps producers alive (income >= payroll), erring toward more damper.
+ *
+ * Calibrated (gross mined income, ~10 e/t per source) so a mid colony (~40 e/t)
+ * reproduces the old flat warchest (~28k), a lean colony (~20 e/t) floors at
+ * BASE_RESERVE - freeing the headroom it never needed to spend - and a rich
+ * colony (~80 e/t) holds more in proportion to what it has to lose (the
+ * asset-rich, cash-poor fix). The reserve now BREATHES with colony size where
+ * the flat lump did not.
+ */
+export const RESERVE_COVERAGE_TICKS = 700;
+
+/**
+ * The liquidity reserve the colony keeps banked given its sustained income
+ * (energy/tick): cover RESERVE_COVERAGE_TICKS ticks of income, but never below
+ * the expansion-safety floor. Pure - the plan measures income once and persists
+ * the result (Memory.warchestTarget) so every consumer reads ONE number through
+ * resolveReserveTarget, and plan and runtime cannot drift apart.
+ */
+export function warchestTarget(incomeRate: number): number {
+  return Math.max(BASE_RESERVE, RESERVE_COVERAGE_TICKS * incomeRate);
+}
+
+/**
+ * The reserve target every consumer must use: the plan-persisted value, or
+ * BASE_RESERVE as a safe fallback before the first solve has published one. The
+ * single home for the fallback, so no call site invents its own default (which
+ * would drift from the plan's number - the whole point of this module).
+ */
+export function resolveReserveTarget(persisted: number | undefined): number {
+  return persisted ?? BASE_RESERVE;
+}
 
 /** Target ticks to drain the spendable surplus (the bank does not decay, so it keeps its own burst pace - unlike scavengeRate's effective-ttl sizing). */
 export const SURPLUS_DRAIN_TICKS = 150;
@@ -66,7 +105,7 @@ export const MAX_SURPLUS_DRAW = 100;
  * drop-offs, and we deliver it locally from there"). This is the deposit half
  * of the storage bank: the durable storage - not the controller - soaks the
  * surplus, so it can accumulate the expansion CAPEX the capital trigger saves
- * toward. Once the bank passes WARCHEST_TARGET the cap lifts entirely (the
+ * toward. Once the bank passes the reserve target the cap lifts entirely (the
  * controller reverts to mopping up) and the surplus draws back out - see
  * bankSurplusRate.
  *
@@ -82,9 +121,9 @@ export const MAX_SURPLUS_DRAW = 100;
  */
 export const STORAGE_UPGRADE_TARGET = 15;
 
-/** Banked energy above the warchest target - what the colony may spend. */
-export function spendableBankSurplus(banked: number): number {
-  return Math.max(0, banked - WARCHEST_TARGET);
+/** Banked energy above the reserve target - what the colony may spend. */
+export function spendableBankSurplus(banked: number, reserveTarget: number): number {
+  return Math.max(0, banked - reserveTarget);
 }
 
 /**
@@ -94,8 +133,8 @@ export function spendableBankSurplus(banked: number): number {
  * draw tapers smoothly to zero at the target instead of flapping a regime
  * switch around it.
  */
-export function bankSurplusRate(banked: number): number {
-  return Math.min(MAX_SURPLUS_DRAW, spendableBankSurplus(banked) / SURPLUS_DRAIN_TICKS);
+export function bankSurplusRate(banked: number, reserveTarget: number): number {
+  return Math.min(MAX_SURPLUS_DRAW, spendableBankSurplus(banked, reserveTarget) / SURPLUS_DRAIN_TICKS);
 }
 
 /**
@@ -106,8 +145,8 @@ export function bankSurplusRate(banked: number): number {
  * consumers of "how fast does bank energy reach the controller" read this one
  * function, so they cannot disagree.
  */
-export function feederRelayRate(banked: number): number {
-  return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked);
+export function feederRelayRate(banked: number, reserveTarget: number): number {
+  return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked, reserveTarget);
 }
 
 /** Stable bank source id for a room (one storage per room): "bank-W1N1". */
@@ -121,8 +160,13 @@ export function bankSourceId(roomName: string): string {
  * planner then routes it like any scavenge stock - value routing, not a
  * script, decides where the surplus goes.
  */
-export function bankToTransientSource(roomName: string, storagePos: Position, banked: number): PlannerSource | null {
-  const rate = bankSurplusRate(banked);
+export function bankToTransientSource(
+  roomName: string,
+  storagePos: Position,
+  banked: number,
+  reserveTarget: number
+): PlannerSource | null {
+  const rate = bankSurplusRate(banked, reserveTarget);
   if (rate <= 0) return null;
   return {
     id: bankSourceId(roomName),

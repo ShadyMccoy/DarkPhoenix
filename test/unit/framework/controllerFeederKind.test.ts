@@ -209,23 +209,27 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   });
 
   it("scales the relay (more feeders) once the bank is in surplus", async () => {
-    const { WARCHEST_TARGET, feederRelayRate } = await import("../../../src/economy/bank");
+    const { BASE_RESERVE, feederRelayRate } = await import("../../../src/economy/bank");
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
     const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
 
     installRoom(true, true);
-    const banked = WARCHEST_TARGET + 100_000; // deep surplus: draw at its cap
+    // The plan published this reserve last solve; the corp reads it the same
+    // way (resolveReserveTarget), so the test's math and the corp agree.
+    const reserveTarget = BASE_RESERVE;
+    (Memory as Record<string, unknown>).warchestTarget = reserveTarget;
+    const banked = reserveTarget + 100_000; // deep surplus: draw at its cap
     (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = banked;
     // Post-clamp contract: the feeder scales only for flow the PLAN sends to
     // the controller - state a surplus-era plan that allocates the full draw.
-    corp.setControllerAllocation(feederRelayRate(banked));
+    corp.setControllerAllocation(feederRelayRate(banked, reserveTarget));
 
     // needed carry across the relay exceeds one max body (13 CARRY at 1300
     // capacity), so the corp fields a second (and third) feeder rather than
     // pretending one shuttle can move 35 e/t.
-    const needed = Math.ceil(carryPartsFor(feederRelayRate(banked), 15) * 1.2);
+    const needed = Math.ceil(carryPartsFor(feederRelayRate(banked, reserveTarget), 15) * 1.2);
     const maxCarry = 13;
     const wantedFeeders = Math.ceil(needed / maxCarry);
     expect(wantedFeeders).to.be.greaterThan(1); // the scenario actually exercises scaling

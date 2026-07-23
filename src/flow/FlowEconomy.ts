@@ -17,9 +17,10 @@ import { FlowSolution, Position } from "./FlowTypes";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { Node } from "../nodes/Node";
 import { NodeNavigator } from "../nodes/NodeNavigator";
-import { solveColony } from "../economy/flowAdapter";
+import { solveColony, isMinedIncomeId } from "../economy/flowAdapter";
 import { Goal } from "../economy/goals";
 import { Commission } from "../economy/Commission";
+import { warchestTarget } from "../economy/bank";
 
 export class FlowEconomy {
   /** Flow graph built from nodes */
@@ -65,6 +66,16 @@ export class FlowEconomy {
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);
+      // Publish the liquidity reserve target for next solve's bank-surplus
+      // emission and every consumer that sizes off it (bank.resolveReserveTarget).
+      // Income is the colony's sustained mined rate - the SAME set and rule as
+      // buildColonyProblem's minedSupply (isMinedIncomeId), so the reserve and
+      // the plan never classify income differently.
+      const income = this.graph
+        .getSources()
+        .filter(s => isMinedIncomeId(s.id))
+        .reduce((sum, s) => sum + s.capacity, 0);
+      Memory.warchestTarget = warchestTarget(income);
     }
     this.solution = result.solution;
     this.commissions = result.commissions;

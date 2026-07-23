@@ -24,7 +24,7 @@ import { Position } from "../types/Position";
 import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor, parkedRelayCarry } from "../economy/primitives";
-import { bankSurplusRate, feederRelayRate } from "../economy/bank";
+import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
 export interface SerializedControllerFeederCorp extends SerializedCorp {
@@ -73,6 +73,7 @@ export function feederRelayTarget(
   surplusRate: number,
   planFlow: number | undefined,
   banked: number,
+  reserveTarget: number,
   constructionAbsorb = 0
 ): number {
   // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "when construction
@@ -87,7 +88,7 @@ export function feederRelayTarget(
   // energy BANKED (+20.18/t at 474k, 17x target). A build-out that absorbs
   // the whole draw floors the relay at the plan residual - the link-era
   // clamp, preserved. No sites -> the unclamped surplus draw stands.
-  if (bankSurplusRate(banked) > 0) {
+  if (bankSurplusRate(banked, reserveTarget) > 0) {
     if (constructionAbsorb <= 0 || planFlow === undefined) return surplusRate;
     return Math.max(Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM), surplusRate - constructionAbsorb);
   }
@@ -110,12 +111,13 @@ export function feederBodyRate(
   relayRate: number,
   planFlow: number | undefined,
   standingWork: number,
-  banked: number
+  banked: number,
+  reserveTarget: number
 ): number {
   // SURPLUS regime only: the save-regime relay is already small (the
   // warchest trickle) and its sizing contract is pinned - a filling
   // warchest must see no behavior change.
-  if (bankSurplusRate(banked) <= 0) return relayRate;
+  if (bankSurplusRate(banked, reserveTarget) <= 0) return relayRate;
   const burnCap = Math.max(planFlow ?? 0, standingWork * 1.5);
   return burnCap > 0 ? Math.min(relayRate, burnCap) : relayRate;
 }
@@ -349,13 +351,14 @@ export class ControllerFeederCorp extends Corp {
     // formula: when construction preempts the bank the controller floors at
     // ~2 e/t and relaying 115 into a full stock is 90+ wasted parts (owner
     // t72421124). No allocation known (old commission) -> formula unclamped.
-    const surplusRate = feederRelayRate(banked);
+    const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
+    const surplusRate = feederRelayRate(banked, reserveTarget);
     const planFlow = this.controllerAllocation;
     // ONE absorb lens with the upgraders AND the crew (owner 2026-07-21 +
     // prod t72478939): construction eats what it can absorb; the relay
     // serves the rest of the surplus, floored at the plan residual.
     const constructionAbsorb = buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos);
-    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, constructionAbsorb);
+    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, reserveTarget, constructionAbsorb);
     // BODY sized to consumer burn, not the surplus valve (feederBodyRate -
     // owner: "the feeder seems way too large"). Standing WORK read from the
     // live upgrader fleet, the same actuals-first doctrine consumers use.
@@ -364,7 +367,7 @@ export class ControllerFeederCorp extends Corp {
       const c = Game.creeps[name];
       if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
     }
-    const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked);
+    const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked, reserveTarget);
     const neededCarry = Math.max(
       1,
       Math.ceil((linkFed ? parkedRelayCarry(bodyRate) : carryPartsFor(bodyRate, distance)) * 1.2)
