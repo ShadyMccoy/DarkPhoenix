@@ -4007,3 +4007,39 @@ Predicted prod deltas (verify ~200t post-deploy): source link 4a83 off 800/800;
 link level tracking controllerFree (low while the controller is sated); storage
 banking the freed income. Cycle verdict: **FIXED (coordinated feeder shipped)** —
 pending prod verification.
+
+**VERIFIED — the fix landed as a major win + cascaded a 20x upgrader ramp
+(2026-07-24, capture t72550963, ~1569t post-deploy).** Live link stores W43N23:
+
+- **Core link 35,25: 600-794 → 0** (cd 5, cycling low). The feeder no longer
+  pins it — CONFIRMED, the headline mechanism.
+- **Relay over-supply stopped: `toControllerRate` 24.4 → 10.4 e/t** (fresh
+  window since the deploy reset; `directShare` 5% → 22% — the core no longer
+  jammed, so more 1-hop direct delivery). The feeder stopped pumping
+  storage→core→controller into a sated link.
+- **Banking restored: storageEnergy 43.2k → 81.1k (+24 e/t).** The income that
+  was stranded/hidden now comes home and banks (E4 slope +18/t — see below).
+- **THE causal link — upgrader `inflow` signal restored 2 → 115 e/t.** With the
+  controller link no longer saturated, the upgrader sizing reads the TRUE inflow
+  (it read 2 while the link sat at 750/800), so `targetCount` unlocked **1 → 6**
+  and the fleet ramped **3 → 60 WORK** (workUtil 0.997), staffing 3 of 6 wanted,
+  spawn util 0.71 (headroom to finish). rclProgress +15,993 (~10 e/t and rising
+  as the fleet grows).
+
+NOT fully confirmed / partial: source link 4a83 still 800/800 and `sourceBuffers`
+~flat at ~19k (not draining). Unpinning the core moved the bottleneck one hop
+UPSTREAM — the source-link's ~57 e/t ceiling (range 14) shared across 4 sources,
+and the core-drain hauler (cd90 edge ~30 e/t) can't keep the core empty enough
+for 4a83 to fire full volleys. That is a SEPARATE, non-regressing item (the DEP
+ledger line already values it: cd8e/cd8d/cedc save 13 tiles each @10 e/t).
+
+**E4 (idle capital, top ledger line, +18/t) is the TRANSIENT of this ramp, not a
+new leak:** the fix converted ~17k of stranded remote energy into visible
+bankable surplus, and the spend path (upgraders `targetCount` 1→6, storage-
+throttle's domain) is mid-scale-up to absorb it. Acting on E4 now would fight the
+in-flight ramp and re-patch a working mechanism (trap-list: "second patch on the
+same mechanism"). Falsifying capture set (scheduled): does storage DRAIN as
+staffing reaches 6/6 (transient, expected) or stay stuck (then throttle-strength
+is the real item)? Cycle verdict: **FIXED + VERIFIED** (core unpinned, banking
+restored, upgrader ramp unlocked via the inflow signal) — E4 transient watched,
+source-link throughput named as the next lever with data.
