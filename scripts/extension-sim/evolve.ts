@@ -38,6 +38,7 @@ import {
   simulate,
   spineLayout
 } from "./engine";
+import { HighwayPattern, highwayTiles } from "./highways";
 
 interface Preset {
   name: string;
@@ -73,6 +74,8 @@ const argvStr = (flag: string): string | undefined => {
 const GENS = argvNum("--gens", 30);
 const TICKS = argvNum("--ticks", 2400);
 const ONLY = argvStr("--preset");
+const HIGHWAYS = (argvStr("--highways") as HighwayPattern) ?? "none";
+const RESERVED_LIST = highwayTiles(HIGHWAYS, SIZE);
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -88,6 +91,7 @@ interface Genome {
 }
 
 const key = (p: Pos): string => `${p.x},${p.y}`;
+const RESERVED = new Set(RESERVED_LIST.map(key));
 
 function takenSet(g: Genome): Set<string> {
   return new Set<string>([key(STORAGE), ...g.spawns.map(key), ...g.extensions.map(key)]);
@@ -100,11 +104,12 @@ function valid(g: Genome): boolean {
   const taken = takenSet(g);
   if (taken.size !== all.length + 1) return false; // overlap
   if (all.some(p => p.x < 1 || p.y < 1 || p.x >= SIZE - 1 || p.y >= SIZE - 1)) return false;
+  if (all.some(p => RESERVED.has(key(p)))) return false; // no structure on a highway
   return allServiceable(taken, all, SIZE);
 }
 
 function toLayout(g: Genome, name: string): Layout {
-  return { name, storage: STORAGE, spawns: g.spawns, extensions: g.extensions, roads: [] };
+  return { name, storage: STORAGE, spawns: g.spawns, extensions: g.extensions, roads: [], reserved: RESERVED_LIST };
 }
 
 type Cost = [number, number, number, number];
@@ -180,7 +185,7 @@ function mutate(parent: Genome, rand: () => number): Genome | null {
 }
 
 function render(g: Genome): string {
-  const all = [...g.spawns, ...g.extensions, STORAGE];
+  const all = [...g.spawns, ...g.extensions, STORAGE, ...RESERVED_LIST];
   const minX = Math.min(...all.map(p => p.x)) - 1;
   const maxX = Math.max(...all.map(p => p.x)) + 1;
   const minY = Math.min(...all.map(p => p.y)) - 1;
@@ -193,7 +198,15 @@ function render(g: Genome): string {
     for (let x = minX; x <= maxX; x += 1) {
       const k = `${x},${y}`;
       row +=
-        k === key(STORAGE) ? "O" : spawnKeys.has(k) ? "S" : extKeys.has(k) ? "E" : ".";
+        k === key(STORAGE)
+          ? "O"
+          : spawnKeys.has(k)
+          ? "S"
+          : extKeys.has(k)
+          ? "E"
+          : RESERVED.has(k)
+          ? "="
+          : ".";
     }
     rows.push(row);
   }
@@ -214,7 +227,10 @@ function evolve(p: Preset): void {
     .sort((a, b) => (better(a.cost, b.cost) ? -1 : 1));
   pool = pool.slice(0, MU);
 
-  console.log(`\n=== ${p.name}: ${p.exts} ext @ ${p.spawns} spawn(s), ${GENS} gens x ${LAMBDA} mutants, ${TICKS}t evals ===`);
+  console.log(
+    `\n=== ${p.name}: ${p.exts} ext @ ${p.spawns} spawn(s), ${GENS} gens x ${LAMBDA} mutants, ${TICKS}t evals` +
+      `  [highways: ${HIGHWAYS}, ${RESERVED_LIST.length} reserved tiles] ===`
+  );
   console.log(`gen 0 best: cost [${pool[0].cost.map(c => c.toFixed(2)).join(", ")}]`);
 
   for (let gen = 1; gen <= GENS; gen += 1) {

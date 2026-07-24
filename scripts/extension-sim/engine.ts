@@ -74,6 +74,8 @@ export interface World {
   rcl: number;
   storage: Pos; // infinite energy; unwalkable
   roads: Set<string>;
+  /** highway tiles: walkable, but no structure may be built on them */
+  reserved: Set<string>;
   spawns: SpawnSite[];
   extensions: EnergyStructure[];
   tenders: Tender[];
@@ -90,6 +92,15 @@ export interface Layout {
   roads: Pos[];
   /** suggested tender patrol route (standing/driving tiles), for lane strategies */
   lane?: Pos[];
+  /**
+   * Highway / through-traffic tiles: WALKABLE but UNBUILDABLE. Modelling the
+   * base-lab "arteries kept clear for general creep traffic" constraint the
+   * README flagged as unmodeled (guest-traffic / spawn-egress lanes). A
+   * reserved tile still serves as tender access (it is walkable) - it just
+   * cannot hold a structure, so the extension field must route AROUND it, and
+   * the refill cost of keeping the artery clear falls out of the sim.
+   */
+  reserved?: Pos[];
 }
 
 /** Draw-order policy: which structures a spawn drains, in order.
@@ -145,6 +156,7 @@ export function buildWorld(s: Scenario): World {
     rcl: s.rcl,
     storage: s.layout.storage,
     roads: new Set(s.layout.roads.map(key)),
+    reserved: new Set((s.layout.reserved ?? []).map(key)),
     spawns: s.layout.spawns.map((pos, i) => ({
       id: `spawn${i}`,
       kind: "spawn",
@@ -653,8 +665,17 @@ export function diagonalLayout(extCount: number, spawnCount: number): Layout {
 }
 
 /** ASCII board: O storage, S spawn, E extension, + lane/road tile. */
+/** Structures sitting on a reserved (highway) tile - the constraint violation
+ * the layout evolver and generators must avoid. Empty when the layout keeps
+ * every artery clear. */
+export function reservedViolations(l: Layout): Pos[] {
+  const reserved = new Set((l.reserved ?? []).map(key));
+  return [...l.spawns, ...l.extensions].filter(p => reserved.has(key(p)));
+}
+
 export function renderLayout(l: Layout): string {
-  const all = [...l.spawns, ...l.extensions, l.storage, ...l.roads];
+  const reserved = l.reserved ?? [];
+  const all = [...l.spawns, ...l.extensions, l.storage, ...l.roads, ...reserved];
   const minX = Math.min(...all.map(p => p.x)) - 1;
   const maxX = Math.max(...all.map(p => p.x)) + 1;
   const minY = Math.min(...all.map(p => p.y)) - 1;
@@ -662,6 +683,7 @@ export function renderLayout(l: Layout): string {
   const spawnKeys = new Set(l.spawns.map(key));
   const extKeys = new Set(l.extensions.map(key));
   const roadKeys = new Set(l.roads.map(key));
+  const reservedKeys = new Set(reserved.map(key));
   const rows: string[] = [];
   for (let y = minY; y <= maxY; y += 1) {
     let row = "";
@@ -674,6 +696,8 @@ export function renderLayout(l: Layout): string {
           ? "S"
           : extKeys.has(k)
           ? "E"
+          : reservedKeys.has(k)
+          ? "=" // highway (walkable, unbuildable)
           : roadKeys.has(k)
           ? "+"
           : ".";
