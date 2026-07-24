@@ -20,6 +20,7 @@ import {
   ScheduleContext,
   SpawnDemand,
   SpawnDemandContext,
+  detectWallPreemption,
   planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
@@ -89,6 +90,23 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       // mechanically; it holds no decision logic of its own.
       const plan = planAcquisitions(demands, ctx);
       publishSpawnAgenda(spawn.id, plan, room.energyAvailable);
+      // Instrument (spec 14, owner 2026-07-24): sample campaign-consumer wall
+      // preemptions - the E4/P7 freeze where a holdToFund upgrader walls while
+      // income buys through the non-strict hold. `fleetSecured` says whether the
+      // conditioned windfall gate would safely fire (only replacements left).
+      // Sampled (every 10t) so the ring keeps room for other traffic.
+      if (Game.time % 10 === 0) {
+        const preempt = detectWallPreemption(plan.agenda);
+        if (preempt) {
+          blackBox("wallpreempt", {
+            spawn: spawn.id,
+            role: preempt.campaignRole,
+            preemptor: preempt.preemptorWhy,
+            fleetSecured: preempt.fleetSecured,
+            bank: room.energyAvailable
+          });
+        }
+      }
       if (demands.length === 0) continue;
 
       const result = plan.decision;

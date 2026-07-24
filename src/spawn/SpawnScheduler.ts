@@ -250,6 +250,31 @@ export function buildAgendaQueue(
   return { queue, fundingNeed };
 }
 
+/**
+ * Instrument (spec 14, owner 2026-07-24): detect when a CAMPAIGN consumer's wall
+ * (a holdToFund upgrader under a bank surplus) is PREEMPTED - it walls this tick
+ * while a lower income demand buys THROUGH the non-strict hold. This is the
+ * measured E4/P7 freeze: cheap income spends keep resetting the bank so the
+ * 2300 body never accumulates. `fleetSecured` records the design-critical
+ * condition: no income GROWTH demand (new-unit/scale) is outstanding, so the
+ * preemptor is a REPLACEMENT of an at-target fleet - the case where a strict
+ * hold would safely fire (the windfall doctrine) rather than re-create the
+ * cold-start deadlock. Pure so the correlation is unit-pinned before any gate.
+ * Returns null when there is no campaign wall or nothing bought through it.
+ */
+export function detectWallPreemption(
+  agenda: AgendaEntry[]
+): { campaignRole: string; preemptorWhy: string; fleetSecured: boolean } | null {
+  const campaign = agenda.find(e => e.why === "campaign" && e.gate === "wall");
+  if (!campaign) return null;
+  const buy = agenda.find(
+    e => e.gate === "buy" && (e.why === "scale" || e.why === "new-unit" || e.why === "replacement")
+  );
+  if (!buy) return null;
+  const fleetSecured = !agenda.some(e => e.why === "new-unit" || e.why === "scale");
+  return { campaignRole: campaign.role, preemptorWhy: buy.why, fleetSecured };
+}
+
 // =============================================================================
 // THE NOW PLANNER (spec 17) - one walk, agenda AND decision
 // =============================================================================
