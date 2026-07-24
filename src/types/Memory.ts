@@ -543,6 +543,14 @@ declare global {
     lastDeliver?: { to: string; amount: number; tick: number };
 
     /**
+     * Tick this hauler began holding at a FULL deposit port (spec 26, owner
+     * 2026-07-24). Set on the first "wait" verdict, cleared once it deposits or
+     * falls back - the wait clock that bounds camping at a chronically stuck
+     * link (pickStorageDeposit / PORT_WAIT_CAP).
+     */
+    portWaitSince?: number;
+
+    /**
      * Tender reload stagger (ExtensionTenderCorp): this tender currently
      * holds the fleet's single far-reload pass. Sticky across ticks so a
      * mid-walk reloader is never recalled by a name-order re-sort.

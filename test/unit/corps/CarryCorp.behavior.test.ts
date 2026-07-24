@@ -522,8 +522,21 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(pickStorageDeposit({ depositPos: port, portFree: 200, storageFree: 1000 })).to.equal("port");
     });
 
-    it("falls back to STORAGE when the port is full (the port-full fallback)", () => {
-      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000 })).to.equal("storage");
+    it("WAITS at the port when it is full but the wait window is open (no bounce, owner 2026-07-24)", () => {
+      // A full port on a planned route holds at the link (the source link fires to
+      // core within its cooldown) instead of bouncing to the hub and back.
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 0 })).to.equal(
+        "wait"
+      );
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 29 })).to.equal(
+        "wait"
+      );
+    });
+
+    it("falls back to STORAGE once the bounded wait is exhausted (chronic port, v1 stall guard)", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 30 })).to.equal(
+        "storage"
+      );
     });
 
     it("uses STORAGE directly when the plan chose no port", () => {

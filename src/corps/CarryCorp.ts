@@ -113,11 +113,32 @@ export function pickStorageDeposit(params: {
   portFree: number;
   /** Free capacity in the storage hub right now. */
   storageFree: number;
-}): "port" | "storage" | "none" {
+  /** Ticks this hauler has already held at a FULL port this trip (0 = not waiting yet). */
+  portWaitedTicks?: number;
+}): "port" | "storage" | "wait" | "none" {
   if (params.depositPos && params.portFree > 0) return "port";
-  if (params.storageFree > 0) return "storage";
-  return "none";
+  // Port full (or no port). If the hub is ALSO full there is nowhere to bank -
+  // spill to a hungry spawn/controller (the escape valve; never camp a full port).
+  if (params.storageFree <= 0) return "none";
+  // Port full but the plan routed us here: HOLD at the link rather than bouncing
+  // to the hub (owner 2026-07-24). A source link fires to the core within its
+  // cooldown, so runt-rebuild core congestion clears in a few ticks - walking to
+  // storage and turning back on every transient fill is the reported bounce. The
+  // wait is BOUNDED: a chronically full port (core drain stuck, not just a
+  // rebuild blip) still falls back and delivers, so a hauler can never camp a
+  // dead port forever - the spec-26 v1 stall guard.
+  if (params.depositPos && (params.portWaitedTicks ?? 0) < PORT_WAIT_CAP) return "wait";
+  return "storage";
 }
+
+/**
+ * How long a port hauler holds at a FULL deposit link before giving up and
+ * hauling the remainder to the hub (spec 26, owner 2026-07-24). ~2 source-link
+ * cooldowns: long enough to ride out the runt-rebuild core congestion that
+ * transiently blocks the link's fire, short enough that a genuinely stuck port
+ * still delivers rather than stranding the load aboard a parked hauler.
+ */
+export const PORT_WAIT_CAP = 30;
 
 /**
  * Small energy buffer kept in the core depot so the extension tender always has a
@@ -956,11 +977,26 @@ export class CarryCorp extends Corp {
     // read from the plan's assignment, never re-derived (delivery/pricing symmetry).
     const depositPos = this.storageDepositPort();
     const port = depositPos ? this.resolvePortLink(depositPos) : null;
+    const portWaitedTicks = creep.memory.portWaitSince !== undefined ? Game.time - creep.memory.portWaitSince : 0;
     const decision = pickStorageDeposit({
       depositPos,
       portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
-      storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0
+      storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      portWaitedTicks
     });
+    if (decision === "wait" && port) {
+      // Hold at the link (owner 2026-07-24): the source link fires to core within
+      // its cooldown, so waiting a few ticks beats bouncing to the hub and back.
+      // Start the wait clock on the first hold; PORT_WAIT_CAP bounds it.
+      if (creep.memory.portWaitSince === undefined) creep.memory.portWaitSince = Game.time;
+      if (creep.pos.getRangeTo(port.pos) > 1) {
+        travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+      }
+      return true; // idle-in-place with the load until the port drains or the cap trips
+    }
+    // Any non-wait outcome ends the hold: clear the clock so the next full-port
+    // encounter starts a fresh window (a deposit or a fallback both reset it).
+    if (creep.memory.portWaitSince !== undefined) delete creep.memory.portWaitSince;
     if (decision === "port" && port) {
       if (creep.pos.getRangeTo(port.pos) > 1) {
         travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
