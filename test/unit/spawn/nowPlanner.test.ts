@@ -18,8 +18,8 @@ import {
   ScheduleResult,
   SpawnDemand,
   SpawnRole,
+  campaignConsumerLift,
   effectivePriority,
-  fleetSecured,
   planAcquisitions,
   scheduleSpawn,
   starvationBoost,
@@ -30,9 +30,9 @@ import {
 function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
   const eligible = withMinerPrecedence(demands);
-  const secured = fleetSecured(eligible); // conditioned windfall gate (spec 14 E4/P7)
+  const campaignLift = campaignConsumerLift(ctx.bankSurplus ?? 0); // storage throttle (spec 14 E4/P7)
   const ranked = [...eligible].sort(
-    (a, b) => effectivePriority(b, ctx.tick, secured) - effectivePriority(a, ctx.tick, secured)
+    (a, b) => effectivePriority(b, ctx.tick, campaignLift) - effectivePriority(a, ctx.tick, campaignLift)
   );
   let holdForBlocking = false;
   let holdStrict = false;
@@ -59,7 +59,7 @@ function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): S
       if (ctx.energyIncome > 0) return null;
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
-      if (secured && fundableConsumer) holdStrict = true;
+      if (campaignLift > 0 && fundableConsumer) holdStrict = true;
     }
     if (canEverAfford) pendingAffordable = true;
   }
@@ -114,7 +114,10 @@ describe("NOW planner: planAcquisitions is the pinned scheduleSpawn walk (spec 1
         energyAvailable: Math.floor(rnd() * 14) * 100,
         energyCapacity: 300 + Math.floor(rnd() * 15) * 100,
         energyIncome: rnd() < 0.4 ? 0 : 10,
-        tick
+        tick,
+        // Exercise the storage throttle: often no surplus (producer-first), but
+        // frequently a surplus of varying depth so the lift path is swept too.
+        bankSurplus: rnd() < 0.5 ? 0 : Math.floor(rnd() * 40000)
       };
 
       const expected = referenceScheduleSpawn(demands, ctx);

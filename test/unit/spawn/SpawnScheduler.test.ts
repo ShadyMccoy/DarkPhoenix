@@ -743,17 +743,19 @@ describe("holdToFund consumers wall the bank (incident t72503018: upgrader fleet
 });
 
 /**
- * The conditioned windfall gate (spec 14, owner 2026-07-24): a campaign consumer
- * (a holdToFund upgrader under a bank surplus) is normally outranked by the whole
- * income tier and trickles in only via the 300t starvation one-shot, so a huge
- * warchest is never consumed (measured E4/P7: 1 of targetCount 4, warchest 2.8x,
- * controller 0.46x plan). When the fleet is SECURED (no blocking income demand -
- * the critical path is covered), the campaign consumer is lifted above NON-blocking
- * income and its wall goes strict, so it eats the windfall; any blocking income
- * (rebuild/depletion) instantly disarms the gate, so the spec-26 collapse
- * death-spiral (spend ahead of a depleted income fleet) cannot recur.
+ * The STORAGE THROTTLE (spec 14, owner 2026-07-24): relax producer-before-consumer
+ * using the warchest as a continuous governor. A campaign consumer (a holdToFund
+ * upgrader, set only under a bank surplus) is normally outranked by the income
+ * tier and trickles in only via the 300t starvation one-shot, so a huge warchest
+ * is never consumed (measured E4/P7: 1 of targetCount 4, warchest 2.8x, controller
+ * 0.46x plan). ctx.bankSurplus (storage above reserve) lifts the consumer into the
+ * income band proportional to the surplus - above scaling/replacement income at
+ * high surplus - but always BELOW blocking income, so a fresh source's miner /
+ * first hauler (the critical path) can never be starved. Self-balancing: consume
+ * -> surplus falls -> lift recedes -> producers refill. At bankSurplus 0 it is
+ * hard producer-first, exactly as before, so the spec-26 death-spiral can't recur.
  */
-describe("conditioned windfall gate (E4/P7, owner 2026-07-24)", () => {
+describe("storage throttle for surplus consumers (E4/P7, owner 2026-07-24)", () => {
   const campaignUpgrader = (overrides: Partial<SpawnDemand> = {}) =>
     demand({
       buyerCorpId: "upgrader",
@@ -779,26 +781,35 @@ describe("conditioned windfall gate (E4/P7, owner 2026-07-24)", () => {
       desiredCost: 300
     });
 
-  it("FLEET SECURED: holds the spawn for the campaign upgrader instead of the income replacement", () => {
-    // No blocking income anywhere -> the critical path is covered -> the surplus
-    // upgrader is lifted above the non-blocking replacement and walls strict, so
-    // the bank accumulates toward the 2300 body rather than being drained.
+  it("HIGH SURPLUS: holds the spawn for the campaign upgrader instead of the income replacement", () => {
+    // Deep surplus -> the consumer is lifted above the non-blocking replacement
+    // and walls strict, so the bank accumulates toward the 2300 body.
     const result = scheduleSpawn(
       [campaignUpgrader(), incomeReplacement()],
-      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20, bankSurplus: 40000 })
     );
     expect(result, "held for the upgrader, not spent on the replacement").to.equal(null);
   });
 
-  it("FLEET SECURED: buys the campaign upgrader once the bank has accumulated", () => {
+  it("HIGH SURPLUS: buys the campaign upgrader once the bank has accumulated", () => {
     const result = scheduleSpawn(
       [campaignUpgrader(), incomeReplacement()],
-      ctx({ energyAvailable: 2300, energyCapacity: 2300, energyIncome: 20 })
+      ctx({ energyAvailable: 2300, energyCapacity: 2300, energyIncome: 20, bankSurplus: 40000 })
     );
     expect(result?.demand.buyerCorpId).to.equal("upgrader");
   });
 
-  it("NOT SECURED (a blocking income demand exists): income wins, the gate stays disarmed", () => {
+  it("NO SURPLUS: hard producer-first - the income replacement wins (self-balance floor)", () => {
+    // Storage at/below reserve (bankSurplus 0) -> no lift -> income leads exactly
+    // as before. This is where the throttle bottoms out as the warchest drains.
+    const result = scheduleSpawn(
+      [campaignUpgrader(), incomeReplacement()],
+      ctx({ energyAvailable: 2300, energyCapacity: 2300, energyIncome: 20, bankSurplus: 0 })
+    );
+    expect(result?.demand.buyerCorpId, "no surplus -> producer first").to.equal("hauler");
+  });
+
+  it("BLOCKING income always wins, even at max surplus (the death-spiral floor)", () => {
     const blockingMiner = demand({
       buyerCorpId: "miner",
       role: "miner",
@@ -812,12 +823,12 @@ describe("conditioned windfall gate (E4/P7, owner 2026-07-24)", () => {
     });
     const result = scheduleSpawn(
       [campaignUpgrader(), blockingMiner, incomeReplacement()],
-      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20, bankSurplus: 40000 })
     );
     expect(result?.demand.buyerCorpId, "the blocking miner is funded, not the upgrader").to.equal("miner");
   });
 
-  it("FLEET SECURED: infrastructure still buys through the strict upgrader wall (refill preserved)", () => {
+  it("HIGH SURPLUS: infrastructure still buys through the strict upgrader wall (refill preserved)", () => {
     const tender = demand({
       buyerCorpId: "tender",
       role: "tanker",
@@ -829,7 +840,7 @@ describe("conditioned windfall gate (E4/P7, owner 2026-07-24)", () => {
     });
     const result = scheduleSpawn(
       [campaignUpgrader(), tender],
-      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20, bankSurplus: 40000 })
     );
     expect(result?.demand.buyerCorpId, "the tender refills the bank the wall waits on").to.equal("tender");
   });

@@ -24,6 +24,7 @@ import {
   planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
+import { resolveReserveTarget } from "../economy/bank";
 import { CorpRegistry } from "./CorpRunner";
 import { allCommissionedCorps } from "./CommissionHost";
 import { Corp } from "../corps/Corp";
@@ -76,11 +77,18 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       const demands = collectDemands(registry, spawn.id, demandCtx);
       stampDemandAges(demands, spawn.id, firstSeen, seenThisTick, Game.time);
 
+      // Storage throttle input (owner 2026-07-24): energy banked ABOVE the
+      // reserve target. 0 while the warchest fills (producer-first); positive in
+      // surplus, when a consumer buys priority proportional to it.
+      const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
+      const bankSurplus = Math.max(0, banked - resolveReserveTarget(Memory.warchestTarget));
+
       const ctx: ScheduleContext = {
         energyAvailable: room.energyAvailable,
         energyCapacity: room.energyCapacityAvailable,
         energyIncome: income,
-        tick: Game.time
+        tick: Game.time,
+        bankSurplus
       };
 
       // THE NOW PLAN (spec 11 / spec 17): ONE planner call yields both the

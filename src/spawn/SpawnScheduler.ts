@@ -225,10 +225,13 @@ export function buildAgendaQueue(
   tick: number,
   energyAvailable: number,
   gates?: ReadonlyMap<SpawnDemand, AcquisitionGate>,
-  limit = 8
+  limit = 8,
+  bankSurplus = 0
 ): { queue: AgendaEntry[]; fundingNeed: number } {
-  const secured = fleetSecured(demands);
-  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick, secured) - effectivePriority(a, tick, secured));
+  const campaignLift = campaignConsumerLift(bankSurplus);
+  const ranked = [...demands].sort(
+    (a, b) => effectivePriority(b, tick, campaignLift) - effectivePriority(a, tick, campaignLift)
+  );
   const queue = ranked.slice(0, limit).map((d, i): AgendaEntry => {
     const precondition =
       i === 0
@@ -256,15 +259,14 @@ export function buildAgendaQueue(
 
 /**
  * Instrument (spec 14, owner 2026-07-24): detect when a CAMPAIGN consumer's wall
- * (a holdToFund upgrader under a bank surplus) is PREEMPTED - it walls this tick
- * while a lower income demand buys THROUGH the non-strict hold. This is the
- * measured E4/P7 freeze: cheap income spends keep resetting the bank so the
- * 2300 body never accumulates. `fleetSecured` records the design-critical
- * condition: no income GROWTH demand (new-unit/scale) is outstanding, so the
- * preemptor is a REPLACEMENT of an at-target fleet - the case where a strict
- * hold would safely fire (the windfall doctrine) rather than re-create the
- * cold-start deadlock. Pure so the correlation is unit-pinned before any gate.
- * Returns null when there is no campaign wall or nothing bought through it.
+ * (a holdToFund upgrader under a bank surplus) is PREEMPTED - present but not
+ * funded (queued/held under the income tier) while a lower income demand buys.
+ * This is the measured E4/P7 freeze the storage throttle addresses. `fleetSecured`
+ * tags whether the preemptor was a routine non-blocking replacement of an
+ * at-target fleet (vs blocking/growth income) - the safe-to-lift signal that
+ * motivated the throttle. Retained as observability: the DEP/wallpreempt trail
+ * shows the throttle displacing these preemptions over time. Pure.
+ * Returns null when there is no preempted campaign consumer this tick.
  */
 export function detectWallPreemption(
   agenda: AgendaEntry[]
@@ -279,8 +281,8 @@ export function detectWallPreemption(
     e => e.gate === "buy" && (e.why === "scale" || e.why === "new-unit" || e.why === "replacement")
   );
   if (!buy) return null;
-  // Fleet secured = every income entry is a non-blocking replacement (matches
-  // the gate's fleetSecured): no growth, no blocking, no blocking replacement.
+  // Fleet secured = every income entry is a non-blocking replacement: no growth,
+  // no blocking, no blocking replacement (the safe-to-lift signal, for the trail).
   const fleetSecured = !agenda.some(
     e => e.why === "new-unit" || e.why === "scale" || (e.why === "replacement" && e.blocking === true)
   );
@@ -314,7 +316,7 @@ export interface AcquisitionPlan {
 export function planAcquisitions(demands: SpawnDemand[], ctx: ScheduleContext): AcquisitionPlan {
   const gates = new Map<SpawnDemand, AcquisitionGate>();
   const decision = walkDemands(demands, ctx, (d, g) => gates.set(d, g));
-  const { queue, fundingNeed } = buildAgendaQueue(demands, ctx.tick, ctx.energyAvailable, gates);
+  const { queue, fundingNeed } = buildAgendaQueue(demands, ctx.tick, ctx.energyAvailable, gates, 8, ctx.bankSurplus ?? 0);
   return { agenda: queue, fundingNeed, decision };
 }
 
@@ -340,6 +342,14 @@ export interface ScheduleContext {
   energyIncome: number;
   /** Current game tick. */
   tick: number;
+  /**
+   * Storage energy ABOVE the reserve target (>=0), the STORAGE THROTTLE input
+   * (owner 2026-07-24): 0 while the warchest is still filling (hard
+   * producer-first); positive once in surplus, when a consumer buys priority
+   * proportional to it (campaignConsumerLift). Optional - absent/0 leaves the
+   * pre-throttle producer-first ordering, so all existing callers are unchanged.
+   */
+  bankSurplus?: number;
 }
 
 /** The scheduler's decision: which demand to spawn and the energy budget for it. */
@@ -464,67 +474,59 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
  * guarantee real: every demand that crosses the threshold is reached in
  * bounded time.
  */
-/**
- * Is the producer fleet SECURED - i.e. every outstanding income demand is a
- * routine NON-BLOCKING REPLACEMENT of an at-target fleet? This is the gate on
- * the conditioned windfall lift below: only then may a surplus consumer jump
- * ahead of income. It excludes, and is disarmed by, both of the income classes
- * that must always lead:
- *  - BLOCKING income (a fresh source's miner / a started source's first hauler)
- *    - the critical path; and
- *  - income GROWTH (a scaling hauler/miner deepening a started source, or a
- *    fresh unit) - which prevents source-energy ROT, worse than banked surplus.
- * Only maintenance replacements remain, whose incumbents still work through
- * their lead time, so the consumer may hold them the ~2 cycles it needs. Any
- * miner/hauler the colony still needs disarms this, so the spec-26 collapse
- * death-spiral ("spend ahead of a depleted income fleet") cannot recur. Pure.
- */
-export function fleetSecured(demands: SpawnDemand[]): boolean {
-  return demands.every(d => !d.producesIncome || (d.replacement === true && d.blocking !== true));
-}
-
-/**
- * Priority a CAMPAIGN CONSUMER (a holdToFund upgrader, set only under a bank
- * surplus) is lifted to when the fleet is secured: strictly ABOVE non-blocking
- * income (1e6 + started 1e3 + value ~110) and BELOW blocking income (1e6 + 1e4),
- * so it wins spawn time from routine maintenance to eat the windfall while a
- * fresh source's miner/first hauler still preempts it. Below the starved tier
- * (3e6) too, so the anti-starvation backstop is unaffected.
- */
-const SURPLUS_CONSUME_TIER = 1_005_000;
-
 /** A campaign consumer: a non-income demand that walls under a bank surplus. */
 function isCampaignConsumer(demand: SpawnDemand): boolean {
   return !demand.producesIncome && demand.holdToFund === true;
 }
 
-export function effectivePriority(demand: SpawnDemand, tick: number, secured = false): number {
+/** The income band a lifted consumer enters (matches spawnPriority's tier). */
+const SURPLUS_LIFT_TIER = 1_000_000;
+/**
+ * Maximum ramp added on top of the income band as the warchest fills - kept
+ * strictly BELOW the blocking gap (BLOCKING = 1e4), so a fresh source's miner /
+ * a started source's first hauler (income + blocking) ALWAYS outranks a lifted
+ * consumer. This is the death-spiral floor: the throttle can buy priority over
+ * scaling/replacement income, never over the critical path.
+ */
+const SURPLUS_LIFT_MAX_RAMP = 9_000;
+/**
+ * Surplus (storage ABOVE the reserve target) at which a consumer reaches its
+ * full lift. ~one typical reserve, so storage at ~2x reserve buys top consumer
+ * priority; below that the lift ramps in proportionally. Tunable.
+ */
+const SURPLUS_FULL_AT = 20_000;
+
+/**
+ * The STORAGE THROTTLE (owner 2026-07-24): relax producer-before-consumer using
+ * the warchest as a continuous governor. At/below the reserve target
+ * (bankSurplus <= 0) the lift is 0 - hard producer-first, exactly as before. As
+ * the surplus grows the consumer "buys priority", ramping into the income band
+ * but capped below blocking. Self-balancing: over-shoot on consumers drains the
+ * warchest, the surplus falls, the lift recedes, producers refill - equilibrium
+ * near the reserve target. Pure.
+ */
+export function campaignConsumerLift(bankSurplus: number): number {
+  if (bankSurplus <= 0) return 0;
+  return SURPLUS_LIFT_TIER + Math.min(SURPLUS_LIFT_MAX_RAMP, (bankSurplus / SURPLUS_FULL_AT) * SURPLUS_LIFT_MAX_RAMP);
+}
+
+export function effectivePriority(demand: SpawnDemand, tick: number, campaignLift = 0): number {
   // Opportunistic demands (task #11: idle-window fillers like the reservation
   // topup) live at their base value FOREVER: they exist to soak spawn windows
   // nothing else wants, so aging one into the starved tier would invert the
   // whole idea - it must never outrank real work no matter how long it waits.
   if (demand.opportunistic) return spawnPriority(demand);
-  // Conditioned windfall lift (spec 14 E4/P7, owner 2026-07-24): when the fleet
-  // is secured, a surplus consumer jumps above non-blocking income so the
-  // warchest is actually spent on progress instead of trickling in via the 300t
-  // starvation one-shot (measured: 1 of targetCount 4, controller 0.46x plan).
-  if (secured && isCampaignConsumer(demand)) return SURPLUS_CONSUME_TIER + demand.value;
   const starved = starvationBoost(demand, tick);
-  if (starved === 0) return spawnPriority(demand);
-  // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
-  // longer than another outranks it outright; within the same bucket the value
-  // doctrine (income first, finish started sources) still orders the buys.
-  // Raw-age FIFO was measured WRONG on both ends (instrumented flow-handoff
-  // draw, agenda mirror): a cold start seeds every demand in the same tick, so
-  // raw age degenerates to collection order and round-robins miner buys across
-  // sources - no source ever COMPLETES its staffing, so withMinerPrecedence
-  // never unlocks a hauler (zero flow haulers by t600, control draw on the
-  // additive ranking green). Bucketing keeps the live guarantee that motivated
-  // FIFO (t72403765: tender age 1371 = bucket 4 outranks the hauler stream at
-  // <=1134 = bucket 3) while inside a bucket the started-source concentration
-  // that cold start depends on still applies.
-  const buckets = Math.floor((tick - demand.since) / STARVATION_THRESHOLD);
-  return starved + buckets * STARVED_BUCKET_STEP + spawnPriority(demand);
+  const base =
+    starved === 0
+      ? spawnPriority(demand)
+      : starved + Math.floor((tick - demand.since) / STARVATION_THRESHOLD) * STARVED_BUCKET_STEP + spawnPriority(demand);
+  // Storage throttle (owner 2026-07-24): a surplus consumer buys priority with
+  // the warchest - into the income band, below blocking - so at high surplus it
+  // outbids scaling/replacement income and the warchest is spent on progress
+  // instead of rotting (measured E4/P7: 1 of targetCount 4, controller 0.46x).
+  if (campaignLift > 0 && isCampaignConsumer(demand)) return Math.max(base, campaignLift + demand.value);
+  return base;
 }
 
 /**
@@ -599,10 +601,11 @@ function walkDemands(
   // the miner is staffed first. Otherwise a hauler can outrank its own miner on
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
-  // Conditioned windfall gate (spec 14 E4/P7): computed once over the eligible
-  // set - a surplus consumer is lifted above non-blocking income (and its wall
-  // goes strict, below) ONLY when no blocking income is outstanding.
-  const secured = fleetSecured(eligible);
+  // Storage throttle (spec 14 E4/P7, owner 2026-07-24): a surplus consumer's
+  // priority lift, scaled by the warchest above reserve. 0 when storage is at/
+  // below reserve (hard producer-first); ramps into the income band (below
+  // blocking) as the surplus grows. Its wall also goes strict while lifted.
+  const campaignLift = campaignConsumerLift(ctx.bankSurplus ?? 0);
   if (record) {
     const kept = new Set(eligible);
     for (const d of demands) if (!kept.has(d)) record(d, "no-miner");
@@ -613,7 +616,7 @@ function walkDemands(
   // walk below reaches it - affordable and on top - before any blocking income
   // demand can hold the spawn, giving the long-starved creep its one guaranteed slot.
   const ranked = [...eligible].sort(
-    (a, b) => effectivePriority(b, ctx.tick, secured) - effectivePriority(a, ctx.tick, secured)
+    (a, b) => effectivePriority(b, ctx.tick, campaignLift) - effectivePriority(a, ctx.tick, campaignLift)
   );
 
   // Set once we pass a blocking demand we cannot afford yet but the room can
@@ -754,15 +757,13 @@ function walkDemands(
       // wall IS how a blocking body ever funds.
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
-      // Conditioned windfall gate (spec 14 E4/P7): a campaign consumer's wall is
-      // normally NON-strict so a lower income producer still spawns (the W2N6
-      // cold-start protection). But when the fleet is SECURED there is no
-      // blocking income to protect - only routine non-blocking maintenance,
-      // which may wait the ~2 cycles the surplus body needs - so the wall goes
-      // strict and the bank finally accumulates the 2300 body instead of being
-      // drained by the replacement stream. Infra still pierces (it refills the
-      // wall); any blocking income drops `secured` and this never fires.
-      if (secured && fundableConsumer) holdStrict = true;
+      // Storage throttle (spec 14 E4/P7): a lifted surplus consumer's wall goes
+      // strict so the non-blocking income ranked BELOW it (it was lifted above)
+      // can't drain the bank before the body accumulates. Blocking income sits
+      // ABOVE the lift, so it was already processed and is never held here;
+      // infra still pierces. When there is no surplus (campaignLift 0) the wall
+      // stays non-strict - the W2N6 cold-start protection, unchanged.
+      if (campaignLift > 0 && fundableConsumer) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn - but
     // remember the runway: opportunistic demands below must not soak it.
