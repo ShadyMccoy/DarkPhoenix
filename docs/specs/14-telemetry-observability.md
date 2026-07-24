@@ -3900,3 +3900,21 @@ Cycle verdict: **BLOCKER NAMED WITH DATA** (E4/P7 root = spawn-priority seam,
 not sizing); fix ESCALATED (collides with the spec-26 death-spiral trap — the
 mechanism, not another patch, is the work). My earlier "P7 auto-resolves at
 warchest-full" call is FALSIFIED: warchest 2.8x full, controller still 0.46x.
+
+**UPDATE — GATE BUILT & DEPLOYED (2026-07-24, "2 and 1").** Instrument then gate,
+both shipped. Reading spawnPriority corrected the mechanism mid-build: the
+campaign upgrader (value ~90) is not "walled and pierced" - it is OUTRANKED by
+the income tier (1e6) and trickles in only via the 300t starvation one-shot
+(the wallpreempt instrument was retargeted from gate "wall" to the real "queued"
+case). The conditioned windfall gate: fleetSecured (every outstanding income
+demand is a non-blocking replacement) lifts the campaign consumer to
+SURPLUS_CONSUME_TIER (1.005e6, above non-blocking income, below blocking) AND
+makes its wall strict, so the warchest is spent; any blocking income or income
+growth (which prevents source rot) disarms it, so the death-spiral can't recur.
+Pinned by flow-handoff + runt-economy (both green) and the existing t72503018
+"scaling hauler still wins" test. Predicted prod deltas (verify ~200t):
+upgraders 1 -> ~targetCount 4; P7 7 -> ~15 e/t; E4 storage stops rising/drains;
+rclProgress rate up; wallpreempt fleetSecured=true events drop to ~0.
+
+Cycle verdict: **FIXED** (instrument + conditioned gate shipped) - pending prod
+verification of the predicted deltas.
