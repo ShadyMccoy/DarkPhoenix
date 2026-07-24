@@ -36,9 +36,22 @@ describe("routeSourceVolley (spec-26 stage 2 - link volley routing)", () => {
     );
   });
 
-  it("takes a sub-threshold core remainder before holding outright", () => {
+  it("HOLDS on a sub-threshold core remainder rather than tax-dribbling (owner 2026-07-24)", () => {
+    // The core at 760 (40 free), controller full: firing 40 pays the flat 3% tax
+    // AND burns the source link's whole cooldown on a fraction of a volley, so the
+    // 760 that arrives next can't ship for `range` ticks. The relay drains the core
+    // every tick - hold one beat and ship a full >=threshold volley (step 2). Below
+    // the minimum-worthwhile volley (threshold) the fire is never worth it.
     expect(routeSourceVolley({ coreFree: 40, controllerFree: 0, controllerUnderPlan: false, threshold: 100 })).to.equal(
-      "core"
+      null
+    );
+  });
+
+  it("does NOT dribble 1 into a 799-full core (the tax-loss loop, owner 2026-07-24)", () => {
+    // The exact reported loop: core at 799 (1 free), controller full. The old rule
+    // fired 1 e every cooldown, all of it eaten by the 3% tax, forever.
+    expect(routeSourceVolley({ coreFree: 1, controllerFree: 0, controllerUnderPlan: false, threshold: 100 })).to.equal(
+      null
     );
   });
 

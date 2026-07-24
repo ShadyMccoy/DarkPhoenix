@@ -59,8 +59,11 @@ export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
   // 3. Congestion spill to the controller (owner 2026-07-21), now a fallback.
   if (ctrlHasRoom) return "controllerDirect";
 
-  // 4. Sub-volley core remainder before holding.
-  if (ctx.coreFree > 0) return "core";
-
+  // 4. Nothing has a WHOLE-volley's room: HOLD (owner 2026-07-24). Firing the
+  // sub-threshold remainder pays the flat 3% tax AND spends the source link's
+  // whole cooldown on a fraction of a volley - the reported dribble (core stuck
+  // at 799, a source firing 1 e forever, all of it lost to tax). The relay
+  // drains the core every tick, so holding one beat opens room for a full
+  // >=threshold volley (step 2). Below the minimum-worthwhile volley, don't fire.
   return null;
 }
