@@ -4043,3 +4043,16 @@ staffing reaches 6/6 (transient, expected) or stay stuck (then throttle-strength
 is the real item)? Cycle verdict: **FIXED + VERIFIED** (core unpinned, banking
 restored, upgrader ramp unlocked via the inflow signal) — E4 transient watched,
 source-link throughput named as the next lever with data.
+
+**E4-transient CONFIRMED drained (2nd post-deploy capture t72551143, +180t).**
+Two clean post-deploy reads settle it: storage **81.1k → 76.2k, slope flipped
++18/t → −27.2/t** (the ramp caught up and now BURNS the surplus), and
+**rclProgress +58.1 e/t to the controller** (was ~10 pre-ramp) — the freed income
+is now GCL/RCL progress at ~58 e/t, the whole point of the cycle. Core link
+cycling low (0 → 150), feeder standingWork 60. So E4 was the ramp transient
+exactly as predicted, not a leak — NO E4 fix was correct. Residual next lever
+(unchanged): source link 4a83 still 800/800, `sourceBuffers` ~flat (+4.5/t) — the
+source-link ~57 e/t throughput ceiling / core-drain sizing, a separate
+non-regressing item for a later cycle. Cycle verdict: **FIXED + VERIFIED +
+E4-TRANSIENT CLOSED** — controller progress ~10 → 58 e/t, storage draining, no
+regression.
