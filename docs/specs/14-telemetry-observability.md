@@ -3932,3 +3932,16 @@ flow-handoff + runt-economy + storage-depot all green; deployed. Predicted delta
 unchanged (verify ~200t): upgraders 1 -> ~targetCount; P7 -> ~15; E4 drains.
 
 Cycle verdict: **FIXED (storage throttle shipped)** - pending prod verification.
+
+**VERIFIED — storage throttle fixed E4/P7 (2026-07-24, capture t72536806).** ~2085t
+post-deploy: P7 controller 7 -> 25.5 e/t; E4 slope +16/t (rising, FAIL) -> -4.97/t
+(draining toward reserve, WARN) - the self-balancing the owner predicted; upgrader
+fleet 20 -> 40 WORK, workUtil 1.00; LINK ctrl relay 7.4 -> 24.1 e/t. No death-spiral:
+fleet total 32, harvest 7 intact, X5 churn 18% (remote invader/revoke only, 0% home),
+P9 1.43x (unchanged). wallpreempt events 0 in-window - the throttle displaced the
+preemptions the instrument was built to measure. No FAIL lines. Residual: E4 still
+WARN (draining, self-resolving as it converges on reserve); upgrader targetCount
+flaps with controllerFeederActive (feeder branch's domain, outcome unaffected).
+
+Cycle verdict: **FIXED + VERIFIED** (E4/P7 restored in prod; storage-as-throttle
+doctrine landed and self-balancing confirmed).

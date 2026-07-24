@@ -1,0 +1,4374 @@
+{
+  "shard": "shard1",
+  "capturedAt": "2026-07-24T06:16:27.052Z",
+  "tick": 72536806,
+  "segments": [
+    0,
+    4,
+    5,
+    6
+  ],
+  "data": {
+    "core": {
+      "version": 14,
+      "tick": 72536806,
+      "shard": "shard1",
+      "cpu": {
+        "used": 95.7487378999358,
+        "limit": 300,
+        "bucket": 10000,
+        "tickLimit": 500
+      },
+      "gcl": {
+        "level": 32,
+        "progress": 276147932.58056545,
+        "progressTotal": 300508132.580564
+      },
+      "colony": {
+        "nodeCount": 480,
+        "totalCorps": 36,
+        "activeCorps": 28
+      },
+      "creeps": {
+        "total": 32,
+        "tracked": 31,
+        "untracked": 1,
+        "byKind": {
+          "harvest": 7,
+          "upgrade": 2,
+          "construction": 1,
+          "reservation": 2,
+          "scout": 0,
+          "tender": 3,
+          "controllerFeeder": 1,
+          "coreBuster": 0,
+          "raidGuard": 2,
+          "carry": 13,
+          "bootstrap": 0
+        },
+        "countMismatch": [
+          {
+            "corpId": "reservation-W43N23-reservation",
+            "claimed": 3,
+            "counted": 2
+          }
+        ]
+      },
+      "bodyParts": {
+        "total": 456,
+        "byPart": {
+          "work": 77,
+          "move": 158,
+          "claim": 6,
+          "carry": 205,
+          "attack": 10
+        }
+      },
+      "spawns": [
+        {
+          "id": "6a261309c1ca830013f516a5",
+          "name": "Spawn1",
+          "windowTicks": 962,
+          "utilization": 0.9771309771309772,
+          "partsPerTick": 0.3257103257103257,
+          "ceiling": 0.3333333333333333,
+          "queueDepth": 2,
+          "finishes": 22,
+          "endFill": 0.867
+        }
+      ],
+      "agenda": {
+        "6a261309c1ca830013f516a5": {
+          "tick": 72536800,
+          "fundingNeed": 1600,
+          "queueDepth": 2,
+          "queue": [
+            {
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "minCost": 1300,
+              "desiredCost": 1300,
+              "mustFund": true,
+              "blocking": false,
+              "why": "campaign",
+              "since": 72536752,
+              "gate": "buy"
+            },
+            {
+              "role": "hauler",
+              "corp": "hauling-W44N23-hauling-cbd5",
+              "minCost": 300,
+              "desiredCost": 2200,
+              "mustFund": true,
+              "blocking": false,
+              "why": "replacement",
+              "since": 72536752,
+              "precondition": "after:reservation-W43N23-reservation",
+              "gate": "queued"
+            }
+          ],
+          "executed": [
+            {
+              "tick": 72536533,
+              "role": "hauler",
+              "corp": "hauling-W43N24-hauling-cd8d",
+              "cost": 1700
+            },
+            {
+              "tick": 72536614,
+              "role": "hauler",
+              "corp": "hauling-W43N23-hauling-7-12",
+              "cost": 100
+            },
+            {
+              "tick": 72536620,
+              "role": "miner",
+              "corp": "mining-W43N24-harvest-cd8d",
+              "cost": 650
+            },
+            {
+              "tick": 72536644,
+              "role": "hauler",
+              "corp": "hauling-W42N23-hauling-cedc",
+              "cost": 2300
+            },
+            {
+              "tick": 72536752,
+              "role": "guard",
+              "corp": "raidGuard-W43N23-raidGuard",
+              "cost": 650
+            },
+            {
+              "tick": 72536782,
+              "role": "hauler",
+              "corp": "hauling-W44N23-hauling-4-30",
+              "cost": 200
+            },
+            {
+              "tick": 72536794,
+              "role": "hauler",
+              "corp": "hauling-W43N24-hauling-7-38",
+              "cost": 100
+            },
+            {
+              "tick": 72536800,
+              "role": "reserver",
+              "corp": "reservation-W43N23-reservation",
+              "cost": 1300
+            }
+          ]
+        }
+      },
+      "sourceBuffers": {
+        "dbcee0": 2927,
+        "dbcedc": 1504,
+        "dbcd90": 3363,
+        "dbcd92": 60,
+        "dbcd8d": 4190,
+        "dbcd8e": 3079,
+        "dbcbd5": 4596
+      },
+      "roadReceipts": {
+        "5982fc1db097071b4adbcd90": {
+          "paved": true
+        },
+        "5982fc1db097071b4adbcd92": {
+          "paved": true
+        },
+        "feeder": {
+          "paved": true
+        },
+        "5982fc1db097071b4adbcd8e": {
+          "built": 36,
+          "total": 38,
+          "paved": true,
+          "tiles": 38
+        },
+        "5982fc28b097071b4adbcee0": {
+          "built": 48,
+          "total": 49,
+          "paved": true,
+          "tiles": 54
+        },
+        "5982fc11b097071b4adbcbd5": {
+          "built": 48,
+          "total": 49,
+          "paved": true,
+          "tiles": 52
+        },
+        "5982fc1db097071b4adbcd8d": {
+          "built": 52,
+          "total": 53,
+          "paved": true,
+          "tiles": 56
+        },
+        "5982fc28b097071b4adbcedc": {
+          "built": 49,
+          "total": 50,
+          "paved": true,
+          "tiles": 53
+        }
+      },
+      "pathMeter": {
+        "tick": 72536806,
+        "calls": 11,
+        "cpu": 4.1813206999213435,
+        "byCorp": {
+          "hauling": {
+            "calls": 7,
+            "cpu": 3.154781599994749
+          },
+          "raidGuard": {
+            "calls": 1,
+            "cpu": 0.34884089994011447
+          },
+          "moving": {
+            "calls": 3,
+            "cpu": 0.6776981999864802
+          }
+        }
+      },
+      "links": [
+        {
+          "room": "W43N23",
+          "windowTicks": 2090,
+          "toHubRate": 23.60334928229665,
+          "toControllerRate": 24.05071770334928,
+          "directShare": 0.04752715553256674,
+          "taxRate": 1.429622009569378
+        }
+      ],
+      "rooms": [
+        {
+          "name": "W43N23",
+          "rcl": 6,
+          "rclProgress": 1936757,
+          "rclProgressTotal": 3645000,
+          "energyAvailable": 1550,
+          "energyCapacity": 2300,
+          "storageEnergy": 48919,
+          "controllerStock": 632,
+          "feederActive": true,
+          "siteProgress": 0,
+          "siteTotal": 0,
+          "siteCount": 0
+        }
+      ]
+    },
+    "corps": {
+      "version": 4,
+      "tick": 72536806,
+      "corps": [
+        {
+          "id": "mining-W43N23-harvest-cd92",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N23-harvest-cd92",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W43N23-harvest-cd90",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N23-harvest-cd90",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 9,
+          "body": {
+            "work": 5,
+            "carry": 1,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "upgrading-W43N23-upgrading",
+          "kind": "upgrade",
+          "type": "upgrading",
+          "nodeId": "W43N23-upgrading",
+          "roomName": "W43N23",
+          "creepCount": 2,
+          "bodyParts": 52,
+          "body": {
+            "work": 40,
+            "carry": 2,
+            "move": 10
+          },
+          "sizing": {
+            "tick": 72536800,
+            "planAllocated": 15,
+            "stock": 632,
+            "banked": 48019,
+            "inflow": 2,
+            "allocated": 2.421333333333333,
+            "targetCount": 1,
+            "parking": 8,
+            "cap": 2300,
+            "construction": false,
+            "workUtil": 0.996,
+            "dryShare": 0.004,
+            "meterTicks": 1897,
+            "demand": "staffed",
+            "staffing": 2
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "building-W43N23-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W43N23-construction",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "reservation-W43N23-reservation",
+          "kind": "reservation",
+          "type": "reservation",
+          "nodeId": "W43N23-reservation",
+          "roomName": "W43N23",
+          "creepCount": 2,
+          "bodyParts": 12,
+          "body": {
+            "claim": 6,
+            "move": 6
+          },
+          "sizing": {
+            "tick": 72536800,
+            "gate": "demand",
+            "targets": 4,
+            "needy": 1,
+            "staffed": 0,
+            "banks": {
+              "W42N22": 888,
+              "W42N23": 1117,
+              "W43N24": 647,
+              "W44N23": 1156
+            }
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "scout-W43N23-scout",
+          "kind": "scout",
+          "type": "scout",
+          "nodeId": "W43N23-scout",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "moving-W43N23-tender",
+          "kind": "tender",
+          "type": "moving",
+          "nodeId": "W43N23-tender",
+          "roomName": "W43N23",
+          "creepCount": 3,
+          "bodyParts": 66,
+          "body": {
+            "carry": 48,
+            "move": 18
+          },
+          "sizing": {
+            "tick": 72536800,
+            "gate": "staffed",
+            "extensions": 40,
+            "hasMiner": true,
+            "clusters": 3,
+            "staffing": 3,
+            "target": 3,
+            "duty": 0.132,
+            "meterTicks": 1425
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "moving-W43N23-controllerFeeder",
+          "kind": "controllerFeeder",
+          "type": "moving",
+          "nodeId": "W43N23-controllerFeeder",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "carry": 2,
+            "move": 2
+          },
+          "sizing": {
+            "tick": 72536800,
+            "gate": "staffed",
+            "banked": 48019,
+            "hasMiner": true,
+            "relayRate": 15,
+            "bodyRate": 15,
+            "standingWork": 40,
+            "planFlow": 15,
+            "surplusRate": 15,
+            "distance": 1,
+            "linkFed": true,
+            "neededCarry": 1,
+            "wantedFeeders": 1,
+            "feeders": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "coreBuster-W43N23-coreBuster",
+          "kind": "coreBuster",
+          "type": "coreBuster",
+          "nodeId": "W43N23-coreBuster",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "raidGuard-W43N23-raidGuard",
+          "kind": "raidGuard",
+          "type": "raidGuard",
+          "nodeId": "W43N23-raidGuard",
+          "roomName": "W43N23",
+          "creepCount": 2,
+          "bodyParts": 20,
+          "body": {
+            "attack": 10,
+            "move": 10
+          },
+          "sizing": {
+            "tick": 72536800,
+            "gate": "covered",
+            "targets": 2,
+            "debts": {
+              "W43N24": 66350,
+              "W44N23": 69040
+            }
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W43N24-harvest-cd8e",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N24-harvest-cd8e",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W44N23-harvest-cbd5",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W44N23-harvest-cbd5",
+          "roomName": "W44N23",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W43N24-harvest-cd8d",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W43N24-harvest-cd8d",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N24-hauling-cd8e",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-cd8e",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 15,
+          "body": {
+            "carry": 10,
+            "move": 5
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W42N22-hauling-cee0",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N22-hauling-cee0",
+          "roomName": "W42N22",
+          "creepCount": 1,
+          "bodyParts": 30,
+          "body": {
+            "carry": 20,
+            "move": 10
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 0
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W44N23-hauling-cbd5",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W44N23-hauling-cbd5",
+          "roomName": "W44N23",
+          "creepCount": 1,
+          "bodyParts": 33,
+          "body": {
+            "carry": 22,
+            "move": 11
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W42N22-harvest-cee0",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W42N22-harvest-cee0",
+          "roomName": "W42N22",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "mining-W42N23-harvest-cedc",
+          "kind": "harvest",
+          "type": "mining",
+          "nodeId": "W42N23-harvest-cedc",
+          "roomName": "W42N23",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "work": 5,
+            "move": 3
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W42N23-hauling-cedc",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N23-hauling-cedc",
+          "roomName": "W42N23",
+          "creepCount": 2,
+          "bodyParts": 63,
+          "body": {
+            "carry": 42,
+            "move": 21
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 2,
+            "loaded": 2
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N24-hauling-cd8d",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-cd8d",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 27,
+          "body": {
+            "carry": 18,
+            "move": 9
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N23-hauling-cd90",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-cd90",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 6,
+          "body": {
+            "carry": 4,
+            "move": 2
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 2,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N23-hauling-cd92",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-cd92",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 9,
+          "body": {
+            "carry": 6,
+            "move": 3
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "building-W42N23-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W42N23-construction",
+          "roomName": "W42N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "building-W42N22-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W42N22-construction",
+          "roomName": "W42N22",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N24-hauling-0-20",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N24-hauling-0-20",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 8,
+          "body": {
+            "carry": 4,
+            "move": 4
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 0
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "building-W43N24-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W43N24-construction",
+          "roomName": "W43N24",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "work": 2,
+            "carry": 1,
+            "move": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W42N23-hauling-37-6",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W42N23-hauling-37-6",
+          "roomName": "W42N23",
+          "creepCount": 1,
+          "bodyParts": 42,
+          "body": {
+            "carry": 21,
+            "move": 21
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": true,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 0
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N23-hauling-5-11",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-5-11",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 2,
+          "body": {
+            "carry": 1,
+            "move": 1
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": true,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 0
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "building-W44N23-construction",
+          "kind": "construction",
+          "type": "building",
+          "nodeId": "W44N23-construction",
+          "roomName": "W44N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W43N23-hauling-7-12",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W43N23-hauling-7-12",
+          "roomName": "W43N23",
+          "creepCount": 1,
+          "bodyParts": 2,
+          "body": {
+            "carry": 1,
+            "move": 1
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 1
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "hauling-W44N23-hauling-4-30",
+          "kind": "carry",
+          "type": "hauling",
+          "nodeId": "W44N23-hauling-4-30",
+          "roomName": "W44N23",
+          "creepCount": 1,
+          "bodyParts": 4,
+          "body": {
+            "carry": 2,
+            "move": 2
+          },
+          "sizing": {
+            "tick": 72536806,
+            "retiring": false,
+            "routes": 1,
+            "creeps": 1,
+            "loaded": 0
+          },
+          "createdAt": 0,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "bootstrap-W52N54-bootstrap",
+          "kind": "bootstrap",
+          "type": "bootstrap",
+          "nodeId": "W52N54-bootstrap",
+          "roomName": "W52N54",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 67539147,
+          "lastActivityTick": 67540007
+        },
+        {
+          "id": "bootstrap-W43N23-bootstrap",
+          "kind": "bootstrap",
+          "type": "bootstrap",
+          "nodeId": "W43N23-bootstrap",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 71517050,
+          "lastActivityTick": 72536806
+        },
+        {
+          "id": "spawning-W52N54-spawn-da09",
+          "kind": "spawning",
+          "type": "spawning",
+          "nodeId": "W52N54-spawn-da09",
+          "roomName": "W52N54",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 67539147,
+          "lastActivityTick": 67540007
+        },
+        {
+          "id": "spawning-W43N23-spawn-16a5",
+          "kind": "spawning",
+          "type": "spawning",
+          "nodeId": "W43N23-spawn-16a5",
+          "roomName": "W43N23",
+          "creepCount": 0,
+          "bodyParts": 0,
+          "body": {},
+          "createdAt": 71517050,
+          "lastActivityTick": 72536806
+        }
+      ],
+      "summary": {
+        "totalCorps": 35,
+        "activeCorps": 25,
+        "corpsByKind": {
+          "harvest": 7,
+          "upgrade": 1,
+          "construction": 5,
+          "reservation": 1,
+          "scout": 1,
+          "tender": 1,
+          "controllerFeeder": 1,
+          "coreBuster": 1,
+          "raidGuard": 1,
+          "carry": 12,
+          "bootstrap": 2,
+          "spawning": 2
+        }
+      }
+    },
+    "blackbox": {
+      "v": 1,
+      "tick": 72536800,
+      "alerts": [],
+      "rows": [
+        {
+          "t": 72534720,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 9741,
+            "cpu": 266.7,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72534730,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.5,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72534740,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.9,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534750,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 211,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534760,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.6,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534770,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.2,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534771,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N22-hauling-cee0",
+            "cost": 1900
+          }
+        },
+        {
+          "t": 72534780,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 88.4,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534790,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.2,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534800,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 107.2,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534810,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.5,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534820,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534825,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72534830,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.2,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534840,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534850,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 112,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534860,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 101.3,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534863,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-cedc",
+            "cost": 1900
+          }
+        },
+        {
+          "t": 72534870,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.7,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534880,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534890,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 122.2,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534900,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106.6,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534910,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.3,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534920,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.7,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534930,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 85.6,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534940,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 102.4,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534950,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 181.2,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534953,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72534960,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.7,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72534965,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-cedc",
+            "cost": 1900
+          }
+        },
+        {
+          "t": 72534970,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.5,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534980,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.5,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72534990,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 107.9,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535000,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 211.3,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535001,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72535010,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 87.7,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535020,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.3,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535030,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 73,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535040,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 93.5,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535050,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91.7,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535055,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-7-25",
+            "cost": 100
+          }
+        },
+        {
+          "t": 72535060,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.6,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535061,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-cd8d",
+            "cost": 1700
+          }
+        },
+        {
+          "t": 72535070,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.2,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535080,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.6,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535090,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.7,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535100,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 118.5,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535103,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72535110,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.6,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535120,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.6,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535130,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535140,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535142,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W43N24-harvest-cd8d",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535150,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 100.8,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535160,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.3,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535166,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72535170,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.7,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535178,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W44N23-hauling-cbd5",
+            "cost": 950
+          }
+        },
+        {
+          "t": 72535180,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.3,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535190,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.2,
+            "creeps": 33
+          }
+        },
+        {
+          "t": 72535200,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.7,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535210,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 82.2,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72535220,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535230,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535232,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-7-38",
+            "cost": 200
+          }
+        },
+        {
+          "t": 72535240,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 74.1,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535244,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W44N23-hauling-cbd5",
+            "cost": 1728
+          }
+        },
+        {
+          "t": 72535250,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.3,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535260,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.7,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535270,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535280,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.1,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535290,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 82.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535300,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 107.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535301,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72535310,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.4,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535320,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 143.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535330,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 85,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535340,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535343,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-37-6",
+            "cost": 200
+          }
+        },
+        {
+          "t": 72535350,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 114.1,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535355,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "tanker",
+            "corp": "moving-W43N23-tender",
+            "cost": 1600
+          }
+        },
+        {
+          "t": 72535360,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.4,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72535370,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.5,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535380,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.7,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535390,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 89.7,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535400,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 108.5,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535410,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.5,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535420,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.8,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535421,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-cd8e",
+            "cost": 1000
+          }
+        },
+        {
+          "t": 72535430,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 136.1,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535440,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 82.1,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535450,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 126.5,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535460,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 127.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535466,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-cd90",
+            "cost": 400
+          }
+        },
+        {
+          "t": 72535470,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.1,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535480,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 111.5,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535484,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W43N23-harvest-cd92",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535490,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535500,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.2,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535508,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W44N23-harvest-cbd5",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535510,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.1,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535520,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 90.1,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535530,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.1,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535532,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W43N24-harvest-cd8e",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535540,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 85.3,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535550,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 107.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535556,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72535560,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535568,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72535570,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 94,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535580,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-cd92",
+            "cost": 500
+          }
+        },
+        {
+          "t": 72535580,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106.8,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535590,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.5,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535600,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 89.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535607,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-0-20",
+            "cost": 400
+          }
+        },
+        {
+          "t": 72535610,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 90.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535620,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535630,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535631,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "builder",
+            "corp": "building-W43N24-construction",
+            "cost": 300
+          }
+        },
+        {
+          "t": 72535640,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535643,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "feeder",
+            "corp": "moving-W43N23-controllerFeeder",
+            "cost": 200
+          }
+        },
+        {
+          "t": 72535650,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 126.8,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535655,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "upgrader",
+            "corp": "upgrading-W43N23-upgrading",
+            "cost": 2300
+          }
+        },
+        {
+          "t": 72535660,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.7,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535670,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535674,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72535680,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 104.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535690,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535700,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 94.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535701,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72535710,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 94.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535720,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535730,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535733,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W44N23-hauling-4-30",
+            "cost": 200
+          }
+        },
+        {
+          "t": 72535740,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535747,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "upgrader",
+            "corp": "upgrading-W43N23-upgrading",
+            "cost": 2300
+          }
+        },
+        {
+          "t": 72535750,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535760,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72535770,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.1,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535780,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.5,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535790,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.5,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535800,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 108.7,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535810,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.1,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535820,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.6,
+            "creeps": 26
+          }
+        },
+        {
+          "t": 72535825,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-7-12",
+            "cost": 100
+          }
+        },
+        {
+          "t": 72535830,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 90,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535831,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W42N22-harvest-cee0",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535840,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535850,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 114.8,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72535855,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W43N23-harvest-cd90",
+            "cost": 700
+          }
+        },
+        {
+          "t": 72535860,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 155.8,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535870,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 82.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535880,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.9,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535882,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W42N23-harvest-cedc",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72535890,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 158.7,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535900,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 95.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72535906,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-37-6",
+            "cost": 2150
+          }
+        },
+        {
+          "t": 72535910,
+          "k": "watch",
+          "d": {
+            "dt": 119998,
+            "bucket": 10000,
+            "cpu": 109.8,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535920,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 109.8,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535930,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 88.1,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535940,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 94.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535950,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 104,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535960,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 96,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535970,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 88.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535980,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.5,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72535990,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 128,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536000,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 96.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536010,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 112.5,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536020,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 119.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536030,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 74.3,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536032,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72536040,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536044,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "tanker",
+            "corp": "moving-W43N23-tender",
+            "cost": 1550
+          }
+        },
+        {
+          "t": 72536050,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.3,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536060,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 85.4,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536070,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.6,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536080,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536090,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.7,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536100,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 137.6,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536110,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W44N23-hauling-4-30",
+            "cost": 1550
+          }
+        },
+        {
+          "t": 72536110,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536120,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 122.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536130,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.3,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536140,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91.8,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536150,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 119.4,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536160,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.4,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536170,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.9,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536180,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72536190,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.4,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72536200,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72536200,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106.6,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536210,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92,
+            "creeps": 27
+          }
+        },
+        {
+          "t": 72536212,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N22-hauling-cee0",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72536220,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 105.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536230,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 73.7,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536240,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 112.5,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536248,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "tanker",
+            "corp": "moving-W43N23-tender",
+            "cost": 1200
+          }
+        },
+        {
+          "t": 72536250,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536251,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536260,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 148.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536270,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 75.2,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536280,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.3,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536290,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.2,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536300,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 103.2,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536310,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.4,
+            "creeps": 28
+          }
+        },
+        {
+          "t": 72536314,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-5-11",
+            "cost": 100
+          }
+        },
+        {
+          "t": 72536320,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N22-hauling-cee0",
+            "cost": 1750
+          }
+        },
+        {
+          "t": 72536320,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.5,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536330,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 80.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536340,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 157.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536350,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 102.1,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536360,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536370,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 154.5,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536380,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536389,
+          "k": "mark",
+          "d": {
+            "room": "W44N23",
+            "kind": "creeps",
+            "until": 72537406
+          }
+        },
+        {
+          "t": 72536389,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72536390,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 85.3,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536393,
+          "k": "unmark",
+          "d": {
+            "room": "W44N23",
+            "kind": "creeps"
+          }
+        },
+        {
+          "t": 72536393,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536395,
+          "k": "mark",
+          "d": {
+            "room": "W44N23",
+            "kind": "creeps",
+            "until": 72537406
+          }
+        },
+        {
+          "t": 72536395,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72536400,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 137.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536410,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "guard",
+            "corp": "raidGuard-W43N23-raidGuard",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72536410,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 78.5,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536420,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 107,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536430,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 109.4,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536440,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72536440,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.9,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536444,
+          "k": "unmark",
+          "d": {
+            "room": "W44N23",
+            "kind": "creeps"
+          }
+        },
+        {
+          "t": 72536444,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536450,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 232.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536452,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-cedc",
+            "cost": 1550
+          }
+        },
+        {
+          "t": 72536460,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 87,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72536470,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 92.1,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72536480,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.3,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72536490,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 98.4,
+            "creeps": 32
+          }
+        },
+        {
+          "t": 72536500,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 108.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536510,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.4,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536520,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 89.3,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536522,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72536530,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.1,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536533,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-cd8d",
+            "cost": 1700
+          }
+        },
+        {
+          "t": 72536536,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72536540,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536550,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 102.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536560,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 97.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536570,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536580,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 91.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536590,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 86,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536600,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 122.4,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536601,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536610,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 100.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536614,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N23-hauling-7-12",
+            "cost": 100
+          }
+        },
+        {
+          "t": 72536620,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "miner",
+            "corp": "mining-W43N24-harvest-cd8d",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72536620,
+          "k": "watch",
+          "d": {
+            "dt": 119997,
+            "bucket": 10000,
+            "cpu": 116.2,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536630,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.7,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536640,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 88.9,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536644,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W42N23-hauling-cedc",
+            "cost": 2300
+          }
+        },
+        {
+          "t": 72536650,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 105.8,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536660,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 185.3,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536670,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 79.4,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536680,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.1,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536690,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 84,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536700,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 106.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536701,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536710,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.2,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536720,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 105.7,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536722,
+          "k": "churn",
+          "d": {
+            "created": 0,
+            "removed": 1
+          }
+        },
+        {
+          "t": 72536730,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 77.3,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536740,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 81.9,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536750,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 96.2,
+            "creeps": 29
+          }
+        },
+        {
+          "t": 72536751,
+          "k": "churn",
+          "d": {
+            "created": 1,
+            "removed": 0
+          }
+        },
+        {
+          "t": 72536752,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "guard",
+            "corp": "raidGuard-W43N23-raidGuard",
+            "cost": 650
+          }
+        },
+        {
+          "t": 72536760,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 76.9,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536770,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.9,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536780,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 83.8,
+            "creeps": 30
+          }
+        },
+        {
+          "t": 72536782,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W44N23-hauling-4-30",
+            "cost": 200
+          }
+        },
+        {
+          "t": 72536790,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 113.1,
+            "creeps": 31
+          }
+        },
+        {
+          "t": 72536794,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "hauler",
+            "corp": "hauling-W43N24-hauling-7-38",
+            "cost": 100
+          }
+        },
+        {
+          "t": 72536800,
+          "k": "spawn",
+          "d": {
+            "spawn": "6a261309c1ca830013f516a5",
+            "role": "reserver",
+            "corp": "reservation-W43N23-reservation",
+            "cost": 1300
+          }
+        },
+        {
+          "t": 72536800,
+          "k": "watch",
+          "d": {
+            "dt": 120000,
+            "bucket": 10000,
+            "cpu": 103.2,
+            "creeps": 33
+          }
+        }
+      ]
+    },
+    "flow": {
+      "version": 10,
+      "tick": 72536807,
+      "sources": [
+        {
+          "id": "source-5982fc1db097071b4adbcd92",
+          "nodeId": "W43N23-37-40",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 92.4110141034251,
+          "spawnDistance": 11
+        },
+        {
+          "id": "source-5982fc1db097071b4adbcd90",
+          "nodeId": "W43N23-40-4",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 91.31313131313131,
+          "spawnDistance": 15
+        },
+        {
+          "id": "source-5982fc1db097071b4adbcd8e",
+          "nodeId": "W43N24-36-39",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 84.73653395784544,
+          "spawnDistance": 36
+        },
+        {
+          "id": "source-5982fc28b097071b4adbcee0",
+          "nodeId": "W42N22-9-3",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 81.8854391825506,
+          "spawnDistance": 46
+        },
+        {
+          "id": "source-5982fc11b097071b4adbcbd5",
+          "nodeId": "W44N23-33-22",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 79.86622568861685,
+          "spawnDistance": 53
+        },
+        {
+          "id": "source-5982fc1db097071b4adbcd8d",
+          "nodeId": "W43N24-27-22",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 79.57617071724957,
+          "spawnDistance": 54
+        },
+        {
+          "id": "source-5982fc28b097071b4adbcedc",
+          "nodeId": "W42N23-22-9",
+          "harvestRate": 10,
+          "workParts": 5,
+          "efficiency": 79.57617071724957,
+          "spawnDistance": 54
+        }
+      ],
+      "haulers": [
+        {
+          "edgeId": "bank-W43N23|controller-5982fc1db097071b4adbcd91",
+          "sourceId": "bank-W43N23",
+          "sinkId": "controller-5982fc1db097071b4adbcd91",
+          "carryParts": 0.48,
+          "flowRate": 2,
+          "distance": 5,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.0006421404682274247
+        },
+        {
+          "edgeId": "bank-W43N23|spawn-6a261309c1ca830013f516a5",
+          "sourceId": "bank-W43N23",
+          "sinkId": "spawn-6a261309c1ca830013f516a5",
+          "carryParts": 3.52,
+          "flowRate": 44,
+          "distance": 1,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.004696464309539693
+        },
+        {
+          "edgeId": "source-5982fc1db097071b4adbcd90|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc1db097071b4adbcd90",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 0.8,
+          "flowRate": 10,
+          "distance": 1,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.0008005336891260842
+        },
+        {
+          "edgeId": "source-5982fc1db097071b4adbcd92|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc1db097071b4adbcd92",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 4.8,
+          "flowRate": 10,
+          "distance": 11,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.0048354600402955
+        },
+        {
+          "edgeId": "scavenge-W43N23-47-12|storage-6a512fc503af881fc1000d73",
+          "sourceId": "scavenge-W43N23-47-12",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 0.05897018970189702,
+          "flowRate": 0.7371273712737128,
+          "distance": 1,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.00007867937251754105,
+          "port": {
+            "x": 46,
+            "y": 11,
+            "roomName": "W43N23"
+          }
+        },
+        {
+          "edgeId": "source-5982fc1db097071b4adbcd8e|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc1db097071b4adbcd8e",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 9.6,
+          "flowRate": 10,
+          "distance": 23,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.00974949221394719,
+          "port": {
+            "x": 46,
+            "y": 11,
+            "roomName": "W43N23"
+          }
+        },
+        {
+          "edgeId": "source-5982fc28b097071b4adbcee0|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc28b097071b4adbcee0",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 18.8,
+          "flowRate": 10,
+          "distance": 46,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.01939477303988996
+        },
+        {
+          "edgeId": "scavenge-W44N23-34-30|storage-6a512fc503af881fc1000d73",
+          "sourceId": "scavenge-W44N23-34-30",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 1.8318344827586208,
+          "flowRate": 0.8806896551724138,
+          "distance": 51,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.0025284119844839487
+        },
+        {
+          "edgeId": "source-5982fc11b097071b4adbcbd5|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc11b097071b4adbcbd5",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 21.2,
+          "flowRate": 10,
+          "distance": 52,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.021961325966850825
+        },
+        {
+          "edgeId": "source-5982fc1db097071b4adbcd8d|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc1db097071b4adbcd8d",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 16.8,
+          "flowRate": 10,
+          "distance": 41,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.017272104180945855,
+          "port": {
+            "x": 46,
+            "y": 11,
+            "roomName": "W43N23"
+          }
+        },
+        {
+          "edgeId": "source-5982fc28b097071b4adbcedc|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc28b097071b4adbcedc",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 17.55382113821138,
+          "flowRate": 10,
+          "distance": 42.88455284552845,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "ratio": "2:1",
+          "spawnParts": 0.018070449914409356,
+          "port": {
+            "x": 46,
+            "y": 11,
+            "roomName": "W43N23"
+          }
+        },
+        {
+          "edgeId": "scavenge-W43N24-30-20|storage-6a512fc503af881fc1000d73",
+          "sourceId": "scavenge-W43N24-30-20",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 1.674593103448276,
+          "flowRate": 0.7475862068965518,
+          "distance": 55,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.0023177759217277174
+        },
+        {
+          "edgeId": "bank-W43N23|controller-5982fc1db097071b4adbcd91",
+          "sourceId": "bank-W43N23",
+          "sinkId": "controller-5982fc1db097071b4adbcd91",
+          "carryParts": 3.12,
+          "flowRate": 13,
+          "distance": 5,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.004173913043478261
+        },
+        {
+          "edgeId": "source-5982fc1db097071b4adbcd90|storage-6a512fc503af881fc1000d73",
+          "sourceId": "source-5982fc1db097071b4adbcd90",
+          "sinkId": "storage-6a512fc503af881fc1000d73",
+          "carryParts": 2.4,
+          "flowRate": 30,
+          "distance": 1,
+          "spawnId": "spawn-6a261309c1ca830013f516a5",
+          "spawnParts": 0.0032021347565043363
+        }
+      ],
+      "sinks": [
+        {
+          "id": "controller-5982fc1db097071b4adbcd91",
+          "type": "controller",
+          "demand": 15,
+          "allocated": 15,
+          "unmet": 0,
+          "priority": 46.653283472178735,
+          "partsLeft": 0.04521634923531205,
+          "workParts": 15
+        },
+        {
+          "id": "spawn-6a261309c1ca830013f516a5",
+          "type": "spawn",
+          "demand": 44,
+          "allocated": 44,
+          "unmet": 0,
+          "priority": 100,
+          "partsLeft": 0.06098446517734103
+        },
+        {
+          "id": "storage-6a512fc503af881fc1000d73",
+          "type": "storage",
+          "demand": 357.36540323334265,
+          "allocated": 72.36540323334268,
+          "unmet": 285,
+          "priority": 1,
+          "partsLeft": 0.04521634923531205
+        }
+      ],
+      "depositSavings": {
+        "candidates": [
+          {
+            "sourceId": "source-5982fc1db097071b4adbcd8e",
+            "haulDist": 36,
+            "linkId": "6a5c322407e9c20f7d684a83",
+            "linkDist": 23,
+            "saving": 13,
+            "flowRate": 10
+          },
+          {
+            "sourceId": "source-5982fc1db097071b4adbcd8d",
+            "haulDist": 55,
+            "linkId": "6a5c322407e9c20f7d684a83",
+            "linkDist": 42,
+            "saving": 13,
+            "flowRate": 10
+          },
+          {
+            "sourceId": "source-5982fc28b097071b4adbcedc",
+            "haulDist": 38,
+            "linkId": "6a5c322407e9c20f7d684a83",
+            "linkDist": 25,
+            "saving": 13,
+            "flowRate": 10
+          }
+        ],
+        "perLink": [
+          {
+            "linkId": "6a5c322407e9c20f7d684a83",
+            "depositFlow": 30,
+            "sources": 3
+          }
+        ],
+        "controllerLinkId": "6a5eee2ab1191295a832cf6c",
+        "controllerCapacity": 15
+      },
+      "partsLedger": {
+        "capacity": 0.3333333333333333,
+        "minerLoad": 0.038320169856628804,
+        "infra": 0.12989736367454846,
+        "budget": 0.16511579980215607,
+        "spent": 0.12310158532334836,
+        "dry": false
+      },
+      "assembly": {
+        "graphSources": 38,
+        "mined": 38,
+        "transient": 3,
+        "bank": 0
+      },
+      "candidates": [
+        {
+          "sourceId": "source-intel-W41N21-21-11",
+          "rate": 10,
+          "distance": 137,
+          "net": 5.4017922649617445,
+          "tax": 0.07142857142857142,
+          "parts": 0.08686720469552459,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W41N21-30-11",
+          "rate": 10,
+          "distance": 138,
+          "net": 5.369100062932662,
+          "tax": 0.07142857142857142,
+          "parts": 0.08751835535976506,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W41N25-42-20",
+          "rate": 10,
+          "distance": 106,
+          "net": 6.39198606271777,
+          "tax": 0.07142857142857142,
+          "parts": 0.06714490674318507,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc28b097071b4adbcedc",
+          "rate": 10,
+          "distance": 54,
+          "net": 7.957617071724956,
+          "tax": 0.07142857142857142,
+          "parts": 0.035961272475795295,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-intel-W41N25-36-41",
+          "rate": 10,
+          "distance": 115,
+          "net": 6.1090768437338845,
+          "tax": 0.07142857142857142,
+          "parts": 0.0727797833935018,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W41N23-23-39",
+          "rate": 10,
+          "distance": 87,
+          "net": 6.977403700333637,
+          "tax": 0.07142857142857142,
+          "parts": 0.055484784147204536,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W41N24-41-41",
+          "rate": 10,
+          "distance": 171,
+          "net": 4.262657207352468,
+          "tax": 0.07142857142857142,
+          "parts": 0.10955605718585402,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W42N21-36-3",
+          "rate": 10,
+          "distance": 82,
+          "net": 7.128853516018536,
+          "tax": 0.07142857142857142,
+          "parts": 0.05246826516220029,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc28b097071b4adbcee0",
+          "rate": 10,
+          "distance": 46,
+          "net": 8.18854391825506,
+          "tax": 0.07142857142857142,
+          "parts": 0.031361760660247595,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-intel-W41N22-3-34",
+          "rate": 10,
+          "distance": 120,
+          "net": 5.950310559006212,
+          "tax": 0.07142857142857142,
+          "parts": 0.07594202898550724,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W41N26-5-34",
+          "rate": 10,
+          "distance": 182,
+          "net": 3.881530457402991,
+          "tax": 0.07142857142857142,
+          "parts": 0.11714719271623672,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W42N25-29-12",
+          "rate": 10,
+          "distance": 188,
+          "net": 3.670949477351916,
+          "tax": 0.07142857142857142,
+          "parts": 0.12134146341463414,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc1db097071b4adbcd90",
+          "rate": 10,
+          "distance": 15,
+          "net": 9.131313131313131,
+          "tax": 0,
+          "parts": 0.014006734006734007,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-5982fc1db097071b4adbcd92",
+          "rate": 10,
+          "distance": 11,
+          "net": 9.24110141034251,
+          "tax": 0,
+          "parts": 0.011820013431833446,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-intel-W43N21-5-23",
+          "rate": 10,
+          "distance": 105,
+          "net": 6.423195084485407,
+          "tax": 0.07142857142857142,
+          "parts": 0.06652329749103943,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc1db097071b4adbcd94",
+          "rate": 10,
+          "distance": 55,
+          "net": 7.928571428571429,
+          "tax": 0.07142857142857142,
+          "parts": 0.03653979238754325,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W42N24-5-31",
+          "rate": 10,
+          "distance": 207,
+          "net": 2.9912164401723556,
+          "tax": 0.07142857142857142,
+          "parts": 0.1348801237432328,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W42N26-10-42",
+          "rate": 10,
+          "distance": 194,
+          "net": 3.458433603150295,
+          "tax": 0.07142857142857142,
+          "parts": 0.12557427258805512,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W43N21-13-38",
+          "rate": 10,
+          "distance": 121,
+          "net": 5.918419144307469,
+          "tax": 0.07142857142857142,
+          "parts": 0.07657722987672226,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc1db097071b4adbcd8d",
+          "rate": 10,
+          "distance": 54,
+          "net": 7.957617071724956,
+          "tax": 0.07142857142857142,
+          "parts": 0.035961272475795295,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-5982fc1db097071b4adbcd8e",
+          "rate": 10,
+          "distance": 36,
+          "net": 8.473653395784543,
+          "tax": 0.07142857142857142,
+          "parts": 0.02568306010928962,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-intel-W43N25-30-30",
+          "rate": 10,
+          "distance": 139,
+          "net": 5.336359819460481,
+          "tax": 0.07142857142857142,
+          "parts": 0.0881704628949302,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W43N26-15-8",
+          "rate": 10,
+          "distance": 195,
+          "net": 3.422824302134646,
+          "tax": 0.07142857142857142,
+          "parts": 0.12628352490421457,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W43N26-39-27",
+          "rate": 10,
+          "distance": 203,
+          "net": 3.13597312479348,
+          "tax": 0.07142857142857142,
+          "parts": 0.13199691595990748,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-5982fc11b097071b4adbcbd5",
+          "rate": 10,
+          "distance": 53,
+          "net": 7.986622568861685,
+          "tax": 0.07142857142857142,
+          "parts": 0.035383552176917764,
+          "verdict": "funded"
+        },
+        {
+          "sourceId": "source-intel-W44N22-16-7",
+          "rate": 10,
+          "distance": 77,
+          "net": 7.27923903222568,
+          "tax": 0.07142857142857142,
+          "parts": 0.0494729444834856,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W46N22-16-29",
+          "rate": 10,
+          "distance": 200,
+          "net": 3.2439560439560426,
+          "tax": 0.07142857142857142,
+          "parts": 0.12984615384615386,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N21-38-23",
+          "rate": 10,
+          "distance": 151,
+          "net": 4.9396907762363655,
+          "tax": 0.07142857142857142,
+          "parts": 0.0960711638250556,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N22-11-17",
+          "rate": 10,
+          "distance": 144,
+          "net": 5.171934260429836,
+          "tax": 0.07142857142857142,
+          "parts": 0.09144542772861357,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N22-12-24",
+          "rate": 10,
+          "distance": 150,
+          "net": 4.973015873015874,
+          "tax": 0.07142857142857142,
+          "parts": 0.09540740740740741,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N23-20-16",
+          "rate": 5,
+          "distance": 140,
+          "net": 2.4128151260504205,
+          "tax": 0.03571428571428571,
+          "parts": 0.04735294117647059,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W46N21-27-44",
+          "rate": 10,
+          "distance": 219,
+          "net": 2.5515222482435598,
+          "tax": 0.07142857142857142,
+          "parts": 0.14363778298204527,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W46N22-41-16",
+          "rate": 10,
+          "distance": 167,
+          "net": 4.399689208016291,
+          "tax": 0.07142857142857142,
+          "parts": 0.10682670667666917,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N25-4-6",
+          "rate": 5,
+          "distance": 193,
+          "net": 1.4983331511640616,
+          "tax": 0.03571428571428571,
+          "parts": 0.06549349655700076,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N25-15-33",
+          "rate": 5,
+          "distance": 180,
+          "net": 1.7294372294372293,
+          "tax": 0.03571428571428571,
+          "parts": 0.06090909090909091,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W45N25-36-34",
+          "rate": 5,
+          "distance": 170,
+          "net": 1.9041353383458646,
+          "tax": 0.03571428571428571,
+          "parts": 0.057443609022556394,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W46N21-24-21",
+          "rate": 10,
+          "distance": 217,
+          "net": 2.625375793341498,
+          "tax": 0.07142857142857142,
+          "parts": 0.1421667965705378,
+          "verdict": "over-budget"
+        },
+        {
+          "sourceId": "source-intel-W46N23-17-44",
+          "rate": 5,
+          "distance": 174,
+          "net": 1.8345722904546433,
+          "tax": 0.03571428571428571,
+          "parts": 0.058823529411764705,
+          "verdict": "over-budget"
+        }
+      ],
+      "summary": {
+        "totalHarvest": 142.3654032333427,
+        "totalOverhead": 10.134432396706021,
+        "netEnergy": 132.2309708366367,
+        "efficiency": 92.88139381722168,
+        "isSustainable": true,
+        "minerCount": 7,
+        "haulerCount": 14
+      },
+      "warnings": []
+    }
+  }
+}
