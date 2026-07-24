@@ -4056,3 +4056,45 @@ source-link ~57 e/t throughput ceiling / core-drain sizing, a separate
 non-regressing item for a later cycle. Cycle verdict: **FIXED + VERIFIED +
 E4-TRANSIENT CLOSED** — controller progress ~10 → 58 e/t, storage draining, no
 regression.
+
+### AUDIT 2026-07-24 (t72552205) — link core-fill instrument REFUTES drain-limited; the pinned-remote symptom self-resolved
+
+Owner follow-up: "can we drain the core at 40 e/t?" The pinned-remote symptom
+(4a83 800/800, remotes ~19k, toHub stuck ~21) had THREE fits the two-snapshot
+read couldn't separate — drain-limited (core full, fires clamped), input-limited
+(core empty, small fires), or cadence. Rather than guess, shipped a core-fill +
+hub-clamp instrument (LinkMeter v15, commit 6394aa1, observability-only) and read
+one 523t window:
+
+| field | value | reading |
+|---|---|---|
+| coreEmptyShare | 0.802 | core near-empty 80% of ticks |
+| coreCongestedShare | 0.025 | no room for a volley only 2.5% |
+| coreFillAvg | 62/800 | ~empty |
+| hubClampShare | 0.143 | 14% of source fires clamped |
+| hubVolleyAvg | 425 | healthy mid-size volleys |
+| toHub / toController | 11.4 / 34.0 | directShare 0.447 |
+
+**Hypothesis (A) drain-limited is REFUTED** — the core is empty 80% of ticks and
+congested 2.5%; it is NOT the constraint. The "faster bank-drain / smaller
+CORE_LINK_INCOME_RESERVE" fix I was leaning toward would have chased a ghost —
+the instrument paid for itself by killing it (spec-14 discipline: instrument the
+invisible cause, don't theorize twice). Live snapshot corroborates: 4a83 at 62,
+no longer pinned.
+
+**The symptom self-resolved via the upgrader ramp.** The feeder fix (087bf48)
+raised consumption (toController 10→34, 44% now cheap 1-hop direct), which pulls
+energy through the network; total link throughput toHub 11 + toController 34 =
+~45 e/t (already > the 40 target), core a clear pass-through. sourceBuffers now
+DRAINING: 19.9k → 15.8k → 14.8k over ~1000t (≈ −4/t), near the healthy per-source
+sawtooth (~2k/source between hauler visits). Storage 51.5k, still draining as the
+upgraders burn.
+
+**No core/link fix warranted** — attacking core-drain now would destabilize a
+resolved, self-correcting flow (trap-list: question the mechanism; don't nudge
+the reserve in isolation). If the residual ~15k is ever to clear FASTER, that is
+a remote-deposit-hauler capacity question, not a core/link one — and the DEP
+ledger line already prices the link-placement half. Cycle verdict:
+**INSTRUMENTED + FALSIFIED (drain-limited) + SELF-RESOLVED** (remotes draining
+−4/t, link throughput ~45 e/t, core not the constraint). The core-fill/hub-clamp
+stamps stay as permanent link-network observability.
