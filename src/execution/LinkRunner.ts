@@ -13,6 +13,9 @@
  */
 
 import { controllerLink, coreLink } from "../corps/nodeEnergy";
+import { recordLinkFire } from "../telemetry/LinkMeter";
+import { routeSourceVolley } from "./linkRouting";
+import { resolveReserveTarget } from "../economy/bank";
 
 /**
  * Don't fire a dribble: wait until the source link holds at least this much, so
@@ -34,32 +37,41 @@ export function runLinks(): void {
       filter: s => s.structureType === STRUCTURE_LINK
     }) as StructureLink[];
 
-    // The controller link is a SINK (spec 24 rung 3): the core fires INTO it
-    // (the feeder loads the core from storage one tile away), and it must
-    // never fire back at the core - a two-link ping-pong burns 3% per hop.
+    // The controller link is WITHDRAW-ONLY (upgraders take from it; nothing
+    // deposits and it never fires onward - "terminal"). Sources may deposit
+    // straight into it, but it must never fire back - a two-link ping-pong burns
+    // 3% per hop.
     const ctrl = controllerLink(room);
+
+    // v1 control law (spec-26 stage 2): prefer the cheap 1-hop DIRECT deposit
+    // into the controller only once the WARCHEST is satisfied - below it,
+    // production-first keeps banking at the core (unchanged, no regression).
+    // The instrument (LinkMeter) measures the resulting direct share; a tighter
+    // feederRelayRate cap is the v2 refinement if this over-feeds.
+    const banked = room.storage?.my ? room.storage.store?.[RESOURCE_ENERGY] ?? 0 : 0;
+    // Spec 129 made the reserve a dynamic liquidity buffer; read the published
+    // target through resolveReserveTarget so runtime and plan share ONE number.
+    const preferControllerDirect =
+      banked >= resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
 
     for (const link of links) {
       if (link.id === core.id) continue;
-      if (ctrl && link.id === ctrl.id) continue; // sink, never a sender
+      if (ctrl && link.id === ctrl.id) continue; // withdraw-only, never a sender
       if (link.cooldown > 0) continue;
       if (link.store[RESOURCE_ENERGY] < LINK_FIRE_THRESHOLD) continue;
-      // BANK FIRST: income lands at the core (the hub the haulers drain).
-      // When the core is congested - full, or without room for a meaningful
-      // volley - spill DIRECTLY to the controller link instead (owner
-      // 2026-07-21: "it can send to the upgrader link as well"): one 3% hop
-      // instead of two, into the sink the relay was feeding anyway. A
-      // sub-volley core remainder is still taken before holding outright.
-      const coreFree = core.store.getFreeCapacity(RESOURCE_ENERGY);
-      const target =
-        coreFree >= LINK_FIRE_THRESHOLD
-          ? core
-          : ctrl && ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
-          ? ctrl
-          : coreFree > 0
-          ? core
-          : null;
-      if (target) link.transferEnergy(target);
+      const decision = routeSourceVolley({
+        coreFree: core.store.getFreeCapacity(RESOURCE_ENERGY),
+        controllerFree: ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null,
+        controllerUnderPlan: preferControllerDirect,
+        threshold: LINK_FIRE_THRESHOLD
+      });
+      const target = decision === "core" ? core : decision === "controllerDirect" ? ctrl : null;
+      if (target) {
+        // Instrument (LinkMeter): the intended volley = what fits at the target.
+        const amount = Math.min(link.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
+        link.transferEnergy(target);
+        recordLinkFire(room.name, ctrl && target.id === ctrl.id ? "controllerDirect" : "hub", amount, Game.time);
+      }
     }
 
     if (
@@ -68,7 +80,9 @@ export function runLinks(): void {
       core.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD &&
       ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD
     ) {
+      const amount = Math.min(core.store[RESOURCE_ENERGY], ctrl.store.getFreeCapacity(RESOURCE_ENERGY));
       core.transferEnergy(ctrl);
+      recordLinkFire(room.name, "controllerRelay", amount, Game.time);
     }
   }
 }

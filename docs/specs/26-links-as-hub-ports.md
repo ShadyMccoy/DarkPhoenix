@@ -1,10 +1,55 @@
 # 26 — Links as hub ports (deposit-side haulPos)
 
-**Status:** SCOPED — ready to build (owner design session 2026-07-23). The
-2026-07-21 deferral (below) is lifted: spec 25 (emergent dedication) has
-landed, and the owner's backpressure reframe (§"The banking question") retires
-the surplus-gate that made the controller-link half risky. Build is NOT started
-(owner: "document the proposed effort ... don't build").
+**Status:** SHIPPED THEN REVERTED — FAILED (2026-07-23). CONTROLLER-LINK ports
+were deployed at ~t72512031, **slow-collapsed the live colony** (fleet 30→13
+over ~1400t), and were reverted to pre-spec-26 on `master` (colony recovered).
+`detectLinkDepositPorts` now returns `[]` so the feature is INERT; the planner
+pricing, the shared mapper, `pickStorageDeposit`, and their unit tests are kept
+for a correct redesign. The earlier "verified live" claim was WRONG — it read
+plan-side telemetry (segment 6 showed the port) and a grid cell whose "link
+fills" assertion was a FALSE POSITIVE (the core→ctrl relay fills the link
+regardless of haulers). See docs/specs/14 for the incident writeup.
+
+**Why it failed — two faults:**
+1. **Delivery never landed.** In prod the core→controller relay keeps the
+   controller link topped, so a hauler finds ~no free room and falls back to
+   storage. Reproduced: a staged loaded hauler on a ported route wrote NO
+   `deposit-port` receipt in 240t. So the plan under-sized the ported haulers
+   for a delivery that always fell back to the hub — a plan-vs-actual lie. A
+   working controller-link port REQUIRES the relay to RESERVE drop room
+   (symmetric to `CORE_LINK_INCOME_RESERVE`) plus the feeder credit — the
+   deferred work is a hard PREREQUISITE, not optional.
+2. **Latent recovery deadlock (its own incident).** The fleet collapse drained
+   the spawn network and killed the tender; with the warchest at 2× target, a
+   "campaign" upgrader (`mustFund`, `gate: wall`) then held the spawn ahead of
+   the income fleet — a death spiral. Pre-existing scheduler fault (spend
+   outranks income when the fleet is depleted); spec-26 only triggered it.
+
+**Blind spot that let it ship:** the integration trio and the grid link cells
+never staged a storage hub + controller link together, so none exercised the
+port DELIVERY path. Any redesign MUST assert a real hauler delivery RECEIPT
+(not link fill) AND run a steady-state cell WITH the feeder relay present.
+
+**Original design refinement (kept for the redesign):** source-link ports were
+already dropped from v1 — a remote drop into a source link forwards to the core,
+but core→storage is staffed only for the home source's own rate, so the injected
+flow is unstaffed. Both port classes therefore need core/relay sizing work
+(source-link: a commissioned core→storage drain; controller-link: the relay
+drop-reserve + feeder credit) BEFORE any port pricing is honest.
+
+**UPDATE — STAGE 4 SHIPPED (source-link ports, 2026-07-24).** The source-link
+class is now LIVE and stable. The unstaffed-leg fault above was fixed by
+attributing the deposited flow to the port's OWNING link-served source, whose
+hauler already picks up at the core (`sourcePickupSpot` redirect) — so the
+core→storage drain is staffed with no new execution path (`DepositPort.drainFrom`
+/`drainSourceId`, `routeToSinks` drain loop). `detectLinkDepositPorts` re-armed
+for source-links ONLY (`DEPOSIT_PORT_HEADROOM=30`, conservative), controller-link
+ports still OUT (they need the relay drop-reserve — the v1 fault). Verified live
+against the failure signatures: 3 eastern remotes deposit at source-link 4a83,
+LINK `toHubRate` doubled (8.5→18.6 e/t) with `directShare 0` (no core
+congestion), `controllerStock` ROSE (relay untouched — the stage-2 starvation
+ruled out), plan CARRY 115.6→103.8. Captures shard1-t72530027 (pre) /
+-t72530163 (live proof). The controller-link class remains the deferred v2.
 
 ## The idea (owner 2026-07-21)
 
@@ -184,3 +229,78 @@ with the source's own mining flow; one eligibility lens for pricing + delivery.
    in the SAME pass, or a follow-up once drops are observed live?
 3. Warchest target as a function of spend RATE (owner: "what we have in the bank
    corresponds to our spending rate") — related buffer-sizing idea, separable.
+
+## Stage 5 (BACKLOG) — link placement as an optimization (owner 2026-07-24)
+
+Once ports work (stage 4 shipped), the open question is WHERE the links go. The
+common Screeps convention — one link next to each home source — is a **naive
+default**: it privileges a placement that only maximizes value by luck. A link
+is a scarce slot (RCL-capped: 3 at RCL6, 4 at 7, 6 at 8); each should be placed
+to maximize its logistics contribution, and a home source-link is just ONE
+candidate competing with confluence / edge-interception spots.
+
+**The metric.** A deposit link at position `P` serving source set `S` has three
+coupled quantities:
+
+- **Throughput ceiling** `T(P) = LINK_CAPACITY / range(P, core) = 800 / range`
+  e/t (cooldown = Chebyshev range, `LINK_COOLDOWN=1`). Hard cap; exceed it and
+  the link backs up — the failure the range-40 case (`T=20`, 2 sources) warns of.
+- **Assigned flow** `F(S) = Σ flow(s)`, constrained `F(S) ≤ T(P)`.
+- **Logistics value** (maximize this) `L(P,S) = Σ flow(s)·(haulDist(s) −
+  linkDist(s,P))` in **tile·e/t** ≈ CARRY parts freed.
+
+**The reach rule** falls out of `F ≤ 800/range`:
+
+> **A link's reach is inversely proportional to the flow it carries:
+> `range* ≤ 800 / F`.** High-flow clusters must be caught CLOSE to the core;
+> a single far source is exactly what a FAR link can serve. "Closer vs further"
+> is the wrong axis — push the link as far toward the flow as its `800/F` ring
+> allows, then it is optimal. Utilization `U = F/T`; a low-U link (few sources)
+> is only worth its slot if `L` still wins.
+
+**Measured examples (live W43N23, 2026-07-24):**
+
+| link | sources | F e/t | range→core | T | U | L (tile·e/t) |
+|---|---|---|---|---|---|---|
+| 4a83 (E, live) | cd90 + 3 remotes | 40 | 14 | 57 | 70% | ~530 |
+| (2,20) (W, proposed) | cbd5 only | 10 | 33 | 24 | 42% | ~320 |
+
+`(2,20)` serves cbd5 — a FAR single remote (hauler carry 21.2 @ dist 52) that
+4a83 physically cannot reach — cutting it to ~dist 20 (~13 CARRY freed). Under-
+utilized (1 source) but complementary, not competing: it captures flow, not
+redistributes it. Failure modes the metric rules out: high-flow cluster on a far
+link (backup); single far source on a close link (wasted ceiling + distance left
+on the table).
+
+**Objective.** Given ≤N link slots, partition sources into ≤N (position, cluster)
+assignments maximizing `Σ L` subject to per-link `F ≤ T` and geography (a link
+can't catch opposite room edges). A facility-location problem; greedy-by-`L`
+is the first cut.
+
+**Dependencies / sequencing:**
+- **Instrument first** (measure, no behavior change): extend
+  `computeDepositSavings` to cluster candidate sources, find each cluster's
+  `L`-maximizing `P` under the `800/range` ceiling, and rank — the DEP ledger
+  line reports `next link: <region>, L=…, U=…%` instead of raw per-source saving.
+- **Source-less interception links** (like `(2,20)`, no adjacent home source)
+  need drain attribution — the stage-4 owning-source trick doesn't apply, so
+  the drain attaches to a home source (cd90/cd92) or a dedicated core-drain.
+- **Link budget** is the gate: the storage↔controller merge (below) frees the
+  slot a second port needs. The two are one plan.
+
+**Related: storage↔controller merge (owner 2026-07-24).** Storage `(36,26)` and
+controller `(40,32)` sit 6 apart, forcing TWO links (core + controller). Placing
+storage adjacent to the controller lets ONE link do both jobs, which (1) frees a
+link slot for a deposit port, (2) halves the tax on controller-bound energy
+(1 hop, not source→core→controller = 2 hops = 6%), and (3) DELETES the
+core→controller relay entirely — the mechanism behind both the stage-2 collapse
+and the sub-threshold tax-dribble. Cost: relocating a built storage (~30k +
+migration), so a "when expanding / placing fresh" decision, not urgent.
+
+**Acceptance (when built):**
+- Unit (pure): `L`, throughput ceiling, and utilization primitives in
+  `economy/primitives.ts`; a placement ranker that respects `F ≤ 800/range`.
+- Instrument: the DEP ledger line reports ranked candidate placements (L, U,
+  ceiling) — measure-first, no behavior change, same discipline as stage 1.
+- Later (behavior): the planner consumes the ranking to propose link
+  construction sites; source-less port drains staffed and priced.

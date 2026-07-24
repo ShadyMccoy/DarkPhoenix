@@ -97,6 +97,50 @@ export function shouldBankControllerLoad(params: {
 }
 
 /**
+ * Where a storage-bound (deposit) load should go THIS tick (spec 26): the plan's
+ * DEPOSIT PORT (a controller link the hauler turns around at early) when one was
+ * chosen and it has room, else the storage hub, else nowhere. Returning "none"
+ * (port full AND storage full) lets deliverToStorage return false so deliverEnergy
+ * spills the load to a hungry spawn/controller instead of camping the port - the
+ * same escape valve the pre-port code relies on. Pure so it is unit-testable, and
+ * the delivery reads the plan's chosen port rather than re-deriving one (delivery/
+ * pricing symmetry - the staffsPost-symmetry class).
+ */
+export function pickStorageDeposit(params: {
+  /** The port the plan priced this route to (undefined = no port, haul the hub leg). */
+  depositPos?: Position;
+  /** Free capacity in the port link right now (0 when full or the link is gone). */
+  portFree: number;
+  /** Free capacity in the storage hub right now. */
+  storageFree: number;
+  /** Ticks this hauler has already held at a FULL port this trip (0 = not waiting yet). */
+  portWaitedTicks?: number;
+}): "port" | "storage" | "wait" | "none" {
+  if (params.depositPos && params.portFree > 0) return "port";
+  // Port full (or no port). If the hub is ALSO full there is nowhere to bank -
+  // spill to a hungry spawn/controller (the escape valve; never camp a full port).
+  if (params.storageFree <= 0) return "none";
+  // Port full but the plan routed us here: HOLD at the link rather than bouncing
+  // to the hub (owner 2026-07-24). A source link fires to the core within its
+  // cooldown, so runt-rebuild core congestion clears in a few ticks - walking to
+  // storage and turning back on every transient fill is the reported bounce. The
+  // wait is BOUNDED: a chronically full port (core drain stuck, not just a
+  // rebuild blip) still falls back and delivers, so a hauler can never camp a
+  // dead port forever - the spec-26 v1 stall guard.
+  if (params.depositPos && (params.portWaitedTicks ?? 0) < PORT_WAIT_CAP) return "wait";
+  return "storage";
+}
+
+/**
+ * How long a port hauler holds at a FULL deposit link before giving up and
+ * hauling the remainder to the hub (spec 26, owner 2026-07-24). ~2 source-link
+ * cooldowns: long enough to ride out the runt-rebuild core congestion that
+ * transiently blocks the link's fire, short enough that a genuinely stuck port
+ * still delivers rather than stranding the load aboard a parked hauler.
+ */
+export const PORT_WAIT_CAP = 30;
+
+/**
  * Small energy buffer kept in the core depot so the extension tender always has a
  * load on hand. Deliberately modest: it only needs to bridge between hauler drop-offs,
  * not bankroll the whole network - a large buffer would pull haulers off the
@@ -368,8 +412,22 @@ export class CarryCorp extends Corp {
     const room = spawn.room;
     const creeps = this.getAssignedCreeps();
 
+    // Stranded-hauler diagnostic (4-30 lingers across captures despite the
+    // retiring-recycle fix): stamp the exact state the recycle paths read -
+    // is the corp retiring? how many routes does it still hold? how many of
+    // its creeps are LOADED (flagRetiringForRecycling skips loaded ones)? One
+    // recapture resolves whether it's stuck-loaded vs never-flagged-retiring.
+    this.lastSizing = {
+      tick,
+      retiring: this.retiring,
+      routes: this.getHaulerAssignments().length,
+      creeps: creeps.length,
+      loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length
+    };
+
     this.flagRuntForRecycling(creeps, room, spawn);
     this.flagEndOfLifeForRecycling(creeps);
+    this.flagRetiringForRecycling(creeps);
 
     for (const creep of creeps) {
       if (creep.memory.recycling) {
@@ -392,6 +450,28 @@ export class CarryCorp extends Corp {
    * staffsPost already excludes these from staffing (recycling creeps order
    * their successors - the trap-list rule), so no double-ordering.
    */
+  /**
+   * RETIRING recycle: the planner stopped commissioning this corp (its route
+   * vanished) but it is kept while it has live creeps (materializeCommissions'
+   * hysteresis, so they're never orphaned). A hauler with no route has no work
+   * to "finish", so "run to natural death" meant idling ~1500 ticks (live
+   * t72525241: hauling-W44N23-hauling-4-30, a stranded 6-part creep with no plan
+   * route). Recycle an EMPTY retiring hauler NOW - refunds the body, orders no
+   * successor (retiring already cuts demand). A LOADED one keeps working so
+   * runHauler delivers its cargo first (never strand it); it recycles next tick
+   * once empty. Generalises the scavenger-stock recycle (pickupEnergy) to any
+   * route that vanished.
+   */
+  private flagRetiringForRecycling(creeps: Creep[]): void {
+    if (!this.retiring) return;
+    for (const creep of creeps) {
+      if (creep.memory.recycling || creep.spawning) continue;
+      if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) === 0) {
+        creep.memory.recycling = true;
+      }
+    }
+  }
+
   private flagEndOfLifeForRecycling(creeps: Creep[]): void {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return;
@@ -687,6 +767,15 @@ export class CarryCorp extends Corp {
         // froze the scavenger beside its dead stock for the rest of its life
         // (observed live 2026-07-17, 744/800 aboard).
         this.depart(creep, room);
+      } else {
+        // Drained stock AND empty-handed: this scavenger will never scavenge
+        // again (re-detection dropped the stock; the corp is retiring and its
+        // demand is already cut, so no successor is ordered). RECYCLE NOW.
+        // The retained-but-retiring corp is NOT orphaned, so OrphanRescue never
+        // collects the creep (investigation 2026-07-23) - without this it idles
+        // beside the dead stock for the rest of its ~1500-tick life, the parked
+        // runt the "fewer creeps" goal is about. driveRecycle refunds the body.
+        creep.memory.recycling = true;
       }
       return;
     }
@@ -879,6 +968,50 @@ export class CarryCorp extends Corp {
    */
   private deliverToStorage(creep: Creep, room: Room): boolean {
     const storage = room.storage;
+    // DEPOSIT PORT (spec 26): the plan may have priced this deposit's haul-home to
+    // a nearer link (a controller link) it turns around at. Deliver there first;
+    // on a FULL drop the clean-bus state machine flips to pickup next tick (the
+    // hauler turns around, round trip = the short port leg). A PARTIAL drop leaves
+    // energy aboard, so next tick the now-full port yields "storage" and the
+    // remainder hauls on to the hub - the emergent port-full fallback. The port is
+    // read from the plan's assignment, never re-derived (delivery/pricing symmetry).
+    const depositPos = this.storageDepositPort();
+    const port = depositPos ? this.resolvePortLink(depositPos) : null;
+    const portWaitedTicks = creep.memory.portWaitSince !== undefined ? Game.time - creep.memory.portWaitSince : 0;
+    const decision = pickStorageDeposit({
+      depositPos,
+      portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      portWaitedTicks
+    });
+    if (decision === "wait" && port) {
+      // Hold at the link (owner 2026-07-24): the source link fires to core within
+      // its cooldown, so waiting a few ticks beats bouncing to the hub and back.
+      // Start the wait clock on the first hold; PORT_WAIT_CAP bounds it.
+      if (creep.memory.portWaitSince === undefined) creep.memory.portWaitSince = Game.time;
+      if (creep.pos.getRangeTo(port.pos) > 1) {
+        travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+      }
+      return true; // idle-in-place with the load until the port drains or the cap trips
+    }
+    // Any non-wait outcome ends the hold: clear the clock so the next full-port
+    // encounter starts a fresh window (a deposit or a fallback both reset it).
+    if (creep.memory.portWaitSince !== undefined) delete creep.memory.portWaitSince;
+    if (decision === "port" && port) {
+      if (creep.pos.getRangeTo(port.pos) > 1) {
+        travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+        return true;
+      }
+      const moved = Math.min(creep.store[RESOURCE_ENERGY], port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0);
+      if (creep.transfer(port, RESOURCE_ENERGY) === OK) {
+        this.recordProduction(moved);
+        creep.memory.lastDeliver = { to: "deposit-port", amount: moved, tick: Game.time };
+      }
+      return true;
+    }
+    // "storage" or "none": the existing hub delivery. "none" (port + storage both
+    // full) falls through to the return-false below so deliverEnergy spills the
+    // load to a hungry spawn/controller (never camp a full port).
     if (!storage || !storage.my) return false; // route gone; caller re-assigns / falls back
     if (storage.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false; // bank full: spill to consumers
     if (creep.pos.getRangeTo(storage) > 1) {
@@ -893,6 +1026,31 @@ export class CarryCorp extends Corp {
       creep.memory.lastDeliver = { to: "storage", amount: moved, tick: Game.time };
     }
     return true;
+  }
+
+  /**
+   * The deposit port the plan chose for this corp's haul-home route (spec 26),
+   * read FRESH from the storage-bound assignment every call - assignments are
+   * fully replaced each solve (setHaulerAssignments), so this can never go stale
+   * the way a sticky corp field would (immortal-field trap). Undefined = no port,
+   * haul the full hub leg.
+   */
+  private storageDepositPort(): Position | undefined {
+    for (const a of this.haulerAssignments) {
+      if ((a.toId ?? "").startsWith("storage-") && a.depositPos) return a.depositPos;
+    }
+    return undefined;
+  }
+
+  /** Resolve a deposit port position to its live link, or null if it is gone /
+   * not ours (delivery then falls back to the storage hub). */
+  private resolvePortLink(pos: Position): StructureLink | null {
+    const room = Game.rooms[pos.roomName];
+    if (!room) return null;
+    const link = room
+      .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
+      .find(s => s.structureType === STRUCTURE_LINK) as StructureLink | undefined;
+    return link && link.my ? link : null;
   }
 
   /**

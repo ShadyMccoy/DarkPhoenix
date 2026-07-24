@@ -198,6 +198,8 @@ export interface AgendaEntry {
    * spawn executes this tick). Absent on the legacy ranking-only path.
    */
   gate?: string;
+  /** The demand's blocking flag (critical path), for the windfall instrument. */
+  blocking?: boolean;
 }
 
 const INFRA_ROLES = new Set<string>(["tanker", "feeder", "scout"]);
@@ -223,9 +225,13 @@ export function buildAgendaQueue(
   tick: number,
   energyAvailable: number,
   gates?: ReadonlyMap<SpawnDemand, AcquisitionGate>,
-  limit = 8
+  limit = 8,
+  bankSurplus = 0
 ): { queue: AgendaEntry[]; fundingNeed: number } {
-  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick) - effectivePriority(a, tick));
+  const campaignLift = campaignConsumerLift(bankSurplus);
+  const ranked = [...demands].sort(
+    (a, b) => effectivePriority(b, tick, campaignLift) - effectivePriority(a, tick, campaignLift)
+  );
   const queue = ranked.slice(0, limit).map((d, i): AgendaEntry => {
     const precondition =
       i === 0
@@ -240,6 +246,7 @@ export function buildAgendaQueue(
       minCost: d.minCost,
       desiredCost: d.desiredCost,
       mustFund: d.blocking || d.replacement === true || d.holdToFund === true,
+      blocking: d.blocking,
       why: agendaWhy(d),
       since: d.since,
       ...(precondition ? { precondition } : {}),
@@ -248,6 +255,38 @@ export function buildAgendaQueue(
   });
   const fundingNeed = queue.reduce((sum, a) => sum + (a.mustFund ? a.minCost : 0), 0);
   return { queue, fundingNeed };
+}
+
+/**
+ * Instrument (spec 14, owner 2026-07-24): detect when a CAMPAIGN consumer's wall
+ * (a holdToFund upgrader under a bank surplus) is PREEMPTED - present but not
+ * funded (queued/held under the income tier) while a lower income demand buys.
+ * This is the measured E4/P7 freeze the storage throttle addresses. `fleetSecured`
+ * tags whether the preemptor was a routine non-blocking replacement of an
+ * at-target fleet (vs blocking/growth income) - the safe-to-lift signal that
+ * motivated the throttle. Retained as observability: the DEP/wallpreempt trail
+ * shows the throttle displacing these preemptions over time. Pure.
+ * Returns null when there is no preempted campaign consumer this tick.
+ */
+export function detectWallPreemption(
+  agenda: AgendaEntry[]
+): { campaignRole: string; campaignGate: string; preemptorWhy: string; fleetSecured: boolean } | null {
+  // The campaign consumer is PRESENT but NOT funded this tick. It is outranked
+  // by the income tier, so its gate is normally "queued" (income bought) or
+  // "held" (income walling) - NOT "wall" (which needs it to be the top demand,
+  // rare). Any non-"buy" gate is a preemption candidate.
+  const campaign = agenda.find(e => e.why === "campaign");
+  if (!campaign || campaign.gate === "buy") return null;
+  const buy = agenda.find(
+    e => e.gate === "buy" && (e.why === "scale" || e.why === "new-unit" || e.why === "replacement")
+  );
+  if (!buy) return null;
+  // Fleet secured = every income entry is a non-blocking replacement: no growth,
+  // no blocking, no blocking replacement (the safe-to-lift signal, for the trail).
+  const fleetSecured = !agenda.some(
+    e => e.why === "new-unit" || e.why === "scale" || (e.why === "replacement" && e.blocking === true)
+  );
+  return { campaignRole: campaign.role, campaignGate: campaign.gate ?? "?", preemptorWhy: buy.why, fleetSecured };
 }
 
 // =============================================================================
@@ -277,7 +316,7 @@ export interface AcquisitionPlan {
 export function planAcquisitions(demands: SpawnDemand[], ctx: ScheduleContext): AcquisitionPlan {
   const gates = new Map<SpawnDemand, AcquisitionGate>();
   const decision = walkDemands(demands, ctx, (d, g) => gates.set(d, g));
-  const { queue, fundingNeed } = buildAgendaQueue(demands, ctx.tick, ctx.energyAvailable, gates);
+  const { queue, fundingNeed } = buildAgendaQueue(demands, ctx.tick, ctx.energyAvailable, gates, 8, ctx.bankSurplus ?? 0);
   return { agenda: queue, fundingNeed, decision };
 }
 
@@ -303,6 +342,14 @@ export interface ScheduleContext {
   energyIncome: number;
   /** Current game tick. */
   tick: number;
+  /**
+   * Storage energy ABOVE the reserve target (>=0), the STORAGE THROTTLE input
+   * (owner 2026-07-24): 0 while the warchest is still filling (hard
+   * producer-first); positive once in surplus, when a consumer buys priority
+   * proportional to it (campaignConsumerLift). Optional - absent/0 leaves the
+   * pre-throttle producer-first ordering, so all existing callers are unchanged.
+   */
+  bankSurplus?: number;
 }
 
 /** The scheduler's decision: which demand to spawn and the energy budget for it. */
@@ -427,28 +474,59 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
  * guarantee real: every demand that crosses the threshold is reached in
  * bounded time.
  */
-export function effectivePriority(demand: SpawnDemand, tick: number): number {
+/** A campaign consumer: a non-income demand that walls under a bank surplus. */
+function isCampaignConsumer(demand: SpawnDemand): boolean {
+  return !demand.producesIncome && demand.holdToFund === true;
+}
+
+/** The income band a lifted consumer enters (matches spawnPriority's tier). */
+const SURPLUS_LIFT_TIER = 1_000_000;
+/**
+ * Maximum ramp added on top of the income band as the warchest fills - kept
+ * strictly BELOW the blocking gap (BLOCKING = 1e4), so a fresh source's miner /
+ * a started source's first hauler (income + blocking) ALWAYS outranks a lifted
+ * consumer. This is the death-spiral floor: the throttle can buy priority over
+ * scaling/replacement income, never over the critical path.
+ */
+const SURPLUS_LIFT_MAX_RAMP = 9_000;
+/**
+ * Surplus (storage ABOVE the reserve target) at which a consumer reaches its
+ * full lift. ~one typical reserve, so storage at ~2x reserve buys top consumer
+ * priority; below that the lift ramps in proportionally. Tunable.
+ */
+const SURPLUS_FULL_AT = 20_000;
+
+/**
+ * The STORAGE THROTTLE (owner 2026-07-24): relax producer-before-consumer using
+ * the warchest as a continuous governor. At/below the reserve target
+ * (bankSurplus <= 0) the lift is 0 - hard producer-first, exactly as before. As
+ * the surplus grows the consumer "buys priority", ramping into the income band
+ * but capped below blocking. Self-balancing: over-shoot on consumers drains the
+ * warchest, the surplus falls, the lift recedes, producers refill - equilibrium
+ * near the reserve target. Pure.
+ */
+export function campaignConsumerLift(bankSurplus: number): number {
+  if (bankSurplus <= 0) return 0;
+  return SURPLUS_LIFT_TIER + Math.min(SURPLUS_LIFT_MAX_RAMP, (bankSurplus / SURPLUS_FULL_AT) * SURPLUS_LIFT_MAX_RAMP);
+}
+
+export function effectivePriority(demand: SpawnDemand, tick: number, campaignLift = 0): number {
   // Opportunistic demands (task #11: idle-window fillers like the reservation
   // topup) live at their base value FOREVER: they exist to soak spawn windows
   // nothing else wants, so aging one into the starved tier would invert the
   // whole idea - it must never outrank real work no matter how long it waits.
   if (demand.opportunistic) return spawnPriority(demand);
   const starved = starvationBoost(demand, tick);
-  if (starved === 0) return spawnPriority(demand);
-  // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
-  // longer than another outranks it outright; within the same bucket the value
-  // doctrine (income first, finish started sources) still orders the buys.
-  // Raw-age FIFO was measured WRONG on both ends (instrumented flow-handoff
-  // draw, agenda mirror): a cold start seeds every demand in the same tick, so
-  // raw age degenerates to collection order and round-robins miner buys across
-  // sources - no source ever COMPLETES its staffing, so withMinerPrecedence
-  // never unlocks a hauler (zero flow haulers by t600, control draw on the
-  // additive ranking green). Bucketing keeps the live guarantee that motivated
-  // FIFO (t72403765: tender age 1371 = bucket 4 outranks the hauler stream at
-  // <=1134 = bucket 3) while inside a bucket the started-source concentration
-  // that cold start depends on still applies.
-  const buckets = Math.floor((tick - demand.since) / STARVATION_THRESHOLD);
-  return starved + buckets * STARVED_BUCKET_STEP + spawnPriority(demand);
+  const base =
+    starved === 0
+      ? spawnPriority(demand)
+      : starved + Math.floor((tick - demand.since) / STARVATION_THRESHOLD) * STARVED_BUCKET_STEP + spawnPriority(demand);
+  // Storage throttle (owner 2026-07-24): a surplus consumer buys priority with
+  // the warchest - into the income band, below blocking - so at high surplus it
+  // outbids scaling/replacement income and the warchest is spent on progress
+  // instead of rotting (measured E4/P7: 1 of targetCount 4, controller 0.46x).
+  if (campaignLift > 0 && isCampaignConsumer(demand)) return Math.max(base, campaignLift + demand.value);
+  return base;
 }
 
 /**
@@ -523,6 +601,11 @@ function walkDemands(
   // the miner is staffed first. Otherwise a hauler can outrank its own miner on
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
+  // Storage throttle (spec 14 E4/P7, owner 2026-07-24): a surplus consumer's
+  // priority lift, scaled by the warchest above reserve. 0 when storage is at/
+  // below reserve (hard producer-first); ramps into the income band (below
+  // blocking) as the surplus grows. Its wall also goes strict while lifted.
+  const campaignLift = campaignConsumerLift(ctx.bankSurplus ?? 0);
   if (record) {
     const kept = new Set(eligible);
     for (const d of demands) if (!kept.has(d)) record(d, "no-miner");
@@ -532,7 +615,9 @@ function walkDemands(
   // that has waited past the threshold is lifted above the income tier, so the
   // walk below reaches it - affordable and on top - before any blocking income
   // demand can hold the spawn, giving the long-starved creep its one guaranteed slot.
-  const ranked = [...eligible].sort((a, b) => effectivePriority(b, ctx.tick) - effectivePriority(a, ctx.tick));
+  const ranked = [...eligible].sort(
+    (a, b) => effectivePriority(b, ctx.tick, campaignLift) - effectivePriority(a, ctx.tick, campaignLift)
+  );
 
   // Set once we pass a blocking demand we cannot afford yet but the room can
   // eventually build. From then on we decline to spend the dribble on
@@ -672,6 +757,13 @@ function walkDemands(
       // wall IS how a blocking body ever funds.
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
+      // Storage throttle (spec 14 E4/P7): a lifted surplus consumer's wall goes
+      // strict so the non-blocking income ranked BELOW it (it was lifted above)
+      // can't drain the bank before the body accumulates. Blocking income sits
+      // ABOVE the lift, so it was already processed and is never held here;
+      // infra still pierces. When there is no surplus (campaignLift 0) the wall
+      // stays non-strict - the W2N6 cold-start protection, unchanged.
+      if (campaignLift > 0 && fundableConsumer) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn - but
     // remember the runway: opportunistic demands below must not soak it.

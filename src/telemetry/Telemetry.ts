@@ -20,7 +20,12 @@
 
 import { Colony } from "../colony/Colony";
 import { Corp, CorpSizingRecord } from "../corps/Corp";
-import { controllerSideStock } from "../corps/nodeEnergy";
+import { controllerSideStock, coreLink, controllerLink } from "../corps/nodeEnergy";
+import { linkLedger } from "./LinkMeter";
+import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
+import { Position } from "../types/Position";
+import { pathDistance } from "../nodes/NodeNavigator";
+import { feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -291,6 +296,17 @@ export interface CoreTelemetry {
     cpu: number;
     byCorp: { [family: string]: { calls: number; cpu: number } };
   };
+  /** Per-room link throughput (v14, spec-26 instrument): ACTUAL e/t carried -
+   * to the hub vs DELIVERED to the controller (the receipt), the 1-hop direct
+   * share, and the 3% tax paid. Read-only measurement ahead of the planner. */
+  links?: {
+    room: string;
+    windowTicks: number;
+    toHubRate: number;
+    toControllerRate: number;
+    directShare: number;
+    taxRate: number;
+  }[];
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -460,10 +476,24 @@ export interface CorpsTelemetry {
 export interface FlowTelemetry {
   version: number;
   tick: number;
-  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget. */
-  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number };
+  /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget.
+   * v9 adds spent/dry: the spawn shadow-price signal (dry=true => spawn
+   * capacity is the binding constraint; the scavenge-gate precondition). */
+  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number; spent?: number; dry?: boolean };
   /** Problem-assembly counts (v5): names the layer that dropped sources. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
+  /** DEPOSIT-side link instrument (v10, spec-26 stage 4): for each REMOTE
+   * source, the nearest deposit-capable home-room link and the haul it would
+   * save by dropping there (a creep bridges the rooms; the link does the in-room
+   * hop). Plus per-link deposit flow (the throughput headroom). Read-only. */
+  depositSavings?: {
+    candidates: { sourceId: string; haulDist: number; linkId: string; linkDist: number; saving: number; flowRate: number }[];
+    perLink: { linkId: string; depositFlow: number; sources: number }[];
+    /** The controller link (a bank-neutral deposit target up to controllerCapacity
+     * e/t - it displaces the relay). */
+    controllerLinkId?: string;
+    controllerCapacity?: number;
+  };
   /** Source nodes (energy producers) */
   sources: {
     id: string;
@@ -503,6 +533,13 @@ export interface FlowTelemetry {
      * ledger cannot drift from the bot it audits (owner 2026-07-22).
      */
     spawnParts?: number;
+    /**
+     * Deposit port (spec 26): the link this route drops at instead of the storage
+     * hub, when the plan priced a shorter port leg. Present only on ported routes,
+     * so a dashboard can see which mined deposits turn around early (and compare
+     * this route's shrunken `carryParts`/`distance` against the no-port baseline).
+     */
+    port?: { x: number; y: number; roomName: string };
   }[];
   /** Sink nodes (energy consumers) - spawns, controllers, construction */
   sinks: {
@@ -847,7 +884,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 13, // v12 endFill probe; v13 roadReceipts (the pave/dedication lens records, verbatim)
+      version: 14, // v13 roadReceipts; v14 links (spec-26 link-throughput instrument)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -893,6 +930,10 @@ export class Telemetry {
         return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
       })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
+      ...(() => {
+        const links = linkLedger(Game.time);
+        return links.length > 0 ? { links } : {};
+      })(),
       rooms
     };
 
@@ -1175,6 +1216,87 @@ export class Telemetry {
    * Updates flow telemetry (Segment 6).
    * Shows flow economy state: sources, sinks, and energy allocations.
    */
+  /**
+   * DEPOSIT-side link instrument (spec-26 stage 4): for each REMOTE source (a
+   * different room from the home link network), the nearest deposit-capable
+   * home-room link and the haul a creep would save by dropping there instead of
+   * walking to storage. In-room sources are excluded (their own source links are
+   * already modeled via haulPos); the terminal controller link is excluded (a
+   * bank deposit must not misroute into the controller). Estimate-distance only
+   * (read-only knowledge before any routing change).
+   */
+  private buildDepositInstrument(
+    sources: FlowTelemetry["sources"],
+    haulers: FlowTelemetry["haulers"]
+  ): DepositSavingsReport | undefined {
+    try {
+      return this.buildDepositInstrumentUnsafe(sources, haulers);
+    } catch {
+      return undefined; // a read-only instrument must never break the telemetry tick
+    }
+  }
+
+  private buildDepositInstrumentUnsafe(
+    sources: FlowTelemetry["sources"],
+    haulers: FlowTelemetry["haulers"]
+  ): DepositSavingsReport | undefined {
+    if (typeof Game === "undefined" || !Game.rooms) return undefined;
+    let home: Room | undefined;
+    for (const name in Game.rooms) {
+      const r = Game.rooms[name];
+      if (r.controller?.my && r.storage?.my && coreLink(r)) {
+        home = r;
+        break;
+      }
+    }
+    if (!home || !home.storage) return undefined;
+    const ctrl = controllerLink(home);
+    // Include the CONTROLLER link as a candidate (owner 2026-07-23): a deposit
+    // there displaces an equal core->controller relay feed (bank-neutral, up to
+    // the controller's feed rate) - not a misroute. Exclude only the CORE link
+    // itself (it sits on storage; depositing there saves nothing and the core is
+    // the hub, not a shortcut).
+    const core = coreLink(home);
+    const links: DepositLink[] = (
+      home.find(FIND_MY_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_LINK && (!core || s.id !== core.id)
+      }) as StructureLink[]
+    ).map(l => ({ id: l.id, pos: { x: l.pos.x, y: l.pos.y, roomName: home!.name } }));
+    if (links.length === 0) return undefined;
+
+    const storagePos: Position = { x: home.storage.pos.x, y: home.storage.pos.y, roomName: home.name };
+    const banked = home.storage.store?.[RESOURCE_ENERGY] ?? 0;
+    const flowBySource = new Map<string, number>();
+    for (const h of haulers) flowBySource.set(h.sourceId, (flowBySource.get(h.sourceId) ?? 0) + h.flowRate);
+
+    const depSources: DepositSource[] = [];
+    for (const s of sources) {
+      const m = /^(.+)-(\d+)-(\d+)$/.exec(s.nodeId);
+      if (!m) continue;
+      const pos: Position = { roomName: m[1], x: +m[2], y: +m[3] };
+      if (pos.roomName === home.name) continue; // in-room sources use haulPos already
+      depSources.push({
+        id: s.id,
+        pos,
+        flowRate: flowBySource.get(s.id) ?? s.harvestRate,
+        // REAL walking distance (PathFinder, cached) - the crude
+        // estimateCrossRoomDistance mis-composed the in-room term across rooms
+        // and undercounted savings (owner saw 3 routes >5 tiles vs my 2 @5).
+        haulDist: pathDistance(pos, storagePos)
+      });
+    }
+    const report = computeDepositSavings(depSources, links, pathDistance);
+    if (ctrl) {
+      // A deposit at the controller link is bank-neutral only up to the
+      // controller's feed rate (it displaces that much relay draw); beyond it
+      // the terminal link fills. Surface the cap so the DEP line never over-
+      // counts controller-bound deposit flow.
+      report.controllerLinkId = ctrl.id;
+      report.controllerCapacity = feederRelayRate(banked, resolveReserveTarget(Memory.warchestTarget));
+    }
+    return report;
+  }
+
   private updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // Build source data from miner assignments
     const sources: FlowTelemetry["sources"] = [];
@@ -1210,7 +1332,8 @@ export class Telemetry {
           distance: hauler.distance,
           spawnId: hauler.spawnId,
           ratio: hauler.haulerRatio,
-          ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {})
+          ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {}),
+          ...(hauler.depositPos ? { port: hauler.depositPos } : {})
         });
       }
 
@@ -1243,11 +1366,18 @@ export class Telemetry {
       // the audit reads source->construction ROUTES, not a flag). v8 exports
       // haulers[].spawnParts (the planner's paved-aware parts/tick) so the P4
       // ledger echoes it instead of re-deriving - drift eliminated at the root.
-      version: 8,
+      // v9 adds partsLedger.spent/dry - the spawn shadow-price signal for the
+      // scavenge economic gate (instrument-first, 2026-07-23). v10 adds
+      // depositSavings - the deposit-side link instrument (spec-26 stage 4).
+      version: 10,
       tick: Game.time,
       sources,
       haulers,
       sinks,
+      ...(() => {
+        const dep = this.buildDepositInstrument(sources, haulers);
+        return dep && dep.candidates.length > 0 ? { depositSavings: dep } : {};
+      })(),
       ...(flowSolution?.partsLedger ? { partsLedger: flowSolution.partsLedger } : {}),
       ...(flowSolution?.assembly ? { assembly: flowSolution.assembly } : {}),
       candidates: flowSolution?.sourceVerdicts ?? [],

@@ -20,9 +20,11 @@ import {
   ScheduleContext,
   SpawnDemand,
   SpawnDemandContext,
+  detectWallPreemption,
   planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
+import { resolveReserveTarget } from "../economy/bank";
 import { CorpRegistry } from "./CorpRunner";
 import { allCommissionedCorps } from "./CommissionHost";
 import { Corp } from "../corps/Corp";
@@ -75,11 +77,18 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       const demands = collectDemands(registry, spawn.id, demandCtx);
       stampDemandAges(demands, spawn.id, firstSeen, seenThisTick, Game.time);
 
+      // Storage throttle input (owner 2026-07-24): energy banked ABOVE the
+      // reserve target. 0 while the warchest fills (producer-first); positive in
+      // surplus, when a consumer buys priority proportional to it.
+      const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
+      const bankSurplus = Math.max(0, banked - resolveReserveTarget(Memory.warchestTarget));
+
       const ctx: ScheduleContext = {
         energyAvailable: room.energyAvailable,
         energyCapacity: room.energyCapacityAvailable,
         energyIncome: income,
-        tick: Game.time
+        tick: Game.time,
+        bankSurplus
       };
 
       // THE NOW PLAN (spec 11 / spec 17): ONE planner call yields both the
@@ -89,6 +98,23 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       // mechanically; it holds no decision logic of its own.
       const plan = planAcquisitions(demands, ctx);
       publishSpawnAgenda(spawn.id, plan, room.energyAvailable);
+      // Instrument (spec 14, owner 2026-07-24): sample campaign-consumer wall
+      // preemptions - the E4/P7 freeze where a holdToFund upgrader walls while
+      // income buys through the non-strict hold. `fleetSecured` says whether the
+      // conditioned windfall gate would safely fire (only replacements left).
+      // Sampled (every 10t) so the ring keeps room for other traffic.
+      if (Game.time % 10 === 0) {
+        const preempt = detectWallPreemption(plan.agenda);
+        if (preempt) {
+          blackBox("wallpreempt", {
+            spawn: spawn.id,
+            role: preempt.campaignRole,
+            preemptor: preempt.preemptorWhy,
+            fleetSecured: preempt.fleetSecured,
+            bank: room.energyAvailable
+          });
+        }
+      }
       if (demands.length === 0) continue;
 
       const result = plan.decision;

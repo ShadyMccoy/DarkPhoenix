@@ -137,3 +137,62 @@ describe("agenda carries demand age (since) for starvation diagnosis", () => {
     expect(queue.map(q => q.corp)).to.deep.equal(["starved-tanker", "starved-hauler", "starved-upgrader"]);
   });
 });
+
+/**
+ * Instrument (spec 14, owner 2026-07-24): detectWallPreemption records when a
+ * campaign consumer's wall is bypassed by a lower income buy - the measured
+ * E4/P7 freeze - tagging whether the fleet was SECURED (only replacements
+ * outstanding, no growth) so the conditioned windfall gate is designed against
+ * real data before touching spawn priority.
+ */
+describe("detectWallPreemption (campaign-wall-vs-income instrument)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { detectWallPreemption } = require("../../../src/spawn/SpawnScheduler");
+  const entry = (why: string, gate: string, role = why): any => ({
+    role,
+    corp: "c-" + role,
+    minCost: 100,
+    desiredCost: 100,
+    mustFund: false,
+    why,
+    since: 0,
+    gate
+  });
+
+  it("flags a preemption (campaign QUEUED - the dominant case) and marks fleetSecured for a REPLACEMENT buy", () => {
+    // The campaign upgrader is outranked by the income tier, so its gate is
+    // "queued" while the replacement buys - NOT "wall". fleetSecured because the
+    // only income is a non-blocking replacement.
+    const p = detectWallPreemption([entry("campaign", "queued", "upgrader"), entry("replacement", "buy", "hauler")]);
+    expect(p).to.not.equal(null);
+    expect(p.campaignRole).to.equal("upgrader");
+    expect(p.campaignGate).to.equal("queued");
+    expect(p.preemptorWhy).to.equal("replacement");
+    expect(p.fleetSecured, "only a non-blocking replacement outstanding -> the gate would safely fire").to.equal(true);
+  });
+
+  it("fleetSecured=false when an income GROWTH (scale) buys through", () => {
+    const p = detectWallPreemption([entry("campaign", "queued", "upgrader"), entry("scale", "buy", "hauler")]);
+    expect(p).to.not.equal(null);
+    expect(p.fleetSecured, "a scale demand means the fleet is still growing -> income should win").to.equal(false);
+  });
+
+  it("fleetSecured=false when a BLOCKING replacement (dead critical miner) is outstanding", () => {
+    const blockingRepl = { ...entry("replacement", "buy", "miner"), blocking: true };
+    const p = detectWallPreemption([entry("campaign", "held", "upgrader"), blockingRepl]);
+    expect(p).to.not.equal(null);
+    expect(p.fleetSecured, "a blocking replacement is critical path -> not secured").to.equal(false);
+  });
+
+  it("returns null when there is no campaign consumer at all", () => {
+    expect(detectWallPreemption([entry("scale", "buy", "hauler"), entry("consume", "queued", "builder")])).to.equal(
+      null
+    );
+  });
+
+  it("returns null when the campaign consumer WAS funded this tick (not preempted)", () => {
+    expect(detectWallPreemption([entry("campaign", "buy", "upgrader"), entry("scale", "queued", "hauler")])).to.equal(
+      null
+    );
+  });
+});

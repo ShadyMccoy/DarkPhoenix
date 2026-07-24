@@ -34,12 +34,16 @@ function mkLink(id: string, x: number, y: number, store = 0, cooldown = 0): any 
   return link;
 }
 
-function mkRoom(opts: { core?: any; ctrl?: any; others?: any[] }): any {
+function mkRoom(opts: { core?: any; ctrl?: any; others?: any[]; banked?: number }): any {
   const links = [opts.core, opts.ctrl, ...(opts.others ?? [])].filter(Boolean);
   const room: any = {
     name: "W1N1",
     storage: opts.core
-      ? { my: true, pos: { findInRange: (_t: number, _r: number, _o?: any) => [opts.core] } }
+      ? {
+          my: true,
+          store: { energy: opts.banked ?? 0 },
+          pos: { findInRange: (_t: number, _r: number, _o?: any) => [opts.core] }
+        }
       : undefined,
     find: (_t: number, _o?: any) => links,
     controller: undefined
@@ -90,12 +94,27 @@ describe("controller link network (spec 24 rung 3)", () => {
     const core = mkLink("core", 20, 20, 400);
     const ctrl = mkLink("ctrl", 42, 32, 0);
     const src = mkLink("src", 5, 5, 300);
-    const room = mkRoom({ core, ctrl, others: [src] });
+    const room = mkRoom({ core, ctrl, others: [src] }); // banked 0 < warchest: bank-first
     (global as any).Game = { rooms: { W1N1: room } };
 
     runLinks();
     expect(src.fired).to.deep.equal(["core"]);
     expect(core.fired).to.deep.equal(["ctrl"]);
+  });
+
+  it("STAGE 2: at/above warchest a source link deposits DIRECT into the controller (1 hop, not via core)", () => {
+    // The spec-26 win: once the warchest is satisfied, production-first is met,
+    // so the controller-bound volley takes the cheap 1-hop direct path instead
+    // of source->core->controller. Below warchest this stays bank-first (above).
+    const core = mkLink("core", 20, 20, 0); // core has room - old rule would pick it
+    const ctrl = mkLink("ctrl", 42, 32, 0); // controller link has room
+    const src = mkLink("src", 5, 5, 300);
+    const room = mkRoom({ core, ctrl, others: [src], banked: 30_000 }); // >= WARCHEST_TARGET (~27.6k)
+    (global as any).Game = { rooms: { W1N1: room } };
+
+    runLinks();
+    expect(src.fired, "source deposits straight into the controller link").to.deep.equal(["ctrl"]);
+    expect(ctrl.fired, "the controller link never sends (invariant holds)").to.deep.equal([]);
   });
 
   /**

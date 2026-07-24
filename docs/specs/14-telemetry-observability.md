@@ -3705,16 +3705,259 @@ build") — **spec 26 links-as-hub-ports**, un-deferred and scoped:
   search-by-replanning — and the evaluator IS the runtime pricer (no drift).
   This is the load-bearing primitive for the base-layout leg, not a one-off.
 
+## INCIDENT 2026-07-23 — spec 26 (controller-link ports) FAILED, reverted
+
+**The earlier "FIXED" verdict below was WRONG and is retracted.** The
+controller-link ports deployed at ~t72512031 caused a **slow colony collapse**
+(spawn fleet 30→28→…→13 over ~1400t, harvest 7→2), owner-observed as "haulers
+walk past the link to the core", "traffic jam at the spawn", and finally a
+"no-spawn wedge" watchdog. Reverted `src` to pre-spec-26 (`7bf55fc`), rebuilt,
+deployed to `master`; the colony recovered (util 0→0.58, tender respawned,
+total climbing) ~300-400t after the revert. `detectLinkDepositPorts` now
+returns `[]` on the branch (feature inert) pending a correct redesign.
+
+**Two faults (root-caused with data):**
+1. **Ports never delivered.** The core→controller relay keeps the controller
+   link topped, so haulers found ~no free room and fell back to storage —
+   reproduced in a grid cell (a staged loaded ported hauler wrote NO
+   `deposit-port` receipt in 240t). The plan under-sized the ported haulers
+   for a hub delivery they always made — a plan-vs-actual lie. The design
+   review had flagged exactly this ("treat controller-link headroom as ~0 until
+   the feeder credit lands"); it was shipped anyway. Prerequisite for any
+   redesign: the relay must RESERVE drop room + the feeder must be credited.
+2. **Latent spawn-scheduler deadlock (its own incident vs the DEPLOYED build).**
+   Fleet collapse drained the spawn network and killed the tender; warchest at
+   2× target → a "campaign" upgrader (minCost 2300, `mustFund`, `gate: wall`,
+   `why: campaign`) held the spawn AHEAD of the income miners/haulers (all
+   queued `after:upgrading-…`) — a death spiral the code revert alone couldn't
+   undrain (a global reset moves neither energy nor creeps). Recovery came only
+   as the tender re-fielded and refilled the network. FIX CANDIDATE: a spend
+   campaign must never `wall` the spawn ahead of blocking income demand when the
+   income fleet is depleted (spawn-network below a bootstrap floor).
+
+**Process failures to fix:**
+- The integration trio + grid link cells never staged a storage hub + a
+  controller link together, so NONE exercised the port DELIVERY path — the same
+  blind-spot class as the sim-blind-spots trap list. A link-delivery cell MUST
+  assert a real hauler `deposit-port` RECEIPT (link fill is a false positive:
+  the relay fills it) AND run WITH the feeder relay present (steady state).
+- I reported "X1 resolved / FIXED" from plan-side telemetry (segment 6) + a
+  false-positive grid assertion, without confirming a physical port delivery.
+  Telemetry that reads the PLAN (segment 6) can show a feature "working" that
+  the executing corps never perform. Verify at the RECEIPT/behavior layer.
+
+---
+
+### (RETRACTED) Cycle verdict 2026-07-23 — spec 26 minimal (controller-link ports): FIXED
+
+Shipped `detectLinkDepositPorts` + `routeToSinks` port pricing + `CarryCorp`
+port delivery + telemetry/roster echo, deployed to `master` at ~t72512031.
+**Scope refinement (design review):** CONTROLLER-LINK ports only. Source-link
+ports were dropped from v1 — a remote drop into a source link forwards to the
+core, but the core→storage drain is staffed only for the home source's own
+rate (the feeder only LOADS the core), so the injected flow is unstaffed →
+the plan would price a saving the physical path can't deliver (a plan-vs-actual
+lie on the deterministic grid cell). The controller-link port is the honest
+class: consumed IN PLACE by the upgraders, which by the LinkRunner backpressure
+displaces an equal bank→controller relay (bank-neutral, no toll, no drain
+hauler). This deleted the whole toll subsystem — `allocated == take`.
+
+**Measured (t72512341, ~310t post-deploy, vs baseline t72512031):**
+- 3 deposit routes engaged the home controller link (41,30): cd92 carry
+  4.8→3.2 (dist 11→7), cee0 18.8→18.0 (46→44), cedc 22.0→19.6 (54→48).
+- P4 source-route hauler slice 157p/0.108 → 149p/0.103 parts/t (clean read
+  from the plan — the port CARRY reduction).
+- X1 (was the TOP LINE) workUtil 0.50→0.79→**0.88**, dry 0.50→0.21→**0.13**,
+  idle-equiv 20.1→12.8→**2.5** — CONFIRMED over a clean 2047t window
+  (t72512784): the controller-link drops feed the upgraders directly, so X1 is
+  resolved to [ok]. Spawn util planned 0.86 / actual 0.88 (queueDepth 5) — the
+  spawn is now the binding constraint, so the source-link follow-up (item 1
+  below) is the next real lever.
+- No FAIL lines, P7 controller delivery on-plan (40.2/40.2), no crash through
+  the global reset, hub invariant held (sink still storage, port is delivery).
+Modest as expected (the honest ~21% controller-link share of the 29-part ideal).
+
 NEXT, in order:
-1. Build spec 26 MINIMAL, red-first on the confirmed backpressure foundation:
-   `detectLinkDepositPorts` + `routeToSinks` min(storage, port) pricing with
-   honest port-full fallback + 3% toll in net-energy; `CarryCorp` delivery with
-   storage fallback + one shared eligibility lens; feeder relay credits port-fed
-   controller flow; telemetry echoes `depositPos`. Gate: unit + trio + a GRID
-   CELL staging our real links on a remote route (receipts-gated, mockup blind
-   spot). Deploy; verify throughput-derated per-route CARRY:MOVE vs plan.
-2. Then the base-layout evaluator: candidate link positions → replan → greedy
-   place to the RCL link budget; generalize the perturb-replan-read scorer to
-   storage/extension/spawn placement.
-3. Carry-forward gauges: X5 in steady state (this window was post-deploy);
-   warchest-target-as-spend-rate (spec 26 open Q3).
+1. Source-link ports (the deferred ~79%): needs a commissioned core→storage
+   drain leg (or an upsized home hauler) so the injected remote flow is staffed
+   — same core/relay sizing work as the feeder credit (spec 26 open Q2). This
+   is the bigger P4 lever (the −9/−8/−6 N/E routes) but must not price an
+   unstaffed drain.
+2. The base-layout evaluator: candidate link positions → replan → greedy place
+   to the RCL link budget; the deposit-port pricer is now the scorer.
+3. Carry-forward gauges: X1 over a clean (non-deploy) window to nail the
+   attribution; X5 steady-state; warchest-target-as-spend-rate (open Q3).
+
+---
+
+### AUDIT CYCLE t72523980 — E5 runt detector made attribution-aware (standing false positive killed)
+
+Ledger on the fresh capture (baseline t72519086, dt 4894, ~5k ticks post the
+scheduler-fix reset): **no FAIL lines**, colony healthy and recovering well —
+E4 storage 53.5k draining at **−4.79/t** toward the 27.6k warchest (was 77k and
+rising last cycle; the spend path is back), P7 controller delivery **28.8 e/t**,
+S3 scheduler stall **0**, P9 all mined energy routed (no rot), X1 WORK 99%
+utilized. The scheduler death-spiral fix (this session) holds.
+
+Two WARN lines. X5 rebuild churn 0.20 is mostly remote invader/revoke noise
+(a LIVE-ONLY class) plus post-reset recovery — not sim-actionable. **E5 runt
+purchases (2 of last 8) was a 100% FALSE POSITIVE**: both flagged runts were
+the SAME corp `hauling-W43N24-hauling-0-20`, the scavenge route
+`scavenge-W43N24-30-20` the planner deliberately sizes at carryParts **1.41**.
+A 200e (2-CARRY) hauler for a <3-carry route is RIGHT-sized, not a
+drained-spawn purchase. The plan-blind `cost<300` test flagged every scavenge
+and distance-1 short-haul hauler forever — a standing cry-wolf that trains us
+to ignore E5 and would mask a real drained runt.
+
+**Fix (ledger-accuracy, tooling-only — not in dist/main.js, no deploy):**
+E5 now cross-references the flow plan. A hauler runt counts only when the plan
+wanted a real body (route carryParts ≥ 3) OR no plan route vouches for the size
+(conservative default keeps off-plan/stranded small haulers flagged).
+Red-first pinned by three tests (micro-route → not flagged; non-micro
+plan-big-bought-small → still flagged; unmappable → still flagged). Live E5
+→ **[ok] 0/none**. Unit suite 1357 passing.
+
+Cycle verdict: **FIXED** (E5 false positive eliminated + regression-pinned) +
+**MEASURED** (spend path restored, storage draining −4.79/t, controller
+28.8 e/t, no FAIL lines). Next candidate: X5 steady-state churn once past the
+post-reset window; the source-link deferred ~79% remains the bigger P4 lever.
+
+---
+
+### SPEC-26 STAGE 2 — REVERTED (relay-yield starved the controller); instrument earned its keep
+
+Stage 1 (link-throughput instrument) measured the controller-link is fed 13-35 e/t
+at **0% direct** (all double-hop source->core->controller). Stage 2 made source
+links deposit DIRECT into the controller link above warchest. First deploy read
+0% direct still - the core->controller RELAY fires every tick and refills the
+link, leaving no room for a source volley. Fix attempt: gate the relay to yield
+above a low-water mark (400). **That REGRESSED P7 to 0 e/t** (controller delivery
+collapsed; energy banked instead, +16/t) - reverted immediately (doctrine).
+
+Diagnosis (post-revert, static): the controller LINK *is* the upgrader input
+(controllerInputSpot returns it), and the upgrader draw is small (~15-26 e/t) vs
+the 800 link capacity - so the link sits mostly full, rarely draining below 400.
+Gating the relay at low-water deadlocked it: link stuck ~768, relay yielding,
+source volleys (>=100) can't fit the ~32 free, controller not draining fast
+enough to open room. The ungated relay was load-bearing: it keeps the link
+topped for the trickle draw.
+
+**Verdict: the controller-link direct win is MARGINAL and FIDDLY.** The tax saved
+by 1-hop vs 2-hop on ~20 e/t of controller flow is ~0.5 e/t; the relay is
+load-bearing for the small draw, so capturing it safely needs reserved headroom
+(coreLinkLoadRoom-style), not a gate - complexity out of proportion to ~0.5 e/t.
+The instrument did exactly its job: it QUANTIFIED that this "easy win" is small
+and risky, and caught the regression in ONE cycle via a real delivery receipt -
+the thing spec-26 v1 never had. Kept: stage 1 (instrument) + stage 2's harmless
+source-direct preference (dormant while the relay tops the link). The real link
+lever is the SOURCE side (hub throughput 9-11 e/t and 31 over-budget remotes) -
+stage 4, where the throughput actually is.
+
+Cycle verdict: **REGRESSION REVERTED same-cycle** (P7 0->restored) + **FALSIFIED**
+(controller-link direct win is marginal; instrument-first saved the over-invest).
+
+---
+
+### AUDIT 2026-07-24 — E4/P7: scaling upgraders can't win spawn time vs income when the warchest is in surplus (3rd incident on this mechanism)
+
+Ledger t72533078: **E4 FAIL** (storage 62.8k = 2.8x reserve, +16/t and rising,
+feederActive true) and **P7 FAIL** (controller 7.0 e/t vs plan 15, "stock stood").
+Same root: the controller under-consumes, so real income rots in the warchest.
+
+Diagnosis (all reads):
+- Upgrade sizing stamp: `surplus` path CORRECT — `allocated 65.4`, `targetCount 4`,
+  `inflow 64.9` (feederRelayRate of the 63k bank), `hold: true`. The plan WANTS
+  4 upgraders (65 e/t) to eat the surplus.
+- But `staffing: 1` (one healthy 20-WORK upgrader), and the count DECAYED 4->1
+  since the wait-fix reset (t72531657). Storage still +12/t in that clean window.
+- Blackbox spawn log (window): hauler 18, miner 7, reserver 6, tanker 3, guard 2,
+  feeder 1, builder 1, **upgrader 1**. Spawn `endFill 0.56` — the bank is NOT
+  accumulating toward the 2300 campaign-upgrader wall; cheap BLOCKING income
+  haulers keep draining it below 2300, so the wall never completes.
+
+Mechanism: the scaling upgrader is `holdToFund` -> `mustFund` (campaign class),
+BUT `blocking: false` (only the 1st upgrader blocks). The wall logic still lets
+BLOCKING income demands spend while walling (SpawnScheduler ~L466), so a steady
+income-hauler stream perpetually preempts the campaign upgrader's wall. holdToFund
+(added for t72503018) walls only against cheap NON-blocking buys — blocking income
+defeats it. Third incident on this exact seam (t72503018; the spec-26 collapse
+death-spiral).
+
+The TRAP: the naive fix — make the scaling upgrader outrank income — is EXACTLY
+the spec-26 collapse death-spiral ("a campaign upgrader held the spawn ahead of
+the income fleet"). So this must NOT be a blanket priority bump.
+
+Proposed mechanism (NOT built — doctrine-critical, owner call): a CONDITIONED
+windfall gate. A scaling consumer wins spawn priority over income ONLY when the
+producer fleet is already secured (income safe) AND the warchest is in surplus;
+during depletion/rebuild, income wins (no spiral). This is the windfall doctrine
+("full bank -> consumers scale up") correctly conditioned on fleet-complete — the
+condition the two prior patches lacked. Needs red-first tests for BOTH the
+consume case AND the depletion-no-spiral case, plus a grid cell staging a full
+warchest + depleted fleet.
+
+Cycle verdict: **BLOCKER NAMED WITH DATA** (E4/P7 root = spawn-priority seam,
+not sizing); fix ESCALATED (collides with the spec-26 death-spiral trap — the
+mechanism, not another patch, is the work). My earlier "P7 auto-resolves at
+warchest-full" call is FALSIFIED: warchest 2.8x full, controller still 0.46x.
+
+**UPDATE — GATE BUILT & DEPLOYED (2026-07-24, "2 and 1").** Instrument then gate,
+both shipped. Reading spawnPriority corrected the mechanism mid-build: the
+campaign upgrader (value ~90) is not "walled and pierced" - it is OUTRANKED by
+the income tier (1e6) and trickles in only via the 300t starvation one-shot
+(the wallpreempt instrument was retargeted from gate "wall" to the real "queued"
+case). The conditioned windfall gate: fleetSecured (every outstanding income
+demand is a non-blocking replacement) lifts the campaign consumer to
+SURPLUS_CONSUME_TIER (1.005e6, above non-blocking income, below blocking) AND
+makes its wall strict, so the warchest is spent; any blocking income or income
+growth (which prevents source rot) disarms it, so the death-spiral can't recur.
+Pinned by flow-handoff + runt-economy (both green) and the existing t72503018
+"scaling hauler still wins" test. Predicted prod deltas (verify ~200t):
+upgraders 1 -> ~targetCount 4; P7 7 -> ~15 e/t; E4 storage stops rising/drains;
+rclProgress rate up; wallpreempt fleetSecured=true events drop to ~0.
+
+Cycle verdict: **FIXED** (instrument + conditioned gate shipped) - pending prod
+verification of the predicted deltas.
+
+**UPDATE — STORAGE THROTTLE (2026-07-24, supersedes the binary gate).** Owner
+direction: relax producer-before-consumer with the warchest as a CONTINUOUS
+governor rather than the binary fleetSecured gate. campaignConsumerLift(bankSurplus)
+lifts a surplus consumer proportionally - 0 at/below reserve (hard producer-first),
+ramping into the income band, capped below the blocking tier so the critical path
+(fresh miner / first hauler) always wins. Self-balancing: consume -> warchest
+falls -> lift recedes -> producers refill. The binary fleetSecured helper was
+removed (dead); the wallpreempt instrument stays as the observability trail.
+Gate: 1417 unit (incl. the 600-case nowPlanner sweep now randomizing bankSurplus),
+flow-handoff + runt-economy + storage-depot all green; deployed. Predicted deltas
+unchanged (verify ~200t): upgraders 1 -> ~targetCount; P7 -> ~15; E4 drains.
+
+Cycle verdict: **FIXED (storage throttle shipped)** - pending prod verification.
+
+**VERIFIED — storage throttle fixed E4/P7 (2026-07-24, capture t72536806).** ~2085t
+post-deploy: P7 controller 7 -> 25.5 e/t; E4 slope +16/t (rising, FAIL) -> -4.97/t
+(draining toward reserve, WARN) - the self-balancing the owner predicted; upgrader
+fleet 20 -> 40 WORK, workUtil 1.00; LINK ctrl relay 7.4 -> 24.1 e/t. No death-spiral:
+fleet total 32, harvest 7 intact, X5 churn 18% (remote invader/revoke only, 0% home),
+P9 1.43x (unchanged). wallpreempt events 0 in-window - the throttle displaced the
+preemptions the instrument was built to measure. No FAIL lines. Residual: E4 still
+WARN (draining, self-resolving as it converges on reserve); upgrader targetCount
+flaps with controllerFeederActive (feeder branch's domain, outcome unaffected).
+
+Cycle verdict: **FIXED + VERIFIED** (E4/P7 restored in prod; storage-as-throttle
+doctrine landed and self-balancing confirmed).
+
+**AUDIT 2026-07-24 (t72541921) — board fully green; proposed stranded-hauler item self-healed.**
+The previous cycle's work item (E2 stranded haulers 37-6/5-11, 44 parts) was TRANSIENT
+invader churn in W42N23, not a stuck recycle: two captures ~5115t apart show E2 44 -> 2
+(the orphans recycled; -8-8 caught mid-retire, the path working). No fix built - the
+two-captures diagnosis rule correctly acquitted it. Whole ledger [ok], no FAIL/WARN:
+E4 now [ok] (42.4k, slope -4.97 -> -1.28/t, DECELERATING as it nears reserve - the
+storage throttle easing into equilibrium, not overshooting); P7 1.55x (23.3 e/t);
+P4 0.71x. Waste-elimination has converged for this colony state. Named next lever
+(GROWTH, not waste): P9 1.43x = 7 funded sources / 70 e/t but ~20 more remotes marked
+"over-budget" with positive net (3-8 e/t) - spawn-capacity-limited. Capturing them
+needs more spawn throughput (RCL/2nd spawn) or expansion (spec 06/18/21) - a strategic
+call, outside the waste-ledger cycle.
+
+Cycle verdict: **NO-OP (green board) + MEASURED** (E2 44->2 self-healed, E4 WARN->ok,
+throttle self-balancing confirmed decelerating). No code change - correctly.

@@ -18,6 +18,7 @@ import {
   ScheduleResult,
   SpawnDemand,
   SpawnRole,
+  campaignConsumerLift,
   effectivePriority,
   planAcquisitions,
   scheduleSpawn,
@@ -29,7 +30,10 @@ import {
 function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
   const eligible = withMinerPrecedence(demands);
-  const ranked = [...eligible].sort((a, b) => effectivePriority(b, ctx.tick) - effectivePriority(a, ctx.tick));
+  const campaignLift = campaignConsumerLift(ctx.bankSurplus ?? 0); // storage throttle (spec 14 E4/P7)
+  const ranked = [...eligible].sort(
+    (a, b) => effectivePriority(b, ctx.tick, campaignLift) - effectivePriority(a, ctx.tick, campaignLift)
+  );
   let holdForBlocking = false;
   let holdStrict = false;
   let pendingAffordable = false;
@@ -48,11 +52,14 @@ function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): S
     }
     const canEverAfford = ctx.energyCapacity >= demand.minCost;
     const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
-    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome);
+    const fundableConsumer = !demand.producesIncome && demand.holdToFund === true;
+    const mustFund =
+      !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome || fundableConsumer);
     if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) return null;
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
+      if (campaignLift > 0 && fundableConsumer) holdStrict = true;
     }
     if (canEverAfford) pendingAffordable = true;
   }
@@ -107,7 +114,10 @@ describe("NOW planner: planAcquisitions is the pinned scheduleSpawn walk (spec 1
         energyAvailable: Math.floor(rnd() * 14) * 100,
         energyCapacity: 300 + Math.floor(rnd() * 15) * 100,
         energyIncome: rnd() < 0.4 ? 0 : 10,
-        tick
+        tick,
+        // Exercise the storage throttle: often no surplus (producer-first), but
+        // frequently a surplus of varying depth so the lift path is swept too.
+        bankSurplus: rnd() < 0.5 ? 0 : Math.floor(rnd() * 40000)
       };
 
       const expected = referenceScheduleSpawn(demands, ctx);

@@ -8,6 +8,7 @@ import {
   shouldBankControllerLoad,
   shouldRefillFromDepot,
   tenderOwnsExtensions,
+  pickStorageDeposit,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
@@ -114,6 +115,45 @@ describe("END-OF-LIFE recycle (owner 2026-07-22: 'less ttl than a round trip - r
     expect(dying.memory.recycling, "empty + under one round trip: recycle").to.equal(true);
     expect(loaded.memory.recycling, "loaded: finish the delivery").to.equal(undefined);
     expect(fresh.memory.recycling, "fresh: keep hauling").to.equal(undefined);
+  });
+});
+
+describe("RETIRING recycle (a hauler whose plan route vanished should not idle out its life)", () => {
+  before(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).RESOURCE_ENERGY = "energy";
+  });
+
+  // The stranded-hauler linger (live t72525241: hauling-W44N23-hauling-4-30, a
+  // 6-part creep with NO matching plan route). materializeCommissions RETAINS a
+  // corp whose commission vanished (flagged retiring) so its creeps aren't
+  // orphaned - but a hauler with no route has no work to "finish", so "run to
+  // natural death" meant idling ~1500 ticks. An empty retiring hauler recycles
+  // now (refunds the body); a loaded one delivers first, never stranding cargo.
+  const mk = (carried: number): any => ({
+    memory: {},
+    spawning: false,
+    store: { getUsedCapacity: () => carried }
+  });
+
+  it("flags an EMPTY creep on a retiring corp; spares a loaded one", () => {
+    const corp = carryCorp("W1N1-hauling-retire");
+    corp.retiring = true;
+    const empty = mk(0);
+    const loaded = mk(100);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).flagRetiringForRecycling([empty, loaded]);
+    expect(empty.memory.recycling, "retiring + empty: recycle now").to.equal(true);
+    expect(loaded.memory.recycling, "retiring + loaded: deliver first").to.equal(undefined);
+  });
+
+  it("does NOT recycle an empty creep on a corp that is NOT retiring (ordinary between-trips)", () => {
+    const corp = carryCorp("W1N1-hauling-active");
+    corp.retiring = false;
+    const empty = mk(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).flagRetiringForRecycling([empty]);
+    expect(empty.memory.recycling, "active corp: an empty hauler is just between trips").to.equal(undefined);
   });
 });
 
@@ -468,6 +508,44 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(
         shouldBankControllerLoad({ hasBankCapacity: false, feederActive: true, controllerInputStock: 5000 })
       ).to.equal(false);
+    });
+  });
+
+  // Spec 26: a storage-bound (deposit) load prefers the plan's DEPOSIT PORT (a
+  // controller link it turns around at early) while that link has room, else the
+  // storage hub, else nowhere - so a full port + full storage spills the load to a
+  // hungry spawn/controller (deliverToStorage returns false) rather than camping.
+  describe("deposit-port delivery routing (pickStorageDeposit)", () => {
+    const port = { x: 41, y: 30, roomName: "W1N1" };
+
+    it("goes to the PORT when the plan chose one and it has room", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 200, storageFree: 1000 })).to.equal("port");
+    });
+
+    it("WAITS at the port when it is full but the wait window is open (no bounce, owner 2026-07-24)", () => {
+      // A full port on a planned route holds at the link (the source link fires to
+      // core within its cooldown) instead of bouncing to the hub and back.
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 0 })).to.equal(
+        "wait"
+      );
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 29 })).to.equal(
+        "wait"
+      );
+    });
+
+    it("falls back to STORAGE once the bounded wait is exhausted (chronic port, v1 stall guard)", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 30 })).to.equal(
+        "storage"
+      );
+    });
+
+    it("uses STORAGE directly when the plan chose no port", () => {
+      expect(pickStorageDeposit({ depositPos: undefined, portFree: 0, storageFree: 1000 })).to.equal("storage");
+    });
+
+    it("returns NONE when the port is full AND the storage is full - so the caller spills to spawn/controller", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 0 })).to.equal("none");
+      expect(pickStorageDeposit({ depositPos: undefined, portFree: 0, storageFree: 0 })).to.equal("none");
     });
   });
 

@@ -21,7 +21,8 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
-  effectiveLife
+  effectiveLife,
+  haulerOverhead
 } from "../src/economy/primitives";
 import { BASE_RESERVE, feederRelayRate } from "../src/economy/bank";
 import { CLAIM_LIFETIME, RESERVER_DUTY } from "../src/corps/economics";
@@ -395,7 +396,29 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
 
   // ---- E5 runt purchases ----
   const agenda: any = Object.values(core.agenda ?? {})[0] ?? {};
-  const runts = (agenda.executed ?? []).filter((e: any) => e.cost < 300 && !["reserver", "scout"].includes(e.role));
+  // Attribution-aware (t72523980): a hauler bought small for a route the PLANNER
+  // sizes small (scavenge / distance-1 short-haul, carryParts < 3) is RIGHT-sized,
+  // not a drained-spawn purchase. The plan-blind cost<300 test flagged every
+  // scavenge hauler forever (2/2 flagged runts were scavenge-W43N24-30-20, plan
+  // carryParts 1.41) - a standing false positive that trains us to ignore E5 and
+  // would mask a REAL drained runt. Keep the runt verdict only when the plan
+  // wanted a real body (carryParts >= 3) or no plan route vouches for the size.
+  const routeCarry = new Map<string, number>();
+  for (const h of (flow.haulers ?? []) as any[]) {
+    const suf = String(h.sourceId).replace(/^source-|^scavenge-[EW]\d+[NS]\d+-|^bank-/, "").slice(-4);
+    routeCarry.set(suf, Math.max(routeCarry.get(suf) ?? 0, h.carryParts));
+  }
+  const plannedMicroHauler = (corp: string): boolean => {
+    const suf = String(corp).replace(/^hauling-[EW]\d+[NS]\d+-hauling-/, "").slice(-4);
+    const carry = routeCarry.get(suf);
+    return carry !== undefined && carry < 3; // plan owns this route AND sizes it small
+  };
+  const runts = (agenda.executed ?? []).filter(
+    (e: any) =>
+      e.cost < 300 &&
+      !["reserver", "scout"].includes(e.role) &&
+      !(e.role === "hauler" && plannedMicroHauler(e.corp))
+  );
   rows.push({
     id: "E5",
     name: "runt purchases",
@@ -404,6 +427,104 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     verdict: runts.length > 1 ? "WARN" : "ok",
     detail: runts.map((e: any) => `${e.role}@${e.cost}`).join(", ") || "none"
   });
+
+  // ---- SCAV scavenge economics (instrument-first for the economic gate) ----
+  // Each scavenger's net-energy-per-spawn-part vs the MARGINAL funded source
+  // route (the least efficient real route we already pay for = the opportunity
+  // cost of a spawn part). The spawn shadow price only BITES when parts bind
+  // (partsLedger.dry): with slack, a scavenger spends parts nothing else wants,
+  // so a low ratio is free; when dry, a scavenger below the margin is displacing
+  // a better use. This is the read that will calibrate the gate's threshold.
+  const netPerPart = (h: any): number => {
+    const carry = h.carryParts ?? carryPartsFor(h.flowRate, h.distance);
+    const net = h.flowRate - haulerOverhead(carry, h.distance);
+    return h.spawnParts > 0 ? net / h.spawnParts : 0;
+  };
+  const scavHaulers = (flow.haulers ?? []).filter((h: any) => String(h.sourceId).startsWith("scavenge-"));
+  const realRoutes = (flow.haulers ?? []).filter(
+    (h: any) => !String(h.sourceId).startsWith("scavenge-") && !String(h.sourceId).startsWith("bank-")
+  );
+  const dry = flow.partsLedger?.dry ?? false;
+  if (scavHaulers.length > 0) {
+    const margin = realRoutes.length > 0 ? Math.min(...realRoutes.map(netPerPart)) : Infinity;
+    const scavRatios = scavHaulers.map((h: any) => ({ id: String(h.sourceId).replace(/^scavenge-/, ""), r: netPerPart(h) }));
+    const belowMargin = scavRatios.filter((s: { r: number }) => s.r < margin);
+    rows.push({
+      id: "SCAV",
+      name: "scavenge economics (net-e/part vs margin)",
+      value: belowMargin.length,
+      unit: `of ${scavHaulers.length} scavengers below the funded margin`,
+      // Instrument-first: only WARN when spawn parts BIND and a scavenger sits
+      // below the marginal funded route - the calibrated displacement signal.
+      verdict: dry && belowMargin.length > 0 ? "WARN" : "ok",
+      detail:
+        `spawn parts ${dry ? "DRY (binding)" : `slack (spent ${(flow.partsLedger?.spent ?? 0).toFixed(3)}/${(flow.partsLedger?.budget ?? 0).toFixed(3)})`}` +
+        `; margin ${margin === Infinity ? "n/a" : margin.toFixed(2)} net-e/part; ` +
+        scavRatios.map((s: { id: string; r: number }) => `${s.id} ${s.r.toFixed(2)}`).join(", ")
+    });
+  }
+
+  // ---- LINK link-throughput instrument (spec-26, read-only knowledge) ----
+  // ACTUAL e/t the link network carries: hub inflow, controller DELIVERY receipt
+  // (what the first spec-26 never measured), the cheap 1-hop direct share, and
+  // the 3% tax. Informational until the planner models links; a controller flow
+  // with 0% direct share is a visible missed easy-win (always double-hopping).
+  const links = core.links ?? [];
+  if (links.length > 0) {
+    const active = links.filter((l: any) => l.toHubRate + l.toControllerRate > 0.01);
+    const missedDirect = active.filter((l: any) => l.toControllerRate > 0.5 && l.directShare < 0.01);
+    rows.push({
+      id: "LINK",
+      name: "link throughput (hub / controller receipt / direct / tax)",
+      value: active.length,
+      unit: "rooms with a live link network",
+      verdict: "ok", // instrument-first: surface numbers, don't gate behavior yet
+      detail:
+        (active.length === 0
+          ? "no link fires in the window"
+          : active
+              .map(
+                (l: any) =>
+                  `${l.room} hub ${l.toHubRate.toFixed(1)} ctrl ${l.toControllerRate.toFixed(1)} (direct ${(l.directShare * 100).toFixed(0)}%) tax ${l.taxRate.toFixed(2)} /${l.windowTicks}t`
+              )
+              .join("; ")) +
+        (missedDirect.length > 0
+          ? ` | double-hopping to controller in ${missedDirect.map((l: any) => l.room).join(",")} (0% direct - easy win)`
+          : "")
+    });
+  }
+
+  // ---- DEP deposit-side link instrument (spec-26 stage 4, read-only) ----
+  // For each REMOTE source, the haul a hauler would save by depositing at a
+  // home-room link it passes instead of walking to storage, plus the deposit
+  // flow that would pile on each link (throughput headroom). Informational: it
+  // sizes the potential lever before the depositPos routing is re-activated.
+  const dep = flow.depositSavings;
+  if (dep && (dep.candidates ?? []).length > 0) {
+    const cands = [...dep.candidates].sort((a: any, b: any) => b.saving - a.saving);
+    const totalFlow = cands.reduce((a: number, c: any) => a + c.flowRate, 0);
+    const savedPartsProxy = cands.reduce((a: number, c: any) => a + c.saving * c.flowRate, 0);
+    rows.push({
+      id: "DEP",
+      name: "deposit-side link opportunity (remote haul shortened)",
+      value: cands.length,
+      unit: "remote sources that could deposit at a home link",
+      verdict: "ok", // instrument-first: surface the lever, don't route yet
+      detail:
+        cands
+          .slice(0, 6)
+          .map((c: any) => `${c.sourceId.slice(-4)} saves ${c.saving} (haul ${c.haulDist}->${c.linkDist}) @${c.flowRate.toFixed(1)}e/t`)
+          .join("; ") +
+        ` | per-link deposit flow: ${(dep.perLink ?? [])
+          .map((l: any) => {
+            const ctrl = l.linkId === dep.controllerLinkId;
+            const cap = ctrl && dep.controllerCapacity !== undefined ? ` (controller: bank-neutral <=${dep.controllerCapacity.toFixed(0)}e/t)` : "";
+            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${cap}`;
+          })
+          .join(", ")}` +
+        ` | ${totalFlow.toFixed(0)}e/t over ${cands.length} routes, ~${Math.round(savedPartsProxy)} tile*e/t saved`
+    });
+  }
 
   // ---- S3 scheduler stall: idle spawn with an AFFORDABLE head ----
   const spawn = core.spawns?.[0];
