@@ -741,3 +741,96 @@ describe("holdToFund consumers wall the bank (incident t72503018: upgrader fleet
     expect(result?.demand.buyerCorpId).to.equal("bld");
   });
 });
+
+/**
+ * The conditioned windfall gate (spec 14, owner 2026-07-24): a campaign consumer
+ * (a holdToFund upgrader under a bank surplus) is normally outranked by the whole
+ * income tier and trickles in only via the 300t starvation one-shot, so a huge
+ * warchest is never consumed (measured E4/P7: 1 of targetCount 4, warchest 2.8x,
+ * controller 0.46x plan). When the fleet is SECURED (no blocking income demand -
+ * the critical path is covered), the campaign consumer is lifted above NON-blocking
+ * income and its wall goes strict, so it eats the windfall; any blocking income
+ * (rebuild/depletion) instantly disarms the gate, so the spec-26 collapse
+ * death-spiral (spend ahead of a depleted income fleet) cannot recur.
+ */
+describe("conditioned windfall gate (E4/P7, owner 2026-07-24)", () => {
+  const campaignUpgrader = (overrides: Partial<SpawnDemand> = {}) =>
+    demand({
+      buyerCorpId: "upgrader",
+      role: "upgrader",
+      value: 90,
+      producesIncome: false,
+      holdToFund: true, // set by UpgradingCorp only under a bank surplus
+      minCost: 2300,
+      desiredCost: 2300,
+      ...overrides
+    });
+  const incomeReplacement = () =>
+    demand({
+      buyerCorpId: "hauler",
+      role: "hauler",
+      value: 100,
+      producesIncome: true,
+      groupId: "src-a",
+      groupStarted: true,
+      replacement: true, // routine maintenance, NOT growth, NOT blocking
+      blocking: false,
+      minCost: 300,
+      desiredCost: 300
+    });
+
+  it("FLEET SECURED: holds the spawn for the campaign upgrader instead of the income replacement", () => {
+    // No blocking income anywhere -> the critical path is covered -> the surplus
+    // upgrader is lifted above the non-blocking replacement and walls strict, so
+    // the bank accumulates toward the 2300 body rather than being drained.
+    const result = scheduleSpawn(
+      [campaignUpgrader(), incomeReplacement()],
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+    );
+    expect(result, "held for the upgrader, not spent on the replacement").to.equal(null);
+  });
+
+  it("FLEET SECURED: buys the campaign upgrader once the bank has accumulated", () => {
+    const result = scheduleSpawn(
+      [campaignUpgrader(), incomeReplacement()],
+      ctx({ energyAvailable: 2300, energyCapacity: 2300, energyIncome: 20 })
+    );
+    expect(result?.demand.buyerCorpId).to.equal("upgrader");
+  });
+
+  it("NOT SECURED (a blocking income demand exists): income wins, the gate stays disarmed", () => {
+    const blockingMiner = demand({
+      buyerCorpId: "miner",
+      role: "miner",
+      value: 50,
+      producesIncome: true,
+      groupId: "src-b",
+      groupStarted: false,
+      blocking: true, // fresh source's first miner - the critical path
+      minCost: 300,
+      desiredCost: 300
+    });
+    const result = scheduleSpawn(
+      [campaignUpgrader(), blockingMiner, incomeReplacement()],
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+    );
+    expect(result?.demand.buyerCorpId, "the blocking miner is funded, not the upgrader").to.equal("miner");
+  });
+
+  it("FLEET SECURED: infrastructure still buys through the strict upgrader wall (refill preserved)", () => {
+    const tender = demand({
+      buyerCorpId: "tender",
+      role: "tanker",
+      value: 150,
+      infrastructure: true,
+      producesIncome: false,
+      minCost: 200,
+      desiredCost: 800
+    });
+    const result = scheduleSpawn(
+      [campaignUpgrader(), tender],
+      ctx({ energyAvailable: 500, energyCapacity: 2300, energyIncome: 20 })
+    );
+    expect(result?.demand.buyerCorpId, "the tender refills the bank the wall waits on").to.equal("tender");
+  });
+});

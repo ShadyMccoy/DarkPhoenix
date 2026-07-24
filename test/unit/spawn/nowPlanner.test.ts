@@ -19,6 +19,7 @@ import {
   SpawnDemand,
   SpawnRole,
   effectivePriority,
+  fleetSecured,
   planAcquisitions,
   scheduleSpawn,
   starvationBoost,
@@ -29,7 +30,10 @@ import {
 function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): ScheduleResult | null {
   if (demands.length === 0) return null;
   const eligible = withMinerPrecedence(demands);
-  const ranked = [...eligible].sort((a, b) => effectivePriority(b, ctx.tick) - effectivePriority(a, ctx.tick));
+  const secured = fleetSecured(eligible); // conditioned windfall gate (spec 14 E4/P7)
+  const ranked = [...eligible].sort(
+    (a, b) => effectivePriority(b, ctx.tick, secured) - effectivePriority(a, ctx.tick, secured)
+  );
   let holdForBlocking = false;
   let holdStrict = false;
   let pendingAffordable = false;
@@ -48,11 +52,14 @@ function referenceScheduleSpawn(demands: SpawnDemand[], ctx: ScheduleContext): S
     }
     const canEverAfford = ctx.energyCapacity >= demand.minCost;
     const fundableIncome = demand.producesIncome && (demand.holdToFund === true || starved);
-    const mustFund = !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome);
+    const fundableConsumer = !demand.producesIncome && demand.holdToFund === true;
+    const mustFund =
+      !demand.opportunistic && (demand.blocking || demand.replacement === true || fundableIncome || fundableConsumer);
     if (mustFund && canEverAfford) {
       if (ctx.energyIncome > 0) return null;
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
+      if (secured && fundableConsumer) holdStrict = true;
     }
     if (canEverAfford) pendingAffordable = true;
   }

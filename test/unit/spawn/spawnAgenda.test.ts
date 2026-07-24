@@ -159,28 +159,39 @@ describe("detectWallPreemption (campaign-wall-vs-income instrument)", () => {
     gate
   });
 
-  it("flags a preemption and marks fleetSecured when only a REPLACEMENT buys through the wall", () => {
-    const p = detectWallPreemption([entry("campaign", "wall", "upgrader"), entry("replacement", "buy", "hauler")]);
+  it("flags a preemption (campaign QUEUED - the dominant case) and marks fleetSecured for a REPLACEMENT buy", () => {
+    // The campaign upgrader is outranked by the income tier, so its gate is
+    // "queued" while the replacement buys - NOT "wall". fleetSecured because the
+    // only income is a non-blocking replacement.
+    const p = detectWallPreemption([entry("campaign", "queued", "upgrader"), entry("replacement", "buy", "hauler")]);
     expect(p).to.not.equal(null);
     expect(p.campaignRole).to.equal("upgrader");
+    expect(p.campaignGate).to.equal("queued");
     expect(p.preemptorWhy).to.equal("replacement");
-    expect(p.fleetSecured, "no growth demand outstanding -> the gate would safely fire").to.equal(true);
+    expect(p.fleetSecured, "only a non-blocking replacement outstanding -> the gate would safely fire").to.equal(true);
   });
 
-  it("flags the preemption but fleetSecured=false when an income GROWTH (scale) buys through", () => {
-    const p = detectWallPreemption([entry("campaign", "wall", "upgrader"), entry("scale", "buy", "hauler")]);
+  it("fleetSecured=false when an income GROWTH (scale) buys through", () => {
+    const p = detectWallPreemption([entry("campaign", "queued", "upgrader"), entry("scale", "buy", "hauler")]);
     expect(p).to.not.equal(null);
     expect(p.fleetSecured, "a scale demand means the fleet is still growing -> income should win").to.equal(false);
   });
 
-  it("returns null when there is no campaign wall", () => {
-    expect(detectWallPreemption([entry("scale", "buy", "hauler"), entry("consume", "queued", "upgrader")])).to.equal(
+  it("fleetSecured=false when a BLOCKING replacement (dead critical miner) is outstanding", () => {
+    const blockingRepl = { ...entry("replacement", "buy", "miner"), blocking: true };
+    const p = detectWallPreemption([entry("campaign", "held", "upgrader"), blockingRepl]);
+    expect(p).to.not.equal(null);
+    expect(p.fleetSecured, "a blocking replacement is critical path -> not secured").to.equal(false);
+  });
+
+  it("returns null when there is no campaign consumer at all", () => {
+    expect(detectWallPreemption([entry("scale", "buy", "hauler"), entry("consume", "queued", "builder")])).to.equal(
       null
     );
   });
 
-  it("returns null when the campaign wall is not preempted (nothing bought through it)", () => {
-    expect(detectWallPreemption([entry("campaign", "wall", "upgrader"), entry("scale", "queued", "hauler")])).to.equal(
+  it("returns null when the campaign consumer WAS funded this tick (not preempted)", () => {
+    expect(detectWallPreemption([entry("campaign", "buy", "upgrader"), entry("scale", "queued", "hauler")])).to.equal(
       null
     );
   });

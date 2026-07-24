@@ -198,6 +198,8 @@ export interface AgendaEntry {
    * spawn executes this tick). Absent on the legacy ranking-only path.
    */
   gate?: string;
+  /** The demand's blocking flag (critical path), for the windfall instrument. */
+  blocking?: boolean;
 }
 
 const INFRA_ROLES = new Set<string>(["tanker", "feeder", "scout"]);
@@ -225,7 +227,8 @@ export function buildAgendaQueue(
   gates?: ReadonlyMap<SpawnDemand, AcquisitionGate>,
   limit = 8
 ): { queue: AgendaEntry[]; fundingNeed: number } {
-  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick) - effectivePriority(a, tick));
+  const secured = fleetSecured(demands);
+  const ranked = [...demands].sort((a, b) => effectivePriority(b, tick, secured) - effectivePriority(a, tick, secured));
   const queue = ranked.slice(0, limit).map((d, i): AgendaEntry => {
     const precondition =
       i === 0
@@ -240,6 +243,7 @@ export function buildAgendaQueue(
       minCost: d.minCost,
       desiredCost: d.desiredCost,
       mustFund: d.blocking || d.replacement === true || d.holdToFund === true,
+      blocking: d.blocking,
       why: agendaWhy(d),
       since: d.since,
       ...(precondition ? { precondition } : {}),
@@ -264,15 +268,23 @@ export function buildAgendaQueue(
  */
 export function detectWallPreemption(
   agenda: AgendaEntry[]
-): { campaignRole: string; preemptorWhy: string; fleetSecured: boolean } | null {
-  const campaign = agenda.find(e => e.why === "campaign" && e.gate === "wall");
-  if (!campaign) return null;
+): { campaignRole: string; campaignGate: string; preemptorWhy: string; fleetSecured: boolean } | null {
+  // The campaign consumer is PRESENT but NOT funded this tick. It is outranked
+  // by the income tier, so its gate is normally "queued" (income bought) or
+  // "held" (income walling) - NOT "wall" (which needs it to be the top demand,
+  // rare). Any non-"buy" gate is a preemption candidate.
+  const campaign = agenda.find(e => e.why === "campaign");
+  if (!campaign || campaign.gate === "buy") return null;
   const buy = agenda.find(
     e => e.gate === "buy" && (e.why === "scale" || e.why === "new-unit" || e.why === "replacement")
   );
   if (!buy) return null;
-  const fleetSecured = !agenda.some(e => e.why === "new-unit" || e.why === "scale");
-  return { campaignRole: campaign.role, preemptorWhy: buy.why, fleetSecured };
+  // Fleet secured = every income entry is a non-blocking replacement (matches
+  // the gate's fleetSecured): no growth, no blocking, no blocking replacement.
+  const fleetSecured = !agenda.some(
+    e => e.why === "new-unit" || e.why === "scale" || (e.why === "replacement" && e.blocking === true)
+  );
+  return { campaignRole: campaign.role, campaignGate: campaign.gate ?? "?", preemptorWhy: buy.why, fleetSecured };
 }
 
 // =============================================================================
@@ -452,12 +464,51 @@ export function starvationBoost(demand: SpawnDemand, tick: number): number {
  * guarantee real: every demand that crosses the threshold is reached in
  * bounded time.
  */
-export function effectivePriority(demand: SpawnDemand, tick: number): number {
+/**
+ * Is the producer fleet SECURED - i.e. every outstanding income demand is a
+ * routine NON-BLOCKING REPLACEMENT of an at-target fleet? This is the gate on
+ * the conditioned windfall lift below: only then may a surplus consumer jump
+ * ahead of income. It excludes, and is disarmed by, both of the income classes
+ * that must always lead:
+ *  - BLOCKING income (a fresh source's miner / a started source's first hauler)
+ *    - the critical path; and
+ *  - income GROWTH (a scaling hauler/miner deepening a started source, or a
+ *    fresh unit) - which prevents source-energy ROT, worse than banked surplus.
+ * Only maintenance replacements remain, whose incumbents still work through
+ * their lead time, so the consumer may hold them the ~2 cycles it needs. Any
+ * miner/hauler the colony still needs disarms this, so the spec-26 collapse
+ * death-spiral ("spend ahead of a depleted income fleet") cannot recur. Pure.
+ */
+export function fleetSecured(demands: SpawnDemand[]): boolean {
+  return demands.every(d => !d.producesIncome || (d.replacement === true && d.blocking !== true));
+}
+
+/**
+ * Priority a CAMPAIGN CONSUMER (a holdToFund upgrader, set only under a bank
+ * surplus) is lifted to when the fleet is secured: strictly ABOVE non-blocking
+ * income (1e6 + started 1e3 + value ~110) and BELOW blocking income (1e6 + 1e4),
+ * so it wins spawn time from routine maintenance to eat the windfall while a
+ * fresh source's miner/first hauler still preempts it. Below the starved tier
+ * (3e6) too, so the anti-starvation backstop is unaffected.
+ */
+const SURPLUS_CONSUME_TIER = 1_005_000;
+
+/** A campaign consumer: a non-income demand that walls under a bank surplus. */
+function isCampaignConsumer(demand: SpawnDemand): boolean {
+  return !demand.producesIncome && demand.holdToFund === true;
+}
+
+export function effectivePriority(demand: SpawnDemand, tick: number, secured = false): number {
   // Opportunistic demands (task #11: idle-window fillers like the reservation
   // topup) live at their base value FOREVER: they exist to soak spawn windows
   // nothing else wants, so aging one into the starved tier would invert the
   // whole idea - it must never outrank real work no matter how long it waits.
   if (demand.opportunistic) return spawnPriority(demand);
+  // Conditioned windfall lift (spec 14 E4/P7, owner 2026-07-24): when the fleet
+  // is secured, a surplus consumer jumps above non-blocking income so the
+  // warchest is actually spent on progress instead of trickling in via the 300t
+  // starvation one-shot (measured: 1 of targetCount 4, controller 0.46x plan).
+  if (secured && isCampaignConsumer(demand)) return SURPLUS_CONSUME_TIER + demand.value;
   const starved = starvationBoost(demand, tick);
   if (starved === 0) return spawnPriority(demand);
   // FIFO at THRESHOLD granularity: a demand starved a full STARVATION_THRESHOLD
@@ -548,6 +599,10 @@ function walkDemands(
   // the miner is staffed first. Otherwise a hauler can outrank its own miner on
   // raw value and get funded with nothing to pick up.
   const eligible = withMinerPrecedence(demands);
+  // Conditioned windfall gate (spec 14 E4/P7): computed once over the eligible
+  // set - a surplus consumer is lifted above non-blocking income (and its wall
+  // goes strict, below) ONLY when no blocking income is outstanding.
+  const secured = fleetSecured(eligible);
   if (record) {
     const kept = new Set(eligible);
     for (const d of demands) if (!kept.has(d)) record(d, "no-miner");
@@ -557,7 +612,9 @@ function walkDemands(
   // that has waited past the threshold is lifted above the income tier, so the
   // walk below reaches it - affordable and on top - before any blocking income
   // demand can hold the spawn, giving the long-starved creep its one guaranteed slot.
-  const ranked = [...eligible].sort((a, b) => effectivePriority(b, ctx.tick) - effectivePriority(a, ctx.tick));
+  const ranked = [...eligible].sort(
+    (a, b) => effectivePriority(b, ctx.tick, secured) - effectivePriority(a, ctx.tick, secured)
+  );
 
   // Set once we pass a blocking demand we cannot afford yet but the room can
   // eventually build. From then on we decline to spend the dribble on
@@ -697,6 +754,15 @@ function walkDemands(
       // wall IS how a blocking body ever funds.
       holdForBlocking = true;
       if (demand.producesIncome) holdStrict = true;
+      // Conditioned windfall gate (spec 14 E4/P7): a campaign consumer's wall is
+      // normally NON-strict so a lower income producer still spawns (the W2N6
+      // cold-start protection). But when the fleet is SECURED there is no
+      // blocking income to protect - only routine non-blocking maintenance,
+      // which may wait the ~2 cycles the surplus body needs - so the wall goes
+      // strict and the bank finally accumulates the 2300 body instead of being
+      // drained by the replacement stream. Infra still pierces (it refills the
+      // wall); any blocking income drops `secured` and this never fires.
+      if (secured && fundableConsumer) holdStrict = true;
     }
     // Otherwise, let a lower-value but affordable demand have a turn - but
     // remember the runway: opportunistic demands below must not soak it.
