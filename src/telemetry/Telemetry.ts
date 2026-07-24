@@ -884,7 +884,7 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 14, // v13 roadReceipts; v14 links (spec-26 link-throughput instrument)
+      version: 15, // v13 roadReceipts; v14 links; v15 link core-fill + hub-clamp diagnostics
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {

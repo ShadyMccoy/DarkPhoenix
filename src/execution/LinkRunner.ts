@@ -13,7 +13,7 @@
  */
 
 import { controllerLink, coreLink } from "../corps/nodeEnergy";
-import { recordLinkFire } from "../telemetry/LinkMeter";
+import { recordLinkFire, recordCoreLevel } from "../telemetry/LinkMeter";
 import { routeSourceVolley } from "./linkRouting";
 import { resolveReserveTarget } from "../economy/bank";
 
@@ -32,6 +32,16 @@ export function runLinks(): void {
 
     const core = coreLink(room);
     if (!core) continue;
+
+    // Sample the core fill EVERY tick (fire or not): the level distribution that
+    // decides drain-limited-congestion vs input-limited for the pinned-remote
+    // investigation. Cheap: one read, aggregated in the meter.
+    recordCoreLevel(
+      room.name,
+      core.store[RESOURCE_ENERGY],
+      core.store[RESOURCE_ENERGY] + core.store.getFreeCapacity(RESOURCE_ENERGY),
+      Game.time
+    );
 
     const links = room.find(FIND_MY_STRUCTURES, {
       filter: s => s.structureType === STRUCTURE_LINK
@@ -68,9 +78,13 @@ export function runLinks(): void {
       const target = decision === "core" ? core : decision === "controllerDirect" ? ctrl : null;
       if (target) {
         // Instrument (LinkMeter): the intended volley = what fits at the target.
-        const amount = Math.min(link.store[RESOURCE_ENERGY], target.store.getFreeCapacity(RESOURCE_ENERGY));
+        // `wanted` (what the source link held) lets the meter count volleys the
+        // core clamped - the "fires partial because the core is congested" signal.
+        const wanted = link.store[RESOURCE_ENERGY];
+        const amount = Math.min(wanted, target.store.getFreeCapacity(RESOURCE_ENERGY));
+        const isDirect = !!ctrl && target.id === ctrl.id;
         link.transferEnergy(target);
-        recordLinkFire(room.name, ctrl && target.id === ctrl.id ? "controllerDirect" : "hub", amount, Game.time);
+        recordLinkFire(room.name, isDirect ? "controllerDirect" : "hub", amount, Game.time, isDirect ? undefined : wanted);
       }
     }
 

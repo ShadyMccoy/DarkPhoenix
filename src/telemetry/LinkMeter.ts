@@ -30,6 +30,15 @@ export type LinkFireTarget = "hub" | "controllerRelay" | "controllerDirect";
 /** The 3% link transfer fee (Screeps LINK_LOSS_RATIO). */
 export const LINK_LOSS_RATIO = 0.03;
 
+/**
+ * The core-fill sampler's boundary (mirrors LinkRunner's LINK_FIRE_THRESHOLD -
+ * duplicated here to avoid a meter<->runner import cycle). A core BELOW it can't
+ * fire onward to the controller AND a source volley would find room; a core
+ * whose FREE capacity is below it can't take a worthwhile source volley (the
+ * congestion the pinned-remote incident is about).
+ */
+const SAMPLE_THRESHOLD = 100;
+
 /** Rolling per-room accumulator (energy, since a tick). */
 export interface LinkMeterRoom {
   /** Energy fired INTO the core/hub relay-source. */
@@ -40,27 +49,87 @@ export interface LinkMeterRoom {
   direct: number;
   /** Fire count (a saturation proxy against the window). */
   fires: number;
+  /** Count of source-link fires INTO the hub (for the avg-volley diagnostic). */
+  hubFires: number;
+  /** Hub fires the core could NOT fully hold (moved < the source link wanted) -
+   * the "4a83 fires partial because the core is congested" signal. */
+  hubClamped: number;
+  /** Per-tick core-fill samples (the level distribution the snapshots lacked). */
+  coreSamples: number;
+  /** Σ core fill across samples (→ average fill). */
+  coreFillSum: number;
+  /** Ticks the core sat BELOW threshold (drain out-runs income - a source volley
+   * would have had room, so the hub throughput is input/fire-limited, not
+   * drain-limited). */
+  coreEmpty: number;
+  /** Ticks the core's FREE capacity sat below threshold (no room for a source
+   * volley - drain-limited congestion, the pinned-remote signature). */
+  coreCongested: number;
   /** Window start (re-inits on a global reset). */
   sinceTick: number;
 }
 
 const meter = new Map<string, LinkMeterRoom>();
 
-/** Record one fire's intended volley. `amount` is the energy moved (pre-tax). */
-export function recordLinkFire(room: string, target: LinkFireTarget, amount: number, tick: number): void {
-  if (amount <= 0) return;
+function ensure(room: string, tick: number): LinkMeterRoom {
   let m = meter.get(room);
   if (!m) {
-    m = { toHub: 0, toController: 0, direct: 0, fires: 0, sinceTick: tick };
+    m = {
+      toHub: 0,
+      toController: 0,
+      direct: 0,
+      fires: 0,
+      hubFires: 0,
+      hubClamped: 0,
+      coreSamples: 0,
+      coreFillSum: 0,
+      coreEmpty: 0,
+      coreCongested: 0,
+      sinceTick: tick
+    };
     meter.set(room, m);
   }
+  return m;
+}
+
+/**
+ * Record one fire's intended volley. `amount` is the energy moved (pre-tax);
+ * `wanted` (hub fires only) is what the source link held BEFORE the fire, so a
+ * volley clamped by the core's free room (moved < wanted) is counted.
+ */
+export function recordLinkFire(
+  room: string,
+  target: LinkFireTarget,
+  amount: number,
+  tick: number,
+  wanted?: number
+): void {
+  if (amount <= 0) return;
+  const m = ensure(room, tick);
   if (target === "hub") {
     m.toHub += amount;
+    m.hubFires += 1;
+    if (wanted !== undefined && wanted > amount) m.hubClamped += 1;
   } else {
     m.toController += amount;
     if (target === "controllerDirect") m.direct += amount;
   }
   m.fires += 1;
+}
+
+/**
+ * Sample the core link's fill ONCE per tick (called every tick a core exists,
+ * fire or not). This is the distribution the two-snapshot read could not give:
+ * is the core usually EMPTY (drain out-runs income → hub is input/fire-limited)
+ * or usually CONGESTED (no room for a source volley → drain-limited, the pinned
+ * source link)? `capacity` is the core's max store.
+ */
+export function recordCoreLevel(room: string, fill: number, capacity: number, tick: number): void {
+  const m = ensure(room, tick);
+  m.coreSamples += 1;
+  m.coreFillSum += fill;
+  if (fill < SAMPLE_THRESHOLD) m.coreEmpty += 1;
+  if (capacity - fill < SAMPLE_THRESHOLD) m.coreCongested += 1;
 }
 
 /** The exported ledger row for one room - all RATES (e/t) over the window. */
@@ -75,6 +144,17 @@ export interface LinkLedgerRoom {
   directShare: number;
   /** Energy/tick lost to the 3% fee across all fires. */
   taxRate: number;
+  /** Average energy moved per hub fire (a full volley is ~800; a low avg means
+   * the source links fire small - starved input or a congested core). */
+  hubVolleyAvg: number;
+  /** Fraction of hub fires the core could not fully hold (drain-limited). */
+  hubClampShare: number;
+  /** Average core fill across the window (per-tick sampled). */
+  coreFillAvg: number;
+  /** Fraction of ticks the core sat near-empty (drain out-runs income). */
+  coreEmptyShare: number;
+  /** Fraction of ticks the core had no room for a source volley (congested). */
+  coreCongestedShare: number;
 }
 
 /** Snapshot every room's link ledger as rates. Pure over the accumulated meter. */
@@ -89,7 +169,12 @@ export function linkLedger(now: number): LinkLedgerRoom[] {
       toHubRate: m.toHub / w,
       toControllerRate: m.toController / w,
       directShare: m.toController > 0 ? m.direct / m.toController : 0,
-      taxRate: (total * LINK_LOSS_RATIO) / w
+      taxRate: (total * LINK_LOSS_RATIO) / w,
+      hubVolleyAvg: m.hubFires > 0 ? m.toHub / m.hubFires : 0,
+      hubClampShare: m.hubFires > 0 ? m.hubClamped / m.hubFires : 0,
+      coreFillAvg: m.coreSamples > 0 ? m.coreFillSum / m.coreSamples : 0,
+      coreEmptyShare: m.coreSamples > 0 ? m.coreEmpty / m.coreSamples : 0,
+      coreCongestedShare: m.coreSamples > 0 ? m.coreCongested / m.coreSamples : 0
     });
   }
   return out;
