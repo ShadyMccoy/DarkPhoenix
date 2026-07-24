@@ -231,11 +231,16 @@ export class ControllerFeederCorp extends Corp {
       const ctrlLink = controllerLink(creep.room);
       const core = ctrlLink ? coreLink(creep.room) : null;
       if (ctrlLink && core) {
-        // The feeder stages the relay in the core but NEVER tops it out:
-        // the top of the link is the income reserve (owner 2026-07-21 - a
-        // brim-full core left the source link's volleys nowhere to land).
+        // The feeder stages the relay in the core but NEVER tops it out: the
+        // top of the link is the income reserve (owner 2026-07-21 - a brim-full
+        // core left the source link's volleys nowhere to land), and it holds no
+        // more than the controller link can currently RECEIVE (owner 2026-07-24
+        // - the feeder is the core's slave, coordinated with the fire down to
+        // the controller; incident t72548874: the core pinned at 600-794 while
+        // the source link stood full and ~17.4k of income sat stranded).
         const free = core.store.getFreeCapacity(RESOURCE_ENERGY);
-        const loadRoom = coreLinkLoadRoom(core.store[RESOURCE_ENERGY], core.store[RESOURCE_ENERGY] + free);
+        const ctrlFree = ctrlLink.store.getFreeCapacity(RESOURCE_ENERGY);
+        const loadRoom = coreLinkLoadRoom(core.store[RESOURCE_ENERGY], core.store[RESOURCE_ENERGY] + free, ctrlFree);
         if (loadRoom <= 0) {
           if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
           return; // relay buffer staged: hold the load beside the core

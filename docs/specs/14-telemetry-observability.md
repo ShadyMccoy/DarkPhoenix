@@ -3961,3 +3961,49 @@ call, outside the waste-ledger cycle.
 
 Cycle verdict: **NO-OP (green board) + MEASURED** (E2 44->2 self-healed, E4 WARN->ok,
 throttle self-balancing confirmed decelerating). No code change - correctly.
+
+### AUDIT 2026-07-24 (t72548874) — feeder pinned the core link full, stranding ~17.4k of remote income (owner-reported)
+
+Owner report: "the feeder is not draining the core link fast enough to allow the
+remote link to send energy home ... piles as backup on the remotes ... does it need
+to coordinate with the link firing down to the controller?" Root-caused from live
+link stores (game/room-objects, W43N23) — the decisive read the rate meters miss:
+
+| structure | t72548874 | t72548972 (+98t) | verdict |
+|---|---|---|---|
+| source link 4a83 (46,11) | **800/800** | **800/800** | FULL both reads — can't offload income |
+| core link (35,25) | 600/800 | 794/800 | held high by the feeder |
+| controller link (41,30) | 750/800 | 702/800 | ~full; upgrader burns ~2.5 e/t (3 WORK) |
+
+`sourceBuffers` = ~17.4k stranded across 7 mines (dbcd8d 4673, dbcbd5 3563, ...);
+`toHubRate` 23.8 e/t « the source link's ~40 e/t assigned flow (cd90+cd8e+cd8d+cedc)
+— income backing up BEFORE the core. STUCK, not transient (two reads, 98t apart).
+
+**Mechanism (not a symptom patch — the mechanism WAS the bug):** the feeder's
+link-relay staged storage->core up to `coreLinkLoadRoom = capacity −
+CORE_LINK_INCOME_RESERVE = 600`, IGNORING whether the controller relay could take
+it. The controller link was already sated (relay blocked: ctrlFree 50-98 < the
+100 fire threshold), so the staged 600 could not fire down — and it stole the
+income headroom the remote source links needed to land their volleys. A doctrine
+inversion: consumption-staging (controller relay) starved production (remote
+income). Segment 4 confirms the relay was over-served — `toControllerRate` 24.4 ≈
+`toHubRate` 23.8 (feeder pumping storage->core->controller into a full link the
+upgraders couldn't drain), not banked.
+
+**Fix (the owner's framing — "the feeder is the core's slave"):** `coreLinkLoadRoom`
+gains the controller link's free capacity; the feeder holds the core to only
+`min(capacity − reserve, controllerFree)`. Controller sated -> feeder stages
+~nothing, the whole core stays open for source volleys; upgraders drain the
+controller link -> the target rises and the feeder tops the relay from storage.
+The feeder does NOT need to be bigger (it is correctly 1-CARRY for a ~2.5 e/t
+burn; a bigger feeder would pin the core FASTER). Red-first: coreLinkLoadRoom
+cases where the old rule returned 600 and the coordinated rule returns 50/400/250
+(`controllerLinkNetwork.test.ts`). Regression gate: unit 1419 green; build green;
+flow-handoff fails IDENTICALLY pre/post (a pre-existing mockup miner-production
+failure in this container — acquitted by the attribution rule, its own incident).
+
+Predicted prod deltas (verify ~200t post-deploy): source link 4a83 off 800/800;
+`sourceBuffers` total falling from ~17.4k; `toHubRate` rising toward ~40; core
+link level tracking controllerFree (low while the controller is sated); storage
+banking the freed income. Cycle verdict: **FIXED (coordinated feeder shipped)** —
+pending prod verification.
