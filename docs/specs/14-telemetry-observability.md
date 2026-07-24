@@ -3918,3 +3918,17 @@ rclProgress rate up; wallpreempt fleetSecured=true events drop to ~0.
 
 Cycle verdict: **FIXED** (instrument + conditioned gate shipped) - pending prod
 verification of the predicted deltas.
+
+**UPDATE — STORAGE THROTTLE (2026-07-24, supersedes the binary gate).** Owner
+direction: relax producer-before-consumer with the warchest as a CONTINUOUS
+governor rather than the binary fleetSecured gate. campaignConsumerLift(bankSurplus)
+lifts a surplus consumer proportionally - 0 at/below reserve (hard producer-first),
+ramping into the income band, capped below the blocking tier so the critical path
+(fresh miner / first hauler) always wins. Self-balancing: consume -> warchest
+falls -> lift recedes -> producers refill. The binary fleetSecured helper was
+removed (dead); the wallpreempt instrument stays as the observability trail.
+Gate: 1417 unit (incl. the 600-case nowPlanner sweep now randomizing bankSurplus),
+flow-handoff + runt-economy + storage-depot all green; deployed. Predicted deltas
+unchanged (verify ~200t): upgraders 1 -> ~targetCount; P7 -> ~15; E4 drains.
+
+Cycle verdict: **FIXED (storage throttle shipped)** - pending prod verification.
