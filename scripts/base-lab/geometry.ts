@@ -132,6 +132,64 @@ export function route(terrain: string[], from: Pt, to: Pt): Pt[] | null {
   return path.reverse();
 }
 
+/**
+ * One representative exit tile per room edge (the non-wall border tile nearest
+ * `near`), for the four edges that have any opening. Hauler routes run to these
+ * - remote hauling, defense sorties - so they are highway targets just like
+ * sources and the controller.
+ */
+export function exitTiles(terrain: string[], near: Pt): Pt[] {
+  const top: Pt[] = [];
+  const bottom: Pt[] = [];
+  const left: Pt[] = [];
+  const right: Pt[] = [];
+  for (let x = 0; x < SIZE; x++) {
+    if (!isWall(terrain, x, 0)) top.push({ x, y: 0 });
+    if (!isWall(terrain, x, SIZE - 1)) bottom.push({ x, y: SIZE - 1 });
+  }
+  for (let y = 0; y < SIZE; y++) {
+    if (!isWall(terrain, 0, y)) left.push({ x: 0, y });
+    if (!isWall(terrain, SIZE - 1, y)) right.push({ x: SIZE - 1, y });
+  }
+  const manhattan = (p: Pt): number => Math.abs(p.x - near.x) + Math.abs(p.y - near.y);
+  const nearest = (arr: Pt[]): Pt | null => (arr.length ? arr.reduce((b, p) => (manhattan(p) < manhattan(b) ? p : b)) : null);
+  return [top, bottom, left, right].map(nearest).filter((p): p is Pt => p !== null);
+}
+
+/**
+ * Multi-source BFS distance (8-dir, walls block) from a set of seed tiles.
+ * Fed the highway set, this is the TRAFFIC-PROXIMITY field: distance from every
+ * tile to the nearest hauler route. 0 = on an artery, 1 = adjacent (access /
+ * spillover), high = deep in a dead-end pocket nothing ever routes through - a
+ * measurable "how dead is this tile" the extension fill can bias toward.
+ */
+export function distanceFromSet(terrain: string[], seeds: Iterable<number>): Map<number, number> {
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
+  for (const t of seeds) {
+    if (!dist.has(t)) {
+      dist.set(t, 0);
+      queue.push(t);
+    }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i];
+    const cx = cur % SIZE;
+    const cy = (cur - cx) / SIZE;
+    const d = dist.get(cur)!;
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (isWall(terrain, nx, ny)) continue;
+      const np = packTile(nx, ny);
+      if (dist.has(np)) continue;
+      dist.set(np, d + 1);
+      queue.push(np);
+    }
+  }
+  return dist;
+}
+
 /** Packed set of every tile reachable (8-dir, walls block) from `from`. */
 export function reachable(terrain: string[], from: Pt): Set<number> {
   const seen = new Set<number>();
