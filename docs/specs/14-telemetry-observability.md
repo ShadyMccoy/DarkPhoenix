@@ -3855,3 +3855,48 @@ stage 4, where the throughput actually is.
 
 Cycle verdict: **REGRESSION REVERTED same-cycle** (P7 0->restored) + **FALSIFIED**
 (controller-link direct win is marginal; instrument-first saved the over-invest).
+
+---
+
+### AUDIT 2026-07-24 — E4/P7: scaling upgraders can't win spawn time vs income when the warchest is in surplus (3rd incident on this mechanism)
+
+Ledger t72533078: **E4 FAIL** (storage 62.8k = 2.8x reserve, +16/t and rising,
+feederActive true) and **P7 FAIL** (controller 7.0 e/t vs plan 15, "stock stood").
+Same root: the controller under-consumes, so real income rots in the warchest.
+
+Diagnosis (all reads):
+- Upgrade sizing stamp: `surplus` path CORRECT — `allocated 65.4`, `targetCount 4`,
+  `inflow 64.9` (feederRelayRate of the 63k bank), `hold: true`. The plan WANTS
+  4 upgraders (65 e/t) to eat the surplus.
+- But `staffing: 1` (one healthy 20-WORK upgrader), and the count DECAYED 4->1
+  since the wait-fix reset (t72531657). Storage still +12/t in that clean window.
+- Blackbox spawn log (window): hauler 18, miner 7, reserver 6, tanker 3, guard 2,
+  feeder 1, builder 1, **upgrader 1**. Spawn `endFill 0.56` — the bank is NOT
+  accumulating toward the 2300 campaign-upgrader wall; cheap BLOCKING income
+  haulers keep draining it below 2300, so the wall never completes.
+
+Mechanism: the scaling upgrader is `holdToFund` -> `mustFund` (campaign class),
+BUT `blocking: false` (only the 1st upgrader blocks). The wall logic still lets
+BLOCKING income demands spend while walling (SpawnScheduler ~L466), so a steady
+income-hauler stream perpetually preempts the campaign upgrader's wall. holdToFund
+(added for t72503018) walls only against cheap NON-blocking buys — blocking income
+defeats it. Third incident on this exact seam (t72503018; the spec-26 collapse
+death-spiral).
+
+The TRAP: the naive fix — make the scaling upgrader outrank income — is EXACTLY
+the spec-26 collapse death-spiral ("a campaign upgrader held the spawn ahead of
+the income fleet"). So this must NOT be a blanket priority bump.
+
+Proposed mechanism (NOT built — doctrine-critical, owner call): a CONDITIONED
+windfall gate. A scaling consumer wins spawn priority over income ONLY when the
+producer fleet is already secured (income safe) AND the warchest is in surplus;
+during depletion/rebuild, income wins (no spiral). This is the windfall doctrine
+("full bank -> consumers scale up") correctly conditioned on fleet-complete — the
+condition the two prior patches lacked. Needs red-first tests for BOTH the
+consume case AND the depletion-no-spiral case, plus a grid cell staging a full
+warchest + depleted fleet.
+
+Cycle verdict: **BLOCKER NAMED WITH DATA** (E4/P7 root = spawn-priority seam,
+not sizing); fix ESCALATED (collides with the spec-26 death-spiral trap — the
+mechanism, not another patch, is the work). My earlier "P7 auto-resolves at
+warchest-full" call is FALSIFIED: warchest 2.8x full, controller still 0.46x.
