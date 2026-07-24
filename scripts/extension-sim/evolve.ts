@@ -75,7 +75,8 @@ const GENS = argvNum("--gens", 30);
 const TICKS = argvNum("--ticks", 2400);
 const ONLY = argvStr("--preset");
 const HIGHWAYS = (argvStr("--highways") as HighwayPattern) ?? "none";
-const RESERVED_LIST = highwayTiles(HIGHWAYS, SIZE);
+const HW_WIDTH = argvNum("--hw-width", 1);
+const RESERVED_LIST = highwayTiles(HIGHWAYS, SIZE, HW_WIDTH);
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -229,7 +230,7 @@ function evolve(p: Preset): void {
 
   console.log(
     `\n=== ${p.name}: ${p.exts} ext @ ${p.spawns} spawn(s), ${GENS} gens x ${LAMBDA} mutants, ${TICKS}t evals` +
-      `  [highways: ${HIGHWAYS}, ${RESERVED_LIST.length} reserved tiles] ===`
+      `  [highways: ${HIGHWAYS} w${HW_WIDTH}, ${RESERVED_LIST.length} reserved tiles] ===`
   );
   console.log(`gen 0 best: cost [${pool[0].cost.map(c => c.toFixed(2)).join(", ")}]`);
 

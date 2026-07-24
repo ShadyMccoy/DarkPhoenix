@@ -22,36 +22,51 @@ export const HIGHWAY_PATTERNS: HighwayPattern[] = ["none", "spine", "cross", "co
 const inBounds = (p: Pos, size: number): boolean => p.x >= 1 && p.y >= 1 && p.x < size - 1 && p.y < size - 1;
 const isStorage = (p: Pos): boolean => p.x === STORAGE.x && p.y === STORAGE.y;
 
+// `width` is the artery's thickness perpendicular to its direction. Width 1 is
+// a single lane (creeps travelling opposite ways block each other); width 2 is
+// a two-way corridor - the realistic minimum for a through-highway that must
+// stay flowing. Widening is added on the +axis side of the primary lane.
+
 /** A horizontal artery along the storage row, running east across the field. */
-function spine(size: number): Pos[] {
+function spine(size: number, width: number): Pos[] {
   const out: Pos[] = [];
-  for (let x = STORAGE.x + 2; x < size - 1; x += 1) out.push({ x, y: STORAGE.y });
+  for (let w = 0; w < width; w += 1) {
+    for (let x = STORAGE.x + 2; x < size - 1; x += 1) out.push({ x, y: STORAGE.y + w });
+  }
   return out;
 }
 
 /** The spine plus a vertical avenue crossing it - divides the field in four. */
-function cross(size: number): Pos[] {
-  const out = spine(size);
+function cross(size: number, width: number): Pos[] {
+  const out = spine(size, width);
   const ax = STORAGE.x + 7;
-  for (let y = STORAGE.y - 8; y <= STORAGE.y + 8; y += 1) out.push({ x: ax, y });
+  for (let w = 0; w < width; w += 1) {
+    for (let y = STORAGE.y - 8; y <= STORAGE.y + 8; y += 1) out.push({ x: ax + w, y });
+  }
   return out;
 }
 
 /** A comb of vertical avenues every `period` columns across the field - the
  * "highways for general traffic, extensions squeeze into the avenues between"
- * shape. Extensions can pack the columns between arteries, cul-de-sac style. */
-function comb(size: number, period = 4): Pos[] {
+ * shape. Extensions can pack the columns between arteries, cul-de-sac style.
+ * `period` grows with `width` so the extension gap between avenues survives. */
+function comb(size: number, width: number, period = 4): Pos[] {
+  const stride = Math.max(period, width + 2); // keep >= 2 buildable cols between avenues
   const out: Pos[] = [];
-  for (let x = STORAGE.x + 4; x < size - 2; x += period) {
-    for (let y = STORAGE.y - 8; y <= STORAGE.y + 8; y += 1) out.push({ x, y });
+  for (let x0 = STORAGE.x + 4; x0 < size - 2; x0 += stride) {
+    for (let w = 0; w < width; w += 1) {
+      for (let y = STORAGE.y - 8; y <= STORAGE.y + 8; y += 1) out.push({ x: x0 + w, y });
+    }
   }
   return out;
 }
 
 /** Reserved tiles for a named pattern, de-duplicated, in bounds, never on the
- * storage tile. */
-export function highwayTiles(pattern: HighwayPattern, size = 30): Pos[] {
-  const raw = pattern === "spine" ? spine(size) : pattern === "cross" ? cross(size) : pattern === "comb" ? comb(size) : [];
+ * storage tile. `width` is the artery thickness (1 = single lane, 2 = two-way). */
+export function highwayTiles(pattern: HighwayPattern, size = 30, width = 1): Pos[] {
+  const w = Math.max(1, Math.floor(width));
+  const raw =
+    pattern === "spine" ? spine(size, w) : pattern === "cross" ? cross(size, w) : pattern === "comb" ? comb(size, w) : [];
   const seen = new Set<string>();
   const out: Pos[] = [];
   for (const p of raw) {

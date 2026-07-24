@@ -201,16 +201,24 @@ describe("extension-sim highways constraint", () => {
     expect(world.reserved.has(key(artery))).to.equal(true);
   });
 
-  it("highway patterns stay in bounds and never cover the storage tile", () => {
-    for (const pattern of HIGHWAY_PATTERNS) {
-      const tiles = highwayTiles(pattern, 30);
-      if (pattern === "none") expect(tiles).to.have.length(0);
-      else expect(tiles.length, `${pattern} produces arteries`).to.be.greaterThan(0);
-      for (const t of tiles) {
-        expect(t.x >= 1 && t.y >= 1 && t.x < 29 && t.y < 29, `${pattern} tile in bounds`).to.equal(true);
-        expect(t.x === STORAGE.x && t.y === STORAGE.y, `${pattern} never on storage`).to.equal(false);
+  it("highway patterns stay in bounds and never cover the storage tile (widths 1 and 2)", () => {
+    for (const width of [1, 2]) {
+      for (const pattern of HIGHWAY_PATTERNS) {
+        const tiles = highwayTiles(pattern, 30, width);
+        if (pattern === "none") expect(tiles).to.have.length(0);
+        else expect(tiles.length, `${pattern} w${width} produces arteries`).to.be.greaterThan(0);
+        for (const t of tiles) {
+          expect(t.x >= 1 && t.y >= 1 && t.x < 29 && t.y < 29, `${pattern} w${width} in bounds`).to.equal(true);
+          expect(t.x === STORAGE.x && t.y === STORAGE.y, `${pattern} w${width} never on storage`).to.equal(false);
+        }
       }
     }
+  });
+
+  it("a width-2 highway reserves about twice the tiles of a width-1 lane", () => {
+    const w1 = highwayTiles("spine", 30, 1).length;
+    const w2 = highwayTiles("spine", 30, 2).length;
+    expect(w2).to.equal(w1 * 2); // spine widens by one full extra row
   });
 });
 
