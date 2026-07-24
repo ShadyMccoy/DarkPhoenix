@@ -3945,3 +3945,19 @@ flaps with controllerFeederActive (feeder branch's domain, outcome unaffected).
 
 Cycle verdict: **FIXED + VERIFIED** (E4/P7 restored in prod; storage-as-throttle
 doctrine landed and self-balancing confirmed).
+
+**AUDIT 2026-07-24 (t72541921) — board fully green; proposed stranded-hauler item self-healed.**
+The previous cycle's work item (E2 stranded haulers 37-6/5-11, 44 parts) was TRANSIENT
+invader churn in W42N23, not a stuck recycle: two captures ~5115t apart show E2 44 -> 2
+(the orphans recycled; -8-8 caught mid-retire, the path working). No fix built - the
+two-captures diagnosis rule correctly acquitted it. Whole ledger [ok], no FAIL/WARN:
+E4 now [ok] (42.4k, slope -4.97 -> -1.28/t, DECELERATING as it nears reserve - the
+storage throttle easing into equilibrium, not overshooting); P7 1.55x (23.3 e/t);
+P4 0.71x. Waste-elimination has converged for this colony state. Named next lever
+(GROWTH, not waste): P9 1.43x = 7 funded sources / 70 e/t but ~20 more remotes marked
+"over-budget" with positive net (3-8 e/t) - spawn-capacity-limited. Capturing them
+needs more spawn throughput (RCL/2nd spawn) or expansion (spec 06/18/21) - a strategic
+call, outside the waste-ledger cycle.
+
+Cycle verdict: **NO-OP (green board) + MEASURED** (E2 44->2 self-healed, E4 WARN->ok,
+throttle self-balancing confirmed decelerating). No code change - correctly.
