@@ -414,12 +414,24 @@ export function pickRenewTarget(candidates: RenewCandidate[]): number | null {
 
 /**
  * Spend an idle, full spawn on renewing its best adjacent creep. Gated on a
- * FULL room (energyAvailable === capacity): the surplus signal that no spawn
- * drain is imminent and nothing is being saved for, so the renew's few energy
- * are genuinely spare rather than stolen from a wanted body. The self-limiting
- * property matters - a room that cannot keep itself full never renews, so an
- * under-tended (or growing) room falls back to ordinary respawn dynamics that
- * upsize the fleet. The tender idling beside the spawn is the usual
+ * FULL room (energyAvailable === capacity), and that gate is LOAD-BEARING for
+ * the extension refill SLA (test/grid/refillSLA.ts) - not just a surplus
+ * signal, so do not relax it to "mostly full" or a storage check:
+ *
+ *   - energyAvailable sums spawn + extension energy (engine game.js), so a full
+ *     room means the spawn's OWN store is full (300);
+ *   - renewCreep charges via the engine's oldEnergyHandling, which drains
+ *     SPAWNS before extensions; a full spawn covers the whole renew cost
+ *     (~cost/2.5/parts, tens of energy) from its own 300;
+ *   - so a renew from a full room NEVER touches the extension bank, and the
+ *     refill SLA (which watches extensions only, and flags a bank that is short
+ *     while nothing spawns) never sees a renew deficit.
+ *
+ * Relax the gate and renew spills into extensions on a not-spawning tick - the
+ * exact SLA breach (measured: it red-lined the fid-t4 steady-state cells). The
+ * gate is also self-limiting: a room that cannot keep itself full never renews,
+ * so an under-tended or growing room falls back to ordinary respawn dynamics
+ * that upsize the fleet. The tender idling beside the spawn is the usual
  * beneficiary; any range-1 creep qualifies.
  */
 function renewAdjacentCreep(spawn: StructureSpawn, room: Room): void {
