@@ -270,6 +270,23 @@ needs finicky rule tuning. A worthwhile direction if the bot ever needs labs tha
 self-organise under shifting boost demand — but the static allocator is the one to
 ship first.
 
+**Bypassing the integer-lab tax — the swing insight (`sim-labs-swing.ts`).** The
+rule isn't "never withdraw," it's *"never let a lab idle"*: a withdraw that empties
+an over-served lab so it can keep reacting is a **win** (idle → throughput), and
+**time-multiplexing** a lab across reactions ("alternate feeds over the course of
+making 1000") gives **fractional allocation** — a lab 60% on `OH` / 40% on the top
+is worth 0.4 of a lab on the top, so you reach *any* denomination and lift the
+`XLH2O` ceiling from the static 230 toward **~300/1k** (all 6 reactors ∝ cooldown).
+The insight is sound; the *implementation* is the hard part. A naive deficit-driven
+controller (make the most-owed reaction, park over-served compounds) **thrashes** —
+it over-commits to the bottleneck the instant its input appears, the low tiers
+starve, and parking evicts feedstock still in use (measured: 0 output, `LH` drift
+~300/1k). Realising the ceiling robustly is a real-time control problem
+(per-reaction lab caps + hysteresis + park-only-when-truly-surplus) left as future
+work. **Bottom line: ship the static ∝-cooldown allocator (230/1k, stable, ~0.006
+CPU/unit) — it captures ~3/4 of the fractional ceiling; the last ~30% is a tuning
+problem, not a mechanism problem.**
+
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
 boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability
