@@ -253,9 +253,12 @@ earn its keep over fixed 2-feeder. `XGH2O`/`XGHO2` don't fit (7 reactors + 7
 feeders > 10) → terminal-buffered `sim-labs.ts` as before.
 
 **Maximum utilisation — campaign bursting (`sim-labs-burst.ts`), measured 84–88%.**
-"Regardless of CPU cost, how busy can the labs get?" A tempting proof says 0.8 is a
-hard wall: every reaction needs 2 source labs, so ≥2 labs are always non-producing
-feeders → 8/10. **That proof is WRONG, and the sim disproves it.** The hole: a
+(Superseded as the ceiling: the base-rotation scheduler below reaches **1.0** on all
+but the depth-5 tree — read this first for the burst mechanism, then the "1.0 IS
+reachable" subsection for the wall-break.) "Regardless of CPU cost, how busy can the
+labs get?" A tempting proof says 0.8 is a hard wall: every reaction needs 2 source
+labs, so ≥2 labs are always non-producing feeders → 8/10. **That proof is WRONG, and
+the sim disproves it.** The hole: a
 source holding an *intermediate* can be a lab that just **produced** it (on
 cooldown = busy) while being read — only *raw-base* feeders are truly idle. So the
 scheme is: each tick, burst the most-owed suppliable reaction across every free
@@ -284,6 +287,61 @@ intermediate-producer as a feeder, and it isn't worth the churn. So the useful
 throughput-end point is **fixed-feeder burst: the standard 0.8 utilisation at a
 quarter the CPU of full rotation** — still ~10× react-away's throughput, and a much
 gentler CPU bill than the rotating extreme.
+
+**1.0 IS reachable — the base feeder rotates through cooldown too (`sim-labs-unity.ts`,
+`sim-labs-unity-tree.ts`).** The burst tops out at 84-88% because ITS base feeders are
+off-cooldown idle labs (the `--fixed` 0.80 is literally "2 permanently idle feeders").
+I twice called that a hard wall — *a base reaction always needs an idle base source, so
+util < 1.* **Wrong, same shape of error as the disproved 0.8 wall.** The hole: a base
+holder need not be off-cooldown. **Cooldown is a property of the lab, set when it
+produces, and it persists no matter what is in the lab.** So the tender withdraws a
+cooling lab's product and deposits a raw base into it *while it is still on cooldown*
+(withdraw/deposit is legal on cooldown; being read as a source is legal on cooldown) —
+and the base-feeder duty rotates through the same cooldown dead-time the feeder-spot
+idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainable:
+
+- **Single reaction — the exact "0.8 wall" case — hits a clean 1.0.** `OH=H+O` (cd 20),
+  `LH=L+H`, `ZK=Z+K`: **100.00% util, zero idle misses**, 2495/1k for `OH` against the
+  2500/1k theoretical ceiling (all 10 labs firing every 20 ticks). Every lab cycles
+  produce-`OH` → (tender swaps the `OH` out, a base in) hold `H`/`O` as a source while
+  cooling → come off cooldown, produce again. The 2 base "feeders" at any instant are
+  cooling labs, not idle ones. (`sim-labs-unity.ts`.)
+- **Full high-tier tree — most boosts hit 1.0.** Apply the same trick to every base
+  reactant in a real tree (compound reactants come free from cooling producers, as the
+  burst already used): keep each base source on a cooling lab, and fire every
+  off-cooldown lab on the largest-absolute-deficit reaction it can supply. Measured
+  (60k ticks):
+
+  | target | util | note |
+  |---|---:|---|
+  | `XUH2O` `XUHO2` `XKH2O` `XKHO2` `XLHO2` | **100.00%** | exactly 1.0 — no lab ever idle |
+  | `XLH2O` | 97.8% | cd-65 top tier's integer-lab tax |
+  | `XZH2O` | 98.9% | |
+  | `XZHO2` | 97.0% | cd-160 top tier |
+  | `XGH2O` (depth 5) | — | **cannot**: 7 compound labs + 7 base holders = 14 > 10 labs |
+
+  So the base-rotation scheduler **beats the burst (84-88%) outright** on the shallow
+  boosts and **reaches an exact 1.0** on most of them. Absolute-deficit selection (not
+  deficit/share) is load-bearing — it lifted the Σcd-95 family off an 85% plateau to
+  1.0 by letting the slow top tier win labs proportionally. The residual few % on
+  `XLH2O`/`XZH2O`/`XZHO2` is the **integer-lab tax** on their heaviest-cooldown top
+  reaction (its lab-share isn't a whole number), the same tax the swing note describes —
+  not a return of the feeder wall.
+- **The one genuine ceiling is capacity, not feeders.** `XGH2O`/`XGHO2` (depth 5, 7
+  distinct bases) physically cannot hold 7 base sources **and** its 7 compound
+  producers in 10 labs at once — the same Ghodium wall react-away hit. The burst still
+  runs it at 88% precisely because bursting one reaction holds only 2 feeders at a time;
+  so **for the deepest tree the burst is still the tool, and for everything shallower
+  the unity scheduler is strictly better** (1.0 vs 0.84, and reactions cost no intents
+  so the only price is the tender's rotate/skim traffic).
+
+**Bottom line on the ceiling question: 1.0 is achievable.** For a single sustained
+reaction it is exact; for the common depth-≤3 boosts the base-rotation scheduler hits
+1.0 (or 97-99% where the top tier's cooldown doesn't tile 10 labs evenly); only the
+depth-5 Ghodium line is capacity-bound below it, and only there does the burst's
+2-feeder-at-a-time approach remain necessary. The "labs must leave feeders idle" wall —
+in both its 0.8 and its base-reaction forms — was an armchair assumption; the mechanic
+(cooldown is the lab's, not the mineral's) dissolves it.
 
 **The "continuous OH engine" cycle (`sim-labs-cycle.ts`) — measured negative, and
 why the burst already IS the owner's cycle.** The owner's full-util idea, stated
