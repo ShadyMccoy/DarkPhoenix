@@ -285,6 +285,43 @@ throughput-end point is **fixed-feeder burst: the standard 0.8 utilisation at a
 quarter the CPU of full rotation** — still ~10× react-away's throughput, and a much
 gentler CPU bill than the rotating extreme.
 
+**The "continuous OH engine" cycle (`sim-labs-cycle.ts`) — measured negative, and
+why the burst already IS the owner's cycle.** The owner's full-util idea, stated
+literally: *keep every lab making `OH` continuously; the feeders also react higher
+compounds off that `OH`; `OH` accumulates in the labs and you clean it out after a
+while.* Built and measured against the burst on the same yardstick, it **loses
+badly**:
+
+| target | cycle | burst | note |
+|---|---:|---:|---|
+| `XLH2O` | 24.5/1k @ 18% util | 421/1k @ 84% | cycle NOT sustainable (`OH` piles +92/1k) |
+| `XGH2O` | 0/1k @ 3% util | 338/1k @ 88% | cycle **deadlocks** (G sub-tree base holders eat the labs) |
+
+Two independent reasons, both measured:
+
+1. **`OH` is only one of four reactants** (`LH`, `OH`, `LH2O`, the `X`-boost).
+   Flooding the pool with a continuous `OH` engine spends lab-ticks on the reactant
+   that is *already* cheapest to keep ahead, piling parked `OH` the tiers can't
+   drain, while `LH`/`LH2O`/the boost **starve for free labs**. Throughput is set by
+   the *slowest* tier's lab share, not by how much `OH` you can make.
+2. **React-away pins every lab to its compound**, so a lab holding `LH5` that can't
+   productively re-fire and can't be read down freezes — three separate framings
+   (`--multi`, greedy tiers, buffer-gated tiers) all **deadlocked outright** before
+   any parking was added. The *only* thing that makes the cycle run is parking
+   pinned labs to the terminal every tick — which is **exactly the burst's unbounded
+   tender**. So a "keep-all-busy" cycle that actually runs **converges to the
+   burst**; there is no cheaper high-util regime hiding in the OH-engine idea.
+
+The resolution is a reframing, not a defeat: **the owner's cycle done right is the
+burst.** "8 labs all make `OH`" is just the `camp = OH` tick of the single-camp
+burst; "higher compounds coming back to the feeders" is the camp **rotating up the
+tree** on later ticks; "clean them out after some time" is the tender parking
+non-camp labs. Bursting **one** most-owed reaction across the free labs and rotating
+which reaction each tick is what time-multiplexes the whole tree through the pool and
+lands at 84–88% — trying to hold every lab on the OH engine *simultaneously* is what
+pins the labs and wastes them. Keep `sim-labs-burst.ts`; `sim-labs-cycle.ts` is kept
+as the recorded road-not-taken.
+
 **Emergent local-rule variant (`sim-labs-emergent.ts`) — boids, not a V-plan.**
 Instead of computing the allocation, each reactor follows two local rules:
 *produce* what I hold until its buffer is full; if *empty*, *adopt* the hungriest
