@@ -252,6 +252,24 @@ feeder-*spots* rotation (roles moving through cooldown dead-time) would finally
 earn its keep over fixed 2-feeder. `XGH2O`/`XGHO2` don't fit (7 reactors + 7
 feeders > 10) → terminal-buffered `sim-labs.ts` as before.
 
+**Emergent local-rule variant (`sim-labs-emergent.ts`) — boids, not a V-plan.**
+Instead of computing the allocation, each reactor follows two local rules:
+*produce* what I hold until its buffer is full; if *empty*, *adopt* the hungriest
+compound I can make (hunger = deficit below buffer; the drained target stays
+hungriest). The ∝-cooldown split and swing then **fall out** of the rules — no
+central plan. It self-organises, conserves, and stays near-zero CPU
+(`XLH2O` 153.8/1k @ 0.006, emerged `{LH:1 OH:2 LH2O:1 XLH2O:2}`). But it
+**under-performs the static allocator** (153.8 vs 230.8): plain stock-deficit
+hunger under-weights the high-cooldown bottleneck (equal stock deficit ≠ equal lab
+need), and react-away stickiness leaves labs stuck on over-served fast tiers.
+Weighting hunger by cooldown to fix it **clumps and deadlocks** (every empty lab
+picks the same compound) — the classic emergent-tuning trap. Verdict: elegant,
+robust, and adaptive (would track changing demand and real geometry with no
+recompute), but a decent-not-optimal split; matching the hand-computed optimum
+needs finicky rule tuning. A worthwhile direction if the bot ever needs labs that
+self-organise under shifting boost demand — but the static allocator is the one to
+ship first.
+
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
 boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability
