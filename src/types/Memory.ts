@@ -744,6 +744,14 @@ declare global {
      */
     homeSink?: "spawn" | "controller" | "founding" | "storage";
 
+    /** Hauler duty meter (owner 2026-07-25): last tick's position + carried
+     * energy, so CarryCorp can tell a productive tick (moved or transacted)
+     * from an idle one (stationary, waiting/blocked to load or unload) and
+     * split idle by the load state. Persists across global resets (creep
+     * memory), so the meter reads realized movement, not intents. */
+    dutyPos?: { x: number; y: number; roomName: string };
+    dutyEnergy?: number;
+
     /** An upgrader's assigned parking tile (ringing the controller input spot);
      * it camps here, withdraws from the single input, and upgrades in place. */
     upgradeSpot?: { x: number; y: number };

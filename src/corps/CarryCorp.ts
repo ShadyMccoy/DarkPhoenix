@@ -332,6 +332,31 @@ export function pickSinkByAllocation(
   return anyPositive ? best : "spawn";
 }
 
+/** How a hauler spent one alive-tick (owner 2026-07-25 execution meter). */
+export type HaulerDutyClass = "active" | "idleSource" | "idleSink";
+
+/**
+ * Classify one hauler alive-tick from realized state changes since last tick.
+ * "Are fielded haulers executing efficiently, or waiting?" - the read that
+ * disambiguates a plan under-ask (a: high duty, buffers still grow because the
+ * carry is inflow-sized) from an execution loss (c: haulers idle/blocked).
+ *
+ *   - active:     moved OR transacted (withdrew/transferred) - real progress.
+ *   - idleSource: stationary AND no transaction while EMPTY - waiting or
+ *                 blocked on the load leg. High + a full source buffer is the
+ *                 execution smoking gun (energy is right there, unhauled).
+ *   - idleSink:   stationary AND no transaction while LOADED - waiting or
+ *                 blocked on the deliver leg (sink full / port clamped /
+ *                 traffic). A backpressure signal.
+ *
+ * Realized (moved = position actually changed), so a blocked creep that issued
+ * a move intent counts as idle, not active. Pure.
+ */
+export function classifyHaulerTick(moved: boolean, transacted: boolean, loaded: boolean): HaulerDutyClass {
+  if (moved || transacted) return "active";
+  return loaded ? "idleSink" : "idleSource";
+}
+
 /**
  * Serialized state specific to CarryCorp
  */
@@ -341,6 +366,12 @@ export interface SerializedCarryCorp extends SerializedCorp {
   haulerAssignments?: HaulerAssignment[];
   /** Where this corp's route picks up (see CarryCorp.pickupPos). */
   pickupPos?: Position;
+  /** Duty-meter counters (rolling ~1500t window, survives resets). */
+  dutyAlive?: number;
+  dutyActive?: number;
+  dutyIdleSource?: number;
+  dutyIdleSink?: number;
+  dutySince?: number;
 }
 
 /**
@@ -355,6 +386,19 @@ export class CarryCorp extends Corp {
    * Each assignment specifies a source → sink route with CARRY requirements.
    */
   private haulerAssignments: HaulerAssignment[] = [];
+
+  /**
+   * Hauler duty meter (owner 2026-07-25): rolling ~1500t window counting
+   * alive-ticks by realized activity, so "our haulers aren't enough" can be
+   * split into a plan under-ask (high duty, buffers still grow) vs an
+   * execution loss (haulers idle/blocked). Serialized so a global reset
+   * mid-window doesn't read as a duty collapse (the tender-meter pattern).
+   */
+  private dutyAlive = 0;
+  private dutyActive = 0;
+  private dutyIdleSource = 0;
+  private dutyIdleSink = 0;
+  private dutySince = 0;
 
   /**
    * Where this corp's route picks up - the CarryCorp analogue of HarvestCorp's
@@ -417,12 +461,29 @@ export class CarryCorp extends Corp {
     // is the corp retiring? how many routes does it still hold? how many of
     // its creeps are LOADED (flagRetiringForRecycling skips loaded ones)? One
     // recapture resolves whether it's stuck-loaded vs never-flagged-retiring.
+    // Execution meter BEFORE the creeps act this tick: pos/store still hold
+    // last tick's realized result, so we measure movement that HAPPENED, not
+    // intents (a blocked creep reads idle). Recycling creeps are excluded -
+    // they are heading to the spawn to die, not hauling.
+    this.meterExecution(creeps.filter(c => !c.memory.recycling), tick);
+
     this.lastSizing = {
       tick,
       retiring: this.retiring,
       routes: this.getHaulerAssignments().length,
       creeps: creeps.length,
-      loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length
+      loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length,
+      // Duty split (owner 2026-07-25): active vs idle-empty (load leg) vs
+      // idle-loaded (deliver leg). Low duty w/ full source buffers = execution
+      // loss; high duty w/ full buffers = the plan under-asks (inflow-sized).
+      ...(this.dutyAlive > 0
+        ? {
+            duty: Math.round((this.dutyActive / this.dutyAlive) * 1000) / 1000,
+            idleSourceFrac: Math.round((this.dutyIdleSource / this.dutyAlive) * 1000) / 1000,
+            idleSinkFrac: Math.round((this.dutyIdleSink / this.dutyAlive) * 1000) / 1000,
+            meterTicks: tick - this.dutySince
+          }
+        : {})
     };
 
     this.flagRuntForRecycling(creeps, room, spawn);
@@ -435,6 +496,47 @@ export class CarryCorp extends Corp {
       } else {
         this.runHauler(creep, room, spawn);
       }
+    }
+  }
+
+  /**
+   * Accumulate the hauler duty meter over a rolling ~1500t window. For each
+   * live creep, compare this tick's position + carried energy to last tick's
+   * snapshot (creep memory, so it survives global resets): a change in either
+   * is a productive tick, otherwise the creep stood still - split by whether it
+   * was loaded (waiting to deliver) or empty (waiting to load). A creep with no
+   * snapshot yet (just spawned / first observation) only seeds it, uncounted.
+   */
+  private meterExecution(creeps: Creep[], tick: number): void {
+    if (tick - this.dutySince >= 1500) {
+      this.dutyAlive = 0;
+      this.dutyActive = 0;
+      this.dutyIdleSource = 0;
+      this.dutyIdleSink = 0;
+      this.dutySince = tick;
+    }
+    for (const creep of creeps) {
+      const energy = creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0;
+      const prev = creep.memory.dutyPos;
+      const prevEnergy = creep.memory.dutyEnergy;
+      if (prev !== undefined && prevEnergy !== undefined) {
+        const moved = prev.x !== creep.pos.x || prev.y !== creep.pos.y || prev.roomName !== creep.pos.roomName;
+        const transacted = prevEnergy !== energy;
+        this.dutyAlive += 1;
+        switch (classifyHaulerTick(moved, transacted, energy > 0)) {
+          case "active":
+            this.dutyActive += 1;
+            break;
+          case "idleSource":
+            this.dutyIdleSource += 1;
+            break;
+          case "idleSink":
+            this.dutyIdleSink += 1;
+            break;
+        }
+      }
+      creep.memory.dutyPos = { x: creep.pos.x, y: creep.pos.y, roomName: creep.pos.roomName };
+      creep.memory.dutyEnergy = energy;
     }
   }
 
@@ -1626,7 +1728,12 @@ export class CarryCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
-      pickupPos: this.pickupPos ?? undefined
+      pickupPos: this.pickupPos ?? undefined,
+      dutyAlive: this.dutyAlive,
+      dutyActive: this.dutyActive,
+      dutyIdleSource: this.dutyIdleSource,
+      dutyIdleSink: this.dutyIdleSink,
+      dutySince: this.dutySince
     };
   }
 
@@ -1637,6 +1744,11 @@ export class CarryCorp extends Corp {
     super.deserialize(data);
     this.haulerAssignments = data.haulerAssignments ?? [];
     this.pickupPos = data.pickupPos ?? null;
+    this.dutyAlive = data.dutyAlive ?? 0;
+    this.dutyActive = data.dutyActive ?? 0;
+    this.dutyIdleSource = data.dutyIdleSource ?? 0;
+    this.dutyIdleSink = data.dutyIdleSink ?? 0;
+    this.dutySince = data.dutySince ?? 0;
   }
 }
 

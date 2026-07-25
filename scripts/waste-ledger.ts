@@ -588,6 +588,47 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- H1 hauler execution duty: are fielded haulers working or waiting? ----
+  // The (a) vs (c) disambiguator (owner 2026-07-25). Reads the v?/segment-4
+  // CarryCorp duty stamp (active vs idle-empty vs idle-loaded, realized). High
+  // duty WITH source buffers over container cap => the plan under-asks (carry
+  // is inflow-sized, no drain term) - a plan fix. Low duty / high idleSource
+  // => execution loss (energy standing, haulers idle/blocked) - a behavior fix.
+  // idleSink => sink backpressure (storage/port full). Absent pre-instrument.
+  {
+    const haulers = corps.filter(c => c.kind === "carry" && c.sizing && c.sizing.duty !== undefined);
+    const creeps = haulers.reduce((s, c) => s + (c.creepCount || 0), 0);
+    if (haulers.length > 0 && creeps > 0) {
+      const wavg = (f: string): number =>
+        haulers.reduce((s, c) => s + (c.sizing[f] || 0) * (c.creepCount || 0), 0) / creeps;
+      const duty = wavg("duty");
+      const idleSource = wavg("idleSourceFrac");
+      const idleSink = wavg("idleSinkFrac");
+      // Buffers over container cap (2000) = energy on the ground.
+      const buffers: Record<string, number> = core.sourceBuffers ?? {};
+      const overCap = Object.values(buffers).reduce((s, v) => s + Math.max(0, (v as number) - 2000), 0);
+      const piled = overCap > 3000;
+      // Only a leak worth flagging when energy is actually piling up. Then a
+      // LOW duty (or high idleSource) is the execution smoking gun.
+      const executionLoss = piled && (duty < 0.75 || idleSource > 0.2);
+      rows.push({
+        id: "H1",
+        name: "hauler execution duty",
+        value: +duty.toFixed(3),
+        unit: "active frac",
+        verdict: executionLoss ? "WARN" : "ok",
+        detail:
+          `duty ${duty.toFixed(2)} (idleSource ${idleSource.toFixed(2)}, idleSink ${idleSink.toFixed(2)}) over ` +
+          `${haulers.length} corps/${creeps} creeps; ground-piled ${Math.round(overCap)}e ` +
+          (piled
+            ? duty >= 0.75 && idleSource <= 0.2
+              ? "- haulers BUSY => plan under-asks (inflow-sized carry, no drain term)"
+              : "- haulers IDLE/blocked => execution loss (energy standing, unhauled)"
+            : "- buffers near cap, no leak")
+      });
+    }
+  }
+
   // ---- P6 reservation pump (owner marathon: "reservers not reserving") ----
   // pump_r = bank2 - (bank1 - stampDt): what the fielded reservers actually
   // ADDED per room, decay netted out. Zero pump on a needy room with claim
