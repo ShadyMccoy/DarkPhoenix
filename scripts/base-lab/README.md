@@ -99,8 +99,12 @@ paved ducts, 1 tender, ~1000t.
     the REAL per-tier loadout (`--rcl` sets ext count AND spawn count: 40/1,
     50/2, 60/3), all three tiers hold util 1.000 on a single 2:1 tender on
     shard3-W1N6:
-    - RCL6 (40 ext, 1 spawn): full drain, **0 reservoir**, but 73t — the lone
-      spawn (~17 e/t demand) + full window offset the full drain. Not tricky.
+    - RCL6 (40 ext, 1 spawn): full drain, **0 reservoir**, ~84t (24C12M paved) —
+      the lone spawn (~17 e/t demand) + full window offset the full drain. Not
+      tricky. NB the RCL6 grid holds only 2300e, so the tender must be <=46
+      parts: a 50-part 33C17M (2500e) is NOT spawnable here (the bridge now
+      warns). Roads only help a 2:1 tender (95->78t for 30C15M); a 1:1 is 86t
+      either way, so the pave-the-ducts win is contingent on a CARRY-heavy body.
     - RCL7 (50 ext, 2 spawn): near-full drain, **6 reservoir**, 108t — tightest
       on both axes; where a 2nd tender first earns margin (108t -> 64t). Holds
       across open (82t) and congested (84t) maps.

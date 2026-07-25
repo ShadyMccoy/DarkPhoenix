@@ -138,6 +138,18 @@ function main(): void {
   };
   const preset = RCL_PRESET[rcl] ?? RCL_PRESET[8];
   const target = Number(flagVal("--target", String(preset.ext)));
+
+  // Spawnability guard: a tender can't cost more than the room's total energy
+  // capacity (tenders are pre-placed in the sim, so it won't catch this itself).
+  const EXT_CAP_BY_RCL: Record<number, number> = { 6: 50, 7: 100, 8: 200 };
+  const gridCap = preset.ext * (EXT_CAP_BY_RCL[rcl] ?? 200) + preset.spawns * 300;
+  const tenderCost = (carry + move) * 50;
+  if (tenderCost > gridCap) {
+    console.log(
+      `WARNING: ${carry}C${move}M costs ${tenderCost}e but the RCL${rcl} grid holds only ${gridCap}e - ` +
+        `NOT spawnable (max ~${Math.floor(gridCap / 50)} parts). Results below are for an impossible creep.`
+    );
+  }
   const biases = flagVal("--bias", "0,1,2,3")
     .split(",")
     .map(Number)
