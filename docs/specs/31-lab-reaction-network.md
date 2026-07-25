@@ -252,6 +252,31 @@ feeder-*spots* rotation (roles moving through cooldown dead-time) would finally
 earn its keep over fixed 2-feeder. `XGH2O`/`XGHO2` don't fit (7 reactors + 7
 feeders > 10) → terminal-buffered `sim-labs.ts` as before.
 
+**Maximum utilisation — campaign bursting (`sim-labs-burst.ts`), measured 84–88%.**
+"Regardless of CPU cost, how busy can the labs get?" A tempting proof says 0.8 is a
+hard wall: every reaction needs 2 source labs, so ≥2 labs are always non-producing
+feeders → 8/10. **That proof is WRONG, and the sim disproves it.** The hole: a
+source holding an *intermediate* can be a lab that just **produced** it (on
+cooldown = busy) while being read — only *raw-base* feeders are truly idle. So the
+scheme is: each tick, burst the most-owed suppliable reaction across every free
+off-cooldown lab, hold its two reactants in 2 just-in-time **rotating** feeders,
+and let the tender (unbounded) park/reload everything else. Measured, sustainable:
+
+| target | utilisation | throughput | CPU |
+|---|---:|---:|---:|
+| `XLH2O` | **84.1%** | 421/1k | 353 CPU/1k |
+| `XUHO2` | **84.4%** | 444/1k | 372 CPU/1k |
+| `XGH2O` | **87.6%** | 338/1k | 476 CPU/1k |
+
+Base-consuming bursts (`LH`,`OH`) run ~0.8; compound-consuming bursts
+(`LH2O=LH+OH`) read on-cooldown producers → ~1.0 that tick; the weighted average is
+84–88% and it **rises with tree depth** — `XGH2O` (depth 5) hits 88% and the burst
+scheme even **handles the Ghodium tree** every other scheduler choked on, because
+it only ever holds 2 feeders at a time, never 7. Exactly 1.0 is still unreachable
+(base-consuming bursts are <1.0), but 0.8 was never the wall. The price is enormous
+CPU (~350–476/1k, the tender parks+reloads every tick) — this is the throughput end
+of the trade, the mirror of react-away's cheap-but-0.46 end.
+
 **Emergent local-rule variant (`sim-labs-emergent.ts`) — boids, not a V-plan.**
 Instead of computing the allocation, each reactor follows two local rules:
 *produce* what I hold until its buffer is full; if *empty*, *adopt* the hungriest
