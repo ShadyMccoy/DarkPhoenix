@@ -16,7 +16,7 @@
  *       [--rcl 8] [--ticks 1500] [--carry 25] [--move 25] [--target 60]
  */
 import { SIZE, packTile, isWall, type Pt } from "./geometry";
-import { BasePlan, RCL8_EXTENSIONS, defaultFixture, loadFixture, planBase } from "./plan";
+import { BasePlan, defaultFixture, loadFixture, planBase } from "./plan";
 import { Layout, Pos, Scenario, TenderPolicy, simulate } from "../extension-sim/engine";
 
 const unpack = (tile: number): Pos => ({ x: tile % SIZE, y: Math.floor(tile / SIZE) });
@@ -94,7 +94,16 @@ function main(): void {
   const commuteSlack = Number(flagVal("--commute", "1.5"));
   const policy = flagVal("--policy", "greedy-nearest") as TenderPolicy; // greedy-nearest | outbound-sweep | outbound-ration
   const tenders = Number(flagVal("--tenders", "1"));
-  const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
+
+  // Real per-RCL loadout: extension count, spawn count, tower/lab count all
+  // scale with RCL - so RCL6/7 sim their true small grids, not the RCL8 one.
+  const RCL_PRESET: Record<number, { ext: number; spawns: number; towers: number; labs: number }> = {
+    6: { ext: 40, spawns: 1, towers: 2, labs: 3 },
+    7: { ext: 50, spawns: 2, towers: 3, labs: 6 },
+    8: { ext: 60, spawns: 3, towers: 6, labs: 10 }
+  };
+  const preset = RCL_PRESET[rcl] ?? RCL_PRESET[8];
+  const target = Number(flagVal("--target", String(preset.ext)));
   const biases = flagVal("--bias", "0,1,2,3")
     .split(",")
     .map(Number)
@@ -103,7 +112,7 @@ function main(): void {
   const input = loadFixture(fixture);
 
   console.log(
-    `\n=== sim-bridge: ${input.name} @ RCL${rcl}, ${carry}C${move}M x1 tender, ${policy}, roads:${roadsMode}, ${ticks}t ===\n` +
+    `\n=== sim-bridge: ${input.name} @ RCL${rcl} (${preset.ext} ext, ${preset.spawns} spawn), ${carry}C${move}M x${tenders}, ${policy}, roads:${roadsMode}, ${ticks}t ===\n` +
       `sweeping --dead-bias; PLACEMENT gauges (base-lab) next to REFILL (sim)\n`
   );
   console.log(
@@ -113,7 +122,15 @@ function main(): void {
   );
 
   for (const deadBias of biases) {
-    const plan = planBase(input, { target, fillMode: "alveoli", deadBias, commuteSlack });
+    const plan = planBase(input, {
+      target,
+      fillMode: "alveoli",
+      deadBias,
+      commuteSlack,
+      spawns: preset.spawns,
+      towers: preset.towers,
+      labs: preset.labs
+    });
     const layout = toSimLayout(plan, roadsMode);
     const scenario: Scenario = {
       layout,

@@ -95,6 +95,21 @@ paved ducts, 1 tender, ~1000t.
    permanent storage; only the near working set needs fast refill. (`--rcl` on
    the bridge; `drained`/`reservoir` columns.)
 
+10. **The RCL progression: buffer grows with tier; RCL7 is the tightest.** With
+    the REAL per-tier loadout (`--rcl` sets ext count AND spawn count: 40/1,
+    50/2, 60/3), all three tiers hold util 1.000 on a single 2:1 tender on
+    shard3-W1N6:
+    - RCL6 (40 ext, 1 spawn): full drain, **0 reservoir**, but 73t — the lone
+      spawn (~17 e/t demand) + full window offset the full drain. Not tricky.
+    - RCL7 (50 ext, 2 spawn): near-full drain, **6 reservoir**, 108t — tightest
+      on both axes; where a 2nd tender first earns margin (108t -> 64t). Holds
+      across open (82t) and congested (84t) maps.
+    - RCL8 (60 ext, 3 spawn): 58% drain, **27 reservoir**, 115t — most headroom.
+
+    Headroom ranking: RCL8 > RCL6 > RCL7. None fail with a sane 1-tender/2:1
+    setup; RCL7 is the one to watch. (Earlier "RCL6 struggles" was an artifact
+    of forcing the RCL8 count of 60 ext + 3 spawns at RCL6 caps.)
+
 ## Caveats
 
 - Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding
