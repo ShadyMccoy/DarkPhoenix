@@ -3,6 +3,7 @@ import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmenta
 import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
+import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
 import { MinerAssignment, HaulerAssignment, SinkAllocation } from "../../../src/flow/FlowTypes";
 
 const ctx = { energyCapacity: 550, tick: 100 };
@@ -217,6 +218,98 @@ describe("corp getSpawnDemand()", () => {
       expect(demands).to.have.length(1);
       expect(demands[0].holdToFund, "cold start / save regime never consumer-walls").to.equal(undefined);
       expect(corp.lastSizing?.hold).to.equal(undefined);
+    });
+  });
+
+  /**
+   * The feeder is the LINCHPIN of the spend path (owner 2026-07-24: "unless we
+   * have basically no energy, we always want the feeder; everything else is
+   * optimized to rely on it"). At value 95 it lost the ranked spawn slot to
+   * miners (100), the tender (96), and high-demand haulers, so it oscillated -
+   * and when it was dark the upgraders went surplus-blind (bankedBehindFeeder
+   * null) and the bank rotted (E4 idle-capital coupling, audit t72553726). The
+   * FIRST feeder now outranks the marginal producer; additional feeders (surplus
+   * drawdown) stay infra-tier. It never WALLS (blocking false), so no spiral.
+   */
+  describe("ControllerFeederCorp priority (the linchpin, owner 2026-07-24)", () => {
+    const ROOM = "W1N1";
+    const SPAWN_ID = "spawn1";
+    let savedGame: any;
+    let savedMemory: any;
+
+    beforeEach(() => {
+      savedGame = (global as any).Game;
+      savedMemory = (global as any).Memory;
+      (global as any).FIND_MY_STRUCTURES = 108;
+      (global as any).FIND_STRUCTURES = 107;
+      (global as any).STRUCTURE_LINK = "link";
+      (global as any).STRUCTURE_CONTAINER = "container";
+      (global as any).RESOURCE_ENERGY = "energy";
+      (global as any).WORK = "work";
+      (global as any).CARRY = "carry";
+      (global as any).MOVE = "move";
+    });
+    afterEach(() => {
+      (global as any).Game = savedGame;
+      (global as any).Memory = savedMemory;
+    });
+
+    /** Stage a link-less (walking) room past every feeder gate: storage banked,
+     * a live miner (income), and `feederCount` feeders already fielded. */
+    function stageRoom(banked: number, controllerAt: { x: number; y: number }, feederCount: number, corpId: string) {
+      const noStructs = { findInRange: () => [] };
+      const room: any = { name: ROOM, memory: {} };
+      room.storage = { my: true, store: { energy: banked }, pos: noStructs };
+      room.controller = {
+        my: true,
+        pos: { x: controllerAt.x, y: controllerAt.y, roomName: ROOM, findInRange: () => [] }
+      };
+      const spawn: any = {
+        id: SPAWN_ID,
+        room,
+        pos: {
+          x: 30,
+          y: 20,
+          roomName: ROOM,
+          getRangeTo: (t: any) => Math.max(Math.abs(30 - t.x), Math.abs(20 - t.y))
+        }
+      };
+      const creeps: any = {
+        miner1: { room: { name: ROOM }, spawning: false, memory: { workType: "harvest", corpId: "mining-x" } }
+      };
+      for (let i = 0; i < feederCount; i++) {
+        creeps[`f${i}`] = { room: { name: ROOM }, spawning: false, memory: { workType: "feed", corpId } };
+      }
+      (global as any).Memory = { creeps: {}, rooms: {} };
+      (global as any).Game = {
+        time: 100,
+        rooms: {},
+        creeps,
+        getObjectById: (id: string) => (id === SPAWN_ID ? spawn : null)
+      };
+    }
+
+    it("the FIRST feeder outranks the marginal producer (value 101, not the old 95), never walls", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      stageRoom(60_000, { x: 25, y: 10 }, 0, corp.id); // banked surplus, ZERO feeders
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      const d = demands[0];
+      expect(d.role).to.equal("feeder");
+      expect(d.value, "the linchpin outranks the income tier").to.equal(101);
+      expect(d.blocking, "but never walls the bank").to.equal(false);
+      expect(d.infrastructure, "and pierces holds while its post is dark with a real bank").to.equal(true);
+    });
+
+    it("ADDITIONAL feeders (surplus drawdown) stay infra-tier (value 95)", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      // A far controller inflates neededCarry past one body, so with ONE feeder
+      // fielded the corp still demands a second - which must NOT front-run income.
+      stageRoom(60_000, { x: 48, y: 48 }, 1, corp.id);
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands, "a second feeder is still wanted for the far relay").to.have.length(1);
+      expect(demands[0].value, "additional feeders never outrank producers").to.equal(95);
+      expect(demands[0].infrastructure, "and only the first feeder pierces").to.equal(false);
     });
   });
 });

@@ -398,19 +398,36 @@ export class ControllerFeederCorp extends Corp {
     };
     if (feeders >= wantedFeeders) return [];
     const carry = Math.min(neededCarry, maxCarry);
+    // The feeder is the LINCHPIN of the whole spend path (owner 2026-07-24:
+    // "unless we have basically no energy, we always want the feeder; everything
+    // else is optimized to rely on it"). The link relay, the upgrader's surplus
+    // detection (bankedBehindFeeder), and the controller input election all
+    // assume it exists - when its post goes DARK the upgraders go surplus-blind
+    // and the bank rots (the E4 idle-capital coupling, audit t72553726: feeder 0
+    // -> inflow 2 -> upgrader fleet decays 40->24 WORK -> 40k stranded). At the
+    // old infra value (95) it lost the ranked spawn slot to miners (100), the
+    // tender (96) and high-demand haulers and OSCILLATED. So the FIRST feeder
+    // outranks the marginal producer - ONE cheap body that UNLOCKS consumption
+    // of energy already mined. It never front-runs the cold-start (the no-miner
+    // gate above only demands a feeder once income flows) and never WALLS
+    // (blocking stays false), so it wins a slot when affordable but cannot
+    // spiral the bank. Additional feeders (surplus drawdown) stay infra-tier.
+    const firstFeeder = feeders === 0;
 
     return [
       {
         buyerCorpId: this.id,
         role: "feeder",
-        // Infrastructure tier: just below the extension tender (96), above upgrading -
-        // it must exist for the upgraders it serves, but never ahead of the producers.
-        value: 95,
-        blocking: false, // infra, not income: haulers feed the controller directly until it spawns
-        // Same emergency-only lane as the tender (see incident t72499165 +
-        // the cold-start stream lesson there): pierce holds only when the
-        // relay post is DARK while a real bank stands stranded behind it.
-        infrastructure: feeders === 0 && banked >= 10_000,
+        // First feeder: above the income tier (miners ~100, tender 96), below
+        // defense (raid guard 105 / core buster 104) and the reserver (115).
+        // Additional feeders: the old infra tier, just below the tender.
+        value: firstFeeder ? 101 : 95,
+        blocking: false, // never walls: haulers feed the controller directly until it spawns
+        // The first feeder also pierces holds/walls while its post is dark and a
+        // real bank stands stranded behind it (the emergency lane, incident
+        // t72499165 + the cold-start stream lesson) - a dark post is the E4
+        // coupling's trigger.
+        infrastructure: firstFeeder && banked >= 10_000,
         producesIncome: false,
         desiredCost: carry * PART_PAIR,
         minCost: Math.min(carry, 2) * PART_PAIR,
