@@ -4171,3 +4171,17 @@ surplus. Residual watch: confirm the upgrader ramp completes (standingWork →
 ~targetCount) and storage keeps draining toward reserve (self-balancing windfall
 draw). Gate note: unit 1432 green + build; grid/trio could not run in-container —
 prod watch stood in, clean.
+
+**CONFIRMED (t72555021, +561t) — the ramp completed, self-balancing draw holds.**
+upgrade standingWork **15→38** (climbed past the 24 baseline, not stalled),
+storage still draining **−3.8/t** (E4 36.3k→34.2k above reserve, falling), feeder
+reliably staffed (1, feederActive true, no oscillation). The `inflow` 33→20 taper
+is the windfall draw self-balancing (bank nears reserve → surplus draw eases →
+consumption tapers to match) — intended, not a stall. Defense NON-issue: raidGuard
+2→1 is lifecycle, not feeder starvation — the W44N23 debt was PAID DOWN
+120870→10 (guard completed + recycled) and the corp re-fields for W42N22 (94k),
+its guard demand alone at the front of the queue (util 0.969, q1), unobstructed by
+the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
+Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
+done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
+converted from a "structural ceiling" into a drained, self-balancing spend path.
