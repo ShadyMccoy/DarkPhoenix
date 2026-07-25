@@ -77,7 +77,7 @@ import {
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
-import { formatCpuReport } from "./telemetry/cpuReport";
+import { formatCpuReport, disjointInfra } from "./telemetry/cpuReport";
 import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
@@ -187,7 +187,11 @@ function publishInfraCpu(): void {
   if (ledger && ledger.tick === Game.time) {
     const rounded: { [bucket: string]: number } = {};
     for (const bucket in infraCpu) rounded[bucket] = Number(infraCpu[bucket].toFixed(3));
-    ledger.infra = rounded;
+    // DISJOINT the reconciliation: the "commissions" bulkhead wraps
+    // runCommissionedCorps, so its raw time INCLUDES every corp's execution -
+    // the very same CPU reported as corpsTotal. Left in, corps is counted twice
+    // and the residual whole - corps - infra goes negative on lean ticks.
+    ledger.infra = disjointInfra(rounded, ledger.corpsTotal);
     ledger.wholeTick = Number(Game.cpu.getUsed().toFixed(3));
     // The ledger is now COMPLETE (corps + infra + wholeTick). Stash it for next
     // tick's telemetry - the core segment was already serialized earlier this
