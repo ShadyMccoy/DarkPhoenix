@@ -154,6 +154,21 @@ paved ducts, 1 tender, ~1000t.
     that JUMPS between active loops without pathing (a hierarchical loop
     structure) — unbuilt. circuit-loop is kept as a working RCL6/7 option.
 
+12. **The endpoint: a dense serpentine STRING, serviced by one lane tender,
+    beats greedy-on-a-blob.** (owner's insight - "extensions in a long string,
+    only in/out".) A 1D string collapses the tender's movement to in/out (one
+    index, reload = all the way out, far end = reservoir tail), so it's contiguous
+    and CPU-trivial. Measured on the sim's string layouts (RCL8, 1 tender,
+    util 1.000): on the DIAGONAL stripe, lane-patrol refills in **72t vs greedy's
+    80t** - faster AND cheaper. Two qualifiers: density matters (diagonal ~5.5
+    ext/lane-tile beats the thin spine ~1.9, where the circuit slows), and use
+    head-reset `lane-patrol` (reset-to-mouth) not `circuit-loop` for a 1D string
+    (spine circuit-loop tanked to 218t). This resolves finding #11: the circuit
+    isn't the problem, the alveolar BLOB is - a string layout makes the circuit
+    win. Next build: base-lab should generate a real-terrain diagonal serpentine
+    (thread the stripe through dead-space around walls/highways) and feed its
+    spine as the lane, instead of the alveolar blob.
+
 ## Caveats
 
 - Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding
