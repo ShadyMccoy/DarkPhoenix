@@ -4098,3 +4098,41 @@ ledger line already prices the link-placement half. Cycle verdict:
 **INSTRUMENTED + FALSIFIED (drain-limited) + SELF-RESOLVED** (remotes draining
 −4/t, link throughput ~45 e/t, core not the constraint). The core-fill/hub-clamp
 stamps stay as permanent link-network observability.
+
+### AUDIT 2026-07-24 (t72553726) — E4 recurs; traced end-to-end to the spawn-capacity ceiling, NO fixable leak
+
+Ledger top line E4 idle capital: storage 60.4k vs reserve 22.65k (2.67x), slope
++5.9/t, feederActive FALSE. Traced the spend path across TWO captures (t72552205
+→ t72553726, 1521t) and the code, ruling out every fixable-bug hypothesis:
+
+- **The coupling**: feeder queue-starved (0 creeps, gate "demand", queue pos
+  7/7, spawn util 0.92) → controllerFeederActive false → the upgrader's
+  `bankedBehindFeeder` is NULL (UpgradingCorp:88-107) → `surplus=false` →
+  `inflow=2` (the anti-downgrade trickle) → targetCount 1 → fleet DECAYS 40→24
+  WORK → consumption drops → the 40k surplus banks. inflow read 2 in BOTH
+  captures (even at t72552205 with the feeder briefly up), so the fleet is
+  decaying off the trickle, not ramping.
+- **Ruled out — upgrader surplus-gating is CORRECT doctrine**: upgraders may
+  only scale to eat surplus a feeder is actually RELAYING to them; sizing them
+  to a bank they can't reach would starve them. Gating on feederActive is right.
+- **Ruled out — the infrastructure pierce is NOT broken** (SpawnScheduler:651,
+  681): infra demands pierce HOLDS but "never displace an actual buy". On a
+  saturated spawn with producers all affordable+buying, the feeder (value 95,
+  infra) correctly waits behind them — it oscillates (spawns in slack, waits
+  when full), it is not starved by a bug.
+- **Ruled out — churn/priority waste**: build mix balanced-productive (haulers
+  31%, upgraders 15%, reservers 14%, tenders 14%, miners 12%), X5 home churn
+  0%, P4 0.94x ceiling. The spawn is genuinely saturated on productive work.
+
+**Verdict: E4 is the spawn-capacity ceiling, CONFIRMED — not a leak.** The colony
+mines/hauls ~100 e/t home (57% of spawn) but can only build enough spend-path
+(feeder + upgraders) to consume ~16-24 at the controller, so the rest banks; the
+feeder-oscillation just makes the shortfall visible. Every seam in the chain is
+working as designed — same structural conclusion as t72541921
+("spawn-capacity-limited... needs RCL7/2nd spawn or expansion"). The two real
+levers are both outside the waste-ledger: (1) reach RCL7 for a 2nd spawn (1.33M
+energy out at ~16 e/t = slow, the ceiling is self-reinforcing); (2) the spec-26
+stage-5 storage↔controller MERGE, which DELETES the feeder relay entirely (one
+fewer spawn consumer AND no core→controller relay). Cycle verdict: **BLOCKER
+CONFIRMED WITH DATA + FIXABLE-BUG HYPOTHESES FALSIFIED** (pierce, sizing, gating,
+churn all cleared) — no code change, correctly. Owner call on the growth lever.
