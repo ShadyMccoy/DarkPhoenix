@@ -114,8 +114,22 @@ paved ducts, 1 tender, ~1000t.
     setup; RCL7 is the one to watch. (Earlier "RCL6 struggles" was an artifact
     of forcing the RCL8 count of 60 ext + 3 spawns at RCL6 caps.)
 
-11. **One greedy tender is the CPU-minimal design; a circuit can't beat it on a
-    CENTER-FED spread field — for a fundamental reason, not a bad circuit.**
+11. **A well-ordered circuit DOES match greedy — the earlier failure was a bad
+    route, not a fundamental limit.** (owner was right to be skeptical.)
+    Swapping the DFS Euler-tour circuit for a RADIAL single-visit order took
+    circuit-loop from util 0.09-0.17 to **0.95 / 0.99 / 0.99** at RCL6/7/8,
+    essentially matching greedy's 1.000. The Euler tour was ~2.8x too long
+    (backtracked every corridor) and non-radial (its head dived into a deep
+    branch, so reset-after-reload missed the near empties). A radial order
+    services the near ring first and reloads on short trips - greedy's behaviour
+    baked into a fixed route. Remaining: a ~0.006 util gap (fixed order isn't
+    perfectly adaptive) and the route is radial-order-with-short-hops, not yet
+    fully contiguous - a true adjacent-step spiral would make it pure move(dir)
+    with zero pathfinding (the full CPU win). Prior write-up (kept for the
+    record) wrongly called this fundamental:
+
+    One greedy tender is a fine CPU-minimal baseline; a circuit can't beat it on a
+    CENTER-FED spread field with a BAD route — but a radial route matches it.
     Avoiding extra tenders is the CPU win that matters (each creep ~0.4 CPU/tick
     + its own pathing), and one greedy tender already holds util 1.000 at every
     RCL. A serious `circuit-loop` policy was built to try to cut the lone

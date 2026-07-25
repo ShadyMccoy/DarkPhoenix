@@ -97,45 +97,14 @@ function circuit(plan: BasePlan, workingExts: number): Pos[] {
   }
   if (ductSet.size === 0) return [];
 
-  let start = -1;
-  let bd = Infinity;
-  for (const t of ductSet) {
-    const d = dcore(t % SIZE, Math.floor(t / SIZE));
-    if (d < bd) {
-      bd = d;
-      start = t;
-    }
-  }
-  const adj = (t: number): number[] => {
-    const x = t % SIZE;
-    const y = Math.floor(t / SIZE);
-    const out: number[] = [];
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (!dx && !dy) continue;
-        const nt = packTile(x + dx, y + dy);
-        if (ductSet.has(nt)) out.push(nt);
-      }
-    }
-    return out;
-  };
-  const visited = new Set<number>([start]);
-  const route: Pos[] = [];
-  const push = (t: number): void => {
-    route.push({ x: t % SIZE, y: Math.floor(t / SIZE) });
-  };
-  const dfs = (u: number): void => {
-    push(u);
-    for (const v of adj(u)) {
-      if (!visited.has(v)) {
-        visited.add(v);
-        dfs(v);
-        push(u); // backtrack step keeps the route contiguous
-      }
-    }
-  };
-  dfs(start);
-  return route;
+  // RADIAL single-visit order: each duct once, sorted by distance from the core
+  // (tie-broken by angle for a spiral). Half the length of the DFS Euler tour
+  // (no backtracks), and radial so reset-to-head after reload lands on the near
+  // ring where near-reload-draw empties actually are. Consecutive tiles are not
+  // guaranteed adjacent, so the tender paths short hops between them.
+  return [...ductSet]
+    .map(t => ({ x: t % SIZE, y: Math.floor(t / SIZE) }))
+    .sort((a, b) => dcore(a.x, a.y) - dcore(b.x, b.y) || Math.atan2(a.y - core.y, a.x - core.x) - Math.atan2(b.y - core.y, b.x - core.x));
 }
 
 /** Translate a base-lab plan into a sim Layout on the 50x50 board: the core is
