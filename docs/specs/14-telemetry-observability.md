@@ -4136,3 +4136,38 @@ stage-5 storage↔controller MERGE, which DELETES the feeder relay entirely (one
 fewer spawn consumer AND no core→controller relay). Cycle verdict: **BLOCKER
 CONFIRMED WITH DATA + FIXABLE-BUG HYPOTHESES FALSIFIED** (pierce, sizing, gating,
 churn all cleared) — no code change, correctly. Owner call on the growth lever.
+
+### AUDIT 2026-07-24/25 (t72554460) — E4 coupling FIXED at the root: the feeder is the linchpin (owner directive)
+
+Owner reframed the t72553726 "structural ceiling": "the feeder is so crucial —
+unless we have basically no energy we always want it; everything else is
+optimized to rely on it. Miners are more important only when we have NO energy,
+which is rare." That is the fix, not a ceiling — the spend path degrades because
+the LINCHPIN is optional. Made the first feeder outrank the miner band when
+energy is present:
+
+- `ControllerFeederCorp.getSpawnDemand` first-feeder value: **150** when banked >=
+  FEEDER_INCOME_FIRST_FLOOR (2000), else **90** (drained → income first). Above
+  the miner band (100 + efficiency*0.5 = 125-147; efficiency=net/rate*100 < 100).
+  A false first cut used 101 — below the miner band, nearly inert; the owner's
+  "miners more important than feeders only with NO energy" caught the magnitude.
+  NON-blocking, so topping the ladder cannot wall/spiral the bank.
+- Plus spawn-onto-post placement: `CorpKind.spawnTarget` hook +
+  `spawnDirectionsToward` → the feeder is born facing the core link (no walk-in).
+
+**Prod watch (deployed t72554141/t72554260, read t72554460, ~319t):** every
+rollback trigger CLEAR — X5 churn **0** (no death spiral), fleet 33→30 (−9% <
+20%), miners 7/7 sources fully staffed (8→7 = converge to plan, not starved),
+defense raidGuard 2→2, util 0.968 (not pinned). And the causal chain fired:
+feeder **0→1 (staffed, feederActive true)** → upgrader `inflow` **2→33** (surplus
+signal restored via bankedBehindFeeder) → `targetCount` **1→2** → storage slope
+**+5.9 → −2.0/t (draining)** → **E4 FAIL→WARN**. The upgrade WORK dip (24→15) is
+the resize transient (5 decayed small upgraders → fewer bigger ones toward
+targetCount 2), not a loss — inflow 2→33 is the proof the mechanism now works.
+
+Cycle verdict: **FIXED + VERIFIED (no rollback)** — the E4 idle-capital coupling
+is broken at the root; the feeder is reliably up and the upgraders now see the
+surplus. Residual watch: confirm the upgrader ramp completes (standingWork →
+~targetCount) and storage keeps draining toward reserve (self-balancing windfall
+draw). Gate note: unit 1432 green + build; grid/trio could not run in-container —
+prod watch stood in, clean.
