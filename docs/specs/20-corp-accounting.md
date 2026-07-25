@@ -44,6 +44,18 @@ Meter the main-loop's non-corp work into named infrastructure buckets
 `persistence`, `links`, `towers`, `visuals`) published beside `corpsTotal`.
 No behavior change — this is the map of what phase 3 migrates.
 
+## The read surface (landed 2026-07-24)
+
+The ledger published both sides of the reconciliation but nothing READ it — no
+console command, no audit section, no telemetry export. `telemetry/cpuReport.ts`
+(pure, `cpuReport.test.ts`) formats the ledger into the reconciliation
+(`whole-tick = corps + infra + unnamed`) plus per-kind, per-bucket, and
+worst-offender breakdowns. Three surfaces feed it the same data: the live
+`global.cpuReport()` console command, the `audit:report` CPU section, and the
+core telemetry export (`corpCpu`, v15) for offline captures. This is the
+operator-facing half of acceptance test #4 — the ledger informs; it still never
+feeds back automatically.
+
 ## Phase 3: migrate the migratable
 
 In descending order of "is naturally a corp":
