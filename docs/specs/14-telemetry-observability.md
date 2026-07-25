@@ -4272,3 +4272,20 @@ storage-link drain), NOT more haulers and NOT (yet) the buffer-drain plan term -
 which would have made it worse. Next: pin the exact contention (storage-tile
 access vs link drain vs feeder/tender crowding), refine the meter to net out the
 transfer-lag tick, then fix.
+
+### AUDIT 2026-07-25 (cont.) — idleSink split deployed; runt-economy false-red was host-load flakiness
+
+Added the idleSink at-sink/en-route split (segment-4 idleSinkAtSinkFrac; H1
+reads it). Integration trio flaked: runt-economy failed 2x at 13-14m (miners
+stuck at 2 WORK, never upsized). ATTRIBUTION (doctrine): ran the cell on the
+pre-change baseline (2d41746) -> PASSED (largest 3 WORK, exit tick 460, 4m); my
+split code re-run solo with the host quiet ALSO PASSED (exit 460, 4m, no
+errors). So the change is ACQUITTED - not a throw (no errors captured, an
+observability meter that only reads state + writes unused memory fields cannot
+stall miner upsizing). The false reds were the mockup's real-CPU metering
+coupling to HOST LOAD (documented blind spot): the earlier trio runs overlapped
+several parallel background captures/test-runs, starving the cold-start ramp so
+miners missed the upsize within the 1200t budget. Clean full trio (host quiet):
+flow-handoff 5m, runt-economy 4m (upsize PROVEN t460), storage-depot 7s - all
+green. Lesson: never run heavy background work concurrent with the trio.
+Deployed; recapturing the at-sink/en-route split next.
