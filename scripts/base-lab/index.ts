@@ -52,7 +52,7 @@ function render(plan: BasePlan): void {
   console.log(`\n=== base-lab: ${input.name} ===`);
   console.log(lines.join("\n"));
   console.log("\nlegend: # wall  , swamp  · dead-space  = highway  x sealed  * source  K controller  % mineral");
-  console.log("        P spawn  @ feeder/manager  L link  O storage  M terminal  T tower  E extension  C container");
+  console.log("        P spawn  @ feeder/manager  L link  O storage  M terminal  T tower  B lab  E extension  C container");
 }
 
 function report(plan: BasePlan): void {
@@ -70,6 +70,9 @@ function report(plan: BasePlan): void {
   );
   console.log(`dead space      ${plan.deadSpace} tiles (${pct(plan.deadSpace, plan.passable)} of passable) - the eddies`);
   console.log(`core pocket     ${plan.coreOk ? "placed" : "FAILED to fit at spawn"}`);
+  console.log(
+    `buildings       ${plan.spawnsPlaced} spawns, ${plan.towersPlaced} towers, ${plan.labsPlaced} labs (in dead-space, competing with extensions)`
+  );
   console.log(
     `fill mode       ${opts.fillMode}` +
       (opts.fillMode === "pockets"

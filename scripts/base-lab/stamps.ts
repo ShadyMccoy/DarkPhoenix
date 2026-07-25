@@ -19,6 +19,7 @@ export type CellKind =
   | "terminal"
   | "tower"
   | "container"
+  | "lab"
   | "feeder" // the stationary CARRY router seat (manager / ring feeder)
   | "reserved"; // footprint hole - no structure, terrain unconstrained
 
@@ -44,6 +45,7 @@ export const GLYPH: Record<CellKind, string> = {
   terminal: "M",
   tower: "T",
   container: "C",
+  lab: "B",
   feeder: "@",
   reserved: "." // rendered only if nothing else claims the tile
 };
@@ -114,6 +116,34 @@ export const RING_FEEDER: Stamp = {
  *   r1    O   @   T      O storage, @ manager, T tower
  *   r2    P   E   E      P spawn, E extension
  */
+/**
+ * LAB CLUSTER - 10 labs packed so every lab is within range 2 of the two
+ * central input labs (reactions require that). A 4x3 block minus two corners,
+ * anchored on an input lab. In the refill sim labs do nothing but occupy tiles,
+ * so their effect is to compete with extensions for dead-space; on real terrain
+ * this is a big contiguous block that needs an open pocket.
+ *
+ *        (-1,-1)(0,-1)(1,-1)(2,-1)
+ *        (-1, 0)(0, 0)(1, 0)(2, 0)
+ *               (0, 1)(1, 1)
+ */
+export const LAB_CLUSTER: Stamp = {
+  name: "lab-cluster",
+  feed: { dx: 0, dy: 0 },
+  cells: [
+    { dx: -1, dy: -1, kind: "lab" },
+    { dx: 0, dy: -1, kind: "lab" },
+    { dx: 1, dy: -1, kind: "lab" },
+    { dx: 2, dy: -1, kind: "lab" },
+    { dx: -1, dy: 0, kind: "lab" },
+    { dx: 0, dy: 0, kind: "lab" },
+    { dx: 1, dy: 0, kind: "lab" },
+    { dx: 2, dy: 0, kind: "lab" },
+    { dx: 0, dy: 1, kind: "lab" },
+    { dx: 1, dy: 1, kind: "lab" }
+  ]
+};
+
 export const CORE_POCKET: Stamp = {
   name: "core-pocket",
   feed: { dx: 0, dy: 0 }, // the manager seat itself (spawn-seatable from the SW spawn)

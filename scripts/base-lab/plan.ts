@@ -12,7 +12,7 @@ import { createMultiRoomDistanceTransform } from "../../src/spatial/algorithms";
 import { pickSpawnSpot, type RoomPoint } from "../../src/spatial/spawnPlacement";
 import { RoomBuilder } from "../../test/integration/scenario/RoomBuilder";
 import { SIZE, packTile, isWall, isSwamp, route, reachable, exitTiles, distanceFromSet, type Pt } from "./geometry";
-import { CORE_POCKET, RING_FEEDER, GLYPH, extensionCount, type Stamp } from "./stamps";
+import { CORE_POCKET, LAB_CLUSTER, RING_FEEDER, GLYPH, extensionCount, type Stamp } from "./stamps";
 
 export const FIXTURE_DIR = path.resolve("test", "fixtures", "real-rooms");
 export const RCL8_EXTENSIONS = 60;
@@ -35,6 +35,11 @@ export interface PlanOpts {
   target: number;
   fillMode: string; // "alveoli" | "pockets"
   deadBias: number;
+  /** RCL8 building loadout (placed in dead-space, competing with extensions).
+   * Defaults: 3 spawns, 6 towers, 10 labs. Set to 0 to omit. */
+  spawns?: number;
+  towers?: number;
+  labs?: number;
 }
 
 export interface BasePlan {
@@ -60,6 +65,9 @@ export interface BasePlan {
   meanExtDist: number;
   meanExtDead: number;
   extOnAccess: number;
+  spawnsPlaced: number;
+  towersPlaced: number;
+  labsPlaced: number;
 }
 
 export function listFixtures(): string[] {
@@ -244,6 +252,74 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
 
   const distToHighway = distanceFromSet(terrain, highways);
 
+  // --- building loadout: extra spawns + towers (singles) and a lab cluster,
+  //     placed nearest-core in dead-space so the extension field flows around
+  //     them (they compete with extensions for the quiet space). ---
+  const spawnsWanted = opts.spawns ?? 3;
+  const towersWanted = opts.towers ?? 6;
+  const labsWanted = opts.labs ?? 10;
+  const glyphCount = (g: string): number => [...placed.values()].filter(p => p.glyph === g).length;
+
+  const placeNearCore = (glyph: string, count: number): number => {
+    if (count <= 0) return 0;
+    const cands: { x: number; y: number; d: number }[] = [];
+    for (let y = 1; y < SIZE - 1; y++) {
+      for (let x = 1; x < SIZE - 1; x++) {
+        if ((x + y) % 2 !== 0) continue;
+        const tile = packTile(x, y);
+        if (isWall(terrain, x, y) || isSwamp(terrain, x, y)) continue;
+        if (!reachSet.has(tile) || highways.has(tile) || anchorTiles.has(tile) || occupied.has(tile)) continue;
+        cands.push({ x, y, d: Math.max(Math.abs(x - spawn.x), Math.abs(y - spawn.y)) });
+      }
+    }
+    cands.sort((a, b) => a.d - b.d);
+    let n = 0;
+    for (const c of cands) {
+      if (n >= count) break;
+      const duct = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1]
+      ].some(([dx, dy]) => {
+        const nx = c.x + dx;
+        const ny = c.y + dy;
+        if (isWall(terrain, nx, ny)) return false;
+        const nt = packTile(nx, ny);
+        return reachSet.has(nt) && !occupied.has(nt);
+      });
+      if (!duct) continue;
+      const tile = packTile(c.x, c.y);
+      occupied.add(tile);
+      placed.set(tile, { glyph, stamp: "building" });
+      n++;
+    }
+    return n;
+  };
+
+  const placeLabs = (count: number): number => {
+    if (count <= 0) return 0;
+    const centers: { x: number; y: number; d: number }[] = [];
+    for (let y = 2; y < SIZE - 2; y++) {
+      for (let x = 2; x < SIZE - 2; x++) {
+        const tile = packTile(x, y);
+        if (!reachSet.has(tile) || highways.has(tile)) continue;
+        centers.push({ x, y, d: Math.max(Math.abs(x - spawn.x), Math.abs(y - spawn.y)) });
+      }
+    }
+    centers.sort((a, b) => a.d - b.d);
+    for (const c of centers) {
+      if (tryPlace(LAB_CLUSTER, c.x, c.y, terrain, reachSet, highways, anchorTiles, occupied, placed)) {
+        return LAB_CLUSTER.cells.length;
+      }
+    }
+    return 0;
+  };
+
+  const spawnsPlaced = glyphCount("P") + placeNearCore("P", spawnsWanted - glyphCount("P"));
+  const towersPlaced = glyphCount("T") + placeNearCore("T", towersWanted - glyphCount("T"));
+  const labsPlaced = placeLabs(labsWanted);
+
   let passable = 0;
   let deadSpace = 0;
   for (let y = 0; y < SIZE; y++) {
@@ -317,6 +393,9 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
     extPlaced,
     meanExtDist: extN > 0 ? extDistSum / extN : 0,
     meanExtDead: extN > 0 ? extDeadSum / extN : 0,
-    extOnAccess
+    extOnAccess,
+    spawnsPlaced,
+    towersPlaced,
+    labsPlaced
   };
 }
