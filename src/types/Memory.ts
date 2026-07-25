@@ -372,6 +372,13 @@ declare global {
      * econ-edges (execution/Persistence). persist is the dominant infra bucket
      * (~55% of the tick); this names which part before optimizing.
      */
+    /**
+     * Debug overlays (node/spatial RoomVisuals) on/off. Undefined/false = off
+     * (the default) - they cost ~35 CPU/tick and are only visible with the
+     * client open. Toggle from the console via global.visuals().
+     */
+    visuals?: boolean;
+
     persistBreakdown?: {
       tick: number;
       total: number;

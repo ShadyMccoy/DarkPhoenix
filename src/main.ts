@@ -112,6 +112,7 @@ declare global {
       sourceEfficiency: () => void;
       roadHeatmap: (roomName?: string) => void;
       cpuReport: () => void;
+      visuals: (on?: boolean) => void;
     }
   }
 }
@@ -452,17 +453,19 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (!gov.skipTelemetry) bulkhead("telemetry", () => updateTelemetry(colony!, corps));
   bulkhead("flight-recorder", () => runFlightRecorder());
 
-  // Visualization: cache restore + node/spatial overlays, every tick and
-  // previously unnamed. One bucket so the ledger shows what drawing costs.
+  // Visualization. The cache restore is LOAD-BEARING (despite the name): it
+  // rehydrates multiRoomAnalysisCache after a global reset, which persist and
+  // planning read via getAnalysisCache() - so it always runs (cheap: it
+  // early-returns when the cache is warm). The node/spatial OVERLAYS, by
+  // contrast, were ~35 CPU/tick for ~480 nodes (measured) drawing pixels nobody
+  // sees unless the client is open on the room - so gate them behind
+  // Memory.visuals (default off; flip on from the console via global.visuals()).
   bulkhead("visuals", () => {
-    // Restore visualization cache from memory if needed (avoids expensive analysis)
     restoreVisualizationCache(colony!);
-
-    // Render node visualization
-    renderNodeVisuals(colony!);
-
-    // Render spatial visualization (territories, edges) for rooms with visual* flags
-    renderSpatialVisuals(getAnalysisCache());
+    if (Memory.visuals) {
+      renderNodeVisuals(colony!);
+      renderSpatialVisuals(getAnalysisCache());
+    }
   });
 
   // Log stats periodically
@@ -1114,6 +1117,17 @@ global.cpuReport = () => {
   const bucket = typeof Game.cpu?.bucket === "number" ? Game.cpu.bucket : undefined;
   const limit = typeof Game.cpu?.limit === "number" ? Game.cpu.limit : undefined;
   for (const line of formatCpuReport(Memory.corpCpu, { bucket, limit })) console.log(line);
+};
+
+/**
+ * Toggle the debug overlays (node/spatial RoomVisuals), OFF by default because
+ * they cost ~35 CPU/tick to draw pixels only visible with the client open on the
+ * room. `global.visuals()` flips the current state; `global.visuals(true/false)`
+ * sets it explicitly. The load-bearing analysis-cache restore is unaffected.
+ */
+global.visuals = (on?: boolean) => {
+  Memory.visuals = on === undefined ? !Memory.visuals : on;
+  console.log(`[visuals] overlays ${Memory.visuals ? "ON" : "OFF"}`);
 };
 
 global.roadHeatmap = (roomName?: string) => {
