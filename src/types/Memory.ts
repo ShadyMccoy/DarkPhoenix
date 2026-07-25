@@ -368,6 +368,21 @@ declare global {
     };
 
     /**
+     * Diagnostic: persistState's CPU split into serialize / spatial-edges /
+     * econ-edges (execution/Persistence). persist is the dominant infra bucket
+     * (~55% of the tick); this names which part before optimizing.
+     */
+    persistBreakdown?: {
+      tick: number;
+      total: number;
+      serialize: number;
+      spatial: number;
+      econ: number;
+      nodeCount: number;
+      edgeCount: number;
+    };
+
+    /**
      * Serialized bootstrap corps by room name.
      */
     bootstrapCorps?: { [roomName: string]: SerializedBootstrapCorp };

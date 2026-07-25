@@ -22,6 +22,14 @@ export function persistState(
   registry: CorpRegistry,
   analysisCache: { result: MultiRoomAnalysisResult } | null
 ): void {
+  // Sub-timing (diagnostic): persist is ~55% of the whole tick, so split it
+  // into serialize / spatial-edges / econ-edges to confirm which part is the
+  // hog before optimizing. Written to Memory.persistBreakdown, OUTSIDE the infra
+  // reconciliation (the umbrella "persist" bucket still totals it), so no
+  // double-counting. Cheap: three getUsed() reads.
+  const now = (): number => (typeof Game !== "undefined" && Game.cpu?.getUsed ? Game.cpu.getUsed() : 0);
+  const t0 = now();
+
   // Persist colony
   Memory.colony = colony.serialize();
 
@@ -35,6 +43,8 @@ export function persistState(
   if (analysisCache?.result.adjacencies) {
     Memory.nodeEdges = Array.from(analysisCache.result.adjacencies);
   }
+
+  const tAfterSerialize = now();
 
   // Build node position map for distance calculations
   const nodePositions = new Map<string, { x: number; y: number; room: string }>();
@@ -70,6 +80,8 @@ export function persistState(
     }
   }
   Memory.spatialEdgeWeights = spatialWeights;
+
+  const tAfterSpatial = now();
 
   // Compute and persist economic edges (nodes with resources)
   // Economic nodes have sources, controllers, or minerals - filter out empty terrain
@@ -155,6 +167,8 @@ export function persistState(
   });
   Memory.economicEdges = econEdgesObj;
 
+  const tAfterEcon = now();
+
   // Persist bootstrap corps
   Memory.bootstrapCorps = {};
   for (const roomName in registry.bootstrapCorps) {
@@ -170,6 +184,21 @@ export function persistState(
   for (const spawnId in registry.spawningCorps) {
     Memory.spawningCorps[spawnId] = registry.spawningCorps[spawnId].serialize();
   }
+
+  // Diagnostic breakdown (see top of fn): serialize is the colony/nodes/corps
+  // writes (before + after the edge math); spatial is the spatialEdgeWeights
+  // pass; econ is the per-economic-node BFS. round(3) to keep Memory small.
+  const tEnd = now();
+  const r = (n: number): number => Number(n.toFixed(3));
+  Memory.persistBreakdown = {
+    tick: typeof Game !== "undefined" ? Game.time : 0,
+    total: r(tEnd - t0),
+    serialize: r(tAfterSerialize - t0 + (tEnd - tAfterEcon)),
+    spatial: r(tAfterSpatial - tAfterSerialize),
+    econ: r(tAfterEcon - tAfterSpatial),
+    nodeCount: colony.getNodes().length,
+    edgeCount: (Memory.nodeEdges ?? []).length
+  };
 }
 
 /**
