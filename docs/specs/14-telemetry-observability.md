@@ -4185,3 +4185,52 @@ the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
 Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
 done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
 converted from a "structural ceiling" into a drained, self-balancing spend path.
+
+### AUDIT 2026-07-25 (t72558524→t72559557) — "spawn capacity but short on haulers": premise FALSIFIED with a new per-tick idle instrument; piles are the spawn-ceiling symptom
+
+Owner report: "we have spawn capacity, but we are short on haulers... energy
+sitting in piles on the ground not getting hauled... means our haulers aren't
+enough." Explicitly deprioritized the upgrader/controller thread.
+
+**Measured the pile leak (real):** across 12 captures the source buffers
+(`sourceBuffers`, container+dropped within range 1) stand at ~8120 energy ABOVE
+the 2000 container cap on average (peak 12764) — dropped on the ground decaying
+at ~7-18 e/t (~11 avg ≈ 15% of the 70 e/t mined). Cause: source haulers are
+sized to sustained inflow (`carryPartsFor(rate,d)`) with NO buffer-drain term,
+so every delivery/succession gap ratchets the pile up permanently. Asymmetric
+with `scavengeRate` (which DOES drain a standing pile). This is a DOCUMENTED
+deliberate choice (`flowAdapter.ts:483`, the shard1 stress-fixture "fantasy
+plan" incident: sizing fleets to stocks inflated supply to 316 CARRY vs 20 e/t
+mined). Not flipped blind.
+
+**Chased the spawn energy-starvation (owner's chosen lever).** Prior stamps
+measured fill AT finishes (finishes-weighted endFill 0.861) but never WHY each
+idle tick was idle; the 180-tick pre-deploy windows showing util 0.70 with
+queueDepth 4-8 were short-window noise. Built the instrument that closes the
+gap: `classifySpawnIdle` attributes every non-spawning tick to its NOW-plan
+head — empty (no demand), bank (head unaffordable: energy-starved), buy
+(decided-buy yet idle: exec latency), hold (affordable but held). Exposed as
+segment-0 `spawns[].idle` (v18) + S4 ledger line (recoverable = bank+hold).
+Telemetry-only (no decision path touched); test-unit 1463 green, build green;
+deployed to prod.
+
+**Post-deploy read (t72559557, ~1030t):** util 0.898, S4 recoverable idle
+**0.0**, idle split `{empty:0, bank:0, buy:11, hold:0}` — every idle tick is the
+unavoidable 1-tick back-to-back build transition. Zero energy-starvation, zero
+no-demand idle, zero chosen-waits. (Window straddled the deploy so busy/finishes
+counted pre-deploy ticks while idle only accumulated post-deploy — clean-window
+recapture pending for the exact post-deploy util; the CAUSE split is already a
+clean post-deploy read.)
+
+**Verdict: PREMISE FALSIFIED + BLOCKER RE-CONFIRMED + INSTRUMENTED.** There is no
+recoverable spawn idle — the spawn is saturated on productive work, the same
+structural conclusion as t72553726 / t72541921 ("spawn-capacity ceiling, not a
+leak; levers are RCL7/2nd spawn or the spec-26 storage↔controller merge"). The
+"short on haulers / piles rotting" symptom is a DOWNSTREAM effect of that
+ceiling: haulers can't be over-provisioned past inflow-matching to drain the
+buffers without displacing productive spawn work (P4 0.87-0.95x, SCAV "spawn
+parts DRY binding"). The new S4 line makes "is there spare spawn capacity?" a
+permanent one-line read — recoverable idle ~0 answers it every capture. Note P7
+controller-delivery FAIL (0.14x) is the pre-existing controller-feed flap
+(demand 15↔160), and it gates lever 1 (RCL7 needs controller energy) — the
+connected path out of the ceiling, though owner-deprioritized this cycle.
