@@ -4234,3 +4234,41 @@ permanent one-line read — recoverable idle ~0 answers it every capture. Note P
 controller-delivery FAIL (0.14x) is the pre-existing controller-feed flap
 (demand 15↔160), and it gates lever 1 (RCL7 needs controller energy) — the
 connected path out of the ceiling, though owner-deprioritized this cycle.
+
+### AUDIT 2026-07-25 (t72560582) — hauler duty meter ANSWERS (a)/(b)/(c): it's (c) SINK backpressure, not a plan under-ask
+
+Owner pushed back on "spawn-ceiling symptom, not fixable": haulers are income
+tier (funded before the upgraders that eat 42% of build-energy), so hauler
+demand is SATISFIED - the piles are either (a) the plan under-asking, (b)
+under-fielding, or (c) execution. Chose to instrument (c) before touching the
+planner.
+
+Built the hauler execution duty meter: classifyHaulerTick(moved, transacted,
+loaded) -> active | idleSource (empty, waiting/blocked to load) | idleSink
+(loaded, waiting/blocked to deliver), rolling ~1500t window per CarryCorp,
+stamped into segment-4 sizing + new H1 ledger line. Full gate green (unit 1466,
+trio flow-handoff/runt-economy/storage-depot, build); deployed.
+
+**Post-deploy read (t72560582, 276t window): FLEET duty 0.669, idleSource
+0.035, idleSink 0.296.** Prediction (a: high duty) FALSIFIED. Haulers load fine
+(idleSource ~0) but spend ~30% LOADED and unable to deposit. Effective delivery
+~0.67 of sized capacity = BELOW the 10 e/t harvest inflow, so buffers GROW
+(ground-over-cap 4198 -> 9389) and rot. (b) ruled out (fleet ~ plan). Not (a):
+adding hauler carry would just queue more creeps at the sink.
+
+Cause narrowed: idleSink is NOT deposit-port-correlated (worst stallers cd92
+0.56, cd8d 0.44, cbd5 0.43 are port-LESS; cd92 is dist-5 home-room). Two
+near-identical dist-5 routes split cd90 0.12 vs cd92 0.56 - heterogeneity =
+CONTENTION at the shared storage/core deposit point (13/16 edges -> one
+storage; hub link clamped 0.57, taxRate 2.05, coreEmpty 0.31), not a uniform
+sizing/artifact. Measurement caveat: transfer resolves next tick, so ~1
+idle-tick/trip inflates absolute idleSink; but the 10x idleSink>>idleSource
+asymmetry + route heterogeneity + persistent above-cap buffers confirm genuine
+sink backpressure independent of the artifact.
+
+**Verdict: (c) CONFIRMED (sink backpressure) + prediction FALSIFIED + INSTRUMENTED.**
+The fix is delivery-side (decongest the core deposit / spread deposit points /
+storage-link drain), NOT more haulers and NOT (yet) the buffer-drain plan term -
+which would have made it worse. Next: pin the exact contention (storage-tile
+access vs link drain vs feeder/tender crowding), refine the meter to net out the
+transfer-lag tick, then fix.
