@@ -15,7 +15,7 @@
  *   npx ts-node -P tsconfig.test.json scripts/base-lab/sim-bridge.ts [fixture] \
  *       [--rcl 8] [--ticks 1500] [--carry 25] [--move 25] [--target 60]
  */
-import { SIZE, isWall, type Pt } from "./geometry";
+import { SIZE, packTile, isWall, type Pt } from "./geometry";
 import { BasePlan, RCL8_EXTENSIONS, defaultFixture, loadFixture, planBase } from "./plan";
 import { Layout, Pos, Scenario, simulate } from "../extension-sim/engine";
 
@@ -32,11 +32,38 @@ function wallTiles(terrain: string[]): Pos[] {
   return out;
 }
 
+/**
+ * The tender's duct lattice, paved: every walkable tile adjacent to a placed
+ * extension (where the tender stands to fill / travels between fills). In a
+ * real base you pave the filler lanes; roads halve the loaded-move fatigue, so
+ * this is what a MOVE-shed CARRY-heavy body needs to travel its deadhead at
+ * speed. Paving the ducts (which chain back to the core) also paves the
+ * storage->frontier deadhead.
+ */
+function ductRoads(plan: BasePlan): Pos[] {
+  const roads = new Set<number>();
+  const extSet = new Set(plan.extensions.map(e => packTile(e.x, e.y)));
+  for (const e of plan.extensions) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const nx = e.x + dx;
+        const ny = e.y + dy;
+        if (isWall(plan.input.terrain, nx, ny)) continue;
+        const t = packTile(nx, ny);
+        if (extSet.has(t) || !plan.reachSet.has(t)) continue; // ducts only, not structure tiles
+        roads.add(t);
+      }
+    }
+  }
+  return [...roads].map(unpack);
+}
+
 /** Translate a base-lab plan into a sim Layout on the 50x50 board: the core is
  * the reload anchor (storage), the core pocket's spawns drain, the alveolar
  * field is the extensions, the highways are reserved lanes, and the terrain
  * walls are obstacles the tender must route around. */
-function toSimLayout(plan: BasePlan): Layout {
+function toSimLayout(plan: BasePlan, roadsMode: string): Layout {
   const spawns: Pt[] = plan.spawns.length > 0 ? plan.spawns : [{ x: plan.spawn.x + 1, y: plan.spawn.y }];
   return {
     name: `${plan.input.name}-alveoli`,
@@ -44,7 +71,7 @@ function toSimLayout(plan: BasePlan): Layout {
     storage: { x: plan.spawn.x, y: plan.spawn.y },
     spawns,
     extensions: plan.extensions,
-    roads: [],
+    roads: roadsMode === "ducts" ? ductRoads(plan) : [],
     reserved: [...plan.highways].map(unpack),
     walls: wallTiles(plan.input.terrain)
   };
@@ -56,13 +83,14 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
   const ticks = Number(flagVal("--ticks", "1500"));
   const carry = Number(flagVal("--carry", "25"));
   const move = Number(flagVal("--move", "25"));
+  const roadsMode = flagVal("--roads", "ducts"); // "ducts" (pave the filler lanes) | "none"
   const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
   const biases = flagVal("--bias", "0,1,2,3")
     .split(",")
@@ -72,7 +100,7 @@ function main(): void {
   const input = loadFixture(fixture);
 
   console.log(
-    `\n=== sim-bridge: ${input.name} @ RCL${rcl}, ${carry}C${move}M x1 tender, ${ticks}t ===\n` +
+    `\n=== sim-bridge: ${input.name} @ RCL${rcl}, ${carry}C${move}M x1 tender, roads:${roadsMode}, ${ticks}t ===\n` +
       `sweeping --dead-bias; PLACEMENT gauges (base-lab) next to REFILL (sim)\n`
   );
   console.log(
@@ -83,7 +111,7 @@ function main(): void {
 
   for (const deadBias of biases) {
     const plan = planBase(input, { target, fillMode: "alveoli", deadBias });
-    const layout = toSimLayout(plan);
+    const layout = toSimLayout(plan, roadsMode);
     const scenario: Scenario = {
       layout,
       rcl,
