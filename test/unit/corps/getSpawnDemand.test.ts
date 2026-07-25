@@ -289,16 +289,26 @@ describe("corp getSpawnDemand()", () => {
       };
     }
 
-    it("the FIRST feeder outranks the marginal producer (value 101, not the old 95), never walls", () => {
+    it("WITH ENERGY the first feeder outranks the miner band (value 150), never walls", () => {
       const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageRoom(60_000, { x: 25, y: 10 }, 0, corp.id); // banked surplus, ZERO feeders
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
       const d = demands[0];
       expect(d.role).to.equal("feeder");
-      expect(d.value, "the linchpin outranks the income tier").to.equal(101);
+      // Above the miner band (100 + efficiency*0.5 < 150) so the linchpin wins.
+      expect(d.value, "the linchpin outranks miners when energy is present").to.equal(150);
       expect(d.blocking, "but never walls the bank").to.equal(false);
       expect(d.infrastructure, "and pierces holds while its post is dark with a real bank").to.equal(true);
+    });
+
+    it("DRAINED (NO energy, the rare case) the feeder yields to income (value 90, below miners)", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      stageRoom(1_000, { x: 25, y: 10 }, 0, corp.id); // banked < FEEDER_INCOME_FIRST_FLOOR
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      expect(demands[0].value, "miners rebuild income first when there is no energy").to.equal(90);
+      expect(demands[0].infrastructure, "drained: no pierce (banked < 10k)").to.equal(false);
     });
 
     it("ADDITIONAL feeders (surplus drawdown) stay infra-tier (value 95)", () => {

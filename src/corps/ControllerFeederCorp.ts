@@ -42,6 +42,24 @@ export interface SerializedControllerFeederCorp extends SerializedCorp {
 const CONTROLLER_FEED_TARGET = 2000;
 
 /**
+ * Below this banked storage the spend path has effectively nothing to relay - a
+ * RARE drained/recovery state (owner 2026-07-24: "miners are more important than
+ * feeders if we have NO energy, which is rare; the rest of the time feeder is
+ * more important"). Below it the first feeder yields to income (miners rebuild);
+ * at or above it the feeder is the linchpin and outranks the marginal miner.
+ */
+const FEEDER_INCOME_FIRST_FLOOR = 2000;
+
+/**
+ * The FIRST feeder's spawn value when energy is present. Above the miner band
+ * (HarvestCorp: `100 + efficiency*0.5`, efficiency = net/rate*100 < 100, so
+ * miners top out just under 150) so the linchpin outranks the marginal
+ * producer - it unlocks consumption of energy already mined. It never WALLS
+ * (blocking stays false), so topping the ladder cannot spiral the bank.
+ */
+const FEEDER_LINCHPIN_VALUE = 150;
+
+/**
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
  * while a bank surplus is being drawn down) that relays storage -> controller input.
  */
@@ -405,23 +423,26 @@ export class ControllerFeederCorp extends Corp {
     // assume it exists - when its post goes DARK the upgraders go surplus-blind
     // and the bank rots (the E4 idle-capital coupling, audit t72553726: feeder 0
     // -> inflow 2 -> upgrader fleet decays 40->24 WORK -> 40k stranded). At the
-    // old infra value (95) it lost the ranked spawn slot to miners (100), the
-    // tender (96) and high-demand haulers and OSCILLATED. So the FIRST feeder
-    // outranks the marginal producer - ONE cheap body that UNLOCKS consumption
-    // of energy already mined. It never front-runs the cold-start (the no-miner
-    // gate above only demands a feeder once income flows) and never WALLS
-    // (blocking stays false), so it wins a slot when affordable but cannot
-    // spiral the bank. Additional feeders (surplus drawdown) stay infra-tier.
+    // old infra value (95) it lost the ranked spawn slot to the miner band
+    // (125-147) and OSCILLATED. So with energy present the FIRST feeder outranks
+    // the marginal producer (owner: "the rest of the time feeder is more
+    // important" than miners) - ONE cheap body that UNLOCKS consumption of
+    // energy already mined. When storage is DRAINED (banked <
+    // FEEDER_INCOME_FIRST_FLOOR - the rare "NO energy" case) it yields to income
+    // so miners rebuild first. It never front-runs a cold-start (the no-miner
+    // gate only demands a feeder once income flows) and never WALLS (blocking
+    // stays false). Additional feeders (surplus drawdown) stay infra-tier.
     const firstFeeder = feeders === 0;
+    const drained = banked < FEEDER_INCOME_FIRST_FLOOR; // rare
 
     return [
       {
         buyerCorpId: this.id,
         role: "feeder",
-        // First feeder: above the income tier (miners ~100, tender 96), below
-        // defense (raid guard 105 / core buster 104) and the reserver (115).
-        // Additional feeders: the old infra tier, just below the tender.
-        value: firstFeeder ? 101 : 95,
+        // First feeder with energy: above the miner band (the linchpin). First
+        // feeder while DRAINED: below miners (income first). Additional feeders:
+        // the old infra tier, just below the tender.
+        value: firstFeeder ? (drained ? 90 : FEEDER_LINCHPIN_VALUE) : 95,
         blocking: false, // never walls: haulers feed the controller directly until it spawns
         // The first feeder also pierces holds/walls while its post is dark and a
         // real bank stands stranded behind it (the emergency lane, incident
