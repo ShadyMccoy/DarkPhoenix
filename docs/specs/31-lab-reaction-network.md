@@ -224,6 +224,21 @@ Sources: Overmind `src/hiveClusters/evolutionChamber.ts`, `src/resources/Abathur
 Quorum `src/programs/city/labs.js`; TooAngel `doc/Mineral.md`; `screeps/docs`
 `StructureLab`. (bonzAI lab source not locatable.)
 
+**Throughput objective: keep every lab reacting (measured ~5× headroom).** Max
+throughput ⟺ every lab fires a reaction the moment its cooldown ends. Reactions
+cost **zero intents**, so this is *free* throughput — throughput and CPU do not
+trade off; react-away keeps the tender near-idle and busy labs cost nothing extra.
+But the sims are far from it: `sim-labs-mix.ts` reports **~17% lab utilisation**
+for the shallow boosts (`XLH2O` 85.6/1k, `XUHO2` 92.3/1k) — 83% of lab-ticks idle
+— because the scheduler caps each compound at one lab (the anti-smear fix), so the
+high-cooldown **top reaction runs on a single lab** while 5–6 sit idle. The fix is
+**balanced multi-lab allocation**: give each reaction labs ∝ its cooldown-weighted
+demand (the cd-65/80 top compound gets the *most* labs), and route any idle lab to
+the current bottleneck. Estimated ceiling ≈ `50 / Σ(cooldowns)` per tick minus
+base-holder overhead — several hundred per 1k for depth-≤3 targets vs the ~85
+measured. Realising it is the throughput half of the scheduler (the CPU half —
+react-away — is solved).
+
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
 boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability

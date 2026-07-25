@@ -194,6 +194,7 @@ function run(args: Args): void {
   let reactionsRun = 0;
   let readsAcrossCooldown = 0;
   let producedTarget = 0;
+  let busyLabTicks = 0; // lab-ticks spent locked on a reaction (throughput proxy)
 
   const CAP = LAB_MINERAL_CAPACITY;
   const BUFFER = args.buffer;
@@ -321,6 +322,7 @@ function run(args: Args): void {
 
     react();
     advanceTender();
+    for (const l of labs) if (l.cooldown > 0) busyLabTicks++;
 
     if (tick === WARMUP) {
       warmupBanked = producedTarget;
@@ -359,6 +361,7 @@ function run(args: Args): void {
   console.log(`  OUTPUT`);
   console.log(`    ${target} produced      : ${steadyProduced} over window  (${ratePerK.toFixed(1)} / 1000 ticks)`);
   console.log(`    reactions run        : ${reactionsRun}`);
+  console.log(`    lab utilisation      : ${((busyLabTicks / (LAB_COUNT * args.ticks)) * 100).toFixed(1)}%  (lab-ticks reacting; idle labs = wasted throughput)`);
   console.log(`    reads across cooldown: ${readsAcrossCooldown}  (source lab itself cooling — the spec-31 exploit)`);
   console.log(`    tender CPU           : ${intentsPerK.toFixed(0)} intents/1k = ${(intentsPerK * 0.2).toFixed(1)} CPU/1k ticks (0.2 CPU/intent), ${(producedTarget > 0 ? (tenderIntents * 0.2) / producedTarget : 0).toFixed(3)} CPU per ${target}`);
   console.log("");
