@@ -316,6 +316,7 @@ function run(args: Args): void {
   const snapInter: Record<string, number> = {};
   let snapLabMat = 0;
   const WARMUP = Math.min(8000, Math.floor(args.ticks / 4));
+  const busyBy: Record<string, number> = {};
 
   for (let tick = 0; tick < args.ticks; tick++) {
     for (const base of BASES) if (terminal[base] < BASE_SUPPLY) terminal[base] = BASE_SUPPLY;
@@ -324,6 +325,7 @@ function run(args: Args): void {
     react();
     advanceTender();
     for (const l of labs) if (l.cooldown > 0) busyLabTicks++;
+    for (const c of tree) for (const id of reactorsOf[c]) if (labs[id].cooldown > 0) busyBy[c] = (busyBy[c] ?? 0) + 1;
 
     if (tick === WARMUP) {
       warmupBanked = producedTarget;
@@ -364,6 +366,12 @@ function run(args: Args): void {
   console.log(`    ${target} produced      : ${steadyProduced} over window  (${ratePerK.toFixed(1)} / 1000 ticks)`);
   console.log(`    reactions run        : ${reactionsRun}`);
   console.log(`    lab utilisation      : ${((busyLabTicks / (LAB_COUNT * args.ticks)) * 100).toFixed(1)}%  (lab-ticks reacting; idle labs = wasted throughput)`);
+  console.log(`    per-step activity (cd, labs, % of their ticks actually reacting):`);
+  console.log(`      ${bases.length} feeders [${bases.join(" ")}]  @ 0%  — hold a base to be READ; cannot react (react-away overhead)`);
+  for (const c of tree) {
+    const pct = ((busyBy[c] ?? 0) / (labsFor[c] * args.ticks)) * 100;
+    console.log(`      ${c.padEnd(6)} cd${String(REACTION_TIME[c]).padStart(3)}  ${labsFor[c]} lab   @ ${pct.toFixed(0)}%${pct < 60 ? "  <-- idle slack (fast tier over-served)" : ""}`);
+  }
   console.log(`    reads across cooldown: ${readsAcrossCooldown}  (source lab itself cooling — the spec-31 exploit)`);
   console.log(`    tender CPU           : ${intentsPerK.toFixed(0)} intents/1k = ${(intentsPerK * 0.2).toFixed(1)} CPU/1k ticks (0.2 CPU/intent), ${(producedTarget > 0 ? (tenderIntents * 0.2) / producedTarget : 0).toFixed(3)} CPU per ${target}`);
   console.log("");
