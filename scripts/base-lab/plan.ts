@@ -59,6 +59,10 @@ export interface BasePlan {
   // extracted geometry (for the sim bridge)
   extensions: Pt[];
   spawns: Pt[];
+  /** serpentine spine (ordered, contiguous incl. bridges); empty for other modes */
+  lane: Pt[];
+  splits: number;
+  bridgeLen: number;
   // metrics
   passable: number;
   deadSpace: number;
@@ -233,6 +237,238 @@ function fillAlveoli(
   return count;
 }
 
+/**
+ * Serpentine fill: a diagonal-stripe string threaded through the dead-space.
+ * The tender walks the SPINE (every 3rd diagonal is a lane; extensions flank it
+ * on the two stripes between), so its world is 1D - in toward the tail, out to
+ * the mouth (core) to reload. Real terrain breaks a pure diagonal, so:
+ *   - WRAP: at a boundary the walk turns (any adjacent unused lane tile),
+ *     staying contiguous.
+ *   - SPLIT: when no adjacent lane tile remains, BFS-BRIDGE to the nearest
+ *     unused lane run and append the connector tiles - so the whole thing stays
+ *     ONE ordered contiguous lane (a split is just a low-density traverse
+ *     stretch, not a separate loop). Bridges >2 tiles are counted as splits.
+ * Returns the placed count, the ordered lane (spine + bridges), and split stats.
+ */
+function fillSerpentine(
+  terrain: string[],
+  reachSet: Set<number>,
+  highways: Set<number>,
+  anchorTiles: Set<number>,
+  occupied: Set<number>,
+  placed: Map<number, Placed>,
+  core: Pt,
+  target: number,
+  startCount: number
+): { count: number; lane: Pt[]; splits: number; bridgeLen: number } {
+  const inRegion = (x: number, y: number): boolean => {
+    if (x < 1 || y < 1 || x >= SIZE - 1 || y >= SIZE - 1) return false;
+    if (isWall(terrain, x, y) || isSwamp(terrain, x, y)) return false;
+    const t = packTile(x, y);
+    return reachSet.has(t) && !highways.has(t) && !anchorTiles.has(t);
+  };
+  const r0 = (((core.x - core.y) % 3) + 3) % 3;
+  const isLane = (x: number, y: number): boolean => (((x - y) % 3) + 3) % 3 === r0;
+
+  const laneSet = new Set<number>();
+  for (let y = 1; y < SIZE - 1; y++) {
+    for (let x = 1; x < SIZE - 1; x++) {
+      if (inRegion(x, y) && !occupied.has(packTile(x, y)) && isLane(x, y)) laneSet.add(packTile(x, y));
+    }
+  }
+  if (laneSet.size === 0) return { count: startCount, lane: [], splits: 0, bridgeLen: 0 };
+
+  const cheb = (a: number, b: number): number =>
+    Math.max(Math.abs((a % SIZE) - (b % SIZE)), Math.abs(Math.floor(a / SIZE) - Math.floor(b / SIZE)));
+  const coreT = packTile(core.x, core.y);
+
+  // A bridge may TRAVERSE any walkable tile - including highways and swamp (the
+  // tender can cross an artery, it just can't build on it). Only walls, out-of-
+  // bounds, unreachable, and occupied structures block. (Excluding highways
+  // here was the bug that isolated the core pocket on highway-heavy rooms.)
+  const bridgeWalkable = (x: number, y: number): boolean =>
+    x >= 1 && y >= 1 && x < SIZE - 1 && y < SIZE - 1 && !isWall(terrain, x, y) && reachSet.has(packTile(x, y)) && !occupied.has(packTile(x, y));
+
+  // BFS bridge over walkable tiles, path after `from` up to `to`.
+  const bridge = (from: number, to: number): number[] | null => {
+    const prev = new Map<number, number>([[from, -1]]);
+    const q = [from];
+    for (let i = 0; i < q.length; i++) {
+      const c = q[i];
+      if (c === to) break;
+      const cx = c % SIZE;
+      const cy = Math.floor(c / SIZE);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (!dx && !dy) continue;
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (!bridgeWalkable(nx, ny)) continue;
+          const nt = packTile(nx, ny);
+          if (prev.has(nt)) continue;
+          prev.set(nt, c);
+          q.push(nt);
+        }
+      }
+    }
+    if (!prev.has(to)) return null;
+    const path: number[] = [];
+    for (let t = to; t !== -1 && t !== from; t = prev.get(t)!) path.push(t);
+    return path.reverse();
+  };
+
+  // Keep only the lane tiles in the LARGEST bridge-connected component (the main
+  // dead-space); drop tiles the core-pocket/buildings box into tiny pockets.
+  // Component of walkable tiles (via bridgeWalkable), independent of the core's
+  // neighbours (which the pocket occupies). The sim reaches the main region from
+  // storage through the pocket's non-sim-blocked structures.
+  const comp = new Map<number, number>();
+  const compLaneCount = new Map<number, number>();
+  let nextComp = 0;
+  for (const laneT of laneSet) {
+    if (comp.has(laneT)) continue;
+    const id = nextComp++;
+    const q = [laneT];
+    comp.set(laneT, id);
+    let laneCount = 0;
+    for (let i = 0; i < q.length; i++) {
+      const c = q[i];
+      if (laneSet.has(c)) laneCount += 1;
+      const cx = c % SIZE;
+      const cy = Math.floor(c / SIZE);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (!dx && !dy) continue;
+          if (!bridgeWalkable(cx + dx, cy + dy)) continue;
+          const nt = packTile(cx + dx, cy + dy);
+          if (comp.has(nt)) continue;
+          comp.set(nt, id);
+          q.push(nt);
+        }
+      }
+    }
+    compLaneCount.set(id, laneCount);
+  }
+  let bestId = -1;
+  let bestCount = -1;
+  for (const [id, c] of compLaneCount) if (c > bestCount) {
+    bestCount = c;
+    bestId = id;
+  }
+  for (const t of [...laneSet]) if (comp.get(t) !== bestId) laneSet.delete(t);
+  if (laneSet.size === 0) return { count: startCount, lane: [], splits: 0, bridgeLen: 0 };
+
+  // Contiguous walk: prefer continuing straight, then any adjacent lane tile
+  // (WRAP), then bridge to the nearest remaining run (SPLIT).
+  let start = -1;
+  let sd = Infinity;
+  for (const t of laneSet) {
+    const d = cheb(t, coreT);
+    if (d < sd) {
+      sd = d;
+      start = t;
+    }
+  }
+  const remaining = new Set(laneSet);
+  const walk: number[] = [start];
+  remaining.delete(start);
+  let cur = start;
+  let lastDx = 0;
+  let lastDy = 0;
+  let splits = 0;
+  let bridgeLen = 0;
+
+  const adjLane = (): number | null => {
+    const cx = cur % SIZE;
+    const cy = Math.floor(cur / SIZE);
+    const dirs: Array<[number, number]> = [];
+    if (lastDx || lastDy) dirs.push([lastDx, lastDy]); // continue straight first
+    for (const d of [
+      [1, 1],
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ] as Array<[number, number]>) {
+      dirs.push(d);
+    }
+    for (const [dx, dy] of dirs) {
+      const nt = packTile(cx + dx, cy + dy);
+      if (remaining.has(nt)) return nt;
+    }
+    return null;
+  };
+
+  while (remaining.size > 0) {
+    const next = adjLane();
+    if (next !== null) {
+      lastDx = (next % SIZE) - (cur % SIZE);
+      lastDy = Math.floor(next / SIZE) - Math.floor(cur / SIZE);
+      walk.push(next);
+      remaining.delete(next);
+      cur = next;
+      continue;
+    }
+    let tgt = -1;
+    let bd = Infinity;
+    for (const t of remaining) {
+      const d = cheb(cur, t);
+      if (d < bd) {
+        bd = d;
+        tgt = t;
+      }
+    }
+    const path = bridge(cur, tgt);
+    if (!path || path.length === 0) {
+      remaining.delete(tgt);
+      continue;
+    }
+    for (const t of path) {
+      walk.push(t);
+      remaining.delete(t);
+    }
+    bridgeLen += path.length;
+    // A short hop (a stripe-wrap turn) is not a split; only a genuine long jump
+    // across a gap counts.
+    if (path.length > 4) splits += 1;
+    cur = tgt;
+    lastDx = 0;
+    lastDy = 0;
+  }
+
+  // Place extensions flanking the walk, in walk order (near mouth first), to
+  // target. Trim the lane to the prefix that actually carries extensions.
+  const walkedSet = new Set(walk);
+  let count = startCount;
+  let lastUseful = 0;
+  const laneOut: Pt[] = [];
+  for (let i = 0; i < walk.length; i++) {
+    const t = walk[i];
+    const x = t % SIZE;
+    const y = Math.floor(t / SIZE);
+    laneOut.push({ x, y });
+    if (count >= target) continue;
+    for (let dx = -1; dx <= 1 && count < target; dx++) {
+      for (let dy = -1; dy <= 1 && count < target; dy++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (!inRegion(nx, ny)) continue;
+        const nt = packTile(nx, ny);
+        if (walkedSet.has(nt) || occupied.has(nt)) continue;
+        occupied.add(nt);
+        placed.set(nt, { glyph: "E", stamp: "serpentine" });
+        count += 1;
+        lastUseful = i;
+      }
+    }
+  }
+  return { count, lane: laneOut.slice(0, lastUseful + 1), splits, bridgeLen };
+}
+
 export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
   const { terrain } = input;
   const { sources, controller, mineral } = anchorsOf(input);
@@ -352,7 +588,16 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
 
   let pocketCount = 0;
   let extPlaced = coreOk ? extensionCount(CORE_POCKET) : 0;
-  if (opts.fillMode === "pockets") {
+  let lane: Pt[] = [];
+  let splits = 0;
+  let bridgeLen = 0;
+  if (opts.fillMode === "serpentine") {
+    const s = fillSerpentine(terrain, reachSet, highways, anchorTiles, occupied, placed, spawn, opts.target, extPlaced);
+    extPlaced = s.count;
+    lane = s.lane;
+    splits = s.splits;
+    bridgeLen = s.bridgeLen;
+  } else if (opts.fillMode === "pockets") {
     const centers: { x: number; y: number; c: number }[] = [];
     for (let y = 2; y < SIZE - 2; y++) {
       for (let x = 2; x < SIZE - 2; x++) {
@@ -417,6 +662,9 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
     clearance,
     extensions,
     spawns,
+    lane,
+    splits,
+    bridgeLen,
     passable,
     deadSpace,
     highwaySwamp,

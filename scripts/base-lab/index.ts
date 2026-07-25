@@ -32,6 +32,7 @@ function render(plan: BasePlan): void {
     const g = o.type === "source" ? "*" : o.type === "controller" ? "K" : o.type === "mineral" ? "%" : "?";
     anchorGlyph.set(packTile(o.x, o.y), g);
   }
+  const spine = new Set(plan.lane.map(p => packTile(p.x, p.y)));
 
   const lines: string[] = [];
   for (let y = 0; y < SIZE; y++) {
@@ -40,6 +41,7 @@ function render(plan: BasePlan): void {
       const tile = packTile(x, y);
       if (placed.has(tile)) row += placed.get(tile)!.glyph;
       else if (anchorGlyph.has(tile)) row += anchorGlyph.get(tile)!;
+      else if (spine.has(tile)) row += ":"; // serpentine spine (tender lane)
       else if (highways.has(tile)) row += "=";
       else if (isWall(terrain, x, y)) row += "#";
       else if (!reachSet.has(tile)) row += "x"; // sealed pocket
@@ -52,7 +54,7 @@ function render(plan: BasePlan): void {
   console.log(`\n=== base-lab: ${input.name} ===`);
   console.log(lines.join("\n"));
   console.log("\nlegend: # wall  , swamp  · dead-space  = highway  x sealed  * source  K controller  % mineral");
-  console.log("        P spawn  @ feeder/manager  L link  O storage  M terminal  T tower  B lab  E extension  C container");
+  console.log("        P spawn  @ feeder/manager  L link  O storage  M terminal  T tower  B lab  E extension  : spine");
 }
 
 function report(plan: BasePlan): void {
@@ -77,6 +79,8 @@ function report(plan: BasePlan): void {
     `fill mode       ${opts.fillMode}` +
       (opts.fillMode === "pockets"
         ? ` (${plan.pocketCount} ring pockets)`
+        : opts.fillMode === "serpentine"
+        ? ` (diagonal string, ${plan.lane.length}-tile spine, ${plan.splits} splits, ${plan.bridgeLen} bridge tiles)`
         : ` (wall-edge flood, grown from core, dead-bias ${opts.deadBias})`)
   );
   console.log(

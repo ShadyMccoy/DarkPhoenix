@@ -169,6 +169,26 @@ paved ducts, 1 tender, ~1000t.
     (thread the stripe through dead-space around walls/highways) and feed its
     spine as the lane, instead of the alveolar blob.
 
+13. **Real-terrain serpentine generator (`--fill serpentine`) built and works.**
+    Lays a diagonal-stripe string (every 3rd diagonal is the tender lane,
+    extensions on the two stripes between) through the dead-space, WRAPPING at
+    boundaries (the walk turns) and SPLITTING with BFS bridges when a run ends
+    (bridges may cross highways/swamp - the tender can traverse them, it just
+    can't build there). Emits the contiguous spine as `plan.lane`; reports splits
+    / bridge tiles. Two bugs found and fixed during the build: bridges wrongly
+    excluded highways (isolated the start on highway-heavy rooms), and the start
+    could land in a structure-boxed pocket (fixed by walking the LARGEST
+    bridge-connected lane component, not the core-nearest tile - the core's own
+    neighbours are all pocket structures). Result across 5 maps (13-74% wall,
+    RCL8): all place 60/60; a single lane-patrol tender matches greedy util
+    1.000 on 4/5 (W7N3 31% trails at 0.935, its string is more fragmented).
+    Splits 8-20 track per-room fragmentation (not monotonic in wall% - a small
+    congested region can need fewer bridges than a big open one). This delivers
+    the owner's "long string, in/out" design on real terrain with one CPU-cheap
+    tender. Remaining polish: W7N3's 0.935 (fragmented string), and the diagonal
+    construction bridges between stripes more than an ideal contiguous spiral
+    would.
+
 ## Caveats
 
 - Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding

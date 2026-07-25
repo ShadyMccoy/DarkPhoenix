@@ -122,7 +122,8 @@ function toSimLayout(plan: BasePlan, roadsMode: string, workingExts: number): La
     roads: roadsMode === "ducts" ? ductRoads(plan) : [],
     reserved: [...plan.highways].map(unpack),
     walls: wallTiles(plan.input.terrain),
-    lane: circuit(plan, workingExts) // used by lane-patrol / circuit-loop; ignored by greedy/outbound
+    // serpentine emits its own contiguous spine; otherwise synthesize a radial circuit
+    lane: plan.lane.length > 0 ? plan.lane : circuit(plan, workingExts)
   };
 }
 
@@ -132,7 +133,7 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute", "--policy", "--tenders", "--draw"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute", "--policy", "--tenders", "--draw", "--fill"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
@@ -141,6 +142,7 @@ function main(): void {
   const move = Number(flagVal("--move", "25"));
   const roadsMode = flagVal("--roads", "ducts"); // "ducts" (pave the filler lanes) | "none"
   const commuteSlack = Number(flagVal("--commute", "1.5"));
+  const fillMode = flagVal("--fill", "alveoli"); // alveoli | serpentine | pockets
   const policy = flagVal("--policy", "greedy-nearest") as TenderPolicy; // greedy-nearest | outbound-sweep | outbound-ration | circuit-loop
   // circuit patrols need circuit-aligned draw (drain marches along the lane);
   // default the draw order to match the policy unless overridden.
@@ -193,7 +195,7 @@ function main(): void {
   for (const deadBias of biases) {
     const plan = planBase(input, {
       target,
-      fillMode: "alveoli",
+      fillMode,
       deadBias,
       commuteSlack,
       spawns: preset.spawns,
