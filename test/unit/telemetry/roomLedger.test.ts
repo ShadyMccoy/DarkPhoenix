@@ -76,7 +76,7 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(16); // v15 corpCpu (spec 20) + link core-fill/hub-clamp; v16 merges both
+    expect(core.version).to.equal(17); // v15 corpCpu (spec 20) + link core-fill/hub-clamp; v16 merges both
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
@@ -105,6 +105,25 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     expect(room.siteProgress).to.equal(600);
     expect(room.siteTotal).to.equal(8000);
     expect(room.siteCount).to.equal(2);
+  });
+
+  it("exports the DYNAMIC warchest target when set (E4 reads the reserve the economy uses, not the base floor)", () => {
+    (Memory as any).warchestTarget = 54000;
+    Game.rooms = {
+      W43N23: {
+        name: "W43N23",
+        controller: mkController([], []),
+        storage: { my: true, store: { energy: 54800 } },
+        memory: {},
+        energyAvailable: 1800,
+        energyCapacityAvailable: 1800,
+        find: () => []
+      }
+    } as any;
+    new Telemetry().update(undefined, [], undefined);
+    const core = JSON.parse(RawMemory.segments[0]);
+    expect(core.warchestTarget).to.equal(54000);
+    (Memory as any).warchestTarget = undefined; // no leak into sibling tests (absent -> field omitted)
   });
 
   it("reports null (not zero) when a room has no storage, and 0 stock for a bare controller", () => {
