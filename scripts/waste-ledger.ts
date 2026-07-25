@@ -561,6 +561,33 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- S4 idle attribution: WHERE the spawn's idle ticks go ----
+  // The S3 stall is a boolean snapshot; this is the windowed breakdown from
+  // the v18 spawns[].idle tally (classifySpawnIdle). "spawn capacity but short
+  // on haulers" is exactly this read: bank = energy-starved (feed the spawn
+  // faster), empty = the plan isn't demanding a body (demand-side gap), hold =
+  // a chosen wait, buy = exec latency. Recoverable idle (bank+hold) above the
+  // threshold means spawn-time is being left on the table. Absent pre-v18.
+  if (spawn && (spawn as any).idle) {
+    const idle = (spawn as any).idle as { empty: number; bank: number; buy: number; hold: number };
+    const total = idle.empty + idle.bank + idle.buy + idle.hold;
+    const win = spawn.windowTicks || 1;
+    const recoverable = (idle.bank + idle.hold) / win; // fraction of the window
+    const parts = Object.entries(idle)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => (b[1] as number) - (a[1] as number))
+      .map(([k, v]) => `${k} ${(((v as number) / Math.max(1, total)) * 100).toFixed(0)}%`)
+      .join(" ");
+    rows.push({
+      id: "S4",
+      name: "spawn idle attribution",
+      value: +recoverable.toFixed(3),
+      unit: "recoverable idle frac",
+      verdict: recoverable > 0.15 ? "WARN" : "ok",
+      detail: `idle ${((total / win) * 100).toFixed(0)}% of window [${parts}] - bank=energy-starved, empty=no-demand, hold=chosen-wait, buy=latency`
+    });
+  }
+
   // ---- P6 reservation pump (owner marathon: "reservers not reserving") ----
   // pump_r = bank2 - (bank1 - stampDt): what the fielded reservers actually
   // ADDED per room, decay netted out. Zero pump on a needy room with claim

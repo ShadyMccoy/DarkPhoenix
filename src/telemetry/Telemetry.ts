@@ -39,6 +39,35 @@ import {
 /** Spawn-meter window length: one creep lifetime, the economy's natural period. */
 const SPAWN_METER_WINDOW = 1500;
 
+/** Why a spawn stood idle this tick (spec 14, owner 2026-07-25). */
+export type SpawnIdleCause = "empty" | "bank" | "buy" | "hold";
+
+/**
+ * Classify one idle (non-spawning) spawn tick by its NOW-plan queue head, so the
+ * ~13% steady-state idle on a saturated single spawn is attributable instead of
+ * a guess. Reads the SAME agenda the scheduler published this tick:
+ *
+ *   - empty: no queue head - the plan is not demanding a body. Genuine spare
+ *            capacity; if we are "short on haulers" the gap is on the DEMAND
+ *            side (the planner isn't asking), not the spawn.
+ *   - bank:  the head can't afford its own minCost (`bank>=N` precondition) -
+ *            energy-STARVED at the spawn door (tender refill lag or an
+ *            indivisible body banking). Recoverable by feeding the spawn faster.
+ *   - buy:   the head was gated "buy" yet the spawn idled - decision/exec
+ *            latency (the director should have spawned it).
+ *   - hold:  the head is affordable but held/queued behind a higher demand or
+ *            banking for its desiredCost - a CHOSEN wait.
+ *
+ * An unaffordable head is energy-starved regardless of a stale gate, so the
+ * `bank` precondition is checked first. Pure.
+ */
+export function classifySpawnIdle(head: { precondition?: string; gate?: string } | undefined): SpawnIdleCause {
+  if (!head) return "empty";
+  if (typeof head.precondition === "string" && head.precondition.indexOf("bank>=") === 0) return "bank";
+  if (head.gate === "buy") return "buy";
+  return "hold";
+}
+
 /**
  * Energy/tick a single WORK part burns at a WORK-driven consumer sink, keyed by
  * sink type. Sinks absent here are not WORK-driven, so they get no planned WORK
@@ -254,6 +283,12 @@ export interface CoreTelemetry {
     /** Avg energyAvailable/capacity AT those finish ticks: low = refill did
      * not overlap the build (tender lag); high = affordable-but-idle. */
     endFill?: number;
+    /** Idle-tick cause tally over the window (v18): empty=no demand (spare
+     * capacity, demand-side gap), bank=head unaffordable (energy-starved),
+     * buy=decided-buy yet idle (exec latency), hold=affordable but held/
+     * queued (chosen wait). Absent when the spawn never idled. Sums to
+     * windowTicks - busyTicks. See classifySpawnIdle. */
+    idle?: { empty: number; bank: number; buy: number; hold: number };
   }[];
   /**
    * NOW-plan mirror (spec 14 phase 4): Memory.spawnAgenda queue heads (first
@@ -704,7 +739,29 @@ export class Telemetry {
       w.last = Game.time;
       w.ticks++;
       const busyNow = !!s.spawning;
-      if (busyNow) w.busy++;
+      if (busyNow) {
+        w.busy++;
+      } else {
+        // IDLE-CAUSE tally (owner 2026-07-25): attribute every non-spawning
+        // tick to the NOW-plan head - names where the steady-state idle goes
+        // (no-demand vs energy-starved vs held vs latency) so "spawn capacity
+        // but short on haulers" becomes a read, not a guess.
+        const head = Memory.spawnAgenda?.[s.id]?.queue?.[0] as { precondition?: string; gate?: string } | undefined;
+        switch (classifySpawnIdle(head)) {
+          case "empty":
+            w.idleEmpty = (w.idleEmpty ?? 0) + 1;
+            break;
+          case "bank":
+            w.idleBank = (w.idleBank ?? 0) + 1;
+            break;
+          case "buy":
+            w.idleBuy = (w.idleBuy ?? 0) + 1;
+            break;
+          case "hold":
+            w.idleHold = (w.idleHold ?? 0) + 1;
+            break;
+        }
+      }
       // BUILD-FINISH fill probe (owner 2026-07-21: refill must overlap the
       // build "or we have to measure and fix that"). A back-to-back restart
       // keeps spawning true and never registers here - every counted finish
@@ -868,6 +925,11 @@ export class Telemetry {
       const busy = w?.busy ?? 0;
       const utilization = ticks > 0 ? busy / ticks : 0;
       const finishes = w?.finishes ?? 0;
+      const idleEmpty = w?.idleEmpty ?? 0;
+      const idleBank = w?.idleBank ?? 0;
+      const idleBuy = w?.idleBuy ?? 0;
+      const idleHold = w?.idleHold ?? 0;
+      const idleTotal = idleEmpty + idleBank + idleBuy + idleHold;
       spawns.push({
         id: s.id,
         name,
@@ -878,7 +940,9 @@ export class Telemetry {
         queueDepth: Memory.spawnAgenda?.[s.id]?.queue?.length ?? 0,
         // Gapped build-finishes + avg fill AT the finish (v12): low endFill =
         // refill lag; high = affordable-but-idle. Absent until a gap occurs.
-        ...(finishes > 0 ? { finishes, endFill: +((w!.fillSum ?? 0) / finishes).toFixed(3) } : {})
+        ...(finishes > 0 ? { finishes, endFill: +((w!.fillSum ?? 0) / finishes).toFixed(3) } : {}),
+        // Idle-cause attribution (v18): where the idle ticks went.
+        ...(idleTotal > 0 ? { idle: { empty: idleEmpty, bank: idleBank, buy: idleBuy, hold: idleHold } } : {})
       });
     }
 
@@ -905,7 +969,7 @@ export class Telemetry {
     const telemetry: CoreTelemetry = {
       // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
       // shipped, so the merge advances to v16 to name the combined schema.
-      version: 17, // v16 merged corpCpu + link diagnostics; v17 warchestTarget (dynamic reserve for E4)
+      version: 18, // v17 warchestTarget (dynamic reserve for E4); v18 spawns[].idle cause tally (empty/bank/buy/hold)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {

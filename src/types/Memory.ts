@@ -257,6 +257,15 @@ declare global {
          * fix that"). Low avg = refill lag (tender); high avg = the spawn
          * was affordable and idled anyway (agenda/decision latency). */
         fillSum?: number;
+        /** Idle-tick cause tally (owner 2026-07-25): each non-spawning tick
+         * classified by the NOW-plan head - empty (no demand), bank (head
+         * unaffordable: energy-starved), buy (decided-buy yet idle: exec
+         * latency), hold (affordable but held/queued). Names WHERE the
+         * steady-state spawn idle goes. See Telemetry.classifySpawnIdle. */
+        idleEmpty?: number;
+        idleBank?: number;
+        idleBuy?: number;
+        idleHold?: number;
       };
     };
 
