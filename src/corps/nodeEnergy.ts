@@ -72,12 +72,33 @@ export function coreLink(room: Room): StructureLink | null {
 export const CORE_LINK_INCOME_RESERVE = 200;
 
 /**
- * Energy the feeder may still load into the core link: fill to capacity
- * minus the income reserve, never above. The SOURCE side of the link
- * network is not throttled - only the feeder's controller-relay staging is.
+ * Energy the feeder may still load into the core link. The feeder is the core
+ * link's SLAVE, coordinated with the fire down to the controller (owner
+ * 2026-07-24): the core is an INCOME hub FIRST (production > consumption). It
+ * must never stage more storage energy than the controller link can currently
+ * RECEIVE - staging income headroom for energy the core can't fire down is a
+ * production leak.
+ *
+ * Measured incident (t72548874/t72548972): the old rule filled the core to
+ * capacity - reserve = 600 regardless of the relay's needs. Live the feeder
+ * held the core at 600-794 while the source link stood 800/800 FULL and
+ * ~17.4k of remote income sat stranded across the mines; the controller link
+ * was 750/800 (a single 3-WORK upgrader burned ~2.5 e/t) so the relay could
+ * not drain the staged energy - the hub gridlocked and income could not land.
+ *
+ * `controllerFree` is the controller link's current free capacity (the relay's
+ * headroom). When it is known (link-fed rooms), the feeder's core TARGET is the
+ * lesser of that headroom and the income-reserve ceiling: with the controller
+ * sated the feeder stages ~nothing and the whole core stays open for source
+ * volleys; as the upgraders drain the controller link the target rises and the
+ * feeder tops the relay from storage. Omit it (walking relay, no controller
+ * link) for the legacy ceiling exactly. The SOURCE side is never throttled -
+ * only the feeder's controller-relay staging is.
  */
-export function coreLinkLoadRoom(store: number, capacity: number): number {
-  return Math.max(0, capacity - CORE_LINK_INCOME_RESERVE - store);
+export function coreLinkLoadRoom(store: number, capacity: number, controllerFree?: number): number {
+  const ceiling = capacity - CORE_LINK_INCOME_RESERVE;
+  const target = controllerFree === undefined ? ceiling : Math.min(ceiling, Math.max(0, controllerFree));
+  return Math.max(0, target - store);
 }
 
 /**

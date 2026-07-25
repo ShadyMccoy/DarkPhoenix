@@ -185,16 +185,46 @@ describe("controller link network (spec 24 rung 3)", () => {
     expect(src.fired).to.deep.equal([]);
   });
 
-  it("coreLinkLoadRoom: the feeder fills the core only to capacity minus the income reserve", () => {
+  it("coreLinkLoadRoom: WALKING relay (no controller link) fills to capacity minus the income reserve", () => {
     const { coreLinkLoadRoom, CORE_LINK_INCOME_RESERVE } = require("../../../src/corps/nodeEnergy");
-    // The reserve is one typical source volley (~2 fire thresholds): big
-    // enough that income keeps landing, small enough that the relay buffer
-    // (capacity - reserve = 600) still out-runs every relay target to date.
+    // The legacy 2-arg form (no controller link known) is unchanged: the reserve
+    // is one typical source volley, and the relay buffer (capacity - reserve =
+    // 600) is the fallback ceiling.
     expect(CORE_LINK_INCOME_RESERVE).to.equal(200);
     expect(coreLinkLoadRoom(0, 800)).to.equal(600);
     expect(coreLinkLoadRoom(500, 800)).to.equal(100);
     expect(coreLinkLoadRoom(600, 800)).to.equal(0);
     expect(coreLinkLoadRoom(750, 800), "never negative - already past the line").to.equal(0);
+  });
+
+  /**
+   * The feeder is the core link's SLAVE, coordinated with the fire down to the
+   * controller (owner 2026-07-24): the core is an INCOME hub first (production >
+   * consumption). It must never stage more storage energy than the controller
+   * link can currently RECEIVE - staging income headroom for energy the core
+   * can't fire down is a production leak. Measured incident t72548874/t72548972:
+   * the feeder held the core at 600-794 while the source link stood 800/800 FULL
+   * and ~17.4k of remote income sat stranded; the controller link was 750/800
+   * (upgrader burned ~2.5 e/t) so the relay could not drain the staged energy.
+   */
+  it("coreLinkLoadRoom: with the controller link FULL, the feeder stages ~nothing (income keeps the core)", () => {
+    const { coreLinkLoadRoom } = require("../../../src/corps/nodeEnergy");
+    // core 600, controller nearly full (free 50): the relay can't take it, so
+    // the feeder must NOT top the core up - the incident's exact shape.
+    expect(coreLinkLoadRoom(600, 800, 50)).to.equal(0);
+    // even an EMPTY core: stage only what the controller link can receive, no
+    // more, so remote source volleys always find landing room.
+    expect(coreLinkLoadRoom(0, 800, 50)).to.equal(50);
+  });
+
+  it("coreLinkLoadRoom: with the controller link DRAINED, the feeder stages up to its room (capped by the income reserve)", () => {
+    const { coreLinkLoadRoom } = require("../../../src/corps/nodeEnergy");
+    // controller drained (free 400): the relay is ready, so stage toward it...
+    expect(coreLinkLoadRoom(0, 800, 400)).to.equal(400);
+    expect(coreLinkLoadRoom(150, 800, 400)).to.equal(250);
+    // ...but never past the income reserve, so income headroom always remains.
+    expect(coreLinkLoadRoom(0, 800, 800)).to.equal(600);
+    expect(coreLinkLoadRoom(0, 800, 700)).to.equal(600);
   });
 
   it("infraSpawnLoad: a link-fed depot prices the feeder at the 1-tile leg (~1/6th)", () => {

@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import {
   recordLinkFire,
+  recordCoreLevel,
   linkLedger,
   resetLinkMeter,
   LINK_LOSS_RATIO
@@ -61,5 +62,50 @@ describe("LinkMeter (link-throughput instrument)", () => {
     recordLinkFire("W1N1", "hub", 0, 100);
     recordLinkFire("W1N1", "hub", -5, 100);
     expect(linkLedger(200)).to.deep.equal([]);
+  });
+
+  /**
+   * The pinned-remote diagnostic (incident t72548874): the two-snapshot read
+   * could not tell drain-limited congestion (core FULL, source volleys clamped)
+   * from input-limited (core EMPTY, hub just gets small fires). These stamps do.
+   */
+  it("hub-volley: avg per hub fire and the share the core clamped", () => {
+    // three hub fires: 800 (unclamped), 300 (clamped: link held 800), 100 (unclamped)
+    recordLinkFire("W1N1", "hub", 800, 100, 800);
+    recordLinkFire("W1N1", "hub", 300, 100, 800); // core had only 300 free
+    recordLinkFire("W1N1", "hub", 100, 100, 100);
+    const [row] = linkLedger(200);
+    expect(row.hubVolleyAvg, "1200 moved / 3 fires").to.be.closeTo(400, 1e-9);
+    expect(row.hubClampShare, "1 of 3 fires clamped by a congested core").to.be.closeTo(1 / 3, 1e-9);
+  });
+
+  it("core-fill: per-tick sampling reports avg fill + empty/congested time-shares", () => {
+    // 4 samples: near-empty (50), mid (400), congested (750 → free 50), congested (800 → free 0)
+    recordCoreLevel("W1N1", 50, 800, 100);
+    recordCoreLevel("W1N1", 400, 800, 101);
+    recordCoreLevel("W1N1", 750, 800, 102);
+    recordCoreLevel("W1N1", 800, 800, 103);
+    const [row] = linkLedger(200);
+    expect(row.coreFillAvg, "(50+400+750+800)/4").to.be.closeTo(500, 1e-9);
+    expect(row.coreEmptyShare, "1 of 4 samples below 100").to.be.closeTo(0.25, 1e-9);
+    expect(row.coreCongestedShare, "2 of 4 samples with free < 100").to.be.closeTo(0.5, 1e-9);
+  });
+
+  it("core sampling alone opens a room's ledger row (no fire required)", () => {
+    recordCoreLevel("W3N3", 200, 800, 100);
+    const [row] = linkLedger(150);
+    expect(row.room).to.equal("W3N3");
+    expect(row.toHubRate).to.equal(0);
+    expect(row.coreFillAvg).to.be.closeTo(200, 1e-9);
+  });
+
+  it("diagnostic fields are zero (never NaN) before any sample or fire", () => {
+    recordLinkFire("W1N1", "controllerRelay", 200, 100); // controller only: no hub fires, no core samples
+    const [row] = linkLedger(200);
+    expect(row.hubVolleyAvg).to.equal(0);
+    expect(row.hubClampShare).to.equal(0);
+    expect(row.coreFillAvg).to.equal(0);
+    expect(row.coreEmptyShare).to.equal(0);
+    expect(row.coreCongestedShare).to.equal(0);
   });
 });

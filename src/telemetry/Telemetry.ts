@@ -892,7 +892,9 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 15, // v13 roadReceipts; v14 links; v15 corpCpu (spec 20 CPU ledger export)
+      // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
+      // shipped, so the merge advances to v16 to name the combined schema.
+      version: 16, // v14 links; v15 corpCpu (spec 20) + link core-fill/hub-clamp diagnostics; v16 both merged
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {

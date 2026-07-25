@@ -111,6 +111,16 @@ export interface CorpKind<C extends Corp = Corp> {
    */
   body(role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[];
   /**
+   * SPAWN placement (optional): the tile a newborn of `role` should emerge
+   * FACING, so the spawn's `directions` bias it out on the side toward its post
+   * (owner 2026-07-24: "spawn the feeder using the spawn directions right into
+   * the feeder spot"). Returns null/undefined for the default (all directions).
+   * A PARKED corp - the feeder, adjacent to the storage AND the core link and
+   * never moving - uses this to be born on-post with no walk-in dead time.
+   * Read generically by SpawningCorp.executeSpawn; other kinds ignore it.
+   */
+  spawnTarget?(role: string, spawn: StructureSpawn): RoomPosition | null | undefined;
+  /**
    * DEMAND policy (pure): decorate this kind's spawn demands with funding-group
    * semantics - which income UNIT they belong to (groupId) and whether that
    * unit is already underway (started). Absent or null = pass through: the

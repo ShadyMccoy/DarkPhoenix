@@ -3961,3 +3961,227 @@ call, outside the waste-ledger cycle.
 
 Cycle verdict: **NO-OP (green board) + MEASURED** (E2 44->2 self-healed, E4 WARN->ok,
 throttle self-balancing confirmed decelerating). No code change - correctly.
+
+### AUDIT 2026-07-24 (t72548874) — feeder pinned the core link full, stranding ~17.4k of remote income (owner-reported)
+
+Owner report: "the feeder is not draining the core link fast enough to allow the
+remote link to send energy home ... piles as backup on the remotes ... does it need
+to coordinate with the link firing down to the controller?" Root-caused from live
+link stores (game/room-objects, W43N23) — the decisive read the rate meters miss:
+
+| structure | t72548874 | t72548972 (+98t) | verdict |
+|---|---|---|---|
+| source link 4a83 (46,11) | **800/800** | **800/800** | FULL both reads — can't offload income |
+| core link (35,25) | 600/800 | 794/800 | held high by the feeder |
+| controller link (41,30) | 750/800 | 702/800 | ~full; upgrader burns ~2.5 e/t (3 WORK) |
+
+`sourceBuffers` = ~17.4k stranded across 7 mines (dbcd8d 4673, dbcbd5 3563, ...);
+`toHubRate` 23.8 e/t « the source link's ~40 e/t assigned flow (cd90+cd8e+cd8d+cedc)
+— income backing up BEFORE the core. STUCK, not transient (two reads, 98t apart).
+
+**Mechanism (not a symptom patch — the mechanism WAS the bug):** the feeder's
+link-relay staged storage->core up to `coreLinkLoadRoom = capacity −
+CORE_LINK_INCOME_RESERVE = 600`, IGNORING whether the controller relay could take
+it. The controller link was already sated (relay blocked: ctrlFree 50-98 < the
+100 fire threshold), so the staged 600 could not fire down — and it stole the
+income headroom the remote source links needed to land their volleys. A doctrine
+inversion: consumption-staging (controller relay) starved production (remote
+income). Segment 4 confirms the relay was over-served — `toControllerRate` 24.4 ≈
+`toHubRate` 23.8 (feeder pumping storage->core->controller into a full link the
+upgraders couldn't drain), not banked.
+
+**Fix (the owner's framing — "the feeder is the core's slave"):** `coreLinkLoadRoom`
+gains the controller link's free capacity; the feeder holds the core to only
+`min(capacity − reserve, controllerFree)`. Controller sated -> feeder stages
+~nothing, the whole core stays open for source volleys; upgraders drain the
+controller link -> the target rises and the feeder tops the relay from storage.
+The feeder does NOT need to be bigger (it is correctly 1-CARRY for a ~2.5 e/t
+burn; a bigger feeder would pin the core FASTER). Red-first: coreLinkLoadRoom
+cases where the old rule returned 600 and the coordinated rule returns 50/400/250
+(`controllerLinkNetwork.test.ts`). Regression gate: unit 1419 green; build green;
+flow-handoff fails IDENTICALLY pre/post (a pre-existing mockup miner-production
+failure in this container — acquitted by the attribution rule, its own incident).
+
+Predicted prod deltas (verify ~200t post-deploy): source link 4a83 off 800/800;
+`sourceBuffers` total falling from ~17.4k; `toHubRate` rising toward ~40; core
+link level tracking controllerFree (low while the controller is sated); storage
+banking the freed income. Cycle verdict: **FIXED (coordinated feeder shipped)** —
+pending prod verification.
+
+**VERIFIED — the fix landed as a major win + cascaded a 20x upgrader ramp
+(2026-07-24, capture t72550963, ~1569t post-deploy).** Live link stores W43N23:
+
+- **Core link 35,25: 600-794 → 0** (cd 5, cycling low). The feeder no longer
+  pins it — CONFIRMED, the headline mechanism.
+- **Relay over-supply stopped: `toControllerRate` 24.4 → 10.4 e/t** (fresh
+  window since the deploy reset; `directShare` 5% → 22% — the core no longer
+  jammed, so more 1-hop direct delivery). The feeder stopped pumping
+  storage→core→controller into a sated link.
+- **Banking restored: storageEnergy 43.2k → 81.1k (+24 e/t).** The income that
+  was stranded/hidden now comes home and banks (E4 slope +18/t — see below).
+- **THE causal link — upgrader `inflow` signal restored 2 → 115 e/t.** With the
+  controller link no longer saturated, the upgrader sizing reads the TRUE inflow
+  (it read 2 while the link sat at 750/800), so `targetCount` unlocked **1 → 6**
+  and the fleet ramped **3 → 60 WORK** (workUtil 0.997), staffing 3 of 6 wanted,
+  spawn util 0.71 (headroom to finish). rclProgress +15,993 (~10 e/t and rising
+  as the fleet grows).
+
+NOT fully confirmed / partial: source link 4a83 still 800/800 and `sourceBuffers`
+~flat at ~19k (not draining). Unpinning the core moved the bottleneck one hop
+UPSTREAM — the source-link's ~57 e/t ceiling (range 14) shared across 4 sources,
+and the core-drain hauler (cd90 edge ~30 e/t) can't keep the core empty enough
+for 4a83 to fire full volleys. That is a SEPARATE, non-regressing item (the DEP
+ledger line already values it: cd8e/cd8d/cedc save 13 tiles each @10 e/t).
+
+**E4 (idle capital, top ledger line, +18/t) is the TRANSIENT of this ramp, not a
+new leak:** the fix converted ~17k of stranded remote energy into visible
+bankable surplus, and the spend path (upgraders `targetCount` 1→6, storage-
+throttle's domain) is mid-scale-up to absorb it. Acting on E4 now would fight the
+in-flight ramp and re-patch a working mechanism (trap-list: "second patch on the
+same mechanism"). Falsifying capture set (scheduled): does storage DRAIN as
+staffing reaches 6/6 (transient, expected) or stay stuck (then throttle-strength
+is the real item)? Cycle verdict: **FIXED + VERIFIED** (core unpinned, banking
+restored, upgrader ramp unlocked via the inflow signal) — E4 transient watched,
+source-link throughput named as the next lever with data.
+
+**E4-transient CONFIRMED drained (2nd post-deploy capture t72551143, +180t).**
+Two clean post-deploy reads settle it: storage **81.1k → 76.2k, slope flipped
++18/t → −27.2/t** (the ramp caught up and now BURNS the surplus), and
+**rclProgress +58.1 e/t to the controller** (was ~10 pre-ramp) — the freed income
+is now GCL/RCL progress at ~58 e/t, the whole point of the cycle. Core link
+cycling low (0 → 150), feeder standingWork 60. So E4 was the ramp transient
+exactly as predicted, not a leak — NO E4 fix was correct. Residual next lever
+(unchanged): source link 4a83 still 800/800, `sourceBuffers` ~flat (+4.5/t) — the
+source-link ~57 e/t throughput ceiling / core-drain sizing, a separate
+non-regressing item for a later cycle. Cycle verdict: **FIXED + VERIFIED +
+E4-TRANSIENT CLOSED** — controller progress ~10 → 58 e/t, storage draining, no
+regression.
+
+### AUDIT 2026-07-24 (t72552205) — link core-fill instrument REFUTES drain-limited; the pinned-remote symptom self-resolved
+
+Owner follow-up: "can we drain the core at 40 e/t?" The pinned-remote symptom
+(4a83 800/800, remotes ~19k, toHub stuck ~21) had THREE fits the two-snapshot
+read couldn't separate — drain-limited (core full, fires clamped), input-limited
+(core empty, small fires), or cadence. Rather than guess, shipped a core-fill +
+hub-clamp instrument (LinkMeter v15, commit 6394aa1, observability-only) and read
+one 523t window:
+
+| field | value | reading |
+|---|---|---|
+| coreEmptyShare | 0.802 | core near-empty 80% of ticks |
+| coreCongestedShare | 0.025 | no room for a volley only 2.5% |
+| coreFillAvg | 62/800 | ~empty |
+| hubClampShare | 0.143 | 14% of source fires clamped |
+| hubVolleyAvg | 425 | healthy mid-size volleys |
+| toHub / toController | 11.4 / 34.0 | directShare 0.447 |
+
+**Hypothesis (A) drain-limited is REFUTED** — the core is empty 80% of ticks and
+congested 2.5%; it is NOT the constraint. The "faster bank-drain / smaller
+CORE_LINK_INCOME_RESERVE" fix I was leaning toward would have chased a ghost —
+the instrument paid for itself by killing it (spec-14 discipline: instrument the
+invisible cause, don't theorize twice). Live snapshot corroborates: 4a83 at 62,
+no longer pinned.
+
+**The symptom self-resolved via the upgrader ramp.** The feeder fix (087bf48)
+raised consumption (toController 10→34, 44% now cheap 1-hop direct), which pulls
+energy through the network; total link throughput toHub 11 + toController 34 =
+~45 e/t (already > the 40 target), core a clear pass-through. sourceBuffers now
+DRAINING: 19.9k → 15.8k → 14.8k over ~1000t (≈ −4/t), near the healthy per-source
+sawtooth (~2k/source between hauler visits). Storage 51.5k, still draining as the
+upgraders burn.
+
+**No core/link fix warranted** — attacking core-drain now would destabilize a
+resolved, self-correcting flow (trap-list: question the mechanism; don't nudge
+the reserve in isolation). If the residual ~15k is ever to clear FASTER, that is
+a remote-deposit-hauler capacity question, not a core/link one — and the DEP
+ledger line already prices the link-placement half. Cycle verdict:
+**INSTRUMENTED + FALSIFIED (drain-limited) + SELF-RESOLVED** (remotes draining
+−4/t, link throughput ~45 e/t, core not the constraint). The core-fill/hub-clamp
+stamps stay as permanent link-network observability.
+
+### AUDIT 2026-07-24 (t72553726) — E4 recurs; traced end-to-end to the spawn-capacity ceiling, NO fixable leak
+
+Ledger top line E4 idle capital: storage 60.4k vs reserve 22.65k (2.67x), slope
++5.9/t, feederActive FALSE. Traced the spend path across TWO captures (t72552205
+→ t72553726, 1521t) and the code, ruling out every fixable-bug hypothesis:
+
+- **The coupling**: feeder queue-starved (0 creeps, gate "demand", queue pos
+  7/7, spawn util 0.92) → controllerFeederActive false → the upgrader's
+  `bankedBehindFeeder` is NULL (UpgradingCorp:88-107) → `surplus=false` →
+  `inflow=2` (the anti-downgrade trickle) → targetCount 1 → fleet DECAYS 40→24
+  WORK → consumption drops → the 40k surplus banks. inflow read 2 in BOTH
+  captures (even at t72552205 with the feeder briefly up), so the fleet is
+  decaying off the trickle, not ramping.
+- **Ruled out — upgrader surplus-gating is CORRECT doctrine**: upgraders may
+  only scale to eat surplus a feeder is actually RELAYING to them; sizing them
+  to a bank they can't reach would starve them. Gating on feederActive is right.
+- **Ruled out — the infrastructure pierce is NOT broken** (SpawnScheduler:651,
+  681): infra demands pierce HOLDS but "never displace an actual buy". On a
+  saturated spawn with producers all affordable+buying, the feeder (value 95,
+  infra) correctly waits behind them — it oscillates (spawns in slack, waits
+  when full), it is not starved by a bug.
+- **Ruled out — churn/priority waste**: build mix balanced-productive (haulers
+  31%, upgraders 15%, reservers 14%, tenders 14%, miners 12%), X5 home churn
+  0%, P4 0.94x ceiling. The spawn is genuinely saturated on productive work.
+
+**Verdict: E4 is the spawn-capacity ceiling, CONFIRMED — not a leak.** The colony
+mines/hauls ~100 e/t home (57% of spawn) but can only build enough spend-path
+(feeder + upgraders) to consume ~16-24 at the controller, so the rest banks; the
+feeder-oscillation just makes the shortfall visible. Every seam in the chain is
+working as designed — same structural conclusion as t72541921
+("spawn-capacity-limited... needs RCL7/2nd spawn or expansion"). The two real
+levers are both outside the waste-ledger: (1) reach RCL7 for a 2nd spawn (1.33M
+energy out at ~16 e/t = slow, the ceiling is self-reinforcing); (2) the spec-26
+stage-5 storage↔controller MERGE, which DELETES the feeder relay entirely (one
+fewer spawn consumer AND no core→controller relay). Cycle verdict: **BLOCKER
+CONFIRMED WITH DATA + FIXABLE-BUG HYPOTHESES FALSIFIED** (pierce, sizing, gating,
+churn all cleared) — no code change, correctly. Owner call on the growth lever.
+
+### AUDIT 2026-07-24/25 (t72554460) — E4 coupling FIXED at the root: the feeder is the linchpin (owner directive)
+
+Owner reframed the t72553726 "structural ceiling": "the feeder is so crucial —
+unless we have basically no energy we always want it; everything else is
+optimized to rely on it. Miners are more important only when we have NO energy,
+which is rare." That is the fix, not a ceiling — the spend path degrades because
+the LINCHPIN is optional. Made the first feeder outrank the miner band when
+energy is present:
+
+- `ControllerFeederCorp.getSpawnDemand` first-feeder value: **150** when banked >=
+  FEEDER_INCOME_FIRST_FLOOR (2000), else **90** (drained → income first). Above
+  the miner band (100 + efficiency*0.5 = 125-147; efficiency=net/rate*100 < 100).
+  A false first cut used 101 — below the miner band, nearly inert; the owner's
+  "miners more important than feeders only with NO energy" caught the magnitude.
+  NON-blocking, so topping the ladder cannot wall/spiral the bank.
+- Plus spawn-onto-post placement: `CorpKind.spawnTarget` hook +
+  `spawnDirectionsToward` → the feeder is born facing the core link (no walk-in).
+
+**Prod watch (deployed t72554141/t72554260, read t72554460, ~319t):** every
+rollback trigger CLEAR — X5 churn **0** (no death spiral), fleet 33→30 (−9% <
+20%), miners 7/7 sources fully staffed (8→7 = converge to plan, not starved),
+defense raidGuard 2→2, util 0.968 (not pinned). And the causal chain fired:
+feeder **0→1 (staffed, feederActive true)** → upgrader `inflow` **2→33** (surplus
+signal restored via bankedBehindFeeder) → `targetCount` **1→2** → storage slope
+**+5.9 → −2.0/t (draining)** → **E4 FAIL→WARN**. The upgrade WORK dip (24→15) is
+the resize transient (5 decayed small upgraders → fewer bigger ones toward
+targetCount 2), not a loss — inflow 2→33 is the proof the mechanism now works.
+
+Cycle verdict: **FIXED + VERIFIED (no rollback)** — the E4 idle-capital coupling
+is broken at the root; the feeder is reliably up and the upgraders now see the
+surplus. Residual watch: confirm the upgrader ramp completes (standingWork →
+~targetCount) and storage keeps draining toward reserve (self-balancing windfall
+draw). Gate note: unit 1432 green + build; grid/trio could not run in-container —
+prod watch stood in, clean.
+
+**CONFIRMED (t72555021, +561t) — the ramp completed, self-balancing draw holds.**
+upgrade standingWork **15→38** (climbed past the 24 baseline, not stalled),
+storage still draining **−3.8/t** (E4 36.3k→34.2k above reserve, falling), feeder
+reliably staffed (1, feederActive true, no oscillation). The `inflow` 33→20 taper
+is the windfall draw self-balancing (bank nears reserve → surplus draw eases →
+consumption tapers to match) — intended, not a stall. Defense NON-issue: raidGuard
+2→1 is lifecycle, not feeder starvation — the W44N23 debt was PAID DOWN
+120870→10 (guard completed + recycled) and the corp re-fields for W42N22 (94k),
+its guard demand alone at the front of the queue (util 0.969, q1), unobstructed by
+the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
+Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
+done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
+converted from a "structural ceiling" into a drained, self-balancing spend path.
