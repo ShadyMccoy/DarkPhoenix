@@ -251,6 +251,34 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(e4.value).to.be.greaterThan(500_000);
   });
 
+  it("E4 measures against the DYNAMIC warchest when the capture carries it (no false idle AT target)", () => {
+    // A bank sitting AT its income-scaled reserve is NOT idle, even far above the
+    // static base floor (measured t72555188: bank 54.8k == dynamic reserve, but
+    // the base-floor read called it 32k idle - a false WARN). Clone a real
+    // fixture (full shape) and override only the bank + the dynamic reserve.
+    const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+    const baseCap = clone(cap72404213);
+    baseCap.data.core.rooms[0].storageEnergy = 54900;
+    const roomName = baseCap.data.core.rooms[0].name;
+
+    const withDyn = clone(cap72411542);
+    withDyn.data.core.rooms[0].name = roomName;
+    withDyn.data.core.rooms[0].storageEnergy = 54800;
+    withDyn.data.core.warchestTarget = 54000; // bank sits ~AT the dynamic reserve
+    const e4dyn = computeLedger(withDyn, baseCap).find(r => r.id === "E4")!;
+    expect(e4dyn.verdict, "at the dynamic reserve -> not idle").to.equal("ok");
+    expect(e4dyn.detail).to.contain("(dynamic)");
+
+    // Same bank, NO dynamic reserve exported (old capture) -> base floor -> flagged.
+    const withBase = clone(cap72411542);
+    withBase.data.core.rooms[0].name = roomName;
+    withBase.data.core.rooms[0].storageEnergy = 54800;
+    delete withBase.data.core.warchestTarget;
+    const e4base = computeLedger(withBase, baseCap).find(r => r.id === "E4")!;
+    expect(e4base.verdict, "base floor still flags the excess").to.not.equal("ok");
+    expect(e4base.detail).to.contain("(base floor)");
+  });
+
   it("E2 catches stranded haulers serving routes absent from the plan", () => {
     const e2 = row("E2");
     expect(e2.value).to.be.greaterThan(20); // measured 48 parts across 3 scavenge corps at t72411542

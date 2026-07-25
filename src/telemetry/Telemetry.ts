@@ -177,6 +177,16 @@ export interface CoreTelemetry {
     activeCorps: number;
   };
   /**
+   * The DYNAMIC liquidity reserve target (Memory.warchestTarget, income-scaled
+   * per spec 129) - the number the economy actually treats as "the warchest".
+   * Absent when unset (cold start). Exported so the waste ledger's E4 (idle
+   * capital) compares the bank against the reserve the DECISIONS use, not the
+   * static BASE_RESERVE floor it fell back to when this was invisible (measured
+   * t72555188: bank 54.8k sat AT the dynamic reserve but E4 read it as 32k idle
+   * above the 22.65k base - a false WARN).
+   */
+  warchestTarget?: number;
+  /**
    * Creep census. `total` is the ground truth (every creep in the game);
    * `tracked` is the sum of the per-role buckets (creeps claimed by a live
    * corp); `untracked = total - tracked` (orphans, recyclers, newborns not yet
@@ -894,7 +904,7 @@ export class Telemetry {
     const telemetry: CoreTelemetry = {
       // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
       // shipped, so the merge advances to v16 to name the combined schema.
-      version: 16, // v14 links; v15 corpCpu (spec 20) + link core-fill/hub-clamp diagnostics; v16 both merged
+      version: 17, // v16 merged corpCpu + link diagnostics; v17 warchestTarget (dynamic reserve for E4)
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -913,6 +923,7 @@ export class Telemetry {
         totalCorps: stats.totalCorps,
         activeCorps: stats.activeCorps
       },
+      ...(Memory.warchestTarget !== undefined ? { warchestTarget: Memory.warchestTarget } : {}),
       creeps,
       bodyParts,
       spawns,

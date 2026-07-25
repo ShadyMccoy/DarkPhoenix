@@ -320,18 +320,25 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   if (room) {
     const broom = (bcore.rooms ?? []).find((r: any) => r.name === room.name);
     const slope = broom ? (room.storageEnergy - broom.storageEnergy) / dt : 0;
-    // The reserve is now income-scaled (Memory.warchestTarget); telemetry
-    // fixtures don't carry it, so this diagnostic uses the hard floor as a
-    // conservative threshold - it flags idle capital ABOVE the minimum
-    // reserve, which is the waste signal regardless of the dynamic top.
-    const excess = room.storageEnergy - BASE_RESERVE;
+    // Compare the bank against the reserve the DECISIONS use: the dynamic
+    // income-scaled warchest (core.warchestTarget, exported v17) when the
+    // capture carries it, else the static BASE_RESERVE floor (older captures /
+    // cold start). Without the dynamic reserve E4 read a bank sitting AT its
+    // target as "idle" - a false WARN (t72555188: bank 54.8k == dynamic reserve
+    // but 32k "above" the 22.65k base). `idleThreshold` still requires a full
+    // reserve's worth of TRUE excess before FAIL, so the signal stays honest.
+    const reserve = typeof core.warchestTarget === "number" ? core.warchestTarget : BASE_RESERVE;
+    const excess = room.storageEnergy - reserve;
+    const idleThreshold = BASE_RESERVE; // a reserve's worth of genuine excess above the (dynamic) target
     rows.push({
       id: "E4",
       name: "idle capital",
       value: excess,
-      unit: "energy above base reserve",
-      verdict: excess > BASE_RESERVE && slope >= 0 ? "FAIL" : excess > BASE_RESERVE ? "WARN" : "ok",
-      detail: `storage ${room.storageEnergy} vs base reserve ${BASE_RESERVE}, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
+      unit: "energy above the reserve target",
+      verdict: excess > idleThreshold && slope >= 0 ? "FAIL" : excess > idleThreshold ? "WARN" : "ok",
+      detail: `storage ${room.storageEnergy} vs reserve ${reserve}${
+        typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
+      }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
     });
   }
 
