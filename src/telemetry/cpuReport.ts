@@ -39,6 +39,27 @@ export interface CorpCpuLedger {
   wholeTick?: number;
 }
 
+/**
+ * Make the infra buckets DISJOINT from `corpsTotal` for the reconciliation
+ * `wholeTick = corps + Σinfra + unnamed`.
+ *
+ * The `commissions` bulkhead wraps `runCommissionedCorps`, so its measured time
+ * INCLUDES every corp's execution — the same CPU the meter reports as
+ * `corpsTotal`. If left in, corps is counted twice (once as `corps`, once inside
+ * `infra.commissions`) and the residual goes negative on lean ticks. This
+ * returns a new infra map with `commissions` reduced by `corpsTotal` (floored at
+ * 0); what remains is the framework overhead (propose / materialize / serialize).
+ * Buckets that don't wrap metered corps (bootstrap/spawning corps run corps too
+ * but are NOT in `corpsTotal`) are untouched.
+ */
+export function disjointInfra(infra: { [bucket: string]: number }, corpsTotal: number): { [bucket: string]: number } {
+  const out: { [bucket: string]: number } = { ...infra };
+  if (out.commissions !== undefined) {
+    out.commissions = Number(Math.max(0, out.commissions - corpsTotal).toFixed(3));
+  }
+  return out;
+}
+
 /** Live CPU context the console command adds (not in the persisted ledger). */
 export interface CpuReportContext {
   /** Game.cpu.bucket at report time. */

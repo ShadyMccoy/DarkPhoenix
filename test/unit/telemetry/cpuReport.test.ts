@@ -1,5 +1,41 @@
 import { expect } from "chai";
-import { CorpCpuLedger, formatCpuReport } from "../../../src/telemetry/cpuReport";
+import { CorpCpuLedger, disjointInfra, formatCpuReport } from "../../../src/telemetry/cpuReport";
+
+/**
+ * The "commissions" bulkhead wraps corp execution, so its raw time contains
+ * corpsTotal. disjointInfra subtracts it so corps and infra don't overlap and
+ * the reconciliation whole = corps + Σinfra + unnamed actually holds (before
+ * this, the residual went negative on lean ticks and the parts summed above the
+ * whole - the bug that surfaced at ~19 CPU/tick).
+ */
+describe("disjointInfra (no double-count of corps inside commissions)", () => {
+  it("subtracts corpsTotal from the commissions bucket, flooring at zero", () => {
+    const infra = { commissions: 8.46, telemetry: 5.46, persist: 1.56 };
+    const out = disjointInfra(infra, 7.9);
+    expect(out.commissions).to.equal(0.56);
+    expect(out.telemetry).to.equal(5.46); // other buckets untouched
+    expect(out.persist).to.equal(1.56);
+  });
+
+  it("floors at zero when corpsTotal exceeds the raw commissions time (meter noise)", () => {
+    const out = disjointInfra({ commissions: 7.5 }, 7.9);
+    expect(out.commissions).to.equal(0);
+  });
+
+  it("is a no-op when there is no commissions bucket", () => {
+    const out = disjointInfra({ telemetry: 5.0 }, 3.0);
+    expect(out).to.deep.equal({ telemetry: 5.0 });
+  });
+
+  it("restores a non-negative reconciliation on a lean tick", () => {
+    // The real numbers: whole 19.09, corps 7.90, raw infra sum 15.89 (of which
+    // commissions 8.46). Disjointed, corps + infra no longer exceeds whole.
+    const disjoint = disjointInfra({ commissions: 8.46, telemetry: 5.46, persist: 1.56, other: 0.41 }, 7.9);
+    const infraSum = Object.values(disjoint).reduce((s, v) => s + v, 0);
+    const unnamed = 19.09 - 7.9 - infraSum;
+    expect(unnamed).to.be.greaterThan(0); // was negative before the fix
+  });
+});
 
 /**
  * The CPU report is the human-readable surface over the `Memory.corpCpu`
