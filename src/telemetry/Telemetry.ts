@@ -951,7 +951,14 @@ export class Telemetry {
         return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
       })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
-      ...(Memory.corpCpu ? { corpCpu: Memory.corpCpu } : {}),
+      // corpCpu ledger on a 10-tick ROTATION: the live `global.cpuReport()`
+      // reads Memory.corpCpu directly every tick, but the CAPTURED segment is
+      // what gets polled into committed fixtures - the ledger (byKind + infra +
+      // top-12) is the single largest add-on to core, so embedding it every
+      // tick 10x's the trailing-fixture footprint for a datum audit:report only
+      // reads one recent copy of. One tick in ten is enough for the offline
+      // report to surface a fresh ledger; the console command loses nothing.
+      ...(Memory.corpCpu && Game.time % 10 === 0 ? { corpCpu: Memory.corpCpu } : {}),
       ...(() => {
         const links = linkLedger(Game.time);
         return links.length > 0 ? { links } : {};

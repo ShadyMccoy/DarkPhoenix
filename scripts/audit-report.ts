@@ -212,10 +212,20 @@ function main(): void {
   // CPU breakdown (v15): the spec-20 ledger — where that whole-tick CPU
   // actually went (corps by kind, named infra buckets, the unnamed residual,
   // worst offenders). Same formatter the live global.cpuReport() prints.
-  if (core.corpCpu) {
-    for (const line of formatCpuReport(core.corpCpu, { bucket: core.cpu?.bucket, limit: core.cpu?.limit })) {
+  //
+  // The ledger rides a 10-tick rotation in the captured segment (Telemetry.ts),
+  // so the LATEST capture usually won't carry it — scan back for the freshest
+  // one that does and note how stale it is, rather than dropping the block.
+  const withLedger = [...caps].reverse().find(c => c.data.core?.corpCpu);
+  if (withLedger) {
+    const led = withLedger.data.core.corpCpu;
+    const staleness = cur.tick - withLedger.tick;
+    if (staleness > 0) console.log(`  (CPU ledger from tick ${withLedger.tick}, ${staleness}t back — rotation)`);
+    for (const line of formatCpuReport(led, { bucket: withLedger.data.core.cpu?.bucket, limit: withLedger.data.core.cpu?.limit })) {
       console.log(`  ${line}`);
     }
+  } else {
+    console.log(`  (no CPU ledger in any trailing capture — none landed on a %10 tick yet)`);
   }
 }
 
