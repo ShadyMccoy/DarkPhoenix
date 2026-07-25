@@ -271,53 +271,58 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Snapshot budget-vs-actual variance so outlier corps (those straying furthest
   // below their commissioned throughput) surface in Memory.corpVariance.
   if (Game.time % 25 === 0) {
-    snapshotCorpVariance(corps, Game.time);
+    bulkhead("corp-variance", () => snapshotCorpVariance(corps, Game.time));
   }
 
   // ===========================================================================
   // INCREMENTAL ANALYSIS - Continue if in progress (runs across multiple ticks)
   // ===========================================================================
 
-  // Continue incremental analysis if one is in progress
-  // This must happen OUTSIDE the planning phase check to spread across ticks
-  if (isAnalysisInProgress()) {
-    runIncrementalAnalysis(colony);
-  }
-
-  // Fine-grained spawn placement: sweep the top nodes' territories for the best
-  // spawn tile, spread across ticks under a CPU budget (like the analysis above).
-  // Kick a fresh sweep on the planning cadence once node ROI is available; the
-  // results land in Memory.spawnPlacements for expansion/build planning to use.
-  if (isSpawnPlacementInProgress()) {
-    runSpawnPlacementStep();
-  } else if (shouldRunPlanning(Game.time) && !isAnalysisInProgress()) {
-    const cache = getAnalysisCache();
-    if (cache && colony.getNodes().length > 0) {
-      startSpawnPlacement(colony.getNodes(), cache.result.territories);
+  // Terrain analysis + spawn placement + respawn detection: heavy, spread across
+  // ticks under a CPU budget, previously all unnamed. One bucket so the ledger
+  // attributes it (spec 20: name the residual) and it survives its own throws.
+  bulkhead("analysis", () => {
+    // Continue incremental analysis if one is in progress
+    // This must happen OUTSIDE the planning phase check to spread across ticks
+    if (isAnalysisInProgress()) {
+      runIncrementalAnalysis(colony!);
     }
-  }
 
-  // Fresh respawn detection: if no nodes exist and no analysis in progress,
-  // start terrain analysis immediately (don't wait for planning interval)
-  const hasNoNodes = colony.getNodes().length === 0 && (!Memory.nodes || Object.keys(Memory.nodes).length === 0);
-  if (hasNoNodes && !isAnalysisInProgress()) {
-    console.log(`[Respawn] No nodes in memory - starting terrain analysis immediately`);
-    runIncrementalAnalysis(colony);
-  }
+    // Fine-grained spawn placement: sweep the top nodes' territories for the best
+    // spawn tile, spread across ticks under a CPU budget (like the analysis above).
+    // Kick a fresh sweep on the planning cadence once node ROI is available; the
+    // results land in Memory.spawnPlacements for expansion/build planning to use.
+    if (isSpawnPlacementInProgress()) {
+      runSpawnPlacementStep();
+    } else if (shouldRunPlanning(Game.time) && !isAnalysisInProgress()) {
+      const cache = getAnalysisCache();
+      if (cache && colony!.getNodes().length > 0) {
+        startSpawnPlacement(colony!.getNodes(), cache.result.territories);
+      }
+    }
 
-  // After a GLOBAL RESET (frequent on a live server, never in a sim) the module
-  // caches are wiped and only a territory-LESS visualization cache is restored,
-  // which leaves refreshNodeResourcesFromCache below with no territories to claim
-  // newly scouted sources from - so remote mining silently stops. If we have nodes
-  // but the analysis cache has no real territories, force a fresh terrain pass to
-  // rebuild them (it also re-claims resources from current vision/intel).
-  const analysisCache = getAnalysisCache();
-  const haveTerritories = !!analysisCache && analysisCache.result.territories.size > 0;
-  if (!hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
-    console.log(`[Respawn] Territory cache empty after reset - rebuilding for resource refresh`);
-    resetAnalysis();
-    runIncrementalAnalysis(colony);
-  }
+    // Fresh respawn detection: if no nodes exist and no analysis in progress,
+    // start terrain analysis immediately (don't wait for planning interval)
+    const hasNoNodes = colony!.getNodes().length === 0 && (!Memory.nodes || Object.keys(Memory.nodes).length === 0);
+    if (hasNoNodes && !isAnalysisInProgress()) {
+      console.log(`[Respawn] No nodes in memory - starting terrain analysis immediately`);
+      runIncrementalAnalysis(colony!);
+    }
+
+    // After a GLOBAL RESET (frequent on a live server, never in a sim) the module
+    // caches are wiped and only a territory-LESS visualization cache is restored,
+    // which leaves refreshNodeResourcesFromCache below with no territories to claim
+    // newly scouted sources from - so remote mining silently stops. If we have nodes
+    // but the analysis cache has no real territories, force a fresh terrain pass to
+    // rebuild them (it also re-claims resources from current vision/intel).
+    const analysisCache = getAnalysisCache();
+    const haveTerritories = !!analysisCache && analysisCache.result.territories.size > 0;
+    if (!hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
+      console.log(`[Respawn] Territory cache empty after reset - rebuilding for resource refresh`);
+      resetAnalysis();
+      runIncrementalAnalysis(colony!);
+    }
+  });
 
   // Keep node resources current with vision/intel between the (rare) full terrain
   // passes, so a source in a room only just scouted gets claimed by its node and
@@ -325,7 +330,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // ticks, far too coarse for picking up newly discovered sources. Interval-gated
   // and cheap; a no-op until the first terrain pass has been cached.
   if (!isAnalysisInProgress()) {
-    refreshNodeResourcesFromCache(colony);
+    bulkhead("resource-refresh", () => refreshNodeResourcesFromCache(colony!));
   }
 
   // ===========================================================================
@@ -353,25 +358,30 @@ export const loop = ErrorMapper.wrapLoop(() => {
     colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % gov.solveInterval === 0;
 
   if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
+    // The planning + flow-solve block: the periodic re-solve is the tick's
+    // heaviest work when it runs, and it was entirely unnamed. Bucket it so the
+    // ledger shows the solve's cost (spec 20) and one bad solve can't abort the
+    // rest of the tick (persist/telemetry still run).
+    bulkhead("planning", () => {
     console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
 
     // --- SURVEY: Analyze territory and create corps ---
     // Start incremental multi-room spatial analysis if no nodes exist
-    if (colony.getNodes().length === 0 && !isAnalysisInProgress()) {
-      runIncrementalAnalysis(colony);
+    if (colony!.getNodes().length === 0 && !isAnalysisInProgress()) {
+      runIncrementalAnalysis(colony!);
     }
 
     // Run the colony economic coordination (surveying, stats)
-    colony.run(Game.time, corps);
+    colony!.run(Game.time, corps);
 
     // Expansion campaign (spec 06): open/advance/close Memory.expansion on the
     // planning cadence. When the target room is claimed this places the
     // founding spawn site; the flow solver's NEW_SPAWN_SITE_VALUE sink does
     // the actual funneling - no scripted campaign beyond this state machine.
-    updateExpansionCampaign(colony.getNodes());
+    updateExpansionCampaign(colony!.getNodes());
 
     // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
-    const planningNodes = colony.getNodes();
+    const planningNodes = colony!.getNodes();
     if (planningNodes.length > 0) {
       // Rebuild navigator and economy from current Memory state
       const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
@@ -416,6 +426,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
     setLastPlanningTick(Game.time);
     console.log(`[Planning] Complete`);
+    });
   }
 
   // (The shadow EconomyPlanner overlay that used to re-size haulers here is
@@ -441,14 +452,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (!gov.skipTelemetry) bulkhead("telemetry", () => updateTelemetry(colony!, corps));
   bulkhead("flight-recorder", () => runFlightRecorder());
 
-  // Restore visualization cache from memory if needed (avoids expensive analysis)
-  restoreVisualizationCache(colony);
+  // Visualization: cache restore + node/spatial overlays, every tick and
+  // previously unnamed. One bucket so the ledger shows what drawing costs.
+  bulkhead("visuals", () => {
+    // Restore visualization cache from memory if needed (avoids expensive analysis)
+    restoreVisualizationCache(colony!);
 
-  // Render node visualization
-  renderNodeVisuals(colony);
+    // Render node visualization
+    renderNodeVisuals(colony!);
 
-  // Render spatial visualization (territories, edges) for rooms with visual* flags
-  renderSpatialVisuals(getAnalysisCache());
+    // Render spatial visualization (territories, edges) for rooms with visual* flags
+    renderSpatialVisuals(getAnalysisCache());
+  });
 
   // Log stats periodically
   if (Game.time % 100 === 0) {
