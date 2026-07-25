@@ -296,6 +296,14 @@ export interface CoreTelemetry {
     cpu: number;
     byCorp: { [family: string]: { calls: number; cpu: number } };
   };
+  /**
+   * The per-corp CPU ledger snapshot (v15, spec 20): Memory.corpCpu verbatim —
+   * whole-tick CPU, corp total, per-kind breakdown, named infra buckets, and
+   * the worst per-corp offenders by ~100-tick EMA. The `audit:report`'s CPU
+   * section and the external dashboard render the same reconciliation the live
+   * `global.cpuReport()` prints. Exported so CPU spend is auditable offline.
+   */
+  corpCpu?: import("./cpuReport").CorpCpuLedger;
   /** Per-room link throughput (v14, spec-26 instrument): ACTUAL e/t carried -
    * to the hub vs DELIVERED to the controller (the receipt), the 1-hop direct
    * share, and the 3% tax paid. Read-only measurement ahead of the planner. */
@@ -884,7 +892,9 @@ export class Telemetry {
     }
 
     const telemetry: CoreTelemetry = {
-      version: 15, // v13 roadReceipts; v14 links; v15 link core-fill + hub-clamp diagnostics
+      // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
+      // shipped, so the merge advances to v16 to name the combined schema.
+      version: 16, // v14 links; v15 corpCpu (spec 20) + link core-fill/hub-clamp diagnostics; v16 both merged
       tick: Game.time,
       shard: Game.shard?.name || "shard0",
       cpu: {
@@ -930,6 +940,7 @@ export class Telemetry {
         return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
       })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
+      ...(Memory.corpCpu ? { corpCpu: Memory.corpCpu } : {}),
       ...(() => {
         const links = linkLedger(Game.time);
         return links.length > 0 ? { links } : {};

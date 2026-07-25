@@ -20,6 +20,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { formatCpuReport } from "../src/telemetry/cpuReport";
 
 const FIXTURES = path.join(__dirname, "..", "test", "fixtures", "telemetry");
 const TRAILING_WINDOWS = 5;
@@ -208,6 +209,14 @@ function main(): void {
     `PARTS  ${core.bodyParts?.total ?? "-"} (${partStr})  ${partsRate.latest}/t ${partsRate.band}`
   );
   console.log(`CPU    ${fmt(core.cpu?.used, 1)}/${core.cpu?.limit ?? "-"}  bucket ${((core.cpu?.bucket ?? 0) / 1000).toFixed(1)}k`);
+  // CPU breakdown (v15): the spec-20 ledger — where that whole-tick CPU
+  // actually went (corps by kind, named infra buckets, the unnamed residual,
+  // worst offenders). Same formatter the live global.cpuReport() prints.
+  if (core.corpCpu) {
+    for (const line of formatCpuReport(core.corpCpu, { bucket: core.cpu?.bucket, limit: core.cpu?.limit })) {
+      console.log(`  ${line}`);
+    }
+  }
 }
 
 main();

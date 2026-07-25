@@ -77,6 +77,7 @@ import {
 } from "./orchestration";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
+import { formatCpuReport } from "./telemetry/cpuReport";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { runWatchdogs } from "./telemetry/watchdogs";
@@ -109,6 +110,7 @@ declare global {
       forceBootstrap: () => void;
       sourceEfficiency: () => void;
       roadHeatmap: (roomName?: string) => void;
+      cpuReport: () => void;
     }
   }
 }
@@ -1080,6 +1082,19 @@ global.clearSpawnQueue = () => {
  * Call from console: `global.roadHeatmap()` (all owned rooms) or
  * `global.roadHeatmap("W1N1")`.
  */
+/**
+ * Show where CPU is actually being spent this tick: the spec-20 reconciliation
+ * (whole-tick = corps + named infra + unnamed residual), a per-kind and
+ * per-bucket breakdown, and the worst per-corp offenders by ~100-tick EMA.
+ * Reads the `Memory.corpCpu` ledger the host publishes every tick, so the
+ * numbers are last-tick-accurate. Call from console: `global.cpuReport()`.
+ */
+global.cpuReport = () => {
+  const bucket = typeof Game.cpu?.bucket === "number" ? Game.cpu.bucket : undefined;
+  const limit = typeof Game.cpu?.limit === "number" ? Game.cpu.limit : undefined;
+  for (const line of formatCpuReport(Memory.corpCpu, { bucket, limit })) console.log(line);
+};
+
 global.roadHeatmap = (roomName?: string) => {
   const names = roomName
     ? [roomName]
