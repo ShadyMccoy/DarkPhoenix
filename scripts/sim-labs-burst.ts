@@ -226,6 +226,13 @@ function run(args: Args): void {
   // free lab. Park everything else to the terminal to free labs (unbounded intents).
   const burstTick = (): void => {
     for (const c of tree) deficit[c] += R;
+    // bank any finished target first (so a single-reaction target doesn't clog)
+    for (const P of labs) {
+      if (P.mineral === target && P.amount > 0) {
+        banked[target] = (banked[target] ?? 0) + P.amount; producedTarget += P.amount;
+        P.mineral = null; P.amount = 0; tenderIntents++;
+      }
+    }
     let camp: string | null = null;
     let best = -Infinity;
     for (const c of tree) if (suppliable(c) && deficit[c] > best) { best = deficit[c]; camp = c; }
