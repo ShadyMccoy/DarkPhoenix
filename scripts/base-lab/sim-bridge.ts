@@ -17,7 +17,7 @@
  */
 import { SIZE, packTile, isWall, type Pt } from "./geometry";
 import { BasePlan, RCL8_EXTENSIONS, defaultFixture, loadFixture, planBase } from "./plan";
-import { Layout, Pos, Scenario, simulate } from "../extension-sim/engine";
+import { Layout, Pos, Scenario, TenderPolicy, simulate } from "../extension-sim/engine";
 
 const unpack = (tile: number): Pos => ({ x: tile % SIZE, y: Math.floor(tile / SIZE) });
 
@@ -83,7 +83,7 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute", "--policy"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
@@ -92,6 +92,8 @@ function main(): void {
   const move = Number(flagVal("--move", "25"));
   const roadsMode = flagVal("--roads", "ducts"); // "ducts" (pave the filler lanes) | "none"
   const commuteSlack = Number(flagVal("--commute", "1.5"));
+  const policy = flagVal("--policy", "greedy-nearest") as TenderPolicy; // greedy-nearest | outbound-sweep | outbound-ration
+  const tenders = Number(flagVal("--tenders", "1"));
   const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
   const biases = flagVal("--bias", "0,1,2,3")
     .split(",")
@@ -101,7 +103,7 @@ function main(): void {
   const input = loadFixture(fixture);
 
   console.log(
-    `\n=== sim-bridge: ${input.name} @ RCL${rcl}, ${carry}C${move}M x1 tender, roads:${roadsMode}, ${ticks}t ===\n` +
+    `\n=== sim-bridge: ${input.name} @ RCL${rcl}, ${carry}C${move}M x1 tender, ${policy}, roads:${roadsMode}, ${ticks}t ===\n` +
       `sweeping --dead-bias; PLACEMENT gauges (base-lab) next to REFILL (sim)\n`
   );
   console.log(
@@ -117,8 +119,8 @@ function main(): void {
       layout,
       rcl,
       drawOrder: "near-reload-first",
-      tenderPolicy: "greedy-nearest",
-      tenderCount: 1,
+      tenderPolicy: policy,
+      tenderCount: tenders,
       tenderBody: { carry, move },
       ticks
     };

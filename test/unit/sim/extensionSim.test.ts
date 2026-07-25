@@ -273,6 +273,22 @@ describe("extension-sim walls (real-terrain movement)", () => {
     );
   });
 
+  it("outbound-sweep keeps a saturated spawn fed (policy works, no deadlock)", () => {
+    // The non-greedy sweep heads for the outermost hole, dribbling en route.
+    // Sanity pin: it keeps a comfortable RCL6 spawn near-fully utilized (a
+    // deadlock or a stuck cursor would tank utilization).
+    const m = simulate({
+      layout: organicLayout(40, 1),
+      rcl: 6,
+      drawOrder: "near-reload-first",
+      tenderPolicy: "outbound-sweep",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 3000
+    });
+    expect(m.utilization).to.be.greaterThan(0.9);
+  });
+
   it("a wall can seal a target: an extension fully walled off is unreachable", () => {
     // Box the extension at (25,15) in walls on all 8 sides -> stepToward can
     // never get within range 1 (every approach tile is a wall).

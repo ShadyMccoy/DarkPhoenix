@@ -120,8 +120,20 @@ export interface Layout {
  * ahead of a tender walking the circuit. */
 export type DrawOrder = "engine-default" | "near-reload-first" | "far-first" | "circuit";
 
-/** Tender micro policy. Both transfer opportunistically every tick. */
-export type TenderPolicy = "greedy-nearest" | "lane-patrol";
+/** Tender micro policy. All transfer opportunistically every tick.
+ * - greedy-nearest: move to the nearest hole (fill the interior first).
+ * - lane-patrol: chase the drained frontier along a fixed circuit.
+ * - outbound-sweep: head for the OUTERMOST hole, dribbling to whatever is
+ *   adjacent en route - the load lightens as it goes (accelerating toward the
+ *   outskirts) and the empty return is free. Reaches the far tiles a greedy
+ *   shuttle starves.
+ * - outbound-ration: outbound-sweep but cap the per-tile deposit (RATION), so
+ *   the tender spreads a thin coat over many extensions instead of topping the
+ *   first few - reserves carry to reach the frontier with energy left. */
+export type TenderPolicy = "greedy-nearest" | "lane-patrol" | "outbound-sweep" | "outbound-ration";
+
+/** outbound-ration deposit cap per extension per tick (one CARRY-part's worth). */
+export const TENDER_RATION = 50;
 
 export interface Scenario {
   layout: Layout;
@@ -340,7 +352,10 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
       .filter(e => chebyshev(e.pos, t.pos) <= 1)
       .sort((a, b) => a.energy - b.energy)[0];
     if (adj) {
-      const amount = Math.min(t.carried, adj.cap - adj.energy);
+      // ration policy spreads a thin coat (reserve carry for the frontier);
+      // the others top the hole in one go.
+      const ration = policy === "outbound-ration" ? TENDER_RATION : Infinity;
+      const amount = Math.min(t.carried, adj.cap - adj.energy, ration);
       adj.energy += amount;
       t.carried -= amount;
       t.transferTicks += 1;
@@ -374,6 +389,18 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
     );
     for (const cand of sorted) {
       if (chebyshev(cand.pos, t.pos) <= 1) break; // already in range; no move needed
+      if (stepToward(world, t.pos, cand.pos, 1) !== null) {
+        target = cand.pos;
+        break;
+      }
+    }
+  } else if (policy === "outbound-sweep" || policy === "outbound-ration") {
+    // Head for the OUTERMOST reachable hole (farthest from the reload point);
+    // the transfer step above dribbles to whatever is adjacent on the way.
+    const outward = needy(world)
+      .filter(e => chebyshev(e.pos, t.pos) > 1)
+      .sort((a, b) => chebyshev(b.pos, world.storage) - chebyshev(a.pos, world.storage) || a.energy - b.energy);
+    for (const cand of outward) {
       if (stepToward(world, t.pos, cand.pos, 1) !== null) {
         target = cand.pos;
         break;

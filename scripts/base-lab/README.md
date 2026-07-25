@@ -70,12 +70,25 @@ paved ducts, 1 tender, ~1000t.
    out on a tick steps FREE (fatigue 0). The basis for the whole low-MOVE
    feeder idea.
 
+8. **Non-greedy feeders (`--policy`) rescue, they don't win.** `outbound-sweep`
+   (head for the outermost hole, dribble en route, lighten-as-you-go, free empty
+   return) recovers a pathological CARRY-heavy body under full-drain (40C10M
+   224t greedy -> 136t swept) - but it only TIES a well-chosen greedy+2:1 (116t),
+   and there is a MOVE floor (45C5M never-fulls even swept). `outbound-ration`
+   (thin coat to reserve carry for the frontier) FAILS on full-size creeps
+   (util 0.50): every extension must reach full or the next max body can't
+   start, so spreading thin starves the spawn - rationing is a partial-drain
+   idea. The dominant lever is TENDER COUNT: demand (~17 e/t/spawn, ~50 for 3)
+   sits at one tender's ceiling, so a 2nd tender halves refill (65t) and washes
+   out all body/policy cleverness. And every viable row is util 1.000 - refill
+   65-136t is under a 50-part creep's 150t window, so full spawn capacity is
+   always guaranteed; the latency is margin, not pass/fail.
+
 ## Caveats
 
-- One roaming tender + greedy-nearest. The alveolar duct lattice might reward a
-  circuit automaton (sim's `lane-patrol`) or multiple stationary fillers (one
-  per pocket) — untested. A spread field arguably wants distributed fillers, not
-  one courier.
+- Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding
+  #8). A duct-circuit `lane-patrol` for the alveolar lattice and multiple
+  stationary fillers (one per pocket) are still untested.
 - Highways use an a-priori A*, not the live empirical `roadHeatmap`.
 - Sim is deterministic (no RNG), single room, no creep-collision traffic; labs
   occupy tiles but don't react. Lab cluster geometry is plausible, not verified
