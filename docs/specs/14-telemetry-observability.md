@@ -4289,3 +4289,26 @@ miners missed the upsize within the 1200t budget. Clean full trio (host quiet):
 flow-handoff 5m, runt-economy 4m (upsize PROVEN t460), storage-depot 7s - all
 green. Lesson: never run heavy background work concurrent with the trio.
 Deployed; recapturing the at-sink/en-route split next.
+
+### AUDIT 2026-07-25 (t72561884) — idleSink is EN-ROUTE: haulers wedge behind the parked feeder at the storage approach
+
+Split read: FLEET duty 0.812, idleSource 0.017, idleSink 0.171 [atSink 0.032,
+EN-ROUTE 0.139]. ~81% of the sink-side idle is EN-ROUTE, not at the sink.
+Port-less source haulers (cbd5/cee0/4-30/cd90/cd92) are ~100% en-route; only the
+two deposit-port haulers (cd8e/cedc) show atSink (their spec-26 link-clamp hold).
+So the loss is approach-LANE congestion, not deposit throughput.
+
+Mechanism (code-confirmed): ControllerFeederCorp parks "adjacent to the storage"
+(:363) - a standing, non-yielding relay ON a storage-approach tile. Haulers
+converging on the single storage to deposit wedge behind it: travelToLane is
+creep-blind and its swap rule only clears MOVING traffic ("Only a STANDING
+blocker ... defeats that", movement.ts:114). ~14-30% of hauler throughput
+(varies by capture) is lost this way, dropping delivery below the 10 e/t inflow
+so buffers grow and rot (over-cap ~6-9k).
+
+Verdict: (c) sink backpressure fully localized to EN-ROUTE core-approach
+congestion, prime blocker the parked feeder. Fix is positioning/movement
+(reposition the feeder's post off the hauler lane; or let haulers swap past the
+stationary relay; or widen storage deposit access) - NOT more haulers, NOT the
+buffer-drain plan term. Fix design pending owner steer (architectural/movement
+tradeoffs).
