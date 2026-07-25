@@ -185,9 +185,19 @@ paved ducts, 1 tender, ~1000t.
     Splits 8-20 track per-room fragmentation (not monotonic in wall% - a small
     congested region can need fewer bridges than a big open one). This delivers
     the owner's "long string, in/out" design on real terrain with one CPU-cheap
-    tender. Remaining polish: W7N3's 0.935 (fragmented string), and the diagonal
-    construction bridges between stripes more than an ideal contiguous spiral
-    would.
+    tender.
+
+14. **Tender-aware core placement fixes the W7N3 corner (0.935 -> 1.000).**
+    `pickSpawnSpot` (centroid-nearest open tile) landed the core in a corner
+    (5,23) clearance 2, forcing a stretched high-bridge string. `pickCore`
+    scores each candidate by TENDER cost - `tenderReach` (BFS radius at which
+    enough checkerboard slots are within reach to hold `target`, i.e. field
+    compactness the tender pays) + w*anchorDist (hauler-route length) - and
+    minimises. Core moved to (11,12) clearance 3; serpentine lane-patrol util
+    0.935 -> 1.000, and all 5 maps (13-74% wall) now hold util 1.000 for both
+    serpentine and alveoli (no regression). Incorporating the tender/extension
+    score into spawn placement, as the owner suggested, is the single biggest
+    lever for string quality.
 
 ## Caveats
 

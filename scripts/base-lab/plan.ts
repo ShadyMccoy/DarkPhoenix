@@ -107,6 +107,69 @@ export function defaultFixture(): string {
   return all.includes("shard3-W1N6") ? "shard3-W1N6" : all[0];
 }
 
+/**
+ * Core placement scored by the EXTENSION-TENDER cost, not just anchor
+ * proximity. `pickSpawnSpot` (centroid-nearest open tile) lands the core in a
+ * corner when the anchors pull that way (W7N3), which forces a stretched,
+ * high-bridge extension string. Here each candidate open-3x3 tile is scored by:
+ *   - tenderReach: BFS radius over walkable tiles at which enough checkerboard
+ *     extension slots are within reach to hold `target` - the compactness the
+ *     tender actually pays (lower = tighter field = shorter refill), and
+ *   - anchorDist: mean distance to sources/controller (hauler-route length).
+ * Minimising tenderReach + w*anchorDist keeps the core out of corners while
+ * still near the anchors.
+ */
+function pickCore(terrain: string[], anchors: RoomPoint[], target: number, anchorWeight = 0.5): Pt | null {
+  const plain = (x: number, y: number): boolean => x >= 0 && x < SIZE && y >= 0 && y < SIZE && terrain[y][x] === ".";
+  const open3 = (x: number, y: number): boolean => {
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (!plain(x + dx, y + dy)) return false;
+    return true;
+  };
+  const fittable = (x: number, y: number): boolean => (x + y) % 2 === 0 && !isWall(terrain, x, y) && !isSwamp(terrain, x, y);
+
+  const tenderReach = (sx: number, sy: number): number => {
+    const seen = new Set<number>([packTile(sx, sy)]);
+    const q: Array<{ x: number; y: number; d: number }> = [{ x: sx, y: sy, d: 0 }];
+    let cnt = 0;
+    for (let i = 0; i < q.length; i++) {
+      const p = q[i];
+      if (fittable(p.x, p.y)) cnt++;
+      if (cnt >= target) return p.d;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (!dx && !dy) continue;
+          const nx = p.x + dx;
+          const ny = p.y + dy;
+          if (isWall(terrain, nx, ny)) continue;
+          const t = packTile(nx, ny);
+          if (seen.has(t)) continue;
+          seen.add(t);
+          q.push({ x: nx, y: ny, d: p.d + 1 });
+        }
+      }
+    }
+    return SIZE * 2; // couldn't fit the field from here
+  };
+
+  let best: Pt | null = null;
+  let bestScore = Infinity;
+  for (let y = 3; y < SIZE - 3; y++) {
+    for (let x = 3; x < SIZE - 3; x++) {
+      if (!open3(x, y)) continue;
+      if (anchors.some(a => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) < 2)) continue;
+      const anchorDist = anchors.length
+        ? anchors.reduce((s, a) => s + Math.abs(a.x - x) + Math.abs(a.y - y), 0) / anchors.length
+        : 0;
+      const score = tenderReach(x, y) + anchorWeight * anchorDist;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, y };
+      }
+    }
+  }
+  return best;
+}
+
 function anchorsOf(input: RoomInput): { sources: Obj[]; controller: Obj | null; mineral: Obj | null } {
   return {
     sources: input.objects.filter(o => o.type === "source"),
@@ -474,7 +537,9 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
   const { sources, controller, mineral } = anchorsOf(input);
 
   const nearList: RoomPoint[] = [...sources, ...(controller ? [controller] : [])];
-  const spawn: Pt = pickSpawnSpot(terrain, nearList) ?? { x: 25, y: 25 };
+  // Tender-aware core placement (avoids corners that stretch the field);
+  // falls back to the centroid heuristic, then room centre.
+  const spawn: Pt = pickCore(terrain, nearList, opts.target) ?? pickSpawnSpot(terrain, nearList) ?? { x: 25, y: 25 };
 
   const cb = (_r: string, x: number, y: number): number => (isWall(terrain, x, y) ? 1 : 0);
   const distances = createMultiRoomDistanceTransform([input.name], cb, 1, 1, new Set([input.name]));
