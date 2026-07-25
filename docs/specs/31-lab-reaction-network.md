@@ -273,9 +273,17 @@ Base-consuming bursts (`LH`,`OH`) run ~0.8; compound-consuming bursts
 84–88% and it **rises with tree depth** — `XGH2O` (depth 5) hits 88% and the burst
 scheme even **handles the Ghodium tree** every other scheduler choked on, because
 it only ever holds 2 feeders at a time, never 7. Exactly 1.0 is still unreachable
-(base-consuming bursts are <1.0), but 0.8 was never the wall. The price is enormous
-CPU (~350–476/1k, the tender parks+reloads every tick) — this is the throughput end
-of the trade, the mirror of react-away's cheap-but-0.46 end.
+(base-consuming bursts are <1.0), but 0.8 was never the wall.
+
+**Feeders need not rotate (`--fixed`), and shouldn't.** Pinning the 2 feeders to
+fixed labs instead of chasing any-holder gives `XLH2O` **80.0% util @ 400/1k for
+0.24 CPU/unit** — a **3.7× CPU cut for a 4% util loss** (vs 0.84 util @ 0.84
+CPU/unit rotating). Fixed lands exactly on the clean 0.80 (2 permanent idle
+feeders = 8/10); the rotation's extra 4% comes from occasionally catching a busy
+intermediate-producer as a feeder, and it isn't worth the churn. So the useful
+throughput-end point is **fixed-feeder burst: the standard 0.8 utilisation at a
+quarter the CPU of full rotation** — still ~10× react-away's throughput, and a much
+gentler CPU bill than the rotating extreme.
 
 **Emergent local-rule variant (`sim-labs-emergent.ts`) — boids, not a V-plan.**
 Instead of computing the allocation, each reactor follows two local rules:

@@ -17,7 +17,14 @@
  * scheduler choked on, because bursting only needs 2 feeders at a time, never 7).
  * util = R x Σcd / 50 exactly (421/1k -> 0.84). Cost: ~350-476 CPU/1k (the tender
  * parks+reloads everything every tick) — "regardless of CPU cost" is load-bearing.
- * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs-burst.ts --target XLH2O
+ *
+ * FEEDERS NEED NOT ROTATE (--fixed, owner): pinning the 2 feeders to labs 0,1
+ * instead of chasing any-holder gives XLH2O 80.0% util @ 400/1k for only 0.24
+ * CPU/unit — a 3.7x CPU cut for a 4% util loss. Fixed lands exactly on the clean
+ * 0.80 (2 permanent idle feeders); the rotation's extra 4% (catching a busy
+ * intermediate-producer as a feeder) is not worth its churn. Fixed-feeder burst is
+ * the better trade: standard 0.8 utilisation at a quarter the CPU.
+ * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs-burst.ts --target XLH2O [--fixed]
  *
  * NOT wired into the bot. Labs are unmodeled in src/ (no StructureLab, no
  * reaction economy) — this is an exploration tool.
@@ -224,27 +231,35 @@ function run(args: Args): void {
     for (const c of tree) if (suppliable(c) && deficit[c] > best) { best = deficit[c]; camp = c; }
     if (!camp) return;
     const [a, b] = REACTIONS[camp];
+    const FIXED = process.argv.includes("--fixed"); // pin feeders to labs 0,1 (no rotation)
     // park every lab that isn't the camp product or a potential feeder (1 intent each)
     for (const P of labs) {
-      if (P.mineral === null || P.mineral === camp || P.mineral === a || P.mineral === b) continue;
+      if (FIXED && (P.id === 0 || P.id === 1)) continue; // permanent feeder slots
+      if (P.mineral === null || P.mineral === camp || (!FIXED && (P.mineral === a || P.mineral === b))) continue;
       if (P.mineral === target) { banked[target] = (banked[target] ?? 0) + P.amount; producedTarget += P.amount; }
       else terminal[P.mineral] = (terminal[P.mineral] ?? 0) + P.amount;
       P.mineral = null; P.amount = 0; tenderIntents++;
     }
-    // ensure 2 distinct feeders hold a and b, stocked enough for a full burst
     const need = LAB_REACTION_AMOUNT * (LAB_COUNT - 2);
+    const loadInto = (lab: Lab, res: string): Lab | null => {
+      if (lab.mineral !== null && lab.mineral !== res && lab.amount > 0) {
+        terminal[lab.mineral] = (terminal[lab.mineral] ?? 0) + lab.amount; tenderIntents++; lab.amount = 0;
+      }
+      lab.mineral = res;
+      if (lab.amount < need && (terminal[res] ?? 0) > 0) {
+        const want = Math.min(need - lab.amount, terminal[res] ?? 0);
+        terminal[res] -= want; lab.amount += want; tenderIntents += 2;
+      }
+      return lab.amount >= LAB_REACTION_AMOUNT ? lab : null;
+    };
     const ensure = (res: string, exclude?: Lab): Lab | null => {
       let f = labs.find((l) => l !== exclude && l.mineral === res && l.amount >= LAB_REACTION_AMOUNT);
-      if (!f) { f = labs.find((l) => l !== exclude && l.mineral === null); if (!f) return null; f.mineral = res; }
-      if (f.amount < need && (terminal[res] ?? 0) > 0) {
-        const want = Math.min(need - f.amount, terminal[res] ?? 0);
-        terminal[res] -= want; f.amount += want; tenderIntents += 2; // withdraw + deposit
-      }
-      return f.amount >= LAB_REACTION_AMOUNT ? f : null;
+      if (!f) { f = labs.find((l) => l !== exclude && l.mineral === null); if (!f) return null; }
+      return loadInto(f, res);
     };
-    const fA = ensure(a);
-    const fB = ensure(b, fA ?? undefined);
-    if (!fA || !fB) return;
+    const fA = FIXED ? loadInto(labs[0], a) : ensure(a);
+    const fB = FIXED ? loadInto(labs[1], b) : ensure(b, fA ?? undefined);
+    if (!fA || !fB || fA === fB) return;
     // burst: fire camp on every off-cooldown free lab (not the 2 feeders)
     for (const P of labs) {
       if (P === fA || P === fB || P.cooldown > 0) continue;
