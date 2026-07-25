@@ -83,7 +83,7 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
@@ -91,6 +91,7 @@ function main(): void {
   const carry = Number(flagVal("--carry", "25"));
   const move = Number(flagVal("--move", "25"));
   const roadsMode = flagVal("--roads", "ducts"); // "ducts" (pave the filler lanes) | "none"
+  const commuteSlack = Number(flagVal("--commute", "1.5"));
   const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
   const biases = flagVal("--bias", "0,1,2,3")
     .split(",")
@@ -110,7 +111,7 @@ function main(): void {
   );
 
   for (const deadBias of biases) {
-    const plan = planBase(input, { target, fillMode: "alveoli", deadBias });
+    const plan = planBase(input, { target, fillMode: "alveoli", deadBias, commuteSlack });
     const layout = toSimLayout(plan, roadsMode);
     const scenario: Scenario = {
       layout,

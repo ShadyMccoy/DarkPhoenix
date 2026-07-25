@@ -97,7 +97,7 @@ function main(): void {
     console.log(listFixtures().join("\n"));
     return;
   }
-  const valueFlags = new Set(["--target", "--fill", "--dead-bias"]);
+  const valueFlags = new Set(["--target", "--fill", "--dead-bias", "--commute"]);
   const flagVal = (name: string, dflt: string): string => {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
@@ -105,11 +105,12 @@ function main(): void {
   const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
   const fillMode = flagVal("--fill", "alveoli");
   const deadBias = Number(flagVal("--dead-bias", "1"));
+  const commuteSlack = Number(flagVal("--commute", "1.5"));
   const useSynthetic = args.includes("--synthetic");
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const input: RoomInput = useSynthetic ? synthetic() : loadFixture(positional ?? defaultFixture());
-  const plan = planBase(input, { target, fillMode, deadBias });
+  const plan = planBase(input, { target, fillMode, deadBias, commuteSlack });
   render(plan);
   report(plan);
 }

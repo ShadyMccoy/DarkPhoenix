@@ -40,6 +40,10 @@ export interface PlanOpts {
   spawns?: number;
   towers?: number;
   labs?: number;
+  /** Commute cap: the extension field may reach commuteSlack x the tightest
+   * packing radius from the core. Bounds the dead-bias so it can't sprawl into
+   * open-room wilderness. Default 1.5. */
+  commuteSlack?: number;
 }
 
 export interface BasePlan {
@@ -150,7 +154,8 @@ function fillAlveoli(
   target: number,
   startCount: number,
   distToHighway: Map<number, number>,
-  deadBias: number
+  deadBias: number,
+  commuteSlack: number
 ): number {
   const dist = new Map<number, number>();
   const start = packTile(core.x, core.y);
@@ -173,7 +178,7 @@ function fillAlveoli(
     }
   }
 
-  const cands: { x: number; y: number; cost: number }[] = [];
+  const raw: { x: number; y: number; dCore: number; outskirts: number }[] = [];
   for (let y = 1; y < SIZE - 1; y++) {
     for (let x = 1; x < SIZE - 1; x++) {
       if ((x + y) % 2 !== 0) continue; // even tiles hold extensions; odd are ducts
@@ -182,10 +187,24 @@ function fillAlveoli(
       if (!reachSet.has(tile) || highways.has(tile) || anchorTiles.has(tile) || occupied.has(tile)) continue;
       const dCore = dist.get(tile);
       if (dCore === undefined) continue;
-      const outskirts = distToHighway.get(tile) ?? SIZE;
-      cands.push({ x, y, cost: dCore - deadBias * outskirts });
+      raw.push({ x, y, dCore, outskirts: distToHighway.get(tile) ?? SIZE });
     }
   }
+
+  // COMMUTE CAP: the bias must not march extensions into the wilderness on open
+  // rooms (measured: unbounded bias 2 sprawls to 29 tiles from core -> never
+  // refills). Cap the field at commuteSlack x the tightest packing radius (the
+  // dCore of the target-th nearest tile), so the bias only picks the deadest
+  // tiles WITHIN the compact disk. On congested rooms the walls already cap it,
+  // so this is a no-op there.
+  const need = target - startCount;
+  const cores = raw.map(r => r.dCore).sort((a, b) => a - b);
+  const rMin = need > 0 && cores.length > 0 ? cores[Math.min(cores.length - 1, need - 1)] : Infinity;
+  const cap = rMin * commuteSlack;
+
+  const cands = raw
+    .filter(r => r.dCore <= cap)
+    .map(r => ({ x: r.x, y: r.y, cost: r.dCore - deadBias * r.outskirts }));
   cands.sort((a, b) => a.cost - b.cost);
 
   const hasDuct = (x: number, y: number): boolean =>
@@ -351,7 +370,20 @@ export function planBase(input: RoomInput, opts: PlanOpts): BasePlan {
       }
     }
   } else {
-    extPlaced = fillAlveoli(terrain, reachSet, highways, anchorTiles, occupied, placed, spawn, opts.target, extPlaced, distToHighway, opts.deadBias);
+    extPlaced = fillAlveoli(
+      terrain,
+      reachSet,
+      highways,
+      anchorTiles,
+      occupied,
+      placed,
+      spawn,
+      opts.target,
+      extPlaced,
+      distToHighway,
+      opts.deadBias,
+      opts.commuteSlack ?? 1.5
+    );
   }
 
   // Extract geometry + metrics from the placed map.
