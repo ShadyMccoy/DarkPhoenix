@@ -78,6 +78,7 @@ import {
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
 import { formatCpuReport } from "./telemetry/cpuReport";
+import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { runWatchdogs } from "./telemetry/watchdogs";
@@ -187,6 +188,11 @@ function publishInfraCpu(): void {
     for (const bucket in infraCpu) rounded[bucket] = Number(infraCpu[bucket].toFixed(3));
     ledger.infra = rounded;
     ledger.wholeTick = Number(Game.cpu.getUsed().toFixed(3));
+    // The ledger is now COMPLETE (corps + infra + wholeTick). Stash it for next
+    // tick's telemetry - the core segment was already serialized earlier this
+    // tick (before infra/wholeTick existed), so shipping Memory.corpCpu inline
+    // only ever captured the half-built version. See cpuLedgerCache.
+    stashCompletedLedger(ledger);
   }
   infraCpu = {};
 }
