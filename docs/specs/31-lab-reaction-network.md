@@ -154,30 +154,34 @@ base-holder labs between phases, so only the 2 bases the current reaction needs
 are held. ~7 producer/buffer labs + a few swappable base holders fit in 10. Both
 schedulers phase; the only question is *how*.
 
-**Measured: three schedulers, and the terminal wins here.**
+**Measured: the winner depends on tree DEPTH, because a lab holds one mineral.**
 
-| scheduler | idea | rate | CPU/unit |
-|---|---|---:|---:|
-| **terminal-buffered** (`sim-labs.ts`) | intermediates round-trip through the terminal | **~128/1k** | **0.29** |
-| phased in-lab (`sim-labs-phased.ts`) | one lab per compound; swap a few base holders | ~62/1k | 0.73 |
-| fungible mix (`sim-labs-mix.ts`) | any lab fires any goal-tree reaction, bottom-up | ~69/1k | 0.87 |
+The load-bearing fact is that **a lab holds exactly one mineral type**, so every
+compound and base *in flight* needs its own lab. Whether the 10 labs have slack
+for that working set is what decides the design:
 
-Both in-lab schedulers conserve and **prove the owner's point** — they run the
-whole tree without holding all 7 bases (a few swapped base-holder labs) — but
-both measured *worse*. **Root cause (the load-bearing fact): a lab holds exactly
-ONE mineral type.** So each of the tree's 6 intermediates + up to 7 bases + a
-target slot needs its **own** lab, and that working set barely fits 10 labs with
-~zero slack — the two naive in-lab versions actually **deadlocked** (all labs
-full of intermediates + bases, none free for the final reaction) until a reserved
-target-lab + base eviction unblocked the mix one. The tender then spends its
-intents juggling the scarce base-holder slots.
+- **Depth ≤ 3 targets — most boosts** (`XLH2O` build, `XUHO2`/`XZHO2` combat, …):
+  the **react-away in-lab flow wins by an order of magnitude**. The tender only
+  deposits bases and withdraws the final product — it *never* withdraws a compound
+  to empty a lab; labs free themselves by reacting their contents forward.
+  Measured **~0.012–0.015 CPU per unit**, tender ~1–15 intents/1000 ticks
+  (essentially idle), conserving. (`sim-labs-mix.ts`, react-away discipline.)
+- **Depth-5 Ghodium line** (`XGH2O`/`XGHO2`): react-away **deadlocks** — the tree
+  needs 7 compound labs + 7 bases = all 10 with *zero slack*, so no lab is ever
+  free for the top compound to react *into*. Only here does the **terminal**
+  (300k, holds any mix) earn its keep: it rents the intermediate-buffer capacity
+  the labs physically lack, at ~0.29 CPU/unit (`sim-labs.ts`).
 
-The counterintuitive takeaway: the **terminal is a 300k-capacity buffer that
-holds the intermediates the labs physically cannot** — routing through it is not
-waste, it is *renting capacity the 10 labs don't have*, and the round-trip
-intents are the price. "Leave it in the lab" is real but bounded by one-mineral-
-per-lab; for a 7-deep, 7-base tree the terminal earns its keep. (A shallower tree,
-or more labs, shifts the balance back toward in-lab.)
+So the owner's **react-away, never-withdraw-except-the-product** principle is the
+right design for the common shallow boosts, and it is nearly free. The terminal
+is not the default — it is the fallback for the one deepest tree that saturates
+the labs. (More labs, or a shallower boost menu, removes even that.)
+
+Two dead ends measured along the way, both from the one-mineral-per-lab wall:
+the **phased in-lab** scheduler (`sim-labs-phased.ts`, one lab per compound + a
+few swapped base holders, ~62/1k @ 0.73 CPU/unit) and the **eviction-based mix**
+(swapping bases by withdrawal, ~69/1k @ 0.87) — both lose to react-away because
+the *withdraws* are the cost; removing them is the whole win.
 
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top

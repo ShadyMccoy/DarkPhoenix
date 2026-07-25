@@ -7,16 +7,23 @@
  * design. Kept for a reproducible comparison against the terminal-buffered
  * sim-labs.ts and the phased sim-labs-phased.ts.
  *
- * RESULT: it conserves, but measured WORSE than the terminal-buffered sim-labs.ts
- * — ~69 XGH2O/1k @ ~0.87 CPU/unit vs ~128/1k @ ~0.29. ROOT CAUSE (the key fact):
- * a lab holds ONE mineral type only. So each of the tree's 6 intermediates + up
- * to 7 bases + a target slot needs its OWN lab, and that working set barely fits
- * 10 labs with ~zero slack — the tender then juggles the few base-holder slots
- * every tick. The terminal (300k capacity) wins because it holds the
- * intermediates the labs physically cannot; the round-trip intents are the price
- * of that capacity. Two naive in-lab versions DEADLOCKED before a reserved
- * target-producer lab + base eviction unblocked this one.
- * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs-mix.ts [--buffer 40] [--ticks 80000]
+ * REACT-AWAY DISCIPLINE (owner): the tender only DEPOSITS bases and WITHDRAWS the
+ * final product — it never withdraws a compound to empty/re-task a lab. Labs free
+ * themselves by having their contents reacted forward. Base holders are not
+ * evicted; a base load is capped (BASE_LOAD) so it depletes and the lab frees.
+ *
+ * RESULT — this WINS wherever the labs have slack:
+ *   depth<=3 targets (most boosts: XLH2O build, XUHO2/XZHO2 combat, ...):
+ *     ~0.012-0.015 CPU per unit, tender ~1-15 intents/1k (essentially idle),
+ *     conserves. That is an ORDER OF MAGNITUDE cheaper than terminal-buffering
+ *     (~0.16-0.29 CPU/unit in sim-labs.ts).
+ *   depth-5 Ghodium line (XGH2O/XGHO2): DEADLOCKS. That tree needs 7 compound
+ *     labs + 7 bases = the full 10 with zero slack, so no lab is ever free for
+ *     the top compound to react INTO. Only there is the terminal (300k, any mix)
+ *     required — it rents the buffer capacity the labs physically lack.
+ * So: react-away in-lab flow is the right design for the common shallow boosts;
+ * the terminal only earns its keep for the deepest (Ghodium) tree.
+ * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs-mix.ts --target XLH2O [--buffer 40]
  *
  * NOT wired into the bot. Labs are unmodeled in src/ (no StructureLab, no
  * reaction economy) — this is an exploration tool.
@@ -190,6 +197,10 @@ function run(args: Args): void {
 
   const CAP = LAB_MINERAL_CAPACITY;
   const BUFFER = args.buffer;
+  // react-away discipline: cap a base load so the holder lab depletes (via
+  // reactions) in bounded time and frees itself, instead of a fat charge that
+  // ties a lab up for tens of thousands of ticks.
+  const BASE_LOAD = Math.max(200, BUFFER * 3);
   const stockOf = (c: string): number =>
     labs.reduce((s, l) => s + (l.mineral === c ? l.amount : 0), 0);
   const holderOf = (r: string, not?: Lab): Lab | undefined =>
@@ -266,26 +277,18 @@ function run(args: Args): void {
           if (need) break;
         }
         if (need) {
-          // keep >=1 empty lab free as the target's producer slot; prefer evicting
-          // an unneeded base over consuming the last empty lab.
-          const empties = labs.filter((l) => l.mineral === null).length;
-          const evict = labs.find((l) => l.mineral !== null && isBase(l.mineral) && !baseNeeded(l.mineral) && l.amount > 0);
-          const load = () => {
-            const avail = terminal[need!] ?? 0;
-            const amt = Math.min(args.carry, CAP, avail);
-            if (amt > 0) { terminal[need!] = avail - amt; tender.carrying = { res: need!, amt, dst: "holder" }; acted = true; }
-          };
-          if (empties > 1) {
-            load();
-          } else if (evict) {
-            const amt = Math.min(args.carry, evict.amount);
-            evict.amount -= amt;
-            const old = evict.mineral!;
-            if (evict.amount === 0) evict.mineral = null;
-            tender.carrying = { res: old, amt, dst: "terminal" };
-            acted = true;
-          } else if (empties === 1) {
-            load();
+          // REACT-AWAY DISCIPLINE (owner): never withdraw a compound to free a
+          // lab — only DEPOSIT bases and WITHDRAW the final product. A base-holder
+          // is not evicted; we simply stop topping it and let reactions drain it
+          // to zero, and only then is the empty lab reloaded. So we load a base
+          // ONLY into an already-empty lab; if none is free we wait for one to
+          // deplete. Base loads are capped (BASE_LOAD) so labs cycle in bounded
+          // time instead of a fat 3000-charge tying a lab up for ages.
+          const empty = labs.find((l) => l.mineral === null);
+          if (empty) {
+            const avail = terminal[need] ?? 0;
+            const amt = Math.min(args.carry, BASE_LOAD, avail);
+            if (amt > 0) { terminal[need] = avail - amt; tender.carrying = { res: need, amt, dst: "holder" }; acted = true; }
           }
         }
       }
