@@ -32,15 +32,15 @@
  * breaks conservation). batch 30 is the default: the CPU-cheapest point that
  * still conserves.
  *
- * STRUCTURAL LIMIT (why "leave it in the lab" only goes so far): the full XGH2O
- * tree wants 7 producer labs + 7 base-reservoir labs = 14 concurrent roles, but
- * RCL8 has 10 labs. Intermediates can sit in their own producer labs for free
- * (labs hold 3000), but the BASE reservoirs are the crunch — ZK/UL/OH/XGH2O
- * running at once need Z K U L O H X all held. So the cluster CANNOT run the
- * whole tree concurrently; it must PHASE (time-share base-holder labs). The
- * terminal round-trip here IS that phasing, done via a shared buffer. A lower-CPU
- * design phases in-lab (hold intermediates, swap only base holders) — a phased
- * scheduler, and the real next step.
+ * PHASING (you do NOT need all 7 bases held at once): the tree has 7 producible
+ * compounds, but you never run them all concurrently — you PHASE, making one at a
+ * time, and the tender swaps a small pool of base-holder labs between phases. So
+ * ~7 producer/buffer labs + a few swappable base holders fit in 10 labs; there is
+ * no "14 roles" wall (an earlier version of this note claimed one — wrong).
+ * This terminal-buffered scheduler phases via the terminal (a large shared
+ * buffer). An in-lab alternative (hold intermediates, swap only base holders) is
+ * in sim-labs-phased.ts — it conserves but measured WORSE (base-holder swap
+ * thrash + single top lab); the terminal buffer is cheaper here.
  *
  * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs.ts [--target XGH2O]
  *                                                             [--ticks 80000]

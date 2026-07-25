@@ -146,17 +146,30 @@ Bigger batches are far cheaper but this terminal-buffered scheduler goes lumpy
 past ~60 and breaks conservation; **batch 30 is the shipped default — the
 CPU-cheapest point that still holds every buffer flat (~3× cheaper than batch 10).**
 
-**Structural limit — why "leave it in the lab" only goes so far.** The full XGH2O
-tree wants **7 producer labs + 7 base-reservoir labs = 14 concurrent roles**, but
-RCL8 has **10**. Intermediates can sit in their own producer labs for free (labs
-hold 3000 — the owner's capacity insight), but the **base reservoirs are the
-crunch**: running `ZK`/`UL`/`OH`/`XGH2O` at once needs `Z K U L O H X` all held.
-So the cluster **cannot run the whole tree concurrently — it must PHASE**
-(time-share the base-holder labs). The terminal round-trip *is* that phasing, via
-a shared buffer, paid for in intents. A lower-CPU design phases in-lab (hold
-intermediates in place, swap only the base holders, read across cooldown) — that
-is a **phased scheduler**, the real next step, and where the spec-31 cooldown-read
-exploit pays the most.
+**Phasing — you do NOT need all 7 bases held at once** (owner correction; an
+earlier draft wrongly claimed a "14 concurrent roles > 10 labs" wall). The tree
+has 7 producible compounds, but you never run them all at once — you **phase**:
+make one compound at a time and let the tender **swap** a small pool of
+base-holder labs between phases, so only the 2 bases the current reaction needs
+are held. ~7 producer/buffer labs + a few swappable base holders fit in 10. Both
+schedulers phase; the only question is *how*.
+
+**Measured: two ways to phase, and the terminal wins here.**
+
+| scheduler | how it phases | rate | CPU/unit |
+|---|---|---:|---:|
+| terminal-buffered (`sim-labs.ts`) | intermediates round-trip through the terminal (a large free shared buffer) | ~128/1k | 0.29 |
+| in-lab phased (`sim-labs-phased.ts`) | intermediates held in place; 3 base-holder labs swapped by the tender | ~62.5/1k | 0.73 |
+
+The in-lab version conserves and **proves the owner's point** — it runs the whole
+tree with just **3 base-holder labs, swapped** — but it came out *worse*:
+dedicating one lab per compound leaves only 3 base holders that **thrash on
+swaps**, and one lab on the cd-80 top reaction **caps throughput**. The
+counterintuitive takeaway: the terminal is a **cheap, large shared buffer** —
+"leave it in the lab" removes intermediate round-trips but reintroduces
+base-holder contention that ate the savings. A smarter in-lab scheduler (big
+non-evicted base charges + several labs on the bottleneck reaction) might still
+beat it, but naive in-lab phasing does not — measured, not assumed.
 
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
