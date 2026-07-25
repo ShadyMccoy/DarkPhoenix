@@ -17,7 +17,7 @@
  */
 import { SIZE, packTile, isWall, type Pt } from "./geometry";
 import { BasePlan, defaultFixture, loadFixture, planBase } from "./plan";
-import { Layout, Pos, Scenario, TenderPolicy, simulate } from "../extension-sim/engine";
+import { DrawOrder, Layout, Pos, Scenario, TenderPolicy, simulate } from "../extension-sim/engine";
 
 const unpack = (tile: number): Pos => ({ x: tile % SIZE, y: Math.floor(tile / SIZE) });
 
@@ -60,43 +60,89 @@ function ductRoads(plan: BasePlan): Pos[] {
 }
 
 /**
- * A fixed patrol circuit through the tender's working tiles (the duct tiles
- * adjacent to extensions), as a nearest-neighbour tour from the core. Fed to
- * lane-patrol so ONE tender can service the field on a CACHED route - no
- * per-tick PathFinder call, the real CPU cost of a roaming tender.
+ * A CONTIGUOUS patrol circuit through the tender's working tiles - a DFS
+ * Euler-tour over the duct tiles adjacent to the WORKING-SET extensions (the
+ * nearest `workingExts`, i.e. the ones a legal creep actually drains; the
+ * outskirt reservoirs are skipped). Every consecutive tile is 8-adjacent, so
+ * the tender replays it with move(dir) - no per-tick PathFinder, the real CPU
+ * cost of a roaming tender. Confined + contiguous, unlike the earlier
+ * nearest-neighbour tour over ALL ducts that jumped around and starved.
  */
-function circuit(plan: BasePlan): Pos[] {
-  const ducts = ductRoads(plan);
-  if (ducts.length === 0) return [];
-  const remaining = new Set(ducts.map(d => packTile(d.x, d.y)));
-  let cur: Pos = { x: plan.spawn.x, y: plan.spawn.y };
-  const tour: Pos[] = [];
-  while (remaining.size > 0) {
-    let best = -1;
-    let bestD = Infinity;
-    for (const t of remaining) {
-      const x = t % SIZE;
-      const y = Math.floor(t / SIZE);
-      const d = Math.max(Math.abs(x - cur.x), Math.abs(y - cur.y));
-      if (d < bestD) {
-        bestD = d;
-        best = t;
+function circuit(plan: BasePlan, workingExts: number): Pos[] {
+  const core = plan.spawn;
+  const dcore = (x: number, y: number): number => Math.max(Math.abs(x - core.x), Math.abs(y - core.y));
+  const terrain = plan.input.terrain;
+  // Tiles the sim BLOCKS (storage, spawns, extensions) - the tender can't stand
+  // on any of these, so they must not enter the circuit as standing tiles.
+  const blocked = new Set<number>([
+    packTile(plan.spawn.x, plan.spawn.y),
+    ...plan.extensions.map(e => packTile(e.x, e.y)),
+    ...plan.spawns.map(s => packTile(s.x, s.y))
+  ]);
+
+  const near = [...plan.extensions].sort((a, b) => dcore(a.x, a.y) - dcore(b.x, b.y)).slice(0, workingExts);
+  const ductSet = new Set<number>();
+  for (const e of near) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const nx = e.x + dx;
+        const ny = e.y + dy;
+        if (isWall(terrain, nx, ny)) continue;
+        const t = packTile(nx, ny);
+        if (blocked.has(t) || !plan.reachSet.has(t)) continue;
+        ductSet.add(t);
       }
     }
-    const x = best % SIZE;
-    const y = Math.floor(best / SIZE);
-    tour.push({ x, y });
-    remaining.delete(best);
-    cur = { x, y };
   }
-  return tour;
+  if (ductSet.size === 0) return [];
+
+  let start = -1;
+  let bd = Infinity;
+  for (const t of ductSet) {
+    const d = dcore(t % SIZE, Math.floor(t / SIZE));
+    if (d < bd) {
+      bd = d;
+      start = t;
+    }
+  }
+  const adj = (t: number): number[] => {
+    const x = t % SIZE;
+    const y = Math.floor(t / SIZE);
+    const out: number[] = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const nt = packTile(x + dx, y + dy);
+        if (ductSet.has(nt)) out.push(nt);
+      }
+    }
+    return out;
+  };
+  const visited = new Set<number>([start]);
+  const route: Pos[] = [];
+  const push = (t: number): void => {
+    route.push({ x: t % SIZE, y: Math.floor(t / SIZE) });
+  };
+  const dfs = (u: number): void => {
+    push(u);
+    for (const v of adj(u)) {
+      if (!visited.has(v)) {
+        visited.add(v);
+        dfs(v);
+        push(u); // backtrack step keeps the route contiguous
+      }
+    }
+  };
+  dfs(start);
+  return route;
 }
 
 /** Translate a base-lab plan into a sim Layout on the 50x50 board: the core is
  * the reload anchor (storage), the core pocket's spawns drain, the alveolar
  * field is the extensions, the highways are reserved lanes, and the terrain
  * walls are obstacles the tender must route around. */
-function toSimLayout(plan: BasePlan, roadsMode: string): Layout {
+function toSimLayout(plan: BasePlan, roadsMode: string, workingExts: number): Layout {
   const spawns: Pt[] = plan.spawns.length > 0 ? plan.spawns : [{ x: plan.spawn.x + 1, y: plan.spawn.y }];
   return {
     name: `${plan.input.name}-alveoli`,
@@ -107,7 +153,7 @@ function toSimLayout(plan: BasePlan, roadsMode: string): Layout {
     roads: roadsMode === "ducts" ? ductRoads(plan) : [],
     reserved: [...plan.highways].map(unpack),
     walls: wallTiles(plan.input.terrain),
-    lane: circuit(plan) // used by lane-patrol; ignored by greedy/outbound
+    lane: circuit(plan, workingExts) // used by lane-patrol / circuit-loop; ignored by greedy/outbound
   };
 }
 
@@ -117,7 +163,7 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute", "--policy"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias", "--roads", "--commute", "--policy", "--tenders", "--draw"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
@@ -126,7 +172,11 @@ function main(): void {
   const move = Number(flagVal("--move", "25"));
   const roadsMode = flagVal("--roads", "ducts"); // "ducts" (pave the filler lanes) | "none"
   const commuteSlack = Number(flagVal("--commute", "1.5"));
-  const policy = flagVal("--policy", "greedy-nearest") as TenderPolicy; // greedy-nearest | outbound-sweep | outbound-ration
+  const policy = flagVal("--policy", "greedy-nearest") as TenderPolicy; // greedy-nearest | outbound-sweep | outbound-ration | circuit-loop
+  // circuit patrols need circuit-aligned draw (drain marches along the lane);
+  // default the draw order to match the policy unless overridden.
+  const drawDefault = policy === "circuit-loop" || policy === "lane-patrol" ? "circuit" : "near-reload-first";
+  const drawOrder = flagVal("--draw", drawDefault) as DrawOrder;
   const tenders = Number(flagVal("--tenders", "1"));
 
   // Real per-RCL loadout: extension count, spawn count, tower/lab count all
@@ -144,6 +194,10 @@ function main(): void {
   const EXT_CAP_BY_RCL: Record<number, number> = { 6: 50, 7: 100, 8: 200 };
   const gridCap = preset.ext * (EXT_CAP_BY_RCL[rcl] ?? 200) + preset.spawns * 300;
   const tenderCost = (carry + move) * 50;
+  // Working set = extensions a legal creep actually drains (the rest are
+  // reservoirs); the circuit only needs to cover these.
+  const maxParts = Math.min(50, Math.floor(gridCap / 50));
+  const workingExts = Math.min(preset.ext, Math.ceil((preset.spawns * maxParts * 50) / (EXT_CAP_BY_RCL[rcl] ?? 200)));
   if (tenderCost > gridCap) {
     console.log(
       `WARNING: ${carry}C${move}M costs ${tenderCost}e but the RCL${rcl} grid holds only ${gridCap}e - ` +
@@ -177,11 +231,11 @@ function main(): void {
       towers: preset.towers,
       labs: preset.labs
     });
-    const layout = toSimLayout(plan, roadsMode);
+    const layout = toSimLayout(plan, roadsMode, workingExts);
     const scenario: Scenario = {
       layout,
       rcl,
-      drawOrder: "near-reload-first",
+      drawOrder,
       tenderPolicy: policy,
       tenderCount: tenders,
       tenderBody: { carry, move },

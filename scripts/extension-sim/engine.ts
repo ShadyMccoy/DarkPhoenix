@@ -132,7 +132,7 @@ export type DrawOrder = "engine-default" | "near-reload-first" | "far-first" | "
  * - outbound-ration: outbound-sweep but cap the per-tile deposit (RATION), so
  *   the tender spreads a thin coat over many extensions instead of topping the
  *   first few - reserves carry to reach the frontier with energy left. */
-export type TenderPolicy = "greedy-nearest" | "lane-patrol" | "outbound-sweep" | "outbound-ration";
+export type TenderPolicy = "greedy-nearest" | "lane-patrol" | "outbound-sweep" | "outbound-ration" | "circuit-loop";
 
 /** outbound-ration deposit cap per extension per tick (one CARRY-part's worth). */
 export const TENDER_RATION = 50;
@@ -415,7 +415,11 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
         break;
       }
     }
-  } else if (policy === "lane-patrol" && lane && lane.length > 0) {
+  } else if ((policy === "lane-patrol" || policy === "circuit-loop") && lane && lane.length > 0) {
+    // circuit-loop = lane-patrol WITHOUT the reload head-reset (see the reload
+    // block): the cursor advances continuously around a contiguous loop, so it
+    // suits a large spread field where re-walking from the head would starve
+    // the far side. lane-patrol keeps the head-reset (right for tight corridors).
     // The automaton (owner): chase the drained FRONTIER along the circuit.
     // Advance the cursor past circuit tiles with nothing needy adjacent -
     // walking a full section to reach the frontier is the loss the original

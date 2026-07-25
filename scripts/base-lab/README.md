@@ -114,18 +114,24 @@ paved ducts, 1 tender, ~1000t.
     setup; RCL7 is the one to watch. (Earlier "RCL6 struggles" was an artifact
     of forcing the RCL8 count of 60 ext + 3 spawns at RCL6 caps.)
 
-11. **One greedy tender is the CPU-minimal design; cached circuits don't
-    transfer to the spread field.** Avoiding extra tenders is the CPU win that
-    matters (each creep ~0.4 CPU/tick of intents + its own pathing), and one
-    tender already holds util 1.000 at every RCL. Attempt to cut the lone
-    tender's pathfinding further with a fixed patrol circuit (nearest-neighbour
-    tour + `lane-patrol`) FAILED on the alveolar field (util 0.09-0.17,
-    never-full): lane-patrol head-resets each reload and re-walks from the
-    route start, fatal over a scattered 44-tile field (the sim's own findings
-    #3/#4 - circuits win only on dense corridors). A spread field wants
-    greedy-nearest, which is fine CPU-wise since real `moveTo` caches paths
-    (not a fresh search per tick). The circuit lever would need a corridor-
-    shaped working set, which fights the outskirt-reservoir benefit.
+11. **One greedy tender is the CPU-minimal design; a circuit can't beat it on a
+    CENTER-FED spread field — for a fundamental reason, not a bad circuit.**
+    Avoiding extra tenders is the CPU win that matters (each creep ~0.4 CPU/tick
+    + its own pathing), and one greedy tender already holds util 1.000 at every
+    RCL. A serious `circuit-loop` policy was built to try to cut the lone
+    tender's pathfinding — contiguous DFS Euler-tour, confined to the working
+    set, no head-reset, circuit-aligned draw, storage/spawn tiles excluded (an
+    early version froze because the storage tile leaked into the lane as a
+    range-0 target). Even fully fixed it loses: RCL7 reaches util 0.99 but
+    RCL6/8 collapse to 0.09-0.17. The trace shows why — the tender fills OUTWARD
+    along the circuit, empties deep in the field, then must deadhead back to the
+    CENTRAL storage to reload (O(radius) per load; the working set needs ~5
+    loads at RCL8 since 38x200 >> any legal tender). Greedy wins by staying
+    LOCAL (fill nearest, reload nearby). The fix is not a better circuit but
+    DISTRIBUTED reload — links out in the field so the tender/fillers reload
+    locally — which is a layout change (add field links + model link-reload).
+    Until then: one greedy tender, fine CPU-wise since real `moveTo` caches
+    paths.
 
 ## Caveats
 
