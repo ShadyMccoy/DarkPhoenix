@@ -138,7 +138,7 @@ export function travelToLane(creep: Creep, target: MoveTarget, opts?: MoveToOpts
   // detours around swamp, zero empty-leg road wear, and two-lane traffic
   // (loaded on the pavement, empty beside it). The loaded leg keeps the
   // road-preferring defaults.
-  const lane = isFatigueFreeWhenEmpty(creep) ? emptyLaneOpts() : undefined;
+  const lane = isFatigueFreeWhenEmpty(creep) ? emptyLaneOpts() : loadedLaneOpts();
   return travelTo(creep, target, { reusePath: 20, ...lane, ...opts, ignoreCreeps: true });
 }
 
@@ -189,8 +189,48 @@ export function emptyLaneOpts(): MoveToOpts {
         // only RAISE plain-cost tiles - never overwrite a blocker (255)
         if (matrix.get(t.x, t.y) < EMPTY_LANE_ROAD_COST) matrix.set(t.x, t.y, EMPTY_LANE_ROAD_COST);
       }
+      penalizeUpgraderTiles(roomName, matrix); // steer off parked upgraders too
     }
   };
+}
+
+/**
+ * Cost stamped onto a tile held by a parked upgrader sitting on its assigned
+ * spot ({@link isYielding}), so haul legs route AROUND it instead of pathing
+ * straight through and force-swapping it off its post (owner 2026-07-25:
+ * haulers "kick the upgraders off their spots, although they don't really have
+ * to, they just happen to path through sometimes"). Above plain (2) and the
+ * empty-lane road cost (2) so any equivalent free tile wins the detour; well
+ * below a blocker (255) so it is a PREFERENCE, never a wall - a target
+ * genuinely ringed by upgraders (the controller input) is still reachable, and
+ * the reactive force-swap / lane-patience detour remains the last resort.
+ */
+export const UPGRADER_TILE_COST = 10;
+
+/**
+ * Stamp {@link UPGRADER_TILE_COST} on every tile occupied by one of our
+ * upgraders that is CURRENTLY on its assigned spot ({@link isYielding}). Only
+ * ever raises a tile's cost (never overwrites a blocker), and no-ops in a room
+ * with no vision (the cost matrix there is terrain-only already). Pure w.r.t.
+ * its arguments beyond the live room lookup, so it composes into any lane
+ * costCallback and is unit-testable on a matrix stub.
+ */
+export function penalizeUpgraderTiles(roomName: string, matrix: CostMatrix): void {
+  const room = typeof Game !== "undefined" ? Game.rooms[roomName] : undefined;
+  if (!room || typeof room.find !== "function") return; // blind room: nothing to steer around
+  for (const creep of room.find(FIND_MY_CREEPS)) {
+    if (!isYielding(creep)) continue;
+    if (matrix.get(creep.pos.x, creep.pos.y) < UPGRADER_TILE_COST) {
+      matrix.set(creep.pos.x, creep.pos.y, UPGRADER_TILE_COST);
+    }
+  }
+}
+
+/** moveTo options for the LOADED haul leg: keep the road-preferring defaults,
+ * but penalize parked-upgrader tiles so the pavement lane bends around the
+ * controller camp rather than shoving through it. */
+export function loadedLaneOpts(): MoveToOpts {
+  return { costCallback: penalizeUpgraderTiles };
 }
 
 /**
