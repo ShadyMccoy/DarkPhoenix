@@ -228,16 +228,29 @@ Quorum `src/programs/city/labs.js`; TooAngel `doc/Mineral.md`; `screeps/docs`
 throughput ⟺ every lab fires a reaction the moment its cooldown ends. Reactions
 cost **zero intents**, so this is *free* throughput — throughput and CPU do not
 trade off; react-away keeps the tender near-idle and busy labs cost nothing extra.
-But the sims are far from it: `sim-labs-mix.ts` reports **~17% lab utilisation**
-for the shallow boosts (`XLH2O` 85.6/1k, `XUHO2` 92.3/1k) — 83% of lab-ticks idle
-— because the scheduler caps each compound at one lab (the anti-smear fix), so the
-high-cooldown **top reaction runs on a single lab** while 5–6 sit idle. The fix is
-**balanced multi-lab allocation**: give each reaction labs ∝ its cooldown-weighted
-demand (the cd-65/80 top compound gets the *most* labs), and route any idle lab to
-the current bottleneck. Estimated ceiling ≈ `50 / Σ(cooldowns)` per tick minus
-base-holder overhead — several hundred per 1k for depth-≤3 targets vs the ~85
-measured. Realising it is the throughput half of the scheduler (the CPU half —
-react-away — is solved).
+The one-lab-per-compound `sim-labs-mix.ts` ran at only **~17% lab utilisation**
+(`XLH2O` 85.6/1k) — the high-cooldown top reaction on a single lab while 5–6 sat
+idle. **`sim-labs-flow.ts` implements the fix** (static ∝-cooldown allocation,
+react-away): base feeders + reactor labs split so each reaction gets labs in
+proportion to its cooldown (the greedy hands spare labs to the worst `cd/labs`
+ratio, i.e. the top reaction), each reactor firing every cooldown, a per-tier
+BUFFER cap idling the over-served fast tiers so they conserve. Measured:
+
+| target | allocation | rate | vs one-lab | CPU/unit | util |
+|---|---|---:|---:|---:|---:|
+| `XLH2O` | feeders×4 + top×3 | **230.8/1k** | **2.7×** | 0.006 | 46% |
+| `XUHO2` | feeders×4 + top×3 | 253.8/1k | 2.75× | 0.006 | 47% |
+| `XZHO2` | feeders×4 + top×3 | 92.3/1k | (cd-160 cap) | 0.007 | 37% |
+
+So the throughput half is realised too — **2.7× at the same near-zero CPU,
+conserving**. The residual gap to 100% util is the **integer-lab tax**: a fast
+low-tier reaction needs a *fraction* of a lab but must take a whole one, so ~2
+labs of capacity idle that can't join the top without a mineral switch (a withdraw
+react-away forbids). Closing that needs **swing-labs** (idle low-tier labs
+temporarily lent to the bottleneck) — the next refinement, and the point where the
+feeder-*spots* rotation (roles moving through cooldown dead-time) would finally
+earn its keep over fixed 2-feeder. `XGH2O`/`XGHO2` don't fit (7 reactors + 7
+feeders > 10) → terminal-buffered `sim-labs.ts` as before.
 
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
