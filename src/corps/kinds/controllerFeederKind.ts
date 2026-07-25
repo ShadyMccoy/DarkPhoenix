@@ -16,6 +16,7 @@ import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
+import { coreLink } from "../nodeEnergy";
 
 /** The feeder commission's binding: which home room, which spawn. */
 export interface ControllerFeederAssignment {
@@ -93,6 +94,15 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     const corp = new ControllerFeederCorp(d.nodeId, d.spawnId, d.id);
     corp.deserialize(d);
     return corp;
+  },
+
+  spawnTarget(_role: string, spawn: StructureSpawn): RoomPosition | null {
+    // The parked relay post: the core link the feeder deposits into (link-fed
+    // rooms, where storage + core sit by the spawn so the newborn is born
+    // on-post), else the storage depot it shuttles from. Feeds the spawn's
+    // `directions` bias (SpawningCorp.executeSpawn) - no walk-in dead time.
+    const room = spawn.room;
+    return coreLink(room)?.pos ?? (room.storage?.my ? room.storage.pos : null);
   },
 
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {

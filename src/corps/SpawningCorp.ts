@@ -15,6 +15,42 @@ import { getCorpKind } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 
 /**
+ * All 8 spawn exit directions ordered so the tile FACING `to` comes FIRST, then
+ * its neighbours by angular distance out to the opposite side. Passed to
+ * spawnCreep({ directions }) so a newborn emerges on the side toward its post
+ * (owner 2026-07-24: "spawn the feeder using the spawn directions right into the
+ * feeder spot") - but the full ring is included as fallback so a blocked
+ * preferred tile never PREVENTS the spawn. Pure: uses the Screeps direction
+ * numbering (TOP=1 clockwise to TOP_LEFT=8, y growing downward) directly, so it
+ * needs no globals and is unit-testable. Returns undefined when from === to.
+ */
+export function spawnDirectionsToward(
+  from: { x: number; y: number },
+  to: { x: number; y: number }
+): DirectionConstant[] | undefined {
+  const dx = Math.sign(to.x - from.x);
+  const dy = Math.sign(to.y - from.y);
+  if (dx === 0 && dy === 0) return undefined;
+  const dirOf: Record<string, number> = {
+    "0,-1": 1, // TOP
+    "1,-1": 2, // TOP_RIGHT
+    "1,0": 3, // RIGHT
+    "1,1": 4, // BOTTOM_RIGHT
+    "0,1": 5, // BOTTOM
+    "-1,1": 6, // BOTTOM_LEFT
+    "-1,0": 7, // LEFT
+    "-1,-1": 8 // TOP_LEFT
+  };
+  const primary = dirOf[`${dx},${dy}`];
+  const order: number[] = [];
+  for (let d = 0; d <= 4; d++) {
+    order.push(((primary - 1 + d) % 8) + 1);
+    if (d !== 0 && d !== 4) order.push(((primary - 1 - d + 8) % 8) + 1);
+  }
+  return order as DirectionConstant[];
+}
+
+/**
  * Types of creeps that can be spawned
  */
 export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder" | "scout";
@@ -149,9 +185,14 @@ export class SpawningCorp extends Corp {
     // same stops in the same sequence the refill bus tops them up, so holes
     // form one contiguous run along the tour instead of scattered potholes.
     const energyStructures = drawOrder(spawn.room);
+    // Spawn placement: a kind may name the tile the newborn should face (the
+    // feeder's parked relay post), so it emerges on-post instead of walking in.
+    const target = corpKind.spawnTarget?.(role, spawn);
+    const directions = target ? spawnDirectionsToward(spawn.pos, target) : undefined;
     const result = spawn.spawnCreep(body, name, {
       memory: { corpId: buyerCorpId, workType: roleSpec.workType, spawnedBy: this.id },
-      ...(energyStructures.length > 0 ? { energyStructures } : {})
+      ...(energyStructures.length > 0 ? { energyStructures } : {}),
+      ...(directions ? { directions } : {})
     });
 
     if (result === OK) {
