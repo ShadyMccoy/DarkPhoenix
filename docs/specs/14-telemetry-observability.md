@@ -4185,3 +4185,54 @@ the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
 Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
 done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
 converted from a "structural ceiling" into a drained, self-balancing spend path.
+
+---
+
+## Cycle t72571505 — upgrader body flap on transient feeder death (churn leak)
+
+**Ledger:** no FAIL lines; sole WARN P4 spawn-infeasibility 0.91× (structural —
+single spawn, home W43N23 RCL6 at 75% to RCL7, util pinned 0.97 for the whole
+recent window). Not directly attackable without hurting the economy or reaching
+RCL7 (2nd spawn). So the cycle attacked the largest MEASURED waste under it.
+
+**Diagnosis (data, not vibes):** the upgrader `sizing.inflow` flaps **2↔115**
+and the body flaps **w49↔w3** across captures — chronic across 170k+ ticks of
+committed fixtures (seg4 trend t72400561→t72571505), not a transient. Root:
+`UpgradingCorp` derived `bankedBehindFeeder` SOLELY from the transient
+`room.memory.controllerFeederActive` flag (true only while a feeder creep is
+alive this tick). The single non-blocking feeder dies/respawns every ~N ticks →
+flag flaps false → surplus verdict lost → inflow→2 → body recycled to the sip →
+rebuilt on respawn. Blackbox (seg5) confirmed the cost: **5 upgrader respawns in
+2808t** (avg 1820e, worst **2300e@78t** vs ~1500t natural life ⇒ ~3 excess),
+~210 spawn-ticks (~7.5% of a spawn-bound spawn) on pure churn; the w3 windows
+halved delivery (P7 24.7 e/t actual vs a ~49 e/t surplus relay), and storage
+re-accumulated **+0.38/t above the 56k reserve** (reversing the prior cycle's
+drain).
+
+**Relation to the prior cycle (t72554–72555):** that cycle made the feeder
+RELIABLE (core-pin fix, linchpin priority, spawn-onto-post) so `feederActive`
+stays up more; but feeders still die transiently and the upgrader still
+collapsed in the gaps. Rather than a third feeder-reliability patch, this fix
+INTERROGATES the mechanism (trap list, "second patch"): it removes the
+upgrader's dependency on feeder LIVENESS. Standing assets keep working — the
+upgrader holds its body across a feeder gap because haulers deliver directly
+(CarryCorp "a dead feeder never starves upgrading").
+
+**Fix:** `bankBehindFeeder` — the durable feeder-relay verdict, mirroring the
+already-proven `CarryCorp.shouldBankControllerLoad` for the SAME feeder. Bank in
+view whenever a feeder is alive OR the controller buffer holds
+(≥ CONTROLLER_STARVE_FLOOR=200); only genuine starvation (buffer drained, no
+feeder) drops it. One lens, two readers. Red-first: 6 new unit cases pin
+ride-the-gap + flap closure (w3 sip → ~49.5 sustained). Gate: unit 1462 +
+build + flow-handoff/runt-economy/storage-depot trio all green.
+
+**Deployed** to prod (master) at commit dcccbf6 (post-t72571505 global reset).
+
+**Predicted deltas (verify ~2400t out, past reset recovery):** inflow stops
+flapping to 2 (holds ~49 while stock≥200); body holds ~w40–49; X5 home churn
+< 11% and the 2300e@78t upgrader class gone; P7 delivery → ~49 e/t; storage
+slope turns negative (drains toward reserve). Regression rule: any triage line
+worse than the t72571505 baseline ⇒ redeploy origin/master, record falsified.
+
+Cycle verdict: **FIXED (deployed) — VERIFICATION PENDING** (prod recapture +
+`npm run audit:ledger` after ~2400t).
