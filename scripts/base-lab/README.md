@@ -84,6 +84,17 @@ paved ducts, 1 tender, ~1000t.
    65-136t is under a 50-part creep's 150t window, so full spawn capacity is
    always guaranteed; the latency is margin, not pass/fail.
 
+9. **RCL8's 200-cap extensions make refill EASIER and turn the outskirts into
+   reservoirs.** A legal creep is ≤50 parts (~2500e), but the RCL8 grid holds
+   ~12,900e, so a spawn is a PARTIAL drain — measured on shard3-W1N6: of 60
+   extensions, only **33 ever drain (working set); 27 stay ≥90% full all run**
+   (outskirt reservoirs a legal creep never reaches), util 1.000. Contrast RCL6
+   (50-cap): the whole grid fits inside one max body, so all 60 drain and one
+   tender can't keep up (util 0.73). So the design point matters: RCL8 capacity
+   is what LETS the dead-end-suburb layout work — the far extensions are free
+   permanent storage; only the near working set needs fast refill. (`--rcl` on
+   the bridge; `drained`/`reservoir` columns.)
+
 ## Caveats
 
 - Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding

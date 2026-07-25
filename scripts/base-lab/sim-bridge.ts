@@ -107,8 +107,8 @@ function main(): void {
       `sweeping --dead-bias; PLACEMENT gauges (base-lab) next to REFILL (sim)\n`
   );
   console.log(
-    ["bias", "ext", "compact", "outskirts", "onEdge", "refill mean/worst", "util", "endFill"]
-      .map((h, i) => h.padEnd([5, 5, 8, 10, 7, 20, 7, 7][i]))
+    ["bias", "ext", "compact", "outskirts", "onEdge", "refill mean/worst", "util", "endFill", "drained", "reservoir"]
+      .map((h, i) => h.padEnd([5, 5, 8, 10, 7, 20, 7, 9, 9, 9][i]))
       .join("")
   );
 
@@ -135,13 +135,16 @@ function main(): void {
         String(plan.extOnAccess).padEnd(7),
         refill.padEnd(20),
         m.utilization.toFixed(3).padEnd(7),
-        m.endFill.toFixed(3).padEnd(7)
+        m.endFill.toFixed(3).padEnd(9),
+        String(m.drainedExtensions).padEnd(9),
+        String(m.reservoirExtensions).padEnd(9)
       ].join("")
     );
   }
   console.log(
     "\ncompact = mean ext travel-dist from core (tiles); outskirts = mean dead-end depth from nearest artery (tiles);\n" +
-      "refill = ticks from a drain back to full. The question: does higher outskirts depth cost refill latency?"
+      "refill = ticks from a drain back to full; drained = ext that ever hit <=50% (the working set);\n" +
+      "reservoir = ext that stayed >=90% full all run (outskirts a legal 50-part creep never reaches)."
   );
 }
 

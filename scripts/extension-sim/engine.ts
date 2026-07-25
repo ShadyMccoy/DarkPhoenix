@@ -47,6 +47,8 @@ export interface EnergyStructure {
   pos: Pos;
   cap: number;
   energy: number;
+  /** lowest energy this structure ever held (drain-depth instrumentation) */
+  minEnergy: number;
 }
 
 export interface SpawnSite extends EnergyStructure {
@@ -164,6 +166,11 @@ export interface Metrics {
   worstRefillLatency: number;
   tenderTransferTicks: number;
   tenderDuty: number; // transfer ticks / (tenders * ticks)
+  /** extensions that ever dropped to <=50% cap (the working set that actually
+   * drains) vs those that stayed >=90% full all run (the outskirt reservoirs a
+   * legal creep never reaches). */
+  drainedExtensions: number;
+  reservoirExtensions: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +192,7 @@ export function buildWorld(s: Scenario): World {
       pos,
       cap: SPAWN_CAP,
       energy: SPAWN_CAP,
+      minEnergy: SPAWN_CAP,
       busyUntil: 0
     })),
     extensions: s.layout.extensions.map((pos, i) => ({
@@ -192,7 +200,8 @@ export function buildWorld(s: Scenario): World {
       kind: "extension",
       pos,
       cap: extCap,
-      energy: extCap
+      energy: extCap,
+      minEnergy: extCap
     })),
     tenders: [],
     tick: 0,
@@ -479,7 +488,9 @@ export function simulate(s: Scenario): Metrics {
     meanRefillLatency: 0,
     worstRefillLatency: 0,
     tenderTransferTicks: 0,
-    tenderDuty: 0
+    tenderDuty: 0,
+    drainedExtensions: 0,
+    reservoirExtensions: 0
   };
   const totalCap = (): number =>
     world.spawns.reduce((x, e) => x + e.cap, 0) + world.extensions.reduce((x, e) => x + e.cap, 0);
@@ -513,6 +524,9 @@ export function simulate(s: Scenario): Metrics {
     // Tenders.
     for (const t of world.tenders) runTender(world, t, s.tenderPolicy, s.layout.lane);
 
+    // Drain-depth instrumentation: track each structure's low-water mark.
+    for (const e of world.extensions) if (e.energy < e.minEnergy) e.minEnergy = e.energy;
+
     // Refill-latency meter: a drain window closes when the room is FULL again.
     if (totalEnergy() >= totalCap()) {
       if (drainOpenSince !== null) {
@@ -531,6 +545,8 @@ export function simulate(s: Scenario): Metrics {
   m.endFill = m.endFillCount > 0 ? m.endFillSum / m.endFillCount : 1;
   m.meanRefillLatency = m.refillEvents > 0 ? m.refillLatencySum / m.refillEvents : 0;
   m.tenderDuty = m.tenderTransferTicks / Math.max(1, world.tenders.length * s.ticks);
+  m.drainedExtensions = world.extensions.filter(e => e.minEnergy <= e.cap * 0.5).length;
+  m.reservoirExtensions = world.extensions.filter(e => e.minEnergy >= e.cap * 0.9).length;
   return m;
 }
 
