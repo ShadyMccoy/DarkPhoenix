@@ -1,11 +1,9 @@
 {
   "room": "W43N22",
   "shard": "shard1",
-  "capturedAt": "2026-07-22T18:52:37.485Z",
+  "capturedAt": "2026-07-25T08:44:22.717Z",
   "ownedOnLive": false,
-  "droppedObjectTypes": [
-    "road"
-  ],
+  "droppedObjectTypes": [],
   "terrain": [
     "#####................................#############",
     "##........................................~~######",

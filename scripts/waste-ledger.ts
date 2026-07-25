@@ -604,6 +604,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const duty = wavg("duty");
       const idleSource = wavg("idleSourceFrac");
       const idleSink = wavg("idleSinkFrac");
+      const idleSinkAtSink = wavg("idleSinkAtSinkFrac");
+      const idleSinkEnRoute = Math.max(0, idleSink - idleSinkAtSink);
       // Buffers over container cap (2000) = energy on the ground.
       const buffers: Record<string, number> = core.sourceBuffers ?? {};
       const overCap = Object.values(buffers).reduce((s, v) => s + Math.max(0, (v as number) - 2000), 0);
@@ -618,12 +620,15 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         unit: "active frac",
         verdict: executionLoss ? "WARN" : "ok",
         detail:
-          `duty ${duty.toFixed(2)} (idleSource ${idleSource.toFixed(2)}, idleSink ${idleSink.toFixed(2)}) over ` +
+          `duty ${duty.toFixed(2)} (idleSource ${idleSource.toFixed(2)}, idleSink ${idleSink.toFixed(2)} ` +
+          `[atSink ${idleSinkAtSink.toFixed(2)}, enRoute ${idleSinkEnRoute.toFixed(2)}]) over ` +
           `${haulers.length} corps/${creeps} creeps; ground-piled ${Math.round(overCap)}e ` +
           (piled
-            ? duty >= 0.75 && idleSource <= 0.2
+            ? duty >= 0.75 && idleSource <= 0.2 && idleSink <= 0.2
               ? "- haulers BUSY => plan under-asks (inflow-sized carry, no drain term)"
-              : "- haulers IDLE/blocked => execution loss (energy standing, unhauled)"
+              : idleSinkEnRoute >= idleSinkAtSink
+              ? "- idleSink EN-ROUTE => approach-lane congestion (traffic / standing blocker at the core)"
+              : "- idleSink AT-SINK => deposit throughput (link clamped / bank access)"
             : "- buffers near cap, no leak")
       });
     }

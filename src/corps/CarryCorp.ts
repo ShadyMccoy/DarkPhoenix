@@ -371,6 +371,7 @@ export interface SerializedCarryCorp extends SerializedCorp {
   dutyActive?: number;
   dutyIdleSource?: number;
   dutyIdleSink?: number;
+  dutyIdleSinkAtSink?: number;
   dutySince?: number;
 }
 
@@ -398,6 +399,12 @@ export class CarryCorp extends Corp {
   private dutyActive = 0;
   private dutyIdleSource = 0;
   private dutyIdleSink = 0;
+  /** Of the idleSink ticks, those spent ADJACENT to the deposit (storage/port):
+   * the sink refused the load (link clamped / bank full) vs the complement,
+   * blocked EN-ROUTE in the approach lane (traffic / a standing blocker). The
+   * split names the fix: at-sink => deposit throughput; en-route => decongest
+   * the lane / relocate the parked blocker. */
+  private dutyIdleSinkAtSink = 0;
   private dutySince = 0;
 
   /**
@@ -465,7 +472,7 @@ export class CarryCorp extends Corp {
     // last tick's realized result, so we measure movement that HAPPENED, not
     // intents (a blocked creep reads idle). Recycling creeps are excluded -
     // they are heading to the spawn to die, not hauling.
-    this.meterExecution(creeps.filter(c => !c.memory.recycling), tick);
+    this.meterExecution(creeps.filter(c => !c.memory.recycling), tick, room);
 
     this.lastSizing = {
       tick,
@@ -481,6 +488,9 @@ export class CarryCorp extends Corp {
             duty: Math.round((this.dutyActive / this.dutyAlive) * 1000) / 1000,
             idleSourceFrac: Math.round((this.dutyIdleSource / this.dutyAlive) * 1000) / 1000,
             idleSinkFrac: Math.round((this.dutyIdleSink / this.dutyAlive) * 1000) / 1000,
+            // of idleSink: adjacent to the deposit (sink refused) vs the
+            // complement, blocked en-route (lane traffic / standing blocker).
+            idleSinkAtSinkFrac: Math.round((this.dutyIdleSinkAtSink / this.dutyAlive) * 1000) / 1000,
             meterTicks: tick - this.dutySince
           }
         : {})
@@ -507,13 +517,23 @@ export class CarryCorp extends Corp {
    * was loaded (waiting to deliver) or empty (waiting to load). A creep with no
    * snapshot yet (just spawned / first observation) only seeds it, uncounted.
    */
-  private meterExecution(creeps: Creep[], tick: number): void {
+  private meterExecution(creeps: Creep[], tick: number, room: Room): void {
     if (tick - this.dutySince >= 1500) {
       this.dutyAlive = 0;
       this.dutyActive = 0;
       this.dutyIdleSource = 0;
       this.dutyIdleSink = 0;
+      this.dutyIdleSinkAtSink = 0;
       this.dutySince = tick;
+    }
+    // The deposit points a loaded hauler waits AT: the room storage and (spec
+    // 26) its port link. Adjacent-but-idle = the sink refused; not adjacent =
+    // blocked en-route in the approach lane.
+    const depositPos = this.storageDepositPort();
+    const sinks: RoomPosition[] = [];
+    if (room.storage) sinks.push(room.storage.pos);
+    if (depositPos && depositPos.roomName === room.name) {
+      sinks.push(new RoomPosition(depositPos.x, depositPos.y, depositPos.roomName));
     }
     for (const creep of creeps) {
       const energy = creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0;
@@ -532,6 +552,12 @@ export class CarryCorp extends Corp {
             break;
           case "idleSink":
             this.dutyIdleSink += 1;
+            if (
+              creep.pos.roomName === room.name &&
+              sinks.some(p => creep.pos.getRangeTo(p) <= 1)
+            ) {
+              this.dutyIdleSinkAtSink += 1;
+            }
             break;
         }
       }
@@ -1733,6 +1759,7 @@ export class CarryCorp extends Corp {
       dutyActive: this.dutyActive,
       dutyIdleSource: this.dutyIdleSource,
       dutyIdleSink: this.dutyIdleSink,
+      dutyIdleSinkAtSink: this.dutyIdleSinkAtSink,
       dutySince: this.dutySince
     };
   }
@@ -1748,6 +1775,7 @@ export class CarryCorp extends Corp {
     this.dutyActive = data.dutyActive ?? 0;
     this.dutyIdleSource = data.dutyIdleSource ?? 0;
     this.dutyIdleSink = data.dutyIdleSink ?? 0;
+    this.dutyIdleSinkAtSink = data.dutyIdleSinkAtSink ?? 0;
     this.dutySince = data.dutySince ?? 0;
   }
 }
