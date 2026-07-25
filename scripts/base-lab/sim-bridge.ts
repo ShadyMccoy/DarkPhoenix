@@ -59,6 +59,39 @@ function ductRoads(plan: BasePlan): Pos[] {
   return [...roads].map(unpack);
 }
 
+/**
+ * A fixed patrol circuit through the tender's working tiles (the duct tiles
+ * adjacent to extensions), as a nearest-neighbour tour from the core. Fed to
+ * lane-patrol so ONE tender can service the field on a CACHED route - no
+ * per-tick PathFinder call, the real CPU cost of a roaming tender.
+ */
+function circuit(plan: BasePlan): Pos[] {
+  const ducts = ductRoads(plan);
+  if (ducts.length === 0) return [];
+  const remaining = new Set(ducts.map(d => packTile(d.x, d.y)));
+  let cur: Pos = { x: plan.spawn.x, y: plan.spawn.y };
+  const tour: Pos[] = [];
+  while (remaining.size > 0) {
+    let best = -1;
+    let bestD = Infinity;
+    for (const t of remaining) {
+      const x = t % SIZE;
+      const y = Math.floor(t / SIZE);
+      const d = Math.max(Math.abs(x - cur.x), Math.abs(y - cur.y));
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    const x = best % SIZE;
+    const y = Math.floor(best / SIZE);
+    tour.push({ x, y });
+    remaining.delete(best);
+    cur = { x, y };
+  }
+  return tour;
+}
+
 /** Translate a base-lab plan into a sim Layout on the 50x50 board: the core is
  * the reload anchor (storage), the core pocket's spawns drain, the alveolar
  * field is the extensions, the highways are reserved lanes, and the terrain
@@ -73,7 +106,8 @@ function toSimLayout(plan: BasePlan, roadsMode: string): Layout {
     extensions: plan.extensions,
     roads: roadsMode === "ducts" ? ductRoads(plan) : [],
     reserved: [...plan.highways].map(unpack),
-    walls: wallTiles(plan.input.terrain)
+    walls: wallTiles(plan.input.terrain),
+    lane: circuit(plan) // used by lane-patrol; ignored by greedy/outbound
   };
 }
 

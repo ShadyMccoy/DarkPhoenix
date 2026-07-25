@@ -110,6 +110,19 @@ paved ducts, 1 tender, ~1000t.
     setup; RCL7 is the one to watch. (Earlier "RCL6 struggles" was an artifact
     of forcing the RCL8 count of 60 ext + 3 spawns at RCL6 caps.)
 
+11. **One greedy tender is the CPU-minimal design; cached circuits don't
+    transfer to the spread field.** Avoiding extra tenders is the CPU win that
+    matters (each creep ~0.4 CPU/tick of intents + its own pathing), and one
+    tender already holds util 1.000 at every RCL. Attempt to cut the lone
+    tender's pathfinding further with a fixed patrol circuit (nearest-neighbour
+    tour + `lane-patrol`) FAILED on the alveolar field (util 0.09-0.17,
+    never-full): lane-patrol head-resets each reload and re-walks from the
+    route start, fatal over a scattered 44-tile field (the sim's own findings
+    #3/#4 - circuits win only on dense corridors). A spread field wants
+    greedy-nearest, which is fine CPU-wise since real `moveTo` caches paths
+    (not a fresh search per tick). The circuit lever would need a corridor-
+    shaped working set, which fights the outskirt-reservoir benefit.
+
 ## Caveats
 
 - Policies tested: greedy-nearest, outbound-sweep, outbound-ration (see finding
