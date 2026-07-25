@@ -41,30 +41,49 @@ both feeders and runs `reactor.runReaction(feederA, feederB)`. Colony reaction
 throughput is then bounded by the **reactor** count and their cooldowns — and
 the **two feeders produce nothing.** They are permanently-idle reservoirs.
 
-The insight: because a lab on cooldown can *still be read as a reactant*, the
-"reservoir" role does not have to be paid for with two idle labs. Arrange labs so
-that each lab is both a **producer** (on its own cooldown clock) **and** a
-readable **reactant** for its neighbours — a **circular / ring layout** where
-every lab is within range 2 of the shared reactant pair *and* is itself tappable
-— and you recover the throughput those two dedicated feeders were sacrificing.
-More reactions squeezed out of the same lab count, per tick.
+The insight combines two facts:
+
+1. A lab on cooldown can *still be read as a reactant* — cooldown gates only
+   *producing*, never being-read (the mechanic above).
+2. A **lab tender** (the hauler that services labs, analogous to
+   `ExtensionTenderCorp`) can load **any reactant into any lab**. The
+   feeder/reactor roles are not physical properties of a lab; they are just
+   *what the tender put in it this cycle*.
+
+Together they make the feeder role **fungible**. A lab that just produced is on
+cooldown and cannot produce anyway — so during that otherwise-dead window the
+tender empties it and reloads a **base reactant**, and it serves as a *feeder*
+for a neighbour's reaction. No lab is a permanently-idle feeder; the feeding duty
+**rotates through the cooldown dead-time** that every lab has regardless. Arrange
+the labs in a **circular / ring layout** so each is within range 2 of enough
+neighbours to always form producer + two-feeder triples, and the average pushes
+toward *all N labs producing* instead of `N − 2`.
+
+**This does NOT depend on chained / multi-tier reactions.** Feeding one lab's
+output straight into the next tier would demand a *fatter base-reactant supply*
+(more mineral throughput and turnover than the reservoirs can sustain) and isn't
+quite feasible — so that is *not* the mechanism. The win is on ordinary
+**single-tier** reactions, purely from the tender's freedom to put any reactant
+in any lab plus cooldown-≠-read-lockout.
 
 ## The honest open question (this is the real work)
 
 Whether the ring actually beats `2 feeders + 8 reactors` is **not yet proven
-here** and is the substance of this spec when picked up. The tension:
+here** and is the substance of this spec when picked up. The real constraints:
 
-- To *produce* compound Z, a reactor must read two labs that hold Z's clean
-  input reactants (X and Y). A lab that just produced its own output holds *that
-  output*, not a clean base reactant — so "read across cooldown" pays off most
-  in **chained / multi-tier reactions**, where one lab's output *is* the next
-  tier's input, and can be consumed downstream immediately without waiting out
-  the producer's cooldown.
-- The range-2 packing constraint bounds how many labs can share a reactant pair,
-  and the geometry that maximises "every lab within range 2 of the labs it needs
-  to read" is the layout problem the word *circular* is pointing at. It must be
-  worked out against real lab count per RCL (3 at RCL6, 6 at RCL7, 10 at RCL8)
-  and real terrain, then measured — not asserted.
+- **Tender bandwidth.** The rotating-feeder trick spends *hauler* work: every
+  cooldown window now means emptying output + reloading a base reactant, where
+  the static layout paid nothing to keep two feeders topped. The throughput win
+  has to clear that extra carry cost (priced like any other consumer overhead —
+  CLAUDE.md macro doctrine, sized from ACTUAL lab stock, not a goal plan).
+- **Range-2 packing.** The geometry that keeps "every lab within range 2 of a
+  valid feeder pair" for as many labs as possible per tick is the layout problem
+  the word *circular* points at. It must be worked out against real lab count per
+  RCL (3 at RCL6, 6 at RCL7, 10 at RCL8) and real terrain, then measured — not
+  asserted.
+- **Scheduling.** Per tick, assign each lab producer-or-feeder so the maximum
+  number of valid triples fire, subject to what the tender can physically refill
+  that tick. This is the actual algorithm to write.
 
 So the deliverable when this is picked up is a **scheduler + placement** that,
 given a target compound (or boost chain) and a room's lab positions, assigns
