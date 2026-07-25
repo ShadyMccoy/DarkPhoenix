@@ -127,11 +127,18 @@ paved ducts, 1 tender, ~1000t.
     along the circuit, empties deep in the field, then must deadhead back to the
     CENTRAL storage to reload (O(radius) per load; the working set needs ~5
     loads at RCL8 since 38x200 >> any legal tender). Greedy wins by staying
-    LOCAL (fill nearest, reload nearby). The fix is not a better circuit but
-    DISTRIBUTED reload — links out in the field so the tender/fillers reload
-    locally — which is a layout change (add field links + model link-reload).
-    Until then: one greedy tender, fine CPU-wise since real `moveTo` caches
-    paths.
+    LOCAL (fill nearest, reload nearby). Draw order and head-reset don't change
+    it: the policy x draw matrix (lane-patrol/circuit-loop x circuit/near-reload)
+    all converge — RCL7 ~0.99 (nearly works; small active region under partial
+    drain), RCL8 0.168 (3-spawn drain outpaces a route-follower). The wall: at
+    RCL8 the working set holds 7600e but a legal tender holds 1650e, so any pass
+    needs ~5 reloads; greedy makes each LOCAL, a fixed route can't. Deeper point:
+    in a sim that doesn't charge CPU a smart circuit can at best TIE greedy
+    (greedy already picks the nearest empty every tick); its only real edge is
+    CPU, and greedy's is already low (moveTo caches paths). So one greedy tender
+    is the design; the only version that could pay is a loop-skipping circuit
+    that JUMPS between active loops without pathing (a hierarchical loop
+    structure) — unbuilt. circuit-loop is kept as a working RCL6/7 option.
 
 ## Caveats
 
