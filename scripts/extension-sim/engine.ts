@@ -76,6 +76,8 @@ export interface World {
   roads: Set<string>;
   /** highway tiles: walkable, but no structure may be built on them */
   reserved: Set<string>;
+  /** impassable terrain tiles (walls) - block movement */
+  walls: Set<string>;
   spawns: SpawnSite[];
   extensions: EnergyStructure[];
   tenders: Tender[];
@@ -101,6 +103,13 @@ export interface Layout {
    * the refill cost of keeping the artery clear falls out of the sim.
    */
   reserved?: Pos[];
+  /** Impassable terrain (walls). Blocks tender movement - required to sim a
+   * real captured room, where the tender must route AROUND the rock rather than
+   * fly through it. Empty on the synthetic open boards. */
+  walls?: Pos[];
+  /** Board edge length. Defaults to 30 (the synthetic board); a real room is
+   * 50. */
+  size?: number;
 }
 
 /** Draw-order policy: which structures a spawn drains, in order.
@@ -152,11 +161,12 @@ export interface Metrics {
 export function buildWorld(s: Scenario): World {
   const extCap = EXT_CAP[Math.min(8, Math.max(6, s.rcl))];
   const world: World = {
-    size: 30,
+    size: s.layout.size ?? 30,
     rcl: s.rcl,
     storage: s.layout.storage,
     roads: new Set(s.layout.roads.map(key)),
     reserved: new Set((s.layout.reserved ?? []).map(key)),
+    walls: new Set((s.layout.walls ?? []).map(key)),
     spawns: s.layout.spawns.map((pos, i) => ({
       id: `spawn${i}`,
       kind: "spawn",
@@ -197,6 +207,7 @@ export function buildWorld(s: Scenario): World {
 
 function blocked(world: World, p: Pos): boolean {
   if (p.x < 0 || p.y < 0 || p.x >= world.size || p.y >= world.size) return true;
+  if (world.walls.has(key(p))) return true;
   if (key(p) === key(world.storage)) return true;
   if (world.spawns.some(sp => key(sp.pos) === key(p))) return true;
   if (world.extensions.some(e => key(e.pos) === key(p))) return true;

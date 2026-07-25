@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import {
   EXT_CAP,
+  Layout,
   Pos,
   STORAGE,
   Scenario,
@@ -219,6 +220,83 @@ describe("extension-sim highways constraint", () => {
     const w1 = highwayTiles("spine", 30, 1).length;
     const w2 = highwayTiles("spine", 30, 2).length;
     expect(w2).to.equal(w1 * 2); // spine widens by one full extra row
+  });
+});
+
+/**
+ * Walls (owner: "iterate on simming a geometry"): the sim gained impassable
+ * terrain so it can measure a real captured room's refill, where the tender
+ * must route AROUND the rock. These pins lock that walls block movement and are
+ * carried into the world.
+ */
+describe("extension-sim walls (real-terrain movement)", () => {
+  const key = (p: Pos): string => `${p.x},${p.y}`;
+
+  it("walls block the tender: it detours around a wall and never steps onto one", () => {
+    // A vertical wall at x=20 spanning y 10..20. A tender at (18,15) reaching an
+    // extension at (25,15) must go around a wall end (y<10 or y>20), never onto
+    // an x=20 wall tile.
+    const walls: Pos[] = [];
+    for (let y = 10; y <= 20; y += 1) walls.push({ x: 20, y });
+    const layout: Layout = {
+      name: "wall",
+      storage: { x: 5, y: 15 },
+      spawns: [{ x: 5, y: 16 }],
+      extensions: [{ x: 25, y: 15 }],
+      roads: [],
+      walls
+    };
+    const world = buildWorld({
+      layout,
+      rcl: 6,
+      drawOrder: "engine-default",
+      tenderPolicy: "greedy-nearest",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 10
+    });
+    expect(world.walls.has(key({ x: 20, y: 15 })), "wall carried into the world").to.equal(true);
+
+    let pos: Pos = { x: 18, y: 15 };
+    let reached = false;
+    for (let i = 0; i < 80; i += 1) {
+      const step = stepToward(world, pos, { x: 25, y: 15 }, 1);
+      if (!step) {
+        reached = true;
+        break;
+      }
+      expect(world.walls.has(key(step)), `stepped onto wall at ${step.x},${step.y}`).to.equal(false);
+      pos = step;
+    }
+    expect(reached || Math.max(Math.abs(pos.x - 25), Math.abs(pos.y - 15)) <= 1, "reached the extension around the wall").to.equal(
+      true
+    );
+  });
+
+  it("a wall can seal a target: an extension fully walled off is unreachable", () => {
+    // Box the extension at (25,15) in walls on all 8 sides -> stepToward can
+    // never get within range 1 (every approach tile is a wall).
+    const walls: Pos[] = [];
+    for (let dx = -1; dx <= 1; dx += 1) for (let dy = -1; dy <= 1; dy += 1) if (dx || dy) walls.push({ x: 25 + dx, y: 15 + dy });
+    const layout: Layout = {
+      name: "sealed",
+      storage: { x: 5, y: 15 },
+      spawns: [{ x: 5, y: 16 }],
+      extensions: [{ x: 25, y: 15 }],
+      roads: [],
+      walls
+    };
+    const world = buildWorld({
+      layout,
+      rcl: 6,
+      drawOrder: "engine-default",
+      tenderPolicy: "greedy-nearest",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 10
+    });
+    const step = stepToward(world, { x: 18, y: 15 }, { x: 25, y: 15 }, 1);
+    expect(step, "no step can reach a fully walled-off tile").to.equal(null);
   });
 });
 
