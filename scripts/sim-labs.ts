@@ -25,6 +25,23 @@
  * A drifting intermediate means the reported rate is borrowed from a bleeding
  * buffer, not earned. Tight batches (small --batch/--keep) hold the buffers flat.
  *
+ * CPU: every tender withdraw/deposit is one intent = 0.2 CPU. The dominant cost
+ * is round-tripping intermediates through the terminal in small batches. Larger
+ * --batch amortises tender trips (batch 10 -> ~118 CPU/1k; batch 30 -> ~36 CPU/1k,
+ * both conserving; past ~60 this scheduler's allocation goes lumpy and drift
+ * breaks conservation). batch 30 is the default: the CPU-cheapest point that
+ * still conserves.
+ *
+ * STRUCTURAL LIMIT (why "leave it in the lab" only goes so far): the full XGH2O
+ * tree wants 7 producer labs + 7 base-reservoir labs = 14 concurrent roles, but
+ * RCL8 has 10 labs. Intermediates can sit in their own producer labs for free
+ * (labs hold 3000), but the BASE reservoirs are the crunch — ZK/UL/OH/XGH2O
+ * running at once need Z K U L O H X all held. So the cluster CANNOT run the
+ * whole tree concurrently; it must PHASE (time-share base-holder labs). The
+ * terminal round-trip here IS that phasing, done via a shared buffer. A lower-CPU
+ * design phases in-lab (hold intermediates, swap only base holders) — a phased
+ * scheduler, and the real next step.
+ *
  * Run:  npx ts-node -P tsconfig.test.json scripts/sim-labs.ts [--target XGH2O]
  *                                                             [--ticks 80000]
  *                                                             [--carry 2000]
@@ -165,8 +182,8 @@ function parseArgs(argv: string[]): Args {
     carry: parseInt(get("--carry", "2000"), 10),
     combined: argv.includes("--combined"),
     quiet: argv.includes("--quiet"),
-    batch: parseInt(get("--batch", "10"), 10),
-    keep: parseInt(get("--keep", "60"), 10),
+    batch: parseInt(get("--batch", "30"), 10),
+    keep: parseInt(get("--keep", "180"), 10),
   };
 }
 
@@ -214,6 +231,7 @@ function run(args: Args): void {
 
   // metrics
   let tenderBusyTicks = 0;
+  let tenderIntents = 0; // each withdraw/deposit is one intent = 0.2 CPU
   let reactionsRun = 0;
   let readsAcrossCooldown = 0; // reactions where a source lab was itself on cooldown
   let producedTarget = 0;
@@ -358,10 +376,12 @@ function run(args: Args): void {
 
     let acted = false;
     if (args.combined) {
-      acted = doWithdraw();
-      acted = doDeposit() || acted;
+      const w = doWithdraw(); if (w) tenderIntents++;
+      const d = doDeposit(); if (d) tenderIntents++;
+      acted = w || d;
     } else {
       acted = tender.carrying ? doDeposit() : doWithdraw();
+      if (acted) tenderIntents++;
     }
     if (acted) tenderBusyTicks++;
   };
@@ -485,6 +505,8 @@ function run(args: Args): void {
   console.log(`    reactions run        : ${reactionsRun}`);
   console.log(`    reads across cooldown: ${readsAcrossCooldown}  (source lab itself cooling — the spec-31 exploit)`);
   console.log(`    tender utilisation   : ${((tenderBusyTicks / args.ticks) * 100).toFixed(1)}%  (${tenderBusyTicks}/${args.ticks} strokes used, carry ${args.carry})`);
+  const intentsPerK = (tenderIntents / args.ticks) * 1000;
+  console.log(`    tender CPU           : ${intentsPerK.toFixed(0)} intents/1k = ${(intentsPerK * 0.2).toFixed(1)} CPU/1k ticks (0.2 CPU/intent), ${(producedTarget > 0 ? (tenderIntents * 0.2) / producedTarget : 0).toFixed(2)} CPU per ${target}`);
   console.log("");
   console.log(`  CONSERVATION  (sustainable <=> labs + intermediates return to start fill)`);
   console.log(`    lab material drift    : ${labDriftPerK.toFixed(2)} units / 1000 ticks`);

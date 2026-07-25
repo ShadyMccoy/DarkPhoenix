@@ -131,11 +131,38 @@ Measured (XGH2O, top boost, cooldown 80; bases assumed supplied to the terminal)
   reaction alone wanting ~16 labs per unit/tick). ~140 is sustainable but not
   optimal — a balanced allocator is the real scheduler work.
 
+**CPU cost (every tender intent is 0.2 CPU — GRAND_STRATEGY §1).** The dominant
+cost is round-tripping intermediates through the terminal, so it amortises with
+the scheduler's batch granularity (units made per tender trip):
+
+| batch | CPU / 1000 ticks | CPU per XGH2O | conserves? |
+|------:|-----------------:|--------------:|:----------:|
+| 10 | 117.8 | 0.85 | yes |
+| **30** (default) | **36.4** | **0.29** | yes |
+| 60 | 17.2 | 0.15 | no (GH drifts) |
+| 120 | 8.8 | 0.08 | no |
+
+Bigger batches are far cheaper but this terminal-buffered scheduler goes lumpy
+past ~60 and breaks conservation; **batch 30 is the shipped default — the
+CPU-cheapest point that still holds every buffer flat (~3× cheaper than batch 10).**
+
+**Structural limit — why "leave it in the lab" only goes so far.** The full XGH2O
+tree wants **7 producer labs + 7 base-reservoir labs = 14 concurrent roles**, but
+RCL8 has **10**. Intermediates can sit in their own producer labs for free (labs
+hold 3000 — the owner's capacity insight), but the **base reservoirs are the
+crunch**: running `ZK`/`UL`/`OH`/`XGH2O` at once needs `Z K U L O H X` all held.
+So the cluster **cannot run the whole tree concurrently — it must PHASE**
+(time-share the base-holder labs). The terminal round-trip *is* that phasing, via
+a shared buffer, paid for in intents. A lower-CPU design phases in-lab (hold
+intermediates in place, swap only the base holders, read across cooldown) — that
+is a **phased scheduler**, the real next step, and where the spec-31 cooldown-read
+exploit pays the most.
+
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
 boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability
 is bounded by **terminal import throughput**, not the lab layout — a
-bounded-mineral-income model is the next iteration.
+bounded-mineral-income model is the other open iteration.
 
 ## The honest open question (this is the real work)
 
