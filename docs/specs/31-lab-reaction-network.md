@@ -183,6 +183,47 @@ few swapped base holders, ~62/1k @ 0.73 CPU/unit) and the **eviction-based mix**
 (swapping bases by withdrawal, ~69/1k @ 0.87) — both lose to react-away because
 the *withdraws* are the cost; removing them is the whole win.
 
+**The Ghodium line's "necessary withdraws" = the terminal-buffered scheduler.**
+For `XGH2O` the 7 compound labs must all hold material at once, so ~4 compounds
+have to live *outside* the labs — i.e. in the terminal. `sim-labs.ts` does this
+systematically (batch the parking through the terminal) and is exactly "XGH2O
+with the necessary withdraws": it works, conserves, ~0.29 CPU/unit. Trying to do
+it *minimally* — bolt an opportunistic "spill a compound when saturated" onto the
+react-away mix — **thrashes** (park-then-reload ping-pong, ~200 CPU/1k, zero net
+output; measured). Lesson: once the tree saturates the labs, systematic batched
+terminal-buffering beats ad-hoc spilling. There may be headroom (park only the ~4
+that don't fit, not all 6), but nothing simple realized it.
+
+## Cross-check against public Screeps bots (survey)
+
+Surveyed Overmind, Quorum, and TooAngel source (Abathur/EvolutionChamber,
+`city/labs.js`, `doc/Mineral.md`) plus the lab API. Findings:
+
+- **Feeder labs are universal.** Overmind picks its 2 `reagentLabs` as the labs
+  within range 2 of all others (`productLabs = difference`); Quorum uses
+  `getFeederLabs()`/`getVatLabs()`. Everyone dedicates **2 feeder labs** and eats
+  the N−2 throughput. Our **feeder-*spots* rotation is novel** — and still
+  unproven (the honest open question below): the scheduler must be shown to beat
+  2-feeder+8-reactor before the geometry is worth it.
+- **Buffering splits, and nobody switches by depth.** Overmind and TooAngel
+  **terminal-buffer** (Overmind's `LabStatus` round-trips products back to the
+  terminal every phase, batches 100–800); Quorum holds reagents **in-lab**. None
+  is **depth-conditional**. Our policy — react-away in-lab for shallow, terminal
+  only for the Ghodium line — is **more refined**, and specifically **cheaper than
+  Overmind for the common shallow boosts** (Overmind pays the round-trip even
+  there; we don't). Our XGH2O conclusion *matches* Overmind's actual design.
+- **Worth stealing (we don't have these):** (1) Overmind's **Abathur** — a full
+  recursive reaction-tree queue with priority/wanted stock tiers + market-buy
+  fallback (informs the demand model, dependency #3 below); (2) the **`operate_lab`
+  power** (2–10× output per reaction) — a real throughput lever no open bot's base
+  logic or our sim models; (3) a **deadlock-timeout state machine** (Overmind's
+  `LabStageTimeouts`) — exactly the guard our react-away sim lacks (it deadlocks
+  on depth-5 rather than recovering).
+
+Sources: Overmind `src/hiveClusters/evolutionChamber.ts`, `src/resources/Abathur.ts`;
+Quorum `src/programs/city/labs.js`; TooAngel `doc/Mineral.md`; `screeps/docs`
+`StructureLab`. (bonzAI lab source not locatable.)
+
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
 boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability
