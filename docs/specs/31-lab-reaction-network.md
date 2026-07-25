@@ -154,22 +154,30 @@ base-holder labs between phases, so only the 2 bases the current reaction needs
 are held. ~7 producer/buffer labs + a few swappable base holders fit in 10. Both
 schedulers phase; the only question is *how*.
 
-**Measured: two ways to phase, and the terminal wins here.**
+**Measured: three schedulers, and the terminal wins here.**
 
-| scheduler | how it phases | rate | CPU/unit |
+| scheduler | idea | rate | CPU/unit |
 |---|---|---:|---:|
-| terminal-buffered (`sim-labs.ts`) | intermediates round-trip through the terminal (a large free shared buffer) | ~128/1k | 0.29 |
-| in-lab phased (`sim-labs-phased.ts`) | intermediates held in place; 3 base-holder labs swapped by the tender | ~62.5/1k | 0.73 |
+| **terminal-buffered** (`sim-labs.ts`) | intermediates round-trip through the terminal | **~128/1k** | **0.29** |
+| phased in-lab (`sim-labs-phased.ts`) | one lab per compound; swap a few base holders | ~62/1k | 0.73 |
+| fungible mix (`sim-labs-mix.ts`) | any lab fires any goal-tree reaction, bottom-up | ~69/1k | 0.87 |
 
-The in-lab version conserves and **proves the owner's point** — it runs the whole
-tree with just **3 base-holder labs, swapped** — but it came out *worse*:
-dedicating one lab per compound leaves only 3 base holders that **thrash on
-swaps**, and one lab on the cd-80 top reaction **caps throughput**. The
-counterintuitive takeaway: the terminal is a **cheap, large shared buffer** —
-"leave it in the lab" removes intermediate round-trips but reintroduces
-base-holder contention that ate the savings. A smarter in-lab scheduler (big
-non-evicted base charges + several labs on the bottleneck reaction) might still
-beat it, but naive in-lab phasing does not — measured, not assumed.
+Both in-lab schedulers conserve and **prove the owner's point** — they run the
+whole tree without holding all 7 bases (a few swapped base-holder labs) — but
+both measured *worse*. **Root cause (the load-bearing fact): a lab holds exactly
+ONE mineral type.** So each of the tree's 6 intermediates + up to 7 bases + a
+target slot needs its **own** lab, and that working set barely fits 10 labs with
+~zero slack — the two naive in-lab versions actually **deadlocked** (all labs
+full of intermediates + bases, none free for the final reaction) until a reserved
+target-lab + base eviction unblocked the mix one. The tender then spends its
+intents juggling the scarce base-holder slots.
+
+The counterintuitive takeaway: the **terminal is a 300k-capacity buffer that
+holds the intermediates the labs physically cannot** — routing through it is not
+waste, it is *renting capacity the 10 labs don't have*, and the round-trip
+intents are the price. "Leave it in the lab" is real but bounded by one-mineral-
+per-lab; for a 7-deep, 7-base tree the terminal earns its keep. (A shallower tree,
+or more labs, shifts the balance back toward in-lab.)
 
 What the sim deliberately does NOT yet model (and why it matters): the terminal's
 base minerals are assumed supplied. A room mines exactly **one** mineral; the top
