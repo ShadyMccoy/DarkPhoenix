@@ -56,7 +56,7 @@ function main(): void {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : dflt;
   };
-  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target"]);
+  const valueFlags = new Set(["--rcl", "--ticks", "--carry", "--move", "--target", "--bias"]);
   const positional = args.find((a, i) => !a.startsWith("--") && !(i > 0 && valueFlags.has(args[i - 1])));
 
   const rcl = Number(flagVal("--rcl", "8"));
@@ -64,6 +64,10 @@ function main(): void {
   const carry = Number(flagVal("--carry", "25"));
   const move = Number(flagVal("--move", "25"));
   const target = Number(flagVal("--target", String(RCL8_EXTENSIONS)));
+  const biases = flagVal("--bias", "0,1,2,3")
+    .split(",")
+    .map(Number)
+    .filter(b => !Number.isNaN(b));
   const fixture = positional ?? defaultFixture();
   const input = loadFixture(fixture);
 
@@ -77,7 +81,7 @@ function main(): void {
       .join("")
   );
 
-  for (const deadBias of [0, 1, 2, 3]) {
+  for (const deadBias of biases) {
     const plan = planBase(input, { target, fillMode: "alveoli", deadBias });
     const layout = toSimLayout(plan);
     const scenario: Scenario = {
