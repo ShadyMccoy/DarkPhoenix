@@ -54,10 +54,10 @@ Together they make the feeder role **fungible**. A lab that just produced is on
 cooldown and cannot produce anyway — so during that otherwise-dead window the
 tender empties it and reloads a **base reactant**, and it serves as a *feeder*
 for a neighbour's reaction. No lab is a permanently-idle feeder; the feeding duty
-**rotates through the cooldown dead-time** that every lab has regardless. Arrange
-the labs in a **circular / ring layout** so each is within range 2 of enough
-neighbours to always form producer + two-feeder triples, and the average pushes
-toward *all N labs producing* instead of `N − 2`.
+**rotates through the cooldown dead-time** that every lab has regardless. Lay the
+labs out so the tender can reach every one of them and so each lab has two others
+in range 2 to read (see Layout below), and the average pushes toward *all N labs
+producing* instead of `N − 2`.
 
 **This does NOT depend on chained / multi-tier reactions.** Feeding one lab's
 output straight into the next tier would demand a *fatter base-reactant supply*
@@ -66,16 +66,90 @@ quite feasible — so that is *not* the mechanism. The win is on ordinary
 **single-tier** reactions, purely from the tender's freedom to put any reactant
 in any lab plus cooldown-≠-read-lockout.
 
+## Layout — 10 labs, two feeder *spots* (owner design)
+
+The concrete layout (RCL8, 10 labs). `F` are **feeder spots**: walkable tiles the
+tender stands on, NOT feeder labs. Every physical lab produces; feeding is a
+*position/role*, not a dedicated lab.
+
+```
+        c0    c1    c2    c3
+   r0 │ L  │ L  │ L  │ ·  │      L = lab (10 total)
+   r1 │ L  │ F  │ L  │ L  │      F = feeder spot (tender standing tile) at (1,1),(2,2)
+   r2 │ L  │ L  │ F  │ L  │      · = open/road (base access)
+   r3 │ ·  │ L  │ ·  │ ·  │
+```
+
+Lab coords: `(0,0)(1,0)(2,0) (0,1)(2,1)(3,1) (0,2)(1,2)(3,2) (1,3)`.
+Feeder spots: `(1,1)(2,2)`.
+
+Why it works (geometry facts — **verify vs engine**):
+
+- **The two spots reach all 10 labs at range 1.** F1 `(1,1)` is adjacent to 7
+  labs, F2 `(2,2)` to the other 5 (overlap on `(2,1)`,`(1,2)`); union = all 10.
+  The spots are **diagonally adjacent**, so the tender services the whole cluster
+  by shuttling one step between two tiles.
+- **The tender can get in.** F2 opens onto `(2,3)`/`(3,3)` → base road; F1 is
+  reached through F2. No enclosed tile (the earlier 3×3-ring sketch was wrong:
+  its center was walled in by 8 labs, unreachable — this layout fixes that).
+- **Reactions form two overlapping range-2 cells.** The F1 cluster and F2 cluster
+  are each mutually within range 2, sharing `(2,1)`,`(1,2)` as the bridge. Each
+  producer always has two read-sources in range within its cell; roles rotate,
+  the tender re-charges from the two spots. A reaction spanning the full
+  footprint (`(0,0)`↔`(1,3)`, range 4) is *not* possible and not needed — it's a
+  two-cell network sharing one tender, not one giant cell.
+
+There is flexibility here (the owner notes the exact lab/spot placement can
+vary); the invariants that must hold are the three bullets above.
+
+## Simulator — `scripts/sim-labs.ts` (conservation-verified)
+
+A standalone sim (`npx ts-node -P tsconfig.test.json scripts/sim-labs.ts`) models
+this layout, the terminal as raw-reactant + compound warehouse, the full reaction
+tree with per-compound cooldowns, and the tender as a **2-stroke forklift**
+(withdraw one tick, deposit the next — the owner's "one withdraw *or* deposit per
+tick" model). It is a design aid, **not** an acceptance test: every game constant
+is standard-Screeps but UNVERIFIED (engine not vendored).
+
+**Sustainable is defined as conservation** (owner): over the measured window the
+labs and every intermediate buffer must return to their starting fill, so the
+only net changes are bases in and top compound out. A drifting intermediate means
+the output rate is *borrowed from a bleeding buffer*, not earned — the sim reports
+per-intermediate drift and fails the verdict if any buffer drifts past tolerance.
+(This caught a false "sustainable" from an early coarse-batch scheduler.)
+
+Measured (XGH2O, top boost, cooldown 80; bases assumed supplied to the terminal):
+
+- **~140 XGH2O / 1000 ticks, conservation-closed** — max intermediate drift
+  ≤ 0.13 units/1000 ticks, lab-fill drift ≤ 0.2; genuinely steady state.
+- **A single small tender suffices** — carry 25, 50, and 2000 give the *identical*
+  rate: with small per-load amounts the carry size never binds, only the stroke
+  count does, and one tender runs at ~59% of its strokes with headroom. This
+  confirms the tender-bandwidth worry below is smaller than feared.
+- The heuristic scheduler leaves throughput on the floor: the lab-limited ceiling
+  for XGH2O in 10 labs is ~`10/26 ≈ 0.38`/tick (**~385/1000**, the cd-80 top
+  reaction alone wanting ~16 labs per unit/tick). ~140 is sustainable but not
+  optimal — a balanced allocator is the real scheduler work.
+
+What the sim deliberately does NOT yet model (and why it matters): the terminal's
+base minerals are assumed supplied. A room mines exactly **one** mineral; the top
+boosts need all seven (`U L K Z O H` + `X`), so true colony-scale sustainability
+is bounded by **terminal import throughput**, not the lab layout — a
+bounded-mineral-income model is the next iteration.
+
 ## The honest open question (this is the real work)
 
 Whether the ring actually beats `2 feeders + 8 reactors` is **not yet proven
 here** and is the substance of this spec when picked up. The real constraints:
 
 - **Tender bandwidth.** The rotating-feeder trick spends *hauler* work: every
-  cooldown window now means emptying output + reloading a base reactant, where
-  the static layout paid nothing to keep two feeders topped. The throughput win
-  has to clear that extra carry cost (priced like any other consumer overhead —
-  CLAUDE.md macro doctrine, sized from ACTUAL lab stock, not a goal plan).
+  cooldown window means emptying output + reloading a reactant. Measured in the
+  sim, this is **cheap** — a single small tender (even carry 25) sustains full
+  throughput at ~59% of its strokes, because one lab-load serves many reads
+  before it drains. So the bandwidth cost is real but not the binding constraint;
+  the ceiling is **lab count × cooldown**, not the tender. Still priced like any
+  consumer overhead (CLAUDE.md macro doctrine, sized from ACTUAL lab stock) when
+  built for real.
 - **Range-2 packing.** The geometry that keeps "every lab within range 2 of a
   valid feeder pair" for as many labs as possible per tick is the layout problem
   the word *circular* points at. It must be worked out against real lab count per
