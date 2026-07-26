@@ -18,6 +18,7 @@ const roi = (economicValue: number): NodeROI => ({
   expansionScore: economicValue,
   rawCorpROI: 0,
   economicValue,
+  mineralValue: 0,
   potentialCorps: [],
   openness: 0,
   distanceFromOwned: 0,

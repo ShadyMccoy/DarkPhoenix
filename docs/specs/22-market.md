@@ -1,8 +1,10 @@
 # 22 — Market: credits as the zero-mass resource
 
-**Status:** DOCTRINE (owner 2026-07-20). No implementation yet — sequenced
-after the expansion phase. Terminal is buildable at RCL6 (the home room
-qualifies today; ~100k build).
+**Status:** DOCTRINE (owner 2026-07-20). The mineral-value ESTIMATE has
+landed (ahead of the corp — see "The estimate" below); the market corp
+(sizing, terminal deals, order management) is still sequenced after the
+expansion phase. Terminal is buildable at RCL6 (the home room qualifies
+today; ~100k build).
 **Priority:** roadmap domain (with minerals/labs, military, scaling).
 **Depends on:** spec 20 (corp accounting — credits join as a currency),
 spec 17 (registration-only kinds — the market corp is a kind).
@@ -58,6 +60,39 @@ the logistics layer.
   same session): efficient rooms stretch CPU; CPU runs market corps;
   credits move value where matter cannot. Room-portfolio valuation
   eventually prices SK adjacency and terminal logistics position.
+
+## The estimate (shipped ahead of the corp)
+
+Before any market corp exists, the market's *value* is priced into
+room/node selection so mineral-rich rooms (dense keeper X/H) rank up for
+claiming. Pure and testable, it does not extract or trade anything.
+
+- **Formulas** (`economy/primitives.ts`, the one formula home): a mineral
+  is REGEN-limited, not miner-limited — a deposit drains then sits dead for
+  `MINERAL_REGEN_TIME` (50k), so the long-run rate is
+  `amount / (drainTicks + 50k)`, bounded by `amount/50k` however big the
+  miner. `mineralNetEnergy` values that rate at the market EXCHANGE
+  (`mineralPrice / energyPrice` — sell the mineral, buy energy) minus the
+  tiny miner+hauler overhead, mirroring `netEnergy` for a source.
+  `mineralEnergyPerSpawnPart` mirrors the source shadow price — minerals win
+  it big because the miner recycles free through the regen dead-period.
+- **Node EV** (`economy/mineralValue.ts`, pure): `mineralNodeValue` from
+  intel alone (type + density/amount), GROSS of any securing cost — the
+  claim/keeper decision nets that (spec 21). Unknown/unpriced/unscouted →
+  0 (never guessed). Folds into `node.roi` alongside the source-side
+  economic value, on the same energy axis, so it flows through the existing
+  expansion-candidate ranking.
+- **Prices are OBSERVED, cached** (`execution/marketSampler.ts`): a wide
+  cadence samples `Game.market` (energy = cheapest sell order, each mineral
+  = best buy order) into `Memory.marketPrices`. A static snapshot
+  (2026-07-26 market page) is the fallback when stale/absent — so sims/grid
+  resolve deterministically and a terminal-less early game still estimates.
+- **What the numbers said** (energy ≈ 33cr, 20W miner, density-3, ~25-tile
+  haul): X (~580cr) ≈ 18 e-equiv/t and H (~443cr) ≈ 14 — both beat *any*
+  single remote source (max ~9). L (~225) ≈ 7 beats a d≥100 remote. O
+  (~148)/K (~121) only beat far remotes. U (~55)/Z (~44) lose to remote
+  mining. The verdict is price-sensitive by construction — hence observed,
+  not assumed, prices.
 
 ## Non-goals (for now)
 

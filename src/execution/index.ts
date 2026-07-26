@@ -31,6 +31,8 @@ export {
 
 export { rescueOrphans, orphanAction, ORPHAN_GRACE_TICKS } from "./OrphanRescue";
 
+export { sampleMarketPrices, MARKET_SAMPLE_INTERVAL } from "./marketSampler";
+
 export { runSpawnScheduling } from "./SpawnDirector";
 
 export { runLinks } from "./LinkRunner";
@@ -43,6 +45,7 @@ export {
   MULTI_ROOM_ANALYSIS_CACHE_TTL,
   getAnalysisCache,
   isAnalysisInProgress,
+  nodeMineralValue,
   refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,

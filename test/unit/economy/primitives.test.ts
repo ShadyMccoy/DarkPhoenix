@@ -159,6 +159,110 @@ describe("economy/primitives", () => {
   });
 });
 
+// Spec 22 estimate: mineral extraction valued in energy terms via the market
+// chain (sell the mineral, buy energy). Every number hand-derived from the
+// Screeps mineral constants so a formula drift fails loudly.
+describe("economy/primitives - mineral extraction (spec 22)", () => {
+  const {
+    EXTRACTOR_COOLDOWN,
+    HARVEST_MINERAL_POWER,
+    MINERAL_REGEN_TIME,
+    MINERAL_DENSITY_AMOUNT,
+    mineralPeakRate,
+    mineralExtractionRate,
+    marketEnergyPerMineral,
+    mineralMinerCost,
+    mineralNetEnergy,
+    mineralEnergyPerSpawnPart,
+    energyPerSpawnPart: energyPerSpawnPartFn
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+  } = require("../../../src/economy/primitives");
+
+  it("pins the Screeps mineral constants the formulas derive from", () => {
+    expect(EXTRACTOR_COOLDOWN).to.equal(5);
+    expect(HARVEST_MINERAL_POWER).to.equal(1);
+    expect(MINERAL_REGEN_TIME).to.equal(50_000);
+    expect(MINERAL_DENSITY_AMOUNT[1]).to.equal(15_000);
+    expect(MINERAL_DENSITY_AMOUNT[2]).to.equal(35_000);
+    expect(MINERAL_DENSITY_AMOUNT[3]).to.equal(70_000);
+    expect(MINERAL_DENSITY_AMOUNT[4]).to.equal(100_000);
+  });
+
+  describe("mineralPeakRate", () => {
+    it("is workParts * HARVEST_MINERAL_POWER / EXTRACTOR_COOLDOWN", () => {
+      expect(mineralPeakRate(20)).to.equal(4); // 20 / 5
+      expect(mineralPeakRate(10)).to.equal(2);
+      expect(mineralPeakRate(0)).to.equal(0);
+    });
+  });
+
+  describe("mineralExtractionRate (REGEN-limited, not miner-limited)", () => {
+    it("averages the deposit over drain + regen (density-3, 20W = ~1.037/t)", () => {
+      // 70000 / (70000/4 + 50000) = 70000 / 67500
+      expect(mineralExtractionRate(20, 70_000)).to.be.closeTo(70_000 / 67_500, 1e-9);
+    });
+    it("is bounded by amount/REGEN however large the miner (sublinear in W)", () => {
+      const ceiling = 70_000 / MINERAL_REGEN_TIME; // 1.4/t
+      expect(mineralExtractionRate(20, 70_000)).to.be.lessThan(ceiling);
+      expect(mineralExtractionRate(1000, 70_000)).to.be.lessThan(ceiling);
+      // doubling WORK does NOT double the long-run rate - the regen dominates
+      expect(mineralExtractionRate(40, 70_000)).to.be.lessThan(2 * mineralExtractionRate(20, 70_000));
+    });
+    it("scales with deposit density", () => {
+      expect(mineralExtractionRate(20, 35_000)).to.be.lessThan(mineralExtractionRate(20, 70_000));
+      expect(mineralExtractionRate(20, 100_000)).to.be.greaterThan(mineralExtractionRate(20, 70_000));
+    });
+    it("is zero for an empty deposit or a bodiless miner", () => {
+      expect(mineralExtractionRate(20, 0)).to.equal(0);
+      expect(mineralExtractionRate(0, 70_000)).to.equal(0);
+    });
+  });
+
+  describe("marketEnergyPerMineral (the exchange rate)", () => {
+    it("is mineralPrice / energyPrice", () => {
+      expect(marketEnergyPerMineral(600, 33)).to.be.closeTo(600 / 33, 1e-9); // ~18.2
+      expect(marketEnergyPerMineral(148.38, 32.941)).to.be.closeTo(148.38 / 32.941, 1e-9); // O ~4.5
+    });
+    it("is zero when there is no trade (zero price either side)", () => {
+      expect(marketEnergyPerMineral(600, 0)).to.equal(0);
+      expect(marketEnergyPerMineral(0, 33)).to.equal(0);
+    });
+  });
+
+  describe("mineralNetEnergy (energy-equivalent, mirror of netEnergy)", () => {
+    it("is the long-run rate valued at the exchange, minus tiny miner+hauler overhead", () => {
+      // density-3, 20W, exchange 600/33, hauled 25 tiles: hand-derived ~18.34
+      const net = mineralNetEnergy(70_000, 20, 600 / 33, 25);
+      expect(net).to.be.closeTo(18.34, 0.02);
+      // overhead is small: net sits just under the gross rate*exchange
+      const gross = mineralExtractionRate(20, 70_000) * (600 / 33);
+      expect(net).to.be.lessThan(gross);
+      expect(gross - net).to.be.lessThan(1); // <1 e/t of overhead on a dense mineral
+    });
+    it("is zero when the mineral has no market (exchange 0)", () => {
+      expect(mineralNetEnergy(70_000, 20, 0, 25)).to.equal(0);
+    });
+    it("a cheap mineral (Zynthium ~44cr) loses to a mid remote source", () => {
+      // 44/32.941 ~= 1.34 e/mineral -> ~1 e/t, far below a d=100 source (~6.6)
+      expect(mineralNetEnergy(70_000, 20, 44.226 / 32.941, 25)).to.be.lessThan(2);
+    });
+  });
+
+  describe("mineralEnergyPerSpawnPart (dominates the spawn budget)", () => {
+    it("far exceeds the best remote source's shadow price (miner idles free through regen)", () => {
+      const mineral = mineralEnergyPerSpawnPart(70_000, 20, 600 / 33, 25);
+      expect(mineral).to.be.greaterThan(1000);
+      expect(mineral).to.be.greaterThan(energyPerSpawnPartFn(10, 20)); // ~537 e/part best source
+    });
+  });
+
+  describe("mineralMinerCost", () => {
+    it("is workParts WORK + road-ratio MOVE (20W = 2500e)", () => {
+      expect(mineralMinerCost(20)).to.equal(2500); // 20*100 + 10*50
+    });
+  });
+});
+
 describe("invader tax (spec 13 phase 5 - engine-fact derivation)", () => {
   const { INVADER_RAID_MEAN_ENERGY, INVADERS_ENERGY_GOAL, RAID_GOAL_FLOOR, RAID_GOAL_CEIL, RAID_ARM_FLOOR, EXPECTED_RAID_DEFENSE_COST, INVADER_TAX_PER_ENERGY, invaderTaxPerEnergy } =
     // eslint-disable-next-line @typescript-eslint/no-var-requires

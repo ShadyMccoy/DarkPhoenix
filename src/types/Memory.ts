@@ -99,6 +99,15 @@ declare global {
     mineralType: MineralConstant | null;
     /** Position of the mineral (if any) */
     mineralPos: { x: number; y: number } | null;
+    /**
+     * Mineral deposit density level 1-4 (Screeps `mineral.density`). Drives the
+     * regen-limited extraction rate in the mineral EV estimate (spec 22).
+     * Optional: intel written before this field falls back to unknown (no
+     * mineral value credited until re-sighted).
+     */
+    mineralDensity?: number;
+    /** Current ore remaining in the deposit (`mineral.mineralAmount`). */
+    mineralAmount?: number;
     /** Controller level (0 if unclaimed) */
     controllerLevel: number;
     /** Position of controller (if any) */
@@ -209,6 +218,18 @@ declare global {
      * Room intelligence data from scouting.
      */
     roomIntel?: { [roomName: string]: RoomIntel };
+
+    /**
+     * Cached market price snapshot (spec 22): energy buy price and per-mineral
+     * sell prices in credits, sampled from Game.market on a cadence. The mineral
+     * EV estimate reads this (falling back to a static snapshot when stale or
+     * absent) so sims/grid stay deterministic while live tracks real prices.
+     */
+    marketPrices?: {
+      energy: number;
+      minerals: { [mineral: string]: number };
+      updated: number;
+    };
 
     /**
      * The black box tail (spec 09 phase 4): the last ~40 flight-recorder rows,

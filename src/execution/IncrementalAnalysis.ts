@@ -20,6 +20,8 @@ import {
 import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
+import { mineralNodeValue, resolveMarketPrices } from "../economy/mineralValue";
+import { chebyshevDistance } from "../types/Position";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
 
@@ -421,6 +423,10 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     if (ownedRooms.has(n.roomName)) ownedHubs.push(toColonyNode(n));
   }
 
+  // Market prices for the mineral EV: the cached live sample when fresh, else
+  // the static snapshot (spec 22). Resolved once for the whole pass.
+  const marketPrices = resolveMarketPrices(Memory.marketPrices, Game.time);
+
   // Second pass: score each node by its marginal value to the colony.
   for (const peak of result.peaks) {
     const node = colony.getNode(peak.peakId);
@@ -429,12 +435,44 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     const candidate = toColonyNode(node);
     const existing = ownedHubs.filter(h => h.id !== node.id);
     const economicValue = marginalSiteValue(existing, candidate, allSources);
+    const mineralValue = nodeMineralValue(node, marketPrices);
 
     const surveyResult = surveyor.survey(node, Game.time);
-    node.roi = calculateNodeROI(node, peak.height, ownedRooms, surveyResult.potentialCorps, economicValue);
+    node.roi = calculateNodeROI(
+      node,
+      peak.height,
+      ownedRooms,
+      surveyResult.potentialCorps,
+      economicValue,
+      mineralValue
+    );
   }
 
   console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);
+}
+
+/**
+ * Gross mineral EV (energy-equivalent/tick) of a node's mineral deposit via the
+ * market chain (spec 22). Sums every mineral resource in the node (rooms have at
+ * most one, but a multi-room territory could span several). The haul leg is the
+ * mineral's distance from the node's peak - the extractor miner's would-be
+ * spawn hub. Gross of any securing cost; the claim/keeper decision nets that.
+ */
+export function nodeMineralValue(node: Node, prices: Parameters<typeof mineralNodeValue>[1]): number {
+  let total = 0;
+  for (const r of node.resources) {
+    if (r.type !== "mineral") continue;
+    total += mineralNodeValue(
+      {
+        mineralType: r.mineralType,
+        amount: r.mineralAmount,
+        density: r.mineralDensity,
+        distance: chebyshevDistance(node.peakPosition, r.position)
+      },
+      prices
+    );
+  }
+  return total;
 }
 
 /** A node as a colony hub: its peak is the hub centre, its controller the sink. */
@@ -628,7 +666,9 @@ function populateNodeResources(
             type: "mineral",
             id: mineral.id,
             position: { x: mineral.pos.x, y: mineral.pos.y, roomName },
-            mineralType: mineral.mineralType
+            mineralType: mineral.mineralType,
+            mineralDensity: mineral.density,
+            mineralAmount: mineral.mineralAmount
           });
         }
       }
@@ -722,7 +762,9 @@ function populateNodeResources(
             type: "mineral",
             id: `intel-mineral-${roomName}`,
             position: { x: intel.mineralPos.x, y: intel.mineralPos.y, roomName },
-            mineralType: intel.mineralType ?? undefined
+            mineralType: intel.mineralType ?? undefined,
+            mineralDensity: intel.mineralDensity,
+            mineralAmount: intel.mineralAmount
           });
         }
       }

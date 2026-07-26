@@ -51,6 +51,10 @@ export interface NodeResource {
   level?: number;
   /** Mineral type if applicable */
   mineralType?: string;
+  /** Mineral density band 1-4 (drives the regen-limited EV; spec 22) */
+  mineralDensity?: number;
+  /** Current ore remaining in a mineral deposit */
+  mineralAmount?: number;
   /** Whether this resource is owned by us (for controllers) */
   isOwned?: boolean;
 }
@@ -108,6 +112,15 @@ export interface NodeROI {
    * of the scores below - the per-corp ROIs above are kept only for display.
    */
   economicValue: number;
+
+  /**
+   * Mineral value of this node (spec 22 estimate): the GROSS energy-equivalent/
+   * tick its mineral deposit would yield via the market chain (sell mineral, buy
+   * energy), before any cost of securing the room. Added alongside economicValue
+   * to drive the scores - this is what lifts a dense keeper (X/H) room's claim
+   * ranking. Zero when the node has no mineral, or it is unpriced/unscouted.
+   */
+  mineralValue: number;
 
   /** Potential corps that could operate in this node */
   potentialCorps: PotentialCorpROI[];
@@ -277,7 +290,8 @@ export function calculateNodeROI(
   peakHeight: number,
   ownedRooms: Set<string>,
   potentialCorps: PotentialCorp[] = [],
-  economicValue = 0
+  economicValue = 0,
+  mineralValue = 0
 ): NodeROI {
   const isOwned = ownedRooms.has(node.roomName);
 
@@ -322,9 +336,12 @@ export function calculateNodeROI(
   // neighbour's sources scores ~0 here rather than being credited their energy.
 
   // Base score: economic value (scaled to a readable range) plus an openness
-  // bonus for buildable space.
+  // bonus for buildable space. Mineral value (spec 22) is productive energy/
+  // tick too - via the market chain rather than the controller - so it sums
+  // onto the source-side value on the SAME energy axis before scaling.
   const ECON_SCALE = 10;
-  const baseScore = economicValue * ECON_SCALE + peakHeight * 2;
+  const totalEconomicValue = economicValue + mineralValue;
+  const baseScore = totalEconomicValue * ECON_SCALE + peakHeight * 2;
 
   // Expansion score: value if we claimed this room and built a spawn at its
   // peak. economicValue already accounts for reachable adjacent sources, so the
@@ -355,6 +372,7 @@ export function calculateNodeROI(
     expansionScore,
     rawCorpROI,
     economicValue,
+    mineralValue,
     potentialCorps: potentialCorpROIs,
     openness: peakHeight,
     distanceFromOwned,
