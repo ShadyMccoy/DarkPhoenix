@@ -365,24 +365,39 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   continuous shallow-boost output at an exact 1.0; **phased batch for the deep Ghodium
   line, or as one uniform scheduler for every target**.
 
-  **A faster cut-over (bulk-swap all labs) was tried and MEASURABLY REGRESSES — kept as
-  evidence.** The tempting optimisation: the instant a phase's quota is met, withdraw
-  from every lab at once (unlimited tender) and pre-load the next reaction, instead of
-  the gradual per-tick advance. Built both variants (keep the carry-over feeders; bank
-  everything clean). Per-phase util, batch 3000: the gradual advance holds **every phase
-  96-100%** (`G` 96.6%, `XGH2O` 100%, overall 99.66%); the bulk-swap **drops the
-  compound-input phases** (`G` 96.6→83.7, `GH2O` 97.7→87.7, `XGH2O` 100→90.6, overall
-  99.66→91.6%). Two measured reasons: (1) the "drain tail" I assumed was idle **is not
-  idle** — those labs are still *cooling* on the old reaction (cd>0 = busy, cooldown is
-  the lab's property), and they fire the new reaction the moment they are free; the
-  gradual advance already overlaps them for free. (2) A compound-input phase needs its
-  delicate **balanced 2+2 holder** steady state; slamming it with an abrupt bulk swap
-  (all labs dumped, reloaded mid-cooldown) throws it into the concentration/fragmentation
-  transient the balancer only just tames, and it doesn't fully recover within the phase.
-  So the cut-over is already near-optimal *because* cooling counts as utilised — trying
-  to force it faster trades a tiny small-batch gain for a large-batch regression. The
-  clean lever for small batch is simply a **bigger batch** (the ~1/B amortisation), not a
-  faster swap.
+  **A faster (immediate-advance) cut-over was explored in depth — it REGRESSES at the
+  operating batch; the gradual drain-advance is kept. Full evidence retained.** The
+  mechanic is real: emptying a lab is a *tender* action, so it works on a lab that is on
+  cooldown, and a lab cleared of its old product while cooling fires the new reaction the
+  instant its cooldown ends (it can't produce while it still holds the old mineral — one
+  per lab). No emptying downtime. The tempting move is therefore to advance the phase the
+  *instant* its reaction quota is met, rather than waiting for the old product to drain to
+  the terminal. Five variants were built and measured (bulk-empty-all; empty only labs the
+  new reaction can't use; keep the carry-over feeders; keep exactly 2 balanced holders per
+  next-input; with/without a pre-load). Util at batch 3000:
+
+  | changeover | util | note |
+  |---|---:|---|
+  | **gradual drain-advance (shipped)** | **99.66%** | every phase 96-100% |
+  | immediate + keep-2 balanced handoff | 97.2% | `G` 89%, `GH2O` 86% still lag |
+  | immediate + selective empty | 93.9% | |
+  | immediate + empty-all | 91.6% | |
+
+  Two measured reasons the immediate advance loses: (1) the "drain tail" is **not idle** —
+  those labs are still *cooling* on the old reaction (cd>0 = busy; cooldown is the lab's
+  property) and fire the new reaction the moment they're free, so the gradual advance
+  already overlaps them for free. (2) The **compound+compound** phases (`G=ZK+UL`,
+  `GH2O=GH+OH`) need a clean balanced 2+2 holder steady state; advancing before the prior
+  product has settled hands the new phase its input either *concentrated* in the terminal
+  (bulk-empty → the concentration pin) or as a *surplus of carried-over holders* that idle
+  at cd0 during the slow conversion to producers (measured ramp). The drain-advance's tiny
+  delay is not downtime — it is what produces the clean handoff, and at batch ≥300 it costs
+  well under a percent. There IS a crossover: immediate+keep-2 **wins at tiny batch**
+  (batch 100: 98.5% vs the shipped 92.9%) where the drain fraction is large — but tiny
+  batch isn't the operating point, and a **bigger batch** is the better lever there. Net:
+  the cut-over is already near-optimal *because* cooling counts as utilised and a tier's
+  product seamlessly feeds the next; forcing the advance faster than clean handoff regresses
+  the compound tiers.
 
 **Bottom line on the ceiling question: 1.0 is achievable for EVERY compound.** A single
 sustained reaction is exactly 1.0; the common depth-≤3 boosts hit 1.0 interleaved (or
