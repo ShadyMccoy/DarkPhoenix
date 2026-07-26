@@ -31,14 +31,25 @@ export interface ConsumeAssignment {
   spawnId: string | null;
 }
 
-/** Spawn that should build a consumer at sinkPos: same-room if any, else nearest. */
+/**
+ * Spawn that should build a consumer at sinkPos: the NEAREST same-room spawn if
+ * any, else the nearest spawn overall.
+ *
+ * Same-room stays a hard preference over a raw-closer other-room spawn (a
+ * consumer's body should be born in its own room, not walk a cross-room path),
+ * but among the room's spawns we pick the closest. RCL7 rooms have two spawns
+ * and RCL8 three; the old `spawns.find(sameRoom)` returned whichever spawn
+ * happened to be first, so EVERY consumer bound to spawn[0] and the other
+ * spawn(s) never built upgraders/builders - halving the consumer-ramp spawn
+ * throughput exactly when the colony has the extensions to field big bodies.
+ */
 function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): string | null {
   if (!sinkPos || problem.spawns.length === 0) return null;
-  const sameRoom = problem.spawns.find(s => s.pos.roomName === sinkPos.roomName);
-  if (sameRoom) return sameRoom.id;
-  let best = problem.spawns[0];
+  const sameRoom = problem.spawns.filter(s => s.pos.roomName === sinkPos.roomName);
+  const pool = sameRoom.length > 0 ? sameRoom : problem.spawns;
+  let best = pool[0];
   let bestDist = problem.dist(best.pos, sinkPos);
-  for (const s of problem.spawns) {
+  for (const s of pool) {
     const d = problem.dist(s.pos, sinkPos);
     if (d < bestDist) {
       best = s;
