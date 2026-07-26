@@ -34,6 +34,7 @@ import { Corp } from "../corps/Corp";
 import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
+import { pathDistance } from "../nodes/NodeNavigator";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -151,14 +152,28 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const unclaimed = claimed.size === 0 ? allDemands : allDemands.filter(d => !claimed.has(d));
     if (unclaimed.length === 0) break;
 
+    // A* PRUNE (owner 2026-07-25). The winner is argmax of (priority, then
+    // -distance). A spawn's proposal priority is bounded ABOVE by the richest
+    // demand it can afford - `ubPriority` - because planAcquisitions can only
+    // return an affordable demand and its holds/precedence only LOWER the pick.
+    // So rank the free spawns by that ceiling and evaluate the expensive
+    // planAcquisitions in descending order; the moment a spawn's ceiling drops
+    // below the best priority already found, no remaining spawn can even tie it
+    // - stop. Distance (the tie-break) is the node graph's cached pathDistance,
+    // so it never needs a walk of its own.
+    const ranked = available
+      .map(cand => ({ cand, ceiling: ubPriority(cand, unclaimed, roomState) }))
+      .sort((a, b) => b.ceiling - a.ceiling);
+
     let best: { spawn: StructureSpawn; result: ScheduleResult; pri: number; dist: number } | null = null;
-    for (const cand of available) {
+    for (const { cand, ceiling } of ranked) {
+      if (best && ceiling < best.pri - 1e-9) break; // ceiling below best - and only lower from here
       const st = roomState.get(cand.pos.roomName)!;
       const decision = planAcquisitions(unclaimed, ctxOf(cand)).decision;
       if (!decision) continue; // this spawn holds / can afford nothing
       const workPos = corpById.get(decision.demand.buyerCorpId)?.getPosition();
       const pri = effectivePriority(decision.demand, Game.time, campaignConsumerLift(st.bankSurplus));
-      const dist = spawnWorkDistance(cand.pos, workPos);
+      const dist = workPos ? pathDistance(cand.pos, workPos) : Infinity;
       if (!best || pri > best.pri + 1e-9 || (Math.abs(pri - best.pri) < 1e-9 && dist < best.dist)) {
         best = { spawn: cand, result: decision, pri, dist };
       }
@@ -217,6 +232,30 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
   // not seen is a demand that spawned or whose work vanished - drop it so its
   // successor's clock starts fresh.
   for (const key in firstSeen) if (!seenThisTick.has(key)) delete firstSeen[key];
+}
+
+/**
+ * Admissible upper bound on the priority of the demand a spawn could propose:
+ * the richest (highest effectivePriority) demand it can afford right now. The
+ * real proposal (planAcquisitions) can only pick an AFFORDABLE demand, and its
+ * hold / miner-precedence rules only lower the pick, so the true proposal
+ * priority never exceeds this ceiling. That makes it safe to prune - a spawn
+ * whose ceiling is below the best proposal already found cannot win.
+ */
+function ubPriority(
+  spawn: StructureSpawn,
+  unclaimed: SpawnDemand[],
+  roomState: Map<string, { energyLeft: number; capacity: number; income: number; bankSurplus: number }>
+): number {
+  const st = roomState.get(spawn.pos.roomName)!;
+  const lift = campaignConsumerLift(st.bankSurplus);
+  let max = -Infinity;
+  for (const d of unclaimed) {
+    if (d.minCost > st.energyLeft) continue; // unaffordable here - planAcquisitions can't pick it
+    const p = effectivePriority(d, Game.time, lift);
+    if (p > max) max = p;
+  }
+  return max;
 }
 
 /**

@@ -203,4 +203,63 @@ describe("runSpawnScheduling - pooled two-spawn assignment", () => {
     expect(built[0].spawn).to.equal("sA1");
     expect(built[0].buyer).to.equal(a2corp.id);
   });
+
+  it("A* prune with heterogeneous banks: rich spawn takes the pricey high-value corp, poor spawn its own", () => {
+    // The pruning path: the RICH room's spawn can afford the high-value (pricey)
+    // corp, so its priority ceiling is highest and it is evaluated first and
+    // wins it. The POOR room's spawn can't afford that corp, so its ceiling is
+    // below - it is pruned that round - and it builds its own affordable corp.
+    const RICH = "W1N1";
+    const POOR = "W1N2";
+    const built: Built[] = [];
+    const registry = createCorpRegistry();
+    const mkSpawn = (id: string, room: string) => ({ id, name: id, pos: { x: 25, y: 25, roomName: room }, spawning: null });
+    Game.rooms = {
+      [RICH]: {
+        name: RICH,
+        controller: { my: true, level: 5 },
+        energyAvailable: 5600,
+        energyCapacityAvailable: 5600,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sRich", RICH)] : [])
+      },
+      [POOR]: {
+        name: POOR,
+        controller: { my: true, level: 5 },
+        energyAvailable: 300, // can't afford the 800 body
+        energyCapacityAvailable: 5600,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sPoor", POOR)] : [])
+      }
+    } as any;
+    Game.creeps = {} as any;
+    for (const id of ["sRich", "sPoor"]) {
+      registry.spawningCorps[id] = {
+        executeSpawn: (_k: string, _r: string, buyer: string, budget: number) => {
+          if ((Game.rooms as any)[id === "sRich" ? RICH : POOR].energyAvailable < budget) return false;
+          built.push({ spawn: id, buyer, budget });
+          return true;
+        }
+      } as any;
+    }
+    const high = new ExtensionTenderCorp(`${RICH}-high`, "sRich");
+    (high as any).getPosition = () => ({ x: 25, y: 25, roomName: RICH });
+    (high as any).getSpawnDemand = () => [
+      { buyerCorpId: high.id, role: "tanker", value: 200, blocking: false, producesIncome: false, desiredCost: 800, minCost: 800, since: 0 }
+    ];
+    seedCommissionStoreForTest("tender-high", "tender", high);
+
+    const low = new ExtensionTenderCorp(`${POOR}-low`, "sPoor");
+    (low as any).getPosition = () => ({ x: 25, y: 25, roomName: POOR });
+    (low as any).getSpawnDemand = () => [
+      { buyerCorpId: low.id, role: "tanker", value: 90, blocking: false, producesIncome: false, desiredCost: 200, minCost: 200, since: 0 }
+    ];
+    seedCommissionStoreForTest("tender-low", "tender", low);
+
+    runSpawnScheduling(registry);
+
+    const bySpawn = new Map(built.map(b => [b.spawn, b.buyer]));
+    expect(bySpawn.get("sRich")).to.equal(high.id);
+    expect(bySpawn.get("sPoor")).to.equal(low.id);
+  });
 });
