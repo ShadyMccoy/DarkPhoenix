@@ -7,16 +7,19 @@
  * (burst). The tender is unbounded — it parks every other compound to the terminal
  * to free labs and reloads feeders. Feeders rotate; no lab is a permanent feeder.
  *
- * RESULT — this DISPROVES the "0.8 utilisation wall" I claimed. Measured, sustainable:
- *   XLH2O 84.1% util, 421/1k throughput.  XUHO2 84.4%, 444/1k.  XGH2O 87.6%, 338/1k.
+ * RESULT — this DISPROVES the "0.8 utilisation wall" I claimed. Measured, sustainable
+ * (verified cooldowns):
+ *   XLH2O 87.9% util, 400/1k throughput.  XUHO2 84.4%, 444/1k.  XGH2O 88.3%, 316/1k.
  * Why it beats 0.8: a source holding an INTERMEDIATE can be a lab that just produced
  * it (on cooldown = busy) while being read — only BASE feeders are truly idle. So
  * base-consuming bursts run ~0.8 but compound-consuming bursts read on-cooldown
  * producers (~1.0 that tick); weighted over a real tree it lands at 84-88%, and it
  * RISES with tree depth (XGH2O 88%, and it handles the Ghodium tree that every other
  * scheduler choked on, because bursting only needs 2 feeders at a time, never 7).
- * util = R x Σcd / 50 exactly (421/1k -> 0.84). Cost: ~350-476 CPU/1k (the tender
- * parks+reloads everything every tick) — "regardless of CPU cost" is load-bearing.
+ * util = R x Σcd / 50 exactly. Cost: ~350-450 CPU/1k (the tender parks+reloads
+ * everything every tick) — "regardless of CPU cost" is load-bearing.
+ * NOTE: superseded by the base-rotation schedulers (sim-labs-unity*, sim-labs-batch)
+ * which reach ~1.0 — this burst is kept as the intermediate finding that broke 0.8.
  *
  * FEEDERS NEED NOT ROTATE (--fixed, owner): pinning the 2 feeders to labs 0,1
  * instead of chasing any-holder gives XLH2O 80.0% util @ 400/1k for only 0.24
@@ -37,7 +40,7 @@
  * CPU: every tender withdraw/deposit is one intent = 0.2 CPU (GRAND_STRATEGY §1).
  * Holding intermediates in-lab and reusing a few base holders keeps intents low.
  *
- * EVERY game constant below is the standard Screeps value but is UNVERIFIED here
+ * The game constants below are VERIFIED against @screeps/common master (2026-07-26)
  * (@screeps/engine is not vendored). This sim is a design aid, not an acceptance
  * test.
  *
@@ -51,7 +54,7 @@
 /* eslint-disable no-console */
 
 // ---------------------------------------------------------------------------
-// Game constants (STANDARD SCREEPS VALUES — VERIFY vs @screeps/engine master)
+// Game constants — VERIFIED against @screeps/common master lib/constants.js (2026-07-26)
 // ---------------------------------------------------------------------------
 const LAB_MINERAL_CAPACITY = 3000;
 const LAB_REACTION_AMOUNT = 5; // produced per reaction; consumed per reactant
@@ -80,10 +83,10 @@ const REACTIONS: Record<string, [string, string]> = {
 
 const REACTION_TIME: Record<string, number> = {
   OH: 20, ZK: 5, UL: 5, G: 5,
-  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
-  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 15, LO: 10, ZH: 20, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 10, LHO2: 5, ZH2O: 40, ZHO2: 5, GH2O: 15, GHO2: 30,
   XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
-  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+  XZH2O: 160, XZHO2: 60, XGH2O: 80, XGHO2: 150,
 };
 
 const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);

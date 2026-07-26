@@ -50,7 +50,7 @@
  *                                                                   [--ticks 80000] [--quiet]
  *
  * NOT wired into the bot (labs are unmodeled in src/). Constants are standard
- * Screeps values, UNVERIFIED here (@screeps/engine not vendored).
+ * Screeps values, VERIFIED vs @screeps/common master (2026-07-26).
  */
 
 /* eslint-disable no-console */
@@ -82,10 +82,10 @@ const REACTIONS: Record<string, [string, string]> = {
 
 const REACTION_TIME: Record<string, number> = {
   OH: 20, ZK: 5, UL: 5, G: 5,
-  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
-  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 15, LO: 10, ZH: 20, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 10, LHO2: 5, ZH2O: 40, ZHO2: 5, GH2O: 15, GHO2: 30,
   XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
-  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+  XZH2O: 160, XZHO2: 60, XGH2O: 80, XGHO2: 150,
 };
 
 const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);

@@ -4,10 +4,17 @@
 out than most specs because **labs are not modeled anywhere in the code today**
 (no `StructureLab`, no reaction/boost economy, no mineral producer class — see
 spec 28's "minerals out of scope"). This note exists to pin ONE mechanic and one
-layout idea so the insight isn't lost. Treat every throughput number here as a
-placeholder pending an `@screeps/engine` pass — the repo culture is
-measured-not-vibes (CLAUDE.md epistemics), and lab cooldown/range constants are
-exactly the kind of "surprising, so verify" rule GRAND_STRATEGY flags.
+layout idea so the insight isn't lost.
+
+**Constants status (2026-07-26):** the lab **cooldown table** (`REACTION_TIME`),
+`LAB_MINERAL_CAPACITY` (3000) and `LAB_REACTION_AMOUNT` (5) used by every sim are now
+**VERIFIED against `@screeps/common` master `lib/constants.js`** — an earlier draft had
+8 wrong cooldowns (notably `XZH2O`↔`XZHO2` swapped, and `LH`/`ZH`/`ZH2O`/`GH2O`/`GHO2`
+too low), so all throughput/ceiling numbers below were re-measured. *Utilisation* barely
+moved (it is robust to cooldown values); *throughput /1k* and the per-target ceilings
+did. Two BEHAVIOURAL rules are still assumed, not engine-checked: that one source lab may
+be read by several producers in one tick, and that withdraw/deposit is legal on a lab on
+cooldown — verify these against the engine's lab intent processor before building.
 
 **Priority:** unranked — downstream of a mineral/extractor producer class, which
 is itself the "natural follow-up" tail of spec 28 (SK mining). Reactions have
@@ -108,8 +115,8 @@ A standalone sim (`npx ts-node -P tsconfig.test.json scripts/sim-labs.ts`) model
 this layout, the terminal as raw-reactant + compound warehouse, the full reaction
 tree with per-compound cooldowns, and the tender as a **2-stroke forklift**
 (withdraw one tick, deposit the next — the owner's "one withdraw *or* deposit per
-tick" model). It is a design aid, **not** an acceptance test: every game constant
-is standard-Screeps but UNVERIFIED (engine not vendored).
+tick" model). It is a design aid, **not** an acceptance test — but the cooldown
+constants are now VERIFIED against `@screeps/common` master (see Constants status above).
 
 **Sustainable is defined as conservation** (owner): over the measured window the
 labs and every intermediate buffer must return to their starting fill, so the
@@ -267,9 +274,9 @@ and let the tender (unbounded) park/reload everything else. Measured, sustainabl
 
 | target | utilisation | throughput | CPU |
 |---|---:|---:|---:|
-| `XLH2O` | **84.1%** | 421/1k | 353 CPU/1k |
-| `XUHO2` | **84.4%** | 444/1k | 372 CPU/1k |
-| `XGH2O` | **87.6%** | 338/1k | 476 CPU/1k |
+| `XLH2O` | **87.9%** | 400/1k | ~350 CPU/1k |
+| `XUHO2` | **84.4%** | 444/1k | ~370 CPU/1k |
+| `XGH2O` | **88.3%** | 316/1k | ~450 CPU/1k |
 
 Base-consuming bursts (`LH`,`OH`) run ~0.8; compound-consuming bursts
 (`LH2O=LH+OH`) read on-cooldown producers → ~1.0 that tick; the weighted average is
@@ -314,19 +321,15 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
 
   | target | util | note |
   |---|---:|---|
-  | `XUH2O` `XUHO2` `XKH2O` `XKHO2` `XLHO2` | **100.00%** | exactly 1.0 — no lab ever idle |
-  | `XLH2O` | 97.8% | cd-65 top tier's integer-lab tax |
-  | `XZH2O` | 98.9% | |
-  | `XZHO2` | 97.0% | cd-160 top tier |
-  | `XGH2O` (depth 5) | — | won't fit interleaved (7+7=14 > 10 labs) → use phased batches below (~98%) |
+  | `XUH2O` `XUHO2` `XKH2O` `XKHO2` `XLHO2` `XLH2O` `XZH2O` `XZHO2` | **100.00%** | exactly 1.0 — every depth-3 boost, no lab ever idle |
+  | `XGH2O` (depth 5) | ~58% | won't fit interleaved (7+7=14 > 10 labs) → use phased batches below (~99.6%) |
 
   So the base-rotation scheduler **beats the burst (84-88%) outright** on the shallow
-  boosts and **reaches an exact 1.0** on most of them. Absolute-deficit selection (not
-  deficit/share) is load-bearing — it lifted the Σcd-95 family off an 85% plateau to
-  1.0 by letting the slow top tier win labs proportionally. The residual few % on
-  `XLH2O`/`XZH2O`/`XZHO2` is the **integer-lab tax** on their heaviest-cooldown top
-  reaction (its lab-share isn't a whole number), the same tax the swing note describes —
-  not a return of the feeder wall.
+  boosts and **reaches an exact 1.0** on every one of them. Absolute-deficit selection
+  (not deficit/share) is load-bearing — it lifted the Σcd-95 family off an 85% plateau to
+  1.0 by letting the slow top tier win labs proportionally. (With the verified cooldowns
+  every depth-3 tree now tiles 10 labs to a clean 1.0; the earlier ~97-99% on
+  `XLH2O`/`XZH2O`/`XZHO2` was partly an artifact of the wrong cooldown table.)
 - **The last wall — Ghodium capacity — falls to PHASED BATCHES (`sim-labs-batch.ts`,
   owner idea).** The interleaved unity scheduler can't run `XGH2O`/`XGHO2` because their
   7 compound producers + 7 distinct base holders = 14 simultaneous holdings > 10 labs.
@@ -341,8 +344,8 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
 
   | target | batch | util | throughput | CPU |
   |---|---:|---:|---:|---:|
-  | `XGH2O` | 3 000 | **99.7%** | 383.8/1k (99.8% of the 385/1k ceiling) | 132 CPU/1k |
-  | `XLH2O`/`XUHO2`/`XZHO2` | 3 000 | ~99.8% | — | — |
+  | `XGH2O` | 3 000 | **99.6%** | 354.8/1k (≈ the 357/1k ceiling) | 122 CPU/1k |
+  | `XLH2O`/`XUHO2`/`XZHO2` | 3 000 | ~99.7% | at ceiling (457/529/529/1k) | 88-102 CPU/1k |
 
   Getting there needed a per-phase diagnostic, and it corrected the intuition about
   where the loss was. **The cut-over is cheap** — base+base tiers already ran at 100%,
@@ -378,10 +381,10 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
 
   | changeover | util | note |
   |---|---:|---|
-  | **gradual drain-advance (shipped)** | **99.66%** | every phase 96-100% |
-  | immediate + keep-2 balanced handoff | 97.2% | `G` 89%, `GH2O` 86% still lag |
-  | immediate + selective empty | 93.9% | |
-  | immediate + empty-all | 91.6% | |
+  | **gradual drain-advance (default)** | **99.6%** | every phase 96-100% |
+  | immediate + keep-2 balanced handoff (`--pitstop`) | 95.7% | `G`/`GH2O` still lag at large batch |
+  | immediate + selective empty | ~94% | |
+  | immediate + empty-all | ~92% | |
 
   Two measured reasons the immediate advance loses: (1) the "drain tail" is **not idle** —
   those labs are still *cooling* on the old reaction (cd>0 = busy; cooldown is the lab's
@@ -392,17 +395,17 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   (bulk-empty → the concentration pin) or as a *surplus of carried-over holders* that idle
   at cd0 during the slow conversion to producers (measured ramp). The drain-advance's tiny
   delay is not downtime — it is what produces the clean handoff, and at batch ≥300 it costs
-  well under a percent. There IS a crossover: immediate+keep-2 **wins at tiny batch**
-  (batch 100: 98.5% vs the shipped 92.9%) where the drain fraction is large — but tiny
-  batch isn't the operating point, and a **bigger batch** is the better lever there. Net:
-  the cut-over is already near-optimal *because* cooling counts as utilised and a tier's
-  product seamlessly feeds the next; forcing the advance faster than clean handoff regresses
-  the compound tiers.
+  well under a percent. There IS a crossover: immediate+keep-2 (`--pitstop`) **wins at
+  tiny batch** (batch 100: 97.2% vs the default's 90.3%; crossover ~batch 150) where the
+  drain fraction is large — so `--pitstop` is the option for tiny batches, the default
+  (gradual) for batch ≥300. Net: the cut-over is already near-optimal *because* cooling
+  counts as utilised and a tier's product seamlessly feeds the next; forcing the advance
+  faster than clean handoff regresses the compound tiers at the operating point.
 
 **Bottom line on the ceiling question: 1.0 is achievable for EVERY compound.** A single
-sustained reaction is exactly 1.0; the common depth-≤3 boosts hit 1.0 interleaved (or
-97-99% where the top tier's cooldown doesn't tile 10 labs evenly); and the depth-5
-Ghodium line — the one case that stayed capacity-bound — reaches ~99.7% via phased
+sustained reaction is exactly 1.0; every depth-≤3 boost hits an exact 1.0 interleaved
+(with the verified cooldowns they all tile 10 labs cleanly); and the depth-5
+Ghodium line — the one case that stayed capacity-bound — reaches ~99.6% via phased
 batches that never hold more than one tier at a time (and even the per-phase cut-over is
 nearly free, because a tier's product is the next tier's feed). The "labs must leave feeders idle" wall,
 in all three forms it took (0.8, then base-reactions-need-idle-feeders, then
@@ -418,8 +421,8 @@ badly**:
 
 | target | cycle | burst | note |
 |---|---:|---:|---|
-| `XLH2O` | 24.5/1k @ 18% util | 421/1k @ 84% | cycle NOT sustainable (`OH` piles +92/1k) |
-| `XGH2O` | 0/1k @ 3% util | 338/1k @ 88% | cycle **deadlocks** (G sub-tree base holders eat the labs) |
+| `XLH2O` | ~24/1k @ 18% util | 400/1k @ 88% | cycle NOT sustainable (`OH` piles up) |
+| `XGH2O` | 0/1k @ 3% util | 316/1k @ 88% | cycle **deadlocks** (G sub-tree base holders eat the labs) |
 
 Two independent reasons, both measured:
 

@@ -26,10 +26,12 @@
  *   --rx may be ANY single reaction (OH, LH, UH2O, XLH2O, ...). Base+base is the
  *   hard case (both sources are bases); it is the one that proves the wall is gone.
  *
- * NOT wired into the bot (labs are unmodeled in src/). Standard Screeps constants,
- * UNVERIFIED here (@screeps/engine not vendored) — in particular that one source
- * lab may be read by several producers in one tick, and that withdraw/deposit is
- * legal on a lab that is on cooldown. Both are the standard rules; verify at build.
+ * NOT wired into the bot (labs are unmodeled in src/). Constants (REACTION_TIME,
+ * LAB_MINERAL_CAPACITY, LAB_REACTION_AMOUNT) VERIFIED vs @screeps/common master
+ * (2026-07-26). Two BEHAVIOURAL rules are still assumed, not engine-checked — that one
+ * source lab may be read by several producers in one tick, and that withdraw/deposit is
+ * legal on a lab that is on cooldown. Both are standard understanding; verify against the
+ * engine's lab intent processor at build.
  */
 
 /* eslint-disable no-console */
@@ -50,10 +52,10 @@ const REACTIONS: Record<string, [string, string]> = {
 };
 const REACTION_TIME: Record<string, number> = {
   OH: 20, ZK: 5, UL: 5, G: 5,
-  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
-  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 15, LO: 10, ZH: 20, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 10, LHO2: 5, ZH2O: 40, ZHO2: 5, GH2O: 15, GHO2: 30,
   XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
-  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+  XZH2O: 160, XZHO2: 60, XGH2O: 80, XGHO2: 150,
 };
 const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);
 const isBase = (r: string) => BASES.has(r);

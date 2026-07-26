@@ -36,7 +36,7 @@
  * CPU: every tender withdraw/deposit is one intent = 0.2 CPU (GRAND_STRATEGY §1).
  * Holding intermediates in-lab and reusing a few base holders keeps intents low.
  *
- * EVERY game constant below is the standard Screeps value but is UNVERIFIED here
+ * The game constants below are VERIFIED against @screeps/common master (2026-07-26)
  * (@screeps/engine is not vendored). This sim is a design aid, not an acceptance
  * test.
  *
@@ -50,7 +50,7 @@
 /* eslint-disable no-console */
 
 // ---------------------------------------------------------------------------
-// Game constants (STANDARD SCREEPS VALUES — VERIFY vs @screeps/engine master)
+// Game constants — VERIFIED against @screeps/common master lib/constants.js (2026-07-26)
 // ---------------------------------------------------------------------------
 const LAB_MINERAL_CAPACITY = 3000;
 const LAB_REACTION_AMOUNT = 5; // produced per reaction; consumed per reactant
@@ -79,10 +79,10 @@ const REACTIONS: Record<string, [string, string]> = {
 
 const REACTION_TIME: Record<string, number> = {
   OH: 20, ZK: 5, UL: 5, G: 5,
-  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
-  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 15, LO: 10, ZH: 20, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 10, LHO2: 5, ZH2O: 40, ZHO2: 5, GH2O: 15, GHO2: 30,
   XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
-  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+  XZH2O: 160, XZHO2: 60, XGH2O: 80, XGHO2: 150,
 };
 
 const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);

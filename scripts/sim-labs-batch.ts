@@ -15,8 +15,8 @@
  *   (<=4 source labs + producers), so the 14>10 wall never appears.
  *
  * RESULT — ~1.0 for EVERYTHING, and the cut-over is nearly free (owner: "less disruptive
- * than assumed"). Measured, XGH2O at batch 3000: 99.66% util, 383.8/1k = 99.8% of the
- * 385/1k ceiling. Shallow boosts (XLH2O/XUHO2/XZHO2) 99.8% too. Batch size barely matters
+ * than assumed"). Measured, XGH2O at batch 3000: 99.58% util, 354.8/1k ≈ the 357/1k
+ * ceiling. Shallow boosts (XLH2O/XUHO2/XZHO2) ~99.4-99.8% too. Batch size barely matters
  * now (3000 already ~1.0), so the amortisation worry was misplaced — see below.
  *
  * Two things were needed to actually reach 1.0, and BOTH are about the compound+compound
@@ -33,8 +33,8 @@
  *
  * Cost of generality (owner accepted "regardless of CPU"): every intermediate unit now
  * round-trips through the terminal (it is the next tier's input), so tender intents are
- * higher than the in-lab react-away schedulers (~132 CPU/1k for XGH2O) — still a fraction
- * of the burst's 476. The other costs are latency (target emerges one batch per
+ * higher than the in-lab react-away schedulers (~122 CPU/1k for XGH2O) — still a fraction
+ * of the burst's ~450. The other costs are latency (target emerges one batch per
  * super-cycle) and WIP (a batch of each intermediate parked in the terminal); small batch
  * keeps both low and still hits ~1.0, so prefer modest batches.
  *
@@ -42,7 +42,7 @@
  *                                                                   [--batch 3000]
  *                                                                   [--ticks 120000] [--quiet]
  *
- * NOT wired into the bot. Standard Screeps constants, UNVERIFIED here.
+ * NOT wired into the bot. Constants VERIFIED vs @screeps/common master (2026-07-26).
  */
 
 /* eslint-disable no-console */
@@ -63,10 +63,10 @@ const REACTIONS: Record<string, [string, string]> = {
 };
 const REACTION_TIME: Record<string, number> = {
   OH: 20, ZK: 5, UL: 5, G: 5,
-  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
-  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 15, LO: 10, ZH: 20, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 10, LHO2: 5, ZH2O: 40, ZHO2: 5, GH2O: 15, GHO2: 30,
   XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
-  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+  XZH2O: 160, XZHO2: 60, XGH2O: 80, XGHO2: 150,
 };
 const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);
 const isBase = (r: string) => BASES.has(r);
