@@ -1,14 +1,20 @@
 import { expect } from "chai";
 import {
   EXT_CAP,
+  Layout,
+  Pos,
+  STORAGE,
   Scenario,
+  allServiceable,
   buildWorld,
   organicLayout,
+  reservedViolations,
   simulate,
   spineLayout,
   stepToward,
   tryStartSpawn
 } from "../../../scripts/extension-sim/engine";
+import { HIGHWAY_PATTERNS, highwayTiles } from "../../../scripts/extension-sim/highways";
 
 /**
  * Mechanics pins for the extension-refill mini-game (owner 2026-07-22:
@@ -138,6 +144,175 @@ describe("extension-sim mechanics (engine-verified rules)", () => {
     // sustains ~25-30. If the sim disagrees wildly, the mechanics are wrong.
     const m = simulate(base({ ticks: 5000 }));
     expect(m.utilization).to.be.greaterThan(0.95);
+  });
+});
+
+/**
+ * Highways constraint (owner: "incorporate the highways constraint"): a
+ * highway is a WALKABLE but UNBUILDABLE tile - general creep traffic and
+ * spawn egress route along it, so the extension field must route AROUND it.
+ * These pins lock the two properties the constraint rests on: an open tile
+ * (which a reserved highway tile is) provides walkable tender access, and
+ * building on it seals; and reservedViolations flags any structure that lands
+ * on an artery.
+ */
+describe("extension-sim highways constraint", () => {
+  const key = (p: Pos): string => `${p.x},${p.y}`;
+
+  it("a highway (open) tile is walkable tender ACCESS; building on it seals the tile behind it", () => {
+    // A full vertical wall of extensions at x=8 spanning the room, with ONE
+    // gap at the storage row. A target extension sits east of the wall; the
+    // only way BFS-from-storage reaches it is through the gap. Leaving the gap
+    // OPEN (the highway case - walkable, unbuilt) services the target; building
+    // on the gap completes the wall and strands it.
+    const wall: Pos[] = [];
+    for (let y = 0; y < 30; y += 1) if (y !== STORAGE.y) wall.push({ x: 8, y });
+    const target: Pos = { x: 10, y: STORAGE.y };
+
+    const open = new Set<string>([key(STORAGE), ...wall.map(key), key(target)]);
+    expect(allServiceable(open, [target], 30), "reachable through the open gap").to.equal(true);
+
+    const sealed = new Set<string>([...open, key({ x: 8, y: STORAGE.y })]);
+    expect(allServiceable(sealed, [target], 30), "gap built over -> target stranded").to.equal(false);
+  });
+
+  it("reservedViolations flags a structure on a highway and is empty when the field is clear", () => {
+    const clean = spineLayout(40, 1);
+    expect(reservedViolations(clean), "no reserved tiles -> no violations").to.have.length(0);
+
+    const onHighway = { ...clean, reserved: [{ ...clean.extensions[0] }] };
+    expect(reservedViolations(onHighway), "extension sitting on a reserved tile is flagged").to.have.length(1);
+
+    const clear = { ...clean, reserved: [{ x: 0, y: 0 }] };
+    expect(reservedViolations(clear), "artery on an empty tile is fine").to.have.length(0);
+  });
+
+  it("buildWorld carries reserved tiles into the world without blocking them (they stay walkable)", () => {
+    const artery: Pos = { x: 20, y: STORAGE.y };
+    const layout = { ...spineLayout(40, 1), reserved: [artery] };
+    const world = buildWorld({
+      layout,
+      rcl: 6,
+      drawOrder: "engine-default",
+      tenderPolicy: "greedy-nearest",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 10
+    } as Scenario);
+    expect(world.reserved.has(key(artery))).to.equal(true);
+  });
+
+  it("highway patterns stay in bounds and never cover the storage tile (widths 1 and 2)", () => {
+    for (const width of [1, 2]) {
+      for (const pattern of HIGHWAY_PATTERNS) {
+        const tiles = highwayTiles(pattern, 30, width);
+        if (pattern === "none") expect(tiles).to.have.length(0);
+        else expect(tiles.length, `${pattern} w${width} produces arteries`).to.be.greaterThan(0);
+        for (const t of tiles) {
+          expect(t.x >= 1 && t.y >= 1 && t.x < 29 && t.y < 29, `${pattern} w${width} in bounds`).to.equal(true);
+          expect(t.x === STORAGE.x && t.y === STORAGE.y, `${pattern} w${width} never on storage`).to.equal(false);
+        }
+      }
+    }
+  });
+
+  it("a width-2 highway reserves about twice the tiles of a width-1 lane", () => {
+    const w1 = highwayTiles("spine", 30, 1).length;
+    const w2 = highwayTiles("spine", 30, 2).length;
+    expect(w2).to.equal(w1 * 2); // spine widens by one full extra row
+  });
+});
+
+/**
+ * Walls (owner: "iterate on simming a geometry"): the sim gained impassable
+ * terrain so it can measure a real captured room's refill, where the tender
+ * must route AROUND the rock. These pins lock that walls block movement and are
+ * carried into the world.
+ */
+describe("extension-sim walls (real-terrain movement)", () => {
+  const key = (p: Pos): string => `${p.x},${p.y}`;
+
+  it("walls block the tender: it detours around a wall and never steps onto one", () => {
+    // A vertical wall at x=20 spanning y 10..20. A tender at (18,15) reaching an
+    // extension at (25,15) must go around a wall end (y<10 or y>20), never onto
+    // an x=20 wall tile.
+    const walls: Pos[] = [];
+    for (let y = 10; y <= 20; y += 1) walls.push({ x: 20, y });
+    const layout: Layout = {
+      name: "wall",
+      storage: { x: 5, y: 15 },
+      spawns: [{ x: 5, y: 16 }],
+      extensions: [{ x: 25, y: 15 }],
+      roads: [],
+      walls
+    };
+    const world = buildWorld({
+      layout,
+      rcl: 6,
+      drawOrder: "engine-default",
+      tenderPolicy: "greedy-nearest",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 10
+    });
+    expect(world.walls.has(key({ x: 20, y: 15 })), "wall carried into the world").to.equal(true);
+
+    let pos: Pos = { x: 18, y: 15 };
+    let reached = false;
+    for (let i = 0; i < 80; i += 1) {
+      const step = stepToward(world, pos, { x: 25, y: 15 }, 1);
+      if (!step) {
+        reached = true;
+        break;
+      }
+      expect(world.walls.has(key(step)), `stepped onto wall at ${step.x},${step.y}`).to.equal(false);
+      pos = step;
+    }
+    expect(reached || Math.max(Math.abs(pos.x - 25), Math.abs(pos.y - 15)) <= 1, "reached the extension around the wall").to.equal(
+      true
+    );
+  });
+
+  it("outbound-sweep keeps a saturated spawn fed (policy works, no deadlock)", () => {
+    // The non-greedy sweep heads for the outermost hole, dribbling en route.
+    // Sanity pin: it keeps a comfortable RCL6 spawn near-fully utilized (a
+    // deadlock or a stuck cursor would tank utilization).
+    const m = simulate({
+      layout: organicLayout(40, 1),
+      rcl: 6,
+      drawOrder: "near-reload-first",
+      tenderPolicy: "outbound-sweep",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 3000
+    });
+    expect(m.utilization).to.be.greaterThan(0.9);
+  });
+
+  it("a wall can seal a target: an extension fully walled off is unreachable", () => {
+    // Box the extension at (25,15) in walls on all 8 sides -> stepToward can
+    // never get within range 1 (every approach tile is a wall).
+    const walls: Pos[] = [];
+    for (let dx = -1; dx <= 1; dx += 1) for (let dy = -1; dy <= 1; dy += 1) if (dx || dy) walls.push({ x: 25 + dx, y: 15 + dy });
+    const layout: Layout = {
+      name: "sealed",
+      storage: { x: 5, y: 15 },
+      spawns: [{ x: 5, y: 16 }],
+      extensions: [{ x: 25, y: 15 }],
+      roads: [],
+      walls
+    };
+    const world = buildWorld({
+      layout,
+      rcl: 6,
+      drawOrder: "engine-default",
+      tenderPolicy: "greedy-nearest",
+      tenderCount: 1,
+      tenderBody: { carry: 16, move: 16 },
+      ticks: 10
+    });
+    const step = stepToward(world, { x: 18, y: 15 }, { x: 25, y: 15 }, 1);
+    expect(step, "no step can reach a fully walled-off tile").to.equal(null);
   });
 });
 

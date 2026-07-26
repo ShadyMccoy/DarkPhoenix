@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { bankBehindFeeder, upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/CarryCorp";
 import { BASE_RESERVE, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
@@ -133,5 +134,76 @@ describe("upgraderAllocation", () => {
       upgraderSizing(2, null, null, BASE_RESERVE, 0).surplus,
       "unmeasurable stock trusts the plan, no hold"
     ).to.equal(false);
+  });
+});
+
+/**
+ * DURABLE feeder-relay verdict (incident t72571505). The `bankedBehindFeeder`
+ * term fed to upgraderSizing is derived at the corp call site from the room's
+ * feeder state. Gating it SOLELY on the transient `controllerFeederActive`
+ * flag (true only while a feeder creep is alive THIS tick) tore the upgrader
+ * body down to the anti-downgrade floor on EVERY feeder death and rebuilt it
+ * on every respawn: measured live the upgrader `inflow` flapped 2<->115 and
+ * the body flapped w49<->w3 for 170k+ ticks, ~3 excess upgrader respawns per
+ * 2808t on a spawn-bound (0.97 util) colony. This mirrors CarryCorp's
+ * shouldBankControllerLoad fix for the same single, non-blocking feeder: the
+ * maintained controller buffer is the DURABLE evidence the relay is operating
+ * (haulers deliver directly across a feeder gap), so ride the gap out - one
+ * lens, two readers.
+ */
+describe("bankBehindFeeder (durable feeder-relay verdict, incident t72571505)", () => {
+  const SURPLUS = 61134; // measured storage energy at the capture
+
+  it("no owned storage -> null (there is no bank to draw from)", () => {
+    expect(bankBehindFeeder({ storageEnergy: null, feederActive: true, controllerInputStock: 800 })).to.equal(null);
+  });
+
+  it("a feeder is alive -> the bank is available to the fleet", () => {
+    expect(bankBehindFeeder({ storageEnergy: SURPLUS, feederActive: true, controllerInputStock: 0 })).to.equal(SURPLUS);
+  });
+
+  it("feeder momentarily dead but the controller buffer still holds -> the bank STAYS available (rides the gap)", () => {
+    // 793 was the measured controllerStock in every flapped-down capture; the
+    // buffer is refilled by direct hauler delivery while the single feeder
+    // respawns, so the relay is effectively operating - do NOT tear the body down.
+    expect(bankBehindFeeder({ storageEnergy: SURPLUS, feederActive: false, controllerInputStock: 793 })).to.equal(
+      SURPLUS
+    );
+  });
+
+  it("feeder dead AND the buffer has genuinely run down -> null (real starvation, anti-downgrade fallback)", () => {
+    expect(bankBehindFeeder({ storageEnergy: SURPLUS, feederActive: false, controllerInputStock: 10 })).to.equal(null);
+  });
+
+  it("uses the same starve floor as the hauler redirect (shouldBankControllerLoad)", () => {
+    expect(
+      bankBehindFeeder({ storageEnergy: SURPLUS, feederActive: false, controllerInputStock: CONTROLLER_STARVE_FLOOR })
+    ).to.equal(SURPLUS);
+    expect(
+      bankBehindFeeder({
+        storageEnergy: SURPLUS,
+        feederActive: false,
+        controllerInputStock: CONTROLLER_STARVE_FLOOR - 1
+      })
+    ).to.equal(null);
+  });
+
+  it("closes the flap: a transient feeder gap no longer collapses the upgrader body", () => {
+    // The exact incident numbers: planAllocated 56.4, stock 793, banked 61134,
+    // no construction. OLD path (feeder momentarily dead -> bankedBehindFeeder
+    // null) recycled the upgrader to the sip floor; NEW durable verdict holds it.
+    const stock = 793;
+    const banked = 61134;
+    const reserve = 56000; // the dynamic warchest reserve at the capture
+    const collapsed = upgraderSizing(56.4, stock, null, reserve, 0).allocated;
+    expect(collapsed, "old: recycled to the anti-downgrade sip").to.be.lessThan(5);
+    const held = bankBehindFeeder({ storageEnergy: banked, feederActive: false, controllerInputStock: stock });
+    const sustained = upgraderSizing(56.4, stock, held, reserve, 0).allocated;
+    // relayRate = feederRelayRate(61134, 56000) ~ 49.2 (the measured prod value).
+    expect(sustained, "new: sized to the surplus relay, no teardown").to.be.closeTo(
+      feederRelayRate(banked, reserve) + stock / 1500,
+      1e-6
+    );
+    expect(sustained, "and well above the collapsed sip").to.be.greaterThan(40);
   });
 });

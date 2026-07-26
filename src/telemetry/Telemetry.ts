@@ -22,6 +22,7 @@ import { Colony } from "../colony/Colony";
 import { Corp, CorpSizingRecord } from "../corps/Corp";
 import { controllerSideStock, coreLink, controllerLink } from "../corps/nodeEnergy";
 import { linkLedger } from "./LinkMeter";
+import { getCompletedLedger } from "./cpuLedgerCache";
 import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
 import { Position } from "../types/Position";
 import { pathDistance } from "../nodes/NodeNavigator";
@@ -951,7 +952,21 @@ export class Telemetry {
         return Object.keys(receipts).length > 0 ? { roadReceipts: receipts } : {};
       })(),
       ...(Memory.pathMeter ? { pathMeter: Memory.pathMeter } : {}),
-      ...(Memory.corpCpu ? { corpCpu: Memory.corpCpu } : {}),
+      // corpCpu ledger: ship the last COMPLETED ledger (cpuLedgerCache), not
+      // Memory.corpCpu - which is only half-built at this point in the tick
+      // (infra + wholeTick are added at loop end, AFTER this serialization), so
+      // embedding it inline captured a ledger with no reconciliation. The cache
+      // holds the prior tick's whole ledger; one tick stale, but complete.
+      //
+      // On a 10-tick ROTATION keyed to the ledger's own tick: the ledger
+      // (byKind + infra + top-12) is the single largest add-on to core, so
+      // embedding every tick 10x's the trailing-fixture footprint for a datum
+      // audit:report only reads one recent copy of. The live `global.cpuReport()`
+      // reads Memory.corpCpu directly and is unaffected by this gate.
+      ...(() => {
+        const led = getCompletedLedger();
+        return led && led.tick % 10 === 0 ? { corpCpu: led } : {};
+      })(),
       ...(() => {
         const links = linkLedger(Game.time);
         return links.length > 0 ? { links } : {};

@@ -47,6 +47,8 @@ export interface EnergyStructure {
   pos: Pos;
   cap: number;
   energy: number;
+  /** lowest energy this structure ever held (drain-depth instrumentation) */
+  minEnergy: number;
 }
 
 export interface SpawnSite extends EnergyStructure {
@@ -74,6 +76,10 @@ export interface World {
   rcl: number;
   storage: Pos; // infinite energy; unwalkable
   roads: Set<string>;
+  /** highway tiles: walkable, but no structure may be built on them */
+  reserved: Set<string>;
+  /** impassable terrain tiles (walls) - block movement */
+  walls: Set<string>;
   spawns: SpawnSite[];
   extensions: EnergyStructure[];
   tenders: Tender[];
@@ -90,6 +96,22 @@ export interface Layout {
   roads: Pos[];
   /** suggested tender patrol route (standing/driving tiles), for lane strategies */
   lane?: Pos[];
+  /**
+   * Highway / through-traffic tiles: WALKABLE but UNBUILDABLE. Modelling the
+   * base-lab "arteries kept clear for general creep traffic" constraint the
+   * README flagged as unmodeled (guest-traffic / spawn-egress lanes). A
+   * reserved tile still serves as tender access (it is walkable) - it just
+   * cannot hold a structure, so the extension field must route AROUND it, and
+   * the refill cost of keeping the artery clear falls out of the sim.
+   */
+  reserved?: Pos[];
+  /** Impassable terrain (walls). Blocks tender movement - required to sim a
+   * real captured room, where the tender must route AROUND the rock rather than
+   * fly through it. Empty on the synthetic open boards. */
+  walls?: Pos[];
+  /** Board edge length. Defaults to 30 (the synthetic board); a real room is
+   * 50. */
+  size?: number;
 }
 
 /** Draw-order policy: which structures a spawn drains, in order.
@@ -100,8 +122,20 @@ export interface Layout {
  * ahead of a tender walking the circuit. */
 export type DrawOrder = "engine-default" | "near-reload-first" | "far-first" | "circuit";
 
-/** Tender micro policy. Both transfer opportunistically every tick. */
-export type TenderPolicy = "greedy-nearest" | "lane-patrol";
+/** Tender micro policy. All transfer opportunistically every tick.
+ * - greedy-nearest: move to the nearest hole (fill the interior first).
+ * - lane-patrol: chase the drained frontier along a fixed circuit.
+ * - outbound-sweep: head for the OUTERMOST hole, dribbling to whatever is
+ *   adjacent en route - the load lightens as it goes (accelerating toward the
+ *   outskirts) and the empty return is free. Reaches the far tiles a greedy
+ *   shuttle starves.
+ * - outbound-ration: outbound-sweep but cap the per-tile deposit (RATION), so
+ *   the tender spreads a thin coat over many extensions instead of topping the
+ *   first few - reserves carry to reach the frontier with energy left. */
+export type TenderPolicy = "greedy-nearest" | "lane-patrol" | "outbound-sweep" | "outbound-ration" | "circuit-loop";
+
+/** outbound-ration deposit cap per extension per tick (one CARRY-part's worth). */
+export const TENDER_RATION = 50;
 
 export interface Scenario {
   layout: Layout;
@@ -132,6 +166,11 @@ export interface Metrics {
   worstRefillLatency: number;
   tenderTransferTicks: number;
   tenderDuty: number; // transfer ticks / (tenders * ticks)
+  /** extensions that ever dropped to <=50% cap (the working set that actually
+   * drains) vs those that stayed >=90% full all run (the outskirt reservoirs a
+   * legal creep never reaches). */
+  drainedExtensions: number;
+  reservoirExtensions: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,16 +180,19 @@ export interface Metrics {
 export function buildWorld(s: Scenario): World {
   const extCap = EXT_CAP[Math.min(8, Math.max(6, s.rcl))];
   const world: World = {
-    size: 30,
+    size: s.layout.size ?? 30,
     rcl: s.rcl,
     storage: s.layout.storage,
     roads: new Set(s.layout.roads.map(key)),
+    reserved: new Set((s.layout.reserved ?? []).map(key)),
+    walls: new Set((s.layout.walls ?? []).map(key)),
     spawns: s.layout.spawns.map((pos, i) => ({
       id: `spawn${i}`,
       kind: "spawn",
       pos,
       cap: SPAWN_CAP,
       energy: SPAWN_CAP,
+      minEnergy: SPAWN_CAP,
       busyUntil: 0
     })),
     extensions: s.layout.extensions.map((pos, i) => ({
@@ -158,7 +200,8 @@ export function buildWorld(s: Scenario): World {
       kind: "extension",
       pos,
       cap: extCap,
-      energy: extCap
+      energy: extCap,
+      minEnergy: extCap
     })),
     tenders: [],
     tick: 0,
@@ -185,6 +228,7 @@ export function buildWorld(s: Scenario): World {
 
 function blocked(world: World, p: Pos): boolean {
   if (p.x < 0 || p.y < 0 || p.x >= world.size || p.y >= world.size) return true;
+  if (world.walls.has(key(p))) return true;
   if (key(p) === key(world.storage)) return true;
   if (world.spawns.some(sp => key(sp.pos) === key(p))) return true;
   if (world.extensions.some(e => key(e.pos) === key(p))) return true;
@@ -317,7 +361,10 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
       .filter(e => chebyshev(e.pos, t.pos) <= 1)
       .sort((a, b) => a.energy - b.energy)[0];
     if (adj) {
-      const amount = Math.min(t.carried, adj.cap - adj.energy);
+      // ration policy spreads a thin coat (reserve carry for the frontier);
+      // the others top the hole in one go.
+      const ration = policy === "outbound-ration" ? TENDER_RATION : Infinity;
+      const amount = Math.min(t.carried, adj.cap - adj.energy, ration);
       adj.energy += amount;
       t.carried -= amount;
       t.transferTicks += 1;
@@ -356,7 +403,23 @@ function runTender(world: World, t: Tender, policy: TenderPolicy, lane: Pos[] | 
         break;
       }
     }
-  } else if (policy === "lane-patrol" && lane && lane.length > 0) {
+  } else if (policy === "outbound-sweep" || policy === "outbound-ration") {
+    // Head for the OUTERMOST reachable hole (farthest from the reload point);
+    // the transfer step above dribbles to whatever is adjacent on the way.
+    const outward = needy(world)
+      .filter(e => chebyshev(e.pos, t.pos) > 1)
+      .sort((a, b) => chebyshev(b.pos, world.storage) - chebyshev(a.pos, world.storage) || a.energy - b.energy);
+    for (const cand of outward) {
+      if (stepToward(world, t.pos, cand.pos, 1) !== null) {
+        target = cand.pos;
+        break;
+      }
+    }
+  } else if ((policy === "lane-patrol" || policy === "circuit-loop") && lane && lane.length > 0) {
+    // circuit-loop = lane-patrol WITHOUT the reload head-reset (see the reload
+    // block): the cursor advances continuously around a contiguous loop, so it
+    // suits a large spread field where re-walking from the head would starve
+    // the far side. lane-patrol keeps the head-reset (right for tight corridors).
     // The automaton (owner): chase the drained FRONTIER along the circuit.
     // Advance the cursor past circuit tiles with nothing needy adjacent -
     // walking a full section to reach the frontier is the loss the original
@@ -429,7 +492,9 @@ export function simulate(s: Scenario): Metrics {
     meanRefillLatency: 0,
     worstRefillLatency: 0,
     tenderTransferTicks: 0,
-    tenderDuty: 0
+    tenderDuty: 0,
+    drainedExtensions: 0,
+    reservoirExtensions: 0
   };
   const totalCap = (): number =>
     world.spawns.reduce((x, e) => x + e.cap, 0) + world.extensions.reduce((x, e) => x + e.cap, 0);
@@ -463,6 +528,9 @@ export function simulate(s: Scenario): Metrics {
     // Tenders.
     for (const t of world.tenders) runTender(world, t, s.tenderPolicy, s.layout.lane);
 
+    // Drain-depth instrumentation: track each structure's low-water mark.
+    for (const e of world.extensions) if (e.energy < e.minEnergy) e.minEnergy = e.energy;
+
     // Refill-latency meter: a drain window closes when the room is FULL again.
     if (totalEnergy() >= totalCap()) {
       if (drainOpenSince !== null) {
@@ -481,6 +549,8 @@ export function simulate(s: Scenario): Metrics {
   m.endFill = m.endFillCount > 0 ? m.endFillSum / m.endFillCount : 1;
   m.meanRefillLatency = m.refillEvents > 0 ? m.refillLatencySum / m.refillEvents : 0;
   m.tenderDuty = m.tenderTransferTicks / Math.max(1, world.tenders.length * s.ticks);
+  m.drainedExtensions = world.extensions.filter(e => e.minEnergy <= e.cap * 0.5).length;
+  m.reservoirExtensions = world.extensions.filter(e => e.minEnergy >= e.cap * 0.9).length;
   return m;
 }
 
@@ -653,8 +723,17 @@ export function diagonalLayout(extCount: number, spawnCount: number): Layout {
 }
 
 /** ASCII board: O storage, S spawn, E extension, + lane/road tile. */
+/** Structures sitting on a reserved (highway) tile - the constraint violation
+ * the layout evolver and generators must avoid. Empty when the layout keeps
+ * every artery clear. */
+export function reservedViolations(l: Layout): Pos[] {
+  const reserved = new Set((l.reserved ?? []).map(key));
+  return [...l.spawns, ...l.extensions].filter(p => reserved.has(key(p)));
+}
+
 export function renderLayout(l: Layout): string {
-  const all = [...l.spawns, ...l.extensions, l.storage, ...l.roads];
+  const reserved = l.reserved ?? [];
+  const all = [...l.spawns, ...l.extensions, l.storage, ...l.roads, ...reserved];
   const minX = Math.min(...all.map(p => p.x)) - 1;
   const maxX = Math.max(...all.map(p => p.x)) + 1;
   const minY = Math.min(...all.map(p => p.y)) - 1;
@@ -662,6 +741,7 @@ export function renderLayout(l: Layout): string {
   const spawnKeys = new Set(l.spawns.map(key));
   const extKeys = new Set(l.extensions.map(key));
   const roadKeys = new Set(l.roads.map(key));
+  const reservedKeys = new Set(reserved.map(key));
   const rows: string[] = [];
   for (let y = minY; y <= maxY; y += 1) {
     let row = "";
@@ -674,6 +754,8 @@ export function renderLayout(l: Layout): string {
           ? "S"
           : extKeys.has(k)
           ? "E"
+          : reservedKeys.has(k)
+          ? "=" // highway (walkable, unbuildable)
           : roadKeys.has(k)
           ? "+"
           : ".";

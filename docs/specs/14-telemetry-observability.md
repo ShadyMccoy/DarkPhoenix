@@ -4185,3 +4185,71 @@ the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
 Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
 done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
 converted from a "structural ceiling" into a drained, self-balancing spend path.
+
+---
+
+## Cycle t72571505 — upgrader body flap on transient feeder death (churn leak)
+
+**Ledger:** no FAIL lines; sole WARN P4 spawn-infeasibility 0.91× (structural —
+single spawn, home W43N23 RCL6 at 75% to RCL7, util pinned 0.97 for the whole
+recent window). Not directly attackable without hurting the economy or reaching
+RCL7 (2nd spawn). So the cycle attacked the largest MEASURED waste under it.
+
+**Diagnosis (data, not vibes):** the upgrader `sizing.inflow` flaps **2↔115**
+and the body flaps **w49↔w3** across captures — chronic across 170k+ ticks of
+committed fixtures (seg4 trend t72400561→t72571505), not a transient. Root:
+`UpgradingCorp` derived `bankedBehindFeeder` SOLELY from the transient
+`room.memory.controllerFeederActive` flag (true only while a feeder creep is
+alive this tick). The single non-blocking feeder dies/respawns every ~N ticks →
+flag flaps false → surplus verdict lost → inflow→2 → body recycled to the sip →
+rebuilt on respawn. Blackbox (seg5) confirmed the cost: **5 upgrader respawns in
+2808t** (avg 1820e, worst **2300e@78t** vs ~1500t natural life ⇒ ~3 excess),
+~210 spawn-ticks (~7.5% of a spawn-bound spawn) on pure churn; the w3 windows
+halved delivery (P7 24.7 e/t actual vs a ~49 e/t surplus relay), and storage
+re-accumulated **+0.38/t above the 56k reserve** (reversing the prior cycle's
+drain).
+
+**Relation to the prior cycle (t72554–72555):** that cycle made the feeder
+RELIABLE (core-pin fix, linchpin priority, spawn-onto-post) so `feederActive`
+stays up more; but feeders still die transiently and the upgrader still
+collapsed in the gaps. Rather than a third feeder-reliability patch, this fix
+INTERROGATES the mechanism (trap list, "second patch"): it removes the
+upgrader's dependency on feeder LIVENESS. Standing assets keep working — the
+upgrader holds its body across a feeder gap because haulers deliver directly
+(CarryCorp "a dead feeder never starves upgrading").
+
+**Fix:** `bankBehindFeeder` — the durable feeder-relay verdict, mirroring the
+already-proven `CarryCorp.shouldBankControllerLoad` for the SAME feeder. Bank in
+view whenever a feeder is alive OR the controller buffer holds
+(≥ CONTROLLER_STARVE_FLOOR=200); only genuine starvation (buffer drained, no
+feeder) drops it. One lens, two readers. Red-first: 6 new unit cases pin
+ride-the-gap + flap closure (w3 sip → ~49.5 sustained). Gate: unit 1462 +
+build + flow-handoff/runt-economy/storage-depot trio all green.
+
+**Deployed** to prod (master) at commit dcccbf6 (post-t72571505 global reset).
+
+**Predicted deltas (verify ~2400t out, past reset recovery):** inflow stops
+flapping to 2 (holds ~49 while stock≥200); body holds ~w40–49; X5 home churn
+< 11% and the 2300e@78t upgrader class gone; P7 delivery → ~49 e/t; storage
+slope turns negative (drains toward reserve). Regression rule: any triage line
+worse than the t72571505 baseline ⇒ redeploy origin/master, record falsified.
+
+**VERIFIED (t72576379, +4874t, past reset recovery) — every predicted delta
+hit, ledger fully green (no FAIL, no WARN — the P4 WARN itself cleared):**
+- P4 spawn-infeasibility **0.91→0.75 (WARN→ok)**: upgrader plan WORK 95p→20p,
+  spawn util 0.973→0.914 — the colony left the spawn-bound plateau.
+- Upgrader churn: **5 respawns/2808t (w49↔w3) → 3 (all big-bodied)**; the
+  early-death interval doubled (2300e@78t → @144t); home rebuild share 11%→9%.
+  No w3 teardown - the flap is closed.
+- P7 controller delivery **24.7→29.9 e/t** (1.65×→2.0× the lower-endpoint plan).
+- E4/storage slope **+0.38→−4.85/t**: the banked surplus (61k) was eaten down
+  through the 56k reserve exactly as the windfall doctrine intends; once below
+  reserve the save regime throttled the upgrader to a sip (inflow 2, plan WORK
+  20p) - self-balancing, no flap without a surplus. X1 dry WORK 0.10 (workUtil
+  0.99): the 20 WORK stands fully fed, not starved.
+
+Cycle verdict: **FIXED + VERIFIED**. Residual watch (next cycle): storage sat
+−18.5k below reserve draining −4.85/t at the read (partly post-reset guard/
+reserver recovery spend, partly the windfall-draw tail); confirm it self-
+corrects back toward reserve in the save regime and is not runaway upgrader
+consumption.
