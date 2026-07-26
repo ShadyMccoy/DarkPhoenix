@@ -21,6 +21,7 @@ import { expect } from "chai";
 import "../../../src/types/Memory";
 import { setupGlobals, Game } from "../mock";
 import { ExtensionTenderCorp } from "../../../src/corps/ExtensionTenderCorp";
+import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { createCorpRegistry } from "../../../src/execution/CorpRunner";
 import { collectDemands, collectDemandsMatching, pickNearestSpawn } from "../../../src/execution/SpawnDirector";
 import { resetCommissionHost, seedCommissionStoreForTest } from "../../../src/execution/CommissionHost";
@@ -220,5 +221,58 @@ describe("dual/tri-spawn: pickNearestSpawn assigns a buy to the nearest free spa
     const s1 = spawnAt("s1", 5, 25);
     const s2 = spawnAt("s2", 44, 40);
     expect(pickNearestSpawn([s1, s2], undefined).id).to.equal("s1");
+  });
+});
+
+// ===========================================================================
+// 2c. Cross-room PRODUCTION: a home room's pool builds the workforce for
+//     OTHER rooms (mine room B, deliver to room C, spawned from room A).
+//     This is distinct from a cross-room EXTENSION-energy pool (not wanted):
+//     the ENERGY bank stays per-room, but PRODUCTION is global - a corp is
+//     collected by its home SPAWN anchor, wherever its work happens to be.
+// ===========================================================================
+
+describe("cross-room production: the home pool builds the workforce for other rooms", () => {
+  const HOME = "W1N1";
+  const REMOTE = "W1N2";
+  const CTX: SpawnDemandContext = { energyCapacity: 5600, tick: 100 };
+
+  beforeEach(() => {
+    setupGlobals();
+    resetCommissionHost();
+    (Game as any).getObjectById = () => null; // force HarvestCorp.getPosition down the intel-parse path
+  });
+  afterEach(() => resetCommissionHost());
+
+  function canned(buyerCorpId: string): SpawnDemand {
+    return { buyerCorpId, role: "miner", value: 140, blocking: true, producesIncome: true, desiredCost: 550, minCost: 300, since: 0 };
+  }
+
+  it("collects a home-anchored miner whose SOURCE is in another room (mine B, spawn from A)", () => {
+    // Miner anchored to a HOME spawn but working a source in the REMOTE room -
+    // exactly "room A spawns a miner that mines room B". The pool is keyed by
+    // the spawn ANCHOR, not the work site, so the home room builds it.
+    const miner = new HarvestCorp(`${HOME}-mining-remote`, "homeSpawn1", `intel-${REMOTE}-25-25`);
+    (miner as any).getSpawnDemand = () => [canned(miner.id)];
+    seedCommissionStoreForTest(`harvest-${REMOTE}-src`, "harvest", miner);
+    createCorpRegistry();
+
+    // The corp's WORK is remote, its ANCHOR is home.
+    expect(miner.getPosition().roomName, "works the remote room").to.equal(REMOTE);
+    expect(miner.getSpawnId(), "anchored to a home spawn").to.equal("homeSpawn1");
+
+    const homeSpawns = new Set(["homeSpawn1", "homeSpawn2"]);
+    const pool = collectDemandsMatching(id => homeSpawns.has(id), CTX);
+    expect(pool.map(d => d.buyerCorpId)).to.deep.equal([miner.id]);
+  });
+
+  it("routes the remote miner to a HOME spawn (built at home, not stranded)", () => {
+    const miner = new HarvestCorp(`${HOME}-mining-remote`, "homeSpawn1", `intel-${REMOTE}-25-25`);
+    const home1 = { id: "homeSpawn1", pos: { x: 10, y: 25, roomName: HOME } } as any;
+    const home2 = { id: "homeSpawn2", pos: { x: 40, y: 25, roomName: HOME } } as any;
+    // Both home spawns are cross-room to the remote work, so either is a valid
+    // builder; the point is the creep is produced AT HOME, never stranded for
+    // want of a spawn in the (spawnless) remote room.
+    expect(pickNearestSpawn([home1, home2], miner.getPosition()).pos.roomName).to.equal(HOME);
   });
 });
