@@ -508,11 +508,80 @@ describe("travelToLane EMPTY LANE (outbound off the pavement; loaded leg keeps i
     expect(o.plainCost).to.equal(undefined);
     expect(o.swampCost).to.equal(undefined);
     expect(o.ignoreCreeps).to.equal(true);
+    // ...but it DOES carry a costCallback so it routes around parked upgraders.
+    expect(typeof o.costCallback, "loaded leg penalizes upgrader tiles").to.equal("function");
   });
 
   it("a WORK-carrying creep never rides the empty lane (its WORK always weighs)", () => {
     expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "work" }, { type: "move" }] })).to.equal(false);
     expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 0 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(true);
     expect(isFatigueFreeWhenEmpty({ store: { getUsedCapacity: () => 50 }, body: [{ type: "carry" }, { type: "move" }] })).to.equal(false);
+  });
+});
+
+/**
+ * Haul legs give a live upgrader-in-position an unfavorable cost so the lane
+ * routes AROUND it instead of pathing straight through and force-swapping it
+ * off its post (owner 2026-07-25: haulers "kick the upgraders off their spots,
+ * although they don't really have to, they just happen to path through
+ * sometimes"). The penalty is a preference, never a wall - a target genuinely
+ * ringed by upgraders stays reachable.
+ */
+describe("penalizeUpgraderTiles (haul legs route around parked upgraders)", () => {
+  const { penalizeUpgraderTiles, UPGRADER_TILE_COST } = require("../../../src/corps/movement");
+
+  // A CostMatrix stub recording the highest value stamped on each tile.
+  function matrixStub() {
+    const cells: Record<string, number> = {};
+    return {
+      get: (x: number, y: number) => cells[`${x},${y}`] ?? 0,
+      set: (x: number, y: number, v: number) => {
+        cells[`${x},${y}`] = v;
+      },
+      cells
+    };
+  }
+
+  function upgrader(x: number, y: number, spot: { x: number; y: number }) {
+    return { my: true, pos: { x, y }, memory: { workType: "upgrade", upgradeSpot: spot } };
+  }
+
+  before(() => {
+    (global as any).FIND_MY_CREEPS = "myCreeps";
+  });
+
+  beforeEach(() => {
+    (global as any).Game = { time: 300, rooms: {} };
+  });
+
+  it("stamps the penalty on the tile of an upgrader SITTING ON its assigned spot", () => {
+    const creep = upgrader(25, 19, { x: 25, y: 19 });
+    (global as any).Game.rooms.W1N0 = { find: (_t: any) => [creep] };
+    const m = matrixStub();
+    penalizeUpgraderTiles("W1N0", m as any);
+    expect(m.get(25, 19)).to.equal(UPGRADER_TILE_COST);
+    expect(UPGRADER_TILE_COST, "a preference, not a wall").to.be.lessThan(255);
+  });
+
+  it("leaves an in-transit upgrader (not yet on its spot) alone", () => {
+    const creep = upgrader(25, 18, { x: 25, y: 19 }); // walking toward its spot
+    (global as any).Game.rooms.W1N0 = { find: (_t: any) => [creep] };
+    const m = matrixStub();
+    penalizeUpgraderTiles("W1N0", m as any);
+    expect(m.get(25, 18)).to.equal(0);
+  });
+
+  it("never lowers an existing blocker cost (only raises)", () => {
+    const creep = upgrader(25, 19, { x: 25, y: 19 });
+    (global as any).Game.rooms.W1N0 = { find: (_t: any) => [creep] };
+    const m = matrixStub();
+    m.set(25, 19, 255); // already a wall
+    penalizeUpgraderTiles("W1N0", m as any);
+    expect(m.get(25, 19), "a wall stays a wall").to.equal(255);
+  });
+
+  it("is a no-op in a room with no vision (find unavailable)", () => {
+    const m = matrixStub();
+    expect(() => penalizeUpgraderTiles("W9N9", m as any)).to.not.throw();
   });
 });

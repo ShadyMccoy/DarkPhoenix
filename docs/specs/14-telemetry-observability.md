@@ -4185,3 +4185,198 @@ the already-staffed feeder. rclProgress ~+19 e/t to the controller (was ~10).
 Cycle verdict: **FIXED + VERIFIED + CONFIRMED** — the feeder-linchpin line is
 done (core-pin fix → instrument → linchpin priority → spawn-onto-post); E4
 converted from a "structural ceiling" into a drained, self-balancing spend path.
+
+### AUDIT 2026-07-25 (t72558524→t72559557) — "spawn capacity but short on haulers": premise FALSIFIED with a new per-tick idle instrument; piles are the spawn-ceiling symptom
+
+Owner report: "we have spawn capacity, but we are short on haulers... energy
+sitting in piles on the ground not getting hauled... means our haulers aren't
+enough." Explicitly deprioritized the upgrader/controller thread.
+
+**Measured the pile leak (real):** across 12 captures the source buffers
+(`sourceBuffers`, container+dropped within range 1) stand at ~8120 energy ABOVE
+the 2000 container cap on average (peak 12764) — dropped on the ground decaying
+at ~7-18 e/t (~11 avg ≈ 15% of the 70 e/t mined). Cause: source haulers are
+sized to sustained inflow (`carryPartsFor(rate,d)`) with NO buffer-drain term,
+so every delivery/succession gap ratchets the pile up permanently. Asymmetric
+with `scavengeRate` (which DOES drain a standing pile). This is a DOCUMENTED
+deliberate choice (`flowAdapter.ts:483`, the shard1 stress-fixture "fantasy
+plan" incident: sizing fleets to stocks inflated supply to 316 CARRY vs 20 e/t
+mined). Not flipped blind.
+
+**Chased the spawn energy-starvation (owner's chosen lever).** Prior stamps
+measured fill AT finishes (finishes-weighted endFill 0.861) but never WHY each
+idle tick was idle; the 180-tick pre-deploy windows showing util 0.70 with
+queueDepth 4-8 were short-window noise. Built the instrument that closes the
+gap: `classifySpawnIdle` attributes every non-spawning tick to its NOW-plan
+head — empty (no demand), bank (head unaffordable: energy-starved), buy
+(decided-buy yet idle: exec latency), hold (affordable but held). Exposed as
+segment-0 `spawns[].idle` (v18) + S4 ledger line (recoverable = bank+hold).
+Telemetry-only (no decision path touched); test-unit 1463 green, build green;
+deployed to prod.
+
+**Post-deploy read (t72559557, ~1030t):** util 0.898, S4 recoverable idle
+**0.0**, idle split `{empty:0, bank:0, buy:11, hold:0}` — every idle tick is the
+unavoidable 1-tick back-to-back build transition. Zero energy-starvation, zero
+no-demand idle, zero chosen-waits. (Window straddled the deploy so busy/finishes
+counted pre-deploy ticks while idle only accumulated post-deploy — clean-window
+recapture pending for the exact post-deploy util; the CAUSE split is already a
+clean post-deploy read.)
+
+**Verdict: PREMISE FALSIFIED + BLOCKER RE-CONFIRMED + INSTRUMENTED.** There is no
+recoverable spawn idle — the spawn is saturated on productive work, the same
+structural conclusion as t72553726 / t72541921 ("spawn-capacity ceiling, not a
+leak; levers are RCL7/2nd spawn or the spec-26 storage↔controller merge"). The
+"short on haulers / piles rotting" symptom is a DOWNSTREAM effect of that
+ceiling: haulers can't be over-provisioned past inflow-matching to drain the
+buffers without displacing productive spawn work (P4 0.87-0.95x, SCAV "spawn
+parts DRY binding"). The new S4 line makes "is there spare spawn capacity?" a
+permanent one-line read — recoverable idle ~0 answers it every capture. Note P7
+controller-delivery FAIL (0.14x) is the pre-existing controller-feed flap
+(demand 15↔160), and it gates lever 1 (RCL7 needs controller energy) — the
+connected path out of the ceiling, though owner-deprioritized this cycle.
+
+### AUDIT 2026-07-25 (t72560582) — hauler duty meter ANSWERS (a)/(b)/(c): it's (c) SINK backpressure, not a plan under-ask
+
+Owner pushed back on "spawn-ceiling symptom, not fixable": haulers are income
+tier (funded before the upgraders that eat 42% of build-energy), so hauler
+demand is SATISFIED - the piles are either (a) the plan under-asking, (b)
+under-fielding, or (c) execution. Chose to instrument (c) before touching the
+planner.
+
+Built the hauler execution duty meter: classifyHaulerTick(moved, transacted,
+loaded) -> active | idleSource (empty, waiting/blocked to load) | idleSink
+(loaded, waiting/blocked to deliver), rolling ~1500t window per CarryCorp,
+stamped into segment-4 sizing + new H1 ledger line. Full gate green (unit 1466,
+trio flow-handoff/runt-economy/storage-depot, build); deployed.
+
+**Post-deploy read (t72560582, 276t window): FLEET duty 0.669, idleSource
+0.035, idleSink 0.296.** Prediction (a: high duty) FALSIFIED. Haulers load fine
+(idleSource ~0) but spend ~30% LOADED and unable to deposit. Effective delivery
+~0.67 of sized capacity = BELOW the 10 e/t harvest inflow, so buffers GROW
+(ground-over-cap 4198 -> 9389) and rot. (b) ruled out (fleet ~ plan). Not (a):
+adding hauler carry would just queue more creeps at the sink.
+
+Cause narrowed: idleSink is NOT deposit-port-correlated (worst stallers cd92
+0.56, cd8d 0.44, cbd5 0.43 are port-LESS; cd92 is dist-5 home-room). Two
+near-identical dist-5 routes split cd90 0.12 vs cd92 0.56 - heterogeneity =
+CONTENTION at the shared storage/core deposit point (13/16 edges -> one
+storage; hub link clamped 0.57, taxRate 2.05, coreEmpty 0.31), not a uniform
+sizing/artifact. Measurement caveat: transfer resolves next tick, so ~1
+idle-tick/trip inflates absolute idleSink; but the 10x idleSink>>idleSource
+asymmetry + route heterogeneity + persistent above-cap buffers confirm genuine
+sink backpressure independent of the artifact.
+
+**Verdict: (c) CONFIRMED (sink backpressure) + prediction FALSIFIED + INSTRUMENTED.**
+The fix is delivery-side (decongest the core deposit / spread deposit points /
+storage-link drain), NOT more haulers and NOT (yet) the buffer-drain plan term -
+which would have made it worse. Next: pin the exact contention (storage-tile
+access vs link drain vs feeder/tender crowding), refine the meter to net out the
+transfer-lag tick, then fix.
+
+### AUDIT 2026-07-25 (cont.) — idleSink split deployed; runt-economy false-red was host-load flakiness
+
+Added the idleSink at-sink/en-route split (segment-4 idleSinkAtSinkFrac; H1
+reads it). Integration trio flaked: runt-economy failed 2x at 13-14m (miners
+stuck at 2 WORK, never upsized). ATTRIBUTION (doctrine): ran the cell on the
+pre-change baseline (2d41746) -> PASSED (largest 3 WORK, exit tick 460, 4m); my
+split code re-run solo with the host quiet ALSO PASSED (exit 460, 4m, no
+errors). So the change is ACQUITTED - not a throw (no errors captured, an
+observability meter that only reads state + writes unused memory fields cannot
+stall miner upsizing). The false reds were the mockup's real-CPU metering
+coupling to HOST LOAD (documented blind spot): the earlier trio runs overlapped
+several parallel background captures/test-runs, starving the cold-start ramp so
+miners missed the upsize within the 1200t budget. Clean full trio (host quiet):
+flow-handoff 5m, runt-economy 4m (upsize PROVEN t460), storage-depot 7s - all
+green. Lesson: never run heavy background work concurrent with the trio.
+Deployed; recapturing the at-sink/en-route split next.
+
+### AUDIT 2026-07-25 (t72561884) — idleSink is EN-ROUTE: haulers wedge behind the parked feeder at the storage approach
+
+Split read: FLEET duty 0.812, idleSource 0.017, idleSink 0.171 [atSink 0.032,
+EN-ROUTE 0.139]. ~81% of the sink-side idle is EN-ROUTE, not at the sink.
+Port-less source haulers (cbd5/cee0/4-30/cd90/cd92) are ~100% en-route; only the
+two deposit-port haulers (cd8e/cedc) show atSink (their spec-26 link-clamp hold).
+So the loss is approach-LANE congestion, not deposit throughput.
+
+Mechanism (code-confirmed): ControllerFeederCorp parks "adjacent to the storage"
+(:363) - a standing, non-yielding relay ON a storage-approach tile. Haulers
+converging on the single storage to deposit wedge behind it: travelToLane is
+creep-blind and its swap rule only clears MOVING traffic ("Only a STANDING
+blocker ... defeats that", movement.ts:114). ~14-30% of hauler throughput
+(varies by capture) is lost this way, dropping delivery below the 10 e/t inflow
+so buffers grow and rot (over-cap ~6-9k).
+
+Verdict: (c) sink backpressure fully localized to EN-ROUTE core-approach
+congestion, prime blocker the parked feeder. Fix is positioning/movement
+(reposition the feeder's post off the hauler lane; or let haulers swap past the
+stationary relay; or widen storage deposit access) - NOT more haulers, NOT the
+buffer-drain plan term. Fix design pending owner steer (architectural/movement
+tradeoffs).
+
+---
+
+## Cycle t72571505 — upgrader body flap on transient feeder death (churn leak)
+
+**Ledger:** no FAIL lines; sole WARN P4 spawn-infeasibility 0.91× (structural —
+single spawn, home W43N23 RCL6 at 75% to RCL7, util pinned 0.97 for the whole
+recent window). Not directly attackable without hurting the economy or reaching
+RCL7 (2nd spawn). So the cycle attacked the largest MEASURED waste under it.
+
+**Diagnosis (data, not vibes):** the upgrader `sizing.inflow` flaps **2↔115**
+and the body flaps **w49↔w3** across captures — chronic across 170k+ ticks of
+committed fixtures (seg4 trend t72400561→t72571505), not a transient. Root:
+`UpgradingCorp` derived `bankedBehindFeeder` SOLELY from the transient
+`room.memory.controllerFeederActive` flag (true only while a feeder creep is
+alive this tick). The single non-blocking feeder dies/respawns every ~N ticks →
+flag flaps false → surplus verdict lost → inflow→2 → body recycled to the sip →
+rebuilt on respawn. Blackbox (seg5) confirmed the cost: **5 upgrader respawns in
+2808t** (avg 1820e, worst **2300e@78t** vs ~1500t natural life ⇒ ~3 excess),
+~210 spawn-ticks (~7.5% of a spawn-bound spawn) on pure churn; the w3 windows
+halved delivery (P7 24.7 e/t actual vs a ~49 e/t surplus relay), and storage
+re-accumulated **+0.38/t above the 56k reserve** (reversing the prior cycle's
+drain).
+
+**Relation to the prior cycle (t72554–72555):** that cycle made the feeder
+RELIABLE (core-pin fix, linchpin priority, spawn-onto-post) so `feederActive`
+stays up more; but feeders still die transiently and the upgrader still
+collapsed in the gaps. Rather than a third feeder-reliability patch, this fix
+INTERROGATES the mechanism (trap list, "second patch"): it removes the
+upgrader's dependency on feeder LIVENESS. Standing assets keep working — the
+upgrader holds its body across a feeder gap because haulers deliver directly
+(CarryCorp "a dead feeder never starves upgrading").
+
+**Fix:** `bankBehindFeeder` — the durable feeder-relay verdict, mirroring the
+already-proven `CarryCorp.shouldBankControllerLoad` for the SAME feeder. Bank in
+view whenever a feeder is alive OR the controller buffer holds
+(≥ CONTROLLER_STARVE_FLOOR=200); only genuine starvation (buffer drained, no
+feeder) drops it. One lens, two readers. Red-first: 6 new unit cases pin
+ride-the-gap + flap closure (w3 sip → ~49.5 sustained). Gate: unit 1462 +
+build + flow-handoff/runt-economy/storage-depot trio all green.
+
+**Deployed** to prod (master) at commit dcccbf6 (post-t72571505 global reset).
+
+**Predicted deltas (verify ~2400t out, past reset recovery):** inflow stops
+flapping to 2 (holds ~49 while stock≥200); body holds ~w40–49; X5 home churn
+< 11% and the 2300e@78t upgrader class gone; P7 delivery → ~49 e/t; storage
+slope turns negative (drains toward reserve). Regression rule: any triage line
+worse than the t72571505 baseline ⇒ redeploy origin/master, record falsified.
+
+**VERIFIED (t72576379, +4874t, past reset recovery) — every predicted delta
+hit, ledger fully green (no FAIL, no WARN — the P4 WARN itself cleared):**
+- P4 spawn-infeasibility **0.91→0.75 (WARN→ok)**: upgrader plan WORK 95p→20p,
+  spawn util 0.973→0.914 — the colony left the spawn-bound plateau.
+- Upgrader churn: **5 respawns/2808t (w49↔w3) → 3 (all big-bodied)**; the
+  early-death interval doubled (2300e@78t → @144t); home rebuild share 11%→9%.
+  No w3 teardown - the flap is closed.
+- P7 controller delivery **24.7→29.9 e/t** (1.65×→2.0× the lower-endpoint plan).
+- E4/storage slope **+0.38→−4.85/t**: the banked surplus (61k) was eaten down
+  through the 56k reserve exactly as the windfall doctrine intends; once below
+  reserve the save regime throttled the upgrader to a sip (inflow 2, plan WORK
+  20p) - self-balancing, no flap without a surplus. X1 dry WORK 0.10 (workUtil
+  0.99): the 20 WORK stands fully fed, not starved.
+
+Cycle verdict: **FIXED + VERIFIED**. Residual watch (next cycle): storage sat
+−18.5k below reserve draining −4.85/t at the read (partly post-reset guard/
+reserver recovery spend, partly the windfall-draw tail); confirm it self-
+corrects back toward reserve in the save regime and is not runaway upgrader
+consumption.

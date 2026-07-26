@@ -257,6 +257,15 @@ declare global {
          * fix that"). Low avg = refill lag (tender); high avg = the spawn
          * was affordable and idled anyway (agenda/decision latency). */
         fillSum?: number;
+        /** Idle-tick cause tally (owner 2026-07-25): each non-spawning tick
+         * classified by the NOW-plan head - empty (no demand), bank (head
+         * unaffordable: energy-starved), buy (decided-buy yet idle: exec
+         * latency), hold (affordable but held/queued). Names WHERE the
+         * steady-state spawn idle goes. See Telemetry.classifySpawnIdle. */
+        idleEmpty?: number;
+        idleBank?: number;
+        idleBuy?: number;
+        idleHold?: number;
       };
     };
 
@@ -734,6 +743,14 @@ declare global {
      * destination every trip (overridden only to top up a hungry spawn).
      */
     homeSink?: "spawn" | "controller" | "founding" | "storage";
+
+    /** Hauler duty meter (owner 2026-07-25): last tick's position + carried
+     * energy, so CarryCorp can tell a productive tick (moved or transacted)
+     * from an idle one (stationary, waiting/blocked to load or unload) and
+     * split idle by the load state. Persists across global resets (creep
+     * memory), so the meter reads realized movement, not intents. */
+    dutyPos?: { x: number; y: number; roomName: string };
+    dutyEnergy?: number;
 
     /** An upgrader's assigned parking tile (ringing the controller input spot);
      * it camps here, withdraws from the single input, and upgrades in place. */
