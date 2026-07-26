@@ -10,23 +10,22 @@
  *
  *   1. ExtensionTenderCorp sizes its refill fleet from the WHOLE bank - every
  *      spawn's 300 plus each extension's real capacity - not `300 + 50*N`.
- *   2. Consumers (upgraders/builders) bind to the NEAREST same-room spawn, so
- *      both/all spawns build consumer bodies instead of every consumer piling
- *      onto spawn[0].
- *   3. SpawnDirector.collectDemands partitions demand by spawn: with two spawns
- *      each sees only its own corps' demands (no cross-feed, no double-count).
+ *   2. Spawn distribution is POOLED, not per-spawn: the SpawnDirector collects
+ *      a room's whole demand pool across ALL its spawns (not one spawn's slice),
+ *      and assigns each buy to the free spawn nearest that demand's work site -
+ *      so two spawns self-balance across two distinct demands per tick instead
+ *      of spawn[0] owning every consumer.
  */
 
 import { expect } from "chai";
 import "../../../src/types/Memory";
 import { setupGlobals, Game } from "../mock";
 import { ExtensionTenderCorp } from "../../../src/corps/ExtensionTenderCorp";
-import { planColony, ColonyProblem, PlannerSource, PlannerSink, PlannerSpawn } from "../../../src/economy/CorpPlanner";
-import { commissionsFromPlan, ConsumeAssignment } from "../../../src/economy/commissionPlan";
 import { createCorpRegistry } from "../../../src/execution/CorpRunner";
-import { collectDemands } from "../../../src/execution/SpawnDirector";
+import { collectDemands, collectDemandsMatching, pickNearestSpawn } from "../../../src/execution/SpawnDirector";
 import { resetCommissionHost, seedCommissionStoreForTest } from "../../../src/execution/CommissionHost";
 import { SpawnDemand, SpawnDemandContext } from "../../../src/spawn/SpawnScheduler";
+import { Position } from "../../../src/types/Position";
 
 const FIND_MY_SPAWNS = 112;
 const FIND_STRUCTURES = 107;
@@ -142,83 +141,10 @@ describe("dual/tri-spawn: ExtensionTenderCorp sizes from the whole bank", () => 
 });
 
 // ===========================================================================
-// 2. Consumers bind to the NEAREST same-room spawn
+// 2a. The demand pool spans the whole room, not one spawn
 // ===========================================================================
 
-describe("dual/tri-spawn: consumers bind to the nearest same-room spawn", () => {
-  const ROOM = "W0N0";
-  const at = (x: number): { x: number; y: number; roomName: string } => ({ x, y: 0, roomName: ROOM });
-  const manhattan = (a: any, b: any): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  const spawn = (id: string, x: number): PlannerSpawn => ({ id, pos: at(x) });
-  const source = (id: string, x: number, rate = 10): PlannerSource => ({
-    id,
-    nodeId: `node-${id}`,
-    pos: at(x),
-    rate,
-    maxMiners: 1
-  });
-  const sink = (id: string, kind: PlannerSink["kind"], x: number, value: number, capacity: number): PlannerSink => ({
-    id,
-    kind,
-    pos: at(x),
-    value,
-    capacity
-  });
-  const problem = (p: Partial<ColonyProblem> & Pick<ColonyProblem, "spawns" | "sources" | "sinks">): ColonyProblem => ({
-    dist: manhattan,
-    ...p
-  });
-
-  function upgradeSpawnId(prob: ColonyProblem): string | null {
-    const plan = planColony(prob);
-    const commissions = commissionsFromPlan(prob, plan);
-    const upgrade = commissions.find(c => c.shape === "consume" && c.kind === "upgrade");
-    expect(upgrade, "an upgrade consume commission was produced").to.not.equal(undefined);
-    return (upgrade!.assignment as ConsumeAssignment).spawnId;
-  }
-
-  it("TWO spawns: the controller's upgraders spawn from the spawn nearest the controller", () => {
-    // Spawns A@0 and B@100 share the room; the controller sits at 90 (d=10 to
-    // B, 90 to A). The pre-fix `spawns.find(sameRoom)` returned A (first), so
-    // every upgrader walked in from across the room and spawn B never built one.
-    const id = upgradeSpawnId(
-      problem({
-        spawns: [spawn("A", 0), spawn("B", 100)],
-        sources: [source("s", 95)],
-        sinks: [sink("ctrl", "controller", 90, 50, 1000)]
-      })
-    );
-    expect(id).to.equal("B");
-  });
-
-  it("THREE spawns (RCL8): binds to the closest of the three", () => {
-    const id = upgradeSpawnId(
-      problem({
-        spawns: [spawn("A", 0), spawn("B", 50), spawn("C", 100)],
-        sources: [source("s", 95)],
-        sinks: [sink("ctrl", "controller", 95, 50, 1000)]
-      })
-    );
-    expect(id).to.equal("C");
-  });
-
-  it("still binds the sole spawn when the room has one (no regression)", () => {
-    const id = upgradeSpawnId(
-      problem({
-        spawns: [spawn("S", 0)],
-        sources: [source("s", 20)],
-        sinks: [sink("ctrl", "controller", 10, 50, 1000)]
-      })
-    );
-    expect(id).to.equal("S");
-  });
-});
-
-// ===========================================================================
-// 3. collectDemands partitions demand across the two spawns
-// ===========================================================================
-
-describe("dual-spawn: SpawnDirector.collectDemands partitions demand by spawn", () => {
+describe("dual-spawn: the SpawnDirector pools a room's demand across its spawns", () => {
   const ROOM = "W1N1";
   const CTX: SpawnDemandContext = { energyCapacity: 5600, tick: 100 };
 
@@ -232,23 +158,67 @@ describe("dual-spawn: SpawnDirector.collectDemands partitions demand by spawn", 
     return { buyerCorpId, role: "tanker", value: 90, blocking: false, producesIncome: false, desiredCost: 300, minCost: 200, since: 0 };
   }
 
-  it("each spawn sees only the corps bound to it - no cross-feed, no double-count", () => {
-    // Two tender corps, one per spawn in a 2-spawn room. Each corp's demand
-    // must appear at ITS spawn and NOWHERE else, or the second spawn either
-    // starves (never asked) or double-buys (both spawns build the same corp's
-    // creep). Patch getSpawnDemand so this pins ONLY the spawn partitioning.
+  it("collectDemandsMatching gathers demand from EVERY spawn in the room's pool", () => {
+    // Two corps anchored to different spawns of the same room. The pool (the
+    // room's whole spawn set) must surface BOTH - distribution is no longer
+    // pinned to one spawn - while the single-spawn view still slices to one.
     const tenderA = new ExtensionTenderCorp(`${ROOM}-tenderA`, "spawnA");
     const tenderB = new ExtensionTenderCorp(`${ROOM}-tenderB`, "spawnB");
     (tenderA as any).getSpawnDemand = () => [canned(tenderA.id)];
     (tenderB as any).getSpawnDemand = () => [canned(tenderB.id)];
     seedCommissionStoreForTest(`tender-${ROOM}-A`, "tender", tenderA);
     seedCommissionStoreForTest(`tender-${ROOM}-B`, "tender", tenderB);
+    createCorpRegistry();
 
-    const registry = createCorpRegistry();
-    const atA = collectDemands(registry, "spawnA", CTX);
-    const atB = collectDemands(registry, "spawnB", CTX);
+    const roomSpawns = new Set(["spawnA", "spawnB"]);
+    const pool = collectDemandsMatching(id => roomSpawns.has(id), CTX);
+    expect(pool.map(d => d.buyerCorpId).sort()).to.deep.equal([tenderA.id, tenderB.id].sort());
 
-    expect(atA.map(d => d.buyerCorpId)).to.deep.equal([tenderA.id]);
-    expect(atB.map(d => d.buyerCorpId)).to.deep.equal([tenderB.id]);
+    // The per-spawn view (a building block, used by the decision harness) still
+    // slices the pool to a single spawn - the pool is the union of these.
+    expect(collectDemands(createCorpRegistry(), "spawnA", CTX).map(d => d.buyerCorpId)).to.deep.equal([tenderA.id]);
+    expect(collectDemands(createCorpRegistry(), "spawnB", CTX).map(d => d.buyerCorpId)).to.deep.equal([tenderB.id]);
+  });
+});
+
+// ===========================================================================
+// 2b. Each buy goes to the free spawn nearest its work site (distance term)
+// ===========================================================================
+
+describe("dual/tri-spawn: pickNearestSpawn assigns a buy to the nearest free spawn", () => {
+  const spawnAt = (id: string, x: number, y: number, roomName = "W0N0"): any => ({
+    id,
+    pos: { x, y, roomName }
+  });
+  const pos = (x: number, y: number, roomName = "W0N0"): Position => ({ x, y, roomName });
+
+  it("TWO spawns: the controller-side spawn takes a controller-side demand", () => {
+    // Spawn1 by the sources (5,25), Spawn2 by the controller (44,40). An
+    // upgrader's work site is the controller (44,42) -> Spawn2 is nearest, so
+    // the pool builds the upgrader THERE, not across the room at Spawn1.
+    const s1 = spawnAt("s1", 5, 25);
+    const s2 = spawnAt("s2", 44, 40);
+    expect(pickNearestSpawn([s1, s2], pos(44, 42)).id).to.equal("s2");
+    // ...and a source-side demand (a miner at 8,25) goes to Spawn1.
+    expect(pickNearestSpawn([s1, s2], pos(8, 25)).id).to.equal("s1");
+  });
+
+  it("THREE spawns (RCL8): picks the closest of the three", () => {
+    const spawns = [spawnAt("a", 5, 5), spawnAt("b", 25, 25), spawnAt("c", 45, 45)];
+    expect(pickNearestSpawn(spawns, pos(24, 26)).id).to.equal("b");
+  });
+
+  it("prefers an in-room spawn over one in another room", () => {
+    const home = spawnAt("home", 40, 40, "W0N0");
+    const other = spawnAt("other", 1, 1, "W1N1");
+    // Work in W0N0 near neither exact tile: the same-room spawn still wins over
+    // the cross-room one (room-distance penalty dominates raw tile distance).
+    expect(pickNearestSpawn([other, home], pos(10, 10, "W0N0")).id).to.equal("home");
+  });
+
+  it("keeps the first spawn when the demand has no resolvable work site", () => {
+    const s1 = spawnAt("s1", 5, 25);
+    const s2 = spawnAt("s2", 44, 40);
+    expect(pickNearestSpawn([s1, s2], undefined).id).to.equal("s1");
   });
 });

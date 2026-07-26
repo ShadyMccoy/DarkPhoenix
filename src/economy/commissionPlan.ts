@@ -32,24 +32,21 @@ export interface ConsumeAssignment {
 }
 
 /**
- * Spawn that should build a consumer at sinkPos: the NEAREST same-room spawn if
- * any, else the nearest spawn overall.
+ * Spawn that ANCHORS a consumer to its colony: same-room if any, else nearest.
  *
- * Same-room stays a hard preference over a raw-closer other-room spawn (a
- * consumer's body should be born in its own room, not walk a cross-room path),
- * but among the room's spawns we pick the closest. RCL7 rooms have two spawns
- * and RCL8 three; the old `spawns.find(sameRoom)` returned whichever spawn
- * happened to be first, so EVERY consumer bound to spawn[0] and the other
- * spawn(s) never built upgraders/builders - halving the consumer-ramp spawn
- * throughput exactly when the colony has the extensions to field big bodies.
+ * This picks the consumer's ROOM (which colony serves it), not the exact spawn
+ * that builds its bodies - the SpawnDirector pools a room's spawns and assigns
+ * each buy to the nearest free one at spawn time (owner 2026-07-25: spawning
+ * distribution is not per-room/per-spawn). So among a room's spawns any one is
+ * an equivalent anchor; the first same-room spawn is fine.
  */
 function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): string | null {
   if (!sinkPos || problem.spawns.length === 0) return null;
-  const sameRoom = problem.spawns.filter(s => s.pos.roomName === sinkPos.roomName);
-  const pool = sameRoom.length > 0 ? sameRoom : problem.spawns;
-  let best = pool[0];
+  const sameRoom = problem.spawns.find(s => s.pos.roomName === sinkPos.roomName);
+  if (sameRoom) return sameRoom.id;
+  let best = problem.spawns[0];
   let bestDist = problem.dist(best.pos, sinkPos);
-  for (const s of pool) {
+  for (const s of problem.spawns) {
     const d = problem.dist(s.pos, sinkPos);
     if (d < bestDist) {
       best = s;

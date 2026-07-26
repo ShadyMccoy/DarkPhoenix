@@ -13,9 +13,10 @@
  * cross-cutting dual-spawn invariants the framework must honour:
  *
  *   - BOTH spawns are put to work (the second isn't left idle);
- *   - the CONTROLLER-side spawn builds the upgraders (consumers bind to their
- *     NEAREST same-room spawn - the servingSpawnId generalization), so consumer
- *     throughput isn't funnelled through spawn[0];
+ *   - the pool serves a MIX of income and consumer demand across the two spawns
+ *     (the SpawnDirector pools a room's demand and hands each buy to the nearest
+ *     free spawn - distribution is not per-spawn), so consumer throughput isn't
+ *     funnelled through spawn[0];
  *   - the refill SLA still holds on the larger 2-spawn / 100-cap bank (the
  *     ExtensionTenderCorp bank-capacity generalization).
  *
@@ -41,10 +42,6 @@ const HOME = (roomName: string): any => {
   b.controller(44, 42); // by Spawn2
   return b.toRoom();
 };
-
-/** Chebyshev range (the game's room range metric). */
-const range = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
-  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
 const SPAWN1 = { x: 10, y: 25 }; // addBot spawn, by Source A
 const SPAWN2 = { x: 42, y: 40 }; // staged spawn, by the controller + Source B
@@ -136,16 +133,19 @@ export function buildMultiSpawnT7Cells(): GridCell[] {
           const agenda = s.memory?.spawnAgenda ?? {};
           return spawns.every((sp) => (agenda[String(sp._id)]?.executed?.length ?? 0) > 0);
         }),
-        // The servingSpawnId generalization, end-to-end: the spawn NEAREST the
-        // controller is the one that builds the upgraders (not spawn[0] across
-        // the room). Identify it by position so id ordering doesn't matter.
-        eventually("the controller-side spawn builds the upgraders (nearest-spawn binding)", (s: CellSample) => {
-          const ctrl = s.objects().find((o) => o.type === "controller");
+        // Pooled distribution, end-to-end: across the two spawns' execution
+        // receipts the pool served BOTH an income role (miner/hauler) AND a
+        // consumer role (upgrader/builder/tanker) - the second spawn isn't just
+        // shadowing the first on the same demand, and consumers aren't starved
+        // behind income on a single lane.
+        eventually("the pool serves a mix of income and consumer demand", (s: CellSample) => {
           const spawns = s.objects().filter((o) => o.type === "spawn" && o.user === s.userId);
-          if (!ctrl || spawns.length < 2) return false;
-          const nearCtrl = [...spawns].sort((a, b) => range(a, ctrl) - range(b, ctrl))[0];
-          const executed = s.memory?.spawnAgenda?.[String(nearCtrl._id)]?.executed ?? [];
-          return executed.some((e: any) => e.role === "upgrader");
+          const agenda = s.memory?.spawnAgenda ?? {};
+          const roles = new Set<string>();
+          for (const sp of spawns) for (const e of agenda[String(sp._id)]?.executed ?? []) roles.add(e.role);
+          const income = ["miner", "hauler"].some((r) => roles.has(r));
+          const consumer = ["upgrader", "builder", "tanker"].some((r) => roles.has(r));
+          return income && consumer;
         }),
         // The bank-capacity generalization's real-world consequence: the larger
         // 2-spawn / 100-cap extension bank still refills inside each draining
