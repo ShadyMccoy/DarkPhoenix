@@ -113,6 +113,21 @@ a staging artifact — none were host load, and none were code regressions.
 | `cons-link-farthest-source` | Drift: spec 24 rung 3 places the CONTROLLER link above every source link; at RCL5's 2-link limit (core + controller) a source link can never place. Verified: the "link site" observed was the controller link at (8,8). | Restaged at RCL6 (3 links) with core + controller links prebuilt and the full 40-extension set (an unbuilt remainder batch-holds the queue above the link rung). The farthest-source selection doctrine itself still holds — passes @20. |
 | `plan-t4-link-haul-pricing` | Drift: spec 24's LINK SWAP (t72465499) DESTROYED the staged source link on the first pass (controller link outvalues it; RCL5 slots full), killing the pump and the pricing under test. | Restaged at RCL6 with a prebuilt controller link; the staged pump survives. Passes @10/@23. |
 
+### Full-grid verdict + baseline refresh (2026-07-26)
+
+A full 128-cell grid run on the repaired sandbox: **126 pass** — every report
+cell, the staged `plan-t5-remote-pipeline` rebuild, and both new
+`multispawn-t7-*` cells (frontier **T7**) — with zero regressions against
+baseline-green cells. The only two reds were already non-green in the old
+baseline: `haul-t4-tender-bus-regime` (the controller-spill leg never
+completes in-window; pre-existing known-red, real bot work, not a staging
+artifact — regime/depot/extension assertions all satisfy early) and
+`exp-t5-founding-funnels-to-completion` (the claim-buildup funnel, active
+work). `baseline.json` refreshed to this run. Note the recorded botLevel moves
+4 → **3**: bookkeeping honesty, not a regression — the old file recorded
+botLevel 4 alongside a T4 `"fail"` cell, a combination `botLevel()` can never
+produce; with T4's tender-bus red, 3 is what the ladder actually earns.
+
 ### Trim (suite duration)
 
 The suite's wall-clock is dominated by the long-window worlds, not Class A.
