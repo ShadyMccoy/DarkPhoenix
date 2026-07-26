@@ -124,7 +124,9 @@ export interface TickCtx {
 export interface GridCell {
   /** Unique kebab-case id, prefixed by avenue (e.g. "churn-canary-readopt"). */
   id: string;
-  tier: 0 | 1 | 2 | 3 | 4 | 5;
+  /** Bot-level ladder tier (~RCL). 6/7/8 cover the multi-spawn tiers: RCL7
+   * gains a 2nd spawn + 100-cap extensions, RCL8 a 3rd + 200-cap. */
+  tier: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   avenue: string;
   /** Verdict window in ticks. */
   window: number;

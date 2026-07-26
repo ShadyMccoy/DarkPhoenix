@@ -29,7 +29,7 @@ export interface GridResult {
 /** Highest tier T with every tier <= T fully green (-1 if T0 has a red). */
 export function botLevel(verdicts: CellVerdict[]): number {
   let level = -1;
-  for (let t = 0; t <= 5; t++) {
+  for (let t = 0; t <= 8; t++) {
     const tier = verdicts.filter((v) => v.tier === t);
     if (tier.length === 0) continue; // an unpopulated tier doesn't cap the ladder
     if (tier.every((v) => v.status === "pass")) level = t;
@@ -61,7 +61,7 @@ export function renderTable(result: GridResult): string {
 
   const header = ["tier", ...avenues, "total"].map((s) => s.padEnd(14));
   lines.push(header.join(""));
-  for (let t = 0; t <= 5; t++) {
+  for (let t = 0; t <= 8; t++) {
     const tier = result.cells.filter((c) => c.tier === t);
     if (tier.length === 0) continue;
     const row = [`T${t}`.padEnd(14)];
