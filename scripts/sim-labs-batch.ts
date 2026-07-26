@@ -1,0 +1,231 @@
+/**
+ * sim-labs-batch.ts — phased batches: 1.0 utilisation for ANY compound, incl. XGH2O.
+ *
+ * The owner's idea that beats the one capacity wall left standing. sim-labs-unity-tree
+ * hits 1.0 on shallow boosts but CANNOT run XGH2O: its tree has 7 compound producers +
+ * 7 distinct base holders = 14 simultaneous holdings > 10 labs. That wall only exists
+ * because the whole tree is held at once. Break the tree into TIERS and run one
+ * reaction at a time in BULK:
+ *
+ *   make a batch of ZK (Z+K) -> bank it;  a batch of UL (U+L) -> bank it;
+ *   then treat ZK, UL as "bases" and make a batch of G (ZK+UL) -> bank it;  ... up to
+ *   XGH2O.  Each phase is a SINGLE reaction whose two inputs come from the terminal, so
+ *   it is exactly the sim-labs-unity.ts system (base feeders rotate through cooldown)
+ *   and hits ~1.0 on its own. A phase never holds more than ONE reaction's working set
+ *   (<=4 source labs + producers), so the 14>10 wall never appears. The only overhead
+ *   is a small per-phase cut-over, amortised over the batch — util -> 1.0 as batch grows.
+ *
+ * Cost of generality (owner accepted "regardless of CPU"): every intermediate unit now
+ * round-trips through the terminal (it is the next tier's input), so tender intents are
+ * higher than the in-lab react-away schedulers — the classic throughput<->CPU trade.
+ *
+ * Run: npx ts-node -P tsconfig.test.json scripts/sim-labs-batch.ts [--target XGH2O]
+ *                                                                   [--batch 3000]
+ *                                                                   [--ticks 120000] [--quiet]
+ *   Sweep --batch to see the amortisation (small batch = cut-over drag; large = ~1.0).
+ *
+ * NOT wired into the bot. Standard Screeps constants, UNVERIFIED here.
+ */
+
+/* eslint-disable no-console */
+
+const LAB_MINERAL_CAPACITY = 3000;
+const LAB_REACTION_AMOUNT = 5;
+
+const REACTIONS: Record<string, [string, string]> = {
+  OH: ["H", "O"], ZK: ["Z", "K"], UL: ["U", "L"], G: ["ZK", "UL"],
+  UH: ["U", "H"], UO: ["U", "O"], KH: ["K", "H"], KO: ["K", "O"],
+  LH: ["L", "H"], LO: ["L", "O"], ZH: ["Z", "H"], ZO: ["Z", "O"], GH: ["G", "H"], GO: ["G", "O"],
+  UH2O: ["UH", "OH"], UHO2: ["UO", "OH"], KH2O: ["KH", "OH"], KHO2: ["KO", "OH"],
+  LH2O: ["LH", "OH"], LHO2: ["LO", "OH"], ZH2O: ["ZH", "OH"], ZHO2: ["ZO", "OH"],
+  GH2O: ["GH", "OH"], GHO2: ["GO", "OH"],
+  XUH2O: ["X", "UH2O"], XUHO2: ["X", "UHO2"], XKH2O: ["X", "KH2O"], XKHO2: ["X", "KHO2"],
+  XLH2O: ["X", "LH2O"], XLHO2: ["X", "LHO2"], XZH2O: ["X", "ZH2O"], XZHO2: ["X", "ZHO2"],
+  XGH2O: ["X", "GH2O"], XGHO2: ["X", "GHO2"],
+};
+const REACTION_TIME: Record<string, number> = {
+  OH: 20, ZK: 5, UL: 5, G: 5,
+  UH: 10, UO: 10, KH: 10, KO: 10, LH: 10, LO: 10, ZH: 10, ZO: 10, GH: 10, GO: 10,
+  UH2O: 5, UHO2: 5, KH2O: 5, KHO2: 5, LH2O: 5, LHO2: 5, ZH2O: 5, ZHO2: 5, GH2O: 5, GHO2: 5,
+  XUH2O: 60, XUHO2: 60, XKH2O: 60, XKHO2: 60, XLH2O: 65, XLHO2: 60,
+  XZH2O: 40, XZHO2: 160, XGH2O: 80, XGHO2: 150,
+};
+const BASES = new Set(["H", "O", "Z", "K", "U", "L", "X"]);
+const isBase = (r: string) => BASES.has(r);
+const LAB_COUNT = 10;
+
+interface Lab { id: number; mineral: string | null; amount: number; cooldown: number; }
+
+function treeCompounds(target: string): string[] {
+  const order: string[] = [];
+  const seen = new Set<string>();
+  const visit = (c: string) => {
+    if (isBase(c) || seen.has(c)) return;
+    seen.add(c);
+    const [a, b] = REACTIONS[c];
+    visit(a); visit(b); order.push(c);
+  };
+  visit(target);
+  return order;
+}
+const depthOf = (() => {
+  const memo = new Map<string, number>();
+  const d = (c: string): number => {
+    if (isBase(c)) return 0;
+    if (memo.has(c)) return memo.get(c)!;
+    const [a, b] = REACTIONS[c];
+    const v = 1 + Math.max(d(a), d(b)); memo.set(c, v); return v;
+  };
+  return d;
+})();
+
+interface Args { target: string; batch: number; ticks: number; quiet: boolean; }
+function parseArgs(argv: string[]): Args {
+  const get = (flag: string, def: string) => {
+    const i = argv.indexOf(flag);
+    return i >= 0 && argv[i + 1] ? argv[i + 1] : def;
+  };
+  const target = get("--target", "XGH2O");
+  if (!REACTIONS[target]) { console.error(`Unknown target "${target}".`); process.exit(1); }
+  return {
+    target,
+    batch: parseInt(get("--batch", "3000"), 10),
+    ticks: parseInt(get("--ticks", "120000"), 10),
+    quiet: argv.includes("--quiet"),
+  };
+}
+
+function run(args: Args): void {
+  const { target } = args;
+  const phases = treeCompounds(target); // post-order: a reaction's inputs are made in earlier phases
+  const AMT = LAB_REACTION_AMOUNT;
+  const CAP = LAB_MINERAL_CAPACITY;
+  const B = args.batch; // units of product per phase
+
+  const labs: Lab[] = Array.from({ length: LAB_COUNT }, (_, id) => ({ id, mineral: null, amount: 0, cooldown: 0 }));
+  const terminal: Record<string, number> = {};
+  const BIG = 1e9;
+  for (const b of BASES) terminal[b] = BIG; // bases are the supplied input
+  for (const c of phases) terminal[c] = 0;
+
+  let tenderIntents = 0, reactionsRun = 0, producedTarget = 0, busyLabTicks = 0;
+
+  let phaseIdx = 0;
+  let phaseFired = 0; // units of the current phase's product created so far this phase
+
+  const holders = (res: string): Lab[] => labs.filter((l) => l.mineral === res && l.amount >= AMT);
+
+  // bank a lab's contents to the terminal (product goes to terminal to feed next tier;
+  // a leftover input likewise returns). Frees the lab.
+  const bankLab = (l: Lab): void => {
+    if (l.mineral !== null && l.amount > 0) {
+      terminal[l.mineral] = (terminal[l.mineral] ?? 0) + l.amount;
+      if (l.mineral === target) producedTarget += l.amount;
+      tenderIntents++;
+    }
+    l.mineral = null; l.amount = 0;
+  };
+
+  const tick = (): void => {
+    for (const l of labs) if (l.cooldown > 0) l.cooldown--;
+
+    const c = phases[phaseIdx];
+    const [a, b] = REACTIONS[c];
+    const inputs = a === b ? [a] : [a, b];
+
+    // 1. MAINTAIN INPUT SOURCES on cooling labs (the unity trick). Keep 2 cooling
+    //    holders of each input, drawn from the terminal (bases infinite; compound
+    //    inputs from the banks the earlier phases filled). Never steal the other
+    //    input's holders; prefer the deepest-cooling lab.
+    const KEEP = 2;
+    for (const res of inputs) {
+      let have = holders(res).length;
+      if (have >= KEEP) continue;
+      const eligible = (l: Lab): boolean =>
+        l.mineral !== res && !(l.mineral !== null && inputs.includes(l.mineral) && l.mineral !== res);
+      const cooling = labs.filter((l) => l.cooldown > 0 && eligible(l)).sort((x, y) => y.cooldown - x.cooldown);
+      const idle = labs.filter((l) => l.cooldown === 0 && eligible(l));
+      for (const l of [...cooling, ...idle]) {
+        if (have >= KEEP || (terminal[res] ?? 0) < AMT) break;
+        bankLab(l);
+        const want = Math.min(CAP, terminal[res]);
+        l.mineral = res; l.amount = want; terminal[res] -= want; tenderIntents++;
+        have++;
+      }
+    }
+
+    // 2. FIRE. Every off-cooldown lab produces c (unity discipline: a lab that was an
+    //    input holder and just came off cooldown empties its input back and produces
+    //    c too — so the input holders are always COOLING labs, never idle reserved
+    //    ones; that is what carries a phase to ~1.0). Stop starting new reactions once
+    //    the batch quota B is met, letting the phase wind down for the cut-over.
+    for (const P of labs) {
+      if (P.cooldown > 0) continue;
+      if (phaseFired >= B) continue;
+      // if P holds one of the inputs, only let it fire (empty + produce) when a SPARE
+      // holder of that input remains to be read — otherwise keep it as the source.
+      if (P.mineral !== null && P.mineral !== c && inputs.includes(P.mineral) && holders(P.mineral).length <= 1) continue;
+      if (P.mineral !== null && P.mineral !== c) { if (P.amount > 0) bankLab(P); else { P.mineral = null; P.amount = 0; } }
+      if (P.mineral === c && P.amount + AMT > CAP) bankLab(P);
+      const sA = labs.find((l) => l !== P && l.mineral === a && l.amount >= AMT);
+      const sB = a === b
+        ? labs.find((l) => l !== P && l !== sA && l.mineral === b && l.amount >= AMT)
+        : labs.find((l) => l !== P && l.mineral === b && l.amount >= AMT);
+      if (!sA || !sB) continue; // no source this tick (rare cut-over transient)
+      sA.amount -= AMT; sB.amount -= AMT;
+      P.mineral = c; P.amount += AMT; P.cooldown = REACTION_TIME[c];
+      reactionsRun++; phaseFired += AMT;
+    }
+
+    // 3. skim finished product to the terminal so the next tier can read it, and so a
+    //    producer lab can keep firing without hitting CAP.
+    for (const P of labs) {
+      if (P.mineral === c && P.amount >= CAP - AMT) bankLab(P);
+    }
+
+    // 4. advance the phase once the quota is met AND the product has been banked out
+    //    of the labs (so the next tier finds it in the terminal). Bank any stragglers.
+    if (phaseFired >= B) {
+      for (const P of labs) if (P.mineral === c && P.cooldown === 0) bankLab(P);
+      const stillInLabs = labs.some((l) => l.mineral === c && l.amount > 0);
+      if (!stillInLabs || (terminal[c] ?? 0) >= B) {
+        phaseIdx = (phaseIdx + 1) % phases.length;
+        phaseFired = 0;
+      }
+    }
+
+    for (const l of labs) if (l.cooldown > 0) busyLabTicks++;
+  };
+
+  const WARMUP = Math.min(30000, Math.floor(args.ticks / 3));
+  let wProd = 0, wBusy = 0;
+  for (let t = 0; t < args.ticks; t++) {
+    tick();
+    if (t === WARMUP) { wProd = producedTarget; wBusy = busyLabTicks; }
+  }
+
+  const steadyTicks = args.ticks - WARMUP;
+  const steadyProduced = producedTarget - wProd;
+  const ratePerK = (steadyProduced / steadyTicks) * 1000;
+  const util = (busyLabTicks - wBusy) / (LAB_COUNT * steadyTicks);
+  const intentsPerK = (tenderIntents / args.ticks) * 1000;
+  const sumCd = phases.reduce((s, cc) => s + REACTION_TIME[cc], 0);
+  const R1 = (AMT * LAB_COUNT) / sumCd; // the 1.0-util ceiling rate
+
+  console.log("");
+  console.log(`Lab reaction-network sim  —  spec 31 (10 labs, 1 tender)`);
+  console.log(`  scheduler       : PHASED BATCH (one reaction at a time in bulk; intermediates banked as the next tier's 'bases')`);
+  console.log(`  target          : ${target}  (depth ${depthOf(target)}, ${phases.length} tiers: ${phases.join(" -> ")})`);
+  console.log(`  batch / ticks   : ${B} units per phase   ${args.ticks} ticks (steady: last ${steadyTicks})`);
+  console.log("");
+  console.log(`  LAB UTILISATION  : ${(util * 100).toFixed(2)}%   (amortised over cut-overs)`);
+  console.log(`    ${target} produced      : ${steadyProduced}  (${ratePerK.toFixed(1)} / 1000 ticks)`);
+  console.log(`    reactions run      : ${reactionsRun}`);
+  console.log(`    tender CPU         : ${intentsPerK.toFixed(0)} intents/1k = ${(intentsPerK * 0.2).toFixed(1)} CPU/1k ticks`);
+  console.log("");
+  console.log(`  1.0-util ceiling (R=${R1.toFixed(3)}/tick): ${(R1 * 1000).toFixed(0)}/1k`);
+  console.log(`  achieved / ceiling  : ${((ratePerK / (R1 * 1000)) * 100).toFixed(1)}%`);
+  console.log("");
+}
+
+run(parseArgs(process.argv.slice(2)));

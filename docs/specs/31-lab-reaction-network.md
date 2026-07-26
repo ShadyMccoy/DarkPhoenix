@@ -318,7 +318,7 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   | `XLH2O` | 97.8% | cd-65 top tier's integer-lab tax |
   | `XZH2O` | 98.9% | |
   | `XZHO2` | 97.0% | cd-160 top tier |
-  | `XGH2O` (depth 5) | — | **cannot**: 7 compound labs + 7 base holders = 14 > 10 labs |
+  | `XGH2O` (depth 5) | — | won't fit interleaved (7+7=14 > 10 labs) → use phased batches below (~98%) |
 
   So the base-rotation scheduler **beats the burst (84-88%) outright** on the shallow
   boosts and **reaches an exact 1.0** on most of them. Absolute-deficit selection (not
@@ -327,21 +327,42 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   `XLH2O`/`XZH2O`/`XZHO2` is the **integer-lab tax** on their heaviest-cooldown top
   reaction (its lab-share isn't a whole number), the same tax the swing note describes —
   not a return of the feeder wall.
-- **The one genuine ceiling is capacity, not feeders.** `XGH2O`/`XGHO2` (depth 5, 7
-  distinct bases) physically cannot hold 7 base sources **and** its 7 compound
-  producers in 10 labs at once — the same Ghodium wall react-away hit. The burst still
-  runs it at 88% precisely because bursting one reaction holds only 2 feeders at a time;
-  so **for the deepest tree the burst is still the tool, and for everything shallower
-  the unity scheduler is strictly better** (1.0 vs 0.84, and reactions cost no intents
-  so the only price is the tender's rotate/skim traffic).
+- **The last wall — Ghodium capacity — falls to PHASED BATCHES (`sim-labs-batch.ts`,
+  owner idea).** The interleaved unity scheduler can't run `XGH2O`/`XGHO2` because their
+  7 compound producers + 7 distinct base holders = 14 simultaneous holdings > 10 labs.
+  But that wall only exists because the *whole tree* is held at once. Run one reaction at
+  a time **in bulk** instead: make a batch of `ZK`, bank it to the terminal; a batch of
+  `UL`, bank it; then treat `ZK`,`UL` as "bases" and make a batch of `G`; … up to
+  `XGH2O`. Each phase is a **single reaction** whose two inputs come from the terminal —
+  i.e. exactly the `sim-labs-unity.ts` 1.0 system — and holds only *that* reaction's
+  working set (≤4 rotating source labs + producers ≤ 10), so 14>10 never arises. The
+  only overhead is a fixed per-phase cut-over, **amortised over the batch**. Measured
+  `XGH2O`, util vs batch size:
 
-**Bottom line on the ceiling question: 1.0 is achievable.** For a single sustained
-reaction it is exact; for the common depth-≤3 boosts the base-rotation scheduler hits
-1.0 (or 97-99% where the top tier's cooldown doesn't tile 10 labs evenly); only the
-depth-5 Ghodium line is capacity-bound below it, and only there does the burst's
-2-feeder-at-a-time approach remain necessary. The "labs must leave feeders idle" wall —
-in both its 0.8 and its base-reaction forms — was an armchair assumption; the mechanic
-(cooldown is the lab's, not the mineral's) dissolves it.
+  | batch (units/phase) | util | throughput | CPU |
+  |---:|---:|---:|---:|
+  | 3 000 | 91.2% | 352/1k | ~70 CPU/1k |
+  | 12 000 | 96.4% | — | — |
+  | 24 000 | **98.4%** | 370/1k (96% of the 385/1k ceiling) | 128 CPU/1k |
+
+  So phased batches make **`XGH2O` at ~1.0 too** — beating the burst's 88% *and* at a
+  fraction of its 476 CPU/1k, because within a phase react-away keeps product in-lab
+  (banking only on skim/cut-over). The trick is **uniform**: it gives ~97% on the
+  shallow boosts as well (`XLH2O`/`XUHO2`/`XZHO2` ~97% at batch 12k). Its costs are the
+  honest trade for generality: **latency** (the target emerges in bursts, one batch per
+  super-cycle), **WIP inventory** (a batch of each intermediate parked in the terminal),
+  and every intermediate unit round-trips the terminal. So the shipping split is:
+  interleaved unity for continuous shallow-boost output at an exact 1.0; **phased batch
+  when you need the deep Ghodium line, or want one uniform scheduler for every target**.
+
+**Bottom line on the ceiling question: 1.0 is achievable for EVERY compound.** A single
+sustained reaction is exactly 1.0; the common depth-≤3 boosts hit 1.0 interleaved (or
+97-99% where the top tier's cooldown doesn't tile 10 labs evenly); and the depth-5
+Ghodium line — the one case that stayed capacity-bound — reaches ~98% via phased batches
+that never hold more than one tier at a time. The "labs must leave feeders idle" wall,
+in all three forms it took (0.8, then base-reactions-need-idle-feeders, then
+Ghodium-won't-fit), was an armchair assumption every time; the mechanic (cooldown is the
+lab's, not the mineral's) plus batching to sidestep capacity dissolves all of them.
 
 **The "continuous OH engine" cycle (`sim-labs-cycle.ts`) — measured negative, and
 why the burst already IS the owner's cycle.** The owner's full-util idea, stated

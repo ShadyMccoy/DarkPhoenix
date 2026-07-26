@@ -24,10 +24,9 @@
  *   XUH2O XUHO2 XKH2O XKHO2 XLHO2 : 100.00% util   (exactly 1.0 — every lab always cooling)
  *   XLH2O 97.8%   XZH2O 98.9%   XZHO2 97.0%        (the cd-heavy top tier's integer-lab
  *                                                   tax leaves a couple of % of misses)
- *   XGH2O (depth 5) : cannot — its 7 compound labs + 7 base holders = 14 > 10 labs, so
- *                     it physically cannot hold all its bases at once (the same Ghodium
- *                     capacity wall the react-away scheduler hit). Burst still runs it
- *                     at 88% because bursting holds only 2 feeders at a time.
+ *   XGH2O (depth 5) : cannot INTERLEAVED — 7 compound labs + 7 base holders = 14 > 10
+ *                     labs. Solved by sim-labs-batch.ts (phased batches, one tier at a
+ *                     time) which reaches ~98% util on XGH2O — see that file / spec 31.
  * The single-reaction sibling sim-labs-unity.ts already proved the base case at a clean
  * 1.0 (OH/LH/ZK, both reactants bases — the exact "0.8 wall" case). This shows the same
  * trick scales to the full tree: keep every base feeder on a COOLING lab and there is no
