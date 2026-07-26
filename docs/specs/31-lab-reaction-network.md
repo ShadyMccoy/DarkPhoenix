@@ -365,6 +365,25 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   continuous shallow-boost output at an exact 1.0; **phased batch for the deep Ghodium
   line, or as one uniform scheduler for every target**.
 
+  **A faster cut-over (bulk-swap all labs) was tried and MEASURABLY REGRESSES — kept as
+  evidence.** The tempting optimisation: the instant a phase's quota is met, withdraw
+  from every lab at once (unlimited tender) and pre-load the next reaction, instead of
+  the gradual per-tick advance. Built both variants (keep the carry-over feeders; bank
+  everything clean). Per-phase util, batch 3000: the gradual advance holds **every phase
+  96-100%** (`G` 96.6%, `XGH2O` 100%, overall 99.66%); the bulk-swap **drops the
+  compound-input phases** (`G` 96.6→83.7, `GH2O` 97.7→87.7, `XGH2O` 100→90.6, overall
+  99.66→91.6%). Two measured reasons: (1) the "drain tail" I assumed was idle **is not
+  idle** — those labs are still *cooling* on the old reaction (cd>0 = busy, cooldown is
+  the lab's property), and they fire the new reaction the moment they are free; the
+  gradual advance already overlaps them for free. (2) A compound-input phase needs its
+  delicate **balanced 2+2 holder** steady state; slamming it with an abrupt bulk swap
+  (all labs dumped, reloaded mid-cooldown) throws it into the concentration/fragmentation
+  transient the balancer only just tames, and it doesn't fully recover within the phase.
+  So the cut-over is already near-optimal *because* cooling counts as utilised — trying
+  to force it faster trades a tiny small-batch gain for a large-batch regression. The
+  clean lever for small batch is simply a **bigger batch** (the ~1/B amortisation), not a
+  faster swap.
+
 **Bottom line on the ceiling question: 1.0 is achievable for EVERY compound.** A single
 sustained reaction is exactly 1.0; the common depth-≤3 boosts hit 1.0 interleaved (or
 97-99% where the top tier's cooldown doesn't tile 10 labs evenly); and the depth-5
