@@ -79,28 +79,39 @@ the committed baseline, not host load.
 
 ## Triage outcomes (2026-07-26, `claude/rcl7-dual-spawns-tests-ocs9mn`)
 
-Worked through on the PR branch; the sandbox there cannot execute the mockup
-(bot scripts never run — zero console output), so every disposition below is
-static analysis against the report's recorded failure data and needs one
-reference-machine grid run to confirm.
+**All 10 failing cells are resolved and re-verified green by actual grid runs.**
 
-### Class B — hard fails (4)
+**Environment root cause (why the PR sandbox looked broken):** installing with
+`npm install --ignore-scripts` (needed because `isolated-vm`'s native build
+fails under parallel make) skips `@screeps/driver`'s webpack step, leaving
+`build/runtime.bundle.js` missing — every user script then dies at load with
+`Cannot find module '../../build/runtime.bundle.js'`, and the mockup's console
+parser DROPS the `error` field of the console event, so the failure is
+invisible (bots simply "do nothing"). Fix: hand-build the two native modules
+(`node-gyp` single-threaded in `isolated-vm` and `@screeps/driver/native`)
+then run `npx webpack` in `node_modules/@screeps/driver`. After that the
+mockup executes scripts normally and every diagnosis below was reproduced and
+re-verified empirically.
 
-| Cell | Verdict | Action |
+**The report's Class A / host-load theory did not survive contact:** all six
+"timeout" cells failed identically on a healthy sandbox. Every one was
+baseline drift (deliberate doctrine changes the cells never caught up with) or
+a staging artifact — none were host load, and none were code regressions.
+
+### Verdicts (all 10, verified by re-run)
+
+| Cell | Root cause | Fix |
 |---|---|---|
-| `cons-ext-first-site-checkerboard` | **Baseline drift**, not a regression. The extension rung batch-places the WHOLE remaining set (owner 2026-07-20, in-code directive in `ConstructionCorp`); the cell still pinned the retired one-at-a-time doctrine. The baseline "pass" predates the batch actually engaging in this world. | Cell rewritten: keeps grid-rule/only-extensions guards, adds the RCL2 cap bound (≤5) and a new eventually that the whole set stands as sites TOGETHER (guards against regressing to a dribble). One-at-a-time remains pinned for containers by `cons-one-site-at-a-time`. |
-| `agenda-t2-spawns-match-head` | **Baseline drift** via #124: holdToFund walls added a second held-entry class, so the walk can legitimately buy at rank 3+ (two unaffordable holds above) — positional top-2 tolerance broke on correct behaviour. | Both cells now assert against the entry the walk itself gated `"buy"` (the agenda IS the decision record, spec 17) — exact matching, no positional tolerance to drift. |
-| `agenda-t2-receipts-match-head` | Same as above. | Same rewrite. Also fixed a matching gap in the global-pool director: the winner's re-ranked plan is re-published before executing, so receipts always sit beside their true predicting queue in multi-spawn rounds. |
-| `arrive-builder-builds-and-refuels-in-place` | **Test-quality**: the tile-hold `always` had no settle grace (its sibling assertion carries 20), and fail @4 is a first-ticks displacement (likely a one-off force-swap by a newborn exiting the spawn; not reproduced). | Added the standard 20-tick grace. Post-settle the tile hold is still absolute and the progress assertions still bind the refuel-in-place doctrine, so a real walk-off still fails. |
-
-### Class A — eventually timeouts (6)
-
-**Kept, unchanged.** All six are short cells (60–250t) pinning unique measured
-incidents (scavenge threshold + retirement, dedication standdown/resume ×2,
-link placement, link-haul pricing); none overlap enough to merge, and cutting
-them buys almost no wall-clock. Their failure signatures are consistent with
-the documented host-load coupling — re-run on the idle reference machine before
-any further action.
+| `cons-ext-first-site-checkerboard` | Drift: the extension rung BATCHES the whole remaining set (owner 2026-07-20); cell pinned retired one-at-a-time. Verified: all 5 sites land at t10. | Cell rewritten: cap bound (≤5) + "whole set stands together" pin. Containers keep one-at-a-time via `cons-one-site-at-a-time`. |
+| `agenda-t2-receipts-match-head` | Drift via #124's holdToFund walls: the walk can buy at rank 3+ under stacked holds; positional top-2 broke on correct behaviour. | Gate-based matching (the entry the walk itself gated `"buy"`). Also: the global-pool director now re-publishes the winner's re-ranked plan before executing, so multi-spawn receipts match their true predicting queue. |
+| `agenda-t2-spawns-match-head` | Same, PLUS a protocol off-by-one in the cell: a newborn's memory entry and its predicting queue land in the SAME tick's export, but the cell matched against the PREVIOUS sample's queue — flaked whenever the head flipped between ticks. | Gate-based matching against the CURRENT sample's queue. |
+| `arrive-builder-builds-and-refuels-in-place` | Staging artifact + drift: staged containers carry no `nextDecayTime`, so the engine decays them 4,800 hits ON TICK 1 — below the 99% repair ceiling — and the repair detail (owner 2026-07-18: sites never impact repair) claims the cell's ONLY builder, freezing the site. (Earlier "displacement + grace" hypothesis was wrong; grace reverted.) | Freeze the fuel container's decay in staging; assertions restored to full strength. |
+| `haul-t3-dedicated-standdown` | Same container-decay artifact: the repair detail ate builder bB, so "the build consumes B's output" could never fire. | Decay freeze in `dedicatedCommon` staging. |
+| `haul-t3-dedicated-resume-container` | Same. | Same (the green groundpile sibling stays green). |
+| `haul-t2-scavenge-threshold` | Drift: commissioning is bound by the MICRO-ROUTE FLOOR (owner 2026-07-20, `SCAVENGE_RATE_FLOOR`: rate = amount/2/effectiveLife ≥ 0.5 ⇒ ~1480 energy at this distance). The cell's 900-vs-600 pair sat entirely below the floor — the "commissions" half could mathematically never fire. | Restaged 3000 (commissions, pickup verified) vs 900 (the OLD threshold's yes-case — now pins that the floor overrides it). |
+| `churn-retiring-scavenge-corp` | Two drifts: the floor (900 never commissioned), and the retiring contract itself — `flagRetiringForRecycling` (live incident t72525241) now RECYCLES a route-less empty hauler for the refund instead of driving it to natural death, which the cell's "never recycled" pin predates. | Restaged above the floor (1700; decay crosses deterministically) and the cell now pins the CURRENT wind-down: deliver cargo → recycle at spawn → no successor → never orphan-stamped. Full lifecycle verified (fielded @11, floor @66, clean recycle @109). |
+| `cons-link-farthest-source` | Drift: spec 24 rung 3 places the CONTROLLER link above every source link; at RCL5's 2-link limit (core + controller) a source link can never place. Verified: the "link site" observed was the controller link at (8,8). | Restaged at RCL6 (3 links) with core + controller links prebuilt and the full 40-extension set (an unbuilt remainder batch-holds the queue above the link rung). The farthest-source selection doctrine itself still holds — passes @20. |
+| `plan-t4-link-haul-pricing` | Drift: spec 24's LINK SWAP (t72465499) DESTROYED the staged source link on the first pass (controller link outvalues it; RCL5 slots full), killing the pump and the pricing under test. | Restaged at RCL6 with a prebuilt controller link; the staged pump survives. Passes @10/@23. |
 
 ### Trim (suite duration)
 

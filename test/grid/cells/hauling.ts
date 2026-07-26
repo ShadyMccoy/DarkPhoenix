@@ -82,6 +82,17 @@ const dedicatedCommon = () => ({
       progress: 0,
       progressTotal: 3000,
     });
+    // Freeze container decay for the window (same confound as the
+    // arrive-builder cell, diag 2026-07-26): staged containers carry no
+    // nextDecayTime, so they decay 5k hits ON TICK 1 - below the 99% repair
+    // ceiling - and the repair detail (owner 2026-07-18: sites never impact
+    // repair) claims bB, the room's ONLY builder, freezing the very build
+    // these cells assert. Maintenance policy has its own cells; these pin
+    // dedication economics.
+    await ctx.db["rooms.objects"].update(
+      { room: ctx.room(), type: "container" },
+      { $set: { nextDecayTime: ctx.gameTime + 10000 } }
+    );
   },
 });
 
@@ -717,6 +728,10 @@ export function buildHaulingT3Cells(): GridCell[] {
 export function buildHaulingCells(): GridCell[] {
   let prevSpawnEnergy: number | null = null;
 
+  // scavenge-threshold closure state (pickup-event detector)
+  let prevBigPile: number | null = null;
+  let bigPilePicked = false;
+
   // circuit-split closure state
   const firstSink: Record<string, string | null> = { h1: null, h2: null, h3: null };
 
@@ -954,10 +969,19 @@ export function buildHaulingCells(): GridCell[] {
         { name: "filler1", x: 19, y: 20, body: ["move"] },
         { name: "filler2", x: 19, y: 21, body: ["move"] },
       ],
+      // MICRO-ROUTE FLOOR pin (re-staged 2026-07-26, test-status-report triage):
+      // the binding commissioning cutoff is no longer the raw 750
+      // SCAVENGE_THRESHOLD but the SCAVENGE_RATE_FLOOR (owner 2026-07-20, the
+      // E2/E5 churn loop): rate = amount/2/effectiveLife(dist) must reach 0.5,
+      // i.e. a pile needs ~effectiveLife (~1480 at this distance) energy to
+      // field a dedicated scavenger. The old staging's 900-vs-600 pair sat
+      // entirely BELOW that floor, so the "commissions" half could never fire
+      // (verified empirically after the env fix). New pair: 3000 commissions;
+      // 900 - the OLD threshold's yes-case - pins that the floor overrides it.
       async stage(ctx) {
         for (const pile of [
-          { x: 40, y: 40, energy: 900 },
-          { x: 40, y: 10, energy: 600 },
+          { x: 40, y: 40, energy: 3000 },
+          { x: 40, y: 10, energy: 900 },
         ]) {
           await ctx.db["rooms.objects"].insert({
             type: "energy",
@@ -970,20 +994,25 @@ export function buildHaulingCells(): GridCell[] {
         }
       },
       assertions: [
-        eventually("the 900 stock is commissioned for scavenging", (s) =>
+        eventually("the 3000 stock is commissioned for scavenging", (s) =>
           JSON.stringify(s.memory?.commissionedCorps ?? {}).includes(`scavenge-${s.room()}-40-40`)
         ),
-        always("the 600 stock is never commissioned", (s) =>
+        always("the 900 stock is never commissioned (below the micro-route floor)", (s) =>
           !JSON.stringify(s.memory?.commissionedCorps ?? {}).includes(`scavenge-${s.room()}-40-10`)
         ),
-        eventually("the 900 stock is drained below its decay trajectory", (s) => {
+        eventually("a pickup event lands on the 3000 stock (one-tick drop beyond decay)", (s) => {
           const pile = s.objects().find((o) => o.type === "energy" && o.x === 40 && o.y === 40);
-          return !pile || (pile.energy ?? 0) <= 550;
+          const energy = pile?.energy ?? 0;
+          // Decay is ceil(amount/1000) <= 3/tick here; a scavenger pickup is
+          // >= 50. A sample-to-sample drop past 10 can only be a pickup.
+          if (prevBigPile !== null && prevBigPile - energy > 10) bigPilePicked = true;
+          prevBigPile = energy;
+          return bigPilePicked;
         }),
-        always("the 600 stock only decays (never picked up)", (s) => {
+        always("the 900 stock only decays (never picked up)", (s) => {
           const pile = s.objects().find((o) => o.type === "energy" && o.x === 40 && o.y === 10);
-          // decay is 1/tick from 600; a pickup event would drop it far faster.
-          return !!pile && (pile.energy ?? 0) >= 600 - s.tick - 5;
+          // decay is 1/tick from 900; a pickup event would drop it far faster.
+          return !!pile && (pile.energy ?? 0) >= 900 - s.tick - 5;
         }),
       ],
     },

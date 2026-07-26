@@ -716,7 +716,6 @@ const AGENDA_REPL_EXTS: Array<{ x: number; y: number }> = [
 
 export function buildAgendaFidelityCells(): GridCell[] {
   let knownCreeps: Set<string> | null = null;
-  let lastQueue: Array<{ role: string; corp: string; gate?: string }> = [];
   let agendaSeen = false;
   let violations = 0;
   // agenda-t2-receipts-match-head state
@@ -762,24 +761,29 @@ export function buildAgendaFidelityCells(): GridCell[] {
             knownCreeps = names;
             return true;
           }
+          // The predicting queue is THIS sample's: the director publishes, buys,
+          // and the newborn's memory entry lands in the same tick's export - so
+          // a name first seen at sample N was predicted by the queue exported at
+          // sample N. (Matching the PREVIOUS sample's queue was an off-by-one
+          // that flaked whenever the head flipped between ticks - reproduced
+          // @390/400 after the environment fix.)
+          const table: any = s.memory?.spawnAgenda ?? {};
+          const buys: Array<{ role: string; corp: string }> = [];
+          for (const e of Object.values(table) as any[]) {
+            for (const q of e?.queue ?? []) if (q.gate === "buy") buys.push({ role: q.role, corp: q.corp });
+          }
           for (const name of names) {
             if (knownCreeps.has(name)) continue;
             // Jacks are bootstrap machinery, outside the agenda's scope.
             if (name.startsWith("jack-")) continue;
             const mem: any = s.memory?.creeps?.[name];
             const role = ROLE_BY_WORKTYPE[mem?.workType] ?? mem?.workType;
-            // The walk marks the entry it buys; a queue with no buy-gated entry
-            // (hold tick, or the buy truncated past the publish limit) cannot
-            // predict and is skipped rather than false-failed.
-            const buys = lastQueue.filter((q) => q.gate === "buy");
+            // A queue with no buy-gated entry (hold tick, or the buy truncated
+            // past the publish limit) cannot predict; skip, don't false-fail.
             const matches = buys.some((q) => q.role === role && q.corp === mem?.corpId);
             if (!matches && buys.length > 0) violations += 1;
           }
           knownCreeps = names;
-          // Capture the agenda AFTER the diff: it predicts the NEXT spawn.
-          const table: any = s.memory?.spawnAgenda ?? {};
-          const first: any = Object.values(table)[0];
-          lastQueue = (first?.queue ?? []).map((q: any) => ({ role: q.role, corp: q.corp, gate: q.gate }));
           return violations === 0;
         }, 20),
       ],

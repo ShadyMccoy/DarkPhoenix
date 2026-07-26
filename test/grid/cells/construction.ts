@@ -884,9 +884,13 @@ export function buildConstructionT4Cells(): GridCell[] {
     },
 
     {
-      // Source-link selection: with the core built, the next link goes to the
+      // Source-link selection: with the core AND controller links built (spec
+      // 24 rung 3 placed the controller link ABOVE every source link - the
+      // original RCL5 staging died there: core + controller fill RCL5's
+      // 2-link table, so a source link could never place; re-staged RCL6
+      // 2026-07-26, test-status-report triage), the next link goes to the
       // FARTHEST >8-range source; the <=8-range source never gets one, and
-      // LINK_LIMITS[5]=2 blocks a third.
+      // LINK_LIMITS[6]=3 blocks a fourth.
       id: "cons-link-farthest-source",
       tier: 4,
       avenue: "construction",
@@ -902,14 +906,24 @@ export function buildConstructionT4Cells(): GridCell[] {
             .toRoom(),
       },
       bot: { x: 25, y: 25 },
-      controller: { level: 5 },
+      controller: { level: 6 },
       structures: [
         { type: "storage", x: 24, y: 25, energy: 10000 },
         { type: "link", x: 23, y: 24, energy: 0 }, // core link, prebuilt
+        { type: "link", x: 12, y: 11, energy: 0 }, // controller link (rung 3), prebuilt
         { type: "container", x: 30, y: 26, energy: 0 },
         { type: "container", x: 25, y: 41, energy: 0 },
         { type: "container", x: 44, y: 44, energy: 0 },
+        // The FULL RCL6 extension set (40): an unbuilt remainder would batch
+        // extension sites ahead of the link rung and hold the queue past the
+        // window (extension sites gate canBuildMore; nothing here builds them).
         ...EXT_30.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+        ...[
+          { x: 18, y: 18 }, { x: 20, y: 18 }, { x: 22, y: 18 },
+          { x: 18, y: 20 }, { x: 20, y: 20 }, { x: 22, y: 20 },
+          { x: 18, y: 22 }, { x: 20, y: 22 }, { x: 22, y: 22 },
+          { x: 16, y: 20 },
+        ].map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
       ],
       creeps: quiet(),
       assertions: [
