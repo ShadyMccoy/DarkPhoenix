@@ -97,7 +97,7 @@ const depthOf = (() => {
   return d;
 })();
 
-interface Args { target: string; batch: number; ticks: number; quiet: boolean; pitstop: boolean; }
+interface Args { target: string; batch: number; ticks: number; quiet: boolean; pitstop: boolean; dedicate: boolean; }
 function parseArgs(argv: string[]): Args {
   const get = (flag: string, def: string) => {
     const i = argv.indexOf(flag);
@@ -111,6 +111,7 @@ function parseArgs(argv: string[]): Args {
     ticks: parseInt(get("--ticks", "120000"), 10),
     quiet: argv.includes("--quiet"),
     pitstop: argv.includes("--pitstop"),
+    dedicate: argv.includes("--dedicate"),
   };
 }
 
@@ -198,6 +199,9 @@ function run(args: Args): void {
     for (const P of labs) {
       if (P.cooldown > 0) continue;
       if (phaseFired >= B) continue;
+      // --dedicate (experiment): NEVER let an input-holder fire — feeders are fixed,
+      // permanently-idle labs (the classic 2-feeder layout, no rotation). Shows the cost.
+      if (args.dedicate && P.mineral !== null && P.mineral !== c && inputs.includes(P.mineral)) continue;
       // if P holds one of the inputs, only let it fire (empty + produce) when a SPARE
       // holder of that input remains to be read — otherwise keep it as the source.
       if (P.mineral !== null && P.mineral !== c && inputs.includes(P.mineral) && holders(P.mineral).length <= 1) continue;
