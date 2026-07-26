@@ -4380,3 +4380,51 @@ Cycle verdict: **FIXED + VERIFIED**. Residual watch (next cycle): storage sat
 reserver recovery spend, partly the windfall-draw tail); confirm it self-
 corrects back toward reserve in the save regime and is not runaway upgrader
 consumption.
+
+---
+
+## Incident 2026-07-26 — X5 phantom churn on multi-slot corps (instrument bug)
+
+**Capture:** t72587664 (fixture `shard1-t72587664.json`, blackbox slimmed to
+spawn/churn/raid/hold rows). Baseline t72576379.
+
+**Symptom:** the ledger's only non-ok line was `[WARN] X5 rebuild churn 0.24`,
+worst `W43N23-reservation 1300e@12t - FAST RESPAWN (<60t = double-order/loop)`.
+The WARN pointed straight at the reserver mechanism — the single subsystem the
+trap list says never to bandaid.
+
+**Diagnosis (data, not vibes):** the reservation corp is ONE corp staffing 4
+remote rooms (creepCount 4, banks W42N22 3569 / W42N23 4166 / W43N24 3329 /
+W44N23 3110 all healthy, P6 pump +14174t/11284t). Its 16 spawns over 2624t =
+one per room per ~656t ≈ the 600t claim lifetime — the reservers live full
+lives. X5's bug: it paired CONSECUTIVE spawns in the corp's combined log and
+read the gap as one creep's lifetime. But consecutive spawns are DIFFERENT
+slots ~life/N apart, and a cohort rebuild wave serialises all N through one
+spawn ~spawn-time (12t) apart. For a healthy staffing-N corp the steady gap is
+life/N, which the formula scored as `cost·(1−1/N)` = 975e phantom churn PER
+spawn (N=4). The 12t worst gap then tripped `loop = worstGap < 60`, firing the
+false WARN. The pre-raid timing of the big early cluster (spawns 72585076–
+72585617, first raid 72585890) confirmed it was NOT invader-driven.
+
+**Fix (scripts/waste-ledger.ts `computeChurn`):** a creep's replacement is the
+next spawn OF ITS SLOT — `ss[i+staffing]`, not `ss[i+1]`. For staffing 1 this
+IS the consecutive gap, so all single-slot behaviour (and every existing test)
+is unchanged. Red-first: a synthetic healthy 4-slot corp (staggered full-life
+replacements) that the old code booked at 7800e churn + WARN and the new code
+reads at 0 + ok. The live `W43N23-reservation` phantom dropped 11828e → 6546e
+(the residual is genuine short-same-slot-gap remote noise, the invader/revoke
+class doctrine accepts).
+
+**Result:** X5 **WARN→ok**, 0.24→0.15, 17804e→11288e; worst offender is now a
+real hauler churn (`W42N23-hauling-cedc 1800e@591t`, ~40% life, not a loop).
+**Ledger fully green — no FAIL, no WARN.** home churn 0%.
+
+**Scope:** observability-only — `waste-ledger.ts` is a script, not in
+`dist/main.js`; bot behaviour unchanged, no deploy. Gate: unit 1508 + build
+green.
+
+Cycle verdict: **FIXED** (instrument). The economy itself carried no actionable
+leak this cycle — progress is AHEAD of plan (P7 1.70×, P9 mining 1.43×,
+warchest filling toward the 56k reserve); the top signal was the X5 false-WARN,
+now reporting truth so future cycles aren't misdirected onto the reserver
+mechanism.

@@ -218,13 +218,24 @@ export function computeChurn(cap: any): {
   let worstV = 0;
   let worstGap = Infinity;
   for (const [corp, ss] of byCorp) {
-    if (ss.length < 2) continue;
+    // A corp of staffing N runs N INDEPENDENT slots. Filled round-robin, a
+    // slot's own successor is the spawn N positions later - the CONSECUTIVE
+    // spawn is a DIFFERENT slot ~life/N away (and a cohort rebuild wave
+    // serialises all N through one spawn ~spawn-time apart). Reading the
+    // consecutive gap as one creep's lifetime charged phantom churn to any
+    // multi-room corp (measured t72587664: the 4-room reservation corp booked
+    // 11828e of "churn" though its per-room cadence was ~656t ~ the 600t claim
+    // life - a false WARN on the reserver mechanism the trap list says never to
+    // bandaid). The correct lifetime is the SAME-slot gap ss[i+N] - ss[i]; for
+    // N=1 that IS the consecutive gap, so single-slot behaviour is unchanged.
+    const slots = Math.max(1, staffingOf(corp));
+    if (ss.length <= slots) continue; // <= staffing => the fleet GREW, nothing died
     ss.sort((a, b) => a.t - b.t);
-    // the LAST spawn is always the incumbent (alive or in-progress); only
-    // spawns beyond current staffing died and were replaced.
-    const churned = Math.max(0, Math.min(ss.length - staffingOf(corp), ss.length - 1));
+    // every spawn with a same-slot successor (i + slots in range) was replaced;
+    // the last `slots` spawns are the current incumbents.
+    const churned = ss.length - slots;
     for (let i = 0; i < churned; i++) {
-      const gap = ss[i + 1].t - ss[i].t;
+      const gap = ss[i + slots].t - ss[i].t;
       const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
       const waste = ss[i].cost * Math.max(0, 1 - gap / life);
       if (HOME_ROLES.has(ss[i].role)) homeChurn += waste;

@@ -528,4 +528,41 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(x5.verdict).to.equal("WARN");
     expect(x5.detail).to.contain("FAST RESPAWN");
   });
+
+  it("X5 does NOT flag a healthy MULTI-SLOT corp whose interleaved slots each live a full life (t72587664 reservation)", () => {
+    // Live t72587664: one reservation corp staffs 4 remote rooms (creepCount 4).
+    // Its combined spawn log interleaves 4 independent 600t replacement cycles,
+    // so CONSECUTIVE spawns are DIFFERENT slots ~life/4 apart (and a cohort
+    // rebuild wave serialises 4 spawns ~12t apart through one spawn). The old
+    // per-consecutive-gap method read those sub-60t gaps as one creep
+    // double-ordering and WARNed - phantom churn on the very mechanism the trap
+    // list says never to bandaid. The right lifetime is the SAME-slot gap
+    // (i -> i+staffing): four slots, each replaced at full 600t life = 0 churn.
+    const healthy: any[] = [];
+    for (const base of [0, 600, 1200]) {
+      for (let slot = 0; slot < 4; slot++) {
+        healthy.push({
+          t: base + slot * 50, // initial fill + two full-life replacement waves, staggered per slot
+          k: "spawn",
+          d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 }
+        });
+      }
+    }
+    const churn = computeChurn(
+      mkChurnCap(healthy, [{ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 4 }])
+    )!;
+    // every slot's same-slot gap is exactly the 600t claim lifetime => nothing died early
+    expect(churn.remoteChurn, "healthy staggered 4-slot corp has no early-death churn").to.be.lessThan(1);
+    expect(churn.worstGap, "worst same-slot gap is a full life, not a sub-60t interleave").to.be.greaterThan(60);
+
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    cap.data.blackbox = { v: 1, tick: cap.tick, rows: healthy };
+    cap.data.corps.corps = cap.data.corps.corps.filter(
+      (c: any) => c.id !== "reservation-W43N23-reservation"
+    );
+    cap.data.corps.corps.push({ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 4 });
+    const x5 = computeLedger(cap, cap72404213).find(r => r.id === "X5")!;
+    expect(x5.verdict, "a healthy interleaved multi-slot corp is not a churn WARN").to.equal("ok");
+    expect(x5.detail).to.not.contain("FAST RESPAWN");
+  });
 });
