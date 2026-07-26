@@ -31,7 +31,15 @@ export interface ConsumeAssignment {
   spawnId: string | null;
 }
 
-/** Spawn that should build a consumer at sinkPos: same-room if any, else nearest. */
+/**
+ * Spawn that ANCHORS a consumer to its colony: same-room if any, else nearest.
+ *
+ * This picks the consumer's ROOM (which colony serves it), not the exact spawn
+ * that builds its bodies - the SpawnDirector pools a room's spawns and assigns
+ * each buy to the nearest free one at spawn time (owner 2026-07-25: spawning
+ * distribution is not per-room/per-spawn). So among a room's spawns any one is
+ * an equivalent anchor; the first same-room spawn is fine.
+ */
 function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): string | null {
   if (!sinkPos || problem.spawns.length === 0) return null;
   const sameRoom = problem.spawns.find(s => s.pos.roomName === sinkPos.roomName);

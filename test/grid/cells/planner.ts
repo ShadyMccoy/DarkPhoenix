@@ -484,10 +484,17 @@ export function buildPlannerT4Cells(): GridCell[] {
           new RoomBuilder(roomName).border().controller(25, 10).source(44, 44).source(6, 44).toRoom(),
       },
       bot: { x: 25, y: 25 },
-      controller: { level: 5 },
+      // RCL6 (re-staged 2026-07-26, test-status-report triage): at RCL5's
+      // 2-link limit, spec 24's LINK SWAP (controller link outvalues any
+      // source link, t72465499) DESTROYED the staged source link on the first
+      // placement pass to free its slot - killing the pump and the pricing
+      // this cell pins. Three slots + a prebuilt controller link keep the
+      // ladder satisfied and the staged pump intact.
+      controller: { level: 6 },
       structures: [
         { type: "storage", x: 21, y: 25, energy: 0 }, // clear of the EXT_10_NEAR tiles
         { type: "link", x: 22, y: 24, energy: 0 }, // core link, within 2 of storage
+        { type: "link", x: 27, y: 11, energy: 0 }, // controller link (spec 24 rung 3), prebuilt
         { type: "link", x: 43, y: 43, energy: 0 }, // source link, within 2 of (44,44)
         ...EXT_10_NEAR(25, 25).map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
       ],

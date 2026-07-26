@@ -73,22 +73,29 @@ export function buildChurnT3Cells(): GridCell[] {
 
   return [
     {
-      // Retiring hysteresis, staged ORGANICALLY via scavenge transience: the
-      // staged hauler is adopted by the 900-pile's scavenge corp; its first
-      // pickup drops the stock below the 750 threshold, so the next rebuild
-      // drops the commission - but the corp has a live creep, so it RETIRES:
-      // stays in the store, keeps driving the hauler, spawns nothing new.
+      // Retiring wind-down, staged ORGANICALLY via scavenge transience.
+      // Re-staged 2026-07-26 (test-status-report triage): commissioning is now
+      // bound by the MICRO-ROUTE FLOOR (owner 2026-07-20, SCAVENGE_RATE_FLOOR:
+      // rate = amount/2/effectiveLife >= 0.5, i.e. ~1480 energy at this
+      // distance), so the old 900 pile never commissioned at all. The pile now
+      // starts at 1700 - comfortably above the floor, so the scavenge corp
+      // commissions and fields its hauler - and DECAY (2/t at this size)
+      // carries it below the floor deterministically, so the next re-solve
+      // drops the commission. The corp then winds down CLEANLY per the current
+      // retiring contract (flagRetiringForRecycling, t72525241): deliver any
+      // cargo, recycle the empty hauler at the spawn, no successor, no orphan
+      // window.
       id: "churn-retiring-scavenge-corp",
       tier: 3,
       avenue: "churn-recovery",
-      window: 120,
+      window: 200,
       rooms: { home: standdownRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 2 },
       creeps: [
         // A decoy + fillers keep jacks out; the scavenger spawns ORGANICALLY
-        // (its blocking income demand wins at 300), drains the stock below
-        // 750, and the next rebuild drops the commission - retiring begins.
+        // (its blocking income demand wins), the stock crosses the floor, and
+        // the next rebuild drops the commission - retiring begins.
         { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
         { name: "filler1", x: 20, y: 21, body: ["move"] },
         { name: "filler2", x: 20, y: 22, body: ["move"] },
@@ -99,7 +106,7 @@ export function buildChurnT3Cells(): GridCell[] {
           room: ctx.room(),
           x: 40,
           y: 40,
-          energy: 900,
+          energy: 1700,
           resourceType: "energy",
         });
       },
@@ -110,22 +117,37 @@ export function buildChurnT3Cells(): GridCell[] {
               mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
           )
         ),
-        eventually("the stock is drained below the threshold", (s) => {
+        eventually("the stock falls below the scavenge floor (commission drops)", (s) => {
           const pile = s.objects().find((o) => o.type === "energy" && o.x === 40 && o.y === 40);
-          if (!pile || (pile.energy ?? 0) < 750) drainSeen = true;
+          if (!pile || (pile.energy ?? 0) < 1470) drainSeen = true;
           return drainSeen;
         }),
-        // Past the drain and at least one 50-tick rebuild, the corp must
-        // survive as retiring: its scavenger stays claimed (no orphan stamp,
-        // never recycled) and no second creep is ever spawned for it.
-        always("the retiring corp keeps its creep claimed", (s) => {
-          if (!drainSeen || s.tick < 80) return true;
+        // CURRENT retiring contract (flagRetiringForRecycling, live incident
+        // t72525241 - revising this cell's original "keeps its creep claimed
+        // until natural death" pin): a route-less hauler idling out ~1500
+        // ticks is waste, so the retiring corp delivers any cargo, RECYCLES
+        // the empty hauler at the spawn (capital recovery), and orders no
+        // successor. The wind-down must be CLEAN: the creep is never
+        // orphan-stamped (the hysteresis holds until the recycle completes,
+        // no stranded-orphan window), and no second creep is ever bought.
+        eventually("the retired hauler is recycled (gone well before its TTL)", (s) => {
+          if (!drainSeen) return false;
           const entries = Object.entries(s.memory?.creeps ?? {}).filter(
             ([, mem]: [string, any]) =>
               mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
           );
-          return entries.length >= 1 && entries.every(([, mem]: [string, any]) => mem.orphanedSince === undefined);
+          // Born ~t11 with ~1500 TTL: disappearance inside this 200t window
+          // can only be the retiring recycle, never old age.
+          return entries.length === 0;
         }),
+        always("the wind-down never orphan-stamps the scavenger", (s) =>
+          Object.entries(s.memory?.creeps ?? {})
+            .filter(
+              ([, mem]: [string, any]) =>
+                mem?.workType === "haul" && typeof mem?.corpId === "string" && mem.corpId.endsWith("0-40")
+            )
+            .every(([, mem]: [string, any]) => mem.orphanedSince === undefined)
+        ),
         always("never a second creep for the retiring corp", (s) => {
           const entries = Object.entries(s.memory?.creeps ?? {}).filter(
             ([, mem]: [string, any]) =>

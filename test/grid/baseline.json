@@ -1,5 +1,5 @@
 {
-  "botLevel": 4,
+  "botLevel": 3,
   "cells": {
     "agenda-t2-receipts-match-head": "pass",
     "agenda-t2-spawns-match-head": "pass",
@@ -78,7 +78,7 @@
     "haul-t4-feeder-fields-for-bank": "pass",
     "haul-t4-refill-sla-under-churn": "pass",
     "haul-t4-storage-bank-and-spill": "pass",
-    "haul-t4-tender-bus-regime": "fail",
+    "haul-t4-tender-bus-regime": "timeout",
     "haul-t4-tender-death-failsafe": "pass",
     "journey-synthetic-2src--extensions-rcl2-cap": "pass",
     "journey-synthetic-2src--first-extension-built": "pass",
@@ -96,6 +96,8 @@
     "move-scout-border-crossing": "pass",
     "move-swamp-detour": "pass",
     "move-upgrader-park-settle": "pass",
+    "multispawn-t7-both-spawns-worked": "pass",
+    "multispawn-t7-remote-mine": "pass",
     "plan-t0-single-source-commissioned": "pass",
     "plan-t1-single-source-loop": "pass",
     "plan-t2-antidowngrade-construction": "pass",
@@ -105,7 +107,7 @@
     "plan-t3-netzero-maze-excluded": "pass",
     "plan-t4-link-haul-pricing": "pass",
     "plan-t4-two-spawn-nearest": "pass",
-    "plan-t5-remote-pipeline": "fail",
+    "plan-t5-remote-pipeline": "pass",
     "plan-t5-sk-never-mined": "pass",
     "spawn-93-fresh-miner-beats-scaling-hauler": "pass",
     "spawn-blocking-hauler-spawns-at-min-scaled": "pass",

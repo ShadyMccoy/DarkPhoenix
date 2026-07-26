@@ -4,6 +4,47 @@ How we test the flow economy, how we measure whether a change actually helps, an
 the hard-won learnings behind the current model. Pair this with
 `ECONOMIC_FRAMEWORK.md` (the model itself).
 
+## Environment setup FIRST (sandboxes / fresh clones)
+
+Before trusting ANY grid or integration result on a fresh clone or sandbox, run:
+
+```
+npm run setup:test-env    # idempotent; builds what `npm install` may have skipped
+npm run probe:mockup      # 30s smoke check: exit 0 = bot scripts actually execute
+```
+
+**The trap this avoids (measured, 2026-07-26 — it cost most of a session):**
+`npm install` builds two native modules and one webpack bundle via install
+scripts. In sandboxes the `isolated-vm` native build often fails under parallel
+make, rolling back the whole install; the standard workaround
+(`npm install --ignore-scripts`) then silently skips
+`@screeps/driver/build/runtime.bundle.js`. Without that bundle **every mockup
+bot dies at script load** — and invisibly, because `screeps-server-mockup`'s
+console parser drops the `error` field of console events. The signature:
+
+- the server ticks fine, cells/tests run to their windows,
+- every bot produces **zero** console output (no `[Spawning]`, no `[Init]`),
+- every economy assertion times out ("no site placed", "no miner producing"),
+- the runner log (`server/*/logs/engine_runner.log`) shows a clean start and
+  nothing else.
+
+That signature means **broken environment, not broken bot**. Do not triage
+cells, lower baselines, or blame host load until `npm run probe:mockup` passes —
+it subscribes to the raw console channel and PRINTS the swallowed script-load
+error. `scripts/setup-test-env.sh` documents and rebuilds all three artifacts
+(isolated-vm, the driver's native addon, the runtime bundle).
+
+Two more sandbox facts, hard-won the same session:
+
+- **Staged containers decay 5,000 hits on tick 1** (no `nextDecayTime` staged),
+  dropping below the 99% repair ceiling — the repair detail then claims a
+  staged room's ONLY builder and freezes the build under test. Cells that
+  stage a container near a builder should freeze decay in `stage()`:
+  `db["rooms.objects"].update({room, type: "container"}, {$set: {nextDecayTime: gameTime + 10000}})`.
+- The mockup db's `update()` applies to **all** matching docs (LokiJS), but
+  `$set` with dotted paths silently no-ops — write whole objects (see the
+  CLAUDE.md trap list).
+
 ## The test toolkit
 
 The economy is an emergent result of many pieces talking to each other, so we test

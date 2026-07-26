@@ -18,9 +18,12 @@ import "../types/Memory";
 import {
   AcquisitionPlan,
   ScheduleContext,
+  ScheduleResult,
   SpawnDemand,
   SpawnDemandContext,
+  campaignConsumerLift,
   detectWallPreemption,
+  effectivePriority,
   planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
@@ -29,6 +32,9 @@ import { CorpRegistry } from "./CorpRunner";
 import { allCommissionedCorps } from "./CommissionHost";
 import { Corp } from "../corps/Corp";
 import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
+import { Position } from "../types/Position";
+import { roomLinearDistance } from "../utils/RoomDiscovery";
+import { pathDistance } from "../nodes/NodeNavigator";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -44,132 +50,262 @@ const FLOW_MIN_RCL = 2;
 export function runSpawnScheduling(registry: CorpRegistry): void {
   // First tick each still-unmet demand was seen, persisted across ticks so the
   // scheduler can age a chronically-outranked demand (see scheduleSpawn's
-  // anti-starvation backstop). Pruned below for the spawns we actually evaluate.
+  // anti-starvation backstop). Keyed per corp+role - the wait is a colony fact,
+  // independent of which spawn eventually serves it.
   const firstSeen = Memory.spawnDemandFirstSeen ?? (Memory.spawnDemandFirstSeen = {});
   const seenThisTick = new Set<string>();
-  const evaluatedSpawns = new Set<string>();
+
+  // corpId -> corp, so a demand can be traced to its work site for the distance
+  // term of the global assignment.
+  const corpById = new Map<string, Corp>();
+  for (const { corp } of allCommissionedCorps()) corpById.set(corp.id, corp);
+
+  // GLOBAL SPAWN POOL (owner 2026-07-25: spawn assignment is NOT room-scoped).
+  // Every owned spawn across the empire is ONE production pool. A demand is
+  // anchored to its nearest spawn by the planner, but at EXECUTION any free
+  // spawn may build any corp: the highest-VALUE demand goes to the nearest free
+  // spawn that can afford it. So A1's spawns build A2's (higher-value) corps
+  // whenever A1 is nearest OR A2's own spawns are busy, and a room whose spawns
+  // are all busy still gets its demand built by another room's free spawn. With
+  // a single spawn the pool has one puller over its own demand - RCL<=6 is the
+  // old per-spawn behaviour.
+  const allDemands: SpawnDemand[] = [];
+  const freeSpawns: StructureSpawn[] = [];
+  // Per-room execution state: the bank LEFT to spend (decremented as builds
+  // commit - spawns in a room share it) and the ctx terms that price a build at
+  // that room's spawns.
+  const roomState = new Map<string, { energyLeft: number; capacity: number; income: number; bankSurplus: number }>();
 
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
     const spawns = room.find(FIND_MY_SPAWNS);
     if (spawns.length === 0) continue;
+    if (room.controller.level < FLOW_MIN_RCL) continue; // bootstrap owns the early game
 
-    // Let bootstrap own the very early game.
-    if (room.controller.level < FLOW_MIN_RCL) continue;
+    // Collect this room's anchored demand at ITS capacity (body sizing follows
+    // the planner's nearest-spawn choice), then fold it into the global pool -
+    // even if this room has no free spawn right now, another room's free spawn
+    // may build it.
+    const roomSpawnIds = new Set<string>(spawns.map(s => s.id as string));
+    const demands = collectDemandsMatching(id => roomSpawnIds.has(id), {
+      energyCapacity: room.energyCapacityAvailable,
+      tick: Game.time
+    });
+    stampDemandAges(demands, firstSeen, seenThisTick, Game.time);
+    allDemands.push(...demands);
 
-    const income = estimateIncome(registry, room);
+    // Storage throttle input (owner 2026-07-24): energy banked ABOVE the
+    // reserve target. 0 while the warchest fills (producer-first); positive in
+    // surplus, when a consumer buys priority proportional to it.
+    const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
+    roomState.set(roomName, {
+      energyLeft: room.energyAvailable,
+      capacity: room.energyCapacityAvailable,
+      income: estimateIncome(registry, room),
+      bankSurplus: Math.max(0, banked - resolveReserveTarget(Memory.warchestTarget))
+    });
+    for (const s of spawns) if (!s.spawning) freeSpawns.push(s);
+  }
 
-    for (const spawn of spawns) {
-      const spawningCorp = registry.spawningCorps[spawn.id];
-      if (!spawningCorp) continue;
-      // Skip a busy spawn WITHOUT touching its demand timers: a room whose spawn
-      // is forever occupied with income is exactly where a starved builder must
-      // keep ageing, so don't reset its clock just because we can't act this tick.
-      if (spawn.spawning) continue;
-      evaluatedSpawns.add(spawn.id);
+  const ctxOf = (spawn: StructureSpawn): ScheduleContext => {
+    const st = roomState.get(spawn.pos.roomName)!;
+    return {
+      energyAvailable: st.energyLeft,
+      energyCapacity: st.capacity,
+      energyIncome: st.income,
+      tick: Game.time,
+      bankSurplus: st.bankSurplus
+    };
+  };
 
-      const demandCtx: SpawnDemandContext = {
-        energyCapacity: room.energyCapacityAvailable,
-        tick: Game.time
-      };
-
-      const demands = collectDemands(registry, spawn.id, demandCtx);
-      stampDemandAges(demands, spawn.id, firstSeen, seenThisTick, Game.time);
-
-      // Storage throttle input (owner 2026-07-24): energy banked ABOVE the
-      // reserve target. 0 while the warchest fills (producer-first); positive in
-      // surplus, when a consumer buys priority proportional to it.
-      const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
-      const bankSurplus = Math.max(0, banked - resolveReserveTarget(Memory.warchestTarget));
-
-      const ctx: ScheduleContext = {
-        energyAvailable: room.energyAvailable,
-        energyCapacity: room.energyCapacityAvailable,
-        energyIncome: income,
-        tick: Game.time,
-        bankSurplus
-      };
-
-      // THE NOW PLAN (spec 11 / spec 17): ONE planner call yields both the
-      // published acquisition queue - each entry annotated with the decision
-      // walk's own gate verdict - and this tick's buy, which is by
-      // construction the entry gated "buy". The director executes the plan
-      // mechanically; it holds no decision logic of its own.
-      const plan = planAcquisitions(demands, ctx);
-      publishSpawnAgenda(spawn.id, plan, room.energyAvailable);
-      // Instrument (spec 14, owner 2026-07-24): sample campaign-consumer wall
-      // preemptions - the E4/P7 freeze where a holdToFund upgrader walls while
-      // income buys through the non-strict hold. `fleetSecured` says whether the
-      // conditioned windfall gate would safely fire (only replacements left).
-      // Sampled (every 10t) so the ring keeps room for other traffic.
-      if (Game.time % 10 === 0) {
-        const preempt = detectWallPreemption(plan.agenda);
-        if (preempt) {
-          blackBox("wallpreempt", {
-            spawn: spawn.id,
-            role: preempt.campaignRole,
-            preemptor: preempt.preemptorWhy,
-            fleetSecured: preempt.fleetSecured,
-            bank: room.energyAvailable
-          });
-        }
-      }
-      if (demands.length === 0) continue;
-
-      const result = plan.decision;
-      if (!result) {
-        // Flight recorder (rate-limited): an evaluated spawn with live
-        // demands that bought nothing is the wedge signature the incident
-        // pipeline hunts - record WHAT was waiting and on how much bank.
-        // The agenda head IS the walk's own ranking.
-        if (Game.time % 25 === 0 && plan.agenda.length > 0) {
-          const head = plan.agenda[0];
-          blackBox("hold", {
-            spawn: spawn.id,
-            role: head.role,
-            corp: head.corp,
-            minCost: head.minCost,
-            bank: room.energyAvailable
-          });
-        }
-        continue;
-      }
-
-      const d = result.demand;
-      const spawned = spawningCorp.executeSpawn(
-        d.kind ?? "",
-        d.role,
-        d.buyerCorpId,
-        result.energyBudget,
-        Game.time,
-        d.bodyParam,
-        d.haulerRatio,
-        d.bodyStrategy
-      );
-      // Execution receipt (actual-vs-NOW): what the spawn actually bought,
-      // appended beside the published queue so fidelity cells and telemetry
-      // compare intent to action without diffing creep lists from outside.
-      if (spawned) {
-        recordAgendaExecution(spawn.id, d.role, d.buyerCorpId, result.energyBudget);
-        blackBox("spawn", { spawn: spawn.id, role: d.role, corp: d.buyerCorpId, cost: result.energyBudget });
-        resetDemandClock(firstSeen, spawn.id, d.buyerCorpId, d.role);
+  // THE NOW PLAN (spec 11 / spec 17): each free spawn publishes its own-ctx
+  // ranking of the global pool, and the wall-preempt instrument samples once.
+  let sampled = false;
+  for (const spawn of freeSpawns) {
+    const plan = planAcquisitions(allDemands, ctxOf(spawn));
+    publishSpawnAgenda(spawn.id, plan, ctxOf(spawn).energyAvailable);
+    if (!sampled && Game.time % 10 === 0) {
+      sampled = true;
+      const preempt = detectWallPreemption(plan.agenda);
+      if (preempt) {
+        blackBox("wallpreempt", {
+          spawn: spawn.id,
+          role: preempt.campaignRole,
+          preemptor: preempt.preemptorWhy,
+          fleetSecured: preempt.fleetSecured,
+          bank: ctxOf(spawn).energyAvailable
+        });
       }
     }
   }
 
-  // Drop timers for demands that no longer appear at a spawn we evaluated this
-  // tick (the creep was spawned, or the work went away), resetting their age.
-  // Only for evaluated spawns, so a skipped (busy) spawn keeps its timers intact.
-  for (const key in firstSeen) {
-    const spawnId = key.slice(0, key.indexOf(":"));
-    if (evaluatedSpawns.has(spawnId) && !seenThisTick.has(key)) delete firstSeen[key];
+  // GLOBAL ASSIGNMENT. Each round, every free spawn proposes its top affordable
+  // buy from the unclaimed pool (real planAcquisitions - holds, miner
+  // precedence and per-bank affordability all intact). The globally
+  // highest-VALUE proposal wins, broken toward the NEAREST proposing spawn, and
+  // its room's bank is decremented so later rounds price against what is left.
+  const claimed = new Set<SpawnDemand>();
+  const available = [...freeSpawns];
+  let boughtAnything = false;
+  while (available.length > 0) {
+    const unclaimed = claimed.size === 0 ? allDemands : allDemands.filter(d => !claimed.has(d));
+    if (unclaimed.length === 0) break;
+
+    // A* PRUNE (owner 2026-07-25). The winner is argmax of (priority, then
+    // -distance). A spawn's proposal priority is bounded ABOVE by the richest
+    // demand it can afford - `ubPriority` - because planAcquisitions can only
+    // return an affordable demand and its holds/precedence only LOWER the pick.
+    // So rank the free spawns by that ceiling and evaluate the expensive
+    // planAcquisitions in descending order; the moment a spawn's ceiling drops
+    // below the best priority already found, no remaining spawn can even tie it
+    // - stop. Distance (the tie-break) is the node graph's cached pathDistance,
+    // so it never needs a walk of its own.
+    const ranked = available
+      .map(cand => ({ cand, ceiling: ubPriority(cand, unclaimed, roomState) }))
+      .sort((a, b) => b.ceiling - a.ceiling);
+
+    let best: { spawn: StructureSpawn; plan: AcquisitionPlan; result: ScheduleResult; pri: number; dist: number } | null = null;
+    for (const { cand, ceiling } of ranked) {
+      if (best && ceiling < best.pri - 1e-9) break; // ceiling below best - and only lower from here
+      const st = roomState.get(cand.pos.roomName)!;
+      const plan = planAcquisitions(unclaimed, ctxOf(cand));
+      const decision = plan.decision;
+      if (!decision) continue; // this spawn holds / can afford nothing
+      const workPos = corpById.get(decision.demand.buyerCorpId)?.getPosition();
+      const pri = effectivePriority(decision.demand, Game.time, campaignConsumerLift(st.bankSurplus));
+      const dist = workPos ? pathDistance(cand.pos, workPos) : Infinity;
+      if (!best || pri > best.pri + 1e-9 || (Math.abs(pri - best.pri) < 1e-9 && dist < best.dist)) {
+        best = { spawn: cand, plan, result: decision, pri, dist };
+      }
+    }
+    if (!best) break; // every free spawn holds - nothing buys this tick
+
+    const winner = best.spawn;
+    const result = best.result;
+    const chosen = result.demand;
+    claimed.add(chosen);
+    available.splice(available.indexOf(winner), 1);
+
+    // Re-publish the winner's ACTUAL plan (the re-ranked unclaimed pool at its
+    // bank) before executing, so the receipt recorded beside it matches its
+    // predicting queue's buy-gated entry - spec 17's "one record cannot
+    // disagree" invariant, which the agenda-fidelity cells assert. Round 1 this
+    // is identical to the plan already published above (same pure inputs);
+    // later rounds it replaces a queue whose head another spawn just claimed.
+    publishSpawnAgenda(winner.id, best.plan, ctxOf(winner).energyAvailable);
+
+    const spawningCorp = registry.spawningCorps[winner.id];
+    const spawned = spawningCorp
+      ? spawningCorp.executeSpawn(
+          chosen.kind ?? "",
+          chosen.role,
+          chosen.buyerCorpId,
+          result.energyBudget,
+          Game.time,
+          chosen.bodyParam,
+          chosen.haulerRatio,
+          chosen.bodyStrategy
+        )
+      : false;
+    // Execution receipt (actual-vs-NOW): what THIS spawn actually bought,
+    // appended beside the published queue for fidelity cells and telemetry.
+    if (spawned) {
+      boughtAnything = true;
+      const st = roomState.get(winner.pos.roomName)!;
+      st.energyLeft = Math.max(0, st.energyLeft - result.energyBudget);
+      recordAgendaExecution(winner.id, chosen.role, chosen.buyerCorpId, result.energyBudget);
+      blackBox("spawn", { spawn: winner.id, role: chosen.role, corp: chosen.buyerCorpId, cost: result.energyBudget });
+      resetDemandClock(firstSeen, chosen.buyerCorpId, chosen.role);
+    }
+    // A failed build (lost the intra-tick energy race) leaves the demand claimed
+    // to retry next tick; other free spawns keep going.
   }
+
+  if (!boughtAnything && Game.time % 25 === 0 && allDemands.length > 0 && freeSpawns.length > 0) {
+    // Flight recorder: free spawns with live demand that bought nothing is the
+    // wedge signature the incident pipeline hunts.
+    const head = planAcquisitions(allDemands, ctxOf(freeSpawns[0])).agenda[0];
+    if (head) {
+      blackBox("hold", {
+        spawn: freeSpawns[0].id,
+        role: head.role,
+        corp: head.corp,
+        minCost: head.minCost,
+        bank: ctxOf(freeSpawns[0]).energyAvailable
+      });
+    }
+  }
+
+  // Age-clock housekeeping: every live demand was stamped this tick, so a key
+  // not seen is a demand that spawned or whose work vanished - drop it so its
+  // successor's clock starts fresh.
+  for (const key in firstSeen) if (!seenThisTick.has(key)) delete firstSeen[key];
 }
 
-/** Clock key for a demand stream at a spawn - one clock per spawn+corp+role. */
-function demandClockKey(spawnId: string, buyerCorpId: string, role: string): string {
-  return `${spawnId}:${buyerCorpId}:${role}`;
+/**
+ * Admissible upper bound on the priority of the demand a spawn could propose:
+ * the richest (highest effectivePriority) demand it can afford right now. The
+ * real proposal (planAcquisitions) can only pick an AFFORDABLE demand, and its
+ * hold / miner-precedence rules only lower the pick, so the true proposal
+ * priority never exceeds this ceiling. That makes it safe to prune - a spawn
+ * whose ceiling is below the best proposal already found cannot win.
+ */
+function ubPriority(
+  spawn: StructureSpawn,
+  unclaimed: SpawnDemand[],
+  roomState: Map<string, { energyLeft: number; capacity: number; income: number; bankSurplus: number }>
+): number {
+  const st = roomState.get(spawn.pos.roomName)!;
+  const lift = campaignConsumerLift(st.bankSurplus);
+  let max = -Infinity;
+  for (const d of unclaimed) {
+    if (d.minCost > st.energyLeft) continue; // unaffordable here - planAcquisitions can't pick it
+    const p = effectivePriority(d, Game.time, lift);
+    if (p > max) max = p;
+  }
+  return max;
+}
+
+/**
+ * Distance from a spawn to a work site for the pool's assignment tie-break.
+ * Same-room compares by Chebyshev (the newborn's walk to its post); another
+ * room falls back to room-linear distance so an in-room spawn always beats a
+ * cross-room one. Undefined workPos sorts last (Infinity).
+ */
+function spawnWorkDistance(spawnPos: RoomPosition, workPos: Position | undefined): number {
+  if (!workPos) return Infinity;
+  return spawnPos.roomName === workPos.roomName
+    ? Math.max(Math.abs(spawnPos.x - workPos.x), Math.abs(spawnPos.y - workPos.y))
+    : 50 + 50 * roomLinearDistance(spawnPos.roomName, workPos.roomName);
+}
+
+/**
+ * The free spawn nearest a demand's work site. Retained for callers that assign
+ * a single demand; the global loop inlines {@link spawnWorkDistance}. Undefined
+ * workPos keeps the first available spawn.
+ */
+export function pickNearestSpawn(available: StructureSpawn[], workPos: Position | undefined): StructureSpawn {
+  if (!workPos) return available[0];
+  let best = available[0];
+  let bestDist = Infinity;
+  for (const s of available) {
+    const dist = spawnWorkDistance(s.pos, workPos);
+    if (dist < bestDist) {
+      best = s;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/**
+ * Clock key for a demand stream - one clock per corp+role. Under the global
+ * pool a demand isn't tied to a spawn OR a room: its wait ("how long has this
+ * corp gone unserved") is a colony-wide fact keyed by the buyer alone.
+ */
+function demandClockKey(buyerCorpId: string, role: string): string {
+  return `${buyerCorpId}:${role}`;
 }
 
 /**
@@ -188,13 +324,12 @@ function demandClockKey(spawnId: string, buyerCorpId: string, role: string): str
  */
 export function stampDemandAges(
   demands: SpawnDemand[],
-  spawnId: string,
   firstSeen: { [key: string]: number },
   seenThisTick: Set<string>,
   tick: number
 ): void {
   for (const d of demands) {
-    const key = demandClockKey(spawnId, d.buyerCorpId, d.role);
+    const key = demandClockKey(d.buyerCorpId, d.role);
     seenThisTick.add(key);
     const first = firstSeen[key] ?? (firstSeen[key] = tick);
     d.since = first;
@@ -214,13 +349,8 @@ export function stampDemandAges(
  * STARVED_TIER's documented one-shot contract: served means the meter starts
  * over.
  */
-export function resetDemandClock(
-  firstSeen: { [key: string]: number },
-  spawnId: string,
-  buyerCorpId: string,
-  role: string
-): void {
-  delete firstSeen[demandClockKey(spawnId, buyerCorpId, role)];
+export function resetDemandClock(firstSeen: { [key: string]: number }, buyerCorpId: string, role: string): void {
+  delete firstSeen[demandClockKey(buyerCorpId, role)];
 }
 
 /** The shape a corp must expose to participate in the demand pipeline. */
@@ -257,20 +387,24 @@ function buildDemandWorld(): DemandWorld {
 }
 
 /**
- * Collect spawn demands from every commissioned corp that spawns at the given
- * spawn - ONE generic loop over the registry, in kind execution order. Per
- * corp: the uniform (getSpawnId, !retiring) filter, the corp's own
- * getSpawnDemand, then the KIND's declared demandGroup decoration (income-unit
- * grouping: harvest/carry's shared source key, the military/reservation
- * forced-started stamps - see each kind file for the measured rationale, and
- * test/unit/execution/collectDemandsPolicy.test.ts for the pins). Corps
- * without a demand surface (scout self-spawns; bootstrap pre-dates the
- * scheduler) contribute nothing, exactly as before.
+ * Collect spawn demands from every commissioned corp whose serving spawn
+ * satisfies `spawnMatches` - ONE generic loop over the registry, in kind
+ * execution order. Per corp: the uniform (getSpawnId, !retiring) filter, the
+ * corp's own getSpawnDemand, then the KIND's declared demandGroup decoration
+ * (income-unit grouping: harvest/carry's shared source key, the
+ * military/reservation forced-started stamps - see each kind file for the
+ * measured rationale, and test/unit/execution/collectDemandsPolicy.test.ts for
+ * the pins). Corps without a demand surface (scout self-spawns; bootstrap
+ * pre-dates the scheduler) contribute nothing.
  *
- * Exported so the spawn-decision harness can drive the real grouping logic
- * (not a re-implementation) when freezing "what spawns next" moments.
+ * The director calls this with the whole ROOM's spawn set (the pool); the
+ * single-spawn {@link collectDemands} wrapper below is the per-spawn view the
+ * decision harness and policy tests drive.
  */
-export function collectDemands(_registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
+export function collectDemandsMatching(
+  spawnMatches: (spawnId: string) => boolean,
+  ctx: SpawnDemandContext
+): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
   const world = buildDemandWorld();
   const byKind = new Map<string, { corpId: string; corp: Corp }[]>();
@@ -283,7 +417,7 @@ export function collectDemands(_registry: CorpRegistry, spawnId: string, ctx: Sp
   for (const kind of listCorpKinds()) {
     for (const { corpId, corp } of byKind.get(kind.kind) ?? []) {
       if (!isDemandingCorp(corp)) continue;
-      if (corp.getSpawnId() !== spawnId || corp.retiring) continue;
+      if (!spawnMatches(corp.getSpawnId()) || corp.retiring) continue;
       const group = kind.demandGroup ? (kind.demandGroup as (c: Corp, id: string, w: DemandWorld) => { groupId: string; started: boolean } | null)(corp, corpId, world) : null;
       for (const d of corp.getSpawnDemand(ctx)) {
         if (group) {
@@ -297,6 +431,15 @@ export function collectDemands(_registry: CorpRegistry, spawnId: string, ctx: Sp
   }
 
   return demands;
+}
+
+/**
+ * Single-spawn view of the pool: demands from corps served by exactly `spawnId`.
+ * Exported so the spawn-decision harness can drive the real grouping logic (not
+ * a re-implementation) when freezing "what spawns next" moments.
+ */
+export function collectDemands(_registry: CorpRegistry, spawnId: string, ctx: SpawnDemandContext): SpawnDemand[] {
+  return collectDemandsMatching(id => id === spawnId, ctx);
 }
 
 /**
