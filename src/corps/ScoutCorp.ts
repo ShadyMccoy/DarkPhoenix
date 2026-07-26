@@ -239,6 +239,11 @@ export class ScoutCorp extends Corp {
     const mineral = minerals[0];
     const mineralType = mineral ? mineral.mineralType : null;
     const mineralPos = mineral ? { x: mineral.pos.x, y: mineral.pos.y } : null;
+    // Density band and current ore drive the regen-limited extraction rate in
+    // the mineral EV estimate (spec 22). Both are visible only with room vision,
+    // so they ride along the scout snapshot.
+    const mineralDensity = mineral ? mineral.density : undefined;
+    const mineralAmount = mineral ? mineral.mineralAmount : undefined;
 
     const controller = room.controller;
     const controllerLevel = controller ? controller.level : 0;
@@ -257,6 +262,8 @@ export class ScoutCorp extends Corp {
       sourceIds,
       mineralType,
       mineralPos,
+      mineralDensity,
+      mineralAmount,
       controllerLevel,
       controllerPos,
       controllerOwner,
