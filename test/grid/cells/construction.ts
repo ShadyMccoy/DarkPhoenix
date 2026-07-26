@@ -934,6 +934,15 @@ export function buildConstructionT4Cells(): GridCell[] {
 
 export const constructionCells: GridCell[] = [
   {
+    // BATCH DOCTRINE (owner 2026-07-20, encoded in ConstructionCorp's
+    // extension rung): the WHOLE remaining extension set is placed at once so
+    // the sum-of-projects lens sizes the builder crew against the full energy
+    // commitment. This cell previously pinned the retired one-at-a-time
+    // invariant for extensions ("never more than one site at a time") and went
+    // red the moment the batch landed (test-status-report 2026-07-25: two
+    // sites @t10, deterministic) - that was baseline drift, not a code
+    // regression. One-at-a-time is still doctrine for CONTAINER rungs, pinned
+    // by cons-one-site-at-a-time.
     id: "cons-ext-first-site-checkerboard",
     tier: 0,
     avenue: "construction",
@@ -949,7 +958,15 @@ export const constructionCells: GridCell[] = [
         sites(s).every((o: any) => o.structureType === "extension")
       ),
       always("every placed site obeys the grid rules", (s) => sites(s).every(obeysGridRules)),
-      always("never more than one site at a time", (s) => sites(s).length <= 1),
+      // RCL2 caps extensions at 5: the batch must never overshoot the cap.
+      always("never more sites than the RCL2 extension cap", (s) => sites(s).length <= 5),
+      // The batch semantic itself: the whole remaining set eventually stands as
+      // sites TOGETHER (no builders staged, so nothing completes out from under
+      // the count). A dribble that never exceeds one standing site would fail
+      // here - that is the retired behaviour this cell now guards against.
+      eventually("the whole RCL2 set stands as sites at once (batch, not dribble)", (s) =>
+        sites(s).filter((o: any) => o.structureType === "extension").length === 5
+      ),
     ],
   },
 ];

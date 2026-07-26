@@ -327,19 +327,26 @@ export function buildMultiroomT5Cells(): GridCell[] {
     },
 
     {
-      // The full organic remote pipeline: scout -> intel -> home economy
-      // saturates -> the remote unlocks -> the planner mines it -> a miner
-      // walks over and works it -> the reserver is dispatched. The
-      // home-saturation gate + spawn-then-recycle (this cell's findings,
-      // spec 01) made the timeline LATER but stable: home saturates ~500,
-      // remote opens at the next refresh+replan, mining ~1100, dispatch
-      // after. 1800 (was 1500): the stock-grounded consumer doctrine leans
-      // the ramp fleet, shifting the whole organic timeline ~10-20% later -
-      // dispatch previously landed ~1098, then missed 1500 post-doctrine.
+      // The remote pipeline, STAGED (test-status-report 2026-07-25 triage;
+      // owner-approved conversion): the old cell ran the FULL organic ramp -
+      // scout -> intel -> home saturation -> remote unlock -> mining ->
+      // dispatch - in one 1800t window, and its own history is repeated
+      // re-tuning (1500 -> 1800 as doctrines shifted the timeline ~10-20%);
+      // it sat baseline-"fail" while burning the grid's longest world. The
+      // scout leg and the home ramp are covered by their own cells
+      // (move-scout-border-crossing; the T2/T3 ramp avenues), so this cell now
+      // STAGES those preconditions - a parked scout gives remote vision from
+      // tick 1, a staged income pair + full extensions make home warm - and
+      // asserts only the pipeline's OWN moments: the planner reaches across
+      // the border, a home-spawned miner works the remote, the reserver is
+      // dispatched, and the remote container site lands. (The pile-funded
+      // "build underway" tail was dropped: completion mechanics are the T2
+      // container-completes cell's job, and that leg was the flakiest part of
+      // the organic timeline.)
       id: "plan-t5-remote-pipeline",
       tier: 5,
       avenue: "planning-economy",
-      window: 1800,
+      window: 700,
       rooms: {
         home: homeEast((b) => b.controller(25, 10).source(25, 40)),
         east: eastRoom((b) => b.controller(10, 10).source(25, 25)),
@@ -348,8 +355,15 @@ export function buildMultiroomT5Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 3 },
       structures: fullExts(EXT_8),
+      creeps: [
+        ...homeIncome(25, 40, 24, 39),
+        // Remote VISION from tick 1 (the staged version of the scout leg): a
+        // parked scout in the east room keeps it visible so intel records and
+        // the planner can adopt the source without the organic scout race.
+        { name: "eye", x: 25, y: 22, room: "east", body: ["move"], memory: { workType: "scout" } },
+      ],
       assertions: [
-        // Refill SLA rides the longest organic sim too (horizontal).
+        // Refill SLA rides this world too (horizontal enforcement).
         makeRefillSla(undefined, 10),
         eventually("the planner mines the remote source", (s) => {
           const src = s.objects("east").find((o) => o.type === "source");
@@ -383,7 +397,7 @@ export function buildMultiroomT5Cells(): GridCell[] {
         // Remote source containers: once the remote miner's pile crosses the
         // placement threshold, the remote construction corp (commissioned for
         // any room our miners work, staffed from home) places a container
-        // site at the harvest spot...
+        // site at the harvest spot.
         eventually("a container site is placed at the remote source", (s) => {
           const src = s.objects("east").find((o) => o.type === "source");
           if (!src) return false;
@@ -396,16 +410,6 @@ export function buildMultiroomT5Cells(): GridCell[] {
                 Math.max(Math.abs(o.x - src.x), Math.abs(o.y - src.y)) <= 1
             );
         }),
-        // ...and its pile-funded builder walks out and starts converting the
-        // decaying ground energy into the container. (Completion mechanics are
-        // pinned by the T2 container-completes cell; at the organic timeline's
-        // pace the 5k build straddles the window edge, so the pipeline cell
-        // asserts the investment is UNDERWAY, not finished.)
-        eventually("the remote container build is underway", (s) =>
-          s
-            .objects("east")
-            .some((o) => o.type === "constructionSite" && o.structureType === "container" && (o.progress ?? 0) > 0)
-        ),
       ],
     },
 

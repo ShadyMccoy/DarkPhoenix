@@ -165,17 +165,18 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       .map(cand => ({ cand, ceiling: ubPriority(cand, unclaimed, roomState) }))
       .sort((a, b) => b.ceiling - a.ceiling);
 
-    let best: { spawn: StructureSpawn; result: ScheduleResult; pri: number; dist: number } | null = null;
+    let best: { spawn: StructureSpawn; plan: AcquisitionPlan; result: ScheduleResult; pri: number; dist: number } | null = null;
     for (const { cand, ceiling } of ranked) {
       if (best && ceiling < best.pri - 1e-9) break; // ceiling below best - and only lower from here
       const st = roomState.get(cand.pos.roomName)!;
-      const decision = planAcquisitions(unclaimed, ctxOf(cand)).decision;
+      const plan = planAcquisitions(unclaimed, ctxOf(cand));
+      const decision = plan.decision;
       if (!decision) continue; // this spawn holds / can afford nothing
       const workPos = corpById.get(decision.demand.buyerCorpId)?.getPosition();
       const pri = effectivePriority(decision.demand, Game.time, campaignConsumerLift(st.bankSurplus));
       const dist = workPos ? pathDistance(cand.pos, workPos) : Infinity;
       if (!best || pri > best.pri + 1e-9 || (Math.abs(pri - best.pri) < 1e-9 && dist < best.dist)) {
-        best = { spawn: cand, result: decision, pri, dist };
+        best = { spawn: cand, plan, result: decision, pri, dist };
       }
     }
     if (!best) break; // every free spawn holds - nothing buys this tick
@@ -185,6 +186,14 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const chosen = result.demand;
     claimed.add(chosen);
     available.splice(available.indexOf(winner), 1);
+
+    // Re-publish the winner's ACTUAL plan (the re-ranked unclaimed pool at its
+    // bank) before executing, so the receipt recorded beside it matches its
+    // predicting queue's buy-gated entry - spec 17's "one record cannot
+    // disagree" invariant, which the agenda-fidelity cells assert. Round 1 this
+    // is identical to the plan already published above (same pure inputs);
+    // later rounds it replaces a queue whose head another spawn just claimed.
+    publishSpawnAgenda(winner.id, best.plan, ctxOf(winner).energyAvailable);
 
     const spawningCorp = registry.spawningCorps[winner.id];
     const spawned = spawningCorp

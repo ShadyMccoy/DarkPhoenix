@@ -74,3 +74,44 @@ the committed baseline, not host load.
 1. Re-run the grid on the reference/idle machine to confirm Class A is host-load.
 2. Triage `cons-ext-first-site-checkerboard` (fast, deterministic, T0) — the one
    failure that cannot be attributed to CPU throttling.
+
+---
+
+## Triage outcomes (2026-07-26, `claude/rcl7-dual-spawns-tests-ocs9mn`)
+
+Worked through on the PR branch; the sandbox there cannot execute the mockup
+(bot scripts never run — zero console output), so every disposition below is
+static analysis against the report's recorded failure data and needs one
+reference-machine grid run to confirm.
+
+### Class B — hard fails (4)
+
+| Cell | Verdict | Action |
+|---|---|---|
+| `cons-ext-first-site-checkerboard` | **Baseline drift**, not a regression. The extension rung batch-places the WHOLE remaining set (owner 2026-07-20, in-code directive in `ConstructionCorp`); the cell still pinned the retired one-at-a-time doctrine. The baseline "pass" predates the batch actually engaging in this world. | Cell rewritten: keeps grid-rule/only-extensions guards, adds the RCL2 cap bound (≤5) and a new eventually that the whole set stands as sites TOGETHER (guards against regressing to a dribble). One-at-a-time remains pinned for containers by `cons-one-site-at-a-time`. |
+| `agenda-t2-spawns-match-head` | **Baseline drift** via #124: holdToFund walls added a second held-entry class, so the walk can legitimately buy at rank 3+ (two unaffordable holds above) — positional top-2 tolerance broke on correct behaviour. | Both cells now assert against the entry the walk itself gated `"buy"` (the agenda IS the decision record, spec 17) — exact matching, no positional tolerance to drift. |
+| `agenda-t2-receipts-match-head` | Same as above. | Same rewrite. Also fixed a matching gap in the global-pool director: the winner's re-ranked plan is re-published before executing, so receipts always sit beside their true predicting queue in multi-spawn rounds. |
+| `arrive-builder-builds-and-refuels-in-place` | **Test-quality**: the tile-hold `always` had no settle grace (its sibling assertion carries 20), and fail @4 is a first-ticks displacement (likely a one-off force-swap by a newborn exiting the spawn; not reproduced). | Added the standard 20-tick grace. Post-settle the tile hold is still absolute and the progress assertions still bind the refuel-in-place doctrine, so a real walk-off still fails. |
+
+### Class A — eventually timeouts (6)
+
+**Kept, unchanged.** All six are short cells (60–250t) pinning unique measured
+incidents (scavenge threshold + retirement, dedication standdown/resume ×2,
+link placement, link-haul pricing); none overlap enough to merge, and cutting
+them buys almost no wall-clock. Their failure signatures are consistent with
+the documented host-load coupling — re-run on the idle reference machine before
+any further action.
+
+### Trim (suite duration)
+
+The suite's wall-clock is dominated by the long-window worlds, not Class A.
+`plan-t5-remote-pipeline` — 1800t, baseline-**fail**, the grid's longest world,
+with a history of re-tuning as doctrine shifts moved its organic timeline — was
+rebuilt STAGED (owner-approved direction): remote vision via a parked scout,
+warm home income, window 700. It keeps all unique pipeline guards (remote
+adoption, home-spawned miner, reserver dispatch, remote container site) and
+drops only the pile-funded "build underway" tail (T2 container-completes owns
+completion mechanics). Ratchet-safe: its baseline entry was already "fail".
+`exp-t5-founding-funnels-to-completion` (1800t, baseline-timeout) was left
+alone — it is the only coverage of the cross-room founding funnel (claim
+buildup), which is active work, not dead weight.

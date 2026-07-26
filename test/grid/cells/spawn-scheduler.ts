@@ -690,12 +690,20 @@ export const spawnSchedulerCells: GridCell[] = [
 
 /**
  * Agenda fidelity (spec 11 phase 1): every creep the colony actually spawns
- * must match the head of the last PUBLISHED agenda (Memory.spawnAgenda) - the
- * one-line observable that turns sequencing bugs ("granted 6x minerB against
- * target 1", "the reserver waited 1800 ticks") from archaeology into a cell
- * verdict. Tolerance: top-2 entries, because the agenda re-publishes each
- * evaluation tick and a same-tick recompute can legitimately swap adjacent
- * entries (e.g. a demand satisfied by the very spawn being checked).
+ * must match the entry the last PUBLISHED agenda (Memory.spawnAgenda) itself
+ * gated "buy" - the one-line observable that turns sequencing bugs ("granted
+ * 6x minerB against target 1", "the reserver waited 1800 ticks") from
+ * archaeology into a cell verdict.
+ *
+ * GATE-BASED, not positional (test-status-report 2026-07-25): these cells
+ * originally matched the top-2 QUEUE POSITIONS, which was correct until #124's
+ * holdToFund walls added a second held-entry class - the walk can now hold TWO
+ * unaffordable entries above the one it buys (a blocking replacement + a
+ * holdToFund consumer, with the affordable infrastructure/producer buy at rank
+ * 3+), so both cells went red late in the ramp (@387/@390) on legitimate
+ * scheduler behaviour. The agenda IS the decision record (spec 17): each entry
+ * carries the walk's own gate verdict, so the assertion matches the "buy"-gated
+ * entry exactly - no positional tolerance to drift.
  */
 /** 10 extension positions clear of the spawn (the churn replacement grid). */
 const AGENDA_REPL_EXTS: Array<{ x: number; y: number }> = [
@@ -708,7 +716,7 @@ const AGENDA_REPL_EXTS: Array<{ x: number; y: number }> = [
 
 export function buildAgendaFidelityCells(): GridCell[] {
   let knownCreeps: Set<string> | null = null;
-  let lastQueue: Array<{ role: string; corp: string }> = [];
+  let lastQueue: Array<{ role: string; corp: string; gate?: string }> = [];
   let agendaSeen = false;
   let violations = 0;
   // agenda-t2-receipts-match-head state
@@ -748,7 +756,7 @@ export function buildAgendaFidelityCells(): GridCell[] {
           if (Object.values(table).some((a: any) => (a?.queue ?? []).length > 0)) agendaSeen = true;
           return agendaSeen;
         }),
-        always("every spawn matches the agenda head (top-2 tolerance)", (s) => {
+        always("every spawn matches the agenda's buy-gated entry", (s) => {
           const names = new Set(Object.keys(s.memory?.creeps ?? {}));
           if (knownCreeps === null) {
             knownCreeps = names;
@@ -760,15 +768,18 @@ export function buildAgendaFidelityCells(): GridCell[] {
             if (name.startsWith("jack-")) continue;
             const mem: any = s.memory?.creeps?.[name];
             const role = ROLE_BY_WORKTYPE[mem?.workType] ?? mem?.workType;
-            const top = lastQueue.slice(0, 2);
-            const matches = top.some((q) => q.role === role && q.corp === mem?.corpId);
-            if (!matches && lastQueue.length > 0) violations += 1;
+            // The walk marks the entry it buys; a queue with no buy-gated entry
+            // (hold tick, or the buy truncated past the publish limit) cannot
+            // predict and is skipped rather than false-failed.
+            const buys = lastQueue.filter((q) => q.gate === "buy");
+            const matches = buys.some((q) => q.role === role && q.corp === mem?.corpId);
+            if (!matches && buys.length > 0) violations += 1;
           }
           knownCreeps = names;
           // Capture the agenda AFTER the diff: it predicts the NEXT spawn.
           const table: any = s.memory?.spawnAgenda ?? {};
           const first: any = Object.values(table)[0];
-          lastQueue = (first?.queue ?? []).map((q: any) => ({ role: q.role, corp: q.corp }));
+          lastQueue = (first?.queue ?? []).map((q: any) => ({ role: q.role, corp: q.corp, gate: q.gate }));
           return violations === 0;
         }, 20),
       ],
@@ -812,7 +823,7 @@ export function buildAgendaFidelityCells(): GridCell[] {
           }
           return false;
         }),
-        always("every receipt matches its predicting queue (top-2)", (s) => {
+        always("every receipt matches its predicting queue's buy-gated entry", (s) => {
           const table: any = s.memory?.spawnAgenda ?? {};
           for (const e of Object.values(table) as any[]) {
             for (const r of e?.executed ?? []) {
@@ -822,8 +833,13 @@ export function buildAgendaFidelityCells(): GridCell[] {
               // The predicting queue is the one published the buy tick; if a
               // republish beat our sampling, skip rather than false-fail.
               if (e.tick !== r.tick) continue;
-              const top = (e.queue ?? []).slice(0, 2);
-              if (!top.some((q: any) => q.role === r.role && q.corp === r.corp)) return false;
+              // Match the entry the walk itself gated "buy" - the one record
+              // that cannot legitimately disagree with the receipt. A queue
+              // with no buy-gated entry (buy truncated past the publish
+              // limit) cannot predict; skip it.
+              const buys = (e.queue ?? []).filter((q: any) => q.gate === "buy");
+              if (buys.length === 0) continue;
+              if (!buys.some((q: any) => q.role === r.role && q.corp === r.corp)) return false;
             }
           }
           return true;
