@@ -31,7 +31,7 @@
  *     once in a working grid env, tune the window, then `--update-baseline`.
  */
 
-import { GridCell, CellSample, eventually } from "../GridCell";
+import { GridCell, CellSample, StageCtx, eventually } from "../GridCell";
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 import { makeRefillSla } from "../refillSLA";
 
@@ -45,6 +45,28 @@ const HOME = (roomName: string): any => {
 
 const SPAWN1 = { x: 10, y: 25 }; // addBot spawn, by Source A
 const SPAWN2 = { x: 42, y: 40 }; // staged spawn, by the controller + Source B
+
+/**
+ * Insert a standing second spawn with the full addBot-equivalent schema - a
+ * unique `name` and `spawning: null` the declarative `structures` path omits,
+ * without which the runtime can't address the spawn.
+ */
+async function stageSecondSpawn(ctx: StageCtx, x: number, y: number, name = "Spawn2"): Promise<void> {
+  await ctx.db["rooms.objects"].insert({
+    type: "spawn",
+    room: ctx.room(),
+    x,
+    y,
+    user: ctx.userId,
+    name,
+    store: { energy: 300 },
+    storeCapacityResource: { energy: ctx.C.SPAWN_ENERGY_CAPACITY },
+    hits: ctx.C.SPAWN_HITS,
+    hitsMax: ctx.C.SPAWN_HITS,
+    spawning: null,
+    notifyWhenAttacked: true,
+  });
+}
 
 /** Two 10-extension clusters, one hugging each spawn (RCL7 = 50 max; 20 is
  *  plenty to exercise a two-cluster refill without a huge staging list). */
@@ -105,24 +127,8 @@ export function buildMultiSpawnT7Cells(): GridCell[] {
           memory: { workType: "harvest", corpId: "stale-mining", assignedSourceId: "$id(home,source,42,25)" },
         },
       ],
-      // The standing second spawn: full addBot-equivalent schema (name +
-      // spawning:null), inserted raw because the declarative path omits both.
-      async stage(ctx) {
-        await ctx.db["rooms.objects"].insert({
-          type: "spawn",
-          room: ctx.room(),
-          x: SPAWN2.x,
-          y: SPAWN2.y,
-          user: ctx.userId,
-          name: "Spawn2",
-          store: { energy: 300 },
-          storeCapacityResource: { energy: ctx.C.SPAWN_ENERGY_CAPACITY },
-          hits: ctx.C.SPAWN_HITS,
-          hitsMax: ctx.C.SPAWN_HITS,
-          spawning: null,
-          notifyWhenAttacked: true,
-        });
-      },
+      // The standing second spawn (see stageSecondSpawn).
+      stage: (ctx) => stageSecondSpawn(ctx, SPAWN2.x, SPAWN2.y),
       assertions: [
         // Headline dual-spawn invariant: BOTH spawns actually build creeps.
         // Execution receipts (Memory.spawnAgenda[id].executed) accumulate and
@@ -151,6 +157,124 @@ export function buildMultiSpawnT7Cells(): GridCell[] {
         // 2-spawn / 100-cap extension bank still refills inside each draining
         // spawn's build deadline (grace for the warm settle).
         makeRefillSla(undefined, 20),
+      ],
+    },
+    ...buildRemoteMineCell(),
+  ];
+}
+
+// ===========================================================================
+// CROSS-ROOM PRODUCTION: room A (two spawns) mines a source in remote room B.
+// Home has the spawns and the extension bank; the remote room has only a
+// source. The corps that mine B are ANCHORED to a home spawn (getSpawnId) but
+// WORK in B (getPosition), so the home POOL builds them - production is
+// cross-room, while the extension energy bank stays strictly per-room.
+// ===========================================================================
+
+const RM_SPAWN1 = { x: 25, y: 25 }; // addBot spawn (home)
+const RM_SPAWN2 = { x: 20, y: 30 }; // staged spawn (home)
+
+/** Home room with an east exit slot, controller, and one local source. */
+const rmHome = (roomName: string): any => {
+  const b = new RoomBuilder(roomName).border();
+  for (let y = 24; y <= 26; y++) b.tile(49, y, "plain"); // east exit
+  b.controller(25, 10);
+  b.source(20, 38); // a home source keeps the base economy alive
+  return b.toRoom();
+};
+
+/** The remote room: a matching west slot, ONE source, an unowned controller
+ *  (so it reads as reservable) - no spawn of its own. */
+const rmRemote = (roomName: string): any => {
+  const b = new RoomBuilder(roomName).border();
+  for (let y = 24; y <= 26; y++) b.tile(0, y, "plain"); // west exit
+  b.controller(40, 25);
+  b.source(25, 25);
+  return b.toRoom();
+};
+
+/** Home extensions: two small clusters, one by each home spawn. */
+function rmExtensions(): { type: string; x: number; y: number; energy: number }[] {
+  const out: { type: string; x: number; y: number; energy: number }[] = [];
+  for (const [cx, cy] of [
+    [28, 22],
+    [16, 33],
+  ] as const) {
+    let n = 0;
+    for (let dy = 0; dy < 3 && n < 10; dy++) for (let dx = 0; dx < 4 && n < 10; dx++, n++) {
+      out.push({ type: "extension", x: cx + dx, y: cy + dy, energy: 0 });
+    }
+  }
+  return out;
+}
+
+function buildRemoteMineCell(): GridCell[] {
+  return [
+    {
+      id: "multispawn-t7-remote-mine",
+      tier: 7,
+      avenue: "multi-spawn",
+      window: 800,
+      rooms: { home: rmHome, east: rmRemote },
+      adjacency: { east: "E" },
+      bot: { x: RM_SPAWN1.x, y: RM_SPAWN1.y },
+      controller: { level: 7, progress: 0 },
+      structures: [
+        { type: "storage", x: 25, y: 33, energy: 120000 }, // funded warchest
+        { type: "container", x: 20, y: 37, energy: 1500 }, // home source container
+        { type: "container", x: 25, y: 12, energy: 0 }, // controller bucket
+        ...rmExtensions(),
+      ],
+      creeps: [
+        // Home income so the base runs from tick 1.
+        {
+          name: "mHome",
+          x: 20,
+          y: 37,
+          body: ["work", "work", "work", "work", "work", "move"],
+          memory: { workType: "harvest", corpId: "stale-mining", assignedSourceId: "$id(home,source,20,38)" },
+        },
+        // A standing scout in the remote room gives vision, so the remote source
+        // is KNOWN and the planner can reach out to mine it (no 1800-tick organic
+        // scout race - this is the staged version of the pipeline).
+        { name: "eye", x: 25, y: 24, room: "east", body: ["move"], memory: { workType: "scout" } },
+      ],
+      stage: (ctx) => stageSecondSpawn(ctx, RM_SPAWN2.x, RM_SPAWN2.y),
+      assertions: [
+        // The planner reaches across the border and commissions the remote source.
+        eventually("the planner mines the remote source", (s: CellSample) => {
+          const src = s.objects("east").find((o) => o.type === "source");
+          if (!src) return false;
+          return (s.memory?.economyPlan?.corps ?? []).some(
+            (c: any) => c.kind === "mine" && c.sourceId === `source-${src._id}`,
+          );
+        }),
+        // ...and a HOME-spawned miner actually walks over and works it: cross-room
+        // production, spawned from A, mining B.
+        eventually("a home-spawned miner works the remote source", (s: CellSample) => {
+          const src = s.objects("east").find((o) => o.type === "source");
+          if (!src) return false;
+          return s
+            .objects("east")
+            .some(
+              (o) =>
+                o.type === "creep" &&
+                o.user === s.userId &&
+                typeof o.name === "string" &&
+                o.name.startsWith("miner-") &&
+                Math.max(Math.abs(o.x - src.x), Math.abs(o.y - src.y)) <= 1,
+            );
+        }),
+        // Both home spawns share the load (the remote miner + home economy don't
+        // both queue behind one spawn).
+        eventually("both home spawns are put to work", (s: CellSample) => {
+          const spawns = s.objects("home").filter((o) => o.type === "spawn" && o.user === s.userId);
+          if (spawns.length < 2) return false;
+          const agenda = s.memory?.spawnAgenda ?? {};
+          return spawns.every((sp) => (agenda[String(sp._id)]?.executed?.length ?? 0) > 0);
+        }),
+        // The home extension bank refills on its own (no cross-room energy pool).
+        makeRefillSla("home", 20),
       ],
     },
   ];
