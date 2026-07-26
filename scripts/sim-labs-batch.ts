@@ -97,7 +97,7 @@ const depthOf = (() => {
   return d;
 })();
 
-interface Args { target: string; batch: number; ticks: number; quiet: boolean; }
+interface Args { target: string; batch: number; ticks: number; quiet: boolean; pitstop: boolean; }
 function parseArgs(argv: string[]): Args {
   const get = (flag: string, def: string) => {
     const i = argv.indexOf(flag);
@@ -110,6 +110,7 @@ function parseArgs(argv: string[]): Args {
     batch: parseInt(get("--batch", "3000"), 10),
     ticks: parseInt(get("--ticks", "120000"), 10),
     quiet: argv.includes("--quiet"),
+    pitstop: argv.includes("--pitstop"),
   };
 }
 
@@ -132,6 +133,10 @@ function run(args: Args): void {
   let phaseFired = 0; // units of the current phase's product created so far this phase
 
   const holders = (res: string): Lab[] => labs.filter((l) => l.mineral === res && l.amount >= AMT);
+  const inputsOf = (rx: string): string[] => {
+    const [x, y] = REACTIONS[rx];
+    return x === y ? [x] : [x, y];
+  };
 
   // bank a lab's contents to the terminal (product goes to terminal to feed next tier;
   // a leftover input likewise returns). Frees the lab.
@@ -214,14 +219,37 @@ function run(args: Args): void {
       if (P.mineral === c && P.amount >= CAP - AMT) bankLab(P);
     }
 
-    // 4. advance the phase once the quota is met AND the product has been banked out
-    //    of the labs (so the next tier finds it in the terminal). Bank any stragglers.
+    // 4. advance the phase. Two changeover policies:
+    //  - DEFAULT (gradual drain-advance): advance only once the product has drained to
+    //    the terminal (or B is banked). The small delay buys a clean handoff and wins at
+    //    batch >=300 (~99.7%); its cost is a per-boundary drain tail that only bites at
+    //    tiny batch.
+    //  - --pitstop (owner's "NASCAR" changeover): advance the INSTANT the quota is met
+    //    and reconfigure in one tick — carry over exactly the 2 fattest holders of each
+    //    next input as ready feeders, empty every other lab (bank to terminal). Emptying
+    //    is a tender action so it works on a cooling lab; that lab fires the new reaction
+    //    the moment its cooldown ends. Flat ~97-98% across batch sizes, so it WINS at
+    //    small batch (b=100: 98% vs the gradual 93%). It gives up ~2% at large batch
+    //    because the compound+compound tiers don't fully re-settle their balanced holders.
     if (phaseFired >= B) {
-      for (const P of labs) if (P.mineral === c && P.cooldown === 0) bankLab(P);
-      const stillInLabs = labs.some((l) => l.mineral === c && l.amount > 0);
-      if (!stillInLabs || (terminal[c] ?? 0) >= B) {
+      if (args.pitstop) {
+        const nin = inputsOf(phases[(phaseIdx + 1) % phases.length]);
+        for (const res of nin) {
+          const hs = holders(res).sort((x, y) => y.amount - x.amount);
+          for (const l of hs.slice(2)) bankLab(l); // keep 2 fattest feeders, bank the rest
+        }
+        for (const l of labs) {
+          if (l.mineral !== null && !(nin.includes(l.mineral) && l.amount >= AMT)) bankLab(l);
+        }
         phaseIdx = (phaseIdx + 1) % phases.length;
         phaseFired = 0;
+      } else {
+        for (const P of labs) if (P.mineral === c && P.cooldown === 0) bankLab(P);
+        const stillInLabs = labs.some((l) => l.mineral === c && l.amount > 0);
+        if (!stillInLabs || (terminal[c] ?? 0) >= B) {
+          phaseIdx = (phaseIdx + 1) % phases.length;
+          phaseFired = 0;
+        }
       }
     }
 
@@ -246,6 +274,7 @@ function run(args: Args): void {
   console.log("");
   console.log(`Lab reaction-network sim  —  spec 31 (10 labs, 1 tender)`);
   console.log(`  scheduler       : PHASED BATCH (one reaction at a time in bulk; intermediates banked as the next tier's 'bases')`);
+  console.log(`  changeover      : ${args.pitstop ? "PITSTOP (immediate advance, keep 2 feeders + empty rest)" : "gradual drain-advance (default)"}`);
   console.log(`  target          : ${target}  (depth ${depthOf(target)}, ${phases.length} tiers: ${phases.join(" -> ")})`);
   console.log(`  batch / ticks   : ${B} units per phase   ${args.ticks} ticks (steady: last ${steadyTicks})`);
   console.log("");
