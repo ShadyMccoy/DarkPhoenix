@@ -4571,3 +4571,43 @@ Gate: unit 1520 + build + integration gate (re-running) before re-deploy.
 Cycle verdict (this deploy): **REGRESSION → ROLLED BACK → RE-FIXED**; re-deploy
 gated on the integration suite + a post-deploy recapture that must show ≤1
 reserver per room and reserver spawn-energy back to steady state.
+
+### VERIFIED (t72595222, post re-deploy)
+
+The re-deploy (split + opportunistic count-cap) is confirmed GOOD:
+- **4 reservation corps, ONE per remote node** (W42N22/W42N23/W43N24/W44N23),
+  each **creepCount=1**, body 2·CLAIM+2·MOVE, all gates `reservation-banked`
+  (coasting, not looping). Total reservation creeps **4** (regression was 17,
+  11 piled on W42N22).
+- Reserver spawn energy 30% of a small fresh-reset window (was 46%); the
+  decisive signal is 1 reserver/room + banked gates, not the recovery-window %.
+- Ledger clean: no FAIL; the two WARNs (E5 runts feeder@100/hauler@100, X5 0.06
+  @51t) are the documented post-reset recovery transients, not steady state.
+
+Cycle verdict: **FIXED + VERIFIED** — the per-node ReservationCorp split (owner
+directive) is live and stable; the multi-slot interleave that forced the X5
+same-slot correction is gone. Fixture shard1-t72595222 (core+corps+blackbox).
+
+### Source-pile leak LOCALISED (t72595222, H-vs-I / duty read)
+
+The pending pile read, through the corrected model: the leak is **execution
+loss from approach-lane congestion where the remote haul routes converge on the
+core**, NOT under-sizing and NOT a link backlog.
+- H1: fleet duty 0.78, idleSink 0.21 **[atSink 0.07, EN-ROUTE 0.14]**,
+  ground-piled 3970e. Per-corp (new `staged`/`srcLink` stamps): remote haulers
+  carry their idleSink almost entirely EN-ROUTE — cee0 (W42N22) idleSink 0.30 /
+  atSink 0, cbd5 (W44N23) 0.32 / atSink 0, cd8d (W43N24) 0.19 — blocked on the
+  return leg into the core. staged 2.6k–3.6k at those remotes.
+- **Link-backlog hypothesis FALSIFIED**: `dbcd92` (the earlier worst pile) has
+  `srcLink None` — no link at all — and drained to 1290 post-reset. The one
+  link-fed home source, `dbcd90`, shows `srcLink 800/800` (hub link saturated,
+  `hubClampShare 0.59`, `directShare 3%`) but is distance-1 to storage so it
+  does not pile.
+- Corollary waste surfaced same capture: **tenders over-staffed 3× (66 parts /
+  3 creeps at duty 0.11)** vs the spec-31 one-lane-tender ideal; link network
+  saturated but delivering only 7.5 e/t / 3% direct to the controller.
+
+Next work item (own cycle): decongest the core convergence for remote haulers —
+target named with data, fix not yet designed. Owner review of the ideal base
+layout (specs 02/26/31: clear highways, links-as-hub-ports, one lane tender) is
+the framing for that cycle.
