@@ -4439,13 +4439,29 @@ just standing around."
 
 **Confirmed from data (capture t72588289, and the trend across ~28k ticks):**
 - Source buffers sit **8,498e above the 2000 container cap right now**, and
-  2.5k–9.4k above cap in EVERY capture t72560582..t72588289. Energy over cap
-  spills to the ground and decays — a chronic ratchet, not a transient.
-- The mechanism is already named in commit 8423922 (#139): source haulers are
-  sized to sustained inflow (`carryPartsFor(rate,d)`) with **no buffer-drain
-  term**, so every delivery gap adds to the pile permanently — asymmetric with
-  `scavengeRate`, which DOES drain a pile. That commit only INSTRUMENTED the
-  spawn-idle side; the sizing was never fixed.
+  2.5k–9.4k above cap in EVERY capture t72560582..t72588289.
+
+**Model correction (owner, 2026-07-26): NOT a permanent ratchet — decay bounds
+it.** Ground energy decays at `ceil(amount/1000)` per tick, a restoring force
+proportional to pile size. So the pile settles at an EQUILIBRIUM where decay
+balances the haul deficit: for inflow I and actual hauled throughput H, the
+ground pile holds at `I − H = ceil(groundPile/1000)`. Consequences that reframe
+the fix:
+  - **H ≥ I ⇒ the pile decays to zero** (settles ≤ container cap). A transient
+    setback clears itself for free — the owner's "piles degenerate."
+  - A *stable* pile is therefore NOT un-recovered gaps; it is CHRONIC
+    under-delivery (H < I), and the pile size READS OUT the deficit:
+    `dbcd92` 3993 over cap ⇒ ~4 e/t chronically rotting (on a ~10 e/t reserved
+    source, H ≈ 6 e/t — the carry-6 hauler at ~50% duty ⇒ EXECUTION loss, not a
+    missing drain term). `cee0` 1180 over cap with 0 haulers does not fit an
+    I=10 equilibrium (~10k) ⇒ almost certainly mid-transient (miner also dead,
+    I≈0, pile decaying) — the trend, not one capture, decides.
+  - The earlier #139 framing ("no buffer-drain term, every gap ratchets the
+    pile up permanently") is thus WRONG as stated: the lever is NOT a
+    scavenge-style pile-drain term. It is **make H ≥ I + a small margin** (the
+    margin only has to beat duty losses); decay does the rest. Fix the chronic
+    H < I per source: undersized body, missing hauler, or duty loss (traffic /
+    link-clamp / idle-at-sink).
 - Secondary: the best-netting remote (`dbcee0` W42N22, net 8.19 e/t, plan 18.8
   carry) had **0 haulers** while its buffer sat at 3180 — crowded out at a
   saturated spawn (util 0.945).
@@ -4470,13 +4486,22 @@ signature (pile high, no link), the link-backlog signature (link pinned at cap),
 Chebyshev range exclusion, and the null/unmeasurable cases. Observability-only
 (a read + stamp, no decision change). Gate: unit 1513 + build green.
 
-**Predicted deltas to READ next capture (~200t+ post-deploy):** per hauling
-corp, `sizing.staged` next to `sizing.carryNeeded`; for `dbcd92` specifically,
-`srcLinkEnergy`/`srcLinkCap` present ⇒ classify link-backlog vs under-sizing.
-Then the fix follows from the proven mechanism (drain term for under-sized
-sources; link-network work for a backlog).
+**Predicted deltas to READ next capture (~200t+ post-deploy), through the
+corrected (H vs I) lens:** per hauling corp, read `sizing.staged` (the pile =
+the deficit, ~ground/1000 e/t) against the duty split already stamped —
+  - high `duty` + standing pile ⇒ the plan UNDER-ASKS (`carryNeeded` sized to
+    nominal I but real I higher, or H capped below I): fix = size H to I+margin;
+  - low `duty` + standing pile ⇒ EXECUTION loss — read `idleSourceFrac`
+    (arriving to an empty source) vs `idleSinkFrac`/`idleSinkAtSinkFrac`
+    (blocked at delivery: link-clamp / lane traffic). Concrete prediction:
+    `dbcd92` should read `duty ≈ 0.5` (H≈6 vs I≈10) if it is execution loss;
+    `srcLinkEnergy`/`srcLinkCap` present + pinned ⇒ link backlog.
+The fix follows from the proven per-source cause (right-size H, unblock the
+delivery leg, or field the missing hauler) — NOT a pile-drain term; decay clears
+the residual once H ≥ I.
 
-Cycle verdict: **INSTRUMENTED** (fix deferred to the post-capture read).
+Cycle verdict: **INSTRUMENTED** (fix deferred to the post-capture read, now
+framed as H-vs-I deficit localisation, not ratchet recovery).
 
 ---
 
