@@ -74,3 +74,70 @@ the committed baseline, not host load.
 1. Re-run the grid on the reference/idle machine to confirm Class A is host-load.
 2. Triage `cons-ext-first-site-checkerboard` (fast, deterministic, T0) — the one
    failure that cannot be attributed to CPU throttling.
+
+---
+
+## Triage outcomes (2026-07-26, `claude/rcl7-dual-spawns-tests-ocs9mn`)
+
+**All 10 failing cells are resolved and re-verified green by actual grid runs.**
+
+**Environment root cause (why the PR sandbox looked broken):** installing with
+`npm install --ignore-scripts` (needed because `isolated-vm`'s native build
+fails under parallel make) skips `@screeps/driver`'s webpack step, leaving
+`build/runtime.bundle.js` missing — every user script then dies at load with
+`Cannot find module '../../build/runtime.bundle.js'`, and the mockup's console
+parser DROPS the `error` field of the console event, so the failure is
+invisible (bots simply "do nothing"). Fix: `npm run setup:test-env` (added
+this session — idempotent, builds all three artifacts), verified by
+`npm run probe:mockup`; full write-up in docs/TESTING_THE_ECONOMY.md
+("Environment setup FIRST"). After that the mockup executes scripts normally
+and every diagnosis below was reproduced and re-verified empirically.
+
+**The report's Class A / host-load theory did not survive contact:** all six
+"timeout" cells failed identically on a healthy sandbox. Every one was
+baseline drift (deliberate doctrine changes the cells never caught up with) or
+a staging artifact — none were host load, and none were code regressions.
+
+### Verdicts (all 10, verified by re-run)
+
+| Cell | Root cause | Fix |
+|---|---|---|
+| `cons-ext-first-site-checkerboard` | Drift: the extension rung BATCHES the whole remaining set (owner 2026-07-20); cell pinned retired one-at-a-time. Verified: all 5 sites land at t10. | Cell rewritten: cap bound (≤5) + "whole set stands together" pin. Containers keep one-at-a-time via `cons-one-site-at-a-time`. |
+| `agenda-t2-receipts-match-head` | Drift via #124's holdToFund walls: the walk can buy at rank 3+ under stacked holds; positional top-2 broke on correct behaviour. | Gate-based matching (the entry the walk itself gated `"buy"`). Also: the global-pool director now re-publishes the winner's re-ranked plan before executing, so multi-spawn receipts match their true predicting queue. |
+| `agenda-t2-spawns-match-head` | Same, PLUS a protocol off-by-one in the cell: a newborn's memory entry and its predicting queue land in the SAME tick's export, but the cell matched against the PREVIOUS sample's queue — flaked whenever the head flipped between ticks. | Gate-based matching against the CURRENT sample's queue. |
+| `arrive-builder-builds-and-refuels-in-place` | Staging artifact + drift: staged containers carry no `nextDecayTime`, so the engine decays them 4,800 hits ON TICK 1 — below the 99% repair ceiling — and the repair detail (owner 2026-07-18: sites never impact repair) claims the cell's ONLY builder, freezing the site. (Earlier "displacement + grace" hypothesis was wrong; grace reverted.) | Freeze the fuel container's decay in staging; assertions restored to full strength. |
+| `haul-t3-dedicated-standdown` | Same container-decay artifact: the repair detail ate builder bB, so "the build consumes B's output" could never fire. | Decay freeze in `dedicatedCommon` staging. |
+| `haul-t3-dedicated-resume-container` | Same. | Same (the green groundpile sibling stays green). |
+| `haul-t2-scavenge-threshold` | Drift: commissioning is bound by the MICRO-ROUTE FLOOR (owner 2026-07-20, `SCAVENGE_RATE_FLOOR`: rate = amount/2/effectiveLife ≥ 0.5 ⇒ ~1480 energy at this distance). The cell's 900-vs-600 pair sat entirely below the floor — the "commissions" half could mathematically never fire. | Restaged 3000 (commissions, pickup verified) vs 900 (the OLD threshold's yes-case — now pins that the floor overrides it). |
+| `churn-retiring-scavenge-corp` | Two drifts: the floor (900 never commissioned), and the retiring contract itself — `flagRetiringForRecycling` (live incident t72525241) now RECYCLES a route-less empty hauler for the refund instead of driving it to natural death, which the cell's "never recycled" pin predates. | Restaged above the floor (1700; decay crosses deterministically) and the cell now pins the CURRENT wind-down: deliver cargo → recycle at spawn → no successor → never orphan-stamped. Full lifecycle verified (fielded @11, floor @66, clean recycle @109). |
+| `cons-link-farthest-source` | Drift: spec 24 rung 3 places the CONTROLLER link above every source link; at RCL5's 2-link limit (core + controller) a source link can never place. Verified: the "link site" observed was the controller link at (8,8). | Restaged at RCL6 (3 links) with core + controller links prebuilt and the full 40-extension set (an unbuilt remainder batch-holds the queue above the link rung). The farthest-source selection doctrine itself still holds — passes @20. |
+| `plan-t4-link-haul-pricing` | Drift: spec 24's LINK SWAP (t72465499) DESTROYED the staged source link on the first pass (controller link outvalues it; RCL5 slots full), killing the pump and the pricing under test. | Restaged at RCL6 with a prebuilt controller link; the staged pump survives. Passes @10/@23. |
+
+### Full-grid verdict + baseline refresh (2026-07-26)
+
+A full 128-cell grid run on the repaired sandbox: **126 pass** — every report
+cell, the staged `plan-t5-remote-pipeline` rebuild, and both new
+`multispawn-t7-*` cells (frontier **T7**) — with zero regressions against
+baseline-green cells. The only two reds were already non-green in the old
+baseline: `haul-t4-tender-bus-regime` (the controller-spill leg never
+completes in-window; pre-existing known-red, real bot work, not a staging
+artifact — regime/depot/extension assertions all satisfy early) and
+`exp-t5-founding-funnels-to-completion` (the claim-buildup funnel, active
+work). `baseline.json` refreshed to this run. Note the recorded botLevel moves
+4 → **3**: bookkeeping honesty, not a regression — the old file recorded
+botLevel 4 alongside a T4 `"fail"` cell, a combination `botLevel()` can never
+produce; with T4's tender-bus red, 3 is what the ladder actually earns.
+
+### Trim (suite duration)
+
+The suite's wall-clock is dominated by the long-window worlds, not Class A.
+`plan-t5-remote-pipeline` — 1800t, baseline-**fail**, the grid's longest world,
+with a history of re-tuning as doctrine shifts moved its organic timeline — was
+rebuilt STAGED (owner-approved direction): remote vision via a parked scout,
+warm home income, window 700. It keeps all unique pipeline guards (remote
+adoption, home-spawned miner, reserver dispatch, remote container site) and
+drops only the pile-funded "build underway" tail (T2 container-completes owns
+completion mechanics). Ratchet-safe: its baseline entry was already "fail".
+`exp-t5-founding-funnels-to-completion` (1800t, baseline-timeout) was left
+alone — it is the only coverage of the cross-room founding funnel (claim
+buildup), which is active work, not dead weight.

@@ -26,7 +26,11 @@ function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean;
         ? [{ structureType: "container", pos: { x: 24, y: 25 }, store: { energy: opts.depotEnergy ?? 0 } }]
         : []
   };
-  const spawn = { id: "spawn1", pos: spawnPos, store: { getFreeCapacity: () => 0 } };
+  const spawn = {
+    id: "spawn1",
+    pos: spawnPos,
+    store: { getFreeCapacity: () => 0, getCapacity: () => 300 }
+  };
   // Default: one tight row (a single spatial cluster). scattered: three
   // well-separated groups - the legacy-layout shape the fleet count serves.
   const groupAnchor = (i: number): { x: number; y: number } =>
@@ -36,7 +40,7 @@ function room(opts: { depot?: boolean; extensions?: number; scattered?: boolean;
     pos: opts.scattered
       ? { x: groupAnchor(i).x + Math.floor(i / 3), y: groupAnchor(i).y }
       : { x: 20 + i, y: 20 },
-    store: { getFreeCapacity: () => 50 }
+    store: { getFreeCapacity: () => 50, getCapacity: () => 50 }
   }));
   return {
     name: "W0N0",

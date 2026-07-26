@@ -36,6 +36,7 @@ import { buildFidelityCells } from "./fidelity";
 import { buildJourneyCells } from "./journey";
 import { buildExpansionT5Cells } from "./expansion";
 import { buildMultiroomT5Cells } from "./multiroom";
+import { buildMultiSpawnT7Cells } from "./multispawn";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 import { buildResilienceCells } from "./resilience";
 
@@ -84,6 +85,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildJourneyCells(),
   ...buildMultiroomT5Cells(),
   ...buildExpansionT5Cells(),
+  ...buildMultiSpawnT7Cells(),
 ];
 
 const seen = new Set<string>();

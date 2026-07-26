@@ -510,7 +510,19 @@ export class ExtensionTenderCorp extends Corp {
     const PART_PAIR = 100; // CARRY + MOVE
     const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
     const clusters = extensionClusters(room);
-    const bankCapacity = 300 + 50 * extensions.length;
+    // BANK CAPACITY from ACTUAL fillable structures (owner 2026-07-25:
+    // generalize past the single-300-spawn, 50-per-extension assumption). The
+    // old `300 + 50 * extensions.length` hardcoded ONE spawn and a fixed 50/
+    // extension; at RCL7 the room has TWO spawns and 100-cap extensions (RCL8:
+    // three spawns, 200-cap), so it under-counted a full drain by ~half and
+    // undersized the refill fleet exactly when the bank is largest. Summing the
+    // real energy capacities of every spawn + extension the tender tops up is
+    // correct for any spawn count and any RCL, with no per-RCL table to drift.
+    const spawns = room.find(FIND_MY_SPAWNS);
+    const bankCapacity = [...spawns, ...extensions].reduce(
+      (sum, s) => sum + ((s as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 0),
+      0
+    );
     const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
     // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
     // the legacy scattered layout: "split the same amount of body parts

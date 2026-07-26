@@ -73,7 +73,7 @@ function installRoom(extCount: number, withMiner: boolean): void {
   const extensions = Array.from({ length: extCount }, (_v, i) => ({
     structureType: "extension",
     pos: { x: 20 + i, y: 25, roomName: HOME },
-    store: { getFreeCapacity: () => 50 }
+    store: { getFreeCapacity: () => 50, getCapacity: () => 50 }
   }));
   // coreDepot() walks FIND_MY_SPAWNS then spawn.pos.findInRange for a container.
   const spawnPos = {
@@ -82,7 +82,12 @@ function installRoom(extCount: number, withMiner: boolean): void {
     roomName: HOME,
     findInRange: (type: number) => (type === 107 ? [depot] : []) // FIND_STRUCTURES
   };
-  const spawn = { id: "spawn1", pos: spawnPos, owner: { username: "me" } } as Record<string, unknown>;
+  const spawn = {
+    id: "spawn1",
+    pos: spawnPos,
+    owner: { username: "me" },
+    store: { getFreeCapacity: () => 0, getCapacity: () => 300 }
+  } as Record<string, unknown>;
   const room = {
     name: HOME,
     controller: { my: true, level: 3, pos: { x: 30, y: 25, roomName: HOME } },
