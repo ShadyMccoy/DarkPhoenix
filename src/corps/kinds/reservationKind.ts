@@ -35,13 +35,18 @@ import { roomLinearDistance } from "../../utils/RoomDiscovery";
 import { MAX_SCOUT_DISTANCE } from "../CorpConstants";
 
 /**
- * The reservation commission's binding: which home room, which spawn, and
- * which remote rooms the draft plan mines from there (the reserve-worthy set).
+ * The reservation commission's binding: ONE corp per NODE (remote controller,
+ * owner 2026-07-26 "Reservation Corp should be multiple corps, one per node").
+ * `roomName`/`spawnId` are the HOME the reserver spawns from; `targetRoom` is
+ * the single remote controller this corp holds. One commission per mined remote
+ * (nearest home) replaces the old one-per-home-with-a-targetRooms-list shape -
+ * so each remote funds/defunds independently and no corp interleaves N rooms'
+ * reserver lifetimes (the multi-slot churn the X5 same-slot fix had to correct).
  */
 export interface ReservationAssignment {
   roomName: string;
   spawnId: string;
-  targetRooms: string[];
+  targetRoom: string;
 }
 
 export const reservationKind: CorpKind<ReservationCorp> = {
@@ -50,10 +55,12 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   roles: { reserver: { workType: "reserve" } },
 
   propose(problem: ColonyProblem, draft: readonly Commission[] = []): Commission[] {
-    const homeSpawnByRoom = new Map<string, string>();
+    const homes: { room: string; spawnId: string }[] = [];
+    const seenHome = new Set<string>();
     for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
+      if (!seenHome.has(s.pos.roomName)) {
+        seenHome.add(s.pos.roomName);
+        homes.push({ room: s.pos.roomName, spawnId: s.id });
       }
     }
     // The trigger, on the DURABLE signal: rooms the draft plan MINES that are
@@ -63,35 +70,47 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     for (const c of draft) {
       if (c.kind !== "harvest") continue;
       const room = c.produces.at?.roomName;
-      if (room && !homeSpawnByRoom.has(room)) minedRemotes.add(room);
+      if (room && !seenHome.has(room)) minedRemotes.add(room);
     }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("reservation", roomName),
-      kind: "reservation",
-      shape: "auxiliary",
-      // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
-      // sources), priced by the SpawnDirector's value ranking, not the planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: {
-        roomName,
-        spawnId,
-        targetRooms: [...minedRemotes].filter(r => roomLinearDistance(roomName, r) <= MAX_SCOUT_DISTANCE).sort()
-      } as ReservationAssignment
-    }));
+    // ONE corp per NODE: bind each mined remote to its NEAREST home spawn within
+    // scout range (deterministic tiebreak), so a remote reachable from two homes
+    // gets exactly ONE reservation corp - never two fighting over one controller.
+    const commissions: Commission[] = [];
+    for (const targetRoom of [...minedRemotes].sort()) {
+      const home = homes
+        .map(h => ({ ...h, d: roomLinearDistance(h.room, targetRoom) }))
+        .filter(h => h.d <= MAX_SCOUT_DISTANCE)
+        .sort((a, b) => a.d - b.d || a.room.localeCompare(b.room))[0];
+      if (!home) continue;
+      commissions.push({
+        corpId: corpIdFor("reservation", targetRoom),
+        kind: "reservation",
+        shape: "auxiliary",
+        // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
+        // sources), priced by the SpawnDirector's value ranking, not the planner.
+        consumes: { spawnPartsPerTick: 0 },
+        produces: { valuePerTick: 0 },
+        assignment: { roomName: home.room, spawnId: home.spawnId, targetRoom } as ReservationAssignment
+      });
+    }
+    return commissions;
   },
 
   materialize(c: Commission, existing: ReservationCorp | undefined): ReservationCorp {
     const a = c.assignment as ReservationAssignment;
     if (existing) {
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
-      existing.setTargetRooms(a.targetRooms ?? []); // ditto - targets follow the PLAN
+      existing.setTargetRooms([a.targetRoom]); // ditto - the node follows the PLAN
       return existing;
     }
-    // Legacy nodeId convention preserves the pre-port runtime corp id, so live
-    // reservers' memory.corpId still resolves across the migration.
-    const corp = new ReservationCorp(`${a.roomName}-reservation`, a.spawnId);
-    corp.setTargetRooms(a.targetRooms ?? []);
+    // nodeId keyed to the NODE (the remote controller room) so getPosition() and
+    // the default orphan rule resolve to the reserved room; the "-reservation"
+    // suffix keeps ids the same shape as before the per-node split. Live reservers
+    // from the pre-split per-home corp re-home cleanly: the old corp is retained
+    // (retiring) until its creeps die, and claimsOrphan below re-adopts any that
+    // outlive it by their targetRoom.
+    const corp = new ReservationCorp(`${a.targetRoom}-reservation`, a.spawnId);
+    corp.setTargetRooms([a.targetRoom]);
     return corp;
   },
 
@@ -121,5 +140,20 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   // stayed at the unreserved half-rate.
   demandGroup(corp: ReservationCorp) {
     return { groupId: corp.id, started: true };
+  },
+
+  // Re-adopt an orphaned reserver into the per-node corp for the room it is
+  // LATCHED to (its one-way targetRoom), not the room it happens to stand in -
+  // an in-flight reserver mid-route to its remote is in a transit room, and the
+  // default same-physical-room rule would recycle it. Matches on the corp's node
+  // (getPosition().roomName == targetRoom). An unassigned wildcard (no
+  // targetRoom) has no node to belong to yet - defer to the default rule/recycle.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: ReservationCorp }): string | null {
+    const room = creep.memory.targetRoom;
+    if (!room) return null;
+    for (const id in corps) {
+      if (corps[id].getPosition().roomName === room) return corps[id].id;
+    }
+    return null;
   }
 };

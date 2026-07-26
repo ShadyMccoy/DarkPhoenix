@@ -4477,3 +4477,38 @@ Then the fix follows from the proven mechanism (drain term for under-sized
 sources; link-network work for a backlog).
 
 Cycle verdict: **INSTRUMENTED** (fix deferred to the post-capture read).
+
+---
+
+## Change 2026-07-26 — ReservationCorp split to one corp per NODE (owner directive)
+
+**Owner directive:** "Reservation Corp should be multiple corps. One per Node
+(ie controller)."
+
+Before: ONE reservation corp per home room held a `targetRooms[]` list (4 remote
+rooms live), so its spawn log interleaved 4 independent reserver lifetimes -
+exactly the multi-slot shape the X5 same-slot fix had to correct, and a single
+corp whose funding/defunding couldn't be reasoned about per room.
+
+After: `reservationKind.propose` emits ONE commission per mined remote (bound to
+its NEAREST home spawn within scout range, deterministic tiebreak so a remote
+reachable from two homes gets exactly one corp). Commission id
+`reservation-<remote>`, runtime corp id `reservation-<remote>-reservation`,
+nodeId `<remote>-reservation` so `getPosition()` and the default orphan rule
+resolve to the reserved room. Each corp holds exactly one node; the corp's
+internal per-room logic (one-way latch, duty cycle, opportunistic topup,
+purchase-loop guard) is UNCHANGED and now operates on its single room - a
+deliberate low-risk choice given the reservation mechanism's incident history
+(the getSpawnDemand guards were not rewritten).
+
+Migration is graceful: on redeploy the pre-split per-home corp is retained
+(`retiring`) until its reservers die, while the new per-node corps take over
+spawning; the duty cycle reads the reservation bank the old reservers maintain,
+so no double-spawn. A new `claimsOrphan` re-adopts any reserver that outlives
+its old corp by its `targetRoom` (not its transit room), so an in-flight
+reserver is never recycled mid-route.
+
+Red-first: reservationKind.test.ts rungs 2-4 rewritten to the per-node contract
++ 5 new cases (one commission per remote, per-node keying, position resolves to
+the node, claimsOrphan-by-targetRoom, wildcard yields none). Gate: unit 1518 +
+build + flow-handoff/runt-economy/storage-depot/remote-mining.
