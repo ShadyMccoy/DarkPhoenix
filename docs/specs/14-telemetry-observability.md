@@ -4537,3 +4537,37 @@ Red-first: reservationKind.test.ts rungs 2-4 rewritten to the per-node contract
 + 5 new cases (one commission per remote, per-node keying, position resolves to
 the node, claimsOrphan-by-targetRoom, wildcard yields none). Gate: unit 1518 +
 build + flow-handoff/runt-economy/storage-depot/remote-mining.
+
+### FAILED IN PROD, ROLLED BACK, ROOT-CAUSED, RE-FIXED (t72591424)
+
+Deployed the split; the recapture caught a **reserver purchase loop**: 17 live
+reservers (vs ~4 pre-split), **11 piled on W42N22** with its bank stuck at 3974,
+23 reserver spawns in 2030t = **46% of ALL spawn energy** (the CLAUDE.md
+"reserver loop was 53%" trap, reproduced). Redeployed origin (696d3b2, the
+pre-split pile-instrument build) immediately to stop the bleed.
+
+Root cause — my "keep the trap-hardened logic, just feed it one room" assumption
+was WRONG. The opportunistic-topup guard blocked only on an UNASSIGNED wildcard
+(`!hasWildcard`), so once work() latched a reserver the corp offered ANOTHER.
+The old multi-room corp masked this: its wildcards spread across 4 rooms and the
+COLLECTIVE bank hit the 5000 cap, self-terminating the loop. The per-node split
+removed that safety valve — one corp, one room whose bank could not rise
+(reservers ineffective / in-flight) ⇒ opportunistic fired every tick, unbounded.
+The mechanism bug: opportunistic spawned on BANK LEVEL with no hard per-room
+COUNT cap. (Textbook CLAUDE.md meta-lesson — the reservation mechanism bites the
+moment you lean on it; the fix had to interrogate the mechanism, not the
+trigger.)
+
+Fix (ReservationCorp.getSpawnDemand, opportunistic branch): cap at ONE reserver
+per target room — guard on `countLivingReservers() < targets.length` (counts
+assigned + unassigned + SPAWNING, so the corp never re-orders against its own
+in-flight purchase) instead of the wildcard-only check. Bounds both single- and
+multi-room corps; the demand path was already count-bounded via the wildcard/
+assigned coverage check. Red-first: 2 new ReservationCorp cases (a room with a
+latched reserver, and one with a spawning newborn, each offers ZERO opportunistic
+top-up despite cap headroom) — verified red on the pre-fix build, green after.
+Gate: unit 1520 + build + integration gate (re-running) before re-deploy.
+
+Cycle verdict (this deploy): **REGRESSION → ROLLED BACK → RE-FIXED**; re-deploy
+gated on the integration suite + a post-deploy recapture that must show ≤1
+reserver per room and reserver spawn-energy back to steady state.
