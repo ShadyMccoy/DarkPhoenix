@@ -49,6 +49,28 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
    candidate cores by `tenderReach` (BFS radius to fit the field = compactness
    the tender pays) + anchor distance, not centroid-nearest. Fixed the W7N3
    corner spawn (0.935 → 1.000).
+6a. **REMOTE-FLOW-AWARE core placement (owner 2026-07-26).** Today `pickCore`
+   scores IN-ROOM cost only — `tenderReach` + `anchorDist` over the in-room
+   sources and controller — and reserves a highway to EVERY exit uniformly. It
+   is blind to the remote economy that actually feeds the core: for W43N23, four
+   remote rooms (W42N22/W42N23/W43N24/W44N23) converge here, yet the generator
+   would center storage on in-room refill and make every remote hauler walk
+   farther through a longer in-room approach — a plausible contributor to the
+   measured en-route convergence congestion (idleSink en-route 0.14–0.32,
+   t72595222). Requirement: fold the REMOTE haul into the core score and the
+   highway priority —
+   - add a term weighting `anchorDist` by the **volume-weighted exit directions**
+     of the planned remote mining (each remote source's rate projected to the
+     room edge it enters through), so the core is pulled toward where the bulk of
+     remote energy arrives, not just toward the local sources;
+   - **prioritize the highway to the heaviest-flow exit** (widen / straighten it
+     first) instead of treating all exits equally;
+   - keep it a TERM in the founding valuation (like tenderReach), never a swap of
+     the economics — co-optimize the base for the remote economy AND in-room
+     refill, don't trade one for the other.
+   This is the placement lever the iterative remodeler (above) should exercise:
+   re-placing the core with remote flow in mind is exactly the kind of target
+   update a remodel exists to apply.
 7. Real terrain breaks a pure diagonal, so the generator **WRAPS** (turns to stay
    contiguous) and **SPLITS** with BFS bridges (crossing highways/swamp as
    traverse) — emitting ONE ordered contiguous lane; a split is just a
@@ -78,7 +100,9 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
       spawn choice. CAUTION (per `spatial/spawnPlacement.ts` header): the live
       founding tile is the econ-optimal `spawnSiteValue`, NOT a geometry pick;
       add `tenderReach` as a TERM in that valuation, don't swap economics for
-      geometry.
+      geometry. Add the **remote-flow term (6a)** here too — the founding/
+      re-placement valuation weights the volume-weighted remote-exit directions
+      alongside `tenderReach` and the in-room anchors.
    b. **Serpentine placement** in `ConstructionCorp` — replace/augment
       `findGridPosition` with the string generator; highways from the existing
       `planTrunkPath` routes (reserve, don't build on).
