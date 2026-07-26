@@ -117,9 +117,42 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
   breaches there live, the lever is a 2:1→bigger body or (last resort) a 2nd
   tender, not a layout change.
 
+## Remodeling must be ITERATIVE and re-runnable (owner 2026-07-26)
+
+"It could happen in the future that we update our base layout logic and may need
+to do some remodeling. We won't always get it right on the first try."
+
+So the graduation-to-live work is not a one-shot "stamp the target and build it."
+The layout GENERATOR will keep improving, so the remodeler must be a CONVERGENCE
+loop: given the current live base and the CURRENT target shape (whatever the
+generator now emits), compute the diff and move the base one safe step toward it
+— re-runnable every time the target changes, from any partially-built state.
+Requirements this implies:
+- **Idempotent + resumable:** re-running against an already-on-target base is a
+  no-op; re-running after the target CHANGES resumes from wherever the base is,
+  never assumes a greenfield.
+- **Safe, reversible steps** (spec 27's one-structure-at-a-time relocation is the
+  unit): never tear down load-bearing infrastructure (storage/spawn/tower/link)
+  without its replacement already placed and staffed; a remodel in progress must
+  leave the colony functional every tick (no "demolish the field then rebuild"
+  window).
+- **Instrumented:** each remodel step stamps before/after (refill duty, haul
+  congestion, energy spent on the move) so a layout-logic change that makes
+  things WORSE is caught and can be rolled back — we will get it wrong sometimes,
+  so the remodeler must make "wrong" cheap and visible, not catastrophic.
+- **Bounded cost:** capex per window is capped so a re-plan can't stall the
+  economy churning structures.
+
+The measure of a good remodeler is that a BAD target update costs a little
+wasted capex and a rollback, not a bricked base.
+
 ## Relation
 
-- **27 (extension relocation):** 31 is the target-shape engine 27 scores against.
+- **27 (extension relocation):** 31 is the target-shape engine 27 scores against;
+  27's one-at-a-time safe-move mechanism is the unit step of the iterative
+  remodeler above.
+- **32 (graceful mining backoff):** a fail-graceful production knob; unrelated to
+  layout but the same "match to reality, keep the leak visible" discipline.
 - **16 (construction as projects):** serpentine placement rides the project path.
 - **26 (links as hub ports):** an outskirt/field link kills the tender's central-
   reload deadhead — the one change that would let CARRY-heavy bodies win outright.
