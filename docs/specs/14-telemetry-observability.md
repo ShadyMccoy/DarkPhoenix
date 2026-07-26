@@ -4234,5 +4234,22 @@ flapping to 2 (holds ~49 while stock≥200); body holds ~w40–49; X5 home churn
 slope turns negative (drains toward reserve). Regression rule: any triage line
 worse than the t72571505 baseline ⇒ redeploy origin/master, record falsified.
 
-Cycle verdict: **FIXED (deployed) — VERIFICATION PENDING** (prod recapture +
-`npm run audit:ledger` after ~2400t).
+**VERIFIED (t72576379, +4874t, past reset recovery) — every predicted delta
+hit, ledger fully green (no FAIL, no WARN — the P4 WARN itself cleared):**
+- P4 spawn-infeasibility **0.91→0.75 (WARN→ok)**: upgrader plan WORK 95p→20p,
+  spawn util 0.973→0.914 — the colony left the spawn-bound plateau.
+- Upgrader churn: **5 respawns/2808t (w49↔w3) → 3 (all big-bodied)**; the
+  early-death interval doubled (2300e@78t → @144t); home rebuild share 11%→9%.
+  No w3 teardown - the flap is closed.
+- P7 controller delivery **24.7→29.9 e/t** (1.65×→2.0× the lower-endpoint plan).
+- E4/storage slope **+0.38→−4.85/t**: the banked surplus (61k) was eaten down
+  through the 56k reserve exactly as the windfall doctrine intends; once below
+  reserve the save regime throttled the upgrader to a sip (inflow 2, plan WORK
+  20p) - self-balancing, no flap without a surplus. X1 dry WORK 0.10 (workUtil
+  0.99): the 20 WORK stands fully fed, not starved.
+
+Cycle verdict: **FIXED + VERIFIED**. Residual watch (next cycle): storage sat
+−18.5k below reserve draining −4.85/t at the read (partly post-reset guard/
+reserver recovery spend, partly the windfall-draw tail); confirm it self-
+corrects back toward reserve in the save regime and is not runaway upgrader
+consumption.
