@@ -9,6 +9,7 @@ import {
   shouldRefillFromDepot,
   tenderOwnsExtensions,
   pickStorageDeposit,
+  classifyHaulerTick,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
@@ -689,6 +690,22 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       const rec = runPickup({ creepRoom: "W1N1", sourceRoom: "W2N1" });
       expect(rec.withdrawTarget, "reloads from the home depot").to.not.equal(null);
       expect((rec.withdrawTarget as any).structureType).to.equal("storage");
+    });
+  });
+
+  describe("classifyHaulerTick (execution duty meter, owner 2026-07-25)", () => {
+    it("moved OR transacted -> active (real progress)", () => {
+      expect(classifyHaulerTick(true, false, false), "moved empty").to.equal("active");
+      expect(classifyHaulerTick(true, false, true), "moved loaded").to.equal("active");
+      expect(classifyHaulerTick(false, true, false), "withdrew at source").to.equal("active");
+      expect(classifyHaulerTick(false, true, true), "transferred at sink").to.equal("active");
+      expect(classifyHaulerTick(true, true, true), "both").to.equal("active");
+    });
+    it("stationary + no transaction while EMPTY -> idleSource (waiting/blocked to load)", () => {
+      expect(classifyHaulerTick(false, false, false)).to.equal("idleSource");
+    });
+    it("stationary + no transaction while LOADED -> idleSink (waiting/blocked to deliver)", () => {
+      expect(classifyHaulerTick(false, false, true)).to.equal("idleSink");
     });
   });
 });
