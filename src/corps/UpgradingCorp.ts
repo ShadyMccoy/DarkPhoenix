@@ -18,6 +18,7 @@ import { SinkAllocation } from "../flow/FlowTypes";
 import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
+import { CONTROLLER_STARVE_FLOOR } from "./CarryCorp";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 import { travelTicksPerTile } from "./economics";
 
@@ -148,6 +149,41 @@ export function upgraderAllocation(
   constructionAbsorb = 0
 ): number {
   return upgraderSizing(planAllocated, stock, bankedBehindFeeder, reserveTarget, constructionAbsorb).allocated;
+}
+
+/**
+ * The storage energy the upgrader fleet may size against as bank-relayed inflow
+ * - or null when the relay is not effectively operating. This is the DURABLE
+ * form of the feeder signal, and the fix for the upgrader body flap (incident
+ * t72571505): the single, non-blocking feeder dies and respawns every ~N
+ * ticks, and gating `bankedBehindFeeder` SOLELY on the transient
+ * `controllerFeederActive` flag tore the upgrader body down to the
+ * anti-downgrade sip on EVERY feeder death and rebuilt it on every respawn
+ * (measured: inflow flapping 2<->115, the body flapping w49<->w3, ~3 excess
+ * upgrader respawns per 2808t on a spawn-bound 0.97-util colony - pure churn,
+ * and the w3 windows halved RCL delivery).
+ *
+ * The maintained controller buffer is the durable evidence the relay is running
+ * (across a feeder gap the haulers deliver directly - CarryCorp.shouldBankControllerLoad,
+ * "a dead feeder never starves upgrading"), so ride the gap out exactly as the
+ * haulers do, off the SAME buffer floor - one lens, two readers. Only genuine
+ * starvation (buffer drained below the floor AND no feeder) drops the bank from
+ * view; a bank that falls below its reserve is handled downstream by `surplus`.
+ */
+export function bankBehindFeeder(params: {
+  /** The owned storage's energy, or null when there is no owned storage bank. */
+  storageEnergy: number | null;
+  /** A live feeder is relaying storage -> controller this tick. */
+  feederActive: boolean;
+  /** Energy staged at the controller input right now (container/link + piles). */
+  controllerInputStock: number;
+  /** Override the starvation floor (defaults to {@link CONTROLLER_STARVE_FLOOR}). */
+  starveFloor?: number;
+}): number | null {
+  if (params.storageEnergy === null) return null;
+  const relayOperating =
+    params.feederActive || params.controllerInputStock >= (params.starveFloor ?? CONTROLLER_STARVE_FLOOR);
+  return relayOperating ? params.storageEnergy : null;
 }
 
 /**
@@ -496,9 +532,19 @@ export class UpgradingCorp extends Corp {
     // spent. No visible controller (harness stubs, degenerate rooms): the
     // stock is unmeasurable, so trust the plan rather than clamping to the floor.
     const stock = spawn && controller ? this.controllerSideStock(controller) : null;
+    // DURABLE feeder-relay verdict (bankBehindFeeder, incident t72571505): the
+    // bank is in view whenever a feeder is alive OR the controller buffer still
+    // holds - a transient feeder death no longer recycles the upgrader body to
+    // the sip and back (haulers cover the gap directly, same buffer floor the
+    // hauler redirect rides). Solely gating on controllerFeederActive flapped
+    // inflow 2<->115 and the body w49<->w3 for 170k+ ticks.
     const bankedBehindFeeder =
-      spawn && spawn.room.memory.controllerFeederActive && spawn.room.storage?.my
-        ? spawn.room.storage.store.energy ?? 0
+      spawn && spawn.room.storage?.my
+        ? bankBehindFeeder({
+            storageEnergy: spawn.room.storage.store.energy ?? 0,
+            feederActive: !!spawn.room.memory.controllerFeederActive,
+            controllerInputStock: stock ?? 0
+          })
         : null;
     // ONE absorb lens with the feeder AND the crew (owner 2026-07-21 + prod
     // t72478939): construction eats what it can absorb; the fleet is sized
