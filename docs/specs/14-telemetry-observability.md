@@ -4428,3 +4428,52 @@ leak this cycle — progress is AHEAD of plan (P7 1.70×, P9 mining 1.43×,
 warchest filling toward the 56k reserve); the top signal was the X5 false-WARN,
 now reporting truth so future cycles aren't misdirected onto the reserver
 mechanism.
+
+---
+
+## Incident 2026-07-26 — source energy piling & rotting (INSTRUMENT phase)
+
+**Owner report:** "energy is piling up and rotting at the sources ... some
+haulers between the core and the NE link that seem confused ... some lost creeps
+just standing around."
+
+**Confirmed from data (capture t72588289, and the trend across ~28k ticks):**
+- Source buffers sit **8,498e above the 2000 container cap right now**, and
+  2.5k–9.4k above cap in EVERY capture t72560582..t72588289. Energy over cap
+  spills to the ground and decays — a chronic ratchet, not a transient.
+- The mechanism is already named in commit 8423922 (#139): source haulers are
+  sized to sustained inflow (`carryPartsFor(rate,d)`) with **no buffer-drain
+  term**, so every delivery gap adds to the pile permanently — asymmetric with
+  `scavengeRate`, which DOES drain a pile. That commit only INSTRUMENTED the
+  spawn-idle side; the sizing was never fixed.
+- Secondary: the best-netting remote (`dbcee0` W42N22, net 8.19 e/t, plan 18.8
+  carry) had **0 haulers** while its buffer sat at 3180 — crowded out at a
+  saturated spawn (util 0.945).
+- The single worst pile is a HOME source (`dbcd92`, 5993) with the hub link
+  clamped 55% of the time (`hubClampShare 0.547`) — so it MIGHT be a link
+  backlog, not a hauler shortfall. Intel carries no link geometry, so the
+  mechanism is unresolved from the current segments.
+
+**Owner steer:** instrument first, then fix (don't guess the worst offender's
+mechanism, and don't nudge core hauling sizing blind — CorpPlanner.ts:591
+records an aggressive 150-tick drain once crowding production out of the parts
+ledger).
+
+**Instrument shipped (this cycle):** `CarryCorp.readPickupBuffer` stamps, at the
+sizing site, the ACTUAL pickup buffer (`staged` = container + ground piles in
+range 1) and the source-link state (`srcLinkEnergy`/`srcLinkCap`, a link in
+range 2), alongside the sustained-inflow `carryNeeded` the fleet is sized to.
+`staged` is null when the pickup room isn't visible (a fact distinct from zero,
+and the signal that a remote drain term must read a durable buffer, not live
+vision). Corps segment v4→v5. Red-first: 5 unit cases pin the under-sized
+signature (pile high, no link), the link-backlog signature (link pinned at cap),
+Chebyshev range exclusion, and the null/unmeasurable cases. Observability-only
+(a read + stamp, no decision change). Gate: unit 1513 + build green.
+
+**Predicted deltas to READ next capture (~200t+ post-deploy):** per hauling
+corp, `sizing.staged` next to `sizing.carryNeeded`; for `dbcd92` specifically,
+`srcLinkEnergy`/`srcLinkCap` present ⇒ classify link-backlog vs under-sizing.
+Then the fix follows from the proven mechanism (drain term for under-sized
+sources; link-network work for a backlog).
+
+Cycle verdict: **INSTRUMENTED** (fix deferred to the post-capture read).

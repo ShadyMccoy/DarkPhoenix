@@ -1300,7 +1300,7 @@ export class Telemetry {
     }
 
     const telemetry: CorpsTelemetry = {
-      version: 4, // Version 4: sizing records (decision-site inputs, spec 14 phase 2)
+      version: 5, // Version 5: CarryCorp sizing stamps pickup buffer + source-link state (source-pileup instrument 2026-07-26)
       tick: Game.time,
       corps,
       summary: {
