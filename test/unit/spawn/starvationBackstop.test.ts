@@ -150,19 +150,17 @@ describe("starved tier walk (the walls stay up)", () => {
 });
 
 describe("demand age clock (unserved time, not time-since-first-request)", () => {
-  const SPAWN = "spawn1";
-
   it("a purchase resets the stream's clock - the next registration starts fresh", () => {
     const firstSeen: { [key: string]: number } = {};
     const stamp = (tick: number): SpawnDemand => {
       const d = demand({ buyerCorpId: "hauling-1", role: "hauler" });
-      stampDemandAges([d], SPAWN, firstSeen, new Set(), tick);
+      stampDemandAges([d], firstSeen, new Set(), tick);
       return d;
     };
 
     expect(stamp(1000).since).to.equal(1000); // seeded
     expect(stamp(2000).since).to.equal(1000); // carried while unserved
-    resetDemandClock(firstSeen, SPAWN, "hauling-1", "hauler"); // the spawn bought one
+    resetDemandClock(firstSeen, "hauling-1", "hauler"); // the spawn bought one
     expect(stamp(2001).since).to.equal(2001); // served stream starts FRESH
   });
 
@@ -173,13 +171,13 @@ describe("demand age clock (unserved time, not time-since-first-request)", () =>
     const stampBoth = (tick: number): { hauler: SpawnDemand; tender: SpawnDemand } => {
       const hauler = demand({ buyerCorpId: "hauling-1", role: "hauler" });
       const tender = demand({ buyerCorpId: "moving-tender", role: "tanker", producesIncome: false, value: 96 });
-      stampDemandAges([hauler, tender], SPAWN, firstSeen, new Set(), tick);
+      stampDemandAges([hauler, tender], firstSeen, new Set(), tick);
       return { hauler, tender };
     };
 
     stampBoth(1000);
     for (const buyTick of [1100, 1200, 1300]) {
-      resetDemandClock(firstSeen, SPAWN, "hauling-1", "hauler");
+      resetDemandClock(firstSeen, "hauling-1", "hauler");
       const { hauler, tender } = stampBoth(buyTick);
       expect(hauler.since).to.equal(buyTick); // reset by each purchase
       expect(tender.since).to.equal(1000); // still waiting since the start

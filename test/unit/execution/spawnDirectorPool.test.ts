@@ -136,4 +136,71 @@ describe("runSpawnScheduling - pooled two-spawn assignment", () => {
     expect(built[0].spawn).to.equal("spawnA");
     expect(built[0].buyer).to.contain("B");
   });
+
+  it("CROSS-ROOM: A1's free spawn builds A2's higher-value corp when A2's spawn is busy", () => {
+    // The non-room-scoped requirement: room A2's own spawn is busy, so its
+    // (higher-value) corp is built by room A1's free spawn - a corp anchored to
+    // an A2 spawn, produced in A1. The old per-room pool would have skipped A2
+    // (no free spawn) and stranded its demand; the global pool crosses over.
+    const A1 = "W1N1";
+    const A2 = "W1N2";
+    const built: Built[] = [];
+    const registry = createCorpRegistry();
+    const mkSpawn = (id: string, room: string, spawning: any) => ({
+      id,
+      name: id,
+      pos: { x: 25, y: 25, roomName: room },
+      spawning
+    });
+    const rooms: any = {
+      [A1]: {
+        name: A1,
+        controller: { my: true, level: 5 },
+        energyAvailable: 5600,
+        energyCapacityAvailable: 5600,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sA1", A1, null)] : [])
+      },
+      [A2]: {
+        name: A2,
+        controller: { my: true, level: 5 },
+        energyAvailable: 5600,
+        energyCapacityAvailable: 5600,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sA2", A2, { name: "busy" })] : [])
+      }
+    };
+    Game.rooms = rooms;
+    Game.creeps = {} as any;
+    for (const id of ["sA1", "sA2"]) {
+      registry.spawningCorps[id] = {
+        executeSpawn: (_k: string, _r: string, buyer: string, budget: number) => {
+          built.push({ spawn: id, buyer, budget });
+          return true;
+        }
+      } as any;
+    }
+    // A1's own corp (value 90) and A2's higher-value corp (150), each anchored
+    // to its own room's spawn. sA2 is busy, so only sA1 is free.
+    const a1corp = new ExtensionTenderCorp(`${A1}-own`, "sA1");
+    (a1corp as any).getPosition = () => ({ x: 25, y: 25, roomName: A1 });
+    (a1corp as any).getSpawnDemand = () => [
+      { buyerCorpId: a1corp.id, role: "tanker", value: 90, blocking: false, producesIncome: false, desiredCost: 800, minCost: 800, since: 0 }
+    ];
+    seedCommissionStoreForTest(`tender-a1`, "tender", a1corp);
+
+    const a2corp = new ExtensionTenderCorp(`${A2}-own`, "sA2");
+    (a2corp as any).getPosition = () => ({ x: 25, y: 25, roomName: A2 });
+    (a2corp as any).getSpawnDemand = () => [
+      { buyerCorpId: a2corp.id, role: "tanker", value: 150, blocking: false, producesIncome: false, desiredCost: 800, minCost: 800, since: 0 }
+    ];
+    seedCommissionStoreForTest(`tender-a2`, "tender", a2corp);
+
+    runSpawnScheduling(registry);
+
+    // A1's free spawn built A2's higher-value corp; A2's busy spawn built nothing.
+    expect(built.length).to.equal(1);
+    expect(built[0].spawn).to.equal("sA1");
+    expect(built[0].buyer).to.equal(a2corp.id);
+  });
 });
