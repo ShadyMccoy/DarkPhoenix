@@ -87,11 +87,11 @@ fails under parallel make) skips `@screeps/driver`'s webpack step, leaving
 `build/runtime.bundle.js` missing — every user script then dies at load with
 `Cannot find module '../../build/runtime.bundle.js'`, and the mockup's console
 parser DROPS the `error` field of the console event, so the failure is
-invisible (bots simply "do nothing"). Fix: hand-build the two native modules
-(`node-gyp` single-threaded in `isolated-vm` and `@screeps/driver/native`)
-then run `npx webpack` in `node_modules/@screeps/driver`. After that the
-mockup executes scripts normally and every diagnosis below was reproduced and
-re-verified empirically.
+invisible (bots simply "do nothing"). Fix: `npm run setup:test-env` (added
+this session — idempotent, builds all three artifacts), verified by
+`npm run probe:mockup`; full write-up in docs/TESTING_THE_ECONOMY.md
+("Environment setup FIRST"). After that the mockup executes scripts normally
+and every diagnosis below was reproduced and re-verified empirically.
 
 **The report's Class A / host-load theory did not survive contact:** all six
 "timeout" cells failed identically on a healthy sandbox. Every one was

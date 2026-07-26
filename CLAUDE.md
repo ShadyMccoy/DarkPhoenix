@@ -17,6 +17,14 @@ whose operators are corps. Read order for architecture truth:
 - **ALWAYS `npm run build` before any grid/integration run** — they measure
   `dist/main.js`, not your working tree. A stale bundle has cost full false-red
   runs more than once.
+- **Fresh clone/sandbox: `npm run setup:test-env` BEFORE any grid/integration
+  run**, then `npm run probe:mockup` (30s) to prove bot scripts execute. If
+  `npm install` failed on `isolated-vm` and you fell back to
+  `--ignore-scripts`, the driver's `runtime.bundle.js` is missing and every
+  mockup bot dies at load INVISIBLY (the mockup swallows the error): server
+  ticks, zero bot console output, every cell times out. That signature is a
+  broken ENVIRONMENT, not a broken bot — details in
+  [docs/TESTING_THE_ECONOMY.md](docs/TESTING_THE_ECONOMY.md).
 - **Regression gate** for live-behavior changes: `npm run test-unit` PLUS the
   `flow-handoff`, `runt-economy`, `storage-depot` integration tests
   (`npx mocha "test/integration/<file>.test.ts"`, one file at a time).

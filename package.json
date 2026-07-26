@@ -13,6 +13,8 @@
     "push-sim": "rollup -c --environment DEST:sim",
     "test": "npm run test-unit && npm run test-integration",
     "test-unit": "mocha \"test/unit/**/*.ts\"",
+    "setup:test-env": "bash scripts/setup-test-env.sh",
+    "probe:mockup": "node scripts/probe-mockup.js",
     "test-integration": "npm run build && mocha \"test/integration/**/*.test.ts\"",
     "sim:metrics": "ts-node -P tsconfig.test.json scripts/sim-metrics.ts",
     "sim:labs": "ts-node -P tsconfig.test.json scripts/sim-labs.ts",
