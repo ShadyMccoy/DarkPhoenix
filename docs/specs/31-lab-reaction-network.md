@@ -336,30 +336,41 @@ idea already exploits. No lab is ever off-cooldown-and-idle. Measured, sustainab
   `XGH2O`. Each phase is a **single reaction** whose two inputs come from the terminal —
   i.e. exactly the `sim-labs-unity.ts` 1.0 system — and holds only *that* reaction's
   working set (≤4 rotating source labs + producers ≤ 10), so 14>10 never arises. The
-  only overhead is a fixed per-phase cut-over, **amortised over the batch**. Measured
-  `XGH2O`, util vs batch size:
+  only overhead is a per-phase cut-over — and it turns out to be **nearly free**, so
+  `XGH2O` reaches ~1.0 even at a small batch. Measured:
 
-  | batch (units/phase) | util | throughput | CPU |
-  |---:|---:|---:|---:|
-  | 3 000 | 91.2% | 352/1k | ~70 CPU/1k |
-  | 12 000 | 96.4% | — | — |
-  | 24 000 | **98.4%** | 370/1k (96% of the 385/1k ceiling) | 128 CPU/1k |
+  | target | batch | util | throughput | CPU |
+  |---|---:|---:|---:|---:|
+  | `XGH2O` | 3 000 | **99.7%** | 383.8/1k (99.8% of the 385/1k ceiling) | 132 CPU/1k |
+  | `XLH2O`/`XUHO2`/`XZHO2` | 3 000 | ~99.8% | — | — |
 
-  So phased batches make **`XGH2O` at ~1.0 too** — beating the burst's 88% *and* at a
-  fraction of its 476 CPU/1k, because within a phase react-away keeps product in-lab
-  (banking only on skim/cut-over). The trick is **uniform**: it gives ~97% on the
-  shallow boosts as well (`XLH2O`/`XUHO2`/`XZHO2` ~97% at batch 12k). Its costs are the
-  honest trade for generality: **latency** (the target emerges in bursts, one batch per
-  super-cycle), **WIP inventory** (a batch of each intermediate parked in the terminal),
-  and every intermediate unit round-trips the terminal. So the shipping split is:
-  interleaved unity for continuous shallow-boost output at an exact 1.0; **phased batch
-  when you need the deep Ghodium line, or want one uniform scheduler for every target**.
+  Getting there needed a per-phase diagnostic, and it corrected the intuition about
+  where the loss was. **The cut-over is cheap** — base+base tiers already ran at 100%,
+  and boundaries hand off for free because a tier's product IS the next tier's input
+  (post-order), so those labs *become* the next reaction's feeders with no tender work.
+  The real drag (measured ~75%) was the **compound+compound tiers** (`G=ZK+UL`,
+  `GH2O=GH+OH`), and two fixes lift them to ~1.0: (a) **balanced holder load** — a finite
+  compound input must not all pool into one lab, or the lone holder is pinned idle at cd0
+  (no second same-input source to read against); and (b) **fragment consolidation** — as
+  a finite input drains it fragments into sub-`AMT` bits (the last 5 `ZK` stranded as 2+3
+  across two labs) that can neither be read nor merged, deadlocking the tail, so bank
+  them back and let the terminal recombine them.
+
+  So phased batches make **`XGH2O` at ~1.0** — beating the burst's 88% *and* at a
+  fraction of its 476 CPU/1k (within a phase react-away keeps product in-lab). The trick
+  is **uniform** (~99.8% on the shallow boosts too) and, since small batch already hits
+  ~1.0, the amortisation worry was misplaced — its real costs are **latency** (the target
+  emerges one batch per super-cycle) and **WIP** (a batch of each intermediate in the
+  terminal), both kept small by a modest batch. Shipping split: interleaved unity for
+  continuous shallow-boost output at an exact 1.0; **phased batch for the deep Ghodium
+  line, or as one uniform scheduler for every target**.
 
 **Bottom line on the ceiling question: 1.0 is achievable for EVERY compound.** A single
 sustained reaction is exactly 1.0; the common depth-≤3 boosts hit 1.0 interleaved (or
 97-99% where the top tier's cooldown doesn't tile 10 labs evenly); and the depth-5
-Ghodium line — the one case that stayed capacity-bound — reaches ~98% via phased batches
-that never hold more than one tier at a time. The "labs must leave feeders idle" wall,
+Ghodium line — the one case that stayed capacity-bound — reaches ~99.7% via phased
+batches that never hold more than one tier at a time (and even the per-phase cut-over is
+nearly free, because a tier's product is the next tier's feed). The "labs must leave feeders idle" wall,
 in all three forms it took (0.8, then base-reactions-need-idle-feeders, then
 Ghodium-won't-fit), was an armchair assumption every time; the mechanic (cooldown is the
 lab's, not the mineral's) plus batching to sidestep capacity dissolves all of them.

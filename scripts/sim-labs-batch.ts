@@ -12,17 +12,35 @@
  *   XGH2O.  Each phase is a SINGLE reaction whose two inputs come from the terminal, so
  *   it is exactly the sim-labs-unity.ts system (base feeders rotate through cooldown)
  *   and hits ~1.0 on its own. A phase never holds more than ONE reaction's working set
- *   (<=4 source labs + producers), so the 14>10 wall never appears. The only overhead
- *   is a small per-phase cut-over, amortised over the batch — util -> 1.0 as batch grows.
+ *   (<=4 source labs + producers), so the 14>10 wall never appears.
+ *
+ * RESULT — ~1.0 for EVERYTHING, and the cut-over is nearly free (owner: "less disruptive
+ * than assumed"). Measured, XGH2O at batch 3000: 99.66% util, 383.8/1k = 99.8% of the
+ * 385/1k ceiling. Shallow boosts (XLH2O/XUHO2/XZHO2) 99.8% too. Batch size barely matters
+ * now (3000 already ~1.0), so the amortisation worry was misplaced — see below.
+ *
+ * Two things were needed to actually reach 1.0, and BOTH are about the compound+compound
+ * tiers (G=ZK+UL, GH2O=GH+OH), NOT the cut-over (a per-phase diagnostic showed base+base
+ * tiers already ran at 100% and the boundaries handed off cleanly — a tier's product IS
+ * the next tier's input, so those labs become the next reaction's feeders for free):
+ *   (a) BALANCED holder load — a finite compound input must not all pool into one lab, or
+ *       the lone holder is pinned idle at cd0 (no second same-input source to read
+ *       against). Split it so two holders coexist and rotate.  (~75% -> higher.)
+ *   (b) FRAGMENT CONSOLIDATION — as a finite input drains it fragments into sub-AMT bits
+ *       (last 5 ZK stranded as 2+3 across two labs) that can neither be read nor merged;
+ *       bank them back so the terminal recombines them. Without this the phase deadlocks
+ *       on its tail.  (removes the stall; together -> ~1.0.)
  *
  * Cost of generality (owner accepted "regardless of CPU"): every intermediate unit now
  * round-trips through the terminal (it is the next tier's input), so tender intents are
- * higher than the in-lab react-away schedulers — the classic throughput<->CPU trade.
+ * higher than the in-lab react-away schedulers (~132 CPU/1k for XGH2O) — still a fraction
+ * of the burst's 476. The other costs are latency (target emerges one batch per
+ * super-cycle) and WIP (a batch of each intermediate parked in the terminal); small batch
+ * keeps both low and still hits ~1.0, so prefer modest batches.
  *
  * Run: npx ts-node -P tsconfig.test.json scripts/sim-labs-batch.ts [--target XGH2O]
  *                                                                   [--batch 3000]
  *                                                                   [--ticks 120000] [--quiet]
- *   Sweep --batch to see the amortisation (small batch = cut-over drag; large = ~1.0).
  *
  * NOT wired into the bot. Standard Screeps constants, UNVERIFIED here.
  */
@@ -133,10 +151,21 @@ function run(args: Args): void {
     const [a, b] = REACTIONS[c];
     const inputs = a === b ? [a] : [a, b];
 
+    // 0. CONSOLIDATE fragments. A finite compound input can fragment into sub-AMT bits
+    //    (e.g. the last 5 ZK stranded as 2+3 across two labs) that can never be read
+    //    (need >=AMT) and can never merge (one mineral per lab) — a hard stall. Bank
+    //    any sub-AMT input holder back to the terminal so the pieces recombine there
+    //    and reload as a whole >=AMT holder. This is what makes the balanced-holder
+    //    scheme (below) actually complete instead of deadlocking on the tail.
+    for (const l of labs) {
+      if (l.mineral !== null && inputs.includes(l.mineral) && l.amount > 0 && l.amount < AMT) bankLab(l);
+    }
+
     // 1. MAINTAIN INPUT SOURCES on cooling labs (the unity trick). Keep 2 cooling
     //    holders of each input, drawn from the terminal (bases infinite; compound
-    //    inputs from the banks the earlier phases filled). Never steal the other
-    //    input's holders; prefer the deepest-cooling lab.
+    //    inputs from the banks the earlier phases filled), BALANCED so a finite input
+    //    never all pools into one lab (a lone holder gets pinned idle at cd0, no second
+    //    source to read against). Never steal the other input's holders.
     const KEEP = 2;
     for (const res of inputs) {
       let have = holders(res).length;
@@ -148,7 +177,9 @@ function run(args: Args): void {
       for (const l of [...cooling, ...idle]) {
         if (have >= KEEP || (terminal[res] ?? 0) < AMT) break;
         bankLab(l);
-        const want = Math.min(CAP, terminal[res]);
+        const want = isBase(res)
+          ? Math.min(CAP, terminal[res])
+          : Math.min(CAP, Math.max(AMT, Math.floor(terminal[res] / Math.max(1, KEEP - have))));
         l.mineral = res; l.amount = want; terminal[res] -= want; tenderIntents++;
         have++;
       }
