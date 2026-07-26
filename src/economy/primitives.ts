@@ -383,6 +383,156 @@ export function invaderTaxPerEnergy(expectedRaidCost: number): number {
 /** The default remote-source tax rate (~0.71% of gross at the derived cost). */
 export const INVADER_TAX_PER_ENERGY = invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST);
 
+// ---------------------------------------------------------------------------
+// Mineral extraction (spec 22 estimate, ahead of the mineral corp). An
+// extractor (RCL6 in an owned room, or any controller-less SK/highway room)
+// harvests a mineral deposit and the market converts it to energy: sell the
+// mineral, buy energy with the proceeds. Unlike a source a mineral does NOT
+// regenerate continuously - it drains to zero, then refills over
+// MINERAL_REGEN_TIME. So the long-run rate is REGEN-limited, not miner-limited:
+// a bigger miner drains faster but then idles longer. The peak burst is
+// spectacular; the honest steady-state number is the cycle average.
+// ---------------------------------------------------------------------------
+
+/** Ticks between extractor harvests (Screeps `EXTRACTOR_COOLDOWN`). */
+export const EXTRACTOR_COOLDOWN = 5;
+/** Mineral harvested per WORK per harvest action (`HARVEST_MINERAL_POWER`). */
+export const HARVEST_MINERAL_POWER = 1;
+/** Ticks a depleted mineral takes to regenerate (`MINERAL_REGEN_TIME`). */
+export const MINERAL_REGEN_TIME = 50_000;
+
+/** Deposit size by density level 1-4 (Screeps `MINERAL_DENSITY` amounts). */
+export const MINERAL_DENSITY_AMOUNT: Record<number, number> = {
+  1: 15_000,
+  2: 35_000,
+  3: 70_000,
+  4: 100_000
+};
+
+/**
+ * A representative mature extractor miner (WORK parts). The long-run rate is
+ * regen-bound, so the exact size barely moves it (18W at RCL6 vs 20W vs 40W on
+ * density-3 spans only ~0.98..1.19 min/tick) - callers may override, but this
+ * default keeps the estimate robust to RCL.
+ */
+export const DEFAULT_MINERAL_MINER_WORK = 20;
+
+/**
+ * MOVE parts per WORK on a mineral miner: 0.5 = road speed (a static miner
+ * walks to its container once over the room's own roads, then never moves).
+ */
+export const MINERAL_MINER_MOVE_PER_WORK = 0.5;
+
+/** Body part count of a `workParts`-WORK mineral miner (WORK + road-ratio MOVE). */
+export function mineralMinerParts(workParts: number): number {
+  return workParts + Math.max(1, Math.ceil(workParts * MINERAL_MINER_MOVE_PER_WORK));
+}
+
+/** Energy build cost of a `workParts`-WORK mineral miner body. */
+export function mineralMinerCost(workParts: number): number {
+  const move = Math.max(1, Math.ceil(workParts * MINERAL_MINER_MOVE_PER_WORK));
+  return workParts * BODY_COSTS.WORK + move * BODY_COSTS.MOVE;
+}
+
+/**
+ * PEAK mineral/tick a `workParts`-WORK miner sustains WHILE the deposit has ore:
+ * one harvest of `workParts * HARVEST_MINERAL_POWER` every EXTRACTOR_COOLDOWN
+ * ticks. This is the burst rate, not the steady-state (see
+ * {@link mineralExtractionRate}).
+ */
+export function mineralPeakRate(workParts: number): number {
+  if (workParts <= 0) return 0;
+  return (workParts * HARVEST_MINERAL_POWER) / EXTRACTOR_COOLDOWN;
+}
+
+/**
+ * LONG-RUN average mineral/tick over a full drain+regen cycle. The deposit of
+ * `amount` drains in `amount / peakRate` ticks, then sits dead for
+ * MINERAL_REGEN_TIME: avg = amount / (drainTicks + REGEN). Regen-bound - as
+ * workParts grows the average approaches `amount / REGEN`, never the peak. This
+ * is THE number for steady-state economy sizing; sizing a standing consumer to
+ * the burst is the same mistake as sizing one to a windfall stock.
+ */
+export function mineralExtractionRate(workParts: number, amount: number): number {
+  const peak = mineralPeakRate(workParts);
+  if (peak <= 0 || amount <= 0) return 0;
+  const drainTicks = amount / peak;
+  return amount / (drainTicks + MINERAL_REGEN_TIME);
+}
+
+/**
+ * Energy bought per mineral sold: the mineral's sell price (credits) over
+ * energy's buy price. This EXCHANGE RATE is what makes a mineral comparable to
+ * a source in energy terms ("sell the mineral, buy energy with the proceeds").
+ * Zero/negative energy price -> 0 (no trade). Per spec 22 the prices feeding
+ * this are OBSERVED (Game.market, cached), never assumed.
+ */
+export function marketEnergyPerMineral(mineralPrice: number, energyPrice: number): number {
+  if (energyPrice <= 0 || mineralPrice <= 0) return 0;
+  return mineralPrice / energyPrice;
+}
+
+/**
+ * Net energy-equivalent/tick a mineral deposit yields the colony via the market
+ * chain: the long-run mineral rate valued at `energyPerMineral`, minus the
+ * miner and hauler spawn overhead. Mirror of {@link netEnergy} for sources, so
+ * a mineral node ranks on the SAME energy axis as a source.
+ *
+ * Costs are charged PER MINERAL and multiplied by the average rate, which
+ * automatically credits the regen dead-period: a miner/hauler pair produces
+ * `peakRate * effectiveLife` minerals while alive and is recycled during regen,
+ * so its build cost amortises over the ore it actually moves - not over the
+ * ~50k idle ticks. GROSS of any securing cost (claim/keeper-clear): the caller
+ * that decides to work the room nets that separately (spec 21/22).
+ */
+export function mineralNetEnergy(
+  amount: number,
+  workParts: number,
+  energyPerMineral: number,
+  distance: number
+): number {
+  const rate = mineralExtractionRate(workParts, amount);
+  if (rate <= 0 || energyPerMineral <= 0) return 0;
+  const peak = mineralPeakRate(workParts);
+  const perLife = peak * effectiveLife(distance); // minerals a body makes while alive
+  const minerCostPerMineral = mineralMinerCost(workParts) / perLife;
+  const carry = carryPartsFor(peak, distance);
+  const haulerCostPerMineral = (carry * (BODY_COSTS.CARRY + BODY_COSTS.MOVE)) / perLife;
+  return rate * (energyPerMineral - minerCostPerMineral - haulerCostPerMineral);
+}
+
+/**
+ * Spawn build-time (parts/tick) the mineral miner + haulers consume, averaged
+ * over the drain+regen cycle. Mirror of {@link spawnPartsFor}; like the energy
+ * cost above it amortises the bodies over the ore they move, so the regen
+ * dead-period costs no parts.
+ */
+export function mineralSpawnParts(amount: number, workParts: number, distance: number): number {
+  const rate = mineralExtractionRate(workParts, amount);
+  const peak = mineralPeakRate(workParts);
+  if (rate <= 0 || peak <= 0) return 0;
+  const perLife = peak * effectiveLife(distance);
+  const partsPerMineral = (mineralMinerParts(workParts) + 2 * carryPartsFor(peak, distance)) / perLife;
+  return rate * partsPerMineral;
+}
+
+/**
+ * Shadow price of spawn build-time for a mineral node: mineralNetEnergy /
+ * mineralSpawnParts. Mirror of {@link energyPerSpawnPart}. Minerals score very
+ * high here - the miner recycles through the ~50k regen dead-period, so the
+ * dense ore is moved by almost no standing spawn budget.
+ */
+export function mineralEnergyPerSpawnPart(
+  amount: number,
+  workParts: number,
+  energyPerMineral: number,
+  distance: number
+): number {
+  const parts = mineralSpawnParts(amount, workParts, distance);
+  if (parts <= 0) return 0;
+  return mineralNetEnergy(amount, workParts, energyPerMineral, distance) / parts;
+}
+
 /**
  * Minimum REMAINING occupation (read `invaderReservedUntil - Game.time`)
  * before the core-buster mission is worth commissioning. Payback sketch

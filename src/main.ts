@@ -46,6 +46,7 @@ import {
   logCorpStats,
   persistState,
   refreshNodeResourcesFromCache,
+  sampleMarketPrices,
   renderNodeVisuals,
   renderSpatialVisuals,
   renderRoadScores,
@@ -277,6 +278,14 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // below their commissioned throughput) surface in Memory.corpVariance.
   if (Game.time % 25 === 0) {
     bulkhead("corp-variance", () => snapshotCorpVariance(corps, Game.time));
+  }
+
+  // Cache a live market price snapshot for the mineral EV estimate (spec 22).
+  // Self-throttled to MARKET_SAMPLE_INTERVAL; the % gate just skips the Memory
+  // peek most ticks. No-op without a live terminal/market (falls back to the
+  // static snapshot in economy/mineralValue).
+  if (Game.time % 100 === 0) {
+    bulkhead("market-sample", () => sampleMarketPrices(Game.time));
   }
 
   // ===========================================================================

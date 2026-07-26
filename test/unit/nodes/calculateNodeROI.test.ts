@@ -48,4 +48,17 @@ describe("calculateNodeROI", () => {
     expect(roi.isOwned).to.equal(true);
     expect(roi.score).to.be.greaterThan(0);
   });
+
+  // Spec 22: mineral value sums onto the source-side economic value on the same
+  // energy axis, so a mineral-rich room outranks an equivalent bare one.
+  it("mineral value lifts the score above the same node with no mineral", () => {
+    const node = nodeWith([source("source-A", at(25, 30)), controller(at(25, 22))]);
+    const withoutMineral = calculateNodeROI(node, 10, owned, [], 5, 0);
+    const withMineral = calculateNodeROI(node, 10, owned, [], 5, 15);
+
+    expect(withoutMineral.mineralValue).to.equal(0);
+    expect(withMineral.mineralValue).to.equal(15);
+    expect(withMineral.score).to.be.greaterThan(withoutMineral.score);
+    expect(withMineral.expansionScore).to.be.greaterThan(withoutMineral.expansionScore);
+  });
 });
