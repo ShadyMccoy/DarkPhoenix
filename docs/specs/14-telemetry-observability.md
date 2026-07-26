@@ -4611,3 +4611,26 @@ Next work item (own cycle): decongest the core convergence for remote haulers �
 target named with data, fix not yet designed. Owner review of the ideal base
 layout (specs 02/26/31: clear highways, links-as-hub-ports, one lane tender) is
 the framing for that cycle.
+
+## Incident 2026-07-26 — core-link thrash (feeder ↔ link-served hauler), owner-observed
+
+Owner named two live creeps "very clearly thrashing on the link":
+`hauler-g-cd90-72595372` (the cd90 link-served source's CarryCorp hauler) and
+`feeder-Feeder-72594973` (the controllerFeeder). Root cause read from code (not
+yet a stamp — this one was legible from the source):
+- `ControllerFeederCorp.runFeeder` (controller-link branch) only ever TRANSFERS
+  INTO the core link; it has NO withdraw-link→storage path. The feeder is a
+  half-router (loads, never empties).
+- `sourcePickupSpot` redirects the cd90 hauler to withdraw FROM the same core
+  link (link-served branch). So the hauler drains the link to storage while the
+  feeder loads it from storage → energy circles storage↔core-link.
+- Corroborating telemetry: `hubClampShare` 0.59 (core link full/clamped most of
+  the time), `directShare` 3%, cd90 `srcLink` 800/800 (stranded) — the link is
+  over-full and nothing actively drains it, so the hauler band-aids the missing
+  feeder empty-direction and fights it.
+
+Design + fix live in **spec 02** (feeder as the SOLE bidirectional core-link
+router; no CarryCorp for a link-served route, EMERGENT from kind selection per
+spec 17). Fix deferred there with a red-first thrash repro + grid scenario;
+links have collapsed the colony before (spec 26), so it takes the full gate + a
+post-deploy recapture. Verdict: **NAMED + ROOT-CAUSED with data**; fix pending.

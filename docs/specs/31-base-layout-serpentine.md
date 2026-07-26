@@ -71,6 +71,18 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
    This is the placement lever the iterative remodeler (above) should exercise:
    re-placing the core with remote flow in mind is exactly the kind of target
    update a remodel exists to apply.
+5a. **Legacy multi-cluster tenders must be sized PER-CLUSTER (owner 2026-07-26).**
+   Until the serpentine string lands (one contiguous cluster → one lane tender),
+   the field is N scattered clusters and `ExtensionTenderCorp` fields one tender
+   per cluster (`target = min(3, max(1, clusters.length, forCoverage))`). Today
+   it splits the SAME total bank carry equally across those slots
+   (`tenderSlotCarry`, equal share). That is wrong per-cluster: each cluster's
+   tender should be sized to **ITS OWN extensions** (that cluster's capacity, not
+   1/N of the whole bank) **and ITS haul route** (the core→cluster distance —
+   `carryPartsFor(clusterDrain, clusterDist)`), so a far/large cluster gets a
+   bigger body and a near/small one a smaller body. Equal-split under-serves the
+   far big cluster and over-bodies the near small one. (This is a legacy-tender
+   correctness fix, independent of and superseded by the serpentine target.)
 7. Real terrain breaks a pure diagonal, so the generator **WRAPS** (turns to stay
    contiguous) and **SPLITS** with BFS bridges (crossing highways/swamp as
    traverse) — emitting ONE ordered contiguous lane; a split is just a
