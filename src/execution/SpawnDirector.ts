@@ -98,19 +98,27 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
     const bankSurplus = Math.max(0, banked - resolveReserveTarget(Memory.warchestTarget));
 
-    const ctx: ScheduleContext = {
-      energyAvailable: room.energyAvailable,
+    // The two spawns draw from ONE room bank, so the pool must plan each
+    // successive buy against the energy LEFT after the earlier ones - not the
+    // tick-start bank. `energyLeft` is reserved by each build's granted budget
+    // (energyBudget = min(desiredCost, available), i.e. what the body may cost).
+    // Without this the pool over-commits in a tight tick: both spawns see the
+    // full bank, both call spawnCreep, the engine rejects the second, and the
+    // director is left with a phantom receipt + a reset clock.
+    let energyLeft = room.energyAvailable;
+    const ctxAt = (available: number): ScheduleContext => ({
+      energyAvailable: available,
       energyCapacity: room.energyCapacityAvailable,
       energyIncome: income,
       tick: Game.time,
       bankSurplus
-    };
+    });
 
     // THE NOW PLAN (spec 11 / spec 17): ONE walk ranks the whole pool and gates
     // each entry; the "buy" entry is this tick's top acquisition. Every free
     // spawn publishes the SAME room agenda - the pool's shared NOW plan.
-    const poolPlan = planAcquisitions(demands, ctx);
-    for (const spawn of freeSpawns) publishSpawnAgenda(spawn.id, poolPlan, room.energyAvailable);
+    const poolPlan = planAcquisitions(demands, ctxAt(energyLeft));
+    for (const spawn of freeSpawns) publishSpawnAgenda(spawn.id, poolPlan, energyLeft);
 
     // Instrument (spec 14): sample campaign-consumer wall preemptions.
     if (Game.time % 10 === 0) {
@@ -128,15 +136,14 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     if (demands.length === 0) continue;
 
     // ASSIGNMENT: walk the pool top-down. Each buy goes to the FREE spawn
-    // nearest that demand's work site, and the demand is CLAIMED so no two
-    // spawns build it in the same tick. Re-ranking after each claim lets the
-    // next free spawn pick up the next-best demand (self-balance).
+    // nearest that demand's work site, the demand is CLAIMED so no two spawns
+    // build it in one tick, and the reserved energy is subtracted so the next
+    // free spawn ranks against what is actually left (self-balance).
     const claimed = new Set<SpawnDemand>();
     const available = [...freeSpawns];
     let boughtAnything = false;
+    let plan = poolPlan; // first spawn uses the full-bank ranking
     while (available.length > 0) {
-      const remaining = claimed.size === 0 ? demands : demands.filter(d => !claimed.has(d));
-      const plan = claimed.size === 0 ? poolPlan : planAcquisitions(remaining, ctx);
       const result = plan.decision;
       if (!result) break;
 
@@ -146,30 +153,34 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       available.splice(available.indexOf(spawn), 1);
 
       const spawningCorp = registry.spawningCorps[spawn.id];
-      if (!spawningCorp) continue;
-      const spawned = spawningCorp.executeSpawn(
-        chosen.kind ?? "",
-        chosen.role,
-        chosen.buyerCorpId,
-        result.energyBudget,
-        Game.time,
-        chosen.bodyParam,
-        chosen.haulerRatio,
-        chosen.bodyStrategy
-      );
+      const spawned = spawningCorp
+        ? spawningCorp.executeSpawn(
+            chosen.kind ?? "",
+            chosen.role,
+            chosen.buyerCorpId,
+            result.energyBudget,
+            Game.time,
+            chosen.bodyParam,
+            chosen.haulerRatio,
+            chosen.bodyStrategy
+          )
+        : false;
       // Execution receipt (actual-vs-NOW): what THIS spawn actually bought,
       // appended beside the published queue for fidelity cells and telemetry.
       if (spawned) {
         boughtAnything = true;
+        energyLeft = Math.max(0, energyLeft - result.energyBudget);
         recordAgendaExecution(spawn.id, chosen.role, chosen.buyerCorpId, result.energyBudget);
         blackBox("spawn", { spawn: spawn.id, role: chosen.role, corp: chosen.buyerCorpId, cost: result.energyBudget });
         resetDemandClock(firstSeen, roomName, chosen.buyerCorpId, chosen.role);
-      } else {
+      } else if (spawningCorp) {
         // Couldn't afford at this spawn. Energy is room-level (shared by the
         // pool), so this is a genuine affordability hold, not a spawn mismatch:
         // the rest of the pool waits, exactly as the single-spawn loop did.
         break;
       }
+      // Re-rank the remaining pool against the reduced bank for the next spawn.
+      if (available.length > 0) plan = planAcquisitions(demands.filter(d => !claimed.has(d)), ctxAt(energyLeft));
     }
 
     if (!boughtAnything && Game.time % 25 === 0 && poolPlan.agenda.length > 0) {
