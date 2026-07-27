@@ -46,6 +46,28 @@ Per-room, threshold-gated (a lone road never relegates), floor inviolable, exits
 to mop-up when the backlog drains. Coherent ladder shift (both sinks move
 together), not an isolated nudge.
 
+**FALSIFIED 2026-07-27 (t72598913): the plan-side relegation is a NO-OP for the
+PHYSICAL flow.** Post-deploy the controller still ran P7 9x (actual ~18.8 e/t vs
+the relegated plan ~2). The surplus reaches the controller PHYSICALLY - source
+links fire to the controller link (direct or via the core->controller relay),
+and the upgraders (sized from ACTUAL controller-side stock, which the link keeps
+fed) burn it - INDEPENDENT of the plan's controller sink allocation. So capping
+`controllerRoutingCapacity` lowers the plan number but moves no energy. The
+relegation is kept (correct plan-side half, harmless - it only fires in surplus
+and is a plan no-op otherwise), but "surplus to building" needs the PHYSICAL
+levers:
+- **Throttle the core->controller link relay in wartime** (LinkRunner): keep the
+  core's energy for the feeder to drain to STORAGE (building's fuel via the
+  tanker fallback) instead of relaying it to the controller link. Link economy =
+  collapse history (spec 26), so red-first + grid + careful.
+- **Relegate the upgrader FLEET**: size it from the relegated allocation (a floor
+  WORK), not `sustainableConsumptionRate(actual stock)` - else it stays big and
+  burns whatever the link delivers.
+- The feeder already drains core->storage (spec 02); in wartime it should PREFER
+  draining over relaying so the surplus lands in storage for the tankers.
+These are the real "surplus -> building" change; the acceleration + relegation +
+tanker fuel shipped are necessary but not sufficient without them.
+
 Still OPEN for the full mode: entry/exit HYSTERESIS as a named posture (the bare
 3000 threshold can flap as the last structure finishes - a build-out stays well
 above it so no flap mid-rebuild, but a lone finishing structure hovers); a
