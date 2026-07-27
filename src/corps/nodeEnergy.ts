@@ -95,10 +95,30 @@ export const CORE_LINK_INCOME_RESERVE = 200;
  * link) for the legacy ceiling exactly. The SOURCE side is never throttled -
  * only the feeder's controller-relay staging is.
  */
-export function coreLinkLoadRoom(store: number, capacity: number, controllerFree?: number): number {
+export function coreLinkTargetLevel(capacity: number, controllerFree?: number): number {
   const ceiling = capacity - CORE_LINK_INCOME_RESERVE;
-  const target = controllerFree === undefined ? ceiling : Math.min(ceiling, Math.max(0, controllerFree));
-  return Math.max(0, target - store);
+  return controllerFree === undefined ? ceiling : Math.min(ceiling, Math.max(0, controllerFree));
+}
+
+export function coreLinkLoadRoom(store: number, capacity: number, controllerFree?: number): number {
+  return Math.max(0, coreLinkTargetLevel(capacity, controllerFree) - store);
+}
+
+/**
+ * Energy the feeder must DRAIN core link -> storage: the excess above the
+ * target level (spec 02 feeder-router, owner 2026-07-26). The feeder is the
+ * SOLE bidirectional operator of the core link - it loads the relay buffer AND
+ * empties the surplus/income back to the bank so source-link volleys always
+ * find landing room. The drain target is the SAME level coreLinkLoadRoom loads
+ * to (min of the income-reserve ceiling and the controller link's headroom), so
+ * the two directions meet at one level and never fight: with the controller
+ * sated the target is ~0 and the feeder drains the core near-empty (income banks,
+ * core stays open); as the upgraders drain the controller link the target rises
+ * and the feeder tops the relay from storage instead. Symmetric partner of
+ * coreLinkLoadRoom (loadRoom>0 XOR drainAmount>0, both 0 only at target).
+ */
+export function coreLinkDrainAmount(store: number, capacity: number, controllerFree?: number): number {
+  return Math.max(0, store - coreLinkTargetLevel(capacity, controllerFree));
 }
 
 /**
@@ -353,23 +373,17 @@ export function sourceHarvestSpot(source: Source, spawnPos?: RoomPosition): Room
  * Position-based so it serves live and remote (intel) sources alike.
  */
 export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
-  // Link-served source: the miner feeds its source link and the network fires
-  // the energy across the room to the core link - so the hauler's pickup stop
-  // is the CORE link beside the storage, not the far source tile. This is the
-  // node-strategy change the resolver exists for: the haulers don't change.
-  //
-  // The redirect follows where energy ACTUALLY is, not just where structures
-  // stand: a fresh link pair with a CARRY-less old miner (it can't feed the
-  // link until natural turnover replaces it) still drops at the source, so a
-  // loaded source-side container/pile below still wins. Only when nothing sits
-  // at the source does a link-served hauler wait at the core - where the next
-  // volley lands - instead of trekking to the empty source.
-  const room = Game.rooms[sourcePos.roomName];
-  const core = room ? coreLink(room) : null;
-  const linkServed = core !== null && sourceLink(sourcePos, core.id) !== null;
-  if (linkServed && core!.store[RESOURCE_ENERGY] > 0) {
-    return { pos: core!.pos, structure: core! };
-  }
+  // NO CORE-LINK REDIRECT (spec 02 feeder-router, owner 2026-07-26): a
+  // link-served source's transport belongs to the link network + the feeder
+  // (the sole bidirectional core-link operator), and no walking CarryCorp is
+  // commissioned for it (emergent, commissionsFromPlan). The old redirect
+  // pointed the source's hauler at the CORE link, where it drained the very
+  // energy the feeder was loading - the storage->core->storage thrash
+  // (t72595372). Removed: this resolver now only serves the source's own
+  // ground pile / container. During a fresh-link transition (a source-side
+  // pile before the miner turns the link over) the pile is picked up by the
+  // scavenge path (detectTransientSources, a distinct `-scavenge` route that
+  // is never suppressed), so nothing rots.
 
   // PILE BEFORE CONTAINER (owner 2026-07-10): a pile decays 1/1000 per tick,
   // a container's contents do not - when both hold energy at the source,
@@ -395,8 +409,6 @@ export function sourcePickupSpot(sourcePos: RoomPosition): EnergySpot {
 
   if (pile && !containerFull) return { pos: pile.pos };
   if (container) return { pos: container.pos, structure: container };
-
-  if (linkServed) return { pos: core!.pos, structure: core! };
 
   // No pile yet: stand clear of the source so we don't block the miner's tile.
   return { pos: sourcePos, waitClear: true };

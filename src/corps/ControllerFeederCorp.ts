@@ -21,7 +21,16 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
-import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
+import {
+  CoreDepot,
+  controllerLink,
+  coreDepot,
+  coreLink,
+  coreLinkDrainAmount,
+  coreLinkLoadRoom,
+  controllerInputSpot,
+  sourceLink
+} from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { carryPartsFor, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
@@ -58,6 +67,18 @@ const FEEDER_INCOME_FIRST_FLOOR = 2000;
  * (blocking stays false), so topping the ladder cannot spiral the bank.
  */
 const FEEDER_LINCHPIN_VALUE = 150;
+
+/**
+ * Per-source-link drain the feeder must be able to move core -> storage (spec 02
+ * sole-operator floor). An owned-room source produces SOURCE_ENERGY_CAPACITY /
+ * ENERGY_REGEN_TIME = 3000/300 = 10 e/t, and its link may double as a spec-26
+ * DEPOSIT PORT receiving remote drops (DEPOSIT_PORT_HEADROOM = 30 e/t). Both
+ * emerge at the core and must be banked by the feeder, or the core backs up and
+ * source-link volleys strand (the spec-26 gridlock). A generous, cheap
+ * over-estimate: at the parked 1-tile leg even 80 e/t is ~4 CARRY. Keep the 30
+ * in sync with flowAdapter.DEPOSIT_PORT_HEADROOM.
+ */
+const PER_LINK_SOURCE_DRAIN = 10 + 30;
 
 /**
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
@@ -238,42 +259,25 @@ export class ControllerFeederCorp extends Corp {
    * state on full/empty, so it makes complete trips rather than dithering.
    */
   private runFeeder(creep: Creep, controller: StructureController, depot: CoreDepot | null): void {
+    // LINK ROUTER (spec 02 feeder-router, owner 2026-07-26): in a link-fed room
+    // the feeder is the SOLE bidirectional operator of the core link - it LOADS
+    // storage -> core to feed the controller relay AND DRAINS core -> storage to
+    // bank source-link income and keep the core open for volleys. No walking
+    // hauler touches the core (emergent kind selection - commissionsFromPlan
+    // omits the carry corp for a link-served source), so nothing thrashes
+    // against the feeder (t72595372). This fully owns the tick; the working/
+    // reload machine below serves only walking (no controller-link) rooms.
+    const ctrlLink = controllerLink(creep.room);
+    const core = ctrlLink ? coreLink(creep.room) : null;
+    if (ctrlLink && core && creep.room.storage && creep.room.storage.my) {
+      this.runLinkRouter(creep, core, ctrlLink, creep.room.storage);
+      return;
+    }
+
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) creep.memory.working = true;
 
     if (creep.memory.working) {
-      // LINK RELAY (spec 24 rung 3): with a controller link built, the long
-      // leg belongs to the link network - the feeder's whole route becomes
-      // storage -> core link, one tile. The LinkRunner fires core -> controller
-      // link; upgraders draw from the link (the input election prefers it).
-      const ctrlLink = controllerLink(creep.room);
-      const core = ctrlLink ? coreLink(creep.room) : null;
-      if (ctrlLink && core) {
-        // The feeder stages the relay in the core but NEVER tops it out: the
-        // top of the link is the income reserve (owner 2026-07-21 - a brim-full
-        // core left the source link's volleys nowhere to land), and it holds no
-        // more than the controller link can currently RECEIVE (owner 2026-07-24
-        // - the feeder is the core's slave, coordinated with the fire down to
-        // the controller; incident t72548874: the core pinned at 600-794 while
-        // the source link stood full and ~17.4k of income sat stranded).
-        const free = core.store.getFreeCapacity(RESOURCE_ENERGY);
-        const ctrlFree = ctrlLink.store.getFreeCapacity(RESOURCE_ENERGY);
-        const loadRoom = coreLinkLoadRoom(core.store[RESOURCE_ENERGY], core.store[RESOURCE_ENERGY] + free, ctrlFree);
-        if (loadRoom <= 0) {
-          if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
-          return; // relay buffer staged: hold the load beside the core
-        }
-        if (creep.pos.getRangeTo(core.pos) > 1) {
-          travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
-          return;
-        }
-        const moved = Math.min(creep.store[RESOURCE_ENERGY], loadRoom);
-        if (creep.transfer(core, RESOURCE_ENERGY, moved) === OK) {
-          this.recordProduction(moved);
-          creep.memory.lastDeliver = { to: "core-link", amount: moved, tick: Game.time };
-        }
-        return;
-      }
       const input = controllerInputSpot(controller);
       // Topped up: hold the load near the input so the next drain is served at once
       // (do not overfill - a bare pile would otherwise grow without bound).
@@ -317,6 +321,113 @@ export class ControllerFeederCorp extends Corp {
       return;
     }
     if (depot && !creep.pos.isNearTo(depot)) travelTo(creep, depot, { range: 1 });
+  }
+
+  /**
+   * The bidirectional core-link router (spec 02, owner 2026-07-26): the feeder
+   * keeps the core link at ONE target level - the same level coreLinkLoadRoom
+   * loads to (min of the income-reserve ceiling and the controller link's
+   * headroom). Below it, LOAD storage -> core to feed the controller relay;
+   * above it, DRAIN core -> storage to bank the source-link income/surplus so
+   * volleys always find landing room. The two directions meet at the target and
+   * never fight. Direction is chosen only while empty-handed so a trip never
+   * flip-flops mid-carry. This is the empty direction the old code lacked - the
+   * band-aid was a walking hauler draining the core (fault 2), which fought the
+   * feeder's load direction. That hauler is gone (emergent kind selection), so
+   * the feeder is the sole operator.
+   */
+  private runLinkRouter(creep: Creep, core: StructureLink, ctrlLink: StructureLink, storage: StructureStorage): void {
+    const coreEnergy = core.store[RESOURCE_ENERGY];
+    const capacity = coreEnergy + core.store.getFreeCapacity(RESOURCE_ENERGY);
+    const ctrlFree = ctrlLink.store.getFreeCapacity(RESOURCE_ENERGY);
+    const loadRoom = coreLinkLoadRoom(coreEnergy, capacity, ctrlFree);
+    const drainAmount = coreLinkDrainAmount(coreEnergy, capacity, ctrlFree);
+    const storageFree = storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0;
+
+    // Decide direction ONLY when empty-handed: a half-loaded feeder always
+    // finishes putting its load somewhere first, so it never flip-flops.
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+      creep.memory.linkMode = drainAmount > 0 && storageFree > 0 ? "drain" : "load";
+    }
+
+    if (creep.memory.linkMode === "drain") {
+      // EMPTY the core into the bank: withdraw the excess, then deposit it.
+      if (creep.store[RESOURCE_ENERGY] > 0) {
+        if (creep.pos.getRangeTo(storage.pos) > 1) {
+          travelTo(creep, storage.pos, { range: 1, visualizePathStyle: { stroke: "#88ccff" } });
+          return;
+        }
+        const moved = Math.min(creep.store[RESOURCE_ENERGY], storageFree);
+        if (moved > 0 && creep.transfer(storage, RESOURCE_ENERGY) === OK) {
+          this.recordProduction(moved);
+          creep.memory.lastDeliver = { to: "storage-drain", amount: moved, tick: Game.time };
+        }
+        return;
+      }
+      if (drainAmount > 0) {
+        if (creep.pos.getRangeTo(core.pos) > 1) {
+          travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#88ccff" } });
+          return;
+        }
+        // Pull only the EXCESS above target so the relay buffer stays staged -
+        // over-draining would immediately re-load (a self-thrash).
+        creep.withdraw(core, RESOURCE_ENERGY, Math.min(creep.store.getFreeCapacity(RESOURCE_ENERGY), drainAmount));
+        return;
+      }
+      creep.memory.linkMode = "load"; // core is back at target: nothing to drain
+    }
+
+    // LOAD storage -> core to feed the controller relay (the original behavior).
+    if (loadRoom <= 0) {
+      // Relay staged. If income has since over-filled the core (drain pressure)
+      // while we hold a load meant for it, bank the load rather than stalling
+      // the core against volleys; else hold beside the core for the next top-up.
+      if (drainAmount > 0 && creep.store[RESOURCE_ENERGY] > 0 && storageFree > 0) {
+        if (creep.pos.getRangeTo(storage.pos) > 1) {
+          travelTo(creep, storage.pos, { range: 1, visualizePathStyle: { stroke: "#88ccff" } });
+          return;
+        }
+        creep.transfer(storage, RESOURCE_ENERGY);
+        return;
+      }
+      if (creep.pos.getRangeTo(core.pos) > 2) travelTo(creep, core.pos, { range: 2 });
+      return;
+    }
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+      // Fill from the bank first.
+      if (creep.pos.getRangeTo(storage.pos) > 1) {
+        travelTo(creep, storage.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        return;
+      }
+      creep.withdraw(storage, RESOURCE_ENERGY);
+      return;
+    }
+    if (creep.pos.getRangeTo(core.pos) > 1) {
+      travelToBypass(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+      return;
+    }
+    const moved = Math.min(creep.store[RESOURCE_ENERGY], loadRoom);
+    if (creep.transfer(core, RESOURCE_ENERGY, moved) === OK) {
+      this.recordProduction(moved);
+      creep.memory.lastDeliver = { to: "core-link", amount: moved, tick: Game.time };
+    }
+  }
+
+  /**
+   * Energy/tick the feeder must be able to drain from the core link (spec 02
+   * sole-operator floor): every link-served in-room source's income plus its
+   * spec-26 deposit-port headroom. Zero for a room with no source links (the
+   * core carries only the controller relay then). A cheap over-estimate; an
+   * oversized feeder simply idles when the core is at target.
+   */
+  private coreDrainRate(room: Room): number {
+    const core = coreLink(room);
+    if (!core) return 0;
+    let linkServed = 0;
+    for (const src of room.find(FIND_SOURCES)) {
+      if (sourceLink(src.pos, core.id)) linkServed++;
+    }
+    return linkServed * PER_LINK_SOURCE_DRAIN;
   }
 
   /**
@@ -391,9 +502,16 @@ export class ControllerFeederCorp extends Corp {
       if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
     }
     const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked, reserveTarget);
+    // SOLE-OPERATOR DRAIN FLOOR (spec 02): the feeder is the ONLY creep that
+    // empties the core link, so its body must move everything that emerges there
+    // (link-served source income + spec-26 deposit-port inflow) to the bank, or
+    // the core backs up and source-link volleys strand (the spec-26 gridlock).
+    // Non-link rooms have no core drain, so this is 0 and the body is unchanged.
+    const coreDrain = linkFed ? this.coreDrainRate(spawn.room) : 0;
+    const effectiveBodyRate = Math.max(bodyRate, coreDrain);
     const neededCarry = Math.max(
       1,
-      Math.ceil((linkFed ? parkedRelayCarry(bodyRate) : carryPartsFor(bodyRate, distance)) * 1.2)
+      Math.ceil((linkFed ? parkedRelayCarry(effectiveBodyRate) : carryPartsFor(effectiveBodyRate, distance)) * 1.2)
     );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
     const feeders = this.getFeeders().length;
@@ -410,6 +528,7 @@ export class ControllerFeederCorp extends Corp {
       ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
       distance,
       ...(linkFed ? { linkFed: true } : {}),
+      ...(coreDrain > 0 ? { coreDrain } : {}),
       neededCarry,
       wantedFeeders,
       feeders

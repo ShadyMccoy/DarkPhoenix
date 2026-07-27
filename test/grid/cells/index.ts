@@ -39,6 +39,7 @@ import { buildMultiroomT5Cells } from "./multiroom";
 import { buildMultiSpawnT7Cells } from "./multispawn";
 import { buildSpawnExecT3Cells, buildSpawnExecT4Cells, spawnExecCells, spawnExecT1Cells } from "./spawn-exec";
 import { buildResilienceCells } from "./resilience";
+import { buildLinkRouterCells } from "./linkRouter";
 
 export const ALL_CELLS: GridCell[] = [
   ...calibrationCells,
@@ -78,6 +79,7 @@ export const ALL_CELLS: GridCell[] = [
   ...buildSpawnExecT4Cells(),
   ...buildArrivalT4Cells(),
   ...buildHaulingT4Cells(),
+  ...buildLinkRouterCells(),
   ...buildConstructionT4Cells(),
   ...buildConstructionCompletionCells(),
   ...buildPlannerT4Cells(),

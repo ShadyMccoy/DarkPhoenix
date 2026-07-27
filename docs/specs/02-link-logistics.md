@@ -188,3 +188,40 @@ assert NET ENERGY MOVEMENT / delivery RECEIPTS, never link fill as a proxy):
   (value lands). The OLD build must FAIL cell (1)/(3) — the thrash + the redundant
   CarryCorp — so the cell is a real regression gate, not a green-by-construction
   proxy.
+
+### IMPLEMENTED 2026-07-27 (targeted fix; full linkHaul kind still the end state)
+
+Landed as a TARGETED coupled fix (not yet the generic `linkHaul` kind — that
+still supersedes this):
+- **Feeder = sole bidirectional core-link operator.** `ControllerFeederCorp.
+  runLinkRouter` (new) keeps the core at `coreLinkTargetLevel` (nodeEnergy):
+  below it LOADS storage→core (the original relay), above it DRAINS core→storage
+  (`coreLinkDrainAmount`, the empty direction the old code lacked). Direction is
+  chosen only while empty-handed (`creep.memory.linkMode`) so a trip never
+  flip-flops. Drain receipt stamps `lastDeliver.to = "storage-drain"`.
+- **Feeder body drain-floor** (`ControllerFeederCorp.coreDrainRate`, applied in
+  getSpawnDemand around `feederBodyRate` whose SAVE-regime contract is pinned):
+  the sole operator's body is sized to the core inflow (link-served source
+  income + spec-26 deposit-port headroom, `PER_LINK_SOURCE_DRAIN` = 10+30 e/t
+  per source link), or the core backs up and volleys strand (the spec-26
+  gridlock). Cheap at the parked 1-tile leg.
+- **Emergent no-carry-for-link-served** (`commissionsFromPlan`): a source whose
+  `haulPos` is set (link-served, from `detectLinkHaulPositions`) gets NO walking
+  carry commission — read from the planner's own lens, not a bolt-on to
+  CarryCorp. Mirrored in `flowAdapter.publishRoster` (no phantom plan-vs-fielded
+  variance, same as `bank-` sources). The spec-26 deposit-port drain is now
+  EXECUTED by the feeder (CorpPlanner comments updated); its PRICING attribution
+  is unchanged. A fresh-link transition pile is still collected by the scavenge
+  path (distinct `-scavenge` route, never suppressed).
+- **`sourcePickupSpot` core-link redirect REMOVED** (its sole caller was
+  CarryCorp, now never fielded for a link-served source).
+
+Tests (red-first proven by stashing src and re-running): `feederRouter.test.ts`
+(the bidirectional router + the body drain-floor), `commissionPlanLinkServed.
+test.ts` (emergent no-carry, flips link↔walk on haulPos), `sourcePickupSpot.
+test.ts` (no core redirect), `controllerLinkNetwork.test.ts`
+(coreLinkTargetLevel/coreLinkDrainAmount, load XOR drain). Grid cell
+`link-core-router` (test/grid/cells/linkRouter.ts). Full unit suite 1550 green;
+regression trio: storage-depot + flow-handoff green (they exercise the unchanged
+walking path — no regression); runt-economy + the grid cell verifying at commit
+time (this doc is updated with the verdicts + the post-deploy recapture).

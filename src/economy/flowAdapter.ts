@@ -767,7 +767,7 @@ const ENERGY_PER_WORK = { upgrade: 1, build: 5 } as const;
  * for against what was actually fielded. Same shape the shadow planner used to
  * write, now sourced from the live CorpPlanner.
  */
-function publishRoster(plan: ReturnType<typeof planColony>): void {
+function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
   for (const m of plan.miners) {
@@ -778,6 +778,12 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     // spawnable CarryCorp - publishing them would be permanent phantom variance
     // for the plan-vs-fielded gauges.
     if (h.sourceId.startsWith("bank-")) continue;
+    // Link-served sources (spec 02 feeder-router): transported by the link
+    // network + feeder, not a walking CarryCorp (commissionsFromPlan omits the
+    // carry corp). Publishing their uncommissioned haulers - including the
+    // spec-26 deposit-drain leg that rides the owning link-served source id -
+    // would be permanent phantom variance, same reasoning as bank- above.
+    if (linkServedIds.has(h.sourceId)) continue;
     corps.push({
       kind: "haul",
       carry: Math.max(1, Math.ceil(h.carryParts)),
@@ -860,7 +866,11 @@ export function solveColony(
   const searched = searchStructure(baseProblem);
   const problem = searched.problem;
   const plan = searched.plan;
-  publishRoster(plan);
+  // Link-served sources (haulPos set): their transport is the link network +
+  // feeder, not a commissioned CarryCorp (spec 02) - keep them out of the
+  // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
+  const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
+  publishRoster(plan, linkServedIds);
   const commissions = commissionsFromPlan(problem, plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({

@@ -92,6 +92,20 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     // straight back into the storage it withdrew from.
     if (sourceId.startsWith("bank-")) continue;
     const src = sourceById.get(sourceId);
+    // LINK-SERVED sources get NO walking carry commission either (spec 02
+    // feeder-router, owner 2026-07-26): a source whose energy EMERGES at the
+    // core link (haulPos set by detectLinkHaulPositions) is transported by the
+    // link network + the ControllerFeederCorp - the sole bidirectional core-link
+    // operator (source link -> core link fire, then the feeder banks/relays).
+    // A CarryCorp here would drain the very core link the feeder loads - the
+    // storage->core->storage thrash (t72595372). This is the EMERGENT
+    // kind-selection spec 00/17 prescribe: the route picks one transport kind
+    // and the loser is not commissioned, read from the planner's own haulPos
+    // lens (not a bolt-on to CarryCorp). A fresh-link transition pile at the
+    // source is still collected by the scavenge path (a distinct `-scavenge`
+    // route, never suppressed), so nothing rots. (The generic linkHaul kind in
+    // the full spec-02 design supersedes this targeted suppression.)
+    if (src?.haulPos) continue;
     const flow = routes.reduce((s, r) => s + r.flowRate, 0);
     out.push({
       corpId: corpIdFor("carry", sourceId),

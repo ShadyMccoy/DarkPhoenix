@@ -227,6 +227,36 @@ describe("controller link network (spec 24 rung 3)", () => {
     expect(coreLinkLoadRoom(0, 800, 700)).to.equal(600);
   });
 
+  /**
+   * The feeder's EMPTY direction (spec 02 feeder-router, owner 2026-07-26): the
+   * feeder is the SOLE bidirectional operator of the core link. coreLinkDrainAmount
+   * is the symmetric partner of coreLinkLoadRoom - both meet at ONE target level
+   * (coreLinkTargetLevel), so the load and drain directions never fight.
+   */
+  it("coreLinkTargetLevel: the shared load/drain level - min(income-reserve ceiling, controller headroom)", () => {
+    const { coreLinkTargetLevel } = require("../../../src/corps/nodeEnergy");
+    expect(coreLinkTargetLevel(800), "no controller link known -> the ceiling").to.equal(600);
+    expect(coreLinkTargetLevel(800, 400), "controller has headroom -> stage toward it").to.equal(400);
+    expect(coreLinkTargetLevel(800, 50), "controller nearly full -> stage ~nothing").to.equal(50);
+    expect(coreLinkTargetLevel(800, 800), "capped by the income reserve").to.equal(600);
+  });
+
+  it("coreLinkDrainAmount: drains the EXCESS above target (load and drain are mutually exclusive)", () => {
+    const { coreLinkDrainAmount, coreLinkLoadRoom } = require("../../../src/corps/nodeEnergy");
+    // Controller sated (free 50): target 50, so a core holding income must be drained.
+    expect(coreLinkDrainAmount(600, 800, 50), "core over target -> drain the surplus to storage").to.equal(550);
+    expect(coreLinkDrainAmount(50, 800, 50), "at target -> nothing to drain").to.equal(0);
+    expect(coreLinkDrainAmount(20, 800, 50), "below target -> nothing to drain (load instead)").to.equal(0);
+    // Controller draining (free 400): target 400 - a fuller core still drains toward it.
+    expect(coreLinkDrainAmount(700, 800, 400)).to.equal(300);
+    // Exclusivity: at any level exactly one of load/drain is positive (both 0 only at target).
+    for (const store of [0, 50, 200, 400, 600, 800]) {
+      const load = coreLinkLoadRoom(store, 800, 400);
+      const drain = coreLinkDrainAmount(store, 800, 400);
+      expect(load === 0 || drain === 0, `store ${store}: load XOR drain`).to.equal(true);
+    }
+  });
+
   it("infraSpawnLoad: a link-fed depot prices the feeder at the 1-tile leg (~1/6th)", () => {
     const walked = infraSpawnLoad(115, 1, 4, 0);
     const linked = infraSpawnLoad(115, 1, 4, 1);
