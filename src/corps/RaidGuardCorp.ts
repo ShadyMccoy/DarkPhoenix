@@ -25,12 +25,12 @@
  * @module corps/RaidGuardCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { INVADER_TTL } from "../economy/primitives";
 import { raidMeterState } from "../utils/raidMeter";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { GUARD } from "../spawn/demandLadder";
 import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
-import { Position } from "../types/Position";
 import { buildGuardBody } from "../spawn/BodyBuilder";
 import { driveRecycle } from "./recycle";
 import { travelTo } from "./movement";
@@ -60,48 +60,19 @@ export const GUARD_MINED_RECENCY = 3_000;
 /**
  * Serialized state specific to RaidGuardCorp.
  */
-export interface SerializedRaidGuardCorp extends SerializedCorp {
-  spawnId: string;
-}
+export type SerializedRaidGuardCorp = SerializedSpawnAnchoredCorp;
 
 /**
  * RaidGuardCorp manages guard creeps that defend remote mining rooms.
  */
-export class RaidGuardCorp extends Corp {
-  private spawnId: string;
-
+export class RaidGuardCorp extends SpawnAnchoredCorp {
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("raidGuard", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /** Commission-owned state: every materialize() refreshes this (the stale-spawnId trap). */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
-  }
-
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    super("raidGuard", nodeId, spawnId, customId);
   }
 
   /** All claimed creeps - INCLUDING recycling ones (recycling counts as staffing). */
   private getActiveCreeps(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "guard" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
+    return this.creepsOfWorkType("guard", { includeSpawning: false });
   }
 
   /**
@@ -284,8 +255,8 @@ export class RaidGuardCorp extends Corp {
       // non-blocking income unit it raced the room's own openers and funded
       // at tick 50 or 186 across identical draws. Blocking+income (1e6+1e4
       // +105) pins it one slot ahead of the 100-value openers, determinism
-      // the cell ratchets.
-      value: 105,
+      // the cell ratchets. (Rung home + ladder rationale: spawn/demandLadder.ts.)
+      value: GUARD,
       blocking: true,
       producesIncome: true,
       // Bank toward the full 5-pair body when the guard tops the ranking
@@ -301,17 +272,5 @@ export class RaidGuardCorp extends Corp {
 
   public getCreepCount(): number {
     return this.getActiveCreeps().length;
-  }
-
-  public serialize(): SerializedRaidGuardCorp {
-    return {
-      ...super.serialize(),
-      spawnId: this.spawnId
-    };
-  }
-
-  public deserialize(data: SerializedRaidGuardCorp): void {
-    super.deserialize(data);
-    this.spawnId = data.spawnId ?? this.spawnId;
   }
 }

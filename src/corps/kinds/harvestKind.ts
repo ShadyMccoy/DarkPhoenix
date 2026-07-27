@@ -5,18 +5,13 @@
  * commissionsFromPlan) emits it, so propose() returns []. The kind supplies the
  * other four verbs - materialize/run/serialize/body.
  *
- * This commit lands rungs 1-4 (the kind proven in isolation, over the planner,
- * on the generic dispatch, and composed). Rung 5 - cutting the live
- * FlowMaterializer's harvest path over to the host - is a separate commit: it
- * must avoid re-solving the colony each tick and unthread harvest from the
- * miner/hauler/sink materialization that is currently interleaved per node.
- *
  * @module corps/kinds/harvestKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedMiner } from "../../economy/CorpPlanner";
+import { stripSourcePrefix } from "../../economy/ids";
 import { minerOverhead } from "../../economy/primitives";
 import { MinerAssignment } from "../../flow/FlowTypes";
 import { buildMinerBody } from "../../spawn/BodyBuilder";
@@ -25,7 +20,7 @@ import { HarvestCorp, SerializedHarvestCorp } from "../HarvestCorp";
 
 /** The real game source id (the flow "source-" prefix stripped, defensively). */
 function gameSourceId(corp: HarvestCorp): string {
-  return corp.getSourceId().replace("source-", "");
+  return stripSourcePrefix(corp.getSourceId());
 }
 
 /**
@@ -49,10 +44,11 @@ export function minerAssignmentFromCommissioned(m: CommissionedMiner): MinerAssi
 
 /**
  * The HarvestCorp's legacy runtime nodeId (and hence its id, `mining-${nodeId}`)
- * is `${roomName}-harvest-${sourceId.slice(-4)}` - the convention createHarvestCorp
- * and FlowMaterializer share. Rebuilding it here keeps live miners' memory.corpId
- * resolving across the migration. roomName comes from the commission's source
- * position (produces.at), so no Game lookup is needed.
+ * is `${roomName}-harvest-${sourceId.slice(-4)}` - the convention the retired
+ * createHarvestCorp/FlowMaterializer factories established. Rebuilding it here
+ * keeps live miners' memory.corpId resolving across the migration. roomName
+ * comes from the commission's source position (produces.at), so no Game lookup
+ * is needed.
  */
 function legacyNodeId(roomName: string, sourceId: string): string {
   return `${roomName}-harvest-${sourceId.slice(-4)}`;
@@ -82,17 +78,11 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     const roomName = c.produces.at?.roomName ?? m.sourceId;
     // HarvestCorp.work() resolves the source via Game.getObjectById(this.sourceId),
     // so the corp's sourceId must be the REAL game id - strip the flow "source-"
-    // prefix (FlowMaterializer did the same). The assignment keeps the flow id.
-    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, m.sourceId.replace("source-", ""));
+    // prefix. The assignment keeps the flow id.
+    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, stripSourcePrefix(m.sourceId));
     corp.setMinerAssignment(assignment);
     corp.setPostHint(c.produces.at);
     return corp;
-  },
-
-  run(corp: HarvestCorp, tick: number): void {
-    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
-    if (corp.shouldPlan(tick)) corp.plan(tick);
-    corp.work(tick);
   },
 
   serializeCorp(corp: HarvestCorp): SerializedHarvestCorp {
@@ -101,7 +91,7 @@ export const harvestKind: CorpKind<HarvestCorp> = {
 
   deserializeCorp(data: SerializedCorp): HarvestCorp {
     const d = data as SerializedHarvestCorp;
-    const corp = new HarvestCorp(d.nodeId, d.spawnId, d.sourceId, d.desiredWorkParts, d.id);
+    const corp = new HarvestCorp(d.nodeId, d.spawnId, d.sourceId, d.id);
     corp.deserialize(d);
     return corp;
   },

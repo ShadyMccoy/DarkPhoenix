@@ -16,13 +16,9 @@ import { controllerLink, coreLink } from "../corps/nodeEnergy";
 import { recordLinkFire, recordCoreLevel } from "../telemetry/LinkMeter";
 import { routeSourceVolley } from "./linkRouting";
 import { resolveReserveTarget } from "../economy/bank";
-
-/**
- * Don't fire a dribble: wait until the source link holds at least this much, so
- * the (distance-long) cooldown and the 3% transfer fee are paid on a full-ish
- * load. Miners feed 50 per transfer, so this is a couple of feeds.
- */
-const LINK_FIRE_THRESHOLD = 100;
+// Don't fire a dribble: the fire gate is homed in primitives (one leaf, shared
+// with the LinkMeter's core-fill sampler) - rationale at the declaration.
+import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
 
 /** Run the link network of every owned room. */
 export function runLinks(): void {

@@ -1,9 +1,18 @@
 /**
- * @fileoverview ConstructionCorp - Auxiliary corp for building infrastructure.
+ * @fileoverview ConstructionCorp - the construction RUNTIME (auxiliary corp
+ * for building infrastructure).
  *
  * The ConstructionCorp builds extensions to increase spawn capacity.
  * It only invests in construction when there's accumulated profit,
  * ensuring the economy is stable before expanding.
+ *
+ * Charter (spec 35 phase H split): the Game-coupled corp itself - work()
+ * (crews, squads, the repair detail), spawn demand, project reconciliation,
+ * placement/paving EXECUTION and serialization. Its two split-out companions
+ * own the rest: the PLAN-consumed lens surface (project ledger + build pool)
+ * lives in corps/constructionLedger.ts; the placement rung tables and
+ * tile-election policy live in corps/constructionPlacement.ts. This corp is
+ * the only WRITER of the ledger records the lens module reads.
  *
  * @module corps/ConstructionCorp
  */
@@ -32,43 +41,31 @@ import {
   refuelIntervalTicks,
   SOURCE_RATE,
   supplyMethod,
-  sustainableConsumptionRate
+  sustainableConsumptionRate,
+  workPartsForEnergyRate
 } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
-import {
-  declinedVerdictStands,
-  evaluateRoadRoute,
-  ROAD_BUILD_COST,
-  RoadRouteSpec,
-  UNMAINTAINED_ROAD_LIFE
-} from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreDepot, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
-
-/**
- * One entry of the corp's PROJECT LEDGER (the observe-and-remember pattern,
- * owner 2026-07-22: "construction sites should be part of the corps memory
- * so it can rehydrate and bypass Vision. That's a general pattern we should
- * work towards - similar to staffsPost"): a durable record of a standing
- * construction site, written/refreshed whenever its room is SIGHTED, read
- * by decisions (the plan's sink admission) regardless of vision. Ground
- * truth wins on sight; a record unseen for PROJECT_LEDGER_DECAY retires
- * (hostiles can stomp sites in unowned rooms while we are blind).
- */
-export interface ProjectRecord {
-  id: string;
-  x: number;
-  y: number;
-  roomName: string;
-  structureType: string;
-  /** Energy remaining (progressTotal - progress) at last sight. */
-  remaining: number;
-  /** Tick of last reconciliation against vision. */
-  seen: number;
-}
-
-/** Ticks a ledger record survives without sight before it retires. */
-export const PROJECT_LEDGER_DECAY = 10_000;
+import { buildPool, buildPoolAbsorbRate, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
+import {
+  bestControllerLinkTile,
+  containersUnlocked,
+  CONTAINER_LIMIT,
+  EXTENSION_LIMITS,
+  findGridPosition,
+  LINK_LIMITS,
+  LINK_MIN_SOURCE_RANGE,
+  PLACEMENT_COOLDOWN,
+  ROAD_PAYBACK_HORIZON,
+  ROAD_SPAWN_PART_VALUE,
+  SOURCE_CONTAINER_PILE_THRESHOLD,
+  STORAGE_MIN_RCL,
+  TOWER_MIN_RCL,
+  TrunkSurvey,
+  trunkGateFromSurvey
+} from "./constructionPlacement";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -76,283 +73,19 @@ export const PROJECT_LEDGER_DECAY = 10_000;
 export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   lastPlacementAttempt: number;
-  targetBuilders: number;
   /** Builder count the demand lens last wanted (release/adopt hand-off). */
   wantedBuilders?: number;
   /** Flow-based construction allocations (from FlowEconomy) */
   constructionAllocations?: SinkAllocation[];
   /** Spec 25 phase 3: source-funded remote-cluster rate for the pool crew */
   poolAllocatedRate?: number;
-  /** The project ledger (pattern above). */
+  /** The project ledger (pattern: constructionLedger.ProjectRecord). */
   projects?: ProjectRecord[];
 }
-
-/**
- * THE ONE LENS for "what construction projects stand, colony-wide" - read
- * from the serialized corp store in Memory (durable across resets, never
- * vision-gated), deduped by site id across corps. The plan's sink
- * admission, crew reasoning and telemetry must all read THIS, never scan
- * Game.rooms (the staffsPost symmetry rule applied to world state; the
- * measured alternative was the cluster flap - 15 sinks -> 0 across two
- * captures with the solve keyed to which room happened to be sighted).
- */
-export function constructionProjectLedger(): ProjectRecord[] {
-  const out = new Map<string, ProjectRecord>();
-  if (typeof Memory === "undefined" || !Memory.commissionedCorps) return [];
-  for (const key of Object.keys(Memory.commissionedCorps)) {
-    const entry = Memory.commissionedCorps[key] as { kind?: string; corp?: { projects?: ProjectRecord[] } };
-    if (entry?.kind !== "construction") continue;
-    for (const rec of entry.corp?.projects ?? []) {
-      if (rec.remaining > 0) out.set(rec.id, rec);
-    }
-  }
-  return [...out.values()];
-}
-
-/**
- * Extension limits by controller level (RCL 1-8)
- */
-const EXTENSION_LIMITS: { [rcl: number]: number } = {
-  1: 0,
-  2: 5,
-  3: 10,
-  4: 20,
-  5: 30,
-  6: 40,
-  7: 50,
-  8: 60
-};
-
-/**
- * How often to attempt placing new construction sites (ticks)
- */
-const PLACEMENT_COOLDOWN = 10;
 
 /** The supply vector never runs fewer than two carriers (hot-swap staging);
  * also the delivery-cadence divisor the builder's buffer bridges (spec 34). */
 const TANKER_FLOOR = 2;
-
-/** Max containers per room (game limit is 5 at every RCL). */
-const CONTAINER_LIMIT = 5;
-
-/**
- * Don't invest in containers (5000 build cost each) before the extension set
- * exists. At RCL 3+ they come first (static mining lifts everything). At RCL 2
- * the owner build order applies: be greedy to RCL2, then EXTENSIONS (3000,
- * compounding capacity), THEN containers - so static-mining efficiency feeds
- * the RCL3 push - and containers only unlock once the extension set is BUILT.
- *
- * A/B'd 2026-07-10 and kept as-is: a broad RCL2 container flip collapsed the
- * maze world's consumption, and even a depot-only early gate just displaced
- * the extension rung (T0 policy cell). The refill SLA is instead served by
- * the universal tender (reloads from any stock) and the near-fuel gate.
- */
-const CONTAINER_MIN_RCL = 3;
-
-/** Container rungs open at RCL3+, or at RCL2 once the extension set is built. */
-function containersUnlocked(rcl: number, extensionsAtCap: boolean): boolean {
-  return rcl >= CONTAINER_MIN_RCL || (rcl === 2 && extensionsAtCap);
-}
-
-/** Storage unlocks at RCL 4 (game rule). It replaces the container core depot. */
-const STORAGE_MIN_RCL = 4;
-
-/** Towers unlock at RCL 3 (CONTROLLER_STRUCTURES) - spec 07's one-tower v1. */
-const TOWER_MIN_RCL = 3;
-
-/** Links allowed per RCL (game rule). The network anchors on the storage. */
-const LINK_LIMITS: { [rcl: number]: number } = { 5: 2, 6: 3, 7: 4, 8: 6 };
-
-/**
- * Don't spend a link on a source this close to the storage: the saved haul is
- * shorter than the link's build cost + 3% transfer fee are worth.
- */
-const LINK_MIN_SOURCE_RANGE = 8;
-
-/**
- * Dropped energy (within range 1 of a source) that signals a source container is
- * worth its 5000 build cost: a pile this big means a miner is producing there
- * faster than haulers clear it, so a static container will buffer the energy (and
- * stop it decaying on the ground) instead. Tunable - lower builds containers more
- * eagerly, higher waits for clearer evidence of sustained over-production.
- */
-const SOURCE_CONTAINER_PILE_THRESHOLD = 200;
-
-/**
- * Energy value assumed for a freed spawn build-part when judging a road route
- * (see primitives.energyPerSpawnPart: ~537 for a home source, ~153 for a d=75
- * remote, ~0 when the spawn is slack). A conservative mid-range constant until
- * the corp can read the planner's actual marginal un-staffed source.
- */
-const ROAD_SPAWN_PART_VALUE = 100;
-// The sum-of-projects crew cap (owner 2026-07-19) lives in
-// primitives.projectAbsorbRate - shared verbatim with the PLAN's
-// construction-sink capacity so plan and crew can never disagree.
-
-/**
- * Horizon a road route must repay its build cost within: the wall-clock life
- * of an unmaintained road (50k ticks). A home room lives far longer, but a
- * route that cannot repay before its own pavement would have fully decayed is
- * not worth the maintenance commitment.
- */
-const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
-
-/**
- * The colony's BUILD POOL (owner 2026-07-20: "It basically just doesn't
- * matter which room the construction is in"): every room with our
- * construction sites, home room first then nearest, each with its remaining
- * work. ONE spawn-scoped crew is sized against the whole pool and marches
- * wherever the work is - the room enters the math only as travel distance.
- * This retires the distributed trunk model (each room's corp owned its
- * segment), whose empty-room corps fielded self-ferrying 1-WORK runts:
- * trunk stalled at 32/38 for ~4300 ticks, measured.
- */
-export interface BuildPoolEntry {
-  roomName: string;
-  /** Absent for a BLIND receipt entry - the crew's travel restores it. */
-  room?: Room;
-  work: number;
-}
-
-export function buildPool(homeRoomName: string): BuildPoolEntry[] {
-  const entries: BuildPoolEntry[] = [];
-  if (typeof Game === "undefined" || !Game.rooms) return entries;
-  for (const roomName in Game.rooms) {
-    const r = Game.rooms[roomName];
-    let work = 0;
-    try {
-      for (const s of r.find(FIND_MY_CONSTRUCTION_SITES)) work += s.progressTotal - s.progress;
-    } catch {
-      continue; // partial mocks
-    }
-    if (work > 0) entries.push({ roomName, room: r, work });
-  }
-  // RECEIPT REMAINDERS (the stranded-trunk deadlock, prod t72488324): the
-  // vision scan above is a creep-position lens - when a trunk room went
-  // dark, poolWork hit 0, the crew stood down, and nobody was left to ever
-  // restore vision (trunk-blind-W43N22 for 1100+ ticks, cee0 frozen 35/50).
-  // The HOME room's roadRoutes receipts are the durable signal (CLAUDE.md:
-  // room state from intel, never vision): charge each BLIND route room its
-  // tile-share of the unbuilt remainder so the crew fields and marches -
-  // arrival restores vision and the ground-truth scan takes over. Visible
-  // rooms NEVER take a receipt charge (their standing sites are the truth).
-  const routes = Game.rooms[homeRoomName]?.memory?.roadRoutes;
-  if (routes) {
-    const blindWork = new Map<string, number>();
-    for (const key of Object.keys(routes)) {
-      const e = routes[key];
-      if (!e || e.paved || e.declined || !e.tiles3 || !e.rooms) continue;
-      const total = e.total ?? 0;
-      const remaining = total - (e.built ?? 0);
-      if (total <= 0 || remaining <= 0) continue;
-      const tileCount = e.tiles3.length / 3;
-      const perRoom = new Map<string, number>();
-      for (let i = 2; i < e.tiles3.length; i += 3) {
-        const rn = e.rooms[e.tiles3[i]];
-        if (rn) perRoom.set(rn, (perRoom.get(rn) ?? 0) + 1);
-      }
-      for (const [rn, count] of perRoom) {
-        if (Game.rooms[rn]) continue;
-        const share = (remaining * count) / tileCount;
-        blindWork.set(rn, (blindWork.get(rn) ?? 0) + share * ROAD_BUILD_COST);
-      }
-    }
-    for (const [roomName, work] of blindWork) {
-      if (work > 0) entries.push({ roomName, work });
-    }
-  }
-  const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
-  entries.sort((a, b) => rank(a.roomName) - rank(b.roomName));
-  return entries;
-}
-
-/**
- * The energy/tick the ONE build-pool crew can usefully absorb - the shared
- * CONSTRUCTION-FIRST bound (prod t72478939). Three readers, one formula:
- * the crew sizing (builderPlan), the plan's construction-sink capacity
- * (flowAdapter, via the same primitives.projectAbsorbRate), and the
- * consumers' surplus clamp (feederRelayTarget / upgraderSizing). The clamp's
- * boolean predecessor ("any site stands") treated 12 road sites - pool
- * absorb ~5 e/t - exactly like a 100k build-out: it freed the whole 115 e/t
- * surplus from the upgraders, construction ate 0.47 e/t measured, and the
- * difference BANKED (+20.18/t at 474k, 17x the warchest target). Bounding
- * the clamp by what the build set can actually EAT is what makes
- * "construction first" funnel energy to construction instead of the bank.
- *
- * Inputs mirror builderPlan's home branch verbatim: total pool work over
- * the buffered horizon of the FARTHEST pool room (in-room = spawn range to
- * the first site; remote = roomLinearDistance * 50).
- */
-/**
- * The colony's summed outstanding construction work (energy), the WARTIME
- * backlog gauge (spec 33). Same buildPool lens buildPoolAbsorbRate sizes from -
- * including the durable blind-route receipt remainders - so the fleet
- * relegation (UpgradingCorp) reads exactly the work the crew is funded to eat.
- */
-export function buildPoolBacklog(homeRoomName: string): number {
-  return buildPool(homeRoomName).reduce((s, e) => s + e.work, 0);
-}
-
-export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition | undefined): number {
-  const pool = buildPool(homeRoomName);
-  if (pool.length === 0) return 0;
-  const siteWork = pool.reduce((s, e) => s + e.work, 0);
-  let travel = 0;
-  for (const e of pool) {
-    let t: number;
-    if (e.roomName === homeRoomName && e.room && spawnPos) {
-      let sitePos: RoomPosition | undefined;
-      try {
-        sitePos = e.room.find(FIND_MY_CONSTRUCTION_SITES)[0]?.pos;
-      } catch {
-        sitePos = undefined; // partial mocks
-      }
-      t = spawnPos.getRangeTo(sitePos ?? spawnPos);
-    } else {
-      // Blind receipt entries take this leg too - only the NAME is needed.
-      t = roomLinearDistance(homeRoomName, e.roomName) * 50;
-    }
-    if (t > travel) travel = t;
-  }
-  // WARTIME acceleration (spec 33 down-payment): while the home room holds a
-  // spendable warchest surplus, finish construction fast (shorter horizon) so
-  // the surplus is spent into structures, not banked. Same bankSurplusRate lens
-  // flowAdapter's construction sink reads, so the plan and the crew agree on the
-  // pace. Bounded by the available energy downstream, so it never over-draws.
-  const room = typeof Game !== "undefined" && Game.rooms ? Game.rooms[homeRoomName] : undefined;
-  const accelerate =
-    !!room?.storage?.my &&
-    spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
-  return projectAbsorbRate(siteWork, travel, accelerate);
-}
-
-/** One placement pass over a trunk's tiles: what stands, what was added,
- * which rooms could not be read. */
-export interface TrunkSurvey {
-  placed: number;
-  built: number;
-  total: number;
-  blind: string[];
-  /** The unbuilt VISIBLE tiles, each with its pass state - `room:x,y:site`
-   * (construction site standing), `:placed` (site created this pass),
-   * `:paused` (governor), or `:err<rc>` (createConstructionSite failed -
-   * the silent-forever state; prod t72482860: the gate read
-   * trunk-building-36/38 for ~4400t across 5 captures and WHICH 2 tiles
-   * never built - or why - was invisible). Capped at 4 entries. */
-  missing: string[];
-}
-
-/**
- * The trunk gate stamp from a pass survey - each zero-placement state gets
- * its own name (owner 2026-07-20: a single "waiting-vision" stamp conflated
- * "tiles in a blind room" with "fully placed, crews building" and misread a
- * healthy build as stalled for a whole day).
- */
-export function trunkGateFromSurvey(s: TrunkSurvey): string {
-  if (s.placed > 0) return `trunk-placing-${s.placed}`;
-  if (s.blind.length > 0) return `trunk-blind-${s.blind.join("+")}`;
-  return `trunk-building-${s.built}/${s.total}`;
-}
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
@@ -404,9 +137,6 @@ export class ConstructionCorp extends Corp {
    * just re-arms the scan a cooldown early, which is harmless). */
   private lastRoadAttempt = 0;
   private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
-
-  /** Target number of builders (computed during planning) */
-  private targetBuilders = 0;
 
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
@@ -474,7 +204,8 @@ export class ConstructionCorp extends Corp {
       value: 94, // feeding the builders is nearly as important as the builders
       producesIncome: false,
       blockingWhenEmpty: true, // the first feeder is essential
-      usefulPart: CARRY
+      usefulPart: CARRY,
+      why: "infra" // agenda label: DECLARED, never derived from the role name (spec 35 phase D)
     });
   }
 
@@ -587,41 +318,6 @@ export class ConstructionCorp extends Corp {
       keep.push(rec);
     }
     this.projects = keep;
-  }
-
-  /**
-   * Plan construction operations.
-   */
-  public plan(tick: number): void {
-    super.plan(tick);
-
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) {
-      this.targetBuilders = 0;
-      return;
-    }
-
-    const workRoom = this.workRoom(spawn);
-    if (!workRoom) {
-      this.targetBuilders = 0;
-      return;
-    }
-    // ONE BUILD POOL (owner 2026-07-20): the home corp counts the colony's
-    // whole outstanding site work; remote corps count nothing (their sites
-    // belong to the pool, their builders age out).
-    const isHome = spawn.pos.roomName === workRoom.name;
-    const totalWorkRemaining = isHome
-      ? buildPool(spawn.pos.roomName).reduce((s, e) => s + e.work, 0)
-      : 0;
-    if (totalWorkRemaining === 0) {
-      // Nothing to build. Maintenance belongs to the repair detail (separate
-      // squad, runs regardless of sites) - the build crew stands down.
-      this.targetBuilders = 0;
-      return;
-    }
-
-    const buildersNeeded = Math.min(MAX_BUILDERS, Math.ceil(totalWorkRemaining / 50000));
-    this.targetBuilders = Math.max(1, buildersNeeded);
   }
 
   /**
@@ -997,8 +693,8 @@ export class ConstructionCorp extends Corp {
     if (absorb > 0 || this.poolAllocatedRate > 0) {
       buildEnergy = Math.min(buildEnergy, Math.max(absorb, this.poolAllocatedRate));
     }
-    buildEnergy = Math.max(5, buildEnergy);
-    const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
+    buildEnergy = Math.max(BUILD_ENERGY_PER_WORK, buildEnergy);
+    const totalWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
     // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer of the PARKED
     // builder (owner: "they stay in one place building" - haulers bring the
     // energy). One lens with the tanker fetch (buildFuelDistance); the supply
@@ -1309,7 +1005,7 @@ export class ConstructionCorp extends Corp {
       const placedHere = new Set<string>();
       let placedAny = false;
       while (remaining > 0) {
-        const ext = this.findGridPosition(room, placedHere);
+        const ext = findGridPosition(room, placedHere);
         if (!ext) break;
         this.placeSite(room, ext.x, ext.y, STRUCTURE_EXTENSION);
         placedHere.add(`${ext.x},${ext.y}`);
@@ -2091,7 +1787,7 @@ export class ConstructionCorp extends Corp {
     // pending link SITE in the controller ring also counts as served.
     const ctrl = room.controller;
     if (ctrl?.my && !controllerLink(room) && !sites.some(s => s.pos.inRangeTo(ctrl.pos, 3))) {
-      const tile = this.bestControllerLinkTile(room, ctrl);
+      const tile = bestControllerLinkTile(room, ctrl);
       if (tile && all.length < limit) return tile;
       if (tile) {
         // LINK SWAP (t72465499: RCL6's three slots were FULL - core + both
@@ -2137,46 +1833,6 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Best tile for the CONTROLLER LINK: a walkable, structure-and-site-free
-   * range-2 tile maximizing the same park ring the input election scores
-   * (walkable neighbours within upgrade range, controller tile excluded).
-   * The link is unwalkable, so it must not steal the container's tile - any
-   * other full-ring tile serves (open terrain has several).
-   */
-  private bestControllerLinkTile(room: Room, ctrl: StructureController): { x: number; y: number } | null {
-    const terrain = room.getTerrain();
-    const cx = ctrl.pos.x;
-    const cy = ctrl.pos.y;
-    const walkable = (x: number, y: number): boolean =>
-      x >= 1 && x <= 48 && y >= 1 && y <= 48 && terrain.get(x, y) !== TERRAIN_MASK_WALL;
-    const inRange = (x: number, y: number): boolean => Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 3;
-    const occupied = (x: number, y: number): boolean =>
-      room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
-    let best: { x: number; y: number; score: number } | null = null;
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -2; dy <= 2; dy++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if ((dx === 0 && dy === 0) || !walkable(x, y) || occupied(x, y)) continue;
-        let score = 0;
-        for (let ex = -1; ex <= 1; ex++) {
-          for (let ey = -1; ey <= 1; ey++) {
-            if (ex === 0 && ey === 0) continue;
-            const nx = x + ex;
-            const ny = y + ey;
-            if (nx === cx && ny === cy) continue;
-            if (walkable(nx, ny) && inRange(nx, ny)) score++;
-          }
-        }
-        if (!best || score > best.score || (score === best.score && (x < best.x || (x === best.x && y < best.y)))) {
-          best = { x, y, score };
-        }
-      }
-    }
-    return best ? { x: best.x, y: best.y } : null;
-  }
-
-  /**
    * A still-missing CONTROLLER container: the RCL drop-off's own buffer. It lands
    * ON the drop-off tile itself (controllerInputSpot), so the hauler's pile, the
    * container, and the upgraders' draw point converge on ONE tile - the same
@@ -2218,179 +1874,6 @@ export class ConstructionCorp extends Corp {
       ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
     ];
     return containers.some(s => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= range);
-  }
-
-  /**
-   * Find a position for extension using a grid pattern near sources.
-   * Uses checkerboard pattern (every other tile) for walkability.
-   */
-  private findGridPosition(room: Room, exclude?: Set<string>): { x: number; y: number } | null {
-    const terrain = room.getTerrain();
-    const candidates: { x: number; y: number; score: number }[] = [];
-
-    // Build set of positions to avoid (occupied or reserved)
-    const avoidPositions = new Set<string>(exclude ?? []);
-
-    // Avoid spawn and adjacent tiles
-    const spawns = room.find(FIND_MY_SPAWNS);
-    for (const s of spawns) {
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          avoidPositions.add(`${s.pos.x + dx},${s.pos.y + dy}`);
-        }
-      }
-    }
-
-    // Avoid source mining positions (1 tile radius for miners)
-    const sources = room.find(FIND_SOURCES);
-    for (const source of sources) {
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          avoidPositions.add(`${source.pos.x + dx},${source.pos.y + dy}`);
-        }
-      }
-    }
-
-    // Avoid controller upgrade positions (2 tile radius)
-    if (room.controller) {
-      for (let dx = -2; dx <= 2; dx++) {
-        for (let dy = -2; dy <= 2; dy++) {
-          avoidPositions.add(`${room.controller.pos.x + dx},${room.controller.pos.y + dy}`);
-        }
-      }
-    }
-
-    // Avoid existing structures and construction sites
-    const structures = room.find(FIND_STRUCTURES);
-    const sites = room.find(FIND_CONSTRUCTION_SITES);
-    for (const s of structures) {
-      avoidPositions.add(`${s.pos.x},${s.pos.y}`);
-    }
-    for (const s of sites) {
-      avoidPositions.add(`${s.pos.x},${s.pos.y}`);
-    }
-
-    // ENERGY HUBS stay clear (owner 2026-07-10: extensions built around a
-    // drop spot boxed the haulers in on each other): the core depot and the
-    // controller input are high-traffic exchange tiles - keep a 1-tile ring
-    // of walking room around each.
-    const hubRing = (pos: { x: number; y: number } | undefined): void => {
-      if (!pos) return;
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          avoidPositions.add(`${pos.x + dx},${pos.y + dy}`);
-        }
-      }
-    };
-    const depot = coreDepot(room);
-    hubRing(depot ? { x: depot.pos.x, y: depot.pos.y } : undefined);
-    if (room.controller) {
-      const input = controllerInputSpot(room.controller);
-      hubRing(input ? { x: input.pos.x, y: input.pos.y } : undefined);
-    }
-
-    // CLUSTER placement (owner directive 2026-07-09: "proximity to OTHER
-    // extensions and spawns should be a big factor - all in one area so we
-    // can refill them efficiently"). The refill chain is haulers -> core
-    // depot (beside the spawn) -> tender -> extensions, so the refill cost
-    // is the tender's depot<->extension round trip: spawn proximity and
-    // cluster tightness are the whole price, and SOURCE distance is
-    // irrelevant (haulers deliver to the depot wherever extensions sit).
-    // The old source-centered scorer scattered extensions into per-source
-    // patches the tender had to tour.
-    const spawnPos = spawns[0]?.pos;
-    if (!spawnPos) return null;
-    const clusterPoints: Array<{ x: number; y: number }> = [];
-    for (const s of structures) {
-      if (s.structureType === STRUCTURE_EXTENSION) clusterPoints.push({ x: s.pos.x, y: s.pos.y });
-    }
-    for (const s of sites) {
-      if (s.structureType === STRUCTURE_EXTENSION) clusterPoints.push({ x: s.pos.x, y: s.pos.y });
-    }
-
-    // Checkerboard tiles within tender range of the spawn.
-    for (let dx = -8; dx <= 8; dx++) {
-      for (let dy = -8; dy <= 8; dy++) {
-        const distToSpawn = Math.max(Math.abs(dx), Math.abs(dy));
-        if (distToSpawn < 2) continue; // keep the spawn ring clear
-
-        const x = spawnPos.x + dx;
-        const y = spawnPos.y + dy;
-        if (x < 2 || x > 47 || y < 2 || y > 47) continue;
-        if ((x + y) % 2 !== 0) continue; // checkerboard for walkability
-        const terrainType = terrain.get(x, y);
-        if (terrainType === TERRAIN_MASK_WALL) continue;
-        if (avoidPositions.has(`${x},${y}`)) continue;
-
-        // At least 3 walkable neighbors (path connectivity)
-        let walkableNeighbors = 0;
-        for (let nx = -1; nx <= 1; nx++) {
-          for (let ny = -1; ny <= 1; ny++) {
-            if (nx === 0 && ny === 0) continue;
-            const tx = x + nx;
-            const ty = y + ny;
-            if (tx < 0 || tx > 49 || ty < 0 || ty > 49) continue;
-            if (terrain.get(tx, ty) !== TERRAIN_MASK_WALL) {
-              walkableNeighbors++;
-            }
-          }
-        }
-        if (walkableNeighbors < 3) continue;
-
-        // Tight cluster: near the spawn AND near the extensions we already
-        // have. Cohesion weighs as much as spawn proximity so the mass grows
-        // outward ring by ring instead of sprinkling the whole radius; a
-        // small swamp penalty breaks ties toward plains.
-        let cohesion = 0;
-        if (clusterPoints.length > 0) {
-          for (const p of clusterPoints) {
-            cohesion += Math.max(Math.abs(p.x - x), Math.abs(p.y - y));
-          }
-          cohesion /= clusterPoints.length;
-        }
-        const swampPenalty = terrainType === TERRAIN_MASK_SWAMP ? 2 : 0;
-        const score = 100 - distToSpawn * 3 - cohesion * 3 - swampPenalty;
-        candidates.push({ x, y, score });
-      }
-    }
-
-    if (candidates.length === 0) return null;
-
-    // Deterministic best: score, then y, then x.
-    candidates.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
-    return candidates[0];
-  }
-
-  /**
-   * Estimate path cost between two points, accounting for swamps.
-   * Uses a simple line-walk approximation (not full pathfinding).
-   * Swamps cost 5x, plains cost 1x.
-   */
-  private estimatePathCost(x1: number, y1: number, x2: number, y2: number, terrain: RoomTerrain): number {
-    let cost = 0;
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy));
-
-    if (steps === 0) return 0;
-
-    // Walk along the line and sum terrain costs
-    for (let i = 0; i <= steps; i++) {
-      const x = Math.round(x1 + (dx * i) / steps);
-      const y = Math.round(y1 + (dy * i) / steps);
-
-      const t = terrain.get(x, y);
-      if (t === TERRAIN_MASK_WALL) {
-        // Wall in path - add heavy penalty (path would go around)
-        cost += 10;
-      } else if (t === TERRAIN_MASK_SWAMP) {
-        cost += 5; // Swamp costs 5x
-      } else {
-        cost += 1; // Plains cost 1x
-      }
-    }
-
-    return cost;
   }
 
   /**
@@ -2451,15 +1934,6 @@ export class ConstructionCorp extends Corp {
   /** Whether to field/keep a maintenance builder for decaying structures (hysteresis). */
   private wantsMaintenance(room: Room): boolean {
     return wantsMaintenanceBuilder(this.roomRepairables(room), this.builders.count() > 0);
-  }
-
-  /**
-   * A structure decayed into the critical band (about to expire) that a builder
-   * must rescue even while construction sites are outstanding, or null when the
-   * room's decaying structures are all healthier than the critical gate.
-   */
-  private findCriticalRepairTarget(room: Room): StructureContainer | StructureRoad | null {
-    return pickCriticalRepairTarget(this.roomRepairables(room));
   }
 
   /** Whether emergency repair outranks construction (see wantsCriticalRecovery). */
@@ -2682,7 +2156,7 @@ export class ConstructionCorp extends Corp {
       repairRoadEnRoute(creep);
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
-      this.recordProduction(workParts * 5);
+      this.recordProduction(workParts * BUILD_ENERGY_PER_WORK);
     }
   }
 
@@ -2991,10 +2465,6 @@ export class ConstructionCorp extends Corp {
   // ===========================================================================
 
   /**
-   * Set construction allocations from FlowEconomy.
-   * Each allocation specifies energy rate for a construction site.
-   */
-  /**
    * Remote trunk candidates (owner 2026-07-19: routes are site strings, not
    * rooms) - the plan's funded remote harvests staffed from this corp's
    * spawn. Commission-owned, refreshed by materialize every round.
@@ -3012,25 +2482,6 @@ export class ConstructionCorp extends Corp {
 
   public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
-    // Adjust target builders based on total allocated energy
-    const totalAllocated = allocations.reduce((sum, a) => sum + a.allocated, 0);
-    // Each builder with ~2 WORK parts builds at ~10 energy/tick
-    const workPerBuilder = 10;
-    this.targetBuilders = Math.min(MAX_BUILDERS, Math.max(1, Math.ceil(totalAllocated / workPerBuilder)));
-  }
-
-  /**
-   * Get all construction allocations.
-   */
-  public getConstructionAllocations(): SinkAllocation[] {
-    return this.constructionAllocations;
-  }
-
-  /**
-   * Check if this corp has flow-based allocations.
-   */
-  public hasFlowAllocations(): boolean {
-    return this.constructionAllocations.length > 0;
   }
 
   /**
@@ -3050,14 +2501,6 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Get the highest priority construction site (from flow allocations).
-   */
-  public getHighestPriorityAllocation(): SinkAllocation | undefined {
-    if (this.constructionAllocations.length === 0) return undefined;
-    return this.constructionAllocations.reduce((best, curr) => (curr.priority > best.priority ? curr : best));
-  }
-
-  /**
    * Serialize for persistence.
    */
   public serialize(): SerializedConstructionCorp {
@@ -3065,7 +2508,6 @@ export class ConstructionCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
-      targetBuilders: this.targetBuilders,
       wantedBuilders: this.lastWantedBuilders ?? undefined,
       constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
       poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined,
@@ -3079,7 +2521,6 @@ export class ConstructionCorp extends Corp {
   public deserialize(data: SerializedConstructionCorp): void {
     super.deserialize(data);
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
-    this.targetBuilders = data.targetBuilders || 0;
     this.lastWantedBuilders = data.wantedBuilders ?? null;
     this.constructionAllocations = data.constructionAllocations ?? [];
     this.poolAllocatedRate = data.poolAllocatedRate ?? 0;

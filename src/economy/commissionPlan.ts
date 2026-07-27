@@ -15,6 +15,7 @@
 import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
+import { isBankSourceId } from "./ids";
 import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, operationSpawnLoad } from "./primitives";
 import { Position } from "../types/Position";
 
@@ -90,7 +91,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     // economy/bank primitives). A CarryCorp here would fight the feeder for
     // the input tile and, via the feeder-active redirect, pump the load
     // straight back into the storage it withdrew from.
-    if (sourceId.startsWith("bank-")) continue;
+    if (isBankSourceId(sourceId)) continue;
     const src = sourceById.get(sourceId);
     // LINK-SERVED sources get NO walking carry commission either (spec 02
     // feeder-router, owner 2026-07-26): a source whose energy EMERGES at the

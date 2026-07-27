@@ -11,7 +11,7 @@
  * unit time) and the spawn-time it consumes. The same initial walk-out shortens
  * a hauler's productive life too.
  *
- * Constants mirror src/flow/FlowTypes.ts so this tracks the live economy.
+ * Constants mirror src/economy/primitives.ts so this tracks the live economy.
  *
  * Usage: npx ts-node -P tsconfig.test.json scripts/effective-energy.ts
  */

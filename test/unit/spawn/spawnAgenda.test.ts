@@ -28,9 +28,17 @@ describe("agendaWhy (transition labels)", () => {
     ["fresh income unit", { producesIncome: true, groupStarted: false }, "new-unit"],
     ["started income unit scales", { producesIncome: true, groupStarted: true }, "scale"],
     ["income without a group is scaling too", { producesIncome: true }, "scale"],
-    ["tanker is infrastructure", { role: "tanker", producesIncome: false }, "infra"],
-    ["feeder is infrastructure", { role: "feeder", producesIncome: false }, "infra"],
-    ["scout is infrastructure", { role: "scout", producesIncome: false }, "infra"],
+    // SANCTIONED PIN EDIT (spec 35 phase D, INFRA_ROLES kill): the "infra"
+    // label is now DECLARED by the demand (SpawnDemand.why = "infra" on the
+    // tender/feeder/construction-tanker demands) instead of derived from a
+    // role-name set inside the PLAN-layer scheduler. The assertion's meaning
+    // is unchanged - those demands still label "infra" - the declaration just
+    // lives with the corp that owns the demand, so a new infra-class kind
+    // needs no scheduler edit (registration-only contract).
+    ["tanker declares infra (tender + construction tankers)", { role: "tanker", why: "infra", producesIncome: false }, "infra"],
+    ["feeder declares infra", { role: "feeder", why: "infra", producesIncome: false }, "infra"],
+    ["scout declares infra (D-scout's demand will declare it; none exists yet)", { role: "scout", why: "infra", producesIncome: false }, "infra"],
+    ["an undeclared role name is NOT special-cased (INFRA_ROLES is gone)", { role: "tanker", producesIncome: false }, "consume"],
     ["upgrader is a consumer", { role: "upgrader", producesIncome: false }, "consume"],
     ["builder is a consumer", { role: "builder", producesIncome: false }, "consume"]
   ];

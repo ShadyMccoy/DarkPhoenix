@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { shouldDrainDedicatedSource } from "../../../src/corps/CarryCorp";
+import { shouldDrainDedicatedSource } from "../../../src/corps/haulPolicy";
 
 // The fix for "a hauler stands idle next to a growing ground pile": a hauler on the
 // build-reserved source must RESUME hauling once energy backs up - whether that

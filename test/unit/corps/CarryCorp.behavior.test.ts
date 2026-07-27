@@ -1,17 +1,21 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmentation
+import { CarryCorp } from "../../../src/corps/CarryCorp";
+// The pure-policy head moved to its own module (spec 35 phase H): the corp
+// runtime executes the policy; the deciders are imported from haulPolicy.
 import {
-  CarryCorp,
   pickSinkByAllocation,
-  pickRuntToRecycle,
   pickDeliverySink,
   shouldBankControllerLoad,
   shouldRefillFromDepot,
-  tenderOwnsExtensions,
   pickStorageDeposit,
   classifyHaulerTick,
   CONTROLLER_STARVE_FLOOR
-} from "../../../src/corps/CarryCorp";
+} from "../../../src/corps/haulPolicy";
+import { pickRuntToRecycle } from "../../../src/corps/recycle";
+// The tender-regime lens moved to its neutral home (spec 35 phase D; the
+// reader corp no longer owns the writer kind's regime definition).
+import { tenderOwnsExtensions } from "../../../src/corps/regimes";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
 import { Game as MockGame, setupGlobals } from "../mock";
 

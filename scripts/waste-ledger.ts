@@ -18,14 +18,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  CLAIM_LIFETIME,
   MINER_PARTS,
+  RESERVER_DUTY,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
   haulerOverhead
 } from "../src/economy/primitives";
 import { BASE_RESERVE, feederRelayRate } from "../src/economy/bank";
-import { CLAIM_LIFETIME, RESERVER_DUTY } from "../src/corps/economics";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

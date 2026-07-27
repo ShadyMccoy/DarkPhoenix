@@ -8,7 +8,7 @@
 
 import { expect } from "chai";
 import { Commission } from "../../../src/economy/Commission";
-import { CorpKind } from "../../../src/economy/CorpKind";
+import { CorpKind, runCorpTick } from "../../../src/economy/CorpKind";
 import { ColonyProblem } from "../../../src/economy/CorpPlanner";
 
 export interface KindFixtures {
@@ -86,10 +86,12 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
       expect((updated as { getSpawnId?: () => string }).getSpawnId?.()).to.equal(freshId);
     });
 
-    it("run() never throws on an empty world (ErrorMapper contract)", () => {
+    it("run (custom or the dispatch's default cadence) never throws on an empty world (ErrorMapper contract)", () => {
+      // runCorpTick is THE dispatch path: the kind's own run() when declared,
+      // else the default plan/work cadence (run is optional since spec 35 D).
       const corp = kind.materialize(fx.commission, undefined);
-      expect(() => kind.run(corp, 1)).to.not.throw();
-      expect(() => kind.run(corp, 2)).to.not.throw();
+      expect(() => runCorpTick(kind, corp, 1)).to.not.throw();
+      expect(() => runCorpTick(kind, corp, 2)).to.not.throw();
     });
 
     const expectedParts = fx.expectedSpawnPartsPerTick;

@@ -7,12 +7,12 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
-import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import {
@@ -24,8 +24,8 @@ import {
 } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
-import { CONTROLLER_STARVE_FLOOR } from "./CarryCorp";
-import { buildPoolAbsorbRate, buildPoolBacklog } from "./ConstructionCorp";
+import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
+import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -216,7 +216,6 @@ export function bankBehindFeeder(params: {
  */
 export interface SerializedUpgradingCorp extends SerializedCorp {
   spawnId: string;
-  targetUpgraders: number;
   /** Flow-based sink allocation (from FlowEconomy) */
   sinkAllocation?: SinkAllocation;
 }
@@ -232,9 +231,6 @@ export interface SerializedUpgradingCorp extends SerializedCorp {
 export class UpgradingCorp extends Corp {
   /** ID of the spawn to use */
   private spawnId: string;
-
-  /** Target number of upgraders (computed during planning) */
-  private targetUpgraders = 2;
 
   /**
    * Flow-based sink allocation from FlowEconomy.
@@ -259,31 +255,6 @@ export class UpgradingCorp extends Corp {
       }
     }
     return creeps;
-  }
-
-  /**
-   * Plan upgrading operations. Called periodically to compute targets.
-   * Adjusts target upgraders based on controller level and downgrade risk.
-   */
-  public plan(tick: number): void {
-    super.plan(tick);
-
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn?.room.controller) {
-      this.targetUpgraders = 1;
-      return;
-    }
-
-    const controller = spawn.room.controller;
-    const rcl = controller.level;
-
-    let target = rcl <= 2 ? 1 : 2;
-
-    if (controller.ticksToDowngrade < CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD * 0.3) {
-      target = Math.max(target, 3);
-    }
-
-    this.targetUpgraders = target;
   }
 
   /**
@@ -498,20 +469,6 @@ export class UpgradingCorp extends Corp {
     this.spawnId = spawnId;
   }
 
-  /**
-   * True if the room already has a real flow hauler in the field (corpId
-   * "hauling-..."), i.e. the mining->spawn delivery loop is closed. Bootstrap
-   * jacks (which also move energy) are deliberately excluded - see the
-   * supply-before-demand gate in getSpawnDemand.
-   */
-  private roomHasHauler(room: Room): boolean {
-    for (const creep of room.find(FIND_MY_CREEPS)) {
-      const memory = creep.memory;
-      if (memory.workType === "haul" && memory.corpId?.startsWith("hauling-")) return true;
-    }
-    return false;
-  }
-
     /**
    * Declare this corp's spawn demand for the scheduler.
    *
@@ -538,7 +495,7 @@ export class UpgradingCorp extends Corp {
     // closes the supply loop; the controller is kept alive meanwhile by the
     // bootstrap corp's anti-downgrade upgrading. Bootstrap jacks do NOT count -
     // we want their deliveries to fund the first hauler, not be spent upgrading.
-    if (spawn && !this.roomHasHauler(spawn.room)) return [];
+    if (spawn && !roomHasFlowHauler(spawn.room)) return [];
 
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an
@@ -803,10 +760,6 @@ export class UpgradingCorp extends Corp {
    */
   public setSinkAllocation(allocation: SinkAllocation): void {
     this.sinkAllocation = allocation;
-    // Dynamically adjust target upgraders based on allocated energy
-    // Each upgrader with ~3 WORK parts uses about 3 energy/tick
-    const workPerUpgrader = 3;
-    this.targetUpgraders = Math.max(1, Math.ceil(allocation.allocated / workPerUpgrader));
   }
 
   /**
@@ -814,20 +767,6 @@ export class UpgradingCorp extends Corp {
    */
   public getSinkAllocation(): SinkAllocation | null {
     return this.sinkAllocation;
-  }
-
-  /**
-   * Check if this corp has a flow-based allocation.
-   */
-  public hasFlowAllocation(): boolean {
-    return this.sinkAllocation !== null;
-  }
-
-  /**
-   * Get the allocated energy rate from flow solution.
-   */
-  public getAllocatedEnergyRate(): number {
-    return this.sinkAllocation?.allocated ?? 0;
   }
 
   /**
@@ -840,27 +779,12 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Get the demanded energy rate from flow solution.
-   */
-  public getDemandedEnergyRate(): number {
-    return this.sinkAllocation?.demand ?? 0;
-  }
-
-  /**
-   * Get the priority from flow solution.
-   */
-  public getFlowPriority(): number {
-    return this.sinkAllocation?.priority ?? 60; // Default controller priority
-  }
-
-  /**
    * Serialize for persistence.
    */
   public serialize(): SerializedUpgradingCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
-      targetUpgraders: this.targetUpgraders,
       sinkAllocation: this.sinkAllocation ?? undefined
     };
   }
@@ -870,7 +794,6 @@ export class UpgradingCorp extends Corp {
    */
   public deserialize(data: SerializedUpgradingCorp): void {
     super.deserialize(data);
-    this.targetUpgraders = data.targetUpgraders || 2;
     this.sinkAllocation = data.sinkAllocation ?? null;
   }
 }

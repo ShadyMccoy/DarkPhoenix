@@ -8,10 +8,10 @@
  * their legacy run*Corps call in main.ts is deleted and they flow through
  * here instead - the host itself never changes.
  *
- * Registered: harvest, carry, upgrade (solver-backed - their commissions are
- * passed in from FlowEconomy.getCommissions, so their propose() returns [] and
- * they never read the live ColonyProblem) plus scout, reservation, tender
- * (auxiliary - they propose() over the minimal live problem below).
+ * The registered roster is the KINDS array below - the ONE registration
+ * point. Solver-backed kinds get their commissions from
+ * FlowEconomy.getCommissions (their propose() returns []); self-proposing
+ * kinds propose() over the minimal live problem below.
  *
  * @module execution/CommissionHost
  */

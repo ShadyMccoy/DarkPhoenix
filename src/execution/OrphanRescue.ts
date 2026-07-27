@@ -29,7 +29,7 @@
 import { Corp } from "../corps/Corp";
 import { CorpKind, listCorpKinds } from "../economy/CorpKind";
 import { CorpRegistry } from "./CorpRunner";
-import { allCommissionedCorps, commissionedCorpsOfKind } from "./CommissionHost";
+import { commissionedCorpsOfKind, completeCensus } from "./CommissionHost";
 import { driveRecycle } from "../corps/recycle";
 
 /**
@@ -67,17 +67,16 @@ export function orphanAction(
 }
 
 /**
- * Every live corp id this tick: the whole commission-store census plus the two
- * legacy-registry corps (bootstrap, spawning). Registry-derived - a newly
- * registered kind's corps are live by construction, never by remembering to
- * extend a list here (the pre-spec-17 hand-maintained 11-kind list is gone).
+ * Every live corp id this tick, derived from the COMPLETE census
+ * (completeCensus: the commission store plus the two legacy-registry kinds,
+ * folded in at the ONE sanctioned point). A newly registered kind's corps are
+ * live by construction, never by remembering to extend a list here - and the
+ * legacy bootstrap/spawning fold is no longer re-implemented by hand either
+ * (spec 35 phase D, audit finding execution/8: this function used to
+ * duplicate completeCensus's registry fold).
  */
 function liveCorpIds(registry: CorpRegistry): Set<string> {
-  const ids = new Set<string>();
-  for (const entry of allCommissionedCorps()) ids.add(entry.corp.id);
-  for (const room in registry.bootstrapCorps) ids.add(registry.bootstrapCorps[room].id);
-  for (const spawnId in registry.spawningCorps) ids.add(registry.spawningCorps[spawnId].id);
-  return ids;
+  return new Set(completeCensus(registry).map(entry => entry.corp.id));
 }
 
 /**

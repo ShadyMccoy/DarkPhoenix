@@ -25,9 +25,10 @@
  * @module corps/kinds/reservationKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { Commission } from "../../economy/Commission";
+import { CorpKind, startedUnitDemandGroup } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ReservationCorp, SerializedReservationCorp } from "../ReservationCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
@@ -55,14 +56,9 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   roles: { reserver: { workType: "reserve" } },
 
   propose(problem: ColonyProblem, draft: readonly Commission[] = []): Commission[] {
-    const homes: { room: string; spawnId: string }[] = [];
-    const seenHome = new Set<string>();
-    for (const s of problem.spawns) {
-      if (!seenHome.has(s.pos.roomName)) {
-        seenHome.add(s.pos.roomName);
-        homes.push({ room: s.pos.roomName, spawnId: s.id });
-      }
-    }
+    const homeSpawnByRoom = homeSpawnsByRoom(problem);
+    const homes = [...homeSpawnByRoom].map(([room, spawnId]) => ({ room, spawnId }));
+    const seenHome = new Set(homeSpawnByRoom.keys());
     // The trigger, on the DURABLE signal: rooms the draft plan MINES that are
     // not our own spawn rooms. Solver harvest commissions carry the source
     // position in produces.at, so no Game/vision/creep lookup is needed here.
@@ -75,6 +71,8 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     // ONE corp per NODE: bind each mined remote to its NEAREST home spawn within
     // scout range (deterministic tiebreak), so a remote reachable from two homes
     // gets exactly ONE reservation corp - never two fighting over one controller.
+    // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
+    // sources), priced by the SpawnDirector's value ranking, not the planner.
     const commissions: Commission[] = [];
     for (const targetRoom of [...minedRemotes].sort()) {
       const home = homes
@@ -82,16 +80,13 @@ export const reservationKind: CorpKind<ReservationCorp> = {
         .filter(h => h.d <= MAX_SCOUT_DISTANCE)
         .sort((a, b) => a.d - b.d || a.room.localeCompare(b.room))[0];
       if (!home) continue;
-      commissions.push({
-        corpId: corpIdFor("reservation", targetRoom),
-        kind: "reservation",
-        shape: "auxiliary",
-        // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
-        // sources), priced by the SpawnDirector's value ranking, not the planner.
-        consumes: { spawnPartsPerTick: 0 },
-        produces: { valuePerTick: 0 },
-        assignment: { roomName: home.room, spawnId: home.spawnId, targetRoom } as ReservationAssignment
-      });
+      commissions.push(
+        perRoomAuxiliaryCommission("reservation", targetRoom, home.spawnId, {
+          roomName: home.room,
+          spawnId: home.spawnId,
+          targetRoom
+        } as ReservationAssignment)
+      );
     }
     return commissions;
   },
@@ -114,10 +109,6 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     return corp;
   },
 
-  run(corp: ReservationCorp, tick: number): void {
-    corp.work(tick);
-  },
-
   serializeCorp(corp: ReservationCorp): SerializedReservationCorp {
     return corp.serialize();
   },
@@ -138,9 +129,7 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   // harvests the remote - the op is underway, so the unit is always started.
   // At base value it starved forever behind the income tier while the remote
   // stayed at the unreserved half-rate.
-  demandGroup(corp: ReservationCorp) {
-    return { groupId: corp.id, started: true };
-  },
+  demandGroup: startedUnitDemandGroup,
 
   // Re-adopt an orphaned reserver into the per-node corp for the room it is
   // LATCHED to (its one-way targetRoom), not the room it happens to stand in -

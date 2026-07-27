@@ -7,16 +7,12 @@
  * @module corps/HarvestCorp
  */
 
-import {
-  HARVEST_RATE,
-  SOURCE_ENERGY_CAPACITY,
-  SOURCE_REGEN_TIME,
-  calculateOptimalWorkParts
-} from "../planning/EconomicConstants";
-import { effectiveLife, staffsPost } from "../economy/primitives";
+import { isIntelId, parsePositionalId, stripSourcePrefix, stripSpawnPrefix } from "../economy/ids";
+import { HARVEST_ENERGY_PER_WORK, staffsPost, workPartsForEnergyRate } from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
+import { spawnRoomHasFlowMiner } from "./censusLens";
 import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
@@ -57,9 +53,6 @@ export interface SerializedHarvestCorp extends SerializedCorp {
   spawnId: string;
   sourceId: string;
   creepNames: string[];
-  lastSpawnAttempt: number;
-  desiredWorkParts: number;
-  targetMiners: number;
   /** Flow-based miner assignment (from FlowEconomy) */
   minerAssignment?: MinerAssignment;
   /** The corp's POST - where its miners work (see post field). */
@@ -76,27 +69,12 @@ export interface SerializedHarvestCorp extends SerializedCorp {
  * - Harvest energy
  * - Drop energy on ground (for haulers)
  */
-/**
- * Fallback WORK parts for standard 3000-capacity sources.
- * Use calculateOptimalWorkParts() for actual capacity-based calculation.
- */
-const DEFAULT_DESIRED_WORK = 5;
-
 export class HarvestCorp extends Corp {
   /** ID of the spawn to use */
   private spawnId: string;
 
   /** ID of the source to harvest */
   private sourceId: string;
-
-  /** Last tick we attempted to spawn */
-  private lastSpawnAttempt = 0;
-
-  /** Desired WORK parts for this mining operation */
-  private desiredWorkParts: number;
-
-  /** Target number of harvesters (computed during planning) */
-  private targetMiners = 1;
 
   /**
    * Flow-based miner assignment from FlowEconomy.
@@ -135,26 +113,10 @@ export class HarvestCorp extends Corp {
     return creeps;
   }
 
-  public constructor(
-    nodeId: string,
-    spawnId: string,
-    sourceId: string,
-    desiredWorkParts: number = DEFAULT_DESIRED_WORK,
-    customId?: string
-  ) {
+  public constructor(nodeId: string, spawnId: string, sourceId: string, customId?: string) {
     super("mining", nodeId, customId);
     this.spawnId = spawnId;
     this.sourceId = sourceId;
-    this.desiredWorkParts = desiredWorkParts;
-  }
-
-  /**
-   * Plan harvesting operations. Called periodically to compute targets.
-   */
-  public plan(tick: number): void {
-    super.plan(tick);
-    // One harvester with 5 WORK parts saturates a standard source (10 energy/tick)
-    this.targetMiners = 1;
   }
 
   /**
@@ -167,12 +129,9 @@ export class HarvestCorp extends Corp {
     }
 
     // For intel-based sources, parse position from ID format: "intel-ROOMNAME-X-Y"
-    if (this.sourceId.startsWith("intel-")) {
-      const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
-      if (match) {
-        const [, parsedRoom, x, y] = match;
-        return { x: parseInt(x, 10), y: parseInt(y, 10), roomName: parsedRoom };
-      }
+    if (isIntelId(this.sourceId)) {
+      const parsed = parsePositionalId(this.sourceId);
+      if (parsed) return { ...parsed.pos };
     }
 
     // Fallback: extract room name from nodeId
@@ -193,7 +152,7 @@ export class HarvestCorp extends Corp {
     // {corpId, workType} - only STAGED test creeps carried it, which made
     // the saturation gate read every organic home source as unmined and
     // remotes never unlocked (measured via SATDIAG probe).
-    const realSourceId = this.sourceId.replace("source-", "");
+    const realSourceId = stripSourcePrefix(this.sourceId);
     for (const creep of this.getActiveCreeps()) {
       if (creep.memory.assignedSourceId !== realSourceId) {
         creep.memory.assignedSourceId = realSourceId;
@@ -205,20 +164,20 @@ export class HarvestCorp extends Corp {
 
     // For intel-based sources (remote rooms), source might be null until we have vision
     // Parse position from intel source ID format: "intel-ROOMNAME-X-Y"
-    const isIntelSource = this.sourceId.startsWith("intel-");
+    const isIntelSource = isIntelId(this.sourceId);
     let targetPos: RoomPosition | null = null;
 
     if (!source && isIntelSource) {
-      const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
-      if (match) {
-        const [, roomName, x, y] = match;
-        targetPos = new RoomPosition(parseInt(x, 10), parseInt(y, 10), roomName);
+      const parsed = parsePositionalId(this.sourceId);
+      if (parsed) {
+        const { x, y, roomName } = parsed.pos;
+        targetPos = new RoomPosition(x, y, roomName);
 
         // If we now have vision of the room, try to find the actual source
         const room = Game.rooms[roomName];
         if (room) {
           const sources = room.find(FIND_SOURCES);
-          source = sources.find(s => s.pos.x === parseInt(x, 10) && s.pos.y === parseInt(y, 10)) ?? null;
+          source = sources.find(s => s.pos.x === x && s.pos.y === y) ?? null;
         }
       }
     }
@@ -307,7 +266,7 @@ export class HarvestCorp extends Corp {
     // Release the smallest; on WORK ties, the one FARTHEST from the source -
     // never the seated holder (grid cell move-miner-pocket-holdoff: an
     // index-order tie-break recycled the seated miner and displaced it).
-    const source = Game.getObjectById(this.sourceId.replace("source-", "") as Id<Source>);
+    const source = Game.getObjectById(stripSourcePrefix(this.sourceId) as Id<Source>);
     let releaseIdx = 0;
     staffing.forEach((c, i) => {
       if (i === 0) return;
@@ -326,7 +285,7 @@ export class HarvestCorp extends Corp {
   /** Miner count the plan wants - same math as getSpawnDemand's target. */
   private minerTargetCount(energyCapacity: number): number {
     if (!this.minerAssignment) return 1;
-    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(this.minerAssignment.harvestRate, HARVEST_ENERGY_PER_WORK));
     const affordableWork = Math.max(1, buildMinerBody(totalWork, energyCapacity).workParts);
     const needed = Math.ceil(totalWork / affordableWork);
     return Math.max(1, Math.min(this.minerAssignment.maxMiners || 1, needed));
@@ -343,7 +302,7 @@ export class HarvestCorp extends Corp {
     if (!this.minerAssignment) return null;
     if (creeps.some(c => c.memory.recycling)) return null;
 
-    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(this.minerAssignment.harvestRate, HARVEST_ENERGY_PER_WORK));
     const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
     const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
     const runtIdx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
@@ -418,7 +377,7 @@ export class HarvestCorp extends Corp {
     const result = creep.harvest(source);
 
     if (result === OK) {
-      const energyHarvested = creep.getActiveBodyparts(WORK) * 2;
+      const energyHarvested = creep.getActiveBodyparts(WORK) * HARVEST_ENERGY_PER_WORK;
       this.recordProduction(energyHarvested);
       // Mirror the engine's invader-raid fuse (spec 13): every harvested unit
       // is raid debt for this room. Written here, at the same intent the
@@ -466,7 +425,7 @@ export class HarvestCorp extends Corp {
     if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) return [];
 
     // WORK parts needed to saturate this source (2 energy/tick per WORK part).
-    const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(assignment.harvestRate, HARVEST_ENERGY_PER_WORK));
 
     // Size the miner COUNT to the source's actual need, not to the number of
     // physical mining spots. A big room fields one large miner; a small room
@@ -573,21 +532,9 @@ export class HarvestCorp extends Corp {
   private spawnRoomHasMiner(): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const spawnRoom = spawn?.room.name;
-    // Count only real FLOW miners (a HarvestCorp's creep, corpId "mining-..."),
-    // NOT bootstrap jacks - which also carry workType "harvest" but corpId
-    // "bootstrap-...". Counting jacks here made every flow miner non-blocking
-    // while jacks were alive, so the blocking upgrader/haulers always outranked
-    // it and no flow miner ever spawned: the colony could never hand off from
-    // bootstrap to the flow economy.
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      const memory = creep.memory;
-      if (memory.workType !== "harvest" || !memory.corpId?.startsWith("mining-")) continue;
-      // Unknown rooms (unit-harness mocks) count as local - the old colony-wide
-      // behavior - so only a KNOWN remote miner is excluded from the floor gate.
-      if (!spawnRoom || creep.room?.name === undefined || creep.room.name === spawnRoom) return true;
-    }
-    return false;
+    // Count only real FLOW miners, never bootstrap jacks - the census lens
+    // carries the compound predicate and the handoff incident rationale.
+    return spawnRoomHasFlowMiner(spawnRoom);
   }
 
   /**
@@ -660,13 +607,6 @@ export class HarvestCorp extends Corp {
     this.post = pos;
   }
 
-  /**
-   * Get desired work parts for this source.
-   */
-  public getDesiredWorkParts(): number {
-    return this.desiredWorkParts;
-  }
-
   // ===========================================================================
   // FLOW INTEGRATION
   // ===========================================================================
@@ -681,7 +621,7 @@ export class HarvestCorp extends Corp {
     // The flow sink id is prefixed ("spawn-<gameId>"); strip it so spawnId is
     // the real spawn game id - the spawn scheduler matches corps to spawns by
     // this id, and a prefixed value silently excludes the corp (no miners spawn).
-    this.spawnId = assignment.spawnId.replace("spawn-", "");
+    this.spawnId = stripSpawnPrefix(assignment.spawnId);
   }
 
   /**
@@ -689,20 +629,6 @@ export class HarvestCorp extends Corp {
    */
   public getMinerAssignment(): MinerAssignment | null {
     return this.minerAssignment;
-  }
-
-  /**
-   * Check if this corp has a flow-based assignment.
-   */
-  public hasFlowAssignment(): boolean {
-    return this.minerAssignment !== null;
-  }
-
-  /**
-   * Get the expected harvest rate from flow assignment.
-   */
-  public getExpectedHarvestRate(): number {
-    return this.minerAssignment?.harvestRate ?? 10; // Default: 10 e/tick
   }
 
   /**
@@ -715,13 +641,6 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Get spawn distance from flow assignment.
-   */
-  public getSpawnDistance(): number {
-    return this.minerAssignment?.spawnDistance ?? 0;
-  }
-
-  /**
    * Serialize for persistence.
    */
   public serialize(): SerializedHarvestCorp {
@@ -730,9 +649,6 @@ export class HarvestCorp extends Corp {
       spawnId: this.spawnId,
       sourceId: this.sourceId,
       creepNames: [],
-      lastSpawnAttempt: this.lastSpawnAttempt,
-      desiredWorkParts: this.desiredWorkParts,
-      targetMiners: this.targetMiners,
       minerAssignment: this.minerAssignment ?? undefined,
       postPos: this.post ?? undefined,
       postExact: this.postExact || undefined
@@ -744,21 +660,8 @@ export class HarvestCorp extends Corp {
    */
   public deserialize(data: SerializedHarvestCorp): void {
     super.deserialize(data);
-    this.lastSpawnAttempt = data.lastSpawnAttempt || 0;
-    this.desiredWorkParts = data.desiredWorkParts || DEFAULT_DESIRED_WORK;
-    this.targetMiners = data.targetMiners || 1;
     this.minerAssignment = data.minerAssignment ?? null;
     this.post = data.postPos ?? null;
     this.postExact = data.postExact ?? false;
   }
-}
-
-/**
- * Create a HarvestCorp for a source in a room.
- * Calculates optimal work parts based on the source's energy capacity.
- */
-export function createHarvestCorp(room: Room, spawn: StructureSpawn, source: Source): HarvestCorp {
-  const nodeId = `${room.name}-harvest-${source.id.slice(-4)}`;
-  const desiredWorkParts = calculateOptimalWorkParts(source.energyCapacity);
-  return new HarvestCorp(nodeId, spawn.id, source.id, desiredWorkParts);
 }

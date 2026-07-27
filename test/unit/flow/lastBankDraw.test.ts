@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
-import { FlowEconomy } from "../../../src/flow/FlowEconomy";
-import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
+import { FlowEconomy } from "../../../src/economy/flowAdapter";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 
 /**
@@ -44,7 +43,7 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
 
   it("every solve WRITES the realized draw; a FRESH instance READS it", () => {
     const nodes = world();
-    const a = new FlowEconomy(nodes, new NodeNavigator(nodes, []));
+    const a = new FlowEconomy(nodes);
     a.update(0);
     expect(g.Memory.lastBankDraw, "the solve records its realized draw").to.be.a("number");
 
@@ -52,7 +51,7 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
     // must still see history via Memory - the pricing input is whatever the
     // last solve realized, not undefined.
     const recorded = g.Memory.lastBankDraw;
-    const b = new FlowEconomy(world(), new NodeNavigator(world(), []));
+    const b = new FlowEconomy(world());
     b.update(1);
     expect(g.Memory.lastBankDraw, "the fresh instance's solve re-records").to.be.a("number");
     void recorded;

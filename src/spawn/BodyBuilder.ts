@@ -8,7 +8,7 @@
  * @module spawn/BodyBuilder
  */
 
-import { carryPartsFor } from "../economy/primitives";
+import { BODY_COSTS, CARRY_CAPACITY } from "../economy/primitives";
 
 /**
  * Result of a body building calculation.
@@ -22,16 +22,20 @@ export interface BodyResult {
   workParts: number;
 }
 
-/** Cost of each body part type */
+/**
+ * Cost of each body part type, keyed by the runtime part constants. Values
+ * come from the ONE table (primitives.BODY_COSTS) - this is just the
+ * lowercase-key view the builders index with.
+ */
 const PART_COSTS: Record<BodyPartConstant, number> = {
-  [WORK]: 100,
-  [CARRY]: 50,
-  [MOVE]: 50,
-  [ATTACK]: 80,
-  [RANGED_ATTACK]: 150,
-  [HEAL]: 250,
-  [CLAIM]: 600,
-  [TOUGH]: 10
+  [WORK]: BODY_COSTS.WORK,
+  [CARRY]: BODY_COSTS.CARRY,
+  [MOVE]: BODY_COSTS.MOVE,
+  [ATTACK]: BODY_COSTS.ATTACK,
+  [RANGED_ATTACK]: BODY_COSTS.RANGED_ATTACK,
+  [HEAL]: BODY_COSTS.HEAL,
+  [CLAIM]: BODY_COSTS.CLAIM,
+  [TOUGH]: BODY_COSTS.TOUGH
 };
 
 /**
@@ -125,20 +129,6 @@ export function buildMinerBody(desiredWork: number, energyCapacity: number, with
 }
 
 /**
- * Calculates how many creeps are needed to fulfill a WORK parts order.
- *
- * @param desiredWork - Total WORK parts needed
- * @param workPerCreep - WORK parts per creep from buildMinerBody
- * @param maxCreeps - Maximum creeps allowed (e.g., mining spots available)
- * @returns Number of creeps to spawn
- */
-export function calculateCreepsNeeded(desiredWork: number, workPerCreep: number, maxCreeps: number): number {
-  if (workPerCreep <= 0) return 0;
-  const needed = Math.ceil(desiredWork / workPerCreep);
-  return Math.min(needed, maxCreeps);
-}
-
-/**
  * Result of a hauler body calculation.
  */
 export interface HaulerBodyResult {
@@ -148,73 +138,6 @@ export interface HaulerBodyResult {
   cost: number;
   /** Total carry capacity of this body */
   carryCapacity: number;
-}
-
-/**
- * Builds an optimal hauler body given energy rate and distance.
- *
- * Haulers need CARRY parts for capacity and MOVE parts for mobility.
- * The ratio is 1:1 CARRY:MOVE for full speed on roads (and plains when empty).
- *
- * The required carry capacity comes from the canonical economy formula
- * (carryPartsFor: rate * roundTrip / CARRY_CAPACITY) with a 20% buffer for
- * path variability.
- *
- * @param energyRate - Energy per tick being produced (e.g., 10 for full harvest)
- * @param distance - One-way path distance from source to delivery
- * @param energyCapacity - Available energy capacity (room.energyCapacityAvailable)
- * @returns Body configuration with body array, cost, and carry capacity
- */
-export function buildHaulerBody(energyRate: number, distance: number, energyCapacity: number): HaulerBodyResult {
-  // Minimum viable hauler: 1 CARRY + 1 MOVE = 100 energy
-  const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];
-  if (energyCapacity < minEnergy) {
-    return { body: [], cost: 0, carryCapacity: 0 };
-  }
-
-  const CARRY_CAPACITY = 50;
-  // Add 20% buffer for path variability and pickup time
-  const carryPartsNeeded = Math.ceil(carryPartsFor(energyRate, distance) * 1.2);
-
-  // Build body with 1:1 CARRY:MOVE ratio
-  let carryParts = 0;
-  let moveParts = 0;
-  let cost = 0;
-
-  // Add pairs of CARRY + MOVE up to the needed amount or energy limit
-  const pairCost = PART_COSTS[CARRY] + PART_COSTS[MOVE]; // 100 energy per pair
-
-  while (carryParts < carryPartsNeeded) {
-    if (cost + pairCost > energyCapacity) {
-      break;
-    }
-
-    if (carryParts + moveParts + 2 > MAX_BODY_PARTS) {
-      break;
-    }
-
-    carryParts++;
-    moveParts++;
-    cost += pairCost;
-  }
-
-  // Ensure we have at least the minimum viable hauler
-  if (carryParts === 0 && energyCapacity >= minEnergy) {
-    carryParts = 1;
-    moveParts = 1;
-    cost = minEnergy;
-  }
-
-  // Build the body array (CARRY parts first, then MOVE)
-  const body: BodyPartConstant[] = [];
-  for (let i = 0; i < carryParts; i++) {
-    body.push(CARRY);
-  }
-  for (let i = 0; i < moveParts; i++) {
-    body.push(MOVE);
-  }
-
-  return { body, cost, carryCapacity: carryParts * CARRY_CAPACITY };
 }
 
 /**
@@ -245,7 +168,7 @@ export function buildRatioHaulerBody(
   const body: BodyPartConstant[] = [];
   for (let i = 0; i < units * carryRatio; i++) body.push(CARRY);
   for (let i = 0; i < units * moveRatio; i++) body.push(MOVE);
-  return { body, cost: units * costPerUnit, carryCapacity: units * carryRatio * 50 };
+  return { body, cost: units * costPerUnit, carryCapacity: units * carryRatio * CARRY_CAPACITY };
 }
 
 /**
@@ -332,8 +255,6 @@ export function buildTankerBody(requiredCarry: number, energyCapacity: number, u
   if (energyCapacity < minEnergy) {
     return { body: [], cost: 0, carryCapacity: 0 };
   }
-
-  const CARRY_CAPACITY = 50;
 
   // CARRY-heavy because a tanker is mostly stationary (see doc above). 1 MOVE
   // per 3 CARRY on plains (slow when loaded, but it rarely moves); on roads,

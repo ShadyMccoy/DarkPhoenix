@@ -667,26 +667,82 @@ export function workSpot(creep: Creep, spot: EnergySpot, mode: "collect" | "depo
 }
 
 /**
- * Energy actually pooled at the controller side: containers/storage within 4
- * of the controller plus loose energy near the input spot. THE lens for
- * stock-grounded upgrader sizing (UpgradingCorp) AND the telemetry room
+ * The parameterized core of the "energy staged at the controller" lenses.
+ * TWO named variants exist DELIBERATELY (spec 35 phase D, audit finding
+ * corps-rest/8 - do not blind-merge them): the wide sizing/ledger view
+ * ({@link controllerSideStock}) and the feeder's narrow top-up gate
+ * ({@link feederRelayStock}). The divergence is load-bearing and is encoded
+ * here as named parameters instead of a private re-implementation, so the
+ * difference between the two readings is visible in one place.
+ */
+function stagedControllerEnergy(
+  controller: StructureController,
+  inputPos: RoomPosition,
+  opts: {
+    /** Tiles around the CONTROLLER within which buffer structures count. */
+    structureRange: number;
+    /** Count the room's storage as staged stock (the wide sizing view only). */
+    includeStorage: boolean;
+    /** Count only the FIRST matching buffer (the feeder's single input buffer). */
+    firstBufferOnly: boolean;
+    /** Tiles around the INPUT SPOT within which loose piles count. */
+    pileRange: number;
+  }
+): number {
+  let stock = 0;
+  let buffers = 0;
+  for (const s of controller.pos.findInRange(FIND_STRUCTURES, opts.structureRange)) {
+    const isBuffer =
+      s.structureType === STRUCTURE_CONTAINER ||
+      s.structureType === STRUCTURE_LINK || // the controller link IS the input once built (spec 24 rung 3)
+      (opts.includeStorage && s.structureType === STRUCTURE_STORAGE);
+    if (!isBuffer) continue;
+    if (opts.firstBufferOnly && buffers >= 1) continue;
+    buffers++;
+    stock += (s as StructureContainer | StructureStorage | StructureLink).store[RESOURCE_ENERGY] ?? 0;
+  }
+  for (const r of inputPos.findInRange(FIND_DROPPED_RESOURCES, opts.pileRange)) {
+    if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
+  }
+  return stock;
+}
+
+/**
+ * Energy actually pooled at the controller side: containers/storage/links
+ * within 4 of the controller plus loose energy near the input spot. THE lens
+ * for stock-grounded upgrader sizing (UpgradingCorp) AND the telemetry room
  * ledger (spec 14 phase 1) - both read this one function so the number a
  * dashboard shows is the number the decision used.
  */
 export function controllerSideStock(controller: StructureController): number {
   const spot = controllerInputSpot(controller).pos;
-  let stock = 0;
-  for (const s of controller.pos.findInRange(FIND_STRUCTURES, 4)) {
-    if (
-      s.structureType === STRUCTURE_CONTAINER ||
-      s.structureType === STRUCTURE_STORAGE ||
-      s.structureType === STRUCTURE_LINK // the controller link IS the input once built (spec 24 rung 3)
-    ) {
-      stock += (s as StructureContainer | StructureStorage | StructureLink).store[RESOURCE_ENERGY] ?? 0;
-    }
-  }
-  for (const r of spot.findInRange(FIND_DROPPED_RESOURCES, 2)) {
-    if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
-  }
-  return stock;
+  return stagedControllerEnergy(controller, spot, {
+    structureRange: 4,
+    includeStorage: true,
+    firstBufferOnly: false,
+    pileRange: 2
+  });
+}
+
+/**
+ * The FEEDER's narrow view of the same stock - the gate for its
+ * CONTROLLER_FEED_TARGET top-up (ControllerFeederCorp). Deliberately
+ * NARROWER than {@link controllerSideStock}; each difference is a reason,
+ * not an accident:
+ *  - EXCLUDES storage: a storage within reach of the controller is the BANK
+ *    the feeder relays FROM - counting it as staged stock would read the
+ *    whole bank as "topped up" and stop the relay for good.
+ *  - FIRST buffer only, within 3: the feeder fills ONE input buffer (the
+ *    container/link the upgraders draw from), not every box near the
+ *    controller.
+ *  - piles within 1 of the input tile only: its own drop pile, not the wider
+ *    scatter the sizing lens tolerates.
+ */
+export function feederRelayStock(controller: StructureController, inputPos: RoomPosition): number {
+  return stagedControllerEnergy(controller, inputPos, {
+    structureRange: 3,
+    includeStorage: false,
+    firstBufferOnly: true,
+    pileRange: 1
+  });
 }

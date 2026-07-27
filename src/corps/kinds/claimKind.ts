@@ -16,7 +16,7 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ClaimCorp, SerializedClaimCorp } from "../ClaimCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
-import { roomLinearDistance } from "../../utils/RoomDiscovery";
+import { nearestSpawnTo } from "../../economy/proposeHelpers";
 
 /** The claim commission's binding: which target room, which home spawn. */
 export interface ClaimAssignment {
@@ -34,17 +34,8 @@ export const claimKind: CorpKind<ClaimCorp> = {
     // propose is a pure function of its arguments (spec 17 P3).
     if (!problem.expansion) return [];
     const target = problem.expansion.roomName;
-    if (problem.spawns.length === 0) return [];
-
-    let best = problem.spawns[0];
-    let bestDist = Infinity;
-    for (const s of problem.spawns) {
-      const d = roomLinearDistance(s.pos.roomName, target);
-      if (d < bestDist) {
-        bestDist = d;
-        best = s;
-      }
-    }
+    const best = nearestSpawnTo(problem, target);
+    if (!best) return [];
 
     return [
       {
@@ -67,10 +58,6 @@ export const claimKind: CorpKind<ClaimCorp> = {
       return existing;
     }
     return new ClaimCorp(`${a.roomName}-claim`, a.spawnId);
-  },
-
-  run(corp: ClaimCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: ClaimCorp): SerializedClaimCorp {

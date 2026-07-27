@@ -149,7 +149,12 @@ export function feederRelayRate(banked: number, reserveTarget: number): number {
   return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked, reserveTarget);
 }
 
-/** Stable bank source id for a room (one storage per room): "bank-W1N1". */
+/**
+ * Stable bank source id for a room (one storage per room): "bank-W1N1". THE
+ * encoder for the bank id space - the matching lenses (economy/ids.ts
+ * isBankSourceId / bankRoomFromId) decode exactly this form; change one only
+ * with the other (and note the id is LEGACY-STABLE, trap list).
+ */
 export function bankSourceId(roomName: string): string {
   return `bank-${roomName}`;
 }

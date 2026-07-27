@@ -63,7 +63,7 @@ export const SCAVENGE_RATE_FLOOR = 0.5;
 
 /** A scavengeable ground energy stock (dropped pile, tombstone, or ruin). */
 export interface GroundStock {
-  /** Stable id derived from the game object: "scavenge-<objectId>". */
+  /** Stable position-encoded id: "scavenge-ROOM-X-Y" (see stockId). */
   id: string;
   /** Where the stock sits. */
   pos: Position;
@@ -103,7 +103,9 @@ export function scavengeRate(amount: number, distance = 0): number {
 /**
  * Stable, position-encoded id for a stock: "scavenge-ROOM-X-Y". Mirrors the
  * "intel-ROOM-X-Y" source id so the CarryCorp can parse the pickup position from
- * the id alone, with no live game object to look up.
+ * the id alone, with no live game object to look up. THE encoder for the
+ * scavenge id space - the matching lenses (economy/ids.ts isScavengeId /
+ * parsePositionalId) decode exactly this form; change one only with the other.
  */
 export function stockId(pos: Position): string {
   return `scavenge-${pos.roomName}-${pos.x}-${pos.y}`;

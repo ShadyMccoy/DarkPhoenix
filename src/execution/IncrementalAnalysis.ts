@@ -17,13 +17,14 @@ import {
   analyzeMultiRoomTerrain,
   findTerritoryAdjacencies
 } from "../spatial";
-import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
+import { Node, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { mineralNodeValue, resolveMarketPrices } from "../economy/mineralValue";
 import { chebyshevDistance } from "../types/Position";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
+import { isSourceKeeperRoom } from "../utils/RoomDiscovery";
 
 // =============================================================================
 // CONSTANTS
@@ -356,8 +357,6 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
 
-  const surveyor = new NodeSurveyor();
-
   // Build position-to-node map ONCE for all nodes (tie-breaking for wall resources)
   const positionToNode = new Map<string, string>();
   for (const [nodeId, positions] of result.territories) {
@@ -437,15 +436,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     const economicValue = marginalSiteValue(existing, candidate, allSources);
     const mineralValue = nodeMineralValue(node, marketPrices);
 
-    const surveyResult = surveyor.survey(node, Game.time);
-    node.roi = calculateNodeROI(
-      node,
-      peak.height,
-      ownedRooms,
-      surveyResult.potentialCorps,
-      economicValue,
-      mineralValue
-    );
+    node.roi = calculateNodeROI(node, peak.height, ownedRooms, economicValue, mineralValue);
   }
 
   console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);
@@ -479,25 +470,6 @@ export function nodeMineralValue(node: Node, prices: Parameters<typeof mineralNo
 function toColonyNode(node: Node): SiteNode {
   const controller = node.resources.find(r => r.type === "controller");
   return { id: node.id, hubPos: node.peakPosition, controllerPos: controller?.position };
-}
-
-/**
- * Check if a room is a Source Keeper room.
- * SK rooms have coordinates where both X and Y end in 4, 5, or 6,
- * but are not center rooms (where both end in 5).
- */
-function isSourceKeeperRoom(roomName: string): boolean {
-  const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
-  if (!match) return false;
-
-  const x = parseInt(match[1], 10) % 10;
-  const y = parseInt(match[2], 10) % 10;
-
-  // Center rooms (portals) have both coords ending in 5
-  if (x === 5 && y === 5) return false;
-
-  // SK rooms have both coords in [4, 5, 6] range
-  return x >= 4 && x <= 6 && y >= 4 && y <= 6;
 }
 
 /**
@@ -732,6 +704,10 @@ function populateNodeResources(
             // built a SECOND harvest corp for the same source, and both corps
             // spawned a miner (the duplicate-miner incident). The positional id
             // remains only as the legacy fallback for pre-sourceIds intel.
+            // THE encoder for the intel phantom-source id space: the matching
+            // lenses (economy/ids.ts isIntelId / parsePositionalId /
+            // isMinedIncomeId) decode exactly this "intel-ROOM-X-Y" form;
+            // change one only with the other.
             node.resources.push({
               type: "source",
               id: intel.sourceIds?.[i] ?? `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,

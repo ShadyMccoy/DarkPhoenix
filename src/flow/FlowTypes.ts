@@ -1,12 +1,20 @@
 /**
- * Flow-based Economy Types
+ * Flow DTOs - the ONE surviving flow-vocabulary module (spec 35 phase G).
  *
- * Core interfaces for the MFMC (Min-cost Max-flow) economy system.
- * Replaces the market-based offer/contract system with direct flow allocation.
+ * The FlowSolution/assignment shapes the live corps, telemetry and the
+ * adapter's solve share, plus the FlowSource/FlowSink discovery shapes and
+ * their id-minting factories. The discovery + solve driver themselves live in
+ * economy/flowAdapter.ts (the sanctioned world adapter - ONTOLOGY §1); this
+ * module is declarations and pure mappers only, and stays Game-free (the
+ * purity ratchet scans it).
+ *
+ * Economic constants are homed in economy/primitives (spec 35 phase B
+ * inverted the dependency; phase G closed the one-release re-export
+ * tolerance - import primitives directly).
  */
 
-// Position type (shared across modules)
-export { Position } from "../types/Position";
+import type { CommissionedHauler } from "../economy/CorpPlanner";
+import { haulerOverhead } from "../economy/primitives";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { Position } from "../types/Position";
 
@@ -17,28 +25,14 @@ import { Position } from "../types/Position";
 /** Energy produced per tick by a source (3000 capacity / 300 regen) */
 export const SOURCE_ENERGY_PER_TICK = 10;
 
-/** Creep lifetime in ticks */
-export const CREEP_LIFETIME = 1500;
-
-/** Body part costs */
-export const BODY_COSTS = {
-  WORK: 100,
-  CARRY: 50,
-  MOVE: 50
-} as const;
-
-/** Standard miner: 5W 3M */
-export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
-/** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */
-export const MINER_PARTS = 8;
-
 // =============================================================================
 // SINK TYPES
 // =============================================================================
 
 /**
- * Types of energy sinks (consumers) in the economy.
- * Priority ordering is handled by PriorityManager.
+ * Types of energy sinks (consumers) in the economy. Sinks are VALUED by the
+ * planner's ladder (perInstanceSinkValue over DEFAULT_SINK_VALUE - the ONE
+ * value model, ONTOLOGY §7); the type only names what the sink is.
  */
 export type SinkType =
   | "spawn" // Spawn overhead - keeping creeps alive (CRITICAL)
@@ -77,12 +71,6 @@ export interface FlowSource {
 
   /** Game object ID of the source */
   gameId: string;
-
-  /** Whether a miner is assigned to this source */
-  assigned: boolean;
-
-  /** Current energy output (may be less than capacity if not fully mined) */
-  currentOutput: number;
 
   /**
    * Maximum miners that can work this source simultaneously.
@@ -133,47 +121,6 @@ export interface FlowSink {
 }
 
 // =============================================================================
-// FLOW EDGE
-// =============================================================================
-
-/**
- * An edge in the flow network representing transport capacity.
- * Edges connect sources to sinks, possibly via intermediate nodes.
- */
-export interface FlowEdge {
-  /** Unique identifier: "{fromId}|{toId}" */
-  id: string;
-
-  /** Source node/source ID */
-  fromId: string;
-
-  /** Destination node/sink ID */
-  toId: string;
-
-  /** Walking distance (Chebyshev) between endpoints */
-  distance: number;
-
-  /** Round trip time: 2 * distance + 2 */
-  roundTrip: number;
-
-  /** CARRY parts needed for this flow rate */
-  carryParts: number;
-
-  /** Energy flow rate through this edge (per tick) */
-  flowRate: number;
-
-  /** Spawn cost per tick to maintain this flow */
-  spawnCostPerTick: number;
-
-  /** Whether this edge uses roads (affects move ratio) */
-  hasRoads: boolean;
-
-  // === Terrain-aware routing (optional, for EdgeVariant optimization) ===
-
-  /** Terrain profile of the route (road/plain/swamp tile counts) */
-}
-
-// =============================================================================
 // FLOW ALLOCATIONS (Solver Output)
 // =============================================================================
 
@@ -213,13 +160,6 @@ export interface MinerAssignment {
    * Higher efficiency = more net energy per unit harvested = higher spawn priority.
    */
   efficiency: number;
-
-
-
-
-  /** CARRY parts for harvester (affects decay for drop mining) */
-  harvesterCarryParts?: number;
-
 }
 
 /**
@@ -410,8 +350,6 @@ export function createFlowSource(
     position,
     capacity,
     gameId,
-    assigned: false,
-    currentOutput: 0,
     maxMiners
   };
 }
@@ -455,8 +393,44 @@ export function createEdgeId(fromId: string, toId: string): string {
 // (Round-trip / carry-part / hauler-cost formulas live in economy/primitives -
 // the single canonical home for economic math. See docs/ONTOLOGY.md § 2.)
 
-// Re-export distance functions from shared Position module
-export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
+// =============================================================================
+// THE ONE CommissionedHauler -> HaulerAssignment MAPPER
+// =============================================================================
 
-// Re-export body-shape vocabulary for convenience
-export { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+/**
+ * Reconstruct a flow-shaped HaulerAssignment from one commissioned route.
+ *
+ * The planner emits CommissionedHaulers; two runtime paths reconstruct the
+ * flow-shaped HaulerAssignment from them - the live adapter (flowAdapter.
+ * solveColony, building the FlowSolution) and the framework materialization
+ * (carryKind.materialize). They MUST stay identical, so both call this: a new
+ * hauler field (paved, depositPos, ...) is a one-place change and the
+ * solver-bridge pin can never drift. spawnCostPerTick is the one derived field,
+ * recomputed from the canonical primitive (no private formula).
+ *
+ * Cycle-free: imports only the CommissionedHauler TYPE (from the pure planner,
+ * which never imports flow/) and primitives. Folded into this DTO module by
+ * spec 35 phase G (its own flow/haulerAssignment.ts home dissolved with the
+ * translation layer).
+ *
+ * spawnId is carried verbatim (the flow "spawn-" prefix is stripped separately,
+ * when the CORP's spawnId is set - not here).
+ */
+export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerAssignment {
+  return {
+    edgeId: createEdgeId(h.sourceId, h.sinkId),
+    fromId: h.sourceId,
+    toId: h.sinkId,
+    distance: h.distance,
+    carryParts: h.carryParts,
+    flowRate: h.flowRate,
+    spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
+    // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes it).
+    spawnParts: h.spawnParts,
+    spawnId: h.spawnId,
+    // A paved route spawns road haulers: 2 CARRY per MOVE (SpawningCorp.getPartRatios).
+    ...(h.paved ? { haulerRatio: "2:1" as const } : {}),
+    // The deposit port the plan chose (spec 26): CarryCorp delivers here first.
+    ...(h.depositPos ? { depositPos: h.depositPos } : {})
+  };
+}

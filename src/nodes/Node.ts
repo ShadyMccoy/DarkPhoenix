@@ -1,4 +1,3 @@
-import { Corp, CorpType } from "../corps/Corp";
 import { Position } from "../types/Position";
 
 // Declare Game for environments where @types/screeps is not available
@@ -60,39 +59,10 @@ export interface NodeResource {
 }
 
 /**
- * A potential corp that could be created in a node
- */
-export interface PotentialCorp {
-  /** Type of corp that could be created */
-  type: CorpType;
-  /** Resource this corp would use */
-  resource: NodeResource;
-  /** Estimated ROI for this corp */
-  estimatedROI: number;
-  /** Position where the corp would operate */
-  position: Position;
-  /** Additional config for corp creation */
-  config?: Record<string, unknown>;
-}
-
-/**
- * Potential corp ROI summary for a node.
- */
-export interface PotentialCorpROI {
-  /** Corp type */
-  type: CorpType;
-  /** Estimated ROI for this corp */
-  estimatedROI: number;
-  /** Resource this corp would use */
-  resourceId: string;
-}
-
-/**
  * ROI metrics for a node - used to evaluate expansion potential.
- * ROI is calculated by surveying what corps could operate in this node.
  */
 export interface NodeROI {
-  /** Overall ROI score (sum of potential corps' ROI, adjusted for distance) */
+  /** Overall ROI score (economic value, adjusted for distance) */
   score: number;
 
   /**
@@ -102,14 +72,11 @@ export interface NodeROI {
    */
   expansionScore: number;
 
-  /** Total estimated ROI from all potential corps (before distance adjustment) */
-  rawCorpROI: number;
-
   /**
    * Planner-backed economic value of a spawn at this node's peak: the
    * productive energy/tick of the whole chain it would stand up over this
    * node's own AND its reachable neighbours' sources. This is the real driver
-   * of the scores below - the per-corp ROIs above are kept only for display.
+   * of the scores below.
    */
   economicValue: number;
 
@@ -121,9 +88,6 @@ export interface NodeROI {
    * ranking. Zero when the node has no mineral, or it is unpriced/unscouted.
    */
   mineralValue: number;
-
-  /** Potential corps that could operate in this node */
-  potentialCorps: PotentialCorpROI[];
 
   /** Peak height - indicates buildable space */
   openness: number;
@@ -269,16 +233,13 @@ export function deserializeNode(data: SerializedNode): Node {
 }
 
 /**
- * Calculate ROI metrics for a node based on potential corps.
+ * Calculate ROI metrics for a node.
  *
- * The ROI is calculated by surveying what corps could operate in this node
- * and summing their estimated ROI. Distance from owned rooms applies a
- * logistics penalty to the score.
+ * Distance from owned rooms applies a logistics penalty to the score.
  *
  * @param node - The node to calculate ROI for
  * @param peakHeight - The peak height from spatial analysis
  * @param ownedRooms - Set of owned room names for distance calculation
- * @param potentialCorps - Potential corps from NodeSurveyor (optional, for pre-computed survey)
  * @param economicValue - The node's marginal contribution to the colony economy
  *   (economy/siteValue.marginalSiteValue, computed by the caller). This is the
  *   real driver of the score; reachable adjacent-node sources are already folded
@@ -289,7 +250,6 @@ export function calculateNodeROI(
   node: Node,
   peakHeight: number,
   ownedRooms: Set<string>,
-  potentialCorps: PotentialCorp[] = [],
   economicValue = 0,
   mineralValue = 0
 ): NodeROI {
@@ -315,19 +275,6 @@ export function calculateNodeROI(
 
   // Check for controller
   const hasController = node.resources.some(r => r.type === "controller");
-
-  // Build potential corps ROI summary
-  const potentialCorpROIs: PotentialCorpROI[] = potentialCorps.map(pc => ({
-    type: pc.type,
-    estimatedROI: pc.estimatedROI,
-    resourceId: pc.resource.id
-  }));
-
-  // Raw ROI is sum of all potential corps' estimated ROI. Kept for telemetry
-  // display only - the score itself is now driven by the planner-backed
-  // economic value below, which avoids double-counting (the spawn's value
-  // already includes the miners/haulers/upgraders it staffs).
-  const rawCorpROI = potentialCorps.reduce((sum, pc) => sum + pc.estimatedROI, 0);
 
   // `economicValue` is the node's MARGINAL contribution to the colony - the
   // whole-colony economy with this node minus without it (see
@@ -370,10 +317,8 @@ export function calculateNodeROI(
   return {
     score,
     expansionScore,
-    rawCorpROI,
     economicValue,
     mineralValue,
-    potentialCorps: potentialCorpROIs,
     openness: peakHeight,
     distanceFromOwned,
     isOwned,

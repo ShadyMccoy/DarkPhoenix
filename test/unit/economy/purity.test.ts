@@ -12,6 +12,12 @@
  *   3. the sanctioned world ADAPTERS (flowAdapter, scavenge) may read Game
  *      only behind `typeof Game` guards - counted, so a guard removal trips.
  *
+ * The scan extends beyond src/economy/ to the modules the planning core
+ * touches (spec 35 phase G): corps/Corp.ts (the base type), the NOW planner
+ * (spawn/SpawnScheduler), the demand ladder, and flow/FlowTypes.ts - the ONE
+ * surviving flow DTO module after the translation-layer collapse folded
+ * FlowGraph + FlowEconomy into economy/flowAdapter.ts (an ADAPTER here).
+ *
  * Known debt is EXPLICIT (KNOWN_IMPURE below), not silently tolerated: when a
  * P3/P5 cleanup lands, move the file to the pure list and shrink the debt set
  * - the test fails if debt grows OR if paid-off debt is still listed.
@@ -39,11 +45,16 @@ const PURE: string[] = [
   "expansion.ts",
   "goals.ts",
   "strategy.ts",
-  "depositSavings.ts"
+  "depositSavings.ts",
+  "ids.ts",
+  "proposeHelpers.ts"
 ];
 
-/** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
-const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts", "roadSegmentsGame.ts"];
+/** Sanctioned world adapters: Game reads allowed, but only typeof-guarded.
+ * planningAssembly.ts is the solve-input assembly seam (spec 35 phase G):
+ * construction sink admission (project ledger + trunk aggregation) + the ONE
+ * rebuild->admit->solve sequence both planning paths run. */
+const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts", "roadSegmentsGame.ts", "planningAssembly.ts"];
 
 /**
  * Explicit debt: economy/ files known to violate purity. EMPTY since the
@@ -106,19 +117,19 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
   });
 
   it("pure planner files import only allowlisted modules", () => {
-    // The planning core's permitted import surface. The two entries marked
-    // (debt) are audited inversions scheduled in spec 17 P5 - listed so a NEW
+    // The planning core's permitted import surface - listed so a NEW
     // dependency (execution/, colony/, telemetry/, corps runtime classes)
-    // cannot land silently.
+    // cannot land silently. The constants inversion debt is PAID (spec 35
+    // phase B): primitives.ts imports constants from nobody; phase G deleted
+    // the one-release flow/FlowTypes + corps/economics re-exports - every
+    // importer reads primitives directly.
     const ALLOWED = new Set([
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
-      "./goals", "./strategy",
+      "./goals", "./strategy", "./ids", "./proposeHelpers",
       // pure shared types
       "../types/Position", "../types/Memory",
-      // (debt) constants physically homed outside economy/ - P5 inverts these
-      "../flow/FlowTypes", "../corps/economics", "../planning/EconomicConstants",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling
       "../corps/Corp",
       // pure spatial/room helpers
@@ -132,6 +143,21 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
         expect(ALLOWED.has(m[1]), `${file} imports "${m[1]}" — not on the PLAN-layer allowlist`).to.equal(true);
       }
     }
+  });
+
+  it("the flow DTO module (flow/FlowTypes.ts) is Game-free", () => {
+    // The ONE surviving src/flow/ module (spec 35 phase G): FlowSolution +
+    // assignment shapes, the id-minting factories, and the shared
+    // CommissionedHauler -> HaulerAssignment mapper. Declarations and pure
+    // mappers only - discovery and the solve driver live in flowAdapter (an
+    // ADAPTER above); if this file needs Game, it belongs there instead.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/flow/FlowTypes.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "flow/FlowTypes.ts gained a Game/Memory reference — the DTO module must stay declaration-only"
+    ).to.equal(false);
   });
 
   it("the Corp base class the planning core depends on is itself Game-free", () => {
@@ -151,5 +177,78 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       GLOBAL_REF.test(code),
       "SpawnScheduler gained a Game/Memory reference — the NOW planner must stay a pure function of demands + ctx"
     ).to.equal(false);
+  });
+
+  it("the demand-value ladder (spawn/demandLadder.ts) is Game-free", () => {
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/spawn/demandLadder.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "demandLadder gained a Game/Memory reference — the ladder is pure named constants (spec 35 phase D)"
+    ).to.equal(false);
+  });
+
+  it("the construction placement ladder (corps/constructionPlacement.ts) is Game/Memory-free", () => {
+    // Spec 35 phase H: rung tables + tile-election policy only. The scorers
+    // operate on the Room they are handed; placement EXECUTION (site
+    // creation, cooldowns, stamps) stays in ConstructionCorp.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/constructionPlacement.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "constructionPlacement gained a Game/Memory reference — Game-coupled placement belongs in ConstructionCorp"
+    ).to.equal(false);
+  });
+
+  it("the hauler policy head (corps/haulPolicy.ts) is Game/Memory-free", () => {
+    // Spec 35 phase H: CarryCorp's exported pure-policy head (sink choice,
+    // storage banking, depot refill, dedicated-source drain, duty
+    // classification) - pure functions of their arguments. World reads stay
+    // in CarryCorp (the corp runtime), which supplies the state.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/haulPolicy.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "haulPolicy gained a Game/Memory reference — Game-coupled hauling belongs in CarryCorp"
+    ).to.equal(false);
+  });
+
+  it("the construction ledger lens (corps/constructionLedger.ts) reads Game only behind typeof guards", () => {
+    // Spec 35 phase H: the PLAN-consumed lens surface (project ledger + build
+    // pool). Same adapter-style ratchet as economy/'s ADAPTERS: world reads
+    // are allowed, but only typeof-guarded, so pure harnesses can call it.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/constructionLedger.ts"), "utf8")
+    );
+    const refs = (code.match(/\bGame\s*[.[]/g) ?? []).length;
+    const guards = (code.match(/typeof\s+(Game|Memory)\s*[!=]==?\s*"undefined"/g) ?? []).length;
+    if (refs > 0) {
+      expect(guards, `${refs} Game references need typeof guards`).to.be.greaterThan(0);
+    }
+  });
+
+  it("economy/ never imports a corp RUNTIME module (the phase-H seam)", () => {
+    // The seam violation spec 35 phase H closes: planningAssembly imported
+    // constructionProjectLedger from corps/ConstructionCorp (the Game-coupled
+    // corp runtime). economy/ may reach into corps/ ONLY for the whitelisted
+    // lens/type modules below — a corp class import cannot land silently again.
+    const ALLOWED_CORPS_IMPORTS = new Set(["Corp", "nodeEnergy", "constructionLedger"]);
+    const all = fs.readdirSync(ECONOMY).filter(f => f.endsWith(".ts"));
+    for (const file of all) {
+      const code = read(file);
+      const importRe = /from\s+"\.\.\/corps\/([^"]+)"/g;
+      let m: RegExpExecArray | null;
+      while ((m = importRe.exec(code)) !== null) {
+        expect(
+          ALLOWED_CORPS_IMPORTS.has(m[1]),
+          `economy/${file} imports corps/${m[1]} — economy may only read the corps lens/type modules (${[
+            ...ALLOWED_CORPS_IMPORTS
+          ].join(", ")})`
+        ).to.equal(true);
+      }
+    }
   });
 });

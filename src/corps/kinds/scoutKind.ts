@@ -8,16 +8,13 @@
  * room with a spawn exists": a scout corp with zero creeps costs nothing, and
  * commissioning it unconditionally keeps propose() pure.
  *
- * NOT yet registered by the live loop - rung 5 (the runtime host that replaces
- * runScoutCorps) is the next strangler cut. Until then this module is exercised
- * by the rung 1-4 tests only and changes no live behavior.
- *
  * @module corps/kinds/scoutKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ScoutCorp, SerializedScoutCorp } from "../ScoutCorp";
 import { SpawningCorp } from "../SpawningCorp";
@@ -51,22 +48,11 @@ export const scoutKind: CorpKind<ScoutCorp> = {
     // pure function of its arguments, never of execution-module state.
     if (problem.freezes?.scouting) return [];
     // One scout corp per room that has a spawn (first spawn is home).
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("scout", roomName),
-      kind: "scout",
-      shape: "auxiliary",
-      // Off-budget: the runtime gates make scout spawn-time negligible, and
-      // intel value is realized on visit (recordRevenue), not plannable.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: { roomName, spawnId } as ScoutAssignment
-    }));
+    // Off-budget: the runtime gates make scout spawn-time negligible, and
+    // intel value is realized on visit (recordRevenue), not plannable.
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("scout", roomName, spawnId)
+    );
   },
 
   materialize(c: Commission, existing: ScoutCorp | undefined): ScoutCorp {

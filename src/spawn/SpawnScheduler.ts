@@ -175,7 +175,9 @@ export interface SpawnDemand {
  *  - campaign:    an indivisible funded op (reserver hold, expansion claim)
  *  - new-unit:    opening a fresh income unit (first miner of a source)
  *  - scale:       finishing a started unit (haulers, extra miners)
- *  - infra:       the local movers/intel tier (tender, feeder, scout)
+ *  - infra:       the local movers/intel tier (tender, feeder, scout) -
+ *                 DECLARED by the corp on its demand (`why: "infra"`), never
+ *                 derived from role names in this PLAN-layer module
  *  - consume:     consumers sized from stock (upgraders, builders)
  */
 export type AgendaWhy = "replacement" | "upsize" | "campaign" | "new-unit" | "scale" | "infra" | "consume";
@@ -207,14 +209,19 @@ export interface AgendaEntry {
   blocking?: boolean;
 }
 
-const INFRA_ROLES = new Set<string>(["tanker", "feeder", "scout"]);
-
-/** Derive the transition label for a demand (corp-provided `why` wins). */
+/**
+ * Derive the transition label for a demand (corp-provided `why` wins). The
+ * "infra" label is DECLARED by the demand (`SpawnDemand.why = "infra"` on the
+ * tender/feeder/construction-tanker demands; a future scout demand declares
+ * it too), never derived from a role-name enumeration here - the deleted
+ * INFRA_ROLES set was an undeclared second registration point every new
+ * infra-class kind had to edit (spec 35 phase D; the registration-only
+ * contract calls a third edit a framework bug).
+ */
 export function agendaWhy(d: SpawnDemand): AgendaWhy {
   if (d.why) return d.why;
   if (d.replacement === true) return "replacement";
   if (d.holdToFund === true) return "campaign";
-  if (INFRA_ROLES.has(d.role)) return "infra";
   if (d.producesIncome) return d.groupStarted === false ? "new-unit" : "scale";
   return "consume";
 }

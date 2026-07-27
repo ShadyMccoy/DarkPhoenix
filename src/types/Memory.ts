@@ -129,12 +129,6 @@ declare global {
    */
   interface Memory {
     /**
-     * Flag set after one-time memory wipe on respawn.
-     * Remove this (and the wipe code in main.ts) after confirming respawn works.
-     */
-    memoryCleared?: boolean;
-
-    /**
      * Serialized colony state for persistence across ticks.
      */
     colony?: SerializedColony;
@@ -149,19 +143,6 @@ declare global {
      * Format: Array of "nodeId1|nodeId2" strings (sorted alphabetically).
      */
     nodeEdges?: string[];
-
-    /**
-     * Walking distances for spatial edges between adjacent nodes.
-     * Format: Map of "nodeId1|nodeId2" -> distance in tiles.
-     * Calculated from node peak positions.
-     */
-    spatialEdgeWeights?: { [edge: string]: number };
-
-    /**
-     * Economic edges between corp-hosting nodes.
-     * Format: Map of "nodeId1|nodeId2" -> distance (sorted alphabetically).
-     */
-    economicEdges?: { [edge: string]: number };
 
     /**
      * Tick when last planning phase was run.
@@ -192,12 +173,6 @@ declare global {
     };
 
     /**
-     * Tick when the controller RCL last increased.
-     * Used by FlowEconomy to boost construction priority after RCL-up.
-     */
-    lastRclUpTick?: number;
-
-    /**
      * The active expansion campaign (spec 06): which room we are claiming and
      * where its founding spawn goes. Persisted so the campaign survives global
      * resets; cleared when the new spawn stands or on EXPAND_TIMEOUT.
@@ -208,11 +183,6 @@ declare global {
       spawnPos: { x: number; y: number; roomName: string };
       sinceTick: number;
     };
-
-    /**
-     * Room map cache metadata (tick when last computed).
-     */
-    roomMapCache?: { [roomName: string]: number };
 
     /**
      * Room intelligence data from scouting.
@@ -398,9 +368,8 @@ declare global {
     };
 
     /**
-     * Diagnostic: persistState's CPU split into serialize / spatial-edges /
-     * econ-edges (execution/Persistence). persist is the dominant infra bucket
-     * (~55% of the tick); this names which part before optimizing.
+     * Diagnostic: persistState's CPU (execution/Persistence), split so a
+     * future hog inside persist is attributable before optimizing.
      */
     /**
      * Debug overlays (node/spatial RoomVisuals) on/off. Undefined/false = off
@@ -413,8 +382,6 @@ declare global {
       tick: number;
       total: number;
       serialize: number;
-      spatial: number;
-      econ: number;
       nodeCount: number;
       edgeCount: number;
     };
@@ -541,8 +508,9 @@ declare global {
      * STRUCTURAL (owner 2026-07-22 accountability ruling: "each corp needs to
      * do their job, not cover for each other"): true while a core depot AND
      * extensions exist - extension refill is the tender corp's JOB here,
-     * whether or not a tender is alive this tick. Read via CarryCorp's
-     * tenderOwnsExtensions lens: haulers run the dumb source->depot bus and
+     * whether or not a tender is alive this tick. Read via the
+     * tenderOwnsExtensions lens (corps/regimes.ts, the regime lenses' neutral
+     * home): haulers run the dumb source->depot bus and
      * never fan across extensions in a covered room; a dead tender is
      * re-fielded by the corp's own bootstrap demand (value 150), not covered
      * for. Haulers still top the SPAWN STRUCTURE either way, so a tender gap
@@ -682,18 +650,6 @@ declare global {
     spawnedBy?: string;
 
     /**
-     * Contract ID this creep was spawned for.
-     */
-    contractId?: string;
-
-    /**
-     * Whether this is a maintenance hauler spawned by SpawningCorp
-     * to break energy starvation. These haulers are assigned to the
-     * room's HaulingCorp but don't fulfill contract commitments.
-     */
-    isMaintenanceHauler?: boolean;
-
-    /**
      * Target room for scout creeps.
      * Each scout gets assigned a unique room to explore.
      */
@@ -736,20 +692,6 @@ declare global {
     queueHeld?: number;
 
     // === Fleet Coordination (Belt/Bus System) ===
-
-    /**
-     * Hauler's slot in the fleet circulation.
-     * Determines their starting position in the structure rotation.
-     * Assigned once when hauler joins corp, persists for their lifetime.
-     */
-    haulerSlot?: number;
-
-    /**
-     * Current rotation offset in the delivery circulation.
-     * Increments after each successful delivery, wraps around.
-     * Combined with haulerSlot to determine target structure.
-     */
-    deliveryRotation?: number;
 
     /**
      * Current delivery target ID.

@@ -153,7 +153,7 @@ export function decideNextSpawn(situation: SpawnSituation): SpawnDecision {
     // Harvest/carry/upgrade now live in the commission store, keyed by their
     // production corpId (`<kind>-<sourceId>`); collectDemands reads them there.
     for (const src of situation.sources ?? []) {
-      const harvest = new HarvestCorp(`${ROOM}-harvest-${src.id}`, SPAWN_ID, src.id, 5, `mining-${src.id}`);
+      const harvest = new HarvestCorp(`${ROOM}-harvest-${src.id}`, SPAWN_ID, src.id, `mining-${src.id}`);
       harvest.setMinerAssignment({
         sourceId: src.id,
         spawnId: `spawn-${SPAWN_ID}`,

@@ -12,15 +12,54 @@ import {
   spawnPartsFor,
   energyPerSpawnPart,
   miningBudgetPerSpawn,
+  BODY_COSTS,
+  CARRY_CAPACITY,
+  CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  HARVEST_ENERGY_PER_WORK,
   MINER_COST,
   MINER_PARTS,
+  RESERVER_DUTY,
+  SOURCE_ENERGY_CAPACITY,
+  SOURCE_RATE,
+  SOURCE_REGEN_TIME,
+  SPAWN_PARTS_PER_TICK,
+  SPAWN_TIME_PER_PART,
   infraSpawnLoad
 } from "../../../src/economy/primitives";
 
 // First-principles checks: every number is hand-derived from the game constants
 // so a formula change that drifts from the intended physics fails loudly.
 describe("economy/primitives", () => {
+  // The founding constants are homed HERE since spec 35 phase B (previously
+  // pinned via planning/EconomicConstants.test.ts, deleted with its module).
+  describe("Screeps ground-truth constants", () => {
+    it("pins the full 8-part body-cost table", () => {
+      expect(BODY_COSTS.WORK).to.equal(100);
+      expect(BODY_COSTS.CARRY).to.equal(50);
+      expect(BODY_COSTS.MOVE).to.equal(50);
+      expect(BODY_COSTS.ATTACK).to.equal(80);
+      expect(BODY_COSTS.RANGED_ATTACK).to.equal(150);
+      expect(BODY_COSTS.HEAL).to.equal(250);
+      expect(BODY_COSTS.CLAIM).to.equal(600);
+      expect(BODY_COSTS.TOUGH).to.equal(10);
+    });
+    it("pins the lifetime, spawn-rate and source facts", () => {
+      expect(CREEP_LIFETIME).to.equal(1500);
+      expect(CLAIM_LIFETIME).to.equal(600);
+      expect(SPAWN_TIME_PER_PART).to.equal(3);
+      expect(SPAWN_PARTS_PER_TICK).to.equal(1 / 3);
+      expect(CARRY_CAPACITY).to.equal(50);
+      expect(HARVEST_ENERGY_PER_WORK).to.equal(2);
+      expect(SOURCE_ENERGY_CAPACITY).to.equal(3000);
+      expect(SOURCE_REGEN_TIME).to.equal(300);
+      expect(SOURCE_RATE).to.equal(10);
+      expect(RESERVER_DUTY).to.equal(0.5);
+      expect(MINER_COST).to.equal(650);
+      expect(MINER_PARTS).to.equal(8);
+    });
+  });
+
   describe("effectiveLife", () => {
     it("is full lifetime at distance 0 and loses one tick per tile", () => {
       expect(effectiveLife(0)).to.equal(CREEP_LIFETIME);

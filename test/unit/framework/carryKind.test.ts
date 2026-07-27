@@ -186,45 +186,40 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
     registerCorpKind(harvestKind as never);
     registerCorpKind(scoutKind as never);
     const order: string[] = [];
-    const wrap = (k: { kind: string; run: (c: never, t: number) => void }) => {
-      const real = k.run.bind(k);
-      k.run = (c, t) => {
-        order.push(k.kind);
-        real(c, t);
+    const store: CorpStore = new Map();
+    materializeCommissions(
+      [
+        carryCommission,
+        {
+          corpId: "harvest-source-abcd1234",
+          kind: "harvest",
+          shape: "produce",
+          consumes: { spawnPartsPerTick: 0.3 },
+          produces: { energyRate: 10, at: at(20) },
+          assignment: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }
+        },
+        {
+          corpId: "scout-W1N1",
+          kind: "scout",
+          shape: "auxiliary",
+          consumes: { spawnPartsPerTick: 0 },
+          produces: { valuePerTick: 0 },
+          assignment: { roomName: ROOM, spawnId: "spawn1" }
+        }
+      ],
+      store
+    );
+    // Spy at the corp's work() - the one call every dispatch path (a kind's
+    // custom run() and the default cadence alike) makes exactly once per tick,
+    // so the pin observes runOrder without requiring kinds to declare run().
+    for (const entry of store.values()) {
+      const realWork = entry.corp.work.bind(entry.corp);
+      entry.corp.work = (t: number) => {
+        order.push(entry.kind);
+        realWork(t);
       };
-      return () => {
-        k.run = real;
-      };
-    };
-    const restores = [carryKind, harvestKind, scoutKind].map(k => wrap(k as never));
-    try {
-      const store: CorpStore = new Map();
-      materializeCommissions(
-        [
-          carryCommission,
-          {
-            corpId: "harvest-source-abcd1234",
-            kind: "harvest",
-            shape: "produce",
-            consumes: { spawnPartsPerTick: 0.3 },
-            produces: { energyRate: 10, at: at(20) },
-            assignment: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }
-          },
-          {
-            corpId: "scout-W1N1",
-            kind: "scout",
-            shape: "auxiliary",
-            consumes: { spawnPartsPerTick: 0 },
-            produces: { valuePerTick: 0 },
-            assignment: { roomName: ROOM, spawnId: "spawn1" }
-          }
-        ],
-        store
-      );
-      runCommissionedCorps(store, Game.time);
-    } finally {
-      restores.forEach(r => r());
     }
+    runCommissionedCorps(store, Game.time);
     expect(order).to.deep.equal(["harvest", "carry", "scout"]);
   });
 });

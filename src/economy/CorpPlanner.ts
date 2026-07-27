@@ -45,6 +45,8 @@ import {
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
 import { effectiveOneWayTiles } from "./roadEconomics";
+import { DEFAULT_VALUATION } from "./goals";
+import { bankRoomFromId, isBankSourceId } from "./ids";
 
 // =============================================================================
 // INPUT - a clean description of the world the planner reasons over
@@ -193,12 +195,19 @@ export interface ColonyProblem {
   hostileRooms?: readonly string[];
 }
 
-/** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
+/**
+ * Canonical kind-level value baseline (replaces mintValue/net-energy/
+ * effectiveNet/sink.value). DERIVED from goals.DEFAULT_VALUATION - the ONE
+ * ladder home - so the two can never disagree by hand: spawn/construction/
+ * storage map directly, controller takes the no-vision static anchor
+ * (`controllerStatic`; the live controller prices on the min/max band via
+ * the goal system instead).
+ */
 export const DEFAULT_SINK_VALUE: Record<SinkKind, number> = {
-  spawn: 100, // keeping creeps alive - mandatory
-  construction: 70, // building raises capacity - worth more than raw upgrade
-  controller: 50, // upgrading - mops up the remainder
-  storage: 1 // buffer - soaks excess only
+  spawn: DEFAULT_VALUATION.spawn, // keeping creeps alive - mandatory
+  construction: DEFAULT_VALUATION.construction, // building raises capacity - worth more than raw upgrade
+  controller: DEFAULT_VALUATION.controllerStatic, // upgrading - mops up the remainder
+  storage: DEFAULT_VALUATION.storage // buffer - soaks excess only
 };
 
 // =============================================================================
@@ -465,7 +474,7 @@ function selectTransientSupply(problem: ColonyProblem): SupplyPoint[] {
     // The bank/hub (storage) is NOT a scavenge pile: it always belongs in supply
     // (planColony credits it the funded mined income), even at rate 0 while the
     // warchest fills - the net filter below is only for one-off ground stocks.
-    if (!source.id.startsWith("bank-")) {
+    if (!isBankSourceId(source.id)) {
       const net = source.rate - haulerOverhead(carryPartsFor(source.rate, near.distance), near.distance);
       if (net <= 0) continue; // even free energy isn't worth a scavenger that costs more to run
     }
@@ -521,14 +530,13 @@ function routeToSinks(
   const out = new Map<string, CommissionedSink>();
   const haulers: CommissionedHauler[] = [];
 
-  const isBank = (id: string): boolean => id.startsWith("bank-");
   // Hub-and-spoke roles (owner 2026-07-19): when a storage HUB exists, mined and
   // scavenge are DEPOSIT sources - their only home is the hub, so each gets its
   // haul-home and the warchest becomes the true income buffer; the bank/hub is
   // the SPEND source that funds consumers. Pre-storage there is no hub, so
   // nothing is a deposit and mined feeds consumers directly (old model).
   const hasStorageSink = sinks.some(s => s.kind === "storage");
-  const isDeposit = (id: string): boolean => hasStorageSink && !isBank(id);
+  const isDeposit = (id: string): boolean => hasStorageSink && !isBankSourceId(id);
 
   // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
   // nuances into the planner, not tail-end flags): a deposit-class source may
@@ -803,7 +811,6 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   // the funded set IS known: each funded source's rate is credited to its nearest
   // storage hub's bank source. Filling-regime hubs start at rate 0 (adapter) and
   // get exactly this income; surplus hubs get income + the surplus draw.
-  const isBankSource = (id: string): boolean => id.startsWith("bank-");
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
   const storageSinks = problem.sinks.filter(s => s.kind === "storage");
   const fundedByHubRoom = new Map<string, number>();
@@ -828,8 +835,8 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   const supply: SupplyPoint[] = [
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
     ...selectTransientSupply(problem).map(t =>
-      isBankSource(t.sourceId)
-        ? { ...t, rate: t.rate + (fundedByHubRoom.get(t.sourceId.slice("bank-".length)) ?? 0) }
+      isBankSourceId(t.sourceId)
+        ? { ...t, rate: t.rate + (fundedByHubRoom.get(bankRoomFromId(t.sourceId)) ?? 0) }
         : t
     )
   ];

@@ -11,12 +11,14 @@
  * @module corps/kinds/controllerFeederKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
 import { coreLink } from "../nodeEnergy";
+import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 
 /** The feeder commission's binding: which home room, which spawn. */
 export interface ControllerFeederAssignment {
@@ -47,26 +49,15 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
       if (!roomName) continue;
       ctrlFlowByRoom.set(roomName, (ctrlFlowByRoom.get(roomName) ?? 0) + (c.consumes.energyRate ?? 0));
     }
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("controllerFeeder", roomName),
-      kind: "controllerFeeder",
-      shape: "auxiliary",
-      // Off-budget: a feeder MOVES energy already produced (bank -> controller),
-      // priced by the SpawnDirector's infrastructure tier, not the planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: {
+    // Off-budget: a feeder MOVES energy already produced (bank -> controller),
+    // priced by the SpawnDirector's infrastructure tier, not the planner.
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("controllerFeeder", roomName, spawnId, {
         roomName,
         spawnId,
         controllerAllocation: ctrlFlowByRoom.get(roomName) ?? 0
-      } as ControllerFeederAssignment
-    }));
+      } as ControllerFeederAssignment)
+    );
   },
 
   materialize(c: Commission, existing: ControllerFeederCorp | undefined): ControllerFeederCorp {
@@ -79,10 +70,6 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     const corp = new ControllerFeederCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
     corp.setControllerAllocation(a.controllerAllocation);
     return corp;
-  },
-
-  run(corp: ControllerFeederCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: ControllerFeederCorp): SerializedControllerFeederCorp {
@@ -106,12 +93,10 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
   },
 
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts). Mirrors
-    // SpawningCorp.buildBodyForRole's "feeder" case for the framework spawn path.
-    const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
-    const body: BodyPartConstant[] = [];
-    for (let i = 0; i < carry; i++) body.push(CARRY);
-    for (let i = 0; i < carry; i++) body.push(MOVE);
-    return body;
+    // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts) - the
+    // shared hauler builder at 1:1 IS the feeder body (bit-identical, pinned
+    // by bodyEquivalence's "feeder" case). Floored at 1 CARRY so a zero
+    // bodyParam means the minimum shuttle, not "fill the budget".
+    return buildRatioHaulerBody(Math.max(1, bodyParam ?? 4), energyBudget, "1:1").body;
   }
 };

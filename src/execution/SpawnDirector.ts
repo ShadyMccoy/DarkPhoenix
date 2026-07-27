@@ -28,6 +28,7 @@ import {
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
 import { resolveReserveTarget } from "../economy/bank";
+import { DELIVERER_INCOME_RATE } from "../economy/primitives";
 import { CorpRegistry } from "./CorpRunner";
 import { allCommissionedCorps } from "./CommissionHost";
 import { Corp } from "../corps/Corp";
@@ -465,7 +466,7 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
   }
   const bootstrap = registry.bootstrapCorps[room.name];
   if (bootstrap) deliverers += bootstrap.getCreepCount();
-  return deliverers * 10;
+  return deliverers * DELIVERER_INCOME_RATE;
 }
 
 /**

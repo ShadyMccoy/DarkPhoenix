@@ -89,7 +89,7 @@ export function initCorps(corps: CorpRegistry): InitResult {
     for (const spawnId in Memory.spawningCorps) {
       const saved = Memory.spawningCorps[spawnId];
       if (saved && !corps.spawningCorps[spawnId]) {
-        const spawningCorp = new SpawningCorp(saved.nodeId, spawnId, saved.energyCapacity);
+        const spawningCorp = new SpawningCorp(saved.nodeId, spawnId);
         spawningCorp.deserialize(saved);
         corps.spawningCorps[spawnId] = spawningCorp;
         result.corpsHydrated.spawning++;

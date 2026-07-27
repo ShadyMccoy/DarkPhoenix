@@ -18,7 +18,7 @@
  * @module corps/Squad
  */
 
-import { SpawnDemand, SpawnRole } from "../spawn/SpawnScheduler";
+import { AgendaWhy, SpawnDemand, SpawnRole } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 
 /**
@@ -42,6 +42,13 @@ export interface SquadConfig {
    * CARRY for haulers/tankers. Used to recognise an undersized runt to recycle.
    */
   usefulPart: BodyPartConstant;
+  /**
+   * Agenda transition label declared on every member demand (spec 35 phase D:
+   * the "infra" label is DECLARED by the demand's owner, never derived from
+   * role names in the PLAN-layer scheduler). Omitted = the agenda derives a
+   * label from the generic flags (agendaWhy).
+   */
+  why?: AgendaWhy;
 }
 
 /**
@@ -125,34 +132,6 @@ export class Squad {
   }
 
   /**
-   * Move the squad's members as a worm: an ordered chain whose head heads for
-   * `target` while each following member trails the one ahead. The order is
-   * stable (by name) so the chain never reshuffles. Cohesion is loose in transit -
-   * a straggler just paths toward the member ahead - but tightens once touching,
-   * so a squad of small creeps travels and arrives together as one logical unit,
-   * the way a single big creep would. This is the low-RCL "big creep" abstraction:
-   * when a unit can't be afforded as one body it is several that move as one. Not
-   * locally optimal, but predictable and abstractable.
-   *
-   * Returns the worm head (or undefined if empty) so a caller can reason about
-   * "where the squad is" from one position.
-   */
-  public moveAsWorm(target: RoomPosition | _HasPos, range = 0): Creep | undefined {
-    const chain = wormOrder(this.members());
-    if (chain.length === 0) return undefined;
-
-    chain[0].moveTo(target as RoomPosition, { range, visualizePathStyle: { stroke: "#ffffff" } });
-    for (let i = 1; i < chain.length; i++) {
-      // Trail the member ahead, range 1: close up the chain without piling onto
-      // its tile. A member already touching the one ahead simply holds station.
-      if (!chain[i].pos.isNearTo(chain[i - 1])) {
-        chain[i].moveTo(chain[i - 1], { range: 1, visualizePathStyle: { stroke: "#ffffff" } });
-      }
-    }
-    return chain[0];
-  }
-
-  /**
    * Declare spawn demand to grow the squad toward `plan.target`. Emits at most one
    * request: the scheduler fills the squad incrementally, one creep per spawn, and
    * the demand reappears next tick until the target is met. Returns nothing when
@@ -168,6 +147,7 @@ export class Squad {
       {
         buyerCorpId: this.config.corpId,
         role: this.config.role,
+        ...(this.config.why ? { why: this.config.why } : {}),
         value: this.config.value,
         blocking: this.config.blockingWhenEmpty && current === 0,
         producesIncome: this.config.producesIncome,

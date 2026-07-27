@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
 import { bankBehindFeeder, upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
-import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/CarryCorp";
+import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/haulPolicy";
 import { BASE_RESERVE, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 

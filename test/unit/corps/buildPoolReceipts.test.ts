@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
-import { ConstructionCorp, buildPool, buildPoolAbsorbRate } from "../../../src/corps/ConstructionCorp";
+import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
+import { buildPool, buildPoolAbsorbRate } from "../../../src/corps/constructionLedger";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 /**

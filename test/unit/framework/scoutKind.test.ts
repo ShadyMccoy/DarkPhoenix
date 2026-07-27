@@ -115,7 +115,6 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
     installHomeSpawn();
     const calls: { kind: string; role: string; corpId: string; budget: number }[] = [];
     const stub = {
-      countPendingOrdersFrom: () => 0,
       executeSpawn: (kind: string, role: string, corpId: string, budget: number) => {
         calls.push({ kind, role, corpId, budget });
         return true;
@@ -172,7 +171,9 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
     const { commissions } = planCommissions(world);
     expect(commissions.filter(c => c.kind === "scout" || c.kind === "early")).to.have.length(2);
     materializeCommissions(commissions, store);
-    const realRun = scoutKind.run.bind(scoutKind);
+    // scout is the one kind with a CUSTOM run() (its live spawn path); the
+    // contract types run as optional, hence the non-null assertion.
+    const realRun = scoutKind.run!.bind(scoutKind);
     (scoutKind as { run: typeof scoutKind.run }).run = (c, t) => {
       order.push("scout");
       realRun(c, t);
