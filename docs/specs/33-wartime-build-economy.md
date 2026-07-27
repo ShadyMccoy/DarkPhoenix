@@ -1,8 +1,15 @@
 # 33 — Wartime (build) economy: relegate upgrading, size construction to eat the surplus
 
-**Status:** BACKLOG (owner idea 2026-07-26). Design note. Directly enables the
-base remodel (spec 31): a remodel is a large construction campaign that must
-finish ASAP, and today upgrading competes with it for the surplus.
+**Status:** LANDED + FULL ARC VERIFIED LIVE 2026-07-27 (see the incident log
+below: relegate → surplus to building → extensions rebuilt → backlog drained →
+clean exit → re-expansion ramp, measured at every stage across
+t72598913/t72599499/t72599790/t72601582/t72601836). Directly enables the base
+remodel (spec 31). REMAINING OPEN (the backlog): entry/exit HYSTERESIS as a
+named posture (the bare 3000 threshold held through one full cycle without
+flap, but a lone finishing structure hovering at the boundary remains the
+theoretical flap case) and the `wartime-build-eats-surplus`/`wartime-clean-exit`
+grid cells staging the full arc (the live run proved it once; the cells make it
+a regression gate).
 
 ## The idea (owner)
 

@@ -4,6 +4,41 @@
 corp contract; supersedes nothing — it TIGHTENS the existing Commission
 envelope until every corp fits it honestly.
 
+## Landed / open (the backlog, pick-up-cold order)
+
+**LANDED 2026-07-27** (commits 71a6b59 + the unladen-relocation follow-up,
+deployed): the primitives family (`bufferCarryParts`/`refuelIntervalTicks`/
+`vectorSupplyParts`/`directFetchParts`/`supplyMethod`/`operationSpawnLoad`),
+the parked buffered builder (D1–D3b: body honors demand, buffer from fuel
+geometry, tanker adjacency gate, shed-before-cross-room-leg), and the all-in
+construction commission price (D4, both charge sites, golden master regen).
+ONTOLOGY §3 records the family.
+
+**OPEN, in order:**
+
+1. **D6 — cohort release at operation end.** When the corp's pool drains
+   (work COMPLETE, never defund — trap-list revocation class), every squad
+   releases the same tick: builders → `claimsOrphan` adoption (exists),
+   tankers → release → grace → recycle refund (today they are tender-rescued,
+   a cross-kind coverage smell to retire with this). Acceptance tests are in
+   §Acceptance below ("Cohort release"). The no-half-useful-strays mechanism.
+2. **minerCorp — the producer-side mirror (D5 second half).** "Spawn a
+   minerCorp": harvest + its evacuation vector as ONE commission with ONE
+   all-in price (`operationSpawnLoad(minerOverhead, [vector])`), the carry
+   squad an internal detail of the harvest kind. Registration-only (spec 17);
+   the consumer half landed first, this is the same move on produce.
+3. **`builder-buffer-feed` grid cell** (§Acceptance): staged site + storage
+   at d≈8 with a live vector; workUtil ≥ 0.9, no builder fuel trips. Proves
+   the parked doctrine end-to-end in the mockup.
+4. **P4 ledger consistency**: the waste ledger's plan-implied parts should
+   read the construction charge THROUGH the all-in price (it now exists in
+   the plan) so "unbudgeted" construction bodies disappear from the detail
+   line for the right reason.
+5. **Further kinds into the interface** (as encountered, not speculatively):
+   the feeder IS a 1-tile vector; tender/scout/reserver declare
+   `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
+   matters to a real decision.
+
 ## The thesis (owner, 2026-07-27)
 
 > "Corps are useful abstractions that have simple interfaces and faithfully,
