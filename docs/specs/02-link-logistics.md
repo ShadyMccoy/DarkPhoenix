@@ -225,5 +225,23 @@ test.ts` (no core redirect), `controllerLinkNetwork.test.ts`
 regression trio ALL green (storage-depot, flow-handoff, runt-economy — they
 exercise the unchanged walking path, confirming the change is a strict no-op for
 non-link rooms); grid cell `link-core-router` `[P]` (feeder drains @ tick 3, no
-`carry-source-*` through the window, controller progress @ tick 21). Post-deploy
-recapture pending (to be appended: the thrash gone on shard1).
+`carry-source-*` through the window, controller progress @ tick 21).
+
+**VERIFIED LIVE 2026-07-27 (shard1, deployed t72596353, recaptured t72596467).**
+The new code is running (`storage-drain` drain receipt, `coreDrain` sizing stamp,
+`linkMode` all present live). Post-deploy ledger clean — NO FAIL:
+- **E2 = 0 stranded parts, "every fielded hauler serves a planned route"** — the
+  lost/thrashing walking hauler on the core link (`hauler-g-cd90`) is GONE; there
+  is no walking hauler on a link-served source to fight the feeder.
+- **X5 = 0 rebuild churn** — no thrash-induced respawn loop.
+- **LINK: W43N23 hub 20.4 / ctrl 18.4 e/t (direct 16%)** — the network delivers,
+  not gridlocked; the feeder (sole operator) keeps the core open.
+- **P9 1.43× routed (no rot), P7 controller fed, storage banking +12.4/t above
+  reserve, feederActive true** — income routed, value landing, no collapse.
+
+SCOPE NOTE (honest): this fixed the core-link THRASH + the lost walking hauler
+(the owner's "haulers between the core and the NE link that seem confused" +
+"lost creeps standing around"). It did NOT target the SEPARATE core-convergence
+congestion (H1 idleSink en-route 0.18, ground-piled ~8.8k) — that is the
+base-remodel / remote-flow core-placement work (spec 31 §6a) + the backoff
+instrumentation (spec 32), tracked there, not a regression here.

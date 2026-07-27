@@ -4634,3 +4634,21 @@ router; no CarryCorp for a link-served route, EMERGENT from kind selection per
 spec 17). Fix deferred there with a red-first thrash repro + grid scenario;
 links have collapsed the colony before (spec 26), so it takes the full gate + a
 post-deploy recapture. Verdict: **NAMED + ROOT-CAUSED with data**; fix pending.
+
+### FIXED + VERIFIED LIVE 2026-07-27 (deployed t72596353, recaptured t72596467)
+
+Shipped the coupled fix (both faults, red-first, 15 new unit tests + grid cell
+`link-core-router` `[P]`; full trio green; unit 1550): the feeder gained the
+EMPTY direction (`runLinkRouter` drains core→storage above `coreLinkTargetLevel`),
+the walking CarryCorp for a link-served source is EMERGENTLY suppressed
+(`commissionsFromPlan` reads the planner's `haulPos` lens), the `sourcePickupSpot`
+redirect is removed, and the sole-operator body carries a drain floor
+(`coreDrainRate`, incl. spec-26 deposit headroom) so the core can't back up.
+Post-deploy ledger clean, NO FAIL: **E2 = 0 stranded ("every fielded hauler
+serves a planned route")** — the cd90 walking hauler is gone; **X5 = 0 churn**;
+**LINK hub 20.4 / ctrl 18.4 e/t** delivering (not gridlocked); feeder draining
+live (`storage-drain` receipt). The storage↔core-link circling is structurally
+impossible now (no walking hauler on the core). Verdict: **FIXED, VERIFIED LIVE**.
+(The SEPARATE core-convergence pile — H1 idleSink en-route, ground-piled ~8.8k —
+persists and is the base-remodel / core-placement work, spec 31 §6a + spec 32;
+not this thrash.)
