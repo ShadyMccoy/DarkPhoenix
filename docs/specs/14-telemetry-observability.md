@@ -4635,6 +4635,39 @@ spec 17). Fix deferred there with a red-first thrash repro + grid scenario;
 links have collapsed the colony before (spec 26), so it takes the full gate + a
 post-deploy recapture. Verdict: **NAMED + ROOT-CAUSED with data**; fix pending.
 
+## AUDIT 2026-07-27 (t72596661→t72596906) — pile fine-cause instrument CONTAMINATED; controller dip NAMED, recapture pending
+
+Attacked the top ledger WARN (H1 deposit-throughput idle, pile 11.3k→11.7k
+growing). Diagnosis: storage is ~939k free (E4: 4709 above the 56k reserve), so
+the atSink idle CANNOT be sink saturation — it is spatial fan-in contention OR
+haulers adjacent to storage but blocked on another sink. Deployed a per-corp
+`idleSinkStorageRoom` counter (of the atSink idle, how much had storage room) to
+name the fork.
+
+RESULT — instrument read is CONTAMINATED, INCONCLUSIVE this cycle: the counter
+is new, so it deserialized to 0 and only accumulated from the deploy tick, while
+`atSink` + `dutyAlive` carry the full serialized 762–1456t window. Raw stamps:
+atSink 0.29/0.32/0.40/0.69, storageRoom 0.08/0.08/0.13/0.02 — the ratio ≈ the
+post-deploy window fraction (the artifact), not a real "storage full" reading.
+A clean read needs ~1500t (window turnover). LESSON: a rolling-window counter
+added mid-window can't be read until the window turns over — the split must be
+computed over the SAME sub-window as its parent, or seeded, not zeroed. This is
+the THIRD instrument layer on this pile — the over-instrument trap; STOP.
+
+BLOCKER NAMED WITH DATA (the real find): controller progress rate DROPPED
+16.5→16.7→3.3 e/t (t72596353→467→661→906) while storage banks +12.71/t and
+LINK shows hub 25.0 / **ctrl 0.0 / direct 0%** — the controller link is FULL and
+upgraders are not draining it, so income banks instead of upgrading (P7 0.72x
+lower plan). The drop is in the window right after the instrument deploy (a
+global RESET), and the feeder is behaving correctly (banks the income the full
+controller can't take). LEADING hypothesis: reset-recovery + surplus-transition
+(the fleet lagging the just-crossed 56k warchest), NOT a feeder-router
+regression. NOT an emergency (energy banks, no FAIL, feederActive true) — no
+reflexive rollback. FALSIFICATION: a settle-and-recapture ~300t out with NO
+further deploys — controller recovers toward ~16 e/t ⇒ transient confirmed;
+stays ~3 e/t ⇒ real upgrader-consumption regression (investigate the upgrader
+fleet count/sizing and #141 multi-spawn assignment, NOT the feeder).
+
 ### FIXED + VERIFIED LIVE 2026-07-27 (deployed t72596353, recaptured t72596467)
 
 Shipped the coupled fix (both faults, red-first, 15 new unit tests + grid cell
