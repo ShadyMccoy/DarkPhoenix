@@ -51,13 +51,54 @@ leak:
 3. Only once the instrument can tell the two apart does the backoff earn its
    knob — and even then it fires ONLY on the surplus branch.
 
-## Acceptance (when this graduates off the backlog)
+## Acceptance tests (the contract — write first)
 
-- Red-first: a synthetic world with a pile from OVER-PRODUCTION → miner
-  successor deprioritized, freed spawn parts measurably redirected, no ledger
-  FAIL.
-- Red-first: a synthetic world with a pile from UNDER-DELIVERY (congested /
-  missing hauler) → the ledger FAILS (the leak stays visible); the backoff does
-  NOT fire, or fires only after the logistics deficit is named.
-- A leak number (energy saved from not-mined-then-decayed) that reaches target
-  AND a regression test pinning that the anti-sweep guard holds.
+The doctrine is "each spec IS its acceptance tests." This feature's whole risk
+is that the backoff SWEEPS a haulage bug (§ the catch), so the tests are built
+around DISCRIMINATING the two pile causes — a bare "pile high → mine less"
+assertion would pass on the very bug we must not hide.
+
+**Unit (`test/unit/...`, pure where possible):**
+- `pileCause.classify` (new pure fn): given (groundPile, haulerDutyMean,
+  idleSinkEnRoute, inflow, deliveredRate) it returns `"surplus"` vs
+  `"under-delivery"`. Pin BOTH branches from the measured shapes:
+  - SURPLUS: haulers at high duty (≥ ~0.8), idleSink en-route ≈ 0, delivered ≈
+    inflow, pile still standing → `"surplus"` (delivery keeps up; the pile is
+    genuine over-production).
+  - UNDER-DELIVERY: haulers duty-starved OR idleSink en-route high (the
+    t72595222 approach-lane congestion), delivered < inflow → `"under-delivery"`.
+  - Boundary: a pile that is DECAYING toward equilibrium `inflow − H =
+    ceil(pile/1000)` with H keeping up is surplus, not under-delivery (encodes
+    the owner's "piles decay, so a stable pile is chronic under-delivery UNLESS
+    delivery matches inflow" correction).
+- `miningBackoff.priced` (the knob): the backoff drops only the SUCCESSOR
+  spawn's PRIORITY (never revokes a standing miner/reserver, never gates) and
+  ONLY on the `"surplus"` branch — assert the demand's `value` drops while the
+  standing corp's creeps are untouched, and that on the `"under-delivery"`
+  branch the priority is UNCHANGED (the leak stays fundable/visible).
+- `ledger.miningBackoff` (spec 15 line): reports mined-then-decayed energy saved
+  SEPARATELY from the backoff, and FAILS when backoff is masking an
+  under-delivery deficit above threshold. Red-first: feed it an under-delivery
+  pile with a firing backoff → FAIL; feed it a surplus pile with a firing
+  backoff → PASS with the saved-energy number.
+
+**Grid (`test/grid/cells/...`, stage the REAL topology, assert RECEIPTS — the
+spec-26 blind-spot rule; a pile is not a proxy for its cause):**
+- `backoff-surplus`: stage a source whose hauler fleet is RIGHT-SIZED and at
+  high duty, with production genuinely exceeding all sink capacity (storage near
+  full) so the pile is real over-production. Assert: the miner SUCCESSOR is
+  deprioritized (its spawn demand `value` drops / it yields the slot), the freed
+  spawn parts are measurably redirected (another corp fields sooner — a receipt,
+  not a proxy), the standing miner keeps mining its route (never revoked), and
+  the ledger emits the saved-energy number with NO FAIL.
+- `backoff-underdelivery`: stage the SAME pile height but caused by congestion
+  (a wall of parked creeps on the core approach lane / an undersized hauler) so
+  delivered < inflow. Assert: the ledger FAILS (the deficit stays visible), the
+  backoff does NOT fire (miner successor priority unchanged), and once a hauler
+  is added delivery recovers and the pile drains — proving the pile was a
+  logistics bug, not surplus. The OLD (knob-only, no guard) build must sweep
+  this — pile shrinks, ledger silent — so the cell is a real anti-sweep gate.
+
+**Regression gate:** unit + `flow-handoff`, `runt-economy`, `storage-depot`
+green; no baseline grid cell regresses (the backoff must be a no-op wherever the
+pile is not standing high).

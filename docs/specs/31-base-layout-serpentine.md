@@ -141,6 +141,50 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
   otherwise). Regression trio (`flow-handoff`, `runt-economy`, `storage-depot`)
   green.
 
+### Acceptance for the owner additions (6a, 5a, iterative remodel)
+
+**6a — remote-flow-aware core placement (unit, `pickCore`):**
+- On a staged room with in-room anchors pulling toward one corner but the bulk
+  of planned REMOTE mining entering through the OPPOSITE edge, `pickCore` returns
+  a core pulled measurably toward the heavy remote-flow exit versus the
+  in-room-only score (the remote term is a real term, not a tiebreak). Pin it as
+  a TERM: with remote flow zeroed the pick is byte-identical to the in-room-only
+  pick (co-optimization, never a swap of the economics).
+- Highway priority: the generator widens/straightens the highway to the
+  volume-weighted heaviest-flow exit FIRST; assert that exit's artery is
+  reserved before the lighter exits' (a deterministic ordering, not all-equal).
+- Grid: stage W43N23-shaped convergence (≥3 remote rooms entering through
+  different edges, unequal rates); assert the placed core + the heaviest-flow
+  highway, and that a remote hauler's in-room approach leg is shorter than under
+  the centroid-nearest pick (a receipt: measured approach tiles, not a proxy).
+
+**5a — per-cluster tender sizing (unit, `ExtensionTenderCorp`):**
+- Two clusters — near-small and far-large — each tender is sized to ITS OWN
+  extensions and haul route (`carryPartsFor(clusterDrain, clusterDist)`), NOT
+  1/N of the whole bank: assert the far-large cluster's tender body >
+  the near-small cluster's, and that equal-split (`tenderSlotCarry`) would have
+  under-bodied the far one and over-bodied the near one (the bug this fixes).
+- Degenerates: one cluster → exactly today's single-tender body (no change).
+- Grid: stage the two-cluster field; assert each cluster's extensions refill
+  within its tender's SLA (util per cluster), not a colony-wide average that
+  hides the far cluster starving.
+
+**Iterative remodeler (unit + grid — "a bad target update costs a rollback, not
+a bricked base"):**
+- Idempotent: running the remodeler against an already-on-target base is a
+  no-op (zero construction/destroy intents).
+- Resumable: after the TARGET changes, it resumes from the current partial base
+  (never assumes greenfield) and moves ONE safe step toward the new target.
+- Safety: it never destroys load-bearing infra (storage/spawn/tower/link)
+  without the replacement already placed AND staffed; assert the colony stays
+  functional every tick (no demolish-then-rebuild window) — a grid cell that
+  kills a mid-remodel tick and asserts income/refill never zeroed.
+- Bounded cost: capex per window ≤ the cap (a re-plan can't stall the economy
+  churning structures); instrumented before/after (refill duty, haul
+  congestion, energy spent) so a WORSE layout-logic change is caught and rolled
+  back. Grid: feed a deliberately BAD target update; assert the before/after
+  stamp flags the regression and the rollback costs only bounded capex.
+
 ## Honest limits / open
 
 - Validated OFFLINE (base-lab) + in the refill sim, NOT live. Sim blind spots

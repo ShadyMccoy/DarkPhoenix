@@ -69,14 +69,51 @@ build-out, a defensive push). In wartime:
 - **Exit cleanly.** When the backlog drains, upgrading re-expands to eat the
   surplus with no flap (hysteresis on entry/exit).
 
-## Acceptance (when it graduates)
+## Acceptance tests (the contract — write first)
 
-- Red-first: a world with a standing construction backlog + a fat warchest →
-  construction fleet sizes to eat the surplus (matches what the upgrader would
-  have taken), upgrader drops to the controller-floor sip, sites finish within
-  the project horizon, and the haul fleet grows to the build rate (bigger
-  bodies) — with NO source/storage pile blowup (the haulage kept up).
-- Plan-vs-actual: build delivery (ledger P8) tracks the planned absorb rate;
-  controller delivery (P7) drops to floor; storage slope turns negative (surplus
-  spent) without the income fleet shrinking.
-- Regression: exit restores the upgrader surplus-eater with no oscillation.
+**Unit (`test/unit/...`, pure where possible — reuse the existing sizing
+primitives so wartime is a re-POINTING, not a new formula):**
+- `wartimeMode.entry/exit` (pure, hysteresis): given (outstandingBuildWork,
+  bankSurplus, controllerRemaining) it returns whether wartime is ON, with
+  SEPARATE enter/exit thresholds (no flap around the boundary). Pin: sites
+  standing + surplus → ON; backlog drained → OFF; a backlog hovering at the
+  threshold does NOT oscillate across a re-solve.
+- `constructionConsumerSizing`: in wartime the construction crew is sized from
+  `sustainableConsumptionRate(stock, inflow)` — the SAME surplus-eater formula
+  the upgrader uses today — so it eats exactly what the upgrader would have.
+  Assert the wartime build absorb == the peacetime upgrader absorb for the same
+  (stock, inflow), and that it is bounded by `projectBuildHorizon` (no crew that
+  strands 99%-done work — the spec-16 completion-fraction lens).
+- `upgraderRelegation`: in wartime the upgrader drops to the controller-floor
+  sip (`ANTI_DOWNGRADE_RESERVE`, never zero) — assert its allocation == the
+  floor while sites stand, and reverts to the surplus-eater the moment the
+  backlog drains.
+- `wartimeHaulSizing`: the site-feeding fleet is sized to the BUILD absorb rate
+  over the leg (`carryPartsFor(buildRate, dist)`), not the source rate — assert
+  a bigger CARRY body than steady mining haul when buildRate > inflow.
+- Guardrail units: (a) the wartime BUILDER demand sits BELOW blocking income
+  demands in the spawn ladder (never front-runs a depleted income fleet — the
+  spec-26 death-spiral anti-pattern); (b) the controller floor allocation is
+  inviolable in every wartime branch; (c) the sink ladder shifts COHERENTLY
+  (controller sink → floor as construction opens), never one value nudged in
+  isolation (the 90-vs-85 founding incident).
+
+**Grid (`test/grid/cells/...`, stage real topology, assert delivery RECEIPTS):**
+- `wartime-build-eats-surplus`: stage a standing construction backlog (several
+  sites, summed work large) + a FAT warchest (bank ≫ reserve) + live income.
+  Assert over the window: build delivery (ledger P8 / `lastDeliver.to ===
+  "construction"`) tracks the planned absorb rate; the upgrader drops to the
+  controller-floor sip (P7 → floor); the storage slope turns NEGATIVE (surplus
+  actually spent into structures) WITHOUT the income (miner/hauler) fleet
+  shrinking; and NO source/storage pile blowup (the enlarged haul fleet kept up
+  — the "a build economy that out-plans its haulage just moves the pile" check).
+- `wartime-clean-exit`: same world, then drain the backlog mid-window. Assert
+  the upgrader surplus-eater RE-EXPANDS with no oscillation (hysteresis holds)
+  and controller progress resumes — a clean regime exit, not a flap.
+- The OLD (no-wartime) build must FAIL `wartime-build-eats-surplus` cell (the
+  surplus banks / upgrader keeps eating instead of construction) so the cell is
+  a real regime gate.
+
+**Regression gate:** unit + `flow-handoff`, `runt-economy`, `storage-depot`
+green; income (production) is NEVER relegated — only consumption (upgrade)
+shifts to construction, so the income-side cells stay green unchanged.
