@@ -4656,6 +4656,14 @@ old code stalls at the dry source), unit 1554 green. NOTE "sized for all 4" is
 gated on PLACING 4 sites (sites 1->3 climbing) + this fuel fix actually building
 them; the crew sizes to whatever is placed (sum-of-projects).
 
+VERIFIED t72598459 (post fuel-fix deploy): P8 FAIL -> [ok], building 0.20 e/t,
+extensions 37->38 (rebuild moving), build fleet 4 WORK : 6 CARRY (was 2:34 -
+fleet mismatch RESOLVED), atSink 0.28->0.04 + pile 10.6k->4.9k (congestion
+cleared), no FAIL/collapse. OPEN: P8 rate still modest - the controller mop-up
+(P7 9x) out-competes construction for the surplus; truly finishing the rebuild
+ASAP needs the spec-33 controller RELEGATION (the full wartime mode), not just
+the acceleration down-payment shipped here.
+
 ## Incident 2026-07-26 — core-link thrash (feeder ↔ link-served hauler), owner-observed
 
 Owner named two live creeps "very clearly thrashing on the link":
