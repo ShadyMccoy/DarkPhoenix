@@ -439,7 +439,8 @@ export class ConstructionCorp extends Corp {
       value: 94, // feeding the builders is nearly as important as the builders
       producesIncome: false,
       blockingWhenEmpty: true, // the first feeder is essential
-      usefulPart: CARRY
+      usefulPart: CARRY,
+      why: "infra" // agenda label: DECLARED, never derived from the role name (spec 32 phase D)
     });
   }
 

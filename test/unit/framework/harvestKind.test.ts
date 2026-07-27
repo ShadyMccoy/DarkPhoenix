@@ -165,37 +165,32 @@ describe("harvest kind on the corp framework (rungs 2-4)", () => {
     const { scoutKind } = await import("../../../src/corps/kinds/scoutKind");
     registerCorpKind(scoutKind as never);
     const order: string[] = [];
-    const realHarvest = harvestKind.run.bind(harvestKind);
-    const realScout = scoutKind.run.bind(scoutKind);
-    (harvestKind as { run: typeof harvestKind.run }).run = (c, t) => {
-      order.push("harvest");
-      realHarvest(c, t);
-    };
-    (scoutKind as { run: typeof scoutKind.run }).run = (c, t) => {
-      order.push("scout");
-      realScout(c, t);
-    };
-    try {
-      const store: CorpStore = new Map();
-      materializeCommissions(
-        [
-          harvestCommission,
-          {
-            corpId: "scout-W1N1",
-            kind: "scout",
-            shape: "auxiliary",
-            consumes: { spawnPartsPerTick: 0 },
-            produces: { valuePerTick: 0 },
-            assignment: { roomName: ROOM, spawnId: "spawn1" }
-          }
-        ],
-        store
-      );
-      runCommissionedCorps(store, Game.time);
-    } finally {
-      (harvestKind as { run: typeof harvestKind.run }).run = realHarvest;
-      (scoutKind as { run: typeof scoutKind.run }).run = realScout;
+    const store: CorpStore = new Map();
+    materializeCommissions(
+      [
+        harvestCommission,
+        {
+          corpId: "scout-W1N1",
+          kind: "scout",
+          shape: "auxiliary",
+          consumes: { spawnPartsPerTick: 0 },
+          produces: { valuePerTick: 0 },
+          assignment: { roomName: ROOM, spawnId: "spawn1" }
+        }
+      ],
+      store
+    );
+    // Spy at the corp's work() - the one call every dispatch path (a kind's
+    // custom run() and the default cadence alike) makes exactly once per tick,
+    // so the pin observes runOrder without requiring kinds to declare run().
+    for (const entry of store.values()) {
+      const realWork = entry.corp.work.bind(entry.corp);
+      entry.corp.work = (t: number) => {
+        order.push(entry.kind);
+        realWork(t);
+      };
     }
+    runCommissionedCorps(store, Game.time);
     expect(order).to.deep.equal(["harvest", "scout"]);
   });
 });

@@ -2,11 +2,13 @@
  * @fileoverview CorpKind - the pluggable corp unit, and the generic dispatch
  * that replaces per-type plumbing.
  *
- * A corp kind declares the five things the colony needs to use it:
- * propose (PLAN), materialize (BIND), run (EXECUTE), serialize/deserialize
- * (PERSIST), and body (SPAWN). Register a kind and it participates in the
- * whole lifecycle; nothing else in the codebase learns its name. This is the
- * seam that makes corps interchangeable - see docs/specs/00-corp-framework.md.
+ * A corp kind declares what the colony needs to use it: propose (PLAN),
+ * materialize (BIND), serialize/deserialize (PERSIST), and body (SPAWN);
+ * run (EXECUTE) is OPTIONAL - the dispatch supplies the standard plan/work
+ * cadence (runCorpTick) unless the kind declares a custom one. Register a
+ * kind and it participates in the whole lifecycle; nothing else in the
+ * codebase learns its name. This is the seam that makes corps
+ * interchangeable - see docs/specs/00-corp-framework.md.
  *
  * The dispatch here operates on a plain CorpStore and is Game-free, so every
  * piece is provable in isolation (the spec's proof ladder, rungs 1-4) before
@@ -98,8 +100,15 @@ export interface CorpKind<C extends Corp = Corp> {
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[];
   /** BIND: create the runtime corp for a commission, or update the existing one. */
   materialize(commission: Commission, existing: C | undefined): C;
-  /** EXECUTE one tick. Keep it dumb - the assignment has everything it needs. */
-  run(corp: C, tick: number): void;
+  /**
+   * EXECUTE one tick (optional). Keep it dumb - the assignment has everything
+   * it needs. Absent = the dispatch's standard cadence (runCorpTick): plan()
+   * on the PLANNING_INTERVAL boundary, work() every tick - the legacy
+   * runRealCorps rhythm every kind used to hand-write (spec 32 phase D).
+   * Declare run() only for genuinely custom execution (scout's live spawn
+   * path is the one case today).
+   */
+  run?(corp: C, tick: number): void;
   /** PERSIST: kind-aware (de)serialization (Corp.serialize is the base shape). */
   serializeCorp(corp: C): SerializedCorp;
   deserializeCorp(data: SerializedCorp, commission: Commission | undefined): C;
@@ -143,6 +152,21 @@ export interface CorpKind<C extends Corp = Corp> {
    * role matches the creep's workType, roles[].readopt permitting).
    */
   claimsOrphan?(creep: Creep, corps: { [corpId: string]: C }): string | null;
+}
+
+/**
+ * Shared demandGroup policy for the "always a started income unit" class
+ * (spec 32 phase D): the corp IS the funding unit (groupId = corp.id) and
+ * that unit is always underway (started: true), so its demands rank at the
+ * income tier's started slot instead of starving at base value. Each
+ * declaring kind keeps its incident rationale AT its declaration site
+ * (reservation: diag-reserver starvation; raidGuard: def-t4 pre-raid
+ * starvation; coreBuster: siege) - this helper is only the shared spelling
+ * of the byte-identical policy. Pinned by
+ * test/unit/execution/collectDemandsPolicy.test.ts.
+ */
+export function startedUnitDemandGroup(corp: Corp): { groupId: string; started: boolean } {
+  return { groupId: corp.id, started: true };
 }
 
 // =============================================================================
@@ -275,17 +299,35 @@ export interface CorpRunMeter {
   record(kind: string, corpId: string, cpu: number): void;
 }
 
+/**
+ * EXECUTE one corp for one tick: the kind's custom run() when declared, else
+ * the standard cadence every corp shares - plan() on the PLANNING_INTERVAL
+ * boundary (base Corp.plan stamps lastPlannedTick), work() every tick. This
+ * is the legacy runRealCorps rhythm, owned by the dispatch since spec 32
+ * phase D so a new kind writes no run() unless genuinely custom. Pinned by
+ * test/unit/framework/planCadence.test.ts and the conformance suite's
+ * empty-world run-safety case.
+ */
+export function runCorpTick(kind: CorpKind, corp: Corp, tick: number): void {
+  if (kind.run) {
+    kind.run(corp, tick);
+    return;
+  }
+  if (corp.shouldPlan(tick)) corp.plan(tick);
+  corp.work(tick);
+}
+
 /** Run every commissioned corp, kinds in execution order, stable within a kind. */
 export function runCommissionedCorps(store: CorpStore, tick: number, meter?: CorpRunMeter): void {
   for (const kind of listCorpKinds()) {
     for (const [corpId, entry] of store) {
       if (entry.kind !== kind.kind) continue;
       if (!meter) {
-        kind.run(entry.corp, tick);
+        runCorpTick(kind, entry.corp, tick);
         continue;
       }
       const before = meter.now();
-      kind.run(entry.corp, tick);
+      runCorpTick(kind, entry.corp, tick);
       meter.record(entry.kind, corpId, meter.now() - before);
     }
   }

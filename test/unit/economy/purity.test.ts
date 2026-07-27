@@ -40,7 +40,8 @@ const PURE: string[] = [
   "goals.ts",
   "strategy.ts",
   "depositSavings.ts",
-  "ids.ts"
+  "ids.ts",
+  "proposeHelpers.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
@@ -116,7 +117,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
-      "./goals", "./strategy", "./ids",
+      "./goals", "./strategy", "./ids", "./proposeHelpers",
       // pure shared types
       "../types/Position", "../types/Memory",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling
@@ -150,6 +151,16 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
     expect(
       GLOBAL_REF.test(code),
       "SpawnScheduler gained a Game/Memory reference — the NOW planner must stay a pure function of demands + ctx"
+    ).to.equal(false);
+  });
+
+  it("the demand-value ladder (spawn/demandLadder.ts) is Game-free", () => {
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/spawn/demandLadder.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "demandLadder gained a Game/Memory reference — the ladder is pure named constants (spec 32 phase D)"
     ).to.equal(false);
   });
 });

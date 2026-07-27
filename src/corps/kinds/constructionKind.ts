@@ -29,7 +29,7 @@ import { SinkAllocation } from "../../flow/FlowTypes";
 import { buildTankerBody, buildUpgraderBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
-import { roomLinearDistance } from "../../utils/RoomDiscovery";
+import { homeSpawnsByRoom, nearestSpawnTo } from "../../economy/proposeHelpers";
 
 /** The construction commission's binding: the room, its spawn, and the flow's
  * construction-energy allocations for that room (for builder sizing). */
@@ -113,10 +113,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       allocByRoom.set(roomName, list);
     }
 
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) homeSpawnByRoom.set(s.pos.roomName, s.id);
-    }
+    const homeSpawnByRoom = homeSpawnsByRoom(problem);
     // Remote trunk candidates (owner 2026-07-19): each FUNDED harvest whose
     // source lies OUTSIDE its staffing spawn's room. The trunk belongs to the
     // spawn's room corp - the home end of the route.
@@ -149,16 +146,8 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     const spawnlessRooms = new Set([...allocByRoom.keys(), ...remoteMinedRooms(problem, draft)]);
     for (const roomName of spawnlessRooms) {
       if (homeSpawnByRoom.has(roomName)) continue;
-      let best = problem.spawns[0];
+      const best = nearestSpawnTo(problem, roomName);
       if (!best) continue;
-      let bestDist = Infinity;
-      for (const s of problem.spawns) {
-        const d = roomLinearDistance(s.pos.roomName, roomName);
-        if (d < bestDist) {
-          bestDist = d;
-          best = s;
-        }
-      }
       homeSpawnByRoom.set(roomName, best.id);
     }
     // POOL ALLOCATIONS (spec 25 phase 3, owner: "make a bigger builder ...
@@ -215,13 +204,6 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     corp.setRemoteTrunks(a.remoteTrunks ?? []);
     corp.setPoolAllocatedRate(a.poolAllocatedRate ?? 0);
     return corp;
-  },
-
-  run(corp: ConstructionCorp, tick: number): void {
-    // Replicate the legacy runConstructionCorps cadence: plan periodically, work
-    // every tick.
-    if (corp.shouldPlan(tick)) corp.plan(tick);
-    corp.work(tick);
   },
 
   serializeCorp(corp: ConstructionCorp): SerializedConstructionCorp {

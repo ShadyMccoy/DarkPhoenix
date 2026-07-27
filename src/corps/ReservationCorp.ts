@@ -25,19 +25,18 @@
  * @module corps/ReservationCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { RESERVATION_REFRESH_FLOOR, RESERVATION_BANK_CAP, OPPORTUNISTIC_BANK_HEADROOM } from "./economics";
 import { hostileRooms, isReservableRoom, myReservationTicksLeft } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { Position } from "../types/Position";
+import { RESERVATION_TOPUP, RESERVER } from "../spawn/demandLadder";
 import { buildReserverBody } from "../spawn/BodyBuilder";
 import { travelTo } from "./movement";
 
 /**
  * Serialized state specific to ReservationCorp.
  */
-export interface SerializedReservationCorp extends SerializedCorp {
-  spawnId: string;
+export interface SerializedReservationCorp extends SerializedSpawnAnchoredCorp {
   /** Commission-owned planned remotes; refreshed by materialize every round. */
   targetRooms?: string[];
 }
@@ -45,28 +44,11 @@ export interface SerializedReservationCorp extends SerializedCorp {
 /**
  * ReservationCorp manages reserver creeps that hold remote controllers.
  */
-export class ReservationCorp extends Corp {
-  private spawnId: string;
+export class ReservationCorp extends SpawnAnchoredCorp {
   private targetRooms: string[] = [];
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("reservation", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /**
-   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
-   * state: a persisted corp outlives spawns (measured live: an immortal
-   * upgrade/construction corp carried a dead spawn's id for good, so
-   * collectDemands dropped its demands forever - 0 upgraders/builders while
-   * the plan begged for them). Every kind's materialize() refreshes this.
-   */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
+    super("reservation", nodeId, spawnId, customId);
   }
 
   /**
@@ -83,23 +65,8 @@ export class ReservationCorp extends Corp {
     return [...this.targetRooms];
   }
 
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
-  }
-
   private getActiveCreeps(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "reserve" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
+    return this.creepsOfWorkType("reserve", { includeSpawning: false });
   }
 
   /**
@@ -111,21 +78,6 @@ export class ReservationCorp extends Corp {
    */
   private reservableTargets(myUsername: string | undefined): string[] {
     return this.targetRooms.filter(r => isReservableRoom(r, myUsername));
-  }
-
-  /**
-   * Every living reserver this corp owns, INCLUDING spawning newborns and ones
-   * work() has not assigned yet. The demand lens - and only the demand lens -
-   * counts with this (work() correctly uses getActiveCreeps: a spawning creep
-   * cannot move). Excluding newborns here was the purchase loop.
-   */
-  private countLivingReservers(): number {
-    let n = 0;
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.corpId === this.id && c.memory.workType === "reserve") n++;
-    }
-    return n;
   }
 
   public work(tick: number): void {
@@ -222,13 +174,9 @@ export class ReservationCorp extends Corp {
       // of a busy window. One wildcard at a time (an unassigned corp
       // reserver - spawning included - is already headed for the lowest
       // bank, work()'s one-way latch).
-      const hasWildcard = ((): boolean => {
-        for (const name in Game.creeps) {
-          const cr = Game.creeps[name];
-          if (cr.memory.corpId === this.id && cr.memory.workType === "reserve" && !cr.memory.targetRoom) return true;
-        }
-        return false;
-      })();
+      const hasWildcard = this.creepsOfWorkType("reserve", { includeSpawning: true }).some(
+        cr => !cr.memory.targetRoom
+      );
       const minBank = Math.min(...targets.map(r => banks[r]));
       const worthBanking = minBank < RESERVATION_BANK_CAP - OPPORTUNISTIC_BANK_HEADROOM;
       if (!hasWildcard && worthBanking) {
@@ -239,7 +187,7 @@ export class ReservationCorp extends Corp {
             {
               buyerCorpId: this.id,
               role: "reserver",
-              value: 5, // the bottom of the ladder: idle windows only
+              value: RESERVATION_TOPUP, // the bottom of the ladder: idle windows only
               blocking: false,
               producesIncome: false,
               opportunistic: true,
@@ -263,9 +211,7 @@ export class ReservationCorp extends Corp {
     // needy rooms on their first active tick.
     const assignedRooms = new Set<string>();
     let wildcards = 0;
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.corpId !== this.id || c.memory.workType !== "reserve") continue;
+    for (const c of this.creepsOfWorkType("reserve", { includeSpawning: true })) {
       if (c.memory.targetRoom) assignedRooms.add(c.memory.targetRoom);
       else wildcards++;
     }
@@ -297,7 +243,8 @@ export class ReservationCorp extends Corp {
         // Measured (grid T5 + diag-reserver): at 92 the reserver starved
         // FOREVER behind hauler churn - even inside the starved tier the
         // 110-value haulers out-ranked it and re-armed after every spawn.
-        value: 115,
+        // (Rung home + full rationale: spawn/demandLadder.ts.)
+        value: RESERVER,
         blocking: false,
         producesIncome: true, // a reserved source delivers twice the energy
         // Bank for the reserver when it tops the ranking: its body is
@@ -321,14 +268,12 @@ export class ReservationCorp extends Corp {
   public serialize(): SerializedReservationCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId,
       targetRooms: [...this.targetRooms]
     };
   }
 
   public deserialize(data: SerializedReservationCorp): void {
     super.deserialize(data);
-    this.spawnId = data.spawnId ?? this.spawnId;
     this.targetRooms = data.targetRooms ?? [];
   }
 }

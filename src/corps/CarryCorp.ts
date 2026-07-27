@@ -10,6 +10,7 @@ import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
 import { isTenderCreep } from "./censusLens";
+import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
@@ -203,24 +204,6 @@ export function shouldDrainDedicatedSource(
     if (containerEnergy >= containerCapacity * DEDICATED_SOURCE_DRAIN_FILL) return true;
   }
   return groundPile >= DEDICATED_SOURCE_DRAIN_PILE;
-}
-
-/**
- * Do extensions belong to the tender corp in this room? The ONE lens every
- * hauler fan-fill site reads (owner 2026-07-22 accountability ruling: "each
- * corp needs to do their job, not cover for each other"). COVERED is the
- * STRUCTURAL flag (depot + extensions exist, stamped by
- * ExtensionTenderCorp.work) - it does NOT flap with tender deaths, so a dead
- * tender no longer hands extension duty back to the haulers; the tender
- * corp's own bootstrap demand (value 150) re-fields one instead. Haulers keep
- * the SPAWN STRUCTURE topped in every regime, so a tender gap can never
- * deadlock the colony. ACTIVE is OR-ed in only for rooms whose stamp predates
- * the covered flag (a deploy-boundary nicety, not a doctrine).
- */
-export function tenderOwnsExtensions(
-  mem?: { extensionTenderCovered?: boolean; extensionTenderActive?: boolean }
-): boolean {
-  return mem?.extensionTenderCovered === true || mem?.extensionTenderActive === true;
 }
 
 /**

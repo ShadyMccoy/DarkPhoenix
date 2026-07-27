@@ -18,18 +18,27 @@
  * @module corps/ControllerFeederCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { FEEDER, FEEDER_DRAINED, FEEDER_LINCHPIN } from "../spawn/demandLadder";
 import { Position } from "../types/Position";
-import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
+import {
+  CoreDepot,
+  controllerLink,
+  coreDepot,
+  coreLink,
+  coreLinkLoadRoom,
+  controllerInputSpot,
+  feederRelayStock
+} from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
+import { stampControllerFeederRegime } from "./regimes";
 import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
-export interface SerializedControllerFeederCorp extends SerializedCorp {
-  spawnId: string;
+export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
 }
 
@@ -50,15 +59,6 @@ const CONTROLLER_FEED_TARGET = 2000;
  * at or above it the feeder is the linchpin and outranks the marginal miner.
  */
 const FEEDER_INCOME_FIRST_FLOOR = 2000;
-
-/**
- * The FIRST feeder's spawn value when energy is present. Above the miner band
- * (HarvestCorp: `100 + efficiency*0.5`, efficiency = net/rate*100 < 100, so
- * miners top out just under 150) so the linchpin outranks the marginal
- * producer - it unlocks consumption of energy already mined. It never WALLS
- * (blocking stays false), so topping the ladder cannot spiral the bank.
- */
-const FEEDER_LINCHPIN_VALUE = 150;
 
 /**
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
@@ -141,14 +141,12 @@ export function feederBodyRate(
   return burnCap > 0 ? Math.min(relayRate, burnCap) : relayRate;
 }
 
-export class ControllerFeederCorp extends Corp {
-  private spawnId: string;
+export class ControllerFeederCorp extends SpawnAnchoredCorp {
   /** The plan's controller-side flow (commission-owned, refreshed every round). */
   private controllerAllocation?: number;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("moving", nodeId, customId);
-    this.spawnId = spawnId;
+    super("moving", nodeId, spawnId, customId);
   }
 
   /** The plan's controller allocation for this room - the relay's ceiling. */
@@ -156,47 +154,20 @@ export class ControllerFeederCorp extends Corp {
     this.controllerAllocation = v;
   }
 
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /** Rebind to the commission's CURRENT spawn (commission-owned; never let it go stale). */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
-  }
-
+  /** The feeder posts AT the controller input, not the spawn - override the anchor. */
   public getPosition(): Position {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const controller = spawn?.room.controller;
     if (controller) return { x: controller.pos.x, y: controller.pos.y, roomName: controller.pos.roomName };
-    if (spawn) return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    return super.getPosition();
   }
 
   private getFeeders(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.corpId === this.id && c.memory.workType === "feed" && !c.spawning) creeps.push(c);
-    }
-    return creeps;
+    return this.creepsOfWorkType("feed", { includeSpawning: false });
   }
 
   public getCreepCount(): number {
     return this.getFeeders().length;
-  }
-
-  /** Energy already staged at the controller input: its container/link plus piles. */
-  private controllerStock(controller: StructureController, inputPos: RoomPosition): number {
-    let stock = 0;
-    const buffer = controller.pos.findInRange(FIND_STRUCTURES, 3, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_LINK
-    })[0] as StructureContainer | StructureLink | undefined;
-    if (buffer) stock += buffer.store[RESOURCE_ENERGY];
-    for (const r of inputPos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
-      if (r.resourceType === RESOURCE_ENERGY) stock += r.amount;
-    }
-    return stock;
   }
 
   public work(tick: number): void {
@@ -213,7 +184,7 @@ export class ControllerFeederCorp extends Corp {
     // the last leg, controller-bound loads stop at the bank (CarryCorp defers to us).
     // If the feeder dies the flag clears and haulers resume delivering to the
     // controller directly, so a dead feeder never starves upgrading.
-    room.memory.controllerFeederActive = !!(room.storage && room.storage.my) && feeders.length > 0;
+    stampControllerFeederRegime(room.memory, !!(room.storage && room.storage.my) && feeders.length > 0);
 
     for (const creep of feeders) this.runFeeder(creep, controller, depot);
   }
@@ -263,7 +234,10 @@ export class ControllerFeederCorp extends Corp {
       const input = controllerInputSpot(controller);
       // Topped up: hold the load near the input so the next drain is served at once
       // (do not overfill - a bare pile would otherwise grow without bound).
-      if (this.controllerStock(controller, input.pos) >= CONTROLLER_FEED_TARGET) {
+      // feederRelayStock is the NARROW staged-stock lens (shared home:
+      // nodeEnergy, beside the upgraders' wide controllerSideStock - the
+      // radii differ deliberately; see the lens's own rationale).
+      if (feederRelayStock(controller, input.pos) >= CONTROLLER_FEED_TARGET) {
         if (creep.pos.getRangeTo(input.pos) > 2) travelTo(creep, input.pos, { range: 2 });
         return;
       }
@@ -424,10 +398,12 @@ export class ControllerFeederCorp extends Corp {
       {
         buyerCorpId: this.id,
         role: "feeder",
-        // First feeder with energy: above the miner band (the linchpin). First
-        // feeder while DRAINED: below miners (income first). Additional feeders:
-        // the old infra tier, just below the tender.
-        value: firstFeeder ? (drained ? 90 : FEEDER_LINCHPIN_VALUE) : 95,
+        why: "infra", // agenda label: DECLARED on every feeder demand, never derived from the role name (spec 32 phase D)
+        // Ladder rungs (spawn/demandLadder.ts) - first feeder with energy:
+        // above the miner band (the linchpin). First feeder while DRAINED:
+        // below miners (income first). Additional feeders: the old infra
+        // tier, just below the tender.
+        value: firstFeeder ? (drained ? FEEDER_DRAINED : FEEDER_LINCHPIN) : FEEDER,
         blocking: false, // never walls: haulers feed the controller directly until it spawns
         // The first feeder also pierces holds/walls while its post is dark and a
         // real bank stands stranded behind it (the emergency lane, incident
@@ -444,12 +420,11 @@ export class ControllerFeederCorp extends Corp {
   }
 
   public serialize(): SerializedControllerFeederCorp {
-    return { ...super.serialize(), spawnId: this.spawnId, controllerAllocation: this.controllerAllocation };
+    return { ...super.serialize(), controllerAllocation: this.controllerAllocation };
   }
 
   public deserialize(data: SerializedControllerFeederCorp): void {
     super.deserialize(data);
     this.controllerAllocation = data.controllerAllocation;
-    this.spawnId = data.spawnId ?? this.spawnId;
   }
 }

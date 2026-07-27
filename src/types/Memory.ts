@@ -508,8 +508,9 @@ declare global {
      * STRUCTURAL (owner 2026-07-22 accountability ruling: "each corp needs to
      * do their job, not cover for each other"): true while a core depot AND
      * extensions exist - extension refill is the tender corp's JOB here,
-     * whether or not a tender is alive this tick. Read via CarryCorp's
-     * tenderOwnsExtensions lens: haulers run the dumb source->depot bus and
+     * whether or not a tender is alive this tick. Read via the
+     * tenderOwnsExtensions lens (corps/regimes.ts, the regime lenses' neutral
+     * home): haulers run the dumb source->depot bus and
      * never fan across extensions in a covered room; a dead tender is
      * re-fielded by the corp's own bootstrap demand (value 150), not covered
      * for. Haulers still top the SPAWN STRUCTURE either way, so a tender gap

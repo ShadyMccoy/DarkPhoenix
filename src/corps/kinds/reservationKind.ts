@@ -25,9 +25,10 @@
  * @module corps/kinds/reservationKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { Commission } from "../../economy/Commission";
+import { CorpKind, startedUnitDemandGroup } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ReservationCorp, SerializedReservationCorp } from "../ReservationCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
@@ -50,12 +51,7 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   roles: { reserver: { workType: "reserve" } },
 
   propose(problem: ColonyProblem, draft: readonly Commission[] = []): Commission[] {
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
+    const homeSpawnByRoom = homeSpawnsByRoom(problem);
     // The trigger, on the DURABLE signal: rooms the draft plan MINES that are
     // not our own spawn rooms. Solver harvest commissions carry the source
     // position in produces.at, so no Game/vision/creep lookup is needed here.
@@ -65,20 +61,15 @@ export const reservationKind: CorpKind<ReservationCorp> = {
       const room = c.produces.at?.roomName;
       if (room && !homeSpawnByRoom.has(room)) minedRemotes.add(room);
     }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("reservation", roomName),
-      kind: "reservation",
-      shape: "auxiliary",
-      // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
-      // sources), priced by the SpawnDirector's value ranking, not the planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: {
+    // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
+    // sources), priced by the SpawnDirector's value ranking, not the planner.
+    return [...homeSpawnByRoom].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("reservation", roomName, spawnId, {
         roomName,
         spawnId,
         targetRooms: [...minedRemotes].filter(r => roomLinearDistance(roomName, r) <= MAX_SCOUT_DISTANCE).sort()
-      } as ReservationAssignment
-    }));
+      } as ReservationAssignment)
+    );
   },
 
   materialize(c: Commission, existing: ReservationCorp | undefined): ReservationCorp {
@@ -93,10 +84,6 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     const corp = new ReservationCorp(`${a.roomName}-reservation`, a.spawnId);
     corp.setTargetRooms(a.targetRooms ?? []);
     return corp;
-  },
-
-  run(corp: ReservationCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: ReservationCorp): SerializedReservationCorp {
@@ -119,7 +106,5 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   // harvests the remote - the op is underway, so the unit is always started.
   // At base value it starved forever behind the income tier while the remote
   // stayed at the unreserved half-rate.
-  demandGroup(corp: ReservationCorp) {
-    return { groupId: corp.id, started: true };
-  }
+  demandGroup: startedUnitDemandGroup
 };

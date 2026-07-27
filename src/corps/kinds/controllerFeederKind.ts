@@ -11,9 +11,10 @@
  * @module corps/kinds/controllerFeederKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
 import { coreLink } from "../nodeEnergy";
@@ -48,26 +49,15 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
       if (!roomName) continue;
       ctrlFlowByRoom.set(roomName, (ctrlFlowByRoom.get(roomName) ?? 0) + (c.consumes.energyRate ?? 0));
     }
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("controllerFeeder", roomName),
-      kind: "controllerFeeder",
-      shape: "auxiliary",
-      // Off-budget: a feeder MOVES energy already produced (bank -> controller),
-      // priced by the SpawnDirector's infrastructure tier, not the planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: {
+    // Off-budget: a feeder MOVES energy already produced (bank -> controller),
+    // priced by the SpawnDirector's infrastructure tier, not the planner.
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("controllerFeeder", roomName, spawnId, {
         roomName,
         spawnId,
         controllerAllocation: ctrlFlowByRoom.get(roomName) ?? 0
-      } as ControllerFeederAssignment
-    }));
+      } as ControllerFeederAssignment)
+    );
   },
 
   materialize(c: Commission, existing: ControllerFeederCorp | undefined): ControllerFeederCorp {
@@ -80,10 +70,6 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     const corp = new ControllerFeederCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
     corp.setControllerAllocation(a.controllerAllocation);
     return corp;
-  },
-
-  run(corp: ControllerFeederCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: ControllerFeederCorp): SerializedControllerFeederCorp {

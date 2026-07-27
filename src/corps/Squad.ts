@@ -18,7 +18,7 @@
  * @module corps/Squad
  */
 
-import { SpawnDemand, SpawnRole } from "../spawn/SpawnScheduler";
+import { AgendaWhy, SpawnDemand, SpawnRole } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle, spawnIdleAndMaxed } from "./recycle";
 
 /**
@@ -42,6 +42,13 @@ export interface SquadConfig {
    * CARRY for haulers/tankers. Used to recognise an undersized runt to recycle.
    */
   usefulPart: BodyPartConstant;
+  /**
+   * Agenda transition label declared on every member demand (spec 32 phase D:
+   * the "infra" label is DECLARED by the demand's owner, never derived from
+   * role names in the PLAN-layer scheduler). Omitted = the agenda derives a
+   * label from the generic flags (agendaWhy).
+   */
+  why?: AgendaWhy;
 }
 
 /**
@@ -138,6 +145,7 @@ export class Squad {
       {
         buyerCorpId: this.config.corpId,
         role: this.config.role,
+        ...(this.config.why ? { why: this.config.why } : {}),
         value: this.config.value,
         blocking: this.config.blockingWhenEmpty && current === 0,
         producesIncome: this.config.producesIncome,

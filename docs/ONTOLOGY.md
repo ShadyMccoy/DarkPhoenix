@@ -136,8 +136,9 @@ coverage:
   this tick — a dead tender is re-fielded by its own demand, not covered
   for by haulers (liveness-keyed regimes are the flapping-signal trap
   class). Haulers always keep the SPAWN STRUCTURE topped, so a gap cannot
-  deadlock. One lens per regime (`tenderOwnsExtensions`), read by every
-  site on both demand and work sides.
+  deadlock. One lens per regime (`tenderOwnsExtensions`, homed with the
+  regime setters in `corps/regimes.ts` — neutral ground, owned by neither
+  writer nor reader kind), read by every site on both demand and work sides.
 - **Creep hand-off via orphan/adopt**: a corp fielding more of a role than
   its demand lens wants RELEASES the extras (corpId → a non-live marker;
   rescue skips creeps with NO corpId), and the kind's `claimsOrphan`
@@ -157,11 +158,12 @@ it with a toy kind).
 |---|---|---|
 | `propose(problem, draft)` | PLAN (pure) | the operator's trigger: commissions this kind wants, from durable signals (the draft plan, intel lenses) — never creep positions or vision |
 | `materialize(commission, existing)` | EXECUTE | bind/update the runtime corp; MUST refresh `spawnId` on existing corps (conformance-enforced) |
-| `run(corp, tick)` | EXECUTE | one dumb tick — the assignment has everything |
+| `run?(corp, tick)` | EXECUTE | one dumb tick — the assignment has everything. OPTIONAL: absent = the dispatch's standard cadence (`runCorpTick`: `plan()` on the planning boundary, `work()` every tick); declare it only for genuinely custom execution (scout's live spawn path is the one case) |
 | `serializeCorp` / `deserializeCorp` | EXECUTE | persistence round-trip |
 | `body(role, bodyParam, budget, hints)` | EXECUTE | the LIVE body path (SpawningCorp dispatches here; the old role switch is deleted, pinned by the body-equivalence sweep) |
+| `spawnTarget?(role, spawn)` | EXECUTE | optional spawn-direction bias: the tile a newborn of `role` should emerge FACING, read generically by `SpawningCorp.executeSpawn` (the parked controller feeder is born on-post with no walk-in dead time) |
 | `roles: { role → {workType, readopt?, deliversEnergy?} }` | declaration | workType stamps, orphan-rescue registry, income-estimate participation |
-| `demandGroup(corp, corpId, world)` | declaration (pure) | funding-group policy: which income UNIT a demand joins and whether it is started (harvest/carry share the source key; military/reservation force started — rationale lives in the kind files) |
+| `demandGroup(corp, corpId, world)` | declaration (pure) | funding-group policy: which income UNIT a demand joins and whether it is started (harvest/carry share the source key; the always-started class — reservation/raidGuard/coreBuster — declares the shared `startedUnitDemandGroup` helper, incident rationale at each declaration site) |
 | `sourceOf(corp)` | declaration | producer's source id — feeds `DemandWorld.isSourceMined` for ANY transport kind |
 | `claimsOrphan(creep, corps)` | declaration | orphan re-adoption override (harvest: source underfoot; carry: assigned source); default = same-room corp of the creep's declared workType |
 
@@ -282,7 +284,12 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
 - **Known coupling debt:** the RoomMemory regime flags
   (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next
-  cross-kind protocol to make declarative (spec 17 backlog).
+  cross-kind protocol to make declarative (spec 17 backlog). The LENS side
+  now has a neutral home (`corps/regimes.ts`: `tenderOwnsExtensions` plus the
+  writers' documented stamp setters — spec 32 phase D), but the flags
+  themselves, and the feeder's liveness-keyed semantics, remain the debt
+  until the structural-regime upgrade (spec 32 phase E) lands as its own
+  gated change.
 
 ## 10. History (systems collapsed into this model)
 

@@ -26,12 +26,12 @@
  * @module corps/CoreBusterCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { CORE_BUSTER_MIN_REMAINING } from "../economy/primitives";
 import { INVADER_USERNAME } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { BUSTER } from "../spawn/demandLadder";
 import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
-import { Position } from "../types/Position";
 import { buildGuardBody, buildReserverBody } from "../spawn/BodyBuilder";
 import { driveRecycle } from "./recycle";
 import { travelTo } from "./movement";
@@ -40,48 +40,19 @@ import { GUARD_RECYCLE_GRACE } from "./RaidGuardCorp";
 /**
  * Serialized state specific to CoreBusterCorp.
  */
-export interface SerializedCoreBusterCorp extends SerializedCorp {
-  spawnId: string;
-}
+export type SerializedCoreBusterCorp = SerializedSpawnAnchoredCorp;
 
 /**
  * CoreBusterCorp manages buster (ATTACK) and striker (CLAIM) creeps that
  * reclaim invader-occupied remote rooms.
  */
-export class CoreBusterCorp extends Corp {
-  private spawnId: string;
-
+export class CoreBusterCorp extends SpawnAnchoredCorp {
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("coreBuster", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /** Commission-owned state: every materialize() refreshes this (the stale-spawnId trap). */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
-  }
-
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    super("coreBuster", nodeId, spawnId, customId);
   }
 
   private creepsOf(workType: "buster" | "strike"): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === workType && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
+    return this.creepsOfWorkType(workType, { includeSpawning: false });
   }
 
   /**
@@ -218,7 +189,7 @@ export class CoreBusterCorp extends Corp {
         demands.push({
           buyerCorpId: this.id,
           role: "buster",
-          value: 104,
+          value: BUSTER, // rung home + ladder rationale: spawn/demandLadder.ts
           blocking: false,
           producesIncome: true,
           holdToFund: true,
@@ -238,7 +209,7 @@ export class CoreBusterCorp extends Corp {
         demands.push({
           buyerCorpId: this.id,
           role: "striker",
-          value: 104,
+          value: BUSTER, // same mission, same rung (spawn/demandLadder.ts)
           blocking: false,
           producesIncome: true,
           holdToFund: true, // CLAIM 600 floor: indivisible, bank for it
@@ -255,17 +226,5 @@ export class CoreBusterCorp extends Corp {
 
   public getCreepCount(): number {
     return this.creepsOf("buster").length + this.creepsOf("strike").length;
-  }
-
-  public serialize(): SerializedCoreBusterCorp {
-    return {
-      ...super.serialize(),
-      spawnId: this.spawnId
-    };
-  }
-
-  public deserialize(data: SerializedCoreBusterCorp): void {
-    super.deserialize(data);
-    this.spawnId = data.spawnId ?? this.spawnId;
   }
 }

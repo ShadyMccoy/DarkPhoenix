@@ -15,9 +15,10 @@
  * @module corps/kinds/extensionTenderKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "../ExtensionTenderCorp";
 import { buildTankerBody } from "../../spawn/BodyBuilder";
@@ -34,22 +35,11 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("tender", roomName),
-      kind: "tender",
-      shape: "auxiliary",
-      // Off-budget: a tender MOVES energy already produced (depot -> extensions),
-      // priced by the SpawnDirector's infrastructure tier, not the planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: { roomName, spawnId } as ExtensionTenderAssignment
-    }));
+    // Off-budget: a tender MOVES energy already produced (depot -> extensions),
+    // priced by the SpawnDirector's infrastructure tier, not the planner.
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("tender", roomName, spawnId)
+    );
   },
 
   materialize(c: Commission, existing: ExtensionTenderCorp | undefined): ExtensionTenderCorp {
@@ -61,10 +51,6 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
     // Legacy nodeId convention preserves the pre-port runtime corp id, so live
     // tenders' memory.corpId still resolves across the migration.
     return new ExtensionTenderCorp(`${a.roomName}-tender`, a.spawnId);
-  },
-
-  run(corp: ExtensionTenderCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: ExtensionTenderCorp): SerializedExtensionTenderCorp {

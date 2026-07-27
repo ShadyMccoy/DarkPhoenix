@@ -81,12 +81,6 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
     return corp;
   },
 
-  run(corp: UpgradingCorp, tick: number): void {
-    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
-    if (corp.shouldPlan(tick)) corp.plan(tick);
-    corp.work(tick);
-  },
-
   serializeCorp(corp: UpgradingCorp): SerializedUpgradingCorp {
     return corp.serialize();
   },

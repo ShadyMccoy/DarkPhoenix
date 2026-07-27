@@ -14,9 +14,10 @@
  * @module corps/kinds/raidGuardKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { Commission } from "../../economy/Commission";
+import { CorpKind, startedUnitDemandGroup } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { RaidGuardCorp, SerializedRaidGuardCorp } from "../RaidGuardCorp";
 import { buildGuardBody } from "../../spawn/BodyBuilder";
@@ -33,23 +34,12 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
-    const homeSpawnByRoom = new Map<string, string>();
-    for (const s of problem.spawns) {
-      if (!homeSpawnByRoom.has(s.pos.roomName)) {
-        homeSpawnByRoom.set(s.pos.roomName, s.id);
-      }
-    }
-    return [...homeSpawnByRoom].map(([roomName, spawnId]) => ({
-      corpId: corpIdFor("raidGuard", roomName),
-      kind: "raidGuard",
-      shape: "auxiliary",
-      // Off-budget: the guard is producer PROTECTION (it keeps a remote's
-      // flow alive through a raid), priced by the SpawnDirector's value
-      // ranking, not the flow planner.
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: { roomName, spawnId } as RaidGuardAssignment
-    }));
+    // Off-budget: the guard is producer PROTECTION (it keeps a remote's
+    // flow alive through a raid), priced by the SpawnDirector's value
+    // ranking, not the flow planner.
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
+      perRoomAuxiliaryCommission("raidGuard", roomName, spawnId)
+    );
   },
 
   materialize(c: Commission, existing: RaidGuardCorp | undefined): RaidGuardCorp {
@@ -59,10 +49,6 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
       return existing;
     }
     return new RaidGuardCorp(`${a.roomName}-raidGuard`, a.spawnId);
-  },
-
-  run(corp: RaidGuardCorp, tick: number): void {
-    corp.work(tick);
   },
 
   serializeCorp(corp: RaidGuardCorp): SerializedRaidGuardCorp {
@@ -84,7 +70,5 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
   // income it preserves is committed (the armed meter says we mined 65k+
   // there). At base tier the guard starved behind income churn through the
   // whole pre-raid window (def-t4) and the remote fleet it protects died.
-  demandGroup(corp: RaidGuardCorp) {
-    return { groupId: corp.id, started: true };
-  }
+  demandGroup: startedUnitDemandGroup
 };

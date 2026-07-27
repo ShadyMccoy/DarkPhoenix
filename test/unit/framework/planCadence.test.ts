@@ -1,13 +1,16 @@
 /**
- * Cutover Step B: the solver-backed kinds' run() must replicate the legacy
- * runRealCorps cadence - plan() periodically (every PLANNING_INTERVAL ticks),
- * work() every tick. These tests pin that each kind's run() invokes plan() on
- * the planning boundary and not in between, so moving them off runRealCorps to
- * the host preserves the planning rhythm.
+ * The dispatch's default run cadence (spec 32 phase D; historically cutover
+ * Step B): a kind that declares no run() gets the legacy runRealCorps rhythm
+ * from runCorpTick - plan() periodically (every PLANNING_INTERVAL ticks),
+ * work() every tick. These tests pin that the default plans on the planning
+ * boundary and not in between, over the solver-backed kinds that used to
+ * hand-write exactly this cadence.
  */
 
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
+import { CorpKind, runCorpTick } from "../../../src/economy/CorpKind";
+import { Corp } from "../../../src/corps/Corp";
 import { harvestKind } from "../../../src/corps/kinds/harvestKind";
 import { carryKind } from "../../../src/corps/kinds/carryKind";
 import { upgradeKind } from "../../../src/corps/kinds/upgradeKind";
@@ -65,8 +68,12 @@ describe("Step B: solver-backed kinds plan on the planning cadence", () => {
   beforeEach(installGlobals);
 
   for (const { kind, commission } of fixtures) {
-    it(`${kind.kind}: run() plans on the PLANNING_INTERVAL boundary, not in between (legacy cadence)`, () => {
-      const corp = kind.materialize(commission as never, undefined);
+    it(`${kind.kind}: the default cadence plans on the PLANNING_INTERVAL boundary, not in between`, () => {
+      const dispatch = kind as unknown as CorpKind;
+      expect(dispatch.run, "solver-backed kinds declare no run() - the dispatch default IS their cadence").to.equal(
+        undefined
+      );
+      const corp: Corp = kind.materialize(commission as never, undefined);
       let plans = 0;
       const realPlan = corp.plan.bind(corp);
       corp.plan = (t: number) => {
@@ -75,18 +82,18 @@ describe("Step B: solver-backed kinds plan on the planning cadence", () => {
       };
 
       // Fresh corp has lastPlannedTick 0: shouldPlan(t) = t >= PLANNING_INTERVAL.
-      kind.run(corp as never, 0);
-      kind.run(corp as never, PLANNING_INTERVAL - 1);
+      runCorpTick(dispatch, corp, 0);
+      runCorpTick(dispatch, corp, PLANNING_INTERVAL - 1);
       expect(plans, "no plan before the first interval elapses").to.equal(0);
 
-      kind.run(corp as never, PLANNING_INTERVAL); // boundary reached -> plan, lastPlannedTick = INTERVAL
+      runCorpTick(dispatch, corp, PLANNING_INTERVAL); // boundary reached -> plan, lastPlannedTick = INTERVAL
       expect(plans, "plans at the interval boundary").to.equal(1);
 
-      kind.run(corp as never, PLANNING_INTERVAL + 1);
-      kind.run(corp as never, 2 * PLANNING_INTERVAL - 1);
+      runCorpTick(dispatch, corp, PLANNING_INTERVAL + 1);
+      runCorpTick(dispatch, corp, 2 * PLANNING_INTERVAL - 1);
       expect(plans, "no re-plan within the next interval").to.equal(1);
 
-      kind.run(corp as never, 2 * PLANNING_INTERVAL);
+      runCorpTick(dispatch, corp, 2 * PLANNING_INTERVAL);
       expect(plans, "re-plans once the next interval elapses").to.equal(2);
     });
   }

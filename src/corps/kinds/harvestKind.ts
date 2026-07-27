@@ -85,12 +85,6 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     return corp;
   },
 
-  run(corp: HarvestCorp, tick: number): void {
-    // Replicate the legacy runRealCorps cadence: plan periodically, work every tick.
-    if (corp.shouldPlan(tick)) corp.plan(tick);
-    corp.work(tick);
-  },
-
   serializeCorp(corp: HarvestCorp): SerializedHarvestCorp {
     return corp.serialize();
   },

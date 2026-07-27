@@ -18,17 +18,17 @@
  * @module corps/ExtensionTenderCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { Position } from "../types/Position";
+import { TENDER, TENDER_BOOTSTRAP } from "../spawn/demandLadder";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
 import { extensionClusters, nextStop, roomCircuit } from "./refillCircuit";
 import { travelTo, travelToBypass } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
+import { stampTenderRegime } from "./regimes";
 import { CARRY_MOVE_PAIR_COST, maxCarryPairs, staffsPost } from "../economy/primitives";
 
-export interface SerializedExtensionTenderCorp extends SerializedCorp {
-  spawnId: string;
+export interface SerializedExtensionTenderCorp extends SerializedSpawnAnchoredCorp {
   /** Transfer-duty meter (survives resets - a global reset mid-window
    * must not read as a duty collapse). */
   dutyTransfers?: number;
@@ -107,9 +107,7 @@ export function tenderBootstrapPierce(staffing: number, target: number, depotSto
   return staffing < target && depotStock >= TENDER_BOOTSTRAP_ABUNDANT_STOCK;
 }
 
-export class ExtensionTenderCorp extends Corp {
-  private spawnId: string;
-
+export class ExtensionTenderCorp extends SpawnAnchoredCorp {
   /** TRANSFER-DUTY METER (owner 2026-07-22: "the tender truth is somewhere
    * between our current actual and the simulated ideal - we can ratchet
    * that up a bit"): transfer intents per alive tender tick over a rolling
@@ -121,38 +119,11 @@ export class ExtensionTenderCorp extends Corp {
   private dutySince = 0;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("moving", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /**
-   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
-   * state: a persisted corp outlives spawns (measured live: an immortal
-   * upgrade/construction corp carried a dead spawn's id for good, so
-   * collectDemands dropped its demands forever - 0 upgraders/builders while
-   * the plan begged for them). Every kind's materialize() refreshes this.
-   */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
-  }
-
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    super("moving", nodeId, spawnId, customId);
   }
 
   private getTenders(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.corpId === this.id && c.memory.workType === "tank" && !c.spawning) creeps.push(c);
-    }
-    return creeps;
+    return this.creepsOfWorkType("tank", { includeSpawning: false });
   }
 
   public getCreepCount(): number {
@@ -221,8 +192,7 @@ export class ExtensionTenderCorp extends Corp {
     const extensionCount = room.find(FIND_MY_STRUCTURES, {
       filter: s => s.structureType === STRUCTURE_EXTENSION
     }).length;
-    room.memory.extensionTenderCovered = !!depot && extensionCount > 0;
-    room.memory.extensionTenderActive = !!depot && tenders.length > 0;
+    stampTenderRegime(room.memory, !!depot && extensionCount > 0, !!depot && tenders.length > 0);
 
     // PER-CLUSTER assignment (refill SLA on split layouts): each tender owns
     // one spatial cluster - a single tender cannot beat 3t/part deadlines
@@ -483,9 +453,7 @@ export class ExtensionTenderCorp extends Corp {
     // the pipe staffs - staffsPost treats undefined ttl as freshest), else
     // the demand re-fires while the replacement builds and double-orders.
     let staffing = 0;
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.corpId !== this.id || c.memory.workType !== "tank") continue;
+    for (const c of this.creepsOfWorkType("tank", { includeSpawning: true })) {
       if (staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) staffing++;
     }
     // FLEET SIZE (refill SLA): one tender per spatial cluster - a single
@@ -584,7 +552,10 @@ export class ExtensionTenderCorp extends Corp {
       {
         buyerCorpId: this.id,
         role: "tanker",
-        value: bootstrap ? 150 : 96, // emergency: above all income; else above upgrading/building, below mining
+        why: "infra", // agenda label: DECLARED, never derived from the role name (spec 32 phase D)
+        // Ladder rungs (spawn/demandLadder.ts): emergency 150 above all
+        // income; else 96, above upgrading/building, below mining.
+        value: bootstrap ? TENDER_BOOTSTRAP : TENDER,
         blocking: false, // never hold the spawn - minCost 200 buys instantly at this rank anyway
         // The lane pierces holds/walls ONLY in the bootstrap emergency (dark
         // post + stranded stock - incident t72499165: a walled miner's
@@ -607,7 +578,6 @@ export class ExtensionTenderCorp extends Corp {
   public serialize(): SerializedExtensionTenderCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId,
       dutyTransfers: this.dutyTransfers,
       dutyAlive: this.dutyAlive,
       dutySince: this.dutySince
@@ -616,7 +586,6 @@ export class ExtensionTenderCorp extends Corp {
 
   public deserialize(data: SerializedExtensionTenderCorp): void {
     super.deserialize(data);
-    this.spawnId = data.spawnId ?? this.spawnId;
     this.dutyTransfers = data.dutyTransfers ?? 0;
     this.dutyAlive = data.dutyAlive ?? 0;
     this.dutySince = data.dutySince ?? 0;

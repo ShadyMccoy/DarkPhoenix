@@ -4,7 +4,7 @@
  * @module corps/ScoutCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import {
   MAX_INTEL_VALUE,
   MAX_SCOUTS,
@@ -14,7 +14,6 @@ import {
   STALE_THRESHOLD,
   VALUE_PER_STALE_TICK
 } from "./CorpConstants";
-import { Position } from "../types/Position";
 import { SpawningCorp } from "./SpawningCorp";
 import { isSourceKeeperRoom } from "../utils/RoomDiscovery";
 import { travelTo } from "./movement";
@@ -22,8 +21,7 @@ import { travelTo } from "./movement";
 /**
  * Serialized state specific to ScoutCorp
  */
-export interface SerializedScoutCorp extends SerializedCorp {
-  spawnId: string;
+export interface SerializedScoutCorp extends SerializedSpawnAnchoredCorp {
   lastPurchaseTick: number;
   blockedRooms: string[];
 }
@@ -31,49 +29,16 @@ export interface SerializedScoutCorp extends SerializedCorp {
 /**
  * ScoutCorp manages scout creeps for room exploration.
  */
-export class ScoutCorp extends Corp {
-  private spawnId: string;
+export class ScoutCorp extends SpawnAnchoredCorp {
   private lastPurchaseTick = 0;
   private blockedRooms: Set<string> = new Set();
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("scout", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  /** The home spawn this corp requests scouts from (kind dispatch needs it). */
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /**
-   * Rebind to the commission's CURRENT spawn. The spawn id is commission-owned
-   * state: a persisted corp outlives spawns (measured live: an immortal
-   * upgrade/construction corp carried a dead spawn's id for good, so
-   * collectDemands dropped its demands forever - 0 upgraders/builders while
-   * the plan begged for them). Every kind's materialize() refreshes this.
-   */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
+    super("scout", nodeId, spawnId, customId);
   }
 
   private getActiveCreeps(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "scout" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
-  }
-
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    return this.creepsOfWorkType("scout", { includeSpawning: false });
   }
 
   public work(tick: number): void {
@@ -351,7 +316,6 @@ export class ScoutCorp extends Corp {
   public serialize(): SerializedScoutCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId,
       lastPurchaseTick: this.lastPurchaseTick,
       blockedRooms: Array.from(this.blockedRooms)
     };

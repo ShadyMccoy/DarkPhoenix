@@ -9,61 +9,27 @@
  * @module corps/ClaimCorp
  */
 
-import { Corp, SerializedCorp } from "./Corp";
+import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { Position } from "../types/Position";
+import { CLAIM } from "../spawn/demandLadder";
 import { buildReserverBody } from "../spawn/BodyBuilder";
 import { driveRecycle } from "./recycle";
 import { travelTo } from "./movement";
 
-export interface SerializedClaimCorp extends SerializedCorp {
-  spawnId: string;
-}
+export type SerializedClaimCorp = SerializedSpawnAnchoredCorp;
 
-export class ClaimCorp extends Corp {
-  private spawnId: string;
-
+export class ClaimCorp extends SpawnAnchoredCorp {
   public constructor(nodeId: string, spawnId: string, customId?: string) {
-    super("claim", nodeId, customId);
-    this.spawnId = spawnId;
-  }
-
-  public getSpawnId(): string {
-    return this.spawnId;
-  }
-
-  /** Commission-owned state: every materialize() refreshes this (stale-spawn trap). */
-  public setSpawnId(spawnId: string): void {
-    this.spawnId = spawnId;
-  }
-
-  public getPosition(): Position {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (spawn) {
-      return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
-    }
-    return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
+    super("claim", nodeId, spawnId, customId);
   }
 
   private getActiveCreeps(): Creep[] {
-    const creeps: Creep[] = [];
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "claim" && !creep.spawning) {
-        creeps.push(creep);
-      }
-    }
-    return creeps;
+    return this.creepsOfWorkType("claim", { includeSpawning: false });
   }
 
   /** Claimers still in the spawn count toward "already fielded". */
   private getTotalCreepCount(): number {
-    let count = 0;
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id && creep.memory.workType === "claim") count++;
-    }
-    return count;
+    return this.creepsOfWorkType("claim", { includeSpawning: true }).length;
   }
 
   public work(tick: number): void {
@@ -132,7 +98,7 @@ export class ClaimCorp extends Corp {
       {
         buyerCorpId: this.id,
         role: "claimer",
-        value: 80,
+        value: CLAIM, // investment tier - rung home + rationale: spawn/demandLadder.ts
         blocking: false,
         producesIncome: false,
         holdToFund: true,
@@ -146,17 +112,5 @@ export class ClaimCorp extends Corp {
 
   public getCreepCount(): number {
     return this.getActiveCreeps().length;
-  }
-
-  public serialize(): SerializedClaimCorp {
-    return {
-      ...super.serialize(),
-      spawnId: this.spawnId
-    };
-  }
-
-  public deserialize(data: SerializedClaimCorp): void {
-    super.deserialize(data);
-    this.spawnId = data.spawnId ?? this.spawnId;
   }
 }
