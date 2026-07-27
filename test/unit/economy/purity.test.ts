@@ -110,7 +110,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
   it("pure planner files import only allowlisted modules", () => {
     // The planning core's permitted import surface - listed so a NEW
     // dependency (execution/, colony/, telemetry/, corps runtime classes)
-    // cannot land silently. The constants inversion debt is PAID (spec 32
+    // cannot land silently. The constants inversion debt is PAID (spec 35
     // phase B): primitives.ts imports constants from nobody; flow/FlowTypes
     // and corps/economics re-export FROM it.
     const ALLOWED = new Set([
@@ -160,7 +160,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
     );
     expect(
       GLOBAL_REF.test(code),
-      "demandLadder gained a Game/Memory reference — the ladder is pure named constants (spec 32 phase D)"
+      "demandLadder gained a Game/Memory reference — the ladder is pure named constants (spec 35 phase D)"
     ).to.equal(false);
   });
 });

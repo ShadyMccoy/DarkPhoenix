@@ -32,7 +32,9 @@ import {
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate,
-  workPartsForEnergyRate
+  workPartsForEnergyRate,
+  WARTIME_BACKLOG_THRESHOLD,
+  ANTI_DOWNGRADE_RESERVE
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import { partialPaveRatio } from "./roadEconomics";
@@ -53,8 +55,9 @@ import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
 import { haulerAssignmentFromCommissioned } from "../flow/haulerAssignment";
 
-/** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
-export const ANTI_DOWNGRADE_RESERVE = 2;
+// Re-exported from primitives (the coherent home for the controller sip); kept
+// here so existing flowAdapter importers of the constant are unaffected.
+export { ANTI_DOWNGRADE_RESERVE };
 
 /**
  * The save-regime controller cap lives in economy/bank.ts with the rest of the
@@ -79,9 +82,20 @@ export function controllerRoutingCapacity(
   totalSupply: number,
   roomsWithStorage: ReadonlySet<string>,
   surplusRooms: ReadonlySet<string> = new Set(),
-  physicalUpgradeCap: number = Infinity
+  physicalUpgradeCap: number = Infinity,
+  wartimeRooms: ReadonlySet<string> = new Set()
 ): number {
-  if (roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName)) {
+  // Two cases cap the controller at the save-regime floor so the surplus does
+  // NOT mop up here:
+  //  - FILLING warchest: the surplus banks toward the reserve (unchanged).
+  //  - WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
+  //    but now for building"): a MEANINGFUL construction backlog stands in this
+  //    room, so upgrading RELEGATES to the floor and the surplus flows to
+  //    construction (value 70) instead of the controller's mop-up. Relegated
+  //    != off - the anti-downgrade floor still holds; the mode exits (mop-up
+  //    resumes) the moment the backlog drains, no isolated-sink nudge.
+  const filling = roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName);
+  if (filling || wartimeRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
   // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
@@ -396,7 +410,7 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
- * The mined-income id rule now lives in economy/ids.ts (spec 32 phase C: one
+ * The mined-income id rule now lives in economy/ids.ts (spec 35 phase C: one
  * id-space home); re-exported here for the existing import sites (FlowEconomy's
  * warchest income sum).
  */
@@ -573,6 +587,22 @@ export function buildColonyProblem(
     .getSinks()
     .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
 
+  // WARTIME rooms (spec 33, owner 2026-07-27): rooms holding a MEANINGFUL
+  // construction backlog - summed site work >= one structure (~3000). While
+  // one stands (and the warchest is in surplus), the controller relegates to
+  // its floor so the surplus goes to BUILDING, not upgrading (see
+  // controllerRoutingCapacity). The threshold excludes a lone road so trivial
+  // paving never relegates upgrading; a real build-out (extensions, storage)
+  // does. Exits cleanly when the backlog drains below the threshold.
+  const constructionWorkByRoom = new Map<string, number>();
+  for (const cs of constructionSites) {
+    const r = cs.position.roomName;
+    constructionWorkByRoom.set(r, (constructionWorkByRoom.get(r) ?? 0) + (cs.progressRemaining ?? 0));
+  }
+  const wartimeRooms = new Set(
+    [...constructionWorkByRoom].filter(([, w]) => w >= WARTIME_BACKLOG_THRESHOLD).map(([r]) => r)
+  );
+
   // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
   // residual - we can just make a bigger builder... consume all the energy
   // from the source mine during that time"): a site nearer to a mined source
@@ -637,7 +667,14 @@ export function buildColonyProblem(
     spawns.length === 0 || pooledSites.length === 0
       ? 0
       : Math.max(...pooledSites.map(s => Math.min(...spawns.map(sp => dist(sp.pos, s.position)))));
-  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel) : 0;
+  // WARTIME acceleration (spec 33 down-payment): while a spendable warchest
+  // surplus stands (bankRate > 0, the SAME lens the crew's buildPoolAbsorbRate
+  // reads), the construction sink absorbs FASTER so the surplus is spent into
+  // structures, not banked - bounded by min(minedSupply + bankRate, ...) below,
+  // so it only draws energy already available. Upgrading floors meanwhile and
+  // resumes when the surplus/backlog drains.
+  const buildAccelerate = bankRate > 0;
+  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel, buildAccelerate) : 0;
 
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {
@@ -710,7 +747,8 @@ export function buildColonyProblem(
               totalSupply,
               roomsWithStorage,
               surplusRooms,
-              controllerUpgradeCap(sink.position.roomName)
+              controllerUpgradeCap(sink.position.roomName),
+              wartimeRooms
             ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
@@ -767,7 +805,7 @@ export function buildColonyProblem(
  * primitives *_ENERGY_PER_WORK constants (one formula home), floored at 1 so
  * every published corp fields at least one body.
  */
-function publishRoster(plan: ReturnType<typeof planColony>): void {
+function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
   for (const m of plan.miners) {
@@ -783,6 +821,12 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     // spawnable CarryCorp - publishing them would be permanent phantom variance
     // for the plan-vs-fielded gauges.
     if (isBankSourceId(h.sourceId)) continue;
+    // Link-served sources (spec 02 feeder-router): transported by the link
+    // network + feeder, not a walking CarryCorp (commissionsFromPlan omits the
+    // carry corp). Publishing their uncommissioned haulers - including the
+    // spec-26 deposit-drain leg that rides the owning link-served source id -
+    // would be permanent phantom variance, same reasoning as bank- above.
+    if (linkServedIds.has(h.sourceId)) continue;
     corps.push({
       kind: "haul",
       carry: Math.max(1, Math.ceil(h.carryParts)),
@@ -865,7 +909,11 @@ export function solveColony(
   const searched = searchStructure(baseProblem);
   const problem = searched.problem;
   const plan = searched.plan;
-  publishRoster(plan);
+  // Link-served sources (haulPos set): their transport is the link network +
+  // feeder, not a commissioned CarryCorp (spec 02) - keep them out of the
+  // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
+  const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
+  publishRoster(plan, linkServedIds);
   const commissions = commissionsFromPlan(problem, plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({

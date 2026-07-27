@@ -144,6 +144,11 @@ export interface SpawnDemand {
   /** Hauler CARRY:MOVE ratio hint, passed through to the executor. */
   haulerRatio?: "2:1" | "1:1" | "1:2";
   /**
+   * Onboard buffer CARRY for a mobile consumer's body (spec 34 D3), passed
+   * through to the executor's BodyHints. The scheduler does not interpret it.
+   */
+  bufferCarry?: number;
+  /**
    * Body-shape strategy hint passed through to the executor (e.g. an upgrader's
    * "mobile" vs "containerFed" supply strategy). The scheduler does not interpret it.
    */
@@ -210,7 +215,7 @@ export interface AgendaEntry {
  * tender/feeder/construction-tanker demands; a future scout demand declares
  * it too), never derived from a role-name enumeration here - the deleted
  * INFRA_ROLES set was an undeclared second registration point every new
- * infra-class kind had to edit (spec 32 phase D; the registration-only
+ * infra-class kind had to edit (spec 35 phase D; the registration-only
  * contract calls a third edit a framework bug).
  */
 export function agendaWhy(d: SpawnDemand): AgendaWhy {

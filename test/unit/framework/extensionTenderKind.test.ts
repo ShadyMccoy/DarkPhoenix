@@ -175,14 +175,17 @@ describe("extension-tender kind on the corp framework (rungs 2-4)", () => {
     expect(back.getSpawnId()).to.equal("spawn1");
   });
 
-  it("rung 4 - COMPOSE: the three auxiliaries coexist over the same world", async () => {
+  it("rung 4 - COMPOSE: the auxiliaries coexist over the same world (reservation is per-node)", async () => {
     const { scoutKind } = await import("../../../src/corps/kinds/scoutKind");
     const { reservationKind } = await import("../../../src/corps/kinds/reservationKind");
     registerCorpKind(scoutKind as never);
     registerCorpKind(reservationKind as never);
     const { commissions } = planCommissions(world);
     const aux = commissions.filter(c => c.shape === "auxiliary").map(c => c.corpId);
-    expect(aux.sort()).to.deep.equal(["reservation-W1N1", "scout-W1N1", "tender-W1N1"]);
+    // Reservation is now one corp per MINED REMOTE node; this world mines only
+    // the home source, so no reservation commission is expected here (that path
+    // is covered in reservationKind.test.ts). Scout + tender still coexist.
+    expect(aux.sort()).to.deep.equal(["scout-W1N1", "tender-W1N1"]);
   });
 });
 

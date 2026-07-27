@@ -13,7 +13,7 @@ import {
 } from "../../../src/spawn/demandLadder";
 
 /**
- * THE spawn-demand value-ladder ordering pin (spec 32 phase D, audit finding
+ * THE spawn-demand value-ladder ordering pin (spec 35 phase D, audit finding
  * corps-rest/9): the relative order that used to live only as cross-referencing
  * prose in six corp files ("above the miner band", "below the reserver's
  * 115"). Complements - does not replace - the corp-level pins that check each

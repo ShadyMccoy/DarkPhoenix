@@ -22,6 +22,7 @@ import {
   buildGuardBody,
   buildMinerBody,
   buildReserverBody,
+  buildBuilderBody,
   buildTankerBody,
   buildUpgraderBody
 } from "../../../src/spawn/BodyBuilder";
@@ -57,7 +58,11 @@ function referenceBody(
     case "upgrader":
       return buildUpgraderBody(energyBudget, bodyParam ?? 5, bodyStrategy as UpgraderStrategy | undefined).body;
     case "builder":
-      return buildUpgraderBody(energyBudget, 2).body;
+      // Spec 34 D3 (deliberate supersession of the retired switch's fixed
+      // 2-WORK upgrader shape): the builder carries its own buffer - WORK from
+      // bodyParam, CARRY from the bufferCarry hint, MOVE unladen-sized. The
+      // reference IS the new formula; the pin now freezes kind-vs-primitive.
+      return buildBuilderBody(bodyParam ?? 2, 2, energyBudget).body;
     case "tanker":
       return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
     case "feeder": {

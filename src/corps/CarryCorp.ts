@@ -356,6 +356,7 @@ export interface SerializedCarryCorp extends SerializedCorp {
   dutyIdleSource?: number;
   dutyIdleSink?: number;
   dutyIdleSinkAtSink?: number;
+  dutyIdleSinkStorageRoom?: number;
   dutySince?: number;
 }
 
@@ -389,6 +390,14 @@ export class CarryCorp extends Corp {
    * split names the fix: at-sink => deposit throughput; en-route => decongest
    * the lane / relocate the parked blocker. */
   private dutyIdleSinkAtSink = 0;
+  /** Of the atSink idle ticks, those where the STORAGE still had free capacity
+   * (the deposit target was NOT saturated). atSink WITH storage room => the
+   * block is SPATIAL contention (queuing for the deposit tile / a parked mover
+   * in the way), so the fix is geometry / deposit-spread, NOT a bigger fleet.
+   * atSink WITHOUT storage room => genuine sink saturation (spill the load).
+   * The fork the coarse atSink split could not name (owner 2026-07-27, the
+   * post-feeder-router pile: atSink 0.21, storage far from full). */
+  private dutyIdleSinkStorageRoom = 0;
   private dutySince = 0;
 
   /**
@@ -458,12 +467,21 @@ export class CarryCorp extends Corp {
     // they are heading to the spawn to die, not hauling.
     this.meterExecution(creeps.filter(c => !c.memory.recycling), tick, room);
 
+    const pickup = this.readPickupBuffer();
     this.lastSizing = {
       tick,
       retiring: this.retiring,
       routes: this.getHaulerAssignments().length,
       creeps: creeps.length,
       loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length,
+      // Source-pileup instrument (2026-07-26): the ACTUAL pickup buffer vs the
+      // sustained-inflow carry the fleet is sized to (haulCarryNeeded, no
+      // drain term), plus the source link state - so the next capture names
+      // whether a standing pile is hauler under-sizing or a link backlog.
+      carryNeeded: this.haulCarryNeeded(),
+      staged: pickup.staged,
+      srcLinkEnergy: pickup.srcLinkEnergy,
+      srcLinkCap: pickup.srcLinkCap,
       // Duty split (owner 2026-07-25): active vs idle-empty (load leg) vs
       // idle-loaded (deliver leg). Low duty w/ full source buffers = execution
       // loss; high duty w/ full buffers = the plan under-asks (inflow-sized).
@@ -475,6 +493,9 @@ export class CarryCorp extends Corp {
             // of idleSink: adjacent to the deposit (sink refused) vs the
             // complement, blocked en-route (lane traffic / standing blocker).
             idleSinkAtSinkFrac: Math.round((this.dutyIdleSinkAtSink / this.dutyAlive) * 1000) / 1000,
+            // of the atSink idle: the hub storage HAD room (=> spatial
+            // contention at the deposit, not sink saturation - the fix fork).
+            idleSinkStorageRoomFrac: Math.round((this.dutyIdleSinkStorageRoom / this.dutyAlive) * 1000) / 1000,
             meterTicks: tick - this.dutySince
           }
         : {})
@@ -508,6 +529,7 @@ export class CarryCorp extends Corp {
       this.dutyIdleSource = 0;
       this.dutyIdleSink = 0;
       this.dutyIdleSinkAtSink = 0;
+      this.dutyIdleSinkStorageRoom = 0;
       this.dutySince = tick;
     }
     // The deposit points a loaded hauler waits AT: the room storage and (spec
@@ -541,6 +563,12 @@ export class CarryCorp extends Corp {
               sinks.some(p => creep.pos.getRangeTo(p) <= 1)
             ) {
               this.dutyIdleSinkAtSink += 1;
+              // Was the hub sink actually saturated, or does it have room (so the
+              // block is spatial contention, not sink refusal)? One cheap read.
+              const storageRoom = room.storage
+                ? (room.storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0
+                : false;
+              if (storageRoom) this.dutyIdleSinkStorageRoom += 1;
             }
             break;
         }
@@ -1620,6 +1648,60 @@ export class CarryCorp extends Corp {
     );
   }
 
+  /**
+   * Decision-site read (spec 14, source-pileup instrument 2026-07-26): the
+   * ACTUAL energy staged at this corp's source pickup and whether that source
+   * is served by a LINK - the two facts hauler sizing does NOT currently read.
+   * `haulCarryNeeded` sizes to sustained inflow only (carryPartsFor, no
+   * buffer-drain term), so a delivery gap ratchets the pile up permanently
+   * (~8.5k rotting above the 2000 container cap, measured t72588289). This
+   * stamp lets the next capture distinguish the two candidate mechanisms
+   * WITHOUT changing behaviour:
+   *  - staged high, NO link (or a link with headroom) => the fleet is
+   *    under-sized (the missing drain term is the fix);
+   *  - staged high, an adjacent link at/near capacity => a LINK-throughput
+   *    backlog (the hub link is clamped, the source link can't offload - a
+   *    different fix, on the link network, not the haulers).
+   * `staged` is null when the pickup room is not visible this tick (remote, no
+   * creep on station) - a different fact from zero, and the signal that a
+   * remote drain term must read a durable buffer signal, not live vision.
+   * Harness-safe: room.find + a Chebyshev range filter, guarded.
+   */
+  private readPickupBuffer(): {
+    staged: number | null;
+    srcLinkEnergy: number | null;
+    srcLinkCap: number | null;
+  } {
+    const none = { staged: null, srcLinkEnergy: null, srcLinkCap: null };
+    const pos = this.pickupPos;
+    if (!pos) return none;
+    const room = Game.rooms[pos.roomName];
+    if (!room) return none; // not visible => unmeasurable, distinct from zero
+    const near = (p: { x: number; y: number }, range: number): boolean =>
+      Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= range;
+    try {
+      let staged = 0;
+      for (const s of room.find(FIND_STRUCTURES) as AnyStructure[]) {
+        if (s.structureType === STRUCTURE_CONTAINER && near(s.pos, 1)) {
+          staged += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
+        }
+      }
+      for (const r of room.find(FIND_DROPPED_RESOURCES)) {
+        if (r.resourceType === RESOURCE_ENERGY && near(r.pos, 1)) staged += r.amount ?? 0;
+      }
+      const link = (room.find(FIND_MY_STRUCTURES) as AnyOwnedStructure[]).find(
+        s => s.structureType === STRUCTURE_LINK && near(s.pos, 2)
+      ) as StructureLink | undefined;
+      return {
+        staged,
+        srcLinkEnergy: link ? link.store[RESOURCE_ENERGY] ?? 0 : null,
+        srcLinkCap: link ? link.store.getCapacity(RESOURCE_ENERGY) ?? 0 : null
+      };
+    } catch {
+      return none; // partial mock without a wired find - unmeasurable
+    }
+  }
+
   /** This corp's source game id (from its flow assignments). */
   private mySourceId(): string | undefined {
     const a = this.haulerAssignments[0];
@@ -1715,6 +1797,7 @@ export class CarryCorp extends Corp {
       dutyIdleSource: this.dutyIdleSource,
       dutyIdleSink: this.dutyIdleSink,
       dutyIdleSinkAtSink: this.dutyIdleSinkAtSink,
+      dutyIdleSinkStorageRoom: this.dutyIdleSinkStorageRoom,
       dutySince: this.dutySince
     };
   }
@@ -1731,6 +1814,7 @@ export class CarryCorp extends Corp {
     this.dutyIdleSource = data.dutyIdleSource ?? 0;
     this.dutyIdleSink = data.dutyIdleSink ?? 0;
     this.dutyIdleSinkAtSink = data.dutyIdleSinkAtSink ?? 0;
+    this.dutyIdleSinkStorageRoom = data.dutyIdleSinkStorageRoom ?? 0;
     this.dutySince = data.dutySince ?? 0;
   }
 }

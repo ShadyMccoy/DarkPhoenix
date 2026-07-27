@@ -1,6 +1,6 @@
 /**
  * @fileoverview regimes - the neutral home for the cross-kind REGIME-flag
- * lenses (spec 32 phase D; audit finding corps-heavy/4).
+ * lenses (spec 35 phase D; audit finding corps-heavy/4).
  *
  * The RoomMemory regime flags (`extensionTenderCovered`/
  * `extensionTenderActive`, `controllerFeederActive`,
@@ -12,7 +12,7 @@
  * tender kind depended on the hauler kind's file for its own regime. The
  * flags themselves, their liveness-keyed semantics, and every write value
  * are UNCHANGED here - the structural-regime upgrade (feeder-COVERED from
- * structures) is spec 32 phase E's own gated change and lands with the
+ * structures) is spec 35 phase E's own gated change and lands with the
  * integration trio + grid, not in this move.
  *
  * Writers stamp through the documented setters below so the write sites sit

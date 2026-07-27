@@ -1,5 +1,5 @@
 /**
- * @fileoverview The id-space lens module (spec 32 phase C; ONTOLOGY §5).
+ * @fileoverview The id-space lens module (spec 35 phase C; ONTOLOGY §5).
  *
  * "Lookups that cross id spaces must normalize explicitly" - this module is
  * the ONE home for those normalizations. Every lens here re-homes string

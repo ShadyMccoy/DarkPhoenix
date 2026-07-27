@@ -1,6 +1,6 @@
 /**
  * @fileoverview censusLens - the ONE home for cross-kind "who is fielded in
- * this room" creep lookups (spec 32 phase C; audit findings corps-heavy/5,
+ * this room" creep lookups (spec 35 phase C; audit findings corps-heavy/5,
  * corps-rest/6).
  *
  * Corps used to sniff EACH OTHER'S corp-id prefixes inline ("mining-",

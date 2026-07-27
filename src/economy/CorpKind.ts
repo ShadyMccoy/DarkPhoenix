@@ -60,6 +60,13 @@ export interface BodyHints {
   haulerRatio?: "2:1" | "1:1" | "1:2";
   /** Free-form strategy (e.g. miner "linkFed", upgrader "containerFed"). */
   bodyStrategy?: string;
+  /**
+   * Onboard buffer CARRY parts for a MOBILE consumer (spec 34 D2/D3): sized
+   * upstream by primitives.bufferCarryParts to bridge the corp's refuel
+   * interval. Generic - any kind whose consumers carry their own buffer
+   * reads it (construction's builders today).
+   */
+  bufferCarry?: number;
 }
 
 /**
@@ -104,7 +111,7 @@ export interface CorpKind<C extends Corp = Corp> {
    * EXECUTE one tick (optional). Keep it dumb - the assignment has everything
    * it needs. Absent = the dispatch's standard cadence (runCorpTick): plan()
    * on the PLANNING_INTERVAL boundary, work() every tick - the legacy
-   * runRealCorps rhythm every kind used to hand-write (spec 32 phase D).
+   * runRealCorps rhythm every kind used to hand-write (spec 35 phase D).
    * Declare run() only for genuinely custom execution (scout's live spawn
    * path is the one case today).
    */
@@ -156,7 +163,7 @@ export interface CorpKind<C extends Corp = Corp> {
 
 /**
  * Shared demandGroup policy for the "always a started income unit" class
- * (spec 32 phase D): the corp IS the funding unit (groupId = corp.id) and
+ * (spec 35 phase D): the corp IS the funding unit (groupId = corp.id) and
  * that unit is always underway (started: true), so its demands rank at the
  * income tier's started slot instead of starving at base value. Each
  * declaring kind keeps its incident rationale AT its declaration site
@@ -303,7 +310,7 @@ export interface CorpRunMeter {
  * EXECUTE one corp for one tick: the kind's custom run() when declared, else
  * the standard cadence every corp shares - plan() on the PLANNING_INTERVAL
  * boundary (base Corp.plan stamps lastPlannedTick), work() every tick. This
- * is the legacy runRealCorps rhythm, owned by the dispatch since spec 32
+ * is the legacy runRealCorps rhythm, owned by the dispatch since spec 35
  * phase D so a new kind writes no run() unless genuinely custom. Pinned by
  * test/unit/framework/planCadence.test.ts and the conformance suite's
  * empty-world run-safety case.

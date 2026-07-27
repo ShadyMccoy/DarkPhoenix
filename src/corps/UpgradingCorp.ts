@@ -15,11 +15,17 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { staffsPost, sustainableConsumptionRate } from "../economy/primitives";
+import {
+  effectiveLife,
+  staffsPost,
+  sustainableConsumptionRate,
+  ANTI_DOWNGRADE_RESERVE,
+  WARTIME_BACKLOG_THRESHOLD
+} from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./CarryCorp";
-import { buildPoolAbsorbRate } from "./ConstructionCorp";
+import { buildPoolAbsorbRate, buildPoolBacklog } from "./ConstructionCorp";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
@@ -102,10 +108,29 @@ export function upgraderSizing(
   stock: number | null,
   bankedBehindFeeder: number | null,
   reserveTarget: number,
-  constructionAbsorb = 0
+  constructionAbsorb = 0,
+  wartime = false
 ): { allocated: number; inflow: number | null; surplus: boolean } {
   if (stock === null) return { allocated: planAllocated, inflow: null, surplus: false };
   const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder, reserveTarget) > 0;
+  // WARTIME fleet relegation (spec 33, owner "surplus ... now for building";
+  // PHYSICAL lever from the t72598913 falsification). The plan-side controller
+  // cap moved no energy - the source->core->controller LINK relay feeds the
+  // controller and the fleet, sized from the ACTUAL stock the link keeps full,
+  // burned the surplus regardless of the plan (P7 9x, ~18.8 e/t vs relegated
+  // plan ~2, build inched, storage drained E4 -4067). The fix is to relegate
+  // the FLEET ITSELF: while a MEANINGFUL construction backlog stands
+  // (WARTIME_BACKLOG_THRESHOLD, the SAME lens the plan's controller sink
+  // relegates on - coherent ladder shift), drop the fleet to the
+  // anti-downgrade sip so it stops eating what the link delivers and the
+  // surplus lands in building. Fires OFF THE BACKLOG (not surplus) because the
+  // falsification's drain ran with the bank BELOW reserve (surplus false) while
+  // the link-kept stock still fed a stock-grounded fleet - relegating only in
+  // surplus would leave that drain running. Floor inviolable (the controller
+  // downgrade sip, never zeroed); surplus reported FALSE so the relegated sip
+  // funds as an ordinary must-keep-alive demand, not a held surplus-eater;
+  // reverts to the surplus-eater the tick the backlog drains (clean exit).
+  if (wartime) return { allocated: ANTI_DOWNGRADE_RESERVE, inflow: ANTI_DOWNGRADE_RESERVE, surplus: false };
   // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
   // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
   // stock 2000 + relay 115 + 234k banked stood ready - the goal-plan cap
@@ -508,12 +533,21 @@ export class UpgradingCorp extends Corp {
     // to the remaining share of the surplus.
     const constructionAbsorb = spawn?.pos?.roomName ? buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos) : 0;
     const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
+    // WARTIME (spec 33 physical relegation, t72598913): a meaningful build
+    // backlog stands, so relegate this fleet to the anti-downgrade sip and let
+    // the surplus the link delivers fund building instead. Same backlog lens
+    // (buildPool, WARTIME_BACKLOG_THRESHOLD) the plan's controller sink
+    // relegates on - the two shift together (coherent ladder, not an isolated
+    // nudge). Read only with a real home room (harness stubs skip it).
+    const wartime =
+      !!spawn?.pos?.roomName && buildPoolBacklog(spawn.pos.roomName) >= WARTIME_BACKLOG_THRESHOLD;
     const { allocated, inflow, surplus } = upgraderSizing(
       planAllocated,
       stock,
       bankedBehindFeeder,
       reserveTarget,
-      constructionAbsorb
+      constructionAbsorb,
+      wartime
     );
 
     // One upgrader can only afford so many WORK parts at the current capacity;
@@ -555,6 +589,7 @@ export class UpgradingCorp extends Corp {
       cap: ctx.energyCapacity,
       construction: constructionAbsorb > 0,
       ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
+      ...(wartime ? { wartime: true } : {}),
       ...(meterW && meterW.ticks > 0
         ? {
             workUtil: +(meterW.fired / meterW.ticks).toFixed(3),

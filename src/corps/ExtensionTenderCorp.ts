@@ -552,7 +552,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       {
         buyerCorpId: this.id,
         role: "tanker",
-        why: "infra", // agenda label: DECLARED, never derived from the role name (spec 32 phase D)
+        why: "infra", // agenda label: DECLARED, never derived from the role name (spec 35 phase D)
         // Ladder rungs (spawn/demandLadder.ts): emergency 150 above all
         // income; else 96, above upgrading/building, below mining.
         value: bootstrap ? TENDER_BOOTSTRAP : TENDER,

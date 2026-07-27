@@ -49,6 +49,40 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
    candidate cores by `tenderReach` (BFS radius to fit the field = compactness
    the tender pays) + anchor distance, not centroid-nearest. Fixed the W7N3
    corner spawn (0.935 → 1.000).
+6a. **REMOTE-FLOW-AWARE core placement (owner 2026-07-26).** Today `pickCore`
+   scores IN-ROOM cost only — `tenderReach` + `anchorDist` over the in-room
+   sources and controller — and reserves a highway to EVERY exit uniformly. It
+   is blind to the remote economy that actually feeds the core: for W43N23, four
+   remote rooms (W42N22/W42N23/W43N24/W44N23) converge here, yet the generator
+   would center storage on in-room refill and make every remote hauler walk
+   farther through a longer in-room approach — a plausible contributor to the
+   measured en-route convergence congestion (idleSink en-route 0.14–0.32,
+   t72595222). Requirement: fold the REMOTE haul into the core score and the
+   highway priority —
+   - add a term weighting `anchorDist` by the **volume-weighted exit directions**
+     of the planned remote mining (each remote source's rate projected to the
+     room edge it enters through), so the core is pulled toward where the bulk of
+     remote energy arrives, not just toward the local sources;
+   - **prioritize the highway to the heaviest-flow exit** (widen / straighten it
+     first) instead of treating all exits equally;
+   - keep it a TERM in the founding valuation (like tenderReach), never a swap of
+     the economics — co-optimize the base for the remote economy AND in-room
+     refill, don't trade one for the other.
+   This is the placement lever the iterative remodeler (above) should exercise:
+   re-placing the core with remote flow in mind is exactly the kind of target
+   update a remodel exists to apply.
+5a. **Legacy multi-cluster tenders must be sized PER-CLUSTER (owner 2026-07-26).**
+   Until the serpentine string lands (one contiguous cluster → one lane tender),
+   the field is N scattered clusters and `ExtensionTenderCorp` fields one tender
+   per cluster (`target = min(3, max(1, clusters.length, forCoverage))`). Today
+   it splits the SAME total bank carry equally across those slots
+   (`tenderSlotCarry`, equal share). That is wrong per-cluster: each cluster's
+   tender should be sized to **ITS OWN extensions** (that cluster's capacity, not
+   1/N of the whole bank) **and ITS haul route** (the core→cluster distance —
+   `carryPartsFor(clusterDrain, clusterDist)`), so a far/large cluster gets a
+   bigger body and a near/small one a smaller body. Equal-split under-serves the
+   far big cluster and over-bodies the near small one. (This is a legacy-tender
+   correctness fix, independent of and superseded by the serpentine target.)
 7. Real terrain breaks a pure diagonal, so the generator **WRAPS** (turns to stay
    contiguous) and **SPLITS** with BFS bridges (crossing highways/swamp as
    traverse) — emitting ONE ordered contiguous lane; a split is just a
@@ -78,7 +112,9 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
       spawn choice. CAUTION (per `spatial/spawnPlacement.ts` header): the live
       founding tile is the econ-optimal `spawnSiteValue`, NOT a geometry pick;
       add `tenderReach` as a TERM in that valuation, don't swap economics for
-      geometry.
+      geometry. Add the **remote-flow term (6a)** here too — the founding/
+      re-placement valuation weights the volume-weighted remote-exit directions
+      alongside `tenderReach` and the in-room anchors.
    b. **Serpentine placement** in `ConstructionCorp` — replace/augment
       `findGridPosition` with the string generator; highways from the existing
       `planTrunkPath` routes (reserve, don't build on).
@@ -105,6 +141,50 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
   otherwise). Regression trio (`flow-handoff`, `runt-economy`, `storage-depot`)
   green.
 
+### Acceptance for the owner additions (6a, 5a, iterative remodel)
+
+**6a — remote-flow-aware core placement (unit, `pickCore`):**
+- On a staged room with in-room anchors pulling toward one corner but the bulk
+  of planned REMOTE mining entering through the OPPOSITE edge, `pickCore` returns
+  a core pulled measurably toward the heavy remote-flow exit versus the
+  in-room-only score (the remote term is a real term, not a tiebreak). Pin it as
+  a TERM: with remote flow zeroed the pick is byte-identical to the in-room-only
+  pick (co-optimization, never a swap of the economics).
+- Highway priority: the generator widens/straightens the highway to the
+  volume-weighted heaviest-flow exit FIRST; assert that exit's artery is
+  reserved before the lighter exits' (a deterministic ordering, not all-equal).
+- Grid: stage W43N23-shaped convergence (≥3 remote rooms entering through
+  different edges, unequal rates); assert the placed core + the heaviest-flow
+  highway, and that a remote hauler's in-room approach leg is shorter than under
+  the centroid-nearest pick (a receipt: measured approach tiles, not a proxy).
+
+**5a — per-cluster tender sizing (unit, `ExtensionTenderCorp`):**
+- Two clusters — near-small and far-large — each tender is sized to ITS OWN
+  extensions and haul route (`carryPartsFor(clusterDrain, clusterDist)`), NOT
+  1/N of the whole bank: assert the far-large cluster's tender body >
+  the near-small cluster's, and that equal-split (`tenderSlotCarry`) would have
+  under-bodied the far one and over-bodied the near one (the bug this fixes).
+- Degenerates: one cluster → exactly today's single-tender body (no change).
+- Grid: stage the two-cluster field; assert each cluster's extensions refill
+  within its tender's SLA (util per cluster), not a colony-wide average that
+  hides the far cluster starving.
+
+**Iterative remodeler (unit + grid — "a bad target update costs a rollback, not
+a bricked base"):**
+- Idempotent: running the remodeler against an already-on-target base is a
+  no-op (zero construction/destroy intents).
+- Resumable: after the TARGET changes, it resumes from the current partial base
+  (never assumes greenfield) and moves ONE safe step toward the new target.
+- Safety: it never destroys load-bearing infra (storage/spawn/tower/link)
+  without the replacement already placed AND staffed; assert the colony stays
+  functional every tick (no demolish-then-rebuild window) — a grid cell that
+  kills a mid-remodel tick and asserts income/refill never zeroed.
+- Bounded cost: capex per window ≤ the cap (a re-plan can't stall the economy
+  churning structures); instrumented before/after (refill duty, haul
+  congestion, energy spent) so a WORSE layout-logic change is caught and rolled
+  back. Grid: feed a deliberately BAD target update; assert the before/after
+  stamp flags the regression and the rollback costs only bounded capex.
+
 ## Honest limits / open
 
 - Validated OFFLINE (base-lab) + in the refill sim, NOT live. Sim blind spots
@@ -117,9 +197,42 @@ scale-out investment (compounds at RCL7+ per spec 27), not a leak fix.
   breaches there live, the lever is a 2:1→bigger body or (last resort) a 2nd
   tender, not a layout change.
 
+## Remodeling must be ITERATIVE and re-runnable (owner 2026-07-26)
+
+"It could happen in the future that we update our base layout logic and may need
+to do some remodeling. We won't always get it right on the first try."
+
+So the graduation-to-live work is not a one-shot "stamp the target and build it."
+The layout GENERATOR will keep improving, so the remodeler must be a CONVERGENCE
+loop: given the current live base and the CURRENT target shape (whatever the
+generator now emits), compute the diff and move the base one safe step toward it
+— re-runnable every time the target changes, from any partially-built state.
+Requirements this implies:
+- **Idempotent + resumable:** re-running against an already-on-target base is a
+  no-op; re-running after the target CHANGES resumes from wherever the base is,
+  never assumes a greenfield.
+- **Safe, reversible steps** (spec 27's one-structure-at-a-time relocation is the
+  unit): never tear down load-bearing infrastructure (storage/spawn/tower/link)
+  without its replacement already placed and staffed; a remodel in progress must
+  leave the colony functional every tick (no "demolish the field then rebuild"
+  window).
+- **Instrumented:** each remodel step stamps before/after (refill duty, haul
+  congestion, energy spent on the move) so a layout-logic change that makes
+  things WORSE is caught and can be rolled back — we will get it wrong sometimes,
+  so the remodeler must make "wrong" cheap and visible, not catastrophic.
+- **Bounded cost:** capex per window is capped so a re-plan can't stall the
+  economy churning structures.
+
+The measure of a good remodeler is that a BAD target update costs a little
+wasted capex and a rollback, not a bricked base.
+
 ## Relation
 
-- **27 (extension relocation):** 31 is the target-shape engine 27 scores against.
+- **27 (extension relocation):** 31 is the target-shape engine 27 scores against;
+  27's one-at-a-time safe-move mechanism is the unit step of the iterative
+  remodeler above.
+- **32 (graceful mining backoff):** a fail-graceful production knob; unrelated to
+  layout but the same "match to reality, keep the leak visible" discipline.
 - **16 (construction as projects):** serpentine placement rides the project path.
 - **26 (links as hub ports):** an outskirt/field link kills the tender's central-
   reload deadhead — the one change that would let CARRY-heavy bodies win outright.

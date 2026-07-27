@@ -1,6 +1,6 @@
 /**
  * @fileoverview proposeHelpers - the shared PLAN-layer building blocks for
- * corp kinds' propose() (spec 32 phase D, audit finding kinds/3).
+ * corp kinds' propose() (spec 35 phase D, audit finding kinds/3).
  *
  * Seven kinds copy-pasted the same first-spawn-per-room loop and six of them
  * the same auxiliary commission envelope; two kinds duplicated the

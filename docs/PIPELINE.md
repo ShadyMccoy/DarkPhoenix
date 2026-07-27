@@ -180,7 +180,7 @@ Road placement is fed by two independent inputs that answer different questions:
   ROI estimators, `framework/EdgeVariant` beyond `HaulerRatio`/`MiningMode`,
   and `scripts/plan-budget.ts`. `FlowSink.priority` survives only as a
   telemetry passthrough (default 0).
-- **Also deleted (spec 32 phase A sweep, 2026-07-27):** the `NodeNavigator`
+- **Also deleted (spec 35 phase A sweep, 2026-07-27):** the `NodeNavigator`
   graph class (the module-level `pathDistance` survives — it is THE distance
   function), `Persistence`'s economicEdges BFS + `Memory.economicEdges`/
   `spatialEdgeWeights`, `FlowGraph`'s edge matrix and query API (discovery +
@@ -196,7 +196,7 @@ Road placement is fed by two independent inputs that answer different questions:
   `CorpKind.run` is optional (dispatch default `runCorpTick`).
 - **Not yet ported to the framework:** `BootstrapCorp` and `SpawningCorp`
   (infrastructure; folded into the census by `completeCensus`; the port is
-  spec 32 phase F).
+  spec 35 phase F).
 
 See [`ONTOLOGY.md`](./ONTOLOGY.md) for the layer model and kind contract, and
 [`specs/17-ontology-layers.md`](./specs/17-ontology-layers.md) for the

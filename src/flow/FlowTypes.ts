@@ -18,7 +18,7 @@ import { Position } from "../types/Position";
 export const SOURCE_ENERGY_PER_TICK = 10;
 
 // Body-part costs, creep lifetime and the standard-miner body are homed in
-// economy/primitives (spec 32 phase B inverted the constants dependency);
+// economy/primitives (spec 35 phase B inverted the constants dependency);
 // re-exported here so legacy flow-layer import paths keep working.
 export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../economy/primitives";
 

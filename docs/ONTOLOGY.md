@@ -81,16 +81,25 @@ Later families (same rule — one home):
   deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
+  comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
+  adjacency, direct draw at a length-0 route. Its onboard buffer bridges the
+  delivery cadence (`bufferCarryParts(burn, refuelIntervalTicks(d, n))`;
+  `parkedRelayCarry` is the interval-2 degenerate case). Relocation is
+  UNLADEN (shed the load first — empty CARRY is fatigue-free). A corp's
+  commission price is ALL-IN (`operationSpawnLoad`: node bodies + operated
+  vectors); `directFetchParts` is the priced-out fetch counterfactual, kept
+  as the proof, never a mode.
 - **Ledger charges:** `controllerWorkSpawnLoad`, `constructionWorkSpawnLoad`,
   `infraSpawnLoad` — what the planner's parts ledger charges consumers/infra.
 - **Conversions:** `workPartsForEnergyRate`, `energyPerSpawnPart` (the shadow
   price), the invader-tax primitives (spec 13).
 
-Debt PAID (spec 32 phase B, 2026-07-27): `primitives.ts` now imports
+Debt PAID (spec 35 phase B, 2026-07-27): `primitives.ts` now imports
 constants from nobody — `planning/EconomicConstants.ts` is deleted, and
 `flow/FlowTypes` / `corps/economics` re-export the ground-truth constants
 FROM primitives (one release of import-path tolerance). The id-space lenses
-live in `economy/ids.ts` (spec 32 phase C).
+live in `economy/ids.ts` (spec 35 phase C).
 
 ## 4. The Corp (the operator)
 
@@ -291,9 +300,9 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next
   cross-kind protocol to make declarative (spec 17 backlog). The LENS side
   now has a neutral home (`corps/regimes.ts`: `tenderOwnsExtensions` plus the
-  writers' documented stamp setters — spec 32 phase D), but the flags
+  writers' documented stamp setters — spec 35 phase D), but the flags
   themselves, and the feeder's liveness-keyed semantics, remain the debt
-  until the structural-regime upgrade (spec 32 phase E) lands as its own
+  until the structural-regime upgrade (spec 35 phase E) lands as its own
   gated change.
 
 ## 10. History (systems collapsed into this model)

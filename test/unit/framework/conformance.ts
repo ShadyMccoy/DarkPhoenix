@@ -88,7 +88,7 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
 
     it("run (custom or the dispatch's default cadence) never throws on an empty world (ErrorMapper contract)", () => {
       // runCorpTick is THE dispatch path: the kind's own run() when declared,
-      // else the default plan/work cadence (run is optional since spec 32 D).
+      // else the default plan/work cadence (run is optional since spec 35 D).
       const corp = kind.materialize(fx.commission, undefined);
       expect(() => runCorpTick(kind, corp, 1)).to.not.throw();
       expect(() => runCorpTick(kind, corp, 2)).to.not.throw();

@@ -1,5 +1,5 @@
 /**
- * The dispatch's default run cadence (spec 32 phase D; historically cutover
+ * The dispatch's default run cadence (spec 35 phase D; historically cutover
  * Step B): a kind that declares no run() gets the legacy runRealCorps rhythm
  * from runCorpTick - plan() periodically (every PLANNING_INTERVAL ticks),
  * work() every tick. These tests pin that the default plans on the planning

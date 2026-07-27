@@ -120,55 +120,58 @@ describe("reservation kind on the corp framework (rungs 2-4)", () => {
     resetWorld();
   });
 
-  it("rung 2 - PLAN: one reservation commission per spawn room", () => {
+  it("rung 2 - PLAN: no reservation commission when the home mines no remotes", () => {
+    // Per-node contract: a reservation corp exists per MINED REMOTE, not per
+    // home. The solver mines only the HOME source here, so nothing to reserve.
     const { commissions } = planCommissions(world);
-    const res = commissions.filter(c => c.kind === "reservation");
-    expect(res).to.have.length(1);
-    expect(res[0].corpId).to.equal("reservation-W1N1");
-    expect(res[0].shape).to.equal("auxiliary");
-    // The solver mines only the HOME source here, so no remote targets yet.
-    expect(res[0].assignment).to.deep.equal({ roomName: HOME, spawnId: "spawn1", targetRooms: [] });
+    expect(commissions.filter(c => c.kind === "reservation")).to.have.length(0);
   });
 
-  it("rung 2 - TRIGGER: targets come from the draft plan's REMOTE harvest commissions", () => {
+  it("rung 2 - TRIGGER: one commission per REMOTE harvest commission, keyed to the node", () => {
     const draft = [
       harvestDraft("srcHome", HOME), // mined, but it's a spawn room: excluded
-      harvestDraft("srcRemote", REMOTE), // mined remote: targeted
+      harvestDraft("srcRemote", REMOTE), // mined remote: its own corp
       harvestDraft("srcFar", TOO_FAR) // mined but out of reserver range: excluded
     ];
     const res = reservationKind.propose(world, draft);
     expect(res).to.have.length(1);
+    expect(res[0].corpId).to.equal("reservation-W1N2");
     const a = res[0].assignment as ReservationAssignment;
-    expect(a.targetRooms).to.deep.equal([REMOTE]);
+    expect(a.targetRoom).to.equal(REMOTE);
+    expect(a.roomName).to.equal(HOME);
   });
 
-  it("rung 3 - BIND: materialize keeps the LEGACY runtime corp id and adopts the targets", () => {
+  it("rung 3 - BIND: materialize keys the runtime corp id to the NODE and adopts its target", () => {
     const draft = [harvestDraft("srcRemote", REMOTE)];
     const store: CorpStore = new Map();
     materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
-    const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
-    expect(corp.id).to.equal("reservation-W1N1-reservation");
+    const corp = store.get("reservation-W1N2")!.corp as ReservationCorp;
+    expect(corp.id).to.equal("reservation-W1N2-reservation");
     expect(corp.getSpawnId()).to.equal("spawn1");
     expect(corp.getTargetRooms()).to.deep.equal([REMOTE]);
   });
 
-  it("rung 3 - BIND: materialize refreshes targetRooms on an existing corp (stale-assignment regression)", () => {
-    // A persisted corp outlives plan changes; targets are commission-owned
-    // state like spawnId - every round's materialize must adopt the CURRENT
-    // plan's rooms, or live corps keep chasing a mine the planner closed.
+  it("rung 3 - BIND: materialize refreshes spawnId on an existing per-node corp (immortal-corp regression)", () => {
+    // A persisted corp outlives plan changes; spawnId is commission-owned state
+    // that materialize must refresh every round, or the corp keeps a dead
+    // spawn's id forever (the conformance-enforced immortal-consumer trap).
     const first = reservationKind.propose(world, [harvestDraft("srcRemote", REMOTE)])[0];
     const corp = reservationKind.materialize(first, undefined) as ReservationCorp;
     expect(corp.getTargetRooms()).to.deep.equal([REMOTE]);
-    const second = reservationKind.propose(world, [])[0];
+    const second: Commission = {
+      ...first,
+      assignment: { ...(first.assignment as ReservationAssignment), spawnId: "spawn2" }
+    };
     const rebound = reservationKind.materialize(second, corp as never) as ReservationCorp;
-    expect(rebound.getTargetRooms()).to.deep.equal([]);
+    expect(rebound.getSpawnId()).to.equal("spawn2");
+    expect(rebound.getTargetRooms()).to.deep.equal([REMOTE]);
   });
 
   it("rung 3 - TRIGGER: demands a reserver while the plan mines an unowned remote - no miner, no vision", () => {
     const draft = [harvestDraft("srcRemote", REMOTE)];
     const store: CorpStore = new Map();
     materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
-    const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
+    const corp = store.get("reservation-W1N2")!.corp as ReservationCorp;
     const ctx = { energyCapacity: 1300 } as never;
 
     installHomeSpawn();
@@ -196,22 +199,85 @@ describe("reservation kind on the corp framework (rungs 2-4)", () => {
     materializeCommissions([...draft, ...reservationKind.propose(world, draft)], store);
     expect(() => runCommissionedCorps(store, Game.time)).to.not.throw();
 
-    const corp = store.get("reservation-W1N1")!.corp as ReservationCorp;
+    const corp = store.get("reservation-W1N2")!.corp as ReservationCorp;
     corp.recordProduction(7);
     const restored = deserializeStore(JSON.parse(JSON.stringify(serializeStore(store))));
-    const back = restored.get("reservation-W1N1")!.corp as ReservationCorp;
+    const back = restored.get("reservation-W1N2")!.corp as ReservationCorp;
     expect(back.id).to.equal(corp.id);
     expect(back.getSpawnId()).to.equal("spawn1");
     expect(back.getTargetRooms()).to.deep.equal([REMOTE]);
     expect(back.unitsProduced).to.equal(7);
   });
 
-  it("rung 4 - COMPOSE: coexists with the scout kind over the same world", async () => {
+  it("rung 4 - COMPOSE: a per-node reservation corp coexists with the scout kind", async () => {
     const { scoutKind } = await import("../../../src/corps/kinds/scoutKind");
     registerCorpKind(scoutKind as never);
-    const { commissions } = planCommissions(world);
-    const aux = commissions.filter(c => c.shape === "auxiliary").map(c => c.corpId);
-    expect(aux.sort()).to.deep.equal(["reservation-W1N1", "scout-W1N1"]);
+    const draft = [harvestDraft("srcRemote", REMOTE)];
+    const aux = [
+      ...reservationKind.propose(world, draft),
+      ...scoutKind.propose(world as never, draft as never)
+    ]
+      .filter(c => c.shape === "auxiliary")
+      .map(c => c.corpId);
+    expect(aux.sort()).to.deep.equal(["reservation-W1N2", "scout-W1N1"]);
+  });
+});
+
+describe("reservation kind: one corp per NODE (controller), not one per home (2026-07-26 split)", () => {
+  const REMOTE2 = "W2N1"; // a second mined remote, also linear-distance 1 from HOME
+  beforeEach(() => {
+    resetCorpKinds();
+    resetWorld();
+    registerCorpKind(reservationKind as never);
+  });
+  after(() => {
+    resetCorpKinds();
+    resetWorld();
+  });
+
+  it("emits ONE commission per mined REMOTE, keyed to the node (reservation-<remote>)", () => {
+    const draft = [harvestDraft("srcR1", REMOTE), harvestDraft("srcR2", REMOTE2)];
+    const res = reservationKind.propose(world, draft);
+    expect(res.map(c => c.corpId).sort()).to.deep.equal(["reservation-W1N2", "reservation-W2N1"]);
+    for (const c of res) {
+      const a = c.assignment as ReservationAssignment;
+      expect(a.spawnId).to.equal("spawn1");
+      expect(a.roomName).to.equal(HOME);
+      expect([REMOTE, REMOTE2]).to.include(a.targetRoom);
+    }
+  });
+
+  it("emits NO reservation commission for a home that mines no remotes", () => {
+    expect(reservationKind.propose(world, [])).to.have.length(0);
+  });
+
+  it("materializes a per-node corp whose position resolves to the REMOTE node", () => {
+    const store = deserializeStore({});
+    materializeCommissions(reservationKind.propose(world, [harvestDraft("srcR1", REMOTE)]), store);
+    const corp = [...store.values()][0].corp as ReservationCorp;
+    expect(corp.getPosition().roomName).to.equal(REMOTE);
+    expect(corp.getTargetRooms()).to.deep.equal([REMOTE]);
+  });
+
+  it("claimsOrphan re-adopts a reserver by its targetRoom (migration off the per-home corp id)", () => {
+    const store = deserializeStore({});
+    materializeCommissions(reservationKind.propose(world, [harvestDraft("srcR1", REMOTE)]), store);
+    const corps: { [id: string]: ReservationCorp } = {};
+    for (const [id, e] of store) corps[id] = e.corp as ReservationCorp;
+    const orphan = {
+      memory: { targetRoom: REMOTE, workType: "reserve", corpId: "W1N1-reservation" }
+    } as unknown as Creep;
+    const target = reservationKind.claimsOrphan!(orphan, corps as never);
+    expect(target).to.equal(`reservation-${REMOTE}-reservation`); // the per-node corp's runtime id
+  });
+
+  it("claimsOrphan yields nothing for an unassigned wildcard (no targetRoom)", () => {
+    const store = deserializeStore({});
+    materializeCommissions(reservationKind.propose(world, [harvestDraft("srcR1", REMOTE)]), store);
+    const corps: { [id: string]: ReservationCorp } = {};
+    for (const [id, e] of store) corps[id] = e.corp as ReservationCorp;
+    const orphan = { memory: { workType: "reserve", corpId: "stale" } } as unknown as Creep;
+    expect(reservationKind.claimsOrphan!(orphan, corps as never)).to.equal(null);
   });
 });
 
@@ -220,12 +286,12 @@ describe("reservation kind rung 1", () => {
   describeCorpKindConformance(reservationKind as never, {
     problem: world,
     commission: {
-      corpId: "reservation-W1N1",
+      corpId: "reservation-W1N2",
       kind: "reservation",
       shape: "auxiliary",
       consumes: { spawnPartsPerTick: 0 },
       produces: { valuePerTick: 0 },
-      assignment: { roomName: HOME, spawnId: "spawn1", targetRooms: [REMOTE] }
+      assignment: { roomName: HOME, spawnId: "spawn1", targetRoom: REMOTE }
     },
     expectedSpawnPartsPerTick: 0
   });

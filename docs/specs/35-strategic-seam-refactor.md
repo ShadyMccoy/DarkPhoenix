@@ -1,4 +1,8 @@
-# 32 — The strategic-seam refactor: one contract, one home, one lens
+# 35 — The strategic-seam refactor: one contract, one home, one lens
+
+> Numbering note: this spec's phases A–D landed as "spec 32" in commit
+> messages and some historical comments; it was renumbered to 35 when the
+> merge brought in master's own spec 32 (graceful mining backoff).
 
 **Status:** PHASES A–D LANDED 2026-07-27 (each its own gated commit: A
 dead-code sweep −3,295 lines; B constants inversion + formula folds,

@@ -364,6 +364,31 @@ describe("reservation duty cycle (coast on the banked reservation)", () => {
     expect((c as any).lastSizing.gate).to.equal("demand");
   });
 
+  it("does NOT stack an opportunistic topup on a room that ALREADY has a reserver (per-node purchase loop, t72591424)", () => {
+    // The per-node split (2026-07-26) gave each corp a single room; the old
+    // opportunistic guard only blocked on an UNASSIGNED wildcard, so once
+    // work() latched the reserver the corp offered ANOTHER, and another - 11
+    // reservers piled on W42N22, 46% of ALL spawn energy. One reserver per room
+    // is enough: a room already covered by a latched reserver gets no top-up,
+    // even with headroom to the cap.
+    const c = corp(["W1N0"]);
+    const latched = { memory: { corpId: c.id, workType: "reserve", targetRoom: "W1N0" }, spawning: false };
+    setWorld({ r1: latched });
+    intel("W1N0");
+    bank("W1N0", 3000); // above the floor, headroom to cap => the OLD guard offered a topup
+    const demands = c.getSpawnDemand({ energyCapacity: 1300, tick });
+    expect(demands, "one reserver per room - never stack a second").to.have.length(0);
+    expect((c as any).lastSizing.gate).to.equal("reservation-banked");
+  });
+
+  it("does not stack opportunistic reservers even against a SPAWNING newborn (in-flight purchase counts)", () => {
+    const c = corp(["W1N0"]);
+    setWorld({ newborn: { memory: { corpId: c.id, workType: "reserve" }, spawning: true } });
+    intel("W1N0");
+    bank("W1N0", 3000);
+    expect(c.getSpawnDemand({ energyCapacity: 1300, tick })).to.have.length(0);
+  });
+
   it("emits an OPPORTUNISTIC topup when banked-but-below-cap (owner idea: bank reserve in idle windows)", () => {
     // All targets above the refresh floor (no needy demand) but the lowest
     // bank has >=1000 ticks of headroom to the 5000 cap: offer a bottom-value

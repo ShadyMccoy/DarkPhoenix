@@ -11,7 +11,7 @@ import {
   classifyHaulerTick,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/CarryCorp";
-// The tender-regime lens moved to its neutral home (spec 32 phase D; the
+// The tender-regime lens moved to its neutral home (spec 35 phase D; the
 // reader corp no longer owns the writer kind's regime definition).
 import { tenderOwnsExtensions } from "../../../src/corps/regimes";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";

@@ -28,7 +28,7 @@ describe("agendaWhy (transition labels)", () => {
     ["fresh income unit", { producesIncome: true, groupStarted: false }, "new-unit"],
     ["started income unit scales", { producesIncome: true, groupStarted: true }, "scale"],
     ["income without a group is scaling too", { producesIncome: true }, "scale"],
-    // SANCTIONED PIN EDIT (spec 32 phase D, INFRA_ROLES kill): the "infra"
+    // SANCTIONED PIN EDIT (spec 35 phase D, INFRA_ROLES kill): the "infra"
     // label is now DECLARED by the demand (SpawnDemand.why = "infra" on the
     // tender/feeder/construction-tanker demands) instead of derived from a
     // role-name set inside the PLAN-layer scheduler. The assertion's meaning

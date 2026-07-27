@@ -593,6 +593,14 @@ declare global {
     working?: boolean;
 
     /**
+     * The controller feeder's current core-link direction (spec 02 feeder-
+     * router): "load" = storage -> core (top the relay), "drain" = core ->
+     * storage (bank the surplus / keep the core open for source volleys).
+     * Decided only while empty-handed so the feeder never flip-flops mid-trip.
+     */
+    linkMode?: "load" | "drain";
+
+    /**
      * Flagged for retirement: the creep is an undersized runt that its corp
      * wants to replace with a full-size body. It heads to the spawn to recycle
      * itself once the room is maxed out and the spawn would otherwise idle.

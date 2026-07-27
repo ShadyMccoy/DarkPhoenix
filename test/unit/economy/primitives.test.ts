@@ -31,7 +31,7 @@ import {
 // First-principles checks: every number is hand-derived from the game constants
 // so a formula change that drifts from the intended physics fails loudly.
 describe("economy/primitives", () => {
-  // The founding constants are homed HERE since spec 32 phase B (previously
+  // The founding constants are homed HERE since spec 35 phase B (previously
   // pinned via planning/EconomicConstants.test.ts, deleted with its module).
   describe("Screeps ground-truth constants", () => {
     it("pins the full 8-part body-cost table", () => {

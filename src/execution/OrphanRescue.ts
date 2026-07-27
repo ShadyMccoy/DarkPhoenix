@@ -72,7 +72,7 @@ export function orphanAction(
  * folded in at the ONE sanctioned point). A newly registered kind's corps are
  * live by construction, never by remembering to extend a list here - and the
  * legacy bootstrap/spawning fold is no longer re-implemented by hand either
- * (spec 32 phase D, audit finding execution/8: this function used to
+ * (spec 35 phase D, audit finding execution/8: this function used to
  * duplicate completeCensus's registry fold).
  */
 function liveCorpIds(registry: CorpRegistry): Set<string> {

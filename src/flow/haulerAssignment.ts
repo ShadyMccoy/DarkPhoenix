@@ -11,7 +11,7 @@
  *
  * Cycle-free: imports only the CommissionedHauler TYPE (from the pure planner,
  * which never imports flow/), FlowTypes, and primitives. Deliberately NOT in
- * FlowTypes - that module stays a declaration-only DTO home (since spec 32
+ * FlowTypes - that module stays a declaration-only DTO home (since spec 35
  * phase B it re-exports its constants FROM primitives, which imports nobody).
  *
  * @module flow/haulerAssignment

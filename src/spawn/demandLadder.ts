@@ -1,6 +1,6 @@
 /**
  * @fileoverview demandLadder - the ONE home for the spawn-demand VALUE ladder
- * (spec 32 phase D; audit finding corps-rest/9).
+ * (spec 35 phase D; audit finding corps-rest/9).
  *
  * Every auxiliary corp used to hardcode its demand value inline, each with
  * prose cross-referencing OTHER kinds' numbers ("above the miner band",
