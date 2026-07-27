@@ -222,6 +222,8 @@ test.ts` (emergent no-carry, flips link↔walk on haulPos), `sourcePickupSpot.
 test.ts` (no core redirect), `controllerLinkNetwork.test.ts`
 (coreLinkTargetLevel/coreLinkDrainAmount, load XOR drain). Grid cell
 `link-core-router` (test/grid/cells/linkRouter.ts). Full unit suite 1550 green;
-regression trio: storage-depot + flow-handoff green (they exercise the unchanged
-walking path — no regression); runt-economy + the grid cell verifying at commit
-time (this doc is updated with the verdicts + the post-deploy recapture).
+regression trio ALL green (storage-depot, flow-handoff, runt-economy — they
+exercise the unchanged walking path, confirming the change is a strict no-op for
+non-link rooms); grid cell `link-core-router` `[P]` (feeder drains @ tick 3, no
+`carry-source-*` through the window, controller progress @ tick 21). Post-deploy
+recapture pending (to be appended: the thrash gone on shard1).
