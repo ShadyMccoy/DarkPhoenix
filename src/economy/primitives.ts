@@ -102,10 +102,11 @@ export function bufferCarryParts(burnRate: number, intervalTicks: number): numbe
 }
 
 /**
- * Ticks between refuel events for a consumer whose fuel stands `distance`
- * away: `haulerCount` carriers working the supply vector land a delivery
- * every roundTrip/n; with none, the consumer's own round trip is the cadence
- * (self-fetch). The owner's buffer inputs verbatim: "the distance back to
+ * Ticks between refuel events for a PARKED consumer whose fuel stands
+ * `distance` away: `haulerCount` carriers working the supply vector land a
+ * delivery every roundTrip/n. The n=0 form (the full round trip) is the
+ * degenerate no-carrier cadence - adjacent direct-draw, where RT(d<=1) is a
+ * couple of ticks. The owner's buffer inputs verbatim: "the distance back to
  * the energy source and how many haulers are working the route".
  */
 export function refuelIntervalTicks(distance: number, haulerCount: number): number {
@@ -122,14 +123,16 @@ export function vectorSupplyParts(rate: number, distance: number): number {
 }
 
 /**
- * Standing body parts for a consumer that SELF-FETCHES fuel from `distance`,
- * at its OPTIMAL build/fetch cycle. Its WORK idles for the round trip
- * (utilization u = T/(T+RT)), so netting `rate` needs 1/u the WORK - at
- * 100e/part the game's most expensive idle - and its buffer returns LADEN
- * (C3: empty CARRY is fatigue-free, full is not), so the CARRY pays MOVE.
- * parts(T) = burn(T) * (2/w + T/25), burn = rate*(1+RT/T), w = energy/WORK;
- * minimizing gives T* = sqrt(50*RT/w). Exists to make the crossover in
- * supplyMethod COMPUTED, not asserted.
+ * The PRICED-OUT COUNTERFACTUAL (spec 34 D1): what a consumer would cost if
+ * it fetched its own fuel from `distance` - which builders NEVER do (owner:
+ * "builders don't MOVE the energy. they stay in one place building"). This
+ * exists to PROVE the parked doctrine, not as a live mode: the fetcher's
+ * WORK idles for the round trip (utilization u = T/(T+RT), so netting `rate`
+ * needs 1/u the WORK - at 100e/part the game's most expensive idle) and its
+ * buffer returns LADEN (C3: empty CARRY is fatigue-free, full is not), so
+ * the CARRY pays MOVE. parts(T) = burn(T) * (2/w + T/25),
+ * burn = rate*(1+RT/T), w = energy/WORK; minimizing gives T* = sqrt(50*RT/w).
+ * Even at its optimum it loses to the vector from d=2 up.
  */
 export function directFetchParts(rate: number, distance: number, energyPerWork = BUILD_ENERGY_PER_WORK): number {
   const rt = roundTripTicks(distance);
@@ -141,15 +144,15 @@ export function directFetchParts(rate: number, distance: number, energyPerWork =
 }
 
 /**
- * The supply-method crossover (spec 34 D1): how a consumer at `distance`
- * from its fuel should be fed, priced in standing spawn parts. Withdraw
- * adjacency (d<=1) is the owner's "route of length 0" - direct draw, no
- * vector, no buffer beyond a tick's worth. Beyond it the comparison runs:
- * dedicated vector (carriers + baseline WORK + an in-place-refilled buffer
- * that never travels laden, so CARRY only) vs self-fetch at its optimum.
- * The math lands where the game's meta does (static miner + hauler beat
- * mobile harvesters): the vector wins from d=2 up at any real rate - but
- * it is COMPUTED here so the corp reads a verdict, not a category.
+ * The supply-method verdict (spec 34 D1) for a PARKED consumer at `distance`
+ * from its fuel: "a hauler brings them energy, unless it's already adjacent
+ * to an energy source like a container or a link" (owner). Withdraw
+ * adjacency (d<=1) is the route of length 0 - direct draw in place, no
+ * vector. Beyond it, the vector delivers to the parked body. The comparison
+ * against directFetchParts (the priced-out fetch counterfactual) documents
+ * WHY the doctrine holds - the vector wins from d=2 up at any real rate,
+ * the same math that made static miner + hauler the game's meta - so the
+ * corp reads a computed verdict, never a hand-baked category.
  */
 export function supplyMethod(
   rate: number,

@@ -999,13 +999,14 @@ export class ConstructionCorp extends Corp {
     }
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
-    // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer. One lens with
-    // the tanker fetch (buildFuelDistance); the supply verdict is the computed
-    // crossover (adjacent fuel -> direct draw, no vector); the buffer bridges
-    // the refuel interval (vector deliveries every RT/n, or the builder's own
-    // round trip when direct). A slower burner needs less buffer, so the
-    // buffer scales with each member's WORK - buildBuilderBody preserves the
-    // ratio under a tight budget.
+    // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer of the PARKED
+    // builder (owner: "they stay in one place building" - haulers bring the
+    // energy). One lens with the tanker fetch (buildFuelDistance); the supply
+    // verdict is computed (fuel withdraw-adjacent -> direct draw in place, no
+    // vector); the buffer bridges the delivery interval (vector drops every
+    // RT/n; adjacent draw needs barely a tick's worth). A slower burner needs
+    // less buffer, so the buffer scales with each member's WORK -
+    // buildBuilderBody preserves the ratio under a tight budget.
     const bufSite =
       (room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined) ??
       (spawnForTravel ? this.poolTankerSite(spawnForTravel.pos.roomName) : null);
@@ -2553,6 +2554,14 @@ export class ConstructionCorp extends Corp {
     // first instead of idling at home waiting to fill (measured: ~600 ticks
     // of parent-room dawdling before the first cross-border trip).
     if (creep.room.name !== room.name) {
+      // UNLADEN RELOCATION (owner, spec 34: "builders don't MOVE the energy...
+      // when they move to the next site they empty their carry if necessary
+      // for longer routes"): a cross-room leg IS the longer route - shed the
+      // load first (adjacent store if one is there, else drop; drop and move
+      // are different action groups, so shedding costs zero ticks). Empty
+      // CARRY generates no fatigue: the walk runs at WORK-only speed instead
+      // of dragging the buffer laden.
+      this.shedLoad(creep);
       travelTo(creep, new RoomPosition(sites[0].pos.x, sites[0].pos.y, room.name), {
         range: 3,
         visualizePathStyle: { stroke: "#ffaa00" }
@@ -2584,6 +2593,25 @@ export class ConstructionCorp extends Corp {
     } else {
       this.doPickup(creep, room);
     }
+  }
+
+  /**
+   * Empty the carry before a long leg (spec 34 unladen-relocation rule): into
+   * an adjacent store with room if one stands there, else onto the ground.
+   * Same-tick compatible with movement, so it never delays the departure.
+   */
+  private shedLoad(creep: Creep): void {
+    if ((creep.store[RESOURCE_ENERGY] ?? 0) <= 0) return;
+    const store = creep.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: (s: AnyStructure) =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        ((s as StructureContainer).store?.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0
+    })[0];
+    if (store) {
+      creep.transfer(store, RESOURCE_ENERGY);
+      return;
+    }
+    creep.drop(RESOURCE_ENERGY);
   }
 
   /**
@@ -2623,8 +2651,10 @@ export class ConstructionCorp extends Corp {
 
     // A founding crew's site is in ANOTHER room (spec 06: the corp's workRoom
     // differs from its staffing spawn's room). findClosestByPath is same-room
-    // only - it returns null from home - so walk the border first.
+    // only - it returns null from home - so walk the border first. Unladen
+    // (spec 34): shed the load before the long leg, same rule as runBuilder's.
     if (creep.room.name !== room.name) {
+      this.shedLoad(creep);
       travelTo(creep, new RoomPosition(sites[0].pos.x, sites[0].pos.y, room.name), {
         range: 3,
         visualizePathStyle: { stroke: "#ffaa00" }

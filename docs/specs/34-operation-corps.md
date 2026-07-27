@@ -48,7 +48,7 @@ Corollaries the owner pinned in discussion:
 |---|---|---|
 | C1 | `BUILD_POWER = 5` e/t per WORK; `UPGRADE_CONTROLLER_POWER = 1`; `HARVEST_POWER = 2` | Builders are **burn-dense**: one builder WORK drains 5× an upgrader WORK. A builder's buffer empties 5× faster → refuel logistics dominate the build economy in a way they never do for upgrading. |
 | C2 | `CARRY_CAPACITY = 50`; part costs WORK 100 / CARRY 50 / MOVE 50 | One CARRY part buffers 10 tick-WORKs of building (50/5) but 50 of upgrading. Buffer sizing must be rate-derived, never a fixed ratio. |
-| C3 | **Fatigue: empty CARRY generates none.** Laden CARRY = 2 fatigue/tile like any part; each MOVE clears 2/tick; roads halve, swamps 5× | "Travel unladen" is FREE buffer transport (owner's rule). A mobile consumer relocating empty needs MOVE for WORK only. But SELF-FETCHED fuel comes back LADEN — self-fetch pays MOVE for its CARRY; route-fed delivery does not (the builder's buffer is refilled in place). |
+| C3 | **Fatigue: empty CARRY generates none.** Laden CARRY = 2 fatigue/tile like any part; each MOVE clears 2/tick; roads halve, swamps 5× | "Travel unladen" is FREE buffer transport (owner's rule). A mobile consumer relocating empty needs MOVE for WORK only — and the owner's relocation rule follows: **empty the carry before a longer leg** (`shedLoad`: hand-off to an adjacent store, else drop; drop+move share a tick, so it's free). The laden-walk cost is also half of why self-fetch loses (D1). |
 | C4 | `MAX_CREEP_SIZE = 50` parts | Bounds WORK+buffer+MOVE in one body. A crew that needs more splits (`splitIntoMembers`) — the multi-member squad is the pressure valve, unchanged. |
 | C5 | `CREEP_LIFE_TIME = 1500`; spawn = 3 ticks/part (`0.333` parts/t ceiling per spawn) | Spawn build-time is THE scarce currency (ONTOLOGY §2). Every design choice is priced in parts/tick amortized over `effectiveLife(distance)` — the ONLY honest comparator between methods. |
 | C6 | Build/upgrade range 3; transfer/withdraw range 1 | Refueling requires ADJACENCY: a hauler must physically reach the consumer (or its pile/buffer structure). Range-3 build means several bodies ring one site without blocking. |
@@ -57,27 +57,28 @@ Corollaries the owner pinned in discussion:
 
 ## Derived design decisions
 
-**D1 — Supply method is a COMPUTED crossover, not a category.** Compare, in
-spawn-parts/tick per delivered e/t (C5), the two ways to keep a consumer fed
-at distance `d` from fuel:
+**D1 — The builder is a PARKED consumer (owner doctrine), and the math
+proves the doctrine.** "Builders don't MOVE the energy. They stay in one
+place building" (owner, 2026-07-27). The builder never makes fuel trips —
+"a hauler brings them energy, unless it's already adjacent to an energy
+source like a container or a link." So there are exactly two supply modes:
 
-- **Vector-fed**: a dedicated haul vector `(fuel, site, rate)` costs
-  `2·carryPartsFor(rate, d)` standing parts (CARRY+MOVE at 1:1), and the
-  consumer carries only a small buffer bridging the delivery interval.
-- **Self-fetch**: the consumer's own round trips. Its WORK idles during the
-  trip (utilization `u = T_build/(T_build + roundTrip)`), so delivering the
-  same effective rate needs `1/u` times the WORK — at 100e/part, WORK idle
-  is the most expensive waste in the game — plus laden-return MOVE for its
-  CARRY (C3).
+- **Vector-fed (default)**: a dedicated haul vector `(fuel, site, rate)` at
+  `2·carryPartsFor(rate, d)` standing parts delivers TO the parked builder;
+  its onboard buffer bridges the delivery interval.
+- **Direct draw (route of length 0)**: parked within withdraw range (C6) of
+  an energy structure — container, link, storage — the builder withdraws in
+  place. No vector, near-zero buffer.
 
-Worked at the optimum (`T_build* = √(10·RT)`, minimizing total parts): for
-rate 10 e/t at d=8, self-fetch ≈ 22 parts vs vector ≈ 12; even at d=2 the
-vector wins (~13 vs ~7). **The crossover sits at adjacency**: only `d ≈ 0–1`
-(withdraw range, C6) favors direct draw — the owner's "route of length 0."
-This mirrors the game's own meta (static miner + hauler beat mobile
-harvesters, same math). So: consumers ALWAYS buffer onboard sized to their
-refuel interval; the supply is a real vector whenever fuel is beyond
-withdraw-adjacency, and nothing at all when adjacent.
+Self-fetch is NOT a mode — `directFetchParts` exists only as the priced
+counterfactual proving why: the fetcher's WORK idles for the round trip
+(needs `1/u` the fleet at 100e/part — the game's costliest idle) and its
+CARRY returns laden (C3). At the fetch-optimal cycle (`T* = √(50·RT/w)`):
+rate 10 at d=8 → ≈22 parts vs the vector's ≈12; even d=2 loses. The same
+math that made static-miner+hauler the game's meta. The `supplyMethod`
+verdict therefore lands exactly on the owner's rule — vector everywhere
+beyond withdraw-adjacency — but as a COMPUTED verdict the corp reads, not
+a category baked in.
 
 **D2 — The onboard buffer formula (one primitive, all consumers).**
 `bufferCarryParts(burnRate, intervalTicks) = burnRate · interval / 50`.
@@ -92,6 +93,15 @@ haulers on the route (divisor).
 to the WORK core (empty CARRY free, C3); laden movement is only site hops
 (short, rare) and the vector delivers in place. Retires the fixed
 `buildUpgraderBody(cap, 2)` shape for builders.
+
+**D3b — Unladen relocation (owner rule).** "When they move to the next site
+they empty their carry if necessary for longer routes": before a cross-room
+leg the builder SHEDS its load (`shedLoad` — adjacent store hand-off, else
+drop; drop+move are different action groups, zero-tick cost), then walks at
+WORK-only speed (~0.8 tiles/t vs ~0.3 laden for the buffered body). Short
+in-room hops keep their load (dumping there wastes more than it saves).
+Landed in both cross-room branches (runBuilder + doBuild's founding walk),
+pinned by `builderUnladenRelocation.test.ts`.
 
 **D4 — The commission price is ALL-IN.** A corp's declared
 `spawnPartsPerTick` covers its node bodies AND its operated vectors —
