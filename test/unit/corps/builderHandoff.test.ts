@@ -115,7 +115,7 @@ describe("builder hand-off (release + adopt, never idle-to-death)", () => {
     ).to.equal(null);
   });
 
-  it("claimsOrphan never claims a tanker (the tender kind rescues those)", () => {
+  it("claimsOrphan never claims a tanker (released tankers ride grace -> recycle, spec 34 D6)", () => {
     const orphan: any = { pos: { roomName: "W3N1" }, memory: { workType: "tank" } };
     expect(
       constructionKind.claimsOrphan!(orphan, { a: { id: "a", wantsAnotherBuilder: () => true, workRoomName: () => "W3N1" } } as any)

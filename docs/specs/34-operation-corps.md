@@ -14,27 +14,53 @@ geometry, tanker adjacency gate, shed-before-cross-room-leg), and the all-in
 construction commission price (D4, both charge sites, golden master regen).
 ONTOLOGY §3 records the family.
 
+**LANDED 2026-07-27 (second tranche — the fidelity session):**
+
+- **D6 — cohort release at operation end.** `releaseCohortAtOperationEnd`:
+  the pool drained past `OPERATION_END_CONFIRM_TICKS` (2× the placement
+  cadence, so a between-rungs gap never fires it) releases every squad the
+  same tick — builders → the adoption marker (`claimsOrphan` → next corp,
+  else grace → recycle), tankers → `RELEASED_TANKER_CORP_ID` → grace →
+  recycle refund. The tender-rescue of construction tankers is RETIRED
+  (extensionTenderKind.claimsOrphan is gated on `isTenderCreep`). Two
+  boundary rules, both pinned in `cohortRelease.test.ts`: DEFUND (allocation
+  → 0, sites standing) never releases, and — the refinement D6 forced — a
+  mid-operation WANT DIP never releases either: the home pool corp's want is
+  a re-solve PRICE, and releasing on its dip stranded a standing 2W builder
+  as a frozen orphan holding 80 energy (measured in the cell, want 2→1 at a
+  site completion). Home corps release ONLY through the operation-end
+  cohort; remote stint corps keep the immediate local hand-off (their want
+  is a stable local signal — the original hand-off incident).
+- **`builder-buffer-feed` grid cell** — green at 98–100% workUtil across
+  four draws (floor 0.9), zero fuel trips, delivery detected ~t21. Building
+  it surfaced and fixed THREE fidelity gaps, in order of discovery:
+  1. **Parked burn** (fed-idle was 73% of all idle): the full-refill toggle
+     made a vector-fed builder wait for a FULL store while the tanker
+     dribbled its buffer. Now: while the corp fields live tankers, the
+     builder builds on ANY held energy and holds its post when dry
+     (`parkedBuilderBurn.test.ts`); fetch worlds keep the toggle verbatim.
+  2. **1:1 vector carriers**: the CARRY-heavy 3C:1M tanker walked its laden
+     leg at 3 t/tile — real RT ≈ 2× the `roundTripTicks` the sizing priced,
+     so the fleet under-delivered its own vector (starvation valleys,
+     starved 500 → 30 after). Construction tankers now field
+     `buildRatioHaulerBody 1:1`, the gait `vectorSupplyParts` prices ("the
+     vector IS carryPartsFor"); the tender keeps CARRY-heavy where the duty
+     cycle really is parked. bodyEquivalence pins the supersession.
+  3. **The operation-end release gate** (the D6 refinement above): fed-idle
+     1480 → 0.
+
 **OPEN, in order:**
 
-1. **D6 — cohort release at operation end.** When the corp's pool drains
-   (work COMPLETE, never defund — trap-list revocation class), every squad
-   releases the same tick: builders → `claimsOrphan` adoption (exists),
-   tankers → release → grace → recycle refund (today they are tender-rescued,
-   a cross-kind coverage smell to retire with this). Acceptance tests are in
-   §Acceptance below ("Cohort release"). The no-half-useful-strays mechanism.
-2. **minerCorp — the producer-side mirror (D5 second half).** "Spawn a
+1. **minerCorp — the producer-side mirror (D5 second half).** "Spawn a
    minerCorp": harvest + its evacuation vector as ONE commission with ONE
    all-in price (`operationSpawnLoad(minerOverhead, [vector])`), the carry
    squad an internal detail of the harvest kind. Registration-only (spec 17);
    the consumer half landed first, this is the same move on produce.
-3. **`builder-buffer-feed` grid cell** (§Acceptance): staged site + storage
-   at d≈8 with a live vector; workUtil ≥ 0.9, no builder fuel trips. Proves
-   the parked doctrine end-to-end in the mockup.
-4. **P4 ledger consistency**: the waste ledger's plan-implied parts should
+2. **P4 ledger consistency**: the waste ledger's plan-implied parts should
    read the construction charge THROUGH the all-in price (it now exists in
    the plan) so "unbudgeted" construction bodies disappear from the detail
    line for the right reason.
-5. **Further kinds into the interface** (as encountered, not speculatively):
+3. **Further kinds into the interface** (as encountered, not speculatively):
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.

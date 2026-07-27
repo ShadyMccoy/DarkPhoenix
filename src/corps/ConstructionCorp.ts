@@ -22,7 +22,7 @@ import { stepOffRoad, travelTo } from "./movement";
 import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
-import { buildBuilderBody, buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildBuilderBody, buildRatioHaulerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   pickCriticalRepairTarget,
   wantsCriticalRecovery,
@@ -48,7 +48,7 @@ import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../
 import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
-import { buildPool, buildPoolAbsorbRate, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
+import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
   bestControllerLinkTile,
   containersUnlocked,
@@ -113,6 +113,32 @@ const TANKER_FLOOR = 2;
  */
 export const RELEASED_BUILDER_CORP_ID = "released-builder";
 
+/**
+ * The non-live corpId a released TANKER carries at OPERATION END (spec 34 D6:
+ * cohort release). Unlike builders there is no adoption half - a vector's
+ * carriers exist for the operation they served - so rescue finds no taker and
+ * the ordinary grace -> recycle path refunds the body (driveRecycle banks any
+ * carried energy first). The tender kind explicitly declines these orphans
+ * (its claimsOrphan is gated on isTenderCreep - the marker must never contain
+ * "tender", pinned in cohortRelease.test.ts): the old cross-kind coverage
+ * turned a finished operation's vector into phantom tenders.
+ */
+export const RELEASED_TANKER_CORP_ID = "released-tanker";
+
+/**
+ * How long the build pool must stay drained before it counts as OPERATION END
+ * (spec 34 D6). Between ladder rungs the pool is legitimately empty for up to
+ * PLACEMENT_COOLDOWN ticks (a site completes; the next placement attempt runs
+ * on the cooldown clock), so an instantaneous pool-empty trigger would churn
+ * the whole tanker detail every rung (the measured 25t churn-loop class). Two
+ * cooldowns = the extension rung AND the surplus road pass each had a full
+ * attempt at the drained pool and declined - the ladder is genuinely done,
+ * not between placements. Builders need no such window: their release rides
+ * the demand-lens want and re-adoption (claimsOrphan) recovers them within
+ * the 25t orphan grace when the next rung lands.
+ */
+export const OPERATION_END_CONFIRM_TICKS = PLACEMENT_COOLDOWN * 2;
+
 // Re-exported so the builder-assignment tests and callers reach the build-side
 // latch through the corp that owns it (its twin nextRepairTarget lives here too).
 export { nextBuildTarget };
@@ -148,6 +174,13 @@ export class ConstructionCorp extends Corp {
    * released every builder colony-wide on the first post-deploy tick.
    */
   private lastWantedBuilders: number | null = null;
+
+  /**
+   * First tick the build pool was observed drained (spec 34 D6), or null while
+   * work stands. Transient by design: a reset mid-drain just restarts the
+   * confirm window - a few ticks of extra patience, never a wrong release.
+   */
+  private poolDrainedSince: number | null = null;
 
   /**
    * Flow-based construction allocations from FlowEconomy.
@@ -258,6 +291,42 @@ export class ConstructionCorp extends Corp {
     }
   }
 
+  /**
+   * COHORT RELEASE (spec 34 D6): release is an OPERATION-END event. When the
+   * build pool drains - work COMPLETE, confirmed against the placement
+   * cadence - every squad releases the same tick: builders to the adoption
+   * marker (claimsOrphan routes them to the next corp that wants one, else
+   * grace -> recycle), the vector's carriers to the recycle marker (no
+   * taker by design - the tender kind declines foreign tanks - so the
+   * ordinary grace -> recycle path refunds each body).
+   *
+   * The trigger is the SAME buildPool lens the demand side gates orders on
+   * (staffsPost symmetry) - physical standing work, never the plan's
+   * allocation. A mid-operation WANT DIP is the defund shape: the spawn
+   * side already orders no new bodies, and the standing fleet keeps eating
+   * the pool to natural death. Releasing on the dip is the trap-list
+   * revocation class - measured in the builder-buffer-feed cell as a
+   * stranded 2W builder: the re-solve repriced the shrinking pool (want
+   * 2 -> 1), the "excess" builder froze as an unwanted orphan holding 80
+   * energy while 6k+ of funded work stood and its vector kept delivering.
+   * Only finished work releases anyone.
+   */
+  private releaseCohortAtOperationEnd(spawn: StructureSpawn, tick: number): void {
+    if (buildPoolBacklog(spawn.pos.roomName) > 0) {
+      this.poolDrainedSince = null; // work stands (funded or not): not operation end
+      return;
+    }
+    if (this.poolDrainedSince === null) this.poolDrainedSince = tick;
+    if (tick - this.poolDrainedSince < OPERATION_END_CONFIRM_TICKS) return;
+    // The stashed want at a drained pool is the standing repair detail
+    // (repairerPlan) - releaseExcessBuilders keeps exactly that.
+    this.releaseExcessBuilders();
+    for (const tanker of this.tankers.members()) {
+      tanker.memory.corpId = RELEASED_TANKER_CORP_ID;
+      delete tanker.memory.recycling; // the orphan path owns it now
+    }
+  }
+
   private workRoom(spawn: StructureSpawn): Room | null {
     const roomName = this.nodeId.replace(/-construction$/, "");
     const room = Game.rooms[roomName];
@@ -362,13 +431,19 @@ export class ConstructionCorp extends Corp {
       }, spawn);
       return;
     }
-    // Hand-off, release half: extras beyond the demand lens's want leave for
-    // adoption (or a grace-recycle refund) instead of aging out in place.
-    this.releaseExcessBuilders();
     const controller = room.controller;
     if (!controller) return;
 
     if (this.isRemoteWorkRoom(room)) {
+      // Hand-off, release half (REMOTE stint): the want here is a stable
+      // LOCAL signal (container project / trunk road sites standing), so a
+      // drop means this room's work is genuinely done - release immediately
+      // and claimsOrphan walks the builder to the next project (the original
+      // hand-off incident: finished remotes idling builders to TTL death
+      // while siblings bought fresh bodies). The HOME pool corp releases
+      // through the operation-end cohort below instead - its want is a
+      // re-solve PRICE that dips mid-operation (revocation trap class).
+      this.releaseExcessBuilders();
       // Remote rung: one source container at a time, triggered by the pile
       // threshold (findMissingSourceContainer), built from that same pile.
       const spot = this.remoteContainerSiteWanted(room);
@@ -384,6 +459,11 @@ export class ConstructionCorp extends Corp {
       );
       return;
     }
+
+    // COHORT RELEASE (spec 34 D6): the home pool corp releases squads only at
+    // confirmed operation end - see releaseCohortAtOperationEnd for why a
+    // mid-operation want dip must NOT release (revocation trap class).
+    this.releaseCohortAtOperationEnd(spawn, tick);
 
     // Build one structure at a time (a queue, not a spread): only place the next
     // construction site when there are NO active sites in the room. Concentrating
@@ -500,8 +580,14 @@ export class ConstructionCorp extends Corp {
       return;
     }
     const buildRoom = poolHead?.room ?? room;
+    // The vector-is-live signal for the parked-burn path (spec 34 D1/D2):
+    // this corp's own fielded carriers, the census lens for the very
+    // decision tankerPlan priced. Fetch worlds field none and keep the
+    // full-refill toggle.
+    const vectorFed = this.tankers.members().length > 0;
     this.builders.run(
-      creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom)),
+      creep =>
+        creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom, vectorFed),
       spawn
     );
     this.tankers.run(creep => this.runTanker(creep, room), spawn);
@@ -2016,7 +2102,7 @@ export class ConstructionCorp extends Corp {
     }
   }
 
-  private runBuilder(creep: Creep, room: Room): void {
+  private runBuilder(creep: Creep, room: Room, vectorFed = false): void {
     // Builders ONLY build (owner 2026-07-18: repair is a fully separate
     // function - the repair detail owns ALL maintenance, critical included,
     // sites or no sites). No mode switches, no diversions.
@@ -2051,6 +2137,37 @@ export class ConstructionCorp extends Corp {
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
       creep.say("build");
+    }
+
+    // PARKED CONSUMER (spec 34 D1/D2): while the corp fields its supply
+    // vector (live tankers - the same decision tankerPlan priced), the
+    // builder holds its post and burns whatever the buffer holds. Build
+    // resumes on the FIRST delivered energy - the full-refill toggle below
+    // is fetch-cycle logic (it stops a FETCHING builder thrashing between
+    // one-tick trips), and on the vector-fed path it idled fielded WORK
+    // while the tanker dribbled the buffer full: the builder-buffer-feed
+    // cell measured 73% of all idle as this held-energy class. When dry the
+    // builder stays parked (walking to fetch is D1's priced-out
+    // counterfactual) and tops up from adjacent energy only.
+    if (vectorFed) {
+      if (creep.store[RESOURCE_ENERGY] > 0) {
+        this.doBuild(creep, room);
+      } else {
+        // Dry off-post (a newborn at the spawn): walk out to the latched
+        // site so the vector's deliveries land on a parked consumer.
+        const target = nextBuildTarget(sites, creep.memory.buildTargetId, s => creep.pos.getRangeTo(s.pos)) ?? sites[0];
+        if (target && creep.pos.getRangeTo(target.pos) > 3) {
+          creep.memory.buildTargetId = target.id;
+          travelTo(creep, new RoomPosition(target.pos.x, target.pos.y, room.name), {
+            range: 3,
+            visualizePathStyle: { stroke: "#ffaa00" }
+          });
+        }
+      }
+      if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+        this.refuelInPlace(creep);
+      }
+      return;
     }
 
     if (creep.memory.working) {
@@ -2371,6 +2488,8 @@ export class ConstructionCorp extends Corp {
     // more energy per WORK, so the DELIVERY side is the binding constraint -
     // "we actually need the haulers to be bigger"). The old 4-CARRY cap
     // forced 200-capacity shuttles out of an 1800-capacity room.
+    // A 1:1 unit (1 CARRY + 1 MOVE) costs exactly 100, so floor(cap/100) IS
+    // the affordable CARRY per body at the vector's priced gait.
     const perTankerMax = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
     const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
     const dist = this.buildFuelDistance(room, site);
@@ -2392,8 +2511,16 @@ export class ConstructionCorp extends Corp {
     // Distribute the need across the bodies instead.
     const target = Math.max(2, Math.ceil(carryNeeded / perTankerMax));
     const carryPer = Math.max(1, Math.min(perTankerMax, Math.ceil(carryNeeded / target)));
-    const desired = buildTankerBody(carryPer, ctx.energyCapacity, false);
-    const min = buildTankerBody(1, ctx.energyCapacity, false);
+    // Carriers at the PRICED 1:1 gait (spec 34 D1: the vector IS
+    // carryPartsFor, whose round trip assumes 1 tile/tick laden - a 1:1
+    // body's speed). The old CARRY-heavy tanker (3C:1M) crawled its laden
+    // leg at 3 t/tile: real RT ~2x the priced one, so the fleet sized
+    // against the priced RT under-delivered its own vector (measured by
+    // builder-buffer-feed as periodic buffer-drain starvation). Body now
+    // matches the sizing formula's physics; the tender's parked refill
+    // circuit keeps the CARRY-heavy shape where it belongs.
+    const desired = buildRatioHaulerBody(carryPer, ctx.energyCapacity, "1:1");
+    const min = buildRatioHaulerBody(1, ctx.energyCapacity, "1:1");
     return {
       target,
       desiredCost: desired.cost,

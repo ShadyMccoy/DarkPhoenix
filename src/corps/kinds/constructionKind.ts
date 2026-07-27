@@ -26,7 +26,7 @@ import { stripSpawnPrefix } from "../../economy/ids";
 import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildBuilderBody, buildTankerBody } from "../../spawn/BodyBuilder";
+import { buildBuilderBody, buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
 import { homeSpawnsByRoom, nearestSpawnTo } from "../../economy/proposeHelpers";
@@ -91,7 +91,9 @@ function constructionAllocation(k: CommissionedSink): SinkAllocation {
 
 export const constructionKind: CorpKind<ConstructionCorp> = {
   kind: "construction",
-  // Tankers are rescued by the tender kind (pre-spec-17 ROLE_KIND mapping).
+  // Tankers are NOT re-adopted by anyone (spec 34 D6): readopt:false keeps
+  // this kind out of the rescue map, and the tender kind's claimsOrphan
+  // declines foreign tanks - a released vector rides grace -> recycle refund.
   roles: { builder: { workType: "build" }, tanker: { workType: "tank", readopt: false } },
   runOrder: 30, // consume tier, alongside upgrade
 
@@ -221,9 +223,15 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // Two shapes: WORK builders carrying their own BUFFER (spec 34 D3 -
     // bodyParam is the demanded WORK, hints.bufferCarry the interval-sized
     // CARRY; the old buildUpgraderBody(cap, 2) path IGNORED bodyParam, so
-    // demand and body disagreed) and CARRY tankers operating the corp's
-    // supply vector.
-    if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+    // demand and body disagreed) and the supply VECTOR's carriers at the
+    // PRICED 1:1 gait (spec 34 D1: vectorSupplyParts = 2*carryPartsFor
+    // assumes laden-both-ways 1:1 - "the vector IS carryPartsFor". The old
+    // CARRY-heavy 3C:1M tanker walked its laden leg at 3 t/tile, so the
+    // real round trip ran ~2x the priced one and the fleet sized to the
+    // priced RT under-delivered its own vector: measured by the
+    // builder-buffer-feed cell as buffer-drain starvation valleys. The
+    // tender keeps the CARRY-heavy shape - ITS duty cycle is parked).
+    if (role === "tanker") return buildRatioHaulerBody(bodyParam ?? 4, energyBudget, "1:1").body;
     return buildBuilderBody(bodyParam ?? 2, hints?.bufferCarry ?? 2, energyBudget).body;
   },
 
@@ -232,8 +240,9 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
   // nearest construction corp whose demand lens wants one (the corp's own
   // wantsAnotherBuilder probe - never a recomputation here), so a finished
   // remote stint walks straight to the next project instead of the measured
-  // fresh-4p-body-per-room churn. Tankers are the tender kind's rescue
-  // (roles.tanker readopt:false). No taker -> null -> grace -> recycle.
+  // fresh-4p-body-per-room churn. Tankers are never re-adopted (spec 34 D6
+  // cohort release: grace -> recycle refund; roles.tanker readopt:false).
+  // No taker -> null -> grace -> recycle.
   claimsOrphan(creep: Creep, corps: { [corpId: string]: ConstructionCorp }): string | null {
     if (creep.memory.workType !== "build") return null;
     let bestId: string | null = null;
