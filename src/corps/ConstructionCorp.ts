@@ -291,7 +291,16 @@ export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition
     }
     if (t > travel) travel = t;
   }
-  return projectAbsorbRate(siteWork, travel);
+  // WARTIME acceleration (spec 33 down-payment): while the home room holds a
+  // spendable warchest surplus, finish construction fast (shorter horizon) so
+  // the surplus is spent into structures, not banked. Same bankSurplusRate lens
+  // flowAdapter's construction sink reads, so the plan and the crew agree on the
+  // pace. Bounded by the available energy downstream, so it never over-draws.
+  const room = typeof Game !== "undefined" && Game.rooms ? Game.rooms[homeRoomName] : undefined;
+  const accelerate =
+    !!room?.storage?.my &&
+    spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
+  return projectAbsorbRate(siteWork, travel, accelerate);
 }
 
 /** One placement pass over a trunk's tiles: what stands, what was added,
@@ -2771,7 +2780,7 @@ export class ConstructionCorp extends Corp {
   /**
    * What the feeder squad should look like: enough small tankers that one is
    * always at a builder while the others refuel, sized to the builders' total
-   * consumption and the refuel round-trip (see targetTankerCount).
+   * consumption and the refuel round-trip (see tankerCarryNeeded).
    */
   /** Crew plan plus the standing repair detail (owner 2026-07-18: repair is a
    * separate FUNCTION - one crew member is permanently assigned to repair,
@@ -2799,15 +2808,24 @@ export class ConstructionCorp extends Corp {
     // more energy per WORK, so the DELIVERY side is the binding constraint -
     // "we actually need the haulers to be bigger"). The old 4-CARRY cap
     // forced 200-capacity shuttles out of an 1800-capacity room.
-    const perTanker = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
-    const target = this.targetTankerCount(room, site, perTanker, ctx);
-    const desired = buildTankerBody(perTanker, ctx.energyCapacity, false);
+    const perTankerMax = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
+    const carryNeeded = this.tankerCarryNeeded(room, site, ctx);
+    // At least TWO bodies so one is always staged for a seamless hot swap, but
+    // size EACH to its SHARE of the real carryNeeded - never the max body.
+    // The old code fielded max(2, ...) bodies each at perTankerMax (16 CARRY at
+    // RCL6), so a 2-WORK site (10 e/t, ~6 CARRY needed over a short home leg)
+    // got 2x16 = 32 CARRY - the measured 34-CARRY over-provisioning
+    // (t72596906): 26 CARRY of spawn parts + CPU on haul the site can't use.
+    // Distribute the need across the bodies instead.
+    const target = Math.max(2, Math.ceil(carryNeeded / perTankerMax));
+    const carryPer = Math.max(1, Math.min(perTankerMax, Math.ceil(carryNeeded / target)));
+    const desired = buildTankerBody(carryPer, ctx.energyCapacity, false);
     const min = buildTankerBody(1, ctx.energyCapacity, false);
     return {
       target,
       desiredCost: desired.cost,
       minCost: min.cost,
-      bodyParam: perTanker
+      bodyParam: carryPer
     };
   }
 
@@ -2839,26 +2857,26 @@ export class ConstructionCorp extends Corp {
     return null;
   }
 
-  private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
+  /**
+   * CARRY parts in flight to sustain the crew's consumption over the refuel
+   * round-trip (1.5x margin for the transfer/withdraw ticks). The relay is
+   * sized to this TOTAL; tankerPlan distributes it across >=2 bodies instead of
+   * fielding max bodies (the 34-CARRY over-provisioning fix).
+   */
+  private tankerCarryNeeded(room: Room, site: ConstructionSite, ctx: SpawnDemandContext): number {
     const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
     const bank = room.storage;
     const surplusBanked =
       bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
     const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
     // A pool site can sit in ANOTHER room (same-room getRangeTo is Infinity
-    // across rooms - an unfixed count would be Infinity, not a fleet): price
-    // the cross-room shuttle at the linear room distance.
+    // across rooms): price the cross-room shuttle at the linear room distance.
     const dist = !fuelPos
       ? 8
       : site.pos.roomName === fuelPos.roomName
       ? site.pos.getRangeTo(fuelPos)
       : roomLinearDistance(site.pos.roomName, fuelPos.roomName) * 50;
-    // CARRY needed in flight to sustain consumption over the round trip, with a
-    // 1.5x margin: a tanker also spends ticks transferring at the builder and
-    // withdrawing at the fuel point, so the bare round-trip figure under-delivers
-    // and a far site starves its builder. The margin scales the relay with distance.
-    const carryNeeded = Math.ceil(carryPartsFor(consumption, dist) * 1.5);
-    return Math.max(2, Math.ceil(carryNeeded / perTanker));
+    return Math.ceil(carryPartsFor(consumption, dist) * 1.5);
   }
 
   // ===========================================================================

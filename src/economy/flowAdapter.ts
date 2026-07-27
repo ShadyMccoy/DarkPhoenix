@@ -636,7 +636,14 @@ export function buildColonyProblem(
     spawns.length === 0 || pooledSites.length === 0
       ? 0
       : Math.max(...pooledSites.map(s => Math.min(...spawns.map(sp => dist(sp.pos, s.position)))));
-  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel) : 0;
+  // WARTIME acceleration (spec 33 down-payment): while a spendable warchest
+  // surplus stands (bankRate > 0, the SAME lens the crew's buildPoolAbsorbRate
+  // reads), the construction sink absorbs FASTER so the surplus is spent into
+  // structures, not banked - bounded by min(minedSupply + bankRate, ...) below,
+  // so it only draws energy already available. Upgrading floors meanwhile and
+  // resumes when the surplus/backlog drains.
+  const buildAccelerate = bankRate > 0;
+  const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel, buildAccelerate) : 0;
 
   const sinks: PlannerSink[] = [];
   for (const sink of graph.getSinks()) {

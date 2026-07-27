@@ -512,24 +512,33 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
     expect(builds.length).to.equal(10);
     const totalDemand = builds.reduce((s, a) => s + a.demand, 0);
-    // pool: 3000 remaining, farthest travel 18 -> max(5, 3000/((2/3)*1482)) = 5
-    expect(totalDemand, "sum = ONE pool absorb, not 10 floors").to.be.closeTo(5, 0.1);
+    // pool: 3000 remaining, farthest travel 18. A bank surplus stands
+    // (bankSource(40)), so the WARTIME horizon (1/3 life, spec 33) applies:
+    // max(5, 3000/((1/3)*1482)) ~ 6.07. The SUM is still ONE pool absorb, not
+    // ten floors - the pin's point (pre-wartime this was the flat-5 floor).
+    expect(totalDemand, "sum = ONE pool absorb (wartime pace), not 10 floors").to.be.closeTo(
+      3000 / ((1 / 3) * 1482),
+      0.1
+    );
   });
 
   it("a REAL build-out sizes to buffered-effective-life completion; the residual upgrades (owner 2026-07-20)", () => {
-    // Horizon = 2/3 of effectiveLife(travel): the site sits 4 tiles from the
-    // spawn, so 15k / ((2/3) * 1496) ~ 15 e/t - above the G6 flat-5 floor
-    // (the build-out is never starved) but no burst: the surplus a burst
-    // would have claimed flows to the controller instead of idling in
-    // spawned WORK-ticks that outlive their work.
+    // The site sits 4 tiles from the spawn. A bank surplus stands, so the
+    // WARTIME horizon (1/3 life, spec 33) applies: 15k / ((1/3)*1496) ~ 30 e/t
+    // - construction bursts to spend the surplus into the structure. Still
+    // BOUNDED (< the 80 e/t available), and the controller keeps MORE than
+    // construction (the guardrail: build accelerates, it does not starve the
+    // controller). Pre-wartime this was the (2/3)-life ~15 e/t lifetime pace.
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     graph.addConstructionSite("bigbuild", "home", at(9), 15000);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
 
     const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
-    expect(build.allocated, "buffered-effective-life rate").to.be.closeTo(15000 / ((2 / 3) * 1496), 1e-6);
-    expect(ctrl.allocated, "the un-claimed surplus scores at the controller").to.be.greaterThan(build.allocated);
+    expect(build.allocated, "wartime-completion rate (1/3 life)").to.be.closeTo(15000 / ((1 / 3) * 1496), 1e-6);
+    expect(ctrl.allocated, "the un-claimed surplus still scores at the controller (build never starves it)").to.be.greaterThan(
+      build.allocated
+    );
   });
 });
 

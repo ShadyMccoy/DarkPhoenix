@@ -13,6 +13,32 @@ relegated. The construction projects should be sized to eat the surplus just
 like the upgraders normally would, including sizing the fleet in regard to
 hauling — often the bigger body requirement."
 
+## DOWN-PAYMENT LANDED 2026-07-27 (owner "speed the builder up a bit")
+
+A first, bounded slice shipped — NOT the full mode, but the acceleration lever:
+- **Accelerated build horizon** (`primitives.WARTIME_COMPLETION_FRACTION = 1/3`,
+  vs the 2/3 lifetime pace): while a room holds a spendable warchest surplus,
+  `projectBuildHorizon(travel, accelerate=true)` shortens, so
+  `projectAbsorbRate` ~doubles. Read by BOTH the crew (`ConstructionCorp.
+  buildPoolAbsorbRate`) and the plan's construction sink (`flowAdapter`
+  `poolAbsorb`) off the SAME `bankSurplusRate` lens the feeder/upgrader use — so
+  the sink allocation and the crew grow together (no isolated nudge). Bounded
+  DOWNSTREAM by `min(minedSupply + bankRate, absorb-share)`, so it only draws
+  ALREADY-available energy; the controller keeps more than construction
+  (guardrail pinned in flowAdapter.test); the anti-downgrade reserve holds the
+  floor; a FILLING warchest (no surplus) keeps the lifetime pace (no flap).
+- **Tanker relay right-sized** (`ConstructionCorp.tankerPlan`): the haul detail
+  sizes each body to its SHARE of the real `carryNeeded`, not the max body — so
+  as the accelerated build rate rises, the haul scales WITH it (the "size the
+  haul to the build absorb rate" half), and a small build no longer over-provisions
+  (the measured 34-CARRY-for-a-2-WORK-site waste, t72596906).
+
+Still OPEN for the full mode (below): the explicit upgrader relegation to the
+controller floor as a coherent regime (today upgrading just gets the residual
+after the bigger construction draw), entry/exit hysteresis as a named posture,
+and a dedicated grid cell (`wartime-build-*`) staging the backlog+warchest and
+asserting the faster build RATE + clean exit.
+
 ## The model
 
 A MODE, entered while meaningful construction work stands (a remodel, an RCL

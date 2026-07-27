@@ -145,9 +145,26 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
  */
 export const PROJECT_COMPLETION_FRACTION = 2 / 3;
 
-/** The sizing horizon for a crew working `travelDistance` from its spawn. */
-export function projectBuildHorizon(travelDistance: number): number {
-  return Math.max(1, PROJECT_COMPLETION_FRACTION * effectiveLife(travelDistance));
+/**
+ * WARTIME completion fraction (owner 2026-07-27, spec 33 down-payment): while a
+ * spendable warchest surplus stands, finish construction FASTER - complete over
+ * a shorter fraction of the crew's effective life so the surplus is spent into
+ * STRUCTURES (and the haul scales with it) instead of banking, and upgrading
+ * relegates to the controller floor meanwhile. Bounded DOWNSTREAM and cannot run
+ * away: the plan's construction sink is min(minedSupply + bankRate, absorb-share),
+ * so a bigger absorb only draws MORE of the ALREADY-AVAILABLE energy, never
+ * energy the economy lacks; the crew is further bounded by its fuel and
+ * maxPerBuilder. Resumes the leisurely pace with no flap when the surplus/backlog
+ * drains (the signal is the tapered bankSurplusRate the feeder/upgrader read).
+ * 1/3 (~2x the normal ~1000t pace) is the owner's "speed it up a bit".
+ */
+export const WARTIME_COMPLETION_FRACTION = 1 / 3;
+
+/** The sizing horizon for a crew working `travelDistance` from its spawn.
+ * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
+export function projectBuildHorizon(travelDistance: number, accelerate = false): number {
+  const fraction = accelerate ? WARTIME_COMPLETION_FRACTION : PROJECT_COMPLETION_FRACTION;
+  return Math.max(1, fraction * effectiveLife(travelDistance));
 }
 
 /**
@@ -168,8 +185,8 @@ export function projectBuildHorizon(travelDistance: number): number {
  * visible sites raises `remainingWork` and with it the crew cap - the
  * owner's focused-burst lever under this rule.
  */
-export function projectAbsorbRate(remainingWork: number, travelDistance = 0): number {
-  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance));
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0, accelerate = false): number {
+  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
 /**
