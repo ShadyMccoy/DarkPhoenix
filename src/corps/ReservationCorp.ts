@@ -208,7 +208,7 @@ export class ReservationCorp extends Corp {
     // THE DUTY CYCLE (spec 15 P5): a room whose banked reservation still sits
     // above the refresh floor needs no reserver - reservation accumulates to
     // 5000 and decays 1/tick, so the corp coasts on the bank and buys one
-    // stint per ~1080 ticks (the ~0.5 duty reserverTollPerRoom always priced).
+    // stint per ~1080 ticks (the ~0.5 duty RESERVER_DUTY always priced).
     // Read from the intel-stamped bound (exact while blind), never vision.
     const banks: { [room: string]: number } = {};
     for (const r of targets) banks[r] = myReservationTicksLeft(r, spawn.owner?.username);

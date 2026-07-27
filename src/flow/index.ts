@@ -1,29 +1,16 @@
 /**
  * Flow-based Economy Module
  *
- * Replaces the market-based offer/contract system with direct flow allocation.
+ * The world-translation layer: FlowGraph discovers sources and sinks from
+ * spatial nodes, and FlowEconomy drives the ONE economy solve
+ * (economy/flowAdapter.solveColony -> planColony). The FlowSolution and its
+ * assignment shapes survive as the live DTOs consumed by telemetry and the
+ * corps' assignment mappers.
  *
  * Main components:
  * - FlowTypes: Core interfaces and constants
- * - FlowGraph: Flow network construction from nodes
- * - PriorityManager: Dynamic priority calculation
- * - FlowEconomy: Main coordinator (solves via economy/CorpPlanner)
- *
- * Usage:
- * ```typescript
- * import { FlowEconomy, PriorityManager } from './flow';
- *
- * // Create economy from nodes and navigator
- * const economy = new FlowEconomy(nodes, navigator);
- *
- * // Update each tick with current game state
- * const context = priorityManager.buildContext(room);
- * economy.update(context);
- *
- * // Query allocations
- * const miners = economy.getMinerAssignments();
- * const upgradeRate = economy.getUpgradeRate();
- * ```
+ * - FlowGraph: Source/sink discovery from nodes
+ * - FlowEconomy: Solve driver (solves via economy/CorpPlanner)
  */
 
 // =============================================================================
@@ -46,7 +33,6 @@ export {
   // Core interfaces
   FlowSource,
   FlowSink,
-  FlowEdge,
 
   // Allocation interfaces
   MinerAssignment,
@@ -55,8 +41,6 @@ export {
 
   // Problem/Solution interfaces
   FlowSolution,
-
-  // Context
 
   // Factory functions
   createFlowSource,
@@ -75,16 +59,7 @@ export {
 export { FlowGraph, createFlowGraph } from "./FlowGraph";
 
 // =============================================================================
-// PRIORITY MANAGER
-// =============================================================================
-
-
-// =============================================================================
 // FLOW ECONOMY (Main Entry Point)
 // =============================================================================
 
 export { FlowEconomy } from "./FlowEconomy";
-
-// =============================================================================
-// FLOW MATERIALIZER (Flow Solution → Corps)
-// =============================================================================

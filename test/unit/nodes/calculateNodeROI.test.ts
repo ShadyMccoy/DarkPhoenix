@@ -25,7 +25,7 @@ describe("calculateNodeROI", () => {
 
   it("turns a positive economic value into a positive score and expansion score", () => {
     const node = nodeWith([source("source-A", at(25, 30)), controller(at(25, 22))]);
-    const roi = calculateNodeROI(node, 10, owned, [], 8);
+    const roi = calculateNodeROI(node, 10, owned, 8);
 
     expect(roi.economicValue).to.equal(8);
     expect(roi.score).to.be.greaterThan(0);
@@ -34,15 +34,15 @@ describe("calculateNodeROI", () => {
 
   it("scores higher for a higher economic value", () => {
     const node = nodeWith([source("source-A", at(25, 30)), controller(at(25, 22))]);
-    const low = calculateNodeROI(node, 10, owned, [], 2);
-    const high = calculateNodeROI(node, 10, owned, [], 20);
+    const low = calculateNodeROI(node, 10, owned, 2);
+    const high = calculateNodeROI(node, 10, owned, 20);
     expect(high.score).to.be.greaterThan(low.score);
     expect(high.expansionScore).to.be.greaterThan(low.expansionScore);
   });
 
   it("still scores an owned node above zero via the ownership bonus when value is 0", () => {
     const node = nodeWith([source("source-A", at(25, 30))]);
-    const roi = calculateNodeROI(node, 10, owned, [], 0);
+    const roi = calculateNodeROI(node, 10, owned, 0);
 
     expect(roi.economicValue).to.equal(0);
     expect(roi.isOwned).to.equal(true);
@@ -53,8 +53,8 @@ describe("calculateNodeROI", () => {
   // energy axis, so a mineral-rich room outranks an equivalent bare one.
   it("mineral value lifts the score above the same node with no mineral", () => {
     const node = nodeWith([source("source-A", at(25, 30)), controller(at(25, 22))]);
-    const withoutMineral = calculateNodeROI(node, 10, owned, [], 5, 0);
-    const withMineral = calculateNodeROI(node, 10, owned, [], 5, 15);
+    const withoutMineral = calculateNodeROI(node, 10, owned, 5, 0);
+    const withMineral = calculateNodeROI(node, 10, owned, 5, 15);
 
     expect(withoutMineral.mineralValue).to.equal(0);
     expect(withMineral.mineralValue).to.equal(15);

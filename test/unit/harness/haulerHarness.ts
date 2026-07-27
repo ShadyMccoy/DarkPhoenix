@@ -120,7 +120,7 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
     // HarvestCorp is satisfied (target met) so it emits no miner demand. Harvest
     // and carry live in the commission store (collectDemands reads them there),
     // keyed by their production corpId.
-    const harvest = new HarvestCorp(`${ROOM}-harvest-${SOURCE}`, SPAWN_ID, SOURCE, 5, `mining-${SOURCE}`);
+    const harvest = new HarvestCorp(`${ROOM}-harvest-${SOURCE}`, SPAWN_ID, SOURCE, `mining-${SOURCE}`);
     harvest.setMinerAssignment({
       sourceId: SOURCE, spawnId: `spawn-${SPAWN_ID}`, harvestRate: 10, maxMiners: 1, efficiency: 80
     } as MinerAssignment);
@@ -139,7 +139,7 @@ export function simulateHaulerFleet(scenario: HaulerScenario): HaulerFleet {
     ]);
     seedCommissionStoreForTest(`carry-${SOURCE}`, "carry", carry);
 
-    const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID, energyCapacity);
+    const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID);
 
     for (let i = 0; i < maxSpawns; i++) {
       const demands = collectDemands(registry, SPAWN_ID, { energyCapacity, tick: 100 + i });

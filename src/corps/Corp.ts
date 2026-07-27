@@ -4,7 +4,6 @@ import { Position } from "../types/Position";
  * Corp types in the economic system
  */
 export type CorpType =
-  | "source"
   | "mining"
   | "spawning"
   | "upgrading"

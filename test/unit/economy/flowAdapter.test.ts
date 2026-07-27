@@ -1,6 +1,5 @@
 import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
-import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { solveWithCorpPlanner, controllerRoutingCapacity } from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
@@ -34,7 +33,7 @@ function homeNodeWithStorage(spawnX: number): Node {
 }
 
 function graphOf(nodes: Node[]): FlowGraph {
-  return new FlowGraph(nodes, new NodeNavigator(nodes, []));
+  return new FlowGraph(nodes);
 }
 
 // The adapter is the drop-in seam: CorpPlanner over a live FlowGraph, emitting the

@@ -14,13 +14,7 @@ import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
-import {
-  pickCriticalRepairTarget,
-  wantsCriticalRecovery,
-  wantsMaintenanceBuilder,
-  nextRepairTarget,
-  nextBuildTarget
-} from "./repair";
+import { wantsCriticalRecovery, wantsMaintenanceBuilder, nextRepairTarget, nextBuildTarget } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
@@ -67,7 +61,6 @@ export const PROJECT_LEDGER_DECAY = 10_000;
 export interface SerializedConstructionCorp extends SerializedCorp {
   spawnId: string;
   lastPlacementAttempt: number;
-  targetBuilders: number;
   /** Builder count the demand lens last wanted (release/adopt hand-off). */
   wantedBuilders?: number;
   /** Flow-based construction allocations (from FlowEconomy) */
@@ -373,9 +366,6 @@ export class ConstructionCorp extends Corp {
   private lastRoadAttempt = 0;
   private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
 
-  /** Target number of builders (computed during planning) */
-  private targetBuilders = 0;
-
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
    * getSpawnDemand at every return path so release (work) and adoption
@@ -555,41 +545,6 @@ export class ConstructionCorp extends Corp {
       keep.push(rec);
     }
     this.projects = keep;
-  }
-
-  /**
-   * Plan construction operations.
-   */
-  public plan(tick: number): void {
-    super.plan(tick);
-
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) {
-      this.targetBuilders = 0;
-      return;
-    }
-
-    const workRoom = this.workRoom(spawn);
-    if (!workRoom) {
-      this.targetBuilders = 0;
-      return;
-    }
-    // ONE BUILD POOL (owner 2026-07-20): the home corp counts the colony's
-    // whole outstanding site work; remote corps count nothing (their sites
-    // belong to the pool, their builders age out).
-    const isHome = spawn.pos.roomName === workRoom.name;
-    const totalWorkRemaining = isHome
-      ? buildPool(spawn.pos.roomName).reduce((s, e) => s + e.work, 0)
-      : 0;
-    if (totalWorkRemaining === 0) {
-      // Nothing to build. Maintenance belongs to the repair detail (separate
-      // squad, runs regardless of sites) - the build crew stands down.
-      this.targetBuilders = 0;
-      return;
-    }
-
-    const buildersNeeded = Math.min(MAX_BUILDERS, Math.ceil(totalWorkRemaining / 50000));
-    this.targetBuilders = Math.max(1, buildersNeeded);
   }
 
   /**
@@ -2293,38 +2248,6 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Estimate path cost between two points, accounting for swamps.
-   * Uses a simple line-walk approximation (not full pathfinding).
-   * Swamps cost 5x, plains cost 1x.
-   */
-  private estimatePathCost(x1: number, y1: number, x2: number, y2: number, terrain: RoomTerrain): number {
-    let cost = 0;
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy));
-
-    if (steps === 0) return 0;
-
-    // Walk along the line and sum terrain costs
-    for (let i = 0; i <= steps; i++) {
-      const x = Math.round(x1 + (dx * i) / steps);
-      const y = Math.round(y1 + (dy * i) / steps);
-
-      const t = terrain.get(x, y);
-      if (t === TERRAIN_MASK_WALL) {
-        // Wall in path - add heavy penalty (path would go around)
-        cost += 10;
-      } else if (t === TERRAIN_MASK_SWAMP) {
-        cost += 5; // Swamp costs 5x
-      } else {
-        cost += 1; // Plains cost 1x
-      }
-    }
-
-    return cost;
-  }
-
-  /**
    * Run behavior for a builder creep.
    */
   /** Everything the corp maintains: containers plus roads (both decay) -
@@ -2382,15 +2305,6 @@ export class ConstructionCorp extends Corp {
   /** Whether to field/keep a maintenance builder for decaying structures (hysteresis). */
   private wantsMaintenance(room: Room): boolean {
     return wantsMaintenanceBuilder(this.roomRepairables(room), this.builders.count() > 0);
-  }
-
-  /**
-   * A structure decayed into the critical band (about to expire) that a builder
-   * must rescue even while construction sites are outstanding, or null when the
-   * room's decaying structures are all healthier than the critical gate.
-   */
-  private findCriticalRepairTarget(room: Room): StructureContainer | StructureRoad | null {
-    return pickCriticalRepairTarget(this.roomRepairables(room));
   }
 
   /** Whether emergency repair outranks construction (see wantsCriticalRecovery). */
@@ -2866,10 +2780,6 @@ export class ConstructionCorp extends Corp {
   // ===========================================================================
 
   /**
-   * Set construction allocations from FlowEconomy.
-   * Each allocation specifies energy rate for a construction site.
-   */
-  /**
    * Remote trunk candidates (owner 2026-07-19: routes are site strings, not
    * rooms) - the plan's funded remote harvests staffed from this corp's
    * spawn. Commission-owned, refreshed by materialize every round.
@@ -2887,25 +2797,6 @@ export class ConstructionCorp extends Corp {
 
   public setConstructionAllocations(allocations: SinkAllocation[]): void {
     this.constructionAllocations = allocations;
-    // Adjust target builders based on total allocated energy
-    const totalAllocated = allocations.reduce((sum, a) => sum + a.allocated, 0);
-    // Each builder with ~2 WORK parts builds at ~10 energy/tick
-    const workPerBuilder = 10;
-    this.targetBuilders = Math.min(MAX_BUILDERS, Math.max(1, Math.ceil(totalAllocated / workPerBuilder)));
-  }
-
-  /**
-   * Get all construction allocations.
-   */
-  public getConstructionAllocations(): SinkAllocation[] {
-    return this.constructionAllocations;
-  }
-
-  /**
-   * Check if this corp has flow-based allocations.
-   */
-  public hasFlowAllocations(): boolean {
-    return this.constructionAllocations.length > 0;
   }
 
   /**
@@ -2925,14 +2816,6 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * Get the highest priority construction site (from flow allocations).
-   */
-  public getHighestPriorityAllocation(): SinkAllocation | undefined {
-    if (this.constructionAllocations.length === 0) return undefined;
-    return this.constructionAllocations.reduce((best, curr) => (curr.priority > best.priority ? curr : best));
-  }
-
-  /**
    * Serialize for persistence.
    */
   public serialize(): SerializedConstructionCorp {
@@ -2940,7 +2823,6 @@ export class ConstructionCorp extends Corp {
       ...super.serialize(),
       spawnId: this.spawnId,
       lastPlacementAttempt: this.lastPlacementAttempt,
-      targetBuilders: this.targetBuilders,
       wantedBuilders: this.lastWantedBuilders ?? undefined,
       constructionAllocations: this.constructionAllocations.length > 0 ? this.constructionAllocations : undefined,
       poolAllocatedRate: this.poolAllocatedRate > 0 ? this.poolAllocatedRate : undefined,
@@ -2954,7 +2836,6 @@ export class ConstructionCorp extends Corp {
   public deserialize(data: SerializedConstructionCorp): void {
     super.deserialize(data);
     this.lastPlacementAttempt = data.lastPlacementAttempt || 0;
-    this.targetBuilders = data.targetBuilders || 0;
     this.lastWantedBuilders = data.wantedBuilders ?? null;
     this.constructionAllocations = data.constructionAllocations ?? [];
     this.poolAllocatedRate = data.poolAllocatedRate ?? 0;

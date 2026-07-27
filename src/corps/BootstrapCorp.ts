@@ -8,8 +8,7 @@
  * Design:
  * - RARE FALLBACK: Only activates after BOOTSTRAP_STARVATION_THRESHOLD ticks
  *   of starvation (no creeps + low energy)
- * - NO CONTRACTS: Does not participate in the market system
- * - YIELDS IMMEDIATELY: Returns 0 ROI as soon as other corps have creeps
+ * - YIELDS IMMEDIATELY: Goes dormant as soon as other corps have creeps
  * - MINIMAL FOOTPRINT: Only spawns 1-2 jacks to recover, then goes dormant
  *
  * @module corps/BootstrapCorp
@@ -469,62 +468,6 @@ export class BootstrapCorp extends Corp {
         creep.moveTo(source, { visualizePathStyle: { stroke: "#ffaa00" } });
       }
     }
-  }
-
-  /**
-   * Estimate ROI for bootstrap operations.
-   * Returns 0 unless we're in a starvation condition - bootstrap should
-   * almost never be the preferred option.
-   */
-  public estimateROI(): number {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return 0;
-
-    const room = spawn.room;
-    const allCreeps = room.find(FIND_MY_CREEPS);
-    const ourCreepNames = new Set(this.creepNames);
-    const otherCreeps = allCreeps.filter(c => !ourCreepNames.has(c.name));
-
-    // If other corps have enough creeps (3+), bootstrap has no value
-    if (otherCreeps.length >= 3) {
-      return 0;
-    }
-
-    // If we're not in starvation mode yet, return 0 to let other corps try first
-    if (this.starvationStartTick === 0) {
-      return 0;
-    }
-
-    // Only return a tiny ROI if we're actively recovering from starvation
-    // This allows bootstrap to work but yields immediately when other corps can take over
-    return 0.0001;
-  }
-
-  /**
-   * Check if bootstrap should be active.
-   * Bootstrap is a rare fallback - only activates after being starved for a while.
-   */
-  public shouldActivate(): boolean {
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn) return false;
-
-    const room = spawn.room;
-    const allCreeps = room.find(FIND_MY_CREEPS);
-    const ourCreepNames = new Set(this.creepNames);
-    const otherCreeps = allCreeps.filter(c => !ourCreepNames.has(c.name));
-
-    // Only yield if other corps have enough creeps (3+) to sustain
-    if (otherCreeps.length >= 3) return false;
-
-    // If we have bootstrap creeps, continue working (to finish recovery)
-    if (this.creepNames.filter(n => Game.creeps[n]).length > 0) {
-      return true;
-    }
-
-    // Only activate if we've been starving long enough
-    // The actual starvation tracking happens in work(), this just checks
-    // if we're in an active starvation recovery state
-    return this.starvationStartTick > 0;
   }
 
   /**

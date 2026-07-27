@@ -9,9 +9,6 @@
  * by commissionsFromPlan). materialize reconstructs the flow-shaped
  * SinkAllocation from the CommissionedSink and binds that spawn.
  *
- * Rungs 1-4 only; the combined solver-backed rung-5 cutover (harvest + carry +
- * upgrade replacing FlowMaterializer at once) is a later commit - see spec 00.
- *
  * @module corps/kinds/upgradeKind
  */
 

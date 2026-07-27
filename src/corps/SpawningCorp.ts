@@ -7,10 +7,10 @@
  * @module corps/SpawningCorp
  */
 
-import { CREEP_LIFETIME, getMaxSpawnCapacity } from "../planning/EconomicConstants";
+import { CREEP_LIFETIME } from "../planning/EconomicConstants";
 import { Corp, SerializedCorp } from "./Corp";
 import { drawOrder } from "./refillCircuit";
-import { HaulerRatio, MiningMode } from "../framework/EdgeVariant";
+import { HaulerRatio } from "../framework/EdgeVariant";
 import { getCorpKind } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 
@@ -51,41 +51,10 @@ export function spawnDirectionsToward(
 }
 
 /**
- * Types of creeps that can be spawned
- */
-export type SpawnableCreepType = "miner" | "hauler" | "upgrader" | "builder" | "scout";
-
-/**
- * A queued spawn order
- */
-export interface SpawnOrder {
-  buyerCorpId: string;
-  creepType: SpawnableCreepType;
-  workTicksRequested: number;
-  haulDemandRequested?: number;
-  queuedAt: number;
-
-  // === EdgeVariant optimization (optional) ===
-
-  /** Hauler CARRY:MOVE ratio for terrain optimization */
-  haulerRatio?: HaulerRatio;
-
-  /** Mining mode (affects harvester CARRY parts) */
-  miningMode?: MiningMode;
-
-  /** Extra CARRY parts for harvester (for drop mining decay reduction) */
-  harvesterCarryParts?: number;
-}
-
-/**
  * Serialized state specific to SpawningCorp
  */
 export interface SerializedSpawningCorp extends SerializedCorp {
   spawnId: string;
-  pendingOrders: SpawnOrder[];
-  energyCapacity: number;
-  stuckSince: number;
-  maintenanceHaulerNames: string[];
 }
 
 /**
@@ -95,22 +64,9 @@ export class SpawningCorp extends Corp {
   /** ID of the spawn structure */
   private spawnId: string;
 
-  /** Energy capacity available for spawning */
-  private energyCapacity: number;
-
-  /** Pending spawn orders */
-  private pendingOrders: SpawnOrder[] = [];
-
-  /** Tick when spawn first became stuck */
-  private stuckSince = 0;
-
-  /** Names of maintenance haulers spawned by this corp */
-  private maintenanceHaulerNames: string[] = [];
-
-  public constructor(nodeId: string, spawnId: string, energyCapacity = 300, customId?: string) {
+  public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("spawning", nodeId, customId);
     this.spawnId = spawnId;
-    this.energyCapacity = energyCapacity;
   }
 
   /**
@@ -122,13 +78,6 @@ export class SpawningCorp extends Corp {
       return { x: spawn.pos.x, y: spawn.pos.y, roomName: spawn.pos.roomName };
     }
     return { x: 25, y: 25, roomName: this.nodeId.split("-")[0] };
-  }
-
-  /**
-   * Queue a spawn order.
-   */
-  public queueSpawnOrder(order: SpawnOrder): void {
-    this.pendingOrders.push(order);
   }
 
   /**
@@ -224,35 +173,6 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Get number of pending orders.
-   */
-  public getPendingOrderCount(): number {
-    return this.pendingOrders.length;
-  }
-
-  /**
-   * Get number of pending orders queued by a specific buyer corp.
-   *
-   * Buyer corps use this to avoid re-queueing a creep they have already
-   * requested but that has not spawned yet (e.g. while the spawn is busy or
-   * out of energy), which otherwise floods the queue with duplicates.
-   */
-  public countPendingOrdersFrom(buyerCorpId: string): number {
-    return this.pendingOrders.filter(order => order.buyerCorpId === buyerCorpId).length;
-  }
-
-  /**
-   * Clear all pending spawn orders.
-   * Used to recover from stale/invalid orders in the queue.
-   */
-  public clearPendingOrders(): number {
-    const count = this.pendingOrders.length;
-    this.pendingOrders = [];
-    this.stuckSince = 0;
-    return count;
-  }
-
-  /**
    * Get the spawn ID.
    */
   public getSpawnId(): string {
@@ -265,11 +185,7 @@ export class SpawningCorp extends Corp {
   public serialize(): SerializedSpawningCorp {
     return {
       ...super.serialize(),
-      spawnId: this.spawnId,
-      pendingOrders: this.pendingOrders,
-      energyCapacity: this.energyCapacity,
-      stuckSince: this.stuckSince,
-      maintenanceHaulerNames: this.maintenanceHaulerNames
+      spawnId: this.spawnId
     };
   }
 
@@ -278,22 +194,13 @@ export class SpawningCorp extends Corp {
    */
   public deserialize(data: SerializedSpawningCorp): void {
     super.deserialize(data);
-    this.pendingOrders = data.pendingOrders || [];
-    this.energyCapacity = data.energyCapacity || 300;
-    this.stuckSince = data.stuckSince || 0;
-    this.maintenanceHaulerNames = data.maintenanceHaulerNames || [];
   }
 }
 
 /**
  * Create a SpawningCorp for a spawn structure.
- * Uses max spawn capacity for the room's RCL so creeps are sized for
- * full capacity even while extensions are still being built.
  */
 export function createSpawningCorp(spawn: StructureSpawn): SpawningCorp {
   const nodeId = `${spawn.room.name}-spawn-${spawn.id.slice(-4)}`;
-  const controllerLevel = spawn.room.controller?.level ?? 1;
-  const maxCapacity = getMaxSpawnCapacity(controllerLevel);
-  const corp = new SpawningCorp(nodeId, spawn.id, maxCapacity);
-  return corp;
+  return new SpawningCorp(nodeId, spawn.id);
 }

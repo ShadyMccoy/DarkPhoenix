@@ -9,17 +9,6 @@ export interface Position {
 }
 
 /**
- * Calculate Manhattan distance between two positions.
- * Returns estimated cross-room distance if in different rooms.
- */
-export function manhattanDistance(a: Position, b: Position): number {
-  if (a.roomName !== b.roomName) {
-    return estimateCrossRoomDistance(a, b);
-  }
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
-/**
  * Calculate Chebyshev distance (Screeps movement distance).
  * Diagonal movement counts as 1.
  */
@@ -30,22 +19,6 @@ export function chebyshevDistance(a: Position, b: Position): number {
     return roomDist * 50 + Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   }
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-}
-
-/**
- * Estimate distance between positions in different rooms.
- */
-export function estimateCrossRoomDistance(a: Position, b: Position): number {
-  const aCoords = parseRoomName(a.roomName);
-  const bCoords = parseRoomName(b.roomName);
-
-  if (!aCoords || !bCoords) return Infinity;
-
-  // Each room is 50 tiles, add in-room distances
-  const roomDist = (Math.abs(aCoords.x - bCoords.x) + Math.abs(aCoords.y - bCoords.y)) * 50;
-  const inRoomDist = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-
-  return roomDist + inRoomDist;
 }
 
 /**

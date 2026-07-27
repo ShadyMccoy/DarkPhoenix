@@ -189,120 +189,10 @@ export function analyzeMultiRoomTerrain(
     );
   }
 
-  // Adjacencies and edge weights are computed incrementally via createSkeletonBuilderState
-  // and processSkeletonBuilderChunk to avoid CPU timeouts
+  // Adjacencies are computed by findTerritoryAdjacencies during the analysis
+  // merge (execution/IncrementalAnalysis)
 
   return { peaks, territories, distances };
-}
-
-/**
- * Calculates cross-room territories for a set of peaks.
- *
- * This function takes peaks from multiple rooms and assigns territories
- * based on BFS distance, allowing territories to cross room boundaries.
- * Terrain is the only factor - room boundaries don't affect assignment.
- *
- * @param peaks - Peaks from all rooms to divide territory among
- * @param maxRooms - Maximum number of rooms to expand into (default: 9)
- * @returns Map of peak IDs to their territory positions (may include positions from multiple rooms)
- *
- * @example
- * const peaks = [
- *   { peakId: "W1N1-25-30", roomName: "W1N1", center: { x: 25, y: 30 }, height: 8 },
- *   { peakId: "W1N2-25-45", roomName: "W1N2", center: { x: 25, y: 45 }, height: 6 },
- * ];
- * const territories = calculateCrossRoomTerritories(peaks);
- * // territories.get("W1N1-25-30") may include positions from both W1N1 and W1N2
- */
-export function calculateCrossRoomTerritories(peaks: CrossRoomPeak[], maxRooms = 9): Map<string, WorldPosition[]> {
-  if (peaks.length === 0) {
-    return new Map();
-  }
-
-  // Convert to WorldPeakData format
-  const worldPeaks: WorldPeakData[] = peaks.map(p => ({
-    tiles: [{ x: p.center.x, y: p.center.y, roomName: p.roomName }],
-    center: { x: p.center.x, y: p.center.y, roomName: p.roomName },
-    height: p.height
-  }));
-
-  // Create multi-room terrain callback
-  const terrainCallback = createMultiRoomTerrainCallback();
-
-  // Run BFS territory division
-  const rawTerritories = bfsDivideMultiRoom(worldPeaks, terrainCallback, TERRAIN_MASK_WALL, maxRooms);
-
-  // Convert WorldCoordinate to WorldPosition
-  const territories = new Map<string, WorldPosition[]>();
-  for (const [peakId, coords] of rawTerritories) {
-    territories.set(
-      peakId,
-      coords.map((c: WorldCoordinate) => ({
-        x: c.x,
-        y: c.y,
-        roomName: c.roomName
-      }))
-    );
-  }
-
-  return territories;
-}
-
-// ============================================================================
-// Feature Collection
-// ============================================================================
-
-/**
- * Collects feature positions from a room with vision.
- * Includes sources, controller, and mineral positions.
- *
- * @param room - The room to collect features from
- * @returns Array of feature positions
- */
-export function collectFeaturePositions(room: Room): { x: number; y: number }[] {
-  const positions: { x: number; y: number }[] = [];
-
-  // Add sources
-  for (const source of room.find(FIND_SOURCES)) {
-    positions.push({ x: source.pos.x, y: source.pos.y });
-  }
-
-  // Add controller
-  if (room.controller) {
-    positions.push({ x: room.controller.pos.x, y: room.controller.pos.y });
-  }
-
-  // Add minerals
-  for (const mineral of room.find(FIND_MINERALS)) {
-    positions.push({ x: mineral.pos.x, y: mineral.pos.y });
-  }
-
-  return positions;
-}
-
-/**
- * Collects feature positions from room intel (no vision required).
- *
- * @param roomName - The room name to look up
- * @returns Array of feature positions, or empty array if no intel
- */
-export function collectFeaturePositionsFromIntel(roomName: string): { x: number; y: number }[] {
-  const intel = Memory.roomIntel?.[roomName];
-  if (!intel) return [];
-
-  const positions: { x: number; y: number }[] = [];
-
-  // Add sources from intel
-  for (const sourcePos of intel.sourcePositions) {
-    positions.push({ x: sourcePos.x, y: sourcePos.y });
-  }
-
-  // Add mineral from intel
-  if (intel.mineralPos) {
-    positions.push({ x: intel.mineralPos.x, y: intel.mineralPos.y });
-  }
-
-  return positions;
 }
 
 // ============================================================================
@@ -557,22 +447,3 @@ export function visualizeMultiRoomAnalysis(
   }
 }
 
-// ============================================================================
-// Cache Management
-// ============================================================================
-
-/**
- * Invalidates the room map cache for a specific room or all rooms.
- * This forces the room map to be recalculated on next access.
- *
- * @param roomName - The room to invalidate, or undefined to invalidate all rooms
- */
-export function invalidateRoomMapCache(roomName?: string): void {
-  if (!Memory.roomMapCache) return;
-
-  if (roomName) {
-    delete Memory.roomMapCache[roomName];
-  } else {
-    Memory.roomMapCache = {};
-  }
-}

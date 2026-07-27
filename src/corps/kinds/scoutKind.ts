@@ -8,10 +8,6 @@
  * room with a spawn exists": a scout corp with zero creeps costs nothing, and
  * commissioning it unconditionally keeps propose() pure.
  *
- * NOT yet registered by the live loop - rung 5 (the runtime host that replaces
- * runScoutCorps) is the next strangler cut. Until then this module is exercised
- * by the rung 1-4 tests only and changes no live behavior.
- *
  * @module corps/kinds/scoutKind
  */
 

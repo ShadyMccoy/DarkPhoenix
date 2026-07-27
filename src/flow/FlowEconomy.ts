@@ -16,7 +16,6 @@
 import { FlowSolution, Position } from "./FlowTypes";
 import { FlowGraph, createFlowGraph } from "./FlowGraph";
 import { Node } from "../nodes/Node";
-import { NodeNavigator } from "../nodes/NodeNavigator";
 import { solveColony, isMinedIncomeId } from "../economy/flowAdapter";
 import { Goal } from "../economy/goals";
 import { Commission } from "../economy/Commission";
@@ -36,12 +35,8 @@ export class FlowEconomy {
    */
   private commissions: Commission[] = [];
 
-  /** Node navigator reference */
-  private navigator: NodeNavigator;
-
-  public constructor(nodes: Node[], navigator: NodeNavigator) {
-    this.navigator = navigator;
-    this.graph = createFlowGraph(nodes, navigator);
+  public constructor(nodes: Node[]) {
+    this.graph = createFlowGraph(nodes);
   }
 
   /**
@@ -107,10 +102,9 @@ export class FlowEconomy {
 
   /**
    * Add a construction site dynamically (main.ts feeds newly-placed sites in
-   * between full graph rebuilds) and rebuild edges for the new sink.
+   * between full graph rebuilds).
    */
   public addConstructionSite(id: string, nodeId: string, position: Position, progressRemaining: number): void {
     this.graph.addConstructionSite(id, nodeId, position, progressRemaining);
-    this.graph.buildEdges();
   }
 }

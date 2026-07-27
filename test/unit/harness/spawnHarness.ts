@@ -63,7 +63,7 @@ const HARNESS_CORP_ID = "harness-harvest";
 
 /** Build a HarvestCorp wired to a single source with the given assignment. */
 function makeMinerCorp(harvestRate: number, maxMiners: number, efficiency: number): HarvestCorp {
-  const corp = new HarvestCorp("W1N1-harvest-aaaa", "spawn1", "source-aaaa", 5, HARNESS_CORP_ID);
+  const corp = new HarvestCorp("W1N1-harvest-aaaa", "spawn1", "source-aaaa", HARNESS_CORP_ID);
   corp.setMinerAssignment({
     sourceId: "source-aaaa",
     spawnId: "spawn-spawn1",

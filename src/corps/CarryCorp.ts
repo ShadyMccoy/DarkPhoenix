@@ -11,9 +11,8 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { carryPartsFor, effectiveLife, staffsPost } from "../economy/primitives";
+import { carryPartsFor, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
-import { buildHaulerBody } from "../spawn/BodyBuilder";
 import { travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
@@ -722,16 +721,6 @@ export class CarryCorp extends Corp {
 
     // Sort by ID for consistent ordering
     return structures.sort((a, b) => a.id.localeCompare(b.id));
-  }
-
-  /**
-   * Check if a hauler is already close to their target (within transfer range).
-   * Used to anticipate arrival and prepare for delivery.
-   */
-  private isAtDeliveryTarget(creep: Creep): boolean {
-    if (!creep.memory.deliveryTargetId) return false;
-    const target = Game.getObjectById(creep.memory.deliveryTargetId as Id<Structure>);
-    return target ? creep.pos.getRangeTo(target) <= 1 : false;
   }
 
   /**
@@ -1633,20 +1622,6 @@ export class CarryCorp extends Corp {
   public setPickupHint(pos: Position | undefined): void {
     if (!pos || this.pickupPos) return;
     this.pickupPos = pos;
-  }
-
-  /**
-   * Check if this corp has flow-based assignments.
-   */
-  public hasFlowAssignments(): boolean {
-    return this.haulerAssignments.length > 0;
-  }
-
-  /**
-   * Get total CARRY parts needed from flow assignments.
-   */
-  public getTotalCarryPartsNeeded(): number {
-    return this.haulerAssignments.reduce((sum, h) => sum + h.carryParts, 0);
   }
 
   /**

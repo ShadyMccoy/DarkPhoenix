@@ -85,8 +85,9 @@ export function runBootstrapCorps(registry: CorpRegistry): void {
 /**
  * Run spawning corps for all owned rooms.
  *
- * Spawning corps manage spawn structures and sell spawning capacity.
- * They process queued spawn orders from market contracts.
+ * Spawning corps manage spawn structures. Spawn decisions are driven by the
+ * demand-based scheduler (SpawnDirector -> executeSpawn); this only ensures
+ * the corp instances exist.
  */
 export function runSpawningCorps(registry: CorpRegistry): void {
   for (const roomName in Game.rooms) {
@@ -106,7 +107,7 @@ export function runSpawningCorps(registry: CorpRegistry): void {
         const saved = Memory.spawningCorps?.[spawn.id];
         if (saved) {
           // Pass saved.id as customId to preserve the original ID
-          spawningCorp = new SpawningCorp(saved.nodeId, spawn.id, saved.energyCapacity, saved.id);
+          spawningCorp = new SpawningCorp(saved.nodeId, spawn.id, saved.id);
           spawningCorp.deserialize(saved);
           registry.spawningCorps[spawn.id] = spawningCorp;
         } else {

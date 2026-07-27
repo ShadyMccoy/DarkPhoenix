@@ -22,12 +22,8 @@ export {
   MultiRoomAnalysisResult,
   MultiRoomAnalysisOptions,
   analyzeMultiRoomTerrain,
-  calculateCrossRoomTerritories,
   visualizeMultiRoomAnalysis,
-  createMultiRoomTerrainCallback,
-  collectFeaturePositions,
-  collectFeaturePositionsFromIntel,
-  invalidateRoomMapCache
+  createMultiRoomTerrainCallback
 } from "./RoomMap";
 
 // Export pure algorithms and types for testing
@@ -38,11 +34,6 @@ export {
   filterMultiRoomPeaks,
   bfsDivideMultiRoom,
   findTerritoryAdjacencies,
-  bfsWalkingDistance,
-  // Incremental skeleton builder (multi-tick)
-  createSkeletonBuilderState,
-  processSkeletonBuilderChunk,
-  SkeletonBuilderState,
   // Utility functions
   parseRoomName,
   roomCoordsToName,

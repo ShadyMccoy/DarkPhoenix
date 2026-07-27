@@ -115,7 +115,6 @@ describe("scout kind on the corp framework (rungs 2-4)", () => {
     installHomeSpawn();
     const calls: { kind: string; role: string; corpId: string; budget: number }[] = [];
     const stub = {
-      countPendingOrdersFrom: () => 0,
       executeSpawn: (kind: string, role: string, corpId: string, budget: number) => {
         calls.push({ kind, role, corpId, budget });
         return true;

@@ -135,7 +135,7 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
     // Upgrade corps live in the commission store; collectDemands reads them there.
     seedCommissionStoreForTest(`upgrade-${ROOM}`, "upgrade", corp);
 
-    const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID, energyCapacity);
+    const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID);
 
     for (let i = 0; i < maxSpawns; i++) {
       const demands = collectDemands(registry, SPAWN_ID, { energyCapacity, tick: 100 + i });

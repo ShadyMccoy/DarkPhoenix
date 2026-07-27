@@ -6,13 +6,10 @@
  * returns []. One CarryCorp owns all of its source's routes and distributes the
  * energy across every sink the flow allocated to.
  *
- * Rungs 1-4 only; the combined solver-backed rung-5 cutover (harvest + carry +
- * upgrade replacing FlowMaterializer at once) is a later commit - see spec 00.
- *
  * @module corps/kinds/carryKind
  */
 
-import { Commission, corpIdFor } from "../../economy/Commission";
+import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedHauler } from "../../economy/CorpPlanner";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";

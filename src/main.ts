@@ -68,7 +68,7 @@ import {
 import { constructionProjectLedger } from "./corps/ConstructionCorp";
 import { aggregateTrunkRoadSinks } from "./economy/roadSegments";
 import { collectTrunkRoutes, homeBankSupply } from "./economy/roadSegmentsGame";
-import { EdgeType, Node, NodeNavigator, SerializedNode, createNodeNavigator, deserializeNode } from "./nodes";
+import { Node, SerializedNode, deserializeNode } from "./nodes";
 import { FlowEconomy } from "./flow";
 import {
   PLANNING_INTERVAL,
@@ -92,12 +92,10 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace -- augmenting NodeJS.Global has no ES-module equivalent
   namespace NodeJS {
     interface Global {
-      log: any;
       colony: Colony | undefined;
       corps: CorpRegistry;
       // Flow economy (new integration)
       flowEconomy: FlowEconomy | undefined;
-      nodeNavigator: NodeNavigator | undefined;
       // Orchestration commands
       plan: () => void;
       status: () => void;
@@ -108,9 +106,6 @@ declare global {
       resetAnalysis: () => void;
       showNodes: () => void;
       exportNodes: () => string;
-      clearSpawnQueue: () => void;
-      forceBootstrap: () => void;
-      sourceEfficiency: () => void;
       roadHeatmap: (roomName?: string) => void;
       cpuReport: () => void;
       visuals: (on?: boolean) => void;
@@ -120,9 +115,6 @@ declare global {
 
 /** The colony instance (persisted across ticks) */
 let colony: Colony | undefined;
-
-/** Node navigator for pathfinding (created from persisted edges) */
-let nodeNavigator: NodeNavigator | undefined;
 
 /** Flow economy coordinator (replaces market-based allocation) */
 let flowEconomy: FlowEconomy | undefined;
@@ -225,18 +217,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // Initialize or restore colony (needed for planning and persistence)
   colony = getOrCreateColony();
 
-  // Initialize or restore flow economy (node navigator + flow solver)
-  if (!nodeNavigator || !flowEconomy) {
-    const result = getOrCreateFlowEconomy(colony);
-    nodeNavigator = result.navigator;
-    flowEconomy = result.economy;
+  // Initialize or restore flow economy (flow solver)
+  if (!flowEconomy) {
+    flowEconomy = getOrCreateFlowEconomy(colony);
   }
 
   // Make state available globally for debugging
   global.colony = colony;
   global.corps = corps;
   global.flowEconomy = flowEconomy;
-  global.nodeNavigator = nodeNavigator;
 
   // ===========================================================================
   // PHASE 1: EXECUTE - Run all corps (every tick)
@@ -397,13 +386,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
     const planningNodes = colony!.getNodes();
     if (planningNodes.length > 0) {
-      // Rebuild navigator and economy from current Memory state
-      const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+      // Rebuild economy from current Memory state
+      const edgeCount = Memory.nodeEdges?.length || 0;
       console.log(`[FlowEconomy] Rebuilding with ${planningNodes.length} nodes, ${edgeCount} edges`);
 
-      const rebuilt = buildFlowEconomyFromMemory(planningNodes);
-      nodeNavigator = rebuilt.navigator;
-      flowEconomy = rebuilt.economy;
+      flowEconomy = buildFlowEconomyFromMemory(planningNodes);
 
       // Feed live construction sites into the flow as sinks so the solver can
       // allocate energy (and hauler routes) to them. After an RCL-up the
@@ -412,7 +399,6 @@ export const loop = ErrorMapper.wrapLoop(() => {
       addConstructionSitesToFlow(flowEconomy, planningNodes);
 
       // Update globals for debugging
-      global.nodeNavigator = nodeNavigator;
       global.flowEconomy = flowEconomy;
 
       flowEconomy.update(Game.time); // Force update during planning
@@ -531,15 +517,6 @@ function getOrCreateColony(): Colony {
 // =============================================================================
 
 /**
- * Builds navigator and flow economy from current Memory state.
- *
- * This reads edges from Memory.nodeEdges (spatial) and Memory.economicEdges,
- * then creates fresh navigator and economy instances.
- *
- * @param nodes - Current colony nodes
- * @returns New navigator and economy instances
- */
-/**
  * Feed the room's live construction sites into the flow economy as construction
  * sinks, each mapped to the nearest node in its room. This makes construction a
  * first-class consumer in the flow solve (with hauler routes), so the local
@@ -607,63 +584,21 @@ function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
   }
 }
 
-function buildFlowEconomyFromMemory(nodes: Node[]): {
-  navigator: NodeNavigator;
-  economy: FlowEconomy;
-} {
-  // Build edge weights and types from persisted data
-  const edgeWeights = new Map<string, number>();
-  const edgeTypes = new Map<string, EdgeType>();
-  const allEdges: string[] = [];
-
-  // Add spatial edges with their walking distances
-  if (Memory.nodeEdges) {
-    for (const edgeKey of Memory.nodeEdges) {
-      allEdges.push(edgeKey);
-      // Use persisted walking distance, or default to 50 (one room) if not available
-      const weight = Memory.spatialEdgeWeights?.[edgeKey] ?? 50;
-      edgeWeights.set(edgeKey, weight);
-      edgeTypes.set(edgeKey, "spatial");
-    }
-  }
-
-  // Add economic edges with persisted weights
-  if (Memory.economicEdges) {
-    for (const edgeKey in Memory.economicEdges) {
-      if (!allEdges.includes(edgeKey)) {
-        allEdges.push(edgeKey);
-      }
-      const weight = Memory.economicEdges[edgeKey];
-      edgeWeights.set(edgeKey, weight);
-      edgeTypes.set(edgeKey, "economic");
-    }
-  }
-
-  // Create navigator and economy
-  const navigator = createNodeNavigator(nodes, allEdges, edgeWeights, edgeTypes);
-  const economy = new FlowEconomy(nodes, navigator);
-
-  return { navigator, economy };
+/** Builds a fresh flow economy (source/sink discovery) from the colony's nodes. */
+function buildFlowEconomyFromMemory(nodes: Node[]): FlowEconomy {
+  return new FlowEconomy(nodes);
 }
 
 /**
- * Creates or restores the flow economy from persisted edges.
- *
- * The flow economy requires:
- * 1. NodeNavigator - for pathfinding between nodes
- * 2. FlowEconomy - for solving optimal energy allocation
- *
- * Edges are restored from Memory.nodeEdges (spatial) and Memory.economicEdges.
+ * Creates or restores the flow economy (source/sink discovery + solve driver)
+ * from the colony's nodes.
  */
-function getOrCreateFlowEconomy(activeColony: Colony): {
-  navigator: NodeNavigator;
-  economy: FlowEconomy;
-} {
+function getOrCreateFlowEconomy(activeColony: Colony): FlowEconomy {
   const nodes = activeColony.getNodes();
-  const { navigator, economy } = buildFlowEconomyFromMemory(nodes);
+  const economy = buildFlowEconomyFromMemory(nodes);
 
   if (nodes.length > 0) {
-    const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+    const edgeCount = Memory.nodeEdges?.length || 0;
     console.log(`[FlowEconomy] Created with ${nodes.length} nodes, ${edgeCount} edges`);
     console.log(
       `[FlowEconomy] Sources: ${economy.getFlowGraph().getSources().length}, Sinks: ${
@@ -686,7 +621,7 @@ function getOrCreateFlowEconomy(activeColony: Colony): {
     }
   }
 
-  return { navigator, economy };
+  return economy;
 }
 
 // =============================================================================
@@ -780,17 +715,14 @@ global.plan = () => {
   // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
   const nodes = colony.getNodes();
   if (nodes.length > 0) {
-    // Rebuild navigator and economy from current Memory state
+    // Rebuild economy from current Memory state
     // This picks up any new nodes, sources, or edges from scouting
-    const edgeCount = (Memory.nodeEdges?.length || 0) + Object.keys(Memory.economicEdges || {}).length;
+    const edgeCount = Memory.nodeEdges?.length || 0;
     console.log(`[FlowEconomy] Rebuilding with ${nodes.length} nodes, ${edgeCount} edges`);
 
-    const rebuilt = buildFlowEconomyFromMemory(nodes);
-    nodeNavigator = rebuilt.navigator;
-    flowEconomy = rebuilt.economy;
+    flowEconomy = buildFlowEconomyFromMemory(nodes);
 
     // Update globals for debugging
-    global.nodeNavigator = nodeNavigator;
     global.flowEconomy = flowEconomy;
 
     flowEconomy.update(Game.time); // Force update
@@ -894,7 +826,6 @@ global.flowStatus = () => {
   console.log("\n=== Flow Economy Status ===");
   console.log(`Sources: ${graph.getSources().length}`);
   console.log(`Sinks: ${graph.getSinks().length}`);
-  console.log(`Edges: ${graph.getEdges().length}`);
 
   if (!solution) {
     console.log("\nNo solution computed yet. Run global.plan() to trigger solve.");
@@ -991,7 +922,7 @@ global.resetAnalysis = () => {
 };
 
 /**
- * Show node summary with ROI scores based on potential corps.
+ * Show node summary with ROI scores.
  * Call from console: `global.showNodes()`
  */
 global.showNodes = () => {
@@ -1010,23 +941,16 @@ global.showNodes = () => {
   const sortedNodes = [...nodes].sort((a, b) => (b.roi?.score ?? 0) - (a.roi?.score ?? 0));
 
   console.log(`\n=== Colony Nodes (${nodes.length} total) ===`);
-  console.log("Sorted by ROI score (based on potential corps value)\n");
+  console.log("Sorted by ROI score (planner-backed economic value)\n");
 
   for (const node of sortedNodes) {
     const roi = node.roi;
     if (roi) {
-      const corpSummary =
-        roi.potentialCorps.length > 0
-          ? roi.potentialCorps.map(c => `${c.type}(${c.estimatedROI.toFixed(2)})`).join(", ")
-          : "none";
       const distStr = roi.distanceFromOwned === Infinity ? "∞" : roi.distanceFromOwned.toString();
 
       console.log(`${node.id} [${roi.isOwned ? "OWNED" : `dist=${distStr}`}]`);
-      console.log(
-        `  Score: ${roi.score.toFixed(1)} | Raw Corp ROI: ${roi.rawCorpROI.toFixed(2)} | Openness: ${roi.openness}`
-      );
+      console.log(`  Score: ${roi.score.toFixed(1)} | Openness: ${roi.openness}`);
       console.log(`  Resources: ${roi.sourceCount} sources, ${roi.hasController ? "has controller" : "no controller"}`);
-      console.log(`  Potential Corps: ${corpSummary}`);
     } else {
       console.log(`${node.id} | (no ROI data)`);
     }
@@ -1041,7 +965,7 @@ global.showNodes = () => {
     for (const node of expansionTargets.slice(0, 5)) {
       const roi = node.roi!;
       const distStr = roi.distanceFromOwned === Infinity ? "∞" : roi.distanceFromOwned.toString();
-      console.log(`  ${node.id}: score=${roi.score.toFixed(1)}, corps=${roi.potentialCorps.length}, dist=${distStr}`);
+      console.log(`  ${node.id}: score=${roi.score.toFixed(1)}, dist=${distStr}`);
     }
   }
 };
@@ -1090,26 +1014,6 @@ global.exportNodes = (): string => {
   console.log(`[Export] Exported ${nodes.length} nodes. Copy from console or use: JSON.parse(global.exportNodes())`);
   console.log(json);
   return json;
-};
-
-/**
- * Clear all pending spawn requests.
- * Use this to recover from a deadlocked spawn queue.
- * Call from console: `global.clearSpawnQueue()`
- */
-global.clearSpawnQueue = () => {
-  let totalCleared = 0;
-
-  for (const id in corps.spawningCorps) {
-    const spawningCorp = corps.spawningCorps[id];
-    const cleared = spawningCorp.clearPendingOrders();
-    totalCleared += cleared;
-    if (cleared > 0) {
-      console.log(`[GodMode] Cleared ${cleared} orders from ${spawningCorp.id}`);
-    }
-  }
-
-  console.log(`[GodMode] Cleared ${totalCleared} total pending spawn orders`);
 };
 
 /**

@@ -78,12 +78,6 @@ export interface FlowSource {
   /** Game object ID of the source */
   gameId: string;
 
-  /** Whether a miner is assigned to this source */
-  assigned: boolean;
-
-  /** Current energy output (may be less than capacity if not fully mined) */
-  currentOutput: number;
-
   /**
    * Maximum miners that can work this source simultaneously.
    * Determined by counting walkable tiles adjacent to the source.
@@ -133,47 +127,6 @@ export interface FlowSink {
 }
 
 // =============================================================================
-// FLOW EDGE
-// =============================================================================
-
-/**
- * An edge in the flow network representing transport capacity.
- * Edges connect sources to sinks, possibly via intermediate nodes.
- */
-export interface FlowEdge {
-  /** Unique identifier: "{fromId}|{toId}" */
-  id: string;
-
-  /** Source node/source ID */
-  fromId: string;
-
-  /** Destination node/sink ID */
-  toId: string;
-
-  /** Walking distance (Chebyshev) between endpoints */
-  distance: number;
-
-  /** Round trip time: 2 * distance + 2 */
-  roundTrip: number;
-
-  /** CARRY parts needed for this flow rate */
-  carryParts: number;
-
-  /** Energy flow rate through this edge (per tick) */
-  flowRate: number;
-
-  /** Spawn cost per tick to maintain this flow */
-  spawnCostPerTick: number;
-
-  /** Whether this edge uses roads (affects move ratio) */
-  hasRoads: boolean;
-
-  // === Terrain-aware routing (optional, for EdgeVariant optimization) ===
-
-  /** Terrain profile of the route (road/plain/swamp tile counts) */
-}
-
-// =============================================================================
 // FLOW ALLOCATIONS (Solver Output)
 // =============================================================================
 
@@ -213,13 +166,6 @@ export interface MinerAssignment {
    * Higher efficiency = more net energy per unit harvested = higher spawn priority.
    */
   efficiency: number;
-
-
-
-
-  /** CARRY parts for harvester (affects decay for drop mining) */
-  harvesterCarryParts?: number;
-
 }
 
 /**
@@ -410,8 +356,6 @@ export function createFlowSource(
     position,
     capacity,
     gameId,
-    assigned: false,
-    currentOutput: 0,
     maxMiners
   };
 }
@@ -457,6 +401,3 @@ export function createEdgeId(fromId: string, toId: string): string {
 
 // Re-export distance functions from shared Position module
 export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
-
-// Re-export body-shape vocabulary for convenience
-export { HaulerRatio, MiningMode } from "../framework/EdgeVariant";

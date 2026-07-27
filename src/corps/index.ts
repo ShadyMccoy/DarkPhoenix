@@ -31,10 +31,4 @@ export { CoreBusterCorp, SerializedCoreBusterCorp } from "./CoreBusterCorp";
 
 export { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "./ExtensionTenderCorp";
 
-export {
-  SpawningCorp,
-  SerializedSpawningCorp,
-  SpawnOrder,
-  SpawnableCreepType,
-  createSpawningCorp
-} from "./SpawningCorp";
+export { SpawningCorp, SerializedSpawningCorp, createSpawningCorp } from "./SpawningCorp";

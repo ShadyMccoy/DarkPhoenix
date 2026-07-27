@@ -1,25 +1,11 @@
 /**
  * FlowGraph - Flow Network Construction
  *
- * Builds the flow network from spatial nodes and navigator.
- * Discovers sources and sinks, creates edges, calculates distances.
- *
- * This replaces the Market's role in connecting producers and consumers.
+ * Discovers sources and sinks from spatial nodes - the world-translation
+ * input economy/flowAdapter flattens into the pure ColonyProblem.
  */
-import {
-  FlowEdge,
-  FlowSink,
-  FlowSource,
-  Position,
-  SOURCE_ENERGY_PER_TICK,
-  SinkType,
-  createEdgeId,
-  createFlowSink,
-  createFlowSource
-} from "./FlowTypes";
-import { roundTripTicks } from "../economy/primitives";
+import { FlowSink, FlowSource, Position, SinkType, createFlowSink, createFlowSource } from "./FlowTypes";
 import { Node, getResourcesByType } from "../nodes/Node";
-import { NodeNavigator, pathDistance } from "../nodes/NodeNavigator";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 
 // =============================================================================
@@ -32,17 +18,9 @@ import { countMiningSpots } from "../analysis/SourceAnalysis";
  * The flow network consists of:
  * - Sources: Energy producers (game Sources)
  * - Sinks: Energy consumers (spawns, controllers, construction sites, etc.)
- * - Edges: Transport routes between sources and sinks
- *
- * The graph is rebuilt when nodes change, but priorities can be
- * updated dynamically based on game state.
  */
 /** Normal controller upgrade demand (energy/tick) when nothing else competes. */
 export const DEFAULT_CONTROLLER_UPGRADE_DEMAND = 50;
-
-/** Minimal anti-downgrade controller demand used while construction is pending,
- * so building new structures takes the lion's share of the node's energy. */
-export const MIN_CONTROLLER_UPGRADE_DEMAND = 1;
 
 export class FlowGraph {
   /** All energy sources indexed by ID */
@@ -51,35 +29,18 @@ export class FlowGraph {
   /** All energy sinks indexed by ID */
   private sinks: Map<string, FlowSink>;
 
-  /** All transport edges indexed by ID */
-  private edges: Map<string, FlowEdge>;
-
-  /** Reference to the node navigator for pathfinding */
-  private navigator: NodeNavigator;
-
   /** All nodes in the network */
   private nodes: Map<string, Node>;
 
-  /** Spawn nodes (nodes containing spawns) */
-  private spawnNodeIds: Set<string>;
-
-  /** Last tick when the graph was built */
-  private builtAt: number;
-
   /**
-   * Creates a new FlowGraph from nodes and navigator.
+   * Creates a new FlowGraph from nodes.
    *
    * @param nodes - Array of territory nodes
-   * @param navigator - Node navigator for pathfinding
    */
-  public constructor(nodes: Node[], navigator: NodeNavigator) {
+  public constructor(nodes: Node[]) {
     this.sources = new Map();
     this.sinks = new Map();
-    this.edges = new Map();
     this.nodes = new Map();
-    this.spawnNodeIds = new Set();
-    this.navigator = navigator;
-    this.builtAt = 0;
 
     // Index nodes
     for (const node of nodes) {
@@ -89,7 +50,6 @@ export class FlowGraph {
     // Discover sources and sinks from nodes
     this.discoverSources();
     this.discoverSinks();
-    this.discoverSpawnNodes();
   }
 
   // ===========================================================================
@@ -190,67 +150,7 @@ export class FlowGraph {
     }
   }
 
-  /**
-   * Find nodes that contain spawns.
-   */
-  private discoverSpawnNodes(): void {
-    this.spawnNodeIds.clear();
-
-    for (const node of this.nodes.values()) {
-      const spawns = getResourcesByType(node, "spawn");
-      if (spawns.length > 0) {
-        this.spawnNodeIds.add(node.id);
-      }
-    }
-  }
-
-  /**
-   * Build transport edges between sources and sinks.
-   * Each source connects to potential sinks based on distance.
-   */
-  public buildEdges(): void {
-    this.edges.clear();
-
-    // For each source, create edges to reachable sinks
-    for (const source of this.sources.values()) {
-      // Verify source has a valid node
-      if (!this.nodes.has(source.nodeId)) continue;
-
-      for (const sink of this.sinks.values()) {
-        // Verify sink has a valid node
-        if (!this.nodes.has(sink.nodeId)) continue;
-
-        // Real (cached) path distance, so walls/swamps between a source and its
-        // sink are reflected in the haul round-trip and the profitability gate.
-        // Falls back to the analytic estimate when PathFinder can't path.
-        const distance = pathDistance(source.position, sink.position);
-
-        // Create edge
-        const edgeId = createEdgeId(source.id, sink.id);
-        const roundTrip = roundTripTicks(distance);
-
-        const edge: FlowEdge = {
-          id: edgeId,
-          fromId: source.id,
-          toId: sink.id,
-          distance,
-          roundTrip,
-          carryParts: 0, // Set by solver
-          flowRate: 0, // Set by solver
-          spawnCostPerTick: 0, // Set by solver
-          hasRoads: false // TODO: detect roads
-        };
-
-        this.edges.set(edgeId, edge);
-      }
-    }
-  }
-
   // ===========================================================================
-  // PRIORITY MANAGEMENT
-  // ===========================================================================
-
-    // ===========================================================================
   // DYNAMIC SINK MANAGEMENT
   // ===========================================================================
 
@@ -319,149 +219,10 @@ export class FlowGraph {
   }
 
   /**
-   * Get sinks sorted by priority (highest first).
-   */
-  public getSinksByPriority(): FlowSink[] {
-    return Array.from(this.sinks.values()).sort((a, b) => b.priority - a.priority);
-  }
-
-  /**
    * Get a sink by ID.
    */
   public getSink(id: string): FlowSink | undefined {
     return this.sinks.get(id);
-  }
-
-  /**
-   * Get all edges.
-   */
-  public getEdges(): FlowEdge[] {
-    return Array.from(this.edges.values());
-  }
-
-  /**
-   * Get edges from a specific source.
-   */
-  public getEdgesFromSource(sourceId: string): FlowEdge[] {
-    return Array.from(this.edges.values()).filter(e => e.fromId === sourceId);
-  }
-
-  /**
-   * Get edges to a specific sink.
-   */
-  public getEdgesToSink(sinkId: string): FlowEdge[] {
-    return Array.from(this.edges.values()).filter(e => e.toId === sinkId);
-  }
-
-  /**
-   * Get the edge between a source and sink.
-   */
-  public getEdge(sourceId: string, sinkId: string): FlowEdge | undefined {
-    const edgeId = createEdgeId(sourceId, sinkId);
-    return this.edges.get(edgeId);
-  }
-
-  /**
-   * Get nodes that contain spawns.
-   */
-  public getSpawnNodeIds(): Set<string> {
-    return new Set(this.spawnNodeIds);
-  }
-
-  /**
-   * Find the nearest spawn to a source.
-   */
-  public findNearestSpawn(sourceId: string): { sinkId: string; distance: number } | null {
-    const source = this.sources.get(sourceId);
-    if (!source) return null;
-
-    const spawnSinks = this.getSinks("spawn");
-    if (spawnSinks.length === 0) return null;
-
-    let nearest: { sinkId: string; distance: number } | null = null;
-
-    for (const spawn of spawnSinks) {
-      const edge = this.getEdge(sourceId, spawn.id);
-      if (edge && (!nearest || edge.distance < nearest.distance)) {
-        nearest = { sinkId: spawn.id, distance: edge.distance };
-      }
-    }
-
-    return nearest;
-  }
-
-  /**
-   * Find the nearest source to a sink.
-   */
-  public findNearestSource(sinkId: string): { sourceId: string; distance: number } | null {
-    const sink = this.sinks.get(sinkId);
-    if (!sink) return null;
-
-    let nearest: { sourceId: string; distance: number } | null = null;
-
-    for (const source of this.sources.values()) {
-      const edge = this.getEdge(source.id, sinkId);
-      if (edge && (!nearest || edge.distance < nearest.distance)) {
-        nearest = { sourceId: source.id, distance: edge.distance };
-      }
-    }
-
-    return nearest;
-  }
-
-  // ===========================================================================
-  // STATISTICS
-  // ===========================================================================
-
-  /**
-   * Get graph statistics.
-   */
-  public getStats(): {
-    sourceCount: number;
-    sinkCount: number;
-    edgeCount: number;
-    sinksByType: Map<SinkType, number>;
-    totalCapacity: number;
-    totalDemand: number;
-  } {
-    const sinksByType = new Map<SinkType, number>();
-    let totalDemand = 0;
-
-    for (const sink of this.sinks.values()) {
-      const count = sinksByType.get(sink.type) || 0;
-      sinksByType.set(sink.type, count + 1);
-      totalDemand += sink.demand;
-    }
-
-    const totalCapacity = this.sources.size * SOURCE_ENERGY_PER_TICK;
-
-    return {
-      sourceCount: this.sources.size,
-      sinkCount: this.sinks.size,
-      edgeCount: this.edges.size,
-      sinksByType,
-      totalCapacity,
-      totalDemand
-    };
-  }
-
-  /**
-   * Debug: Print graph summary.
-   */
-  public debugPrint(): void {
-    const stats = this.getStats();
-    console.log("\n=== FlowGraph Summary ===");
-    console.log(`Sources: ${stats.sourceCount} (${stats.totalCapacity} energy/tick capacity)`);
-    console.log(`Sinks: ${stats.sinkCount} (${stats.totalDemand} energy/tick demand)`);
-    console.log(`Edges: ${stats.edgeCount}`);
-    console.log("\nSinks by type:");
-    for (const [type, count] of stats.sinksByType) {
-      console.log(`  ${type}: ${count}`);
-    }
-    console.log("\nSinks by priority:");
-    for (const sink of this.getSinksByPriority().slice(0, 10)) {
-      console.log(`  ${sink.id}: priority=${sink.priority}, demand=${sink.demand}`);
-    }
   }
 }
 
@@ -493,14 +254,10 @@ function isSourceKeeperRoom(roomName: string): boolean {
 // =============================================================================
 
 /**
- * Create a FlowGraph from nodes and navigator.
- * Convenience function that also builds edges.
+ * Create a FlowGraph from nodes.
  *
  * @param nodes - Array of territory nodes
- * @param navigator - Node navigator for pathfinding
  */
-export function createFlowGraph(nodes: Node[], navigator: NodeNavigator): FlowGraph {
-  const graph = new FlowGraph(nodes, navigator);
-  graph.buildEdges();
-  return graph;
+export function createFlowGraph(nodes: Node[]): FlowGraph {
+  return new FlowGraph(nodes);
 }

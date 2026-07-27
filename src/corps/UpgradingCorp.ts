@@ -12,10 +12,9 @@ import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
-import { CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { effectiveLife, staffsPost, sustainableConsumptionRate } from "../economy/primitives";
+import { staffsPost, sustainableConsumptionRate } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./CarryCorp";
@@ -191,7 +190,6 @@ export function bankBehindFeeder(params: {
  */
 export interface SerializedUpgradingCorp extends SerializedCorp {
   spawnId: string;
-  targetUpgraders: number;
   /** Flow-based sink allocation (from FlowEconomy) */
   sinkAllocation?: SinkAllocation;
 }
@@ -207,9 +205,6 @@ export interface SerializedUpgradingCorp extends SerializedCorp {
 export class UpgradingCorp extends Corp {
   /** ID of the spawn to use */
   private spawnId: string;
-
-  /** Target number of upgraders (computed during planning) */
-  private targetUpgraders = 2;
 
   /**
    * Flow-based sink allocation from FlowEconomy.
@@ -234,31 +229,6 @@ export class UpgradingCorp extends Corp {
       }
     }
     return creeps;
-  }
-
-  /**
-   * Plan upgrading operations. Called periodically to compute targets.
-   * Adjusts target upgraders based on controller level and downgrade risk.
-   */
-  public plan(tick: number): void {
-    super.plan(tick);
-
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn?.room.controller) {
-      this.targetUpgraders = 1;
-      return;
-    }
-
-    const controller = spawn.room.controller;
-    const rcl = controller.level;
-
-    let target = rcl <= 2 ? 1 : 2;
-
-    if (controller.ticksToDowngrade < CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD * 0.3) {
-      target = Math.max(target, 3);
-    }
-
-    this.targetUpgraders = target;
   }
 
   /**
@@ -768,10 +738,6 @@ export class UpgradingCorp extends Corp {
    */
   public setSinkAllocation(allocation: SinkAllocation): void {
     this.sinkAllocation = allocation;
-    // Dynamically adjust target upgraders based on allocated energy
-    // Each upgrader with ~3 WORK parts uses about 3 energy/tick
-    const workPerUpgrader = 3;
-    this.targetUpgraders = Math.max(1, Math.ceil(allocation.allocated / workPerUpgrader));
   }
 
   /**
@@ -779,20 +745,6 @@ export class UpgradingCorp extends Corp {
    */
   public getSinkAllocation(): SinkAllocation | null {
     return this.sinkAllocation;
-  }
-
-  /**
-   * Check if this corp has a flow-based allocation.
-   */
-  public hasFlowAllocation(): boolean {
-    return this.sinkAllocation !== null;
-  }
-
-  /**
-   * Get the allocated energy rate from flow solution.
-   */
-  public getAllocatedEnergyRate(): number {
-    return this.sinkAllocation?.allocated ?? 0;
   }
 
   /**
@@ -805,27 +757,12 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Get the demanded energy rate from flow solution.
-   */
-  public getDemandedEnergyRate(): number {
-    return this.sinkAllocation?.demand ?? 0;
-  }
-
-  /**
-   * Get the priority from flow solution.
-   */
-  public getFlowPriority(): number {
-    return this.sinkAllocation?.priority ?? 60; // Default controller priority
-  }
-
-  /**
    * Serialize for persistence.
    */
   public serialize(): SerializedUpgradingCorp {
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
-      targetUpgraders: this.targetUpgraders,
       sinkAllocation: this.sinkAllocation ?? undefined
     };
   }
@@ -835,7 +772,6 @@ export class UpgradingCorp extends Corp {
    */
   public deserialize(data: SerializedUpgradingCorp): void {
     super.deserialize(data);
-    this.targetUpgraders = data.targetUpgraders || 2;
     this.sinkAllocation = data.sinkAllocation ?? null;
   }
 }

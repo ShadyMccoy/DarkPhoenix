@@ -36,11 +36,11 @@ describe("Telemetry creep census (segments 0 & 4)", () => {
     creepCorp("carry-s1", "carry", "hauling", "W1N1-1-1", 1),
     creepCorp("reservation-W1N2", "reservation", "reservation", "W1N2", 1),
     creepCorp("W1N1-tender", "tender", "moving", "W1N1", 1),
-    // spawning: tracked by pending orders, NOT a creep bucket
+    // spawning: owns no creeps, NOT a creep bucket
     {
       corpId: "spawning-1",
       kind: "spawning",
-      corp: { id: "spawning-1", type: "spawning", nodeId: "W1N1-spawn", createdAt: 0, lastActivityTick: 0, getPendingOrderCount: () => 3 } as any
+      corp: { id: "spawning-1", type: "spawning", nodeId: "W1N1-spawn", createdAt: 0, lastActivityTick: 0 } as any
     }
   ];
 
@@ -74,8 +74,8 @@ describe("Telemetry creep census (segments 0 & 4)", () => {
       tender: 1,
       spawning: 1
     });
-    // spawning has pending orders (3), the four creep corps have >0 creeps -> all active
-    expect(corps.summary.activeCorps).to.equal(5);
+    // the four creep corps have >0 creeps -> active; spawning owns no creeps
+    expect(corps.summary.activeCorps).to.equal(4);
 
     const sample = corps.corps[0];
     expect(sample).to.have.property("kind");

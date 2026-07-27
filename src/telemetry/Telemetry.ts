@@ -5,12 +5,14 @@
  * enabling an external app to poll the Screeps HTTP API and visualize colony state.
  *
  * ## Segment Layout
- * - Segment 0: Core telemetry (colony stats, money supply, creep counts)
- * - Segment 1: Node data (territories, resources, ROI)
- * - Segment 2: Edge data (spatial and economic edges with flow rates)
+ * - Segment 0: Core telemetry (colony stats, creep census, spawn meter, agenda mirror)
+ * - Segment 1: Node data (territories, resources, expansion scoring)
+ * - Segment 2: Edge data (spatial node adjacency)
  * - Segment 3: Room intel data (scouted room information)
- * - Segment 4: Corps data (mining, hauling, upgrading corps)
+ * - Segment 4: Corps data (per-corp census, bodies, sizing records)
  * - Segment 6: Flow economy (sources, sinks, allocations)
+ *
+ * (Segment 5 is the BlackBox flight recorder, written by telemetry/BlackBox.)
  *
  * ## Data Flow
  * Screeps Game → RawMemory.segments[N] → HTTP API → External App → Dashboard
@@ -89,11 +91,10 @@ export interface CorpCensusEntry {
   corp: Corp;
 }
 
-/** Live creep count for any corp, whichever accessor it exposes. */
+/** Live creep count for any corp that exposes the accessor. */
 function corpCreepCount(corp: Corp): number {
-  const c = corp as unknown as { getCreepCount?: () => number; getPendingOrderCount?: () => number };
+  const c = corp as unknown as { getCreepCount?: () => number };
   if (typeof c.getCreepCount === "function") return c.getCreepCount();
-  if (typeof c.getPendingOrderCount === "function") return c.getPendingOrderCount();
   return 0;
 }
 
@@ -164,9 +165,9 @@ function aggregateActualBodies(): { perCorp: Map<string, BodyAggregate>; colony:
  * Segment assignments for telemetry data.
  */
 export const TELEMETRY_SEGMENTS = {
-  CORE: 0, // Colony stats, money supply, creep counts
-  NODES: 1, // Node territories, resources, ROI
-  EDGES: 2, // Spatial and economic edges with flow rates
+  CORE: 0, // Colony stats, creep census, spawn meter
+  NODES: 1, // Node territories, resources, expansion scoring
+  EDGES: 2, // Spatial node adjacency
   INTEL: 3, // Room intel from scouting
   CORPS: 4, // Corps details
   FLOW: 6 // Flow economy: sources, sinks, allocations
@@ -425,10 +426,6 @@ export interface NodeTelemetry {
     econ?: boolean; // is part of economic network (has corps)
     sp?: number; // number of spawn structures in this node's room
   }[];
-  /** @deprecated Edges moved to segment 2 (EdgesTelemetry) in version 5 */
-  edges?: string[];
-  /** @deprecated Economic edges moved to segment 2 (EdgesTelemetry) in version 5 */
-  economicEdges?: { [edge: string]: number };
   summary: {
     totalNodes: number;
     ownedNodes: number;
@@ -443,7 +440,6 @@ export interface NodeTelemetry {
  * Uses compressed numeric format to minimize size:
  * - nodeIndex maps node position in nodes array to node ID
  * - edges are [idx1, idx2] pairs (indices into nodeIndex)
- * - economicEdges are [idx1, idx2, distance, flowRate?] - flowRate is energy/tick
  */
 export interface EdgesTelemetry {
   version: number;
@@ -452,7 +448,8 @@ export interface EdgesTelemetry {
   nodeIndex: string[];
   /** Spatial edges as [idx1, idx2] pairs (indices into nodeIndex) */
   edges: [number, number][];
-  /** Economic edges as [idx1, idx2, distance, flowRate?] - flowRate in energy/tick */
+  /** Retired with the node-graph pipeline - always empty (shape kept for
+   * dashboard consumers). */
   economicEdges: [number, number, number, number?][];
 }
 
@@ -708,8 +705,8 @@ export class Telemetry {
     // Update nodes telemetry
     this.updateNodesTelemetry(colony);
 
-    // Update edges telemetry (segment 2 - with flow rates)
-    this.updateEdgesTelemetry(colony, flowSolution);
+    // Update edges telemetry (segment 2)
+    this.updateEdgesTelemetry(colony);
 
     // Update intel telemetry
     this.updateIntelTelemetry();
@@ -783,8 +780,7 @@ export class Telemetry {
   private updateCoreTelemetry(colony: Colony | undefined, census: CorpCensusEntry[], bodyParts: BodyAggregate): void {
     // Creep census keyed by kind, summed generically from the complete corp
     // list: every creep-owning kind is counted by construction. Only corps
-    // that expose getCreepCount contribute (spawning tracks pending orders,
-    // not creeps of its own).
+    // that expose getCreepCount contribute (spawning owns no creeps).
     const creeps: CoreTelemetry["creeps"] = {
       total: Object.keys(Game.creeps).length,
       tracked: 0,
@@ -1061,14 +1057,6 @@ export class Telemetry {
       return (b.roi?.score || 0) - (a.roi?.score || 0);
     });
 
-    // Build set of economic node IDs (nodes that appear in economic edges)
-    const econNodeIds = new Set<string>();
-    for (const edge of Object.keys(Memory.economicEdges || {})) {
-      const [id1, id2] = edge.split("|");
-      econNodeIds.add(id1);
-      econNodeIds.add(id2);
-    }
-
     // Count spawn structures per room
     const spawnCountsByRoom: { [roomName: string]: number } = {};
     for (const roomName in Game.rooms) {
@@ -1104,7 +1092,6 @@ export class Telemetry {
           }
         : undefined,
       spans: node.spansRooms,
-      econ: econNodeIds.has(node.id) || undefined,
       sp: spawnCountsByRoom[node.roomName] || undefined
     }));
 
@@ -1131,9 +1118,8 @@ export class Telemetry {
   /**
    * Updates edges telemetry (Segment 2).
    * Uses compressed numeric format: edges as index pairs instead of string IDs.
-   * Includes flow rates from flow solution when available.
    */
-  private updateEdgesTelemetry(colony: Colony | undefined, flowSolution?: FlowSolution): void {
+  private updateEdgesTelemetry(colony: Colony | undefined): void {
     const nodes = colony?.getNodes() || [];
 
     // Build node ID to index map (sorted same as nodes telemetry)
@@ -1150,22 +1136,6 @@ export class Telemetry {
       nodeIndex.push(node.id);
     });
 
-    // Build flow rate map from hauler assignments (edge key → total flow rate)
-    const flowRateByEdge = new Map<string, number>();
-    if (flowSolution) {
-      for (const hauler of flowSolution.haulers) {
-        // Extract node IDs from flow IDs (e.g., "source-abc|sink-xyz" or use fromId/toId)
-        const fromNodeId = this.extractNodeId(hauler.fromId);
-        const toNodeId = this.extractNodeId(hauler.toId);
-        if (fromNodeId && toNodeId) {
-          // Create consistent edge key (sorted alphabetically)
-          const edgeKey = [fromNodeId, toNodeId].sort().join("|");
-          const existing = flowRateByEdge.get(edgeKey) || 0;
-          flowRateByEdge.set(edgeKey, existing + hauler.flowRate);
-        }
-      }
-    }
-
     // Convert spatial edges to index pairs
     const edges: [number, number][] = [];
     for (const edge of Memory.nodeEdges || []) {
@@ -1177,24 +1147,12 @@ export class Telemetry {
       }
     }
 
-    // Convert economic edges to index tuples with distance and optional flow rate
+    // Economic edges retired with the deleted node-graph pipeline; the segment
+    // keeps the field (empty) so dashboard consumers see a valid shape.
     const economicEdges: [number, number, number, number?][] = [];
-    for (const [edge, distance] of Object.entries(Memory.economicEdges || {})) {
-      const [id1, id2] = edge.split("|");
-      const idx1 = nodeIdToIndex.get(id1);
-      const idx2 = nodeIdToIndex.get(id2);
-      if (idx1 !== undefined && idx2 !== undefined) {
-        const flowRate = flowRateByEdge.get(edge);
-        if (flowRate !== undefined && flowRate > 0) {
-          economicEdges.push([idx1, idx2, distance, flowRate]);
-        } else {
-          economicEdges.push([idx1, idx2, distance]);
-        }
-      }
-    }
 
     const telemetry: EdgesTelemetry = {
-      version: 2, // Version 2: includes flow rates
+      version: 2,
       tick: Game.time,
       nodeIndex,
       edges,
@@ -1206,20 +1164,6 @@ export class Telemetry {
       console.log(`[Telemetry] Warning: Edges segment ${json.length} bytes exceeds 100KB limit`);
     }
     RawMemory.segments[TELEMETRY_SEGMENTS.EDGES] = json;
-  }
-
-  /**
-   * Extract node ID from a flow ID (e.g., "source-abc123" → node ID from Memory).
-   * Flow IDs reference game objects; we need to map them back to nodes.
-   */
-  private extractNodeId(_flowId: string): string | undefined {
-    // For sources: "source-{gameId}" → find node containing this source
-    // For sinks: "spawn-{gameId}" or "controller-{gameId}" → find node
-    // This is a simplified mapping - in practice, we'd need the flow graph's node mappings
-
-    // Try to find the node by checking if any node's ID matches or contains the source/sink
-    // For now, return undefined and rely on economicEdges which already have node-to-node mappings
-    return undefined;
   }
 
   /**

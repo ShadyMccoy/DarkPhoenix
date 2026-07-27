@@ -17,7 +17,7 @@ import {
   analyzeMultiRoomTerrain,
   findTerritoryAdjacencies
 } from "../spatial";
-import { Node, NodeSurveyor, calculateNodeROI, createNode } from "../nodes";
+import { Node, calculateNodeROI, createNode } from "../nodes";
 import { RESERVER_BODY_COST } from "../corps/economics";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { mineralNodeValue, resolveMarketPrices } from "../economy/mineralValue";
@@ -356,8 +356,6 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
 
-  const surveyor = new NodeSurveyor();
-
   // Build position-to-node map ONCE for all nodes (tie-breaking for wall resources)
   const positionToNode = new Map<string, string>();
   for (const [nodeId, positions] of result.territories) {
@@ -437,15 +435,7 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     const economicValue = marginalSiteValue(existing, candidate, allSources);
     const mineralValue = nodeMineralValue(node, marketPrices);
 
-    const surveyResult = surveyor.survey(node, Game.time);
-    node.roi = calculateNodeROI(
-      node,
-      peak.height,
-      ownedRooms,
-      surveyResult.potentialCorps,
-      economicValue,
-      mineralValue
-    );
+    node.roi = calculateNodeROI(node, peak.height, ownedRooms, economicValue, mineralValue);
   }
 
   console.log(`[MultiRoom] Updated ${colony.getNodes().length} nodes`);

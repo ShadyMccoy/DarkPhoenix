@@ -3,8 +3,6 @@ export {
   NodeResource,
   NodeResourceType,
   NodeROI,
-  PotentialCorpROI,
-  PotentialCorp,
   SerializedNode,
   createNodeId,
   createNode,
@@ -18,23 +16,7 @@ export {
 } from "./Node";
 
 export {
-  NodeSurveyor,
-  SurveyConfig,
-  SurveyResult,
-  DEFAULT_SURVEY_CONFIG,
-  createResource
-} from "./NodeSurveyor";
-
-export {
-  NodeNavigator,
-  PathResult,
-  EdgeKey,
-  EdgeType,
-  EdgeData,
-  createEdgeKey,
-  parseEdgeKey,
   estimateWalkingDistance,
   pathDistance,
-  clearPathDistanceCache,
-  createNodeNavigator
+  clearPathDistanceCache
 } from "./NodeNavigator";

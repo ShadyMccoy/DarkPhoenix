@@ -12,7 +12,6 @@
 
 import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
-import { NodeNavigator } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { solveColony } from "../../../src/economy/flowAdapter";
 import { Position } from "../../../src/types/Position";
@@ -43,7 +42,7 @@ function homeNode(spawnX: number): Node {
 }
 
 function graphOf(nodes: Node[]): FlowGraph {
-  return new FlowGraph(nodes, new NodeNavigator(nodes, []));
+  return new FlowGraph(nodes);
 }
 
 describe("solver bridge: commissions reconstruct the FlowSolution's assignments", () => {

@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
-import { NodeNavigator, clearPathDistanceCache } from "../../../src/nodes/NodeNavigator";
+import { clearPathDistanceCache, pathDistance } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { MinerAssignment } from "../../../src/flow/FlowTypes";
 import { Position } from "../../../src/types/Position";
@@ -97,9 +97,7 @@ function buildGraph(): FlowGraph {
   remote.resources = [sourceRes];
 
   const nodes = [home, remote];
-  const graph = new FlowGraph(nodes, new NodeNavigator(nodes, []));
-  graph.buildEdges();
-  return graph;
+  return new FlowGraph(nodes);
 }
 
 function minerFor(graph: FlowGraph, sourceId: string): MinerAssignment | undefined {
@@ -137,9 +135,8 @@ describe("pathDistance feeds the real walled distance into the profitability gat
     removePathFinder(); // no engine PathFinder -> pathDistance falls back to the estimate
     const graph = buildGraph();
 
-    const edge = graph.getEdge("source-src-0", "spawn-spawn-0");
     // Chebyshev(5,25)->(20,25) = 15: the wall is invisible to the estimate.
-    expect(edge?.distance).to.equal(15);
+    expect(pathDistance(SOURCE, SPAWN)).to.equal(15);
 
     const miner = minerFor(graph, "source-src-0");
     expect(miner, "source is assigned under the cheap estimate").to.not.be.undefined;
@@ -151,13 +148,12 @@ describe("pathDistance feeds the real walled distance into the profitability gat
     installPathFinder(wallWithTopGap);
     const graph = buildGraph();
 
-    const edge = graph.getEdge("source-src-0", "spawn-spawn-0");
     // The detour up to the y=0 gap and back down is far longer than 15 tiles.
-    expect(edge?.distance, "real path reflects the wall detour").to.be.greaterThan(40);
+    expect(pathDistance(SOURCE, SPAWN), "real path reflects the wall detour").to.be.greaterThan(40);
 
     const miner = minerFor(graph, "source-src-0");
     expect(miner, "still profitable, but now correctly priced").to.not.be.undefined;
-    expect(miner!.spawnDistance).to.equal(edge!.distance);
+    expect(miner!.spawnDistance).to.equal(pathDistance(SOURCE, SPAWN));
   });
 
   it("the fix lowers the source's efficiency vs the wall-blind estimate", () => {
