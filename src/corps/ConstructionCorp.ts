@@ -13,7 +13,7 @@ import { stepOffRoad, travelTo } from "./movement";
 import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
-import { buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildBuilderBody, buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   pickCriticalRepairTarget,
   wantsCriticalRecovery,
@@ -24,7 +24,16 @@ import {
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
+import {
+  BUILD_ENERGY_PER_WORK,
+  bufferCarryParts,
+  carryPartsFor,
+  projectAbsorbRate,
+  refuelIntervalTicks,
+  SOURCE_RATE,
+  supplyMethod,
+  sustainableConsumptionRate
+} from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
 import {
   declinedVerdictStands,
@@ -118,6 +127,10 @@ const EXTENSION_LIMITS: { [rcl: number]: number } = {
  * How often to attempt placing new construction sites (ticks)
  */
 const PLACEMENT_COOLDOWN = 10;
+
+/** The supply vector never runs fewer than two carriers (hot-swap staging);
+ * also the delivery-cadence divisor the builder's buffer bridges (spec 34). */
+const TANKER_FLOOR = 2;
 
 /** Max containers per room (game limit is 5 at every RCL). */
 const CONTAINER_LIMIT = 5;
@@ -986,11 +999,29 @@ export class ConstructionCorp extends Corp {
     }
     buildEnergy = Math.max(5, buildEnergy);
     const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
-    // The biggest single builder this room's extension capacity can build.
-    const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
+    // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer. One lens with
+    // the tanker fetch (buildFuelDistance); the supply verdict is the computed
+    // crossover (adjacent fuel -> direct draw, no vector); the buffer bridges
+    // the refuel interval (vector deliveries every RT/n, or the builder's own
+    // round trip when direct). A slower burner needs less buffer, so the
+    // buffer scales with each member's WORK - buildBuilderBody preserves the
+    // ratio under a tight budget.
+    const bufSite =
+      (room.find(FIND_MY_CONSTRUCTION_SITES)[0] as ConstructionSite | undefined) ??
+      (spawnForTravel ? this.poolTankerSite(spawnForTravel.pos.roomName) : null);
+    const fuelDist = bufSite ? this.buildFuelDistance(room, bufSite) : 8;
+    const supply = supplyMethod(buildEnergy, fuelDist);
+    const interval = refuelIntervalTicks(fuelDist, supply.method === "vector" ? TANKER_FLOOR : 0);
+    const bufferFor = (work: number): number =>
+      Math.max(1, Math.ceil(bufferCarryParts(work * BUILD_ENERGY_PER_WORK, interval)));
+    // The biggest single builder this room's extension capacity can build, in
+    // the buffered shape (buildBuilderBody shrinks-to-fit, so its workParts IS
+    // the affordable max for the WORK:buffer ratio).
+    const maxPerBuilder = Math.max(1, buildBuilderBody(totalWork, bufferFor(totalWork), energyCapacity).workParts);
     const { count, partsPerMember } = splitIntoMembers(totalWork, maxPerBuilder, MAX_BUILDERS);
 
-    const desired = buildUpgraderBody(energyCapacity, partsPerMember);
+    const bufferCarry = bufferFor(partsPerMember);
+    const desired = buildBuilderBody(partsPerMember, bufferCarry, energyCapacity);
     // Floor the builder at its planned size rather than a 1-WORK runt: a reserved
     // source feeds a full builder, and a 1-WORK builder (5/tick) would leave half
     // that source idle. Better to wait a few ticks for the energy and spawn the
@@ -1001,6 +1032,7 @@ export class ConstructionCorp extends Corp {
       desiredCost: desired.cost,
       minCost: min.cost,
       bodyParam: partsPerMember,
+      bufferCarry,
       partsNeeded: totalWork,
       maxPartsPerMember: maxPerBuilder
     };
@@ -2836,7 +2868,17 @@ export class ConstructionCorp extends Corp {
     // "we actually need the haulers to be bigger"). The old 4-CARRY cap
     // forced 200-capacity shuttles out of an 1800-capacity room.
     const perTankerMax = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
-    const carryNeeded = this.tankerCarryNeeded(room, site, ctx);
+    const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
+    const dist = this.buildFuelDistance(room, site);
+    // SUPPLY-METHOD verdict (spec 34 D1): withdraw-adjacent fuel needs NO
+    // vector - the builders draw directly (the owner's "route of length 0").
+    // Beyond adjacency the computed crossover favors the dedicated vector
+    // (idle WORK at 100e/part is the game's costliest waste), so the tanker
+    // detail is exactly the vector's carriers - a verdict, not a category.
+    if (supplyMethod(consumption, dist).method === "direct") {
+      return { target: 0, desiredCost: 0, minCost: 0, bodyParam: 1 };
+    }
+    const carryNeeded = this.tankerCarryNeeded(consumption, dist);
     // At least TWO bodies so one is always staged for a seamless hot swap, but
     // size EACH to its SHARE of the real carryNeeded - never the max body.
     // The old code fielded max(2, ...) bodies each at perTankerMax (16 CARRY at
@@ -2890,20 +2932,28 @@ export class ConstructionCorp extends Corp {
    * sized to this TOTAL; tankerPlan distributes it across >=2 bodies instead of
    * fielding max bodies (the 34-CARRY over-provisioning fix).
    */
-  private tankerCarryNeeded(room: Room, site: ConstructionSite, ctx: SpawnDemandContext): number {
-    const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
+  private tankerCarryNeeded(consumption: number, dist: number): number {
+    return Math.ceil(carryPartsFor(consumption, dist) * 1.5);
+  }
+
+  /**
+   * Distance from the build site to its FUEL: the storage in the surplus
+   * regime, the nearest source otherwise - ONE lens for the vector sizing,
+   * the tanker fetch, the builder's buffer, and the supply verdict (spec 34),
+   * so none of them can disagree.
+   */
+  private buildFuelDistance(room: Room, site: ConstructionSite): number {
     const bank = room.storage;
     const surplusBanked =
       bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
     const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
     // A pool site can sit in ANOTHER room (same-room getRangeTo is Infinity
     // across rooms): price the cross-room shuttle at the linear room distance.
-    const dist = !fuelPos
+    return !fuelPos
       ? 8
       : site.pos.roomName === fuelPos.roomName
       ? site.pos.getRangeTo(fuelPos)
       : roomLinearDistance(site.pos.roomName, fuelPos.roomName) * 50;
-    return Math.ceil(carryPartsFor(consumption, dist) * 1.5);
   }
 
   // ===========================================================================

@@ -280,6 +280,52 @@ export interface TankerBodyResult {
  * @param useRoads - Whether tanker will primarily use roads (default true)
  * @returns Body configuration with body array, cost, and carry capacity
  */
+/** Result of buildBuilderBody: the D3 self-buffered consumer body. */
+export interface BuilderBodyResult {
+  body: BodyPartConstant[];
+  cost: number;
+  workParts: number;
+  carryParts: number;
+}
+
+/**
+ * The spec-34 D3 builder body: WORK from the absorb share, CARRY = the onboard
+ * BUFFER (sized upstream by primitives.bufferCarryParts to bridge the refuel
+ * interval - the corp passes it down as the bufferCarry hint), MOVE sized for
+ * UNLADEN travel: empty CARRY generates no fatigue (C3), so relocation between
+ * sites is free for the buffer and MOVE only has to move the WORK core -
+ * ceil(WORK/2)+1 (the +1 absorbs the odd laden site hop). Under a tight budget
+ * WORK and CARRY shrink TOGETHER (a slower burner needs less buffer - the
+ * ratio is the contract, not either count alone).
+ */
+export function buildBuilderBody(desiredWork: number, bufferCarry: number, energyCapacity: number): BuilderBodyResult {
+  const movesFor = (w: number): number => Math.ceil(w / 2) + 1;
+  const carryFor = (w: number, dw: number): number => Math.max(1, Math.ceil((bufferCarry * w) / Math.max(1, dw)));
+  const costOf = (w: number, c: number, m: number): number =>
+    w * PART_COSTS[WORK] + c * PART_COSTS[CARRY] + m * PART_COSTS[MOVE];
+
+  const dw = Math.max(1, desiredWork);
+  for (let w = dw; w >= 1; w--) {
+    const c = carryFor(w, dw);
+    const m = movesFor(w);
+    if (w + c + m > MAX_BODY_PARTS) continue;
+    const cost = costOf(w, c, m);
+    if (cost > energyCapacity) continue;
+    const body: BodyPartConstant[] = [];
+    for (let i = 0; i < w; i++) body.push(WORK);
+    for (let i = 0; i < c; i++) body.push(CARRY);
+    for (let i = 0; i < m; i++) body.push(MOVE);
+    return { body, cost, workParts: w, carryParts: c };
+  }
+  // Min-viable floor (cold start): 1W 1C 1M at 200 - a crawling starter beats
+  // no builder at all; the buffered shape takes over from 250 up.
+  const minCost = PART_COSTS[WORK] + PART_COSTS[CARRY] + PART_COSTS[MOVE];
+  if (energyCapacity >= minCost) {
+    return { body: [WORK, CARRY, MOVE], cost: minCost, workParts: 1, carryParts: 1 };
+  }
+  return { body: [], cost: 0, workParts: 0, carryParts: 0 };
+}
+
 export function buildTankerBody(requiredCarry: number, energyCapacity: number, useRoads = true): TankerBodyResult {
   // Minimum viable tanker: 1 CARRY + 1 MOVE = 100 energy
   const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];

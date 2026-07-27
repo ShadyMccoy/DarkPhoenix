@@ -15,7 +15,7 @@
 import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
-import { constructionWorkSpawnLoad, controllerWorkSpawnLoad } from "./primitives";
+import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, operationSpawnLoad } from "./primitives";
 import { Position } from "../types/Position";
 
 /**
@@ -137,10 +137,17 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     const kind = k.kind === "controller" ? "upgrade" : k.kind === "construction" ? "build" : null;
     if (!kind) continue;
     const sink = sinkById.get(k.sinkId);
+    // Construction's price is ALL-IN (spec 34 D4): the builder WORK bodies
+    // PLUS the supply vector fueling them (the storage->site shuttle the corp
+    // operates - previously spawn load the ledger never budgeted, the P4
+    // "unbudgeted" class). The controller's mover is the feeder, charged
+    // separately in infraSpawnLoad - no vector here or it double-counts.
     const spawnPartsPerTick =
       k.kind === "controller"
         ? controllerWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos))
-        : constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos));
+        : operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos)), [
+            { rate: k.allocated, distance: nearestSpawnDist(sink?.pos) }
+          ]);
     out.push({
       corpId: corpIdFor(kind, k.sinkId),
       kind,

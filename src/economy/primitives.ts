@@ -84,6 +84,102 @@ export function parkedRelayCarry(rate: number): number {
   return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
 }
 
+// =============================================================================
+// OPERATION CORPS (spec 34): consumer buffers and the supply-method crossover
+// =============================================================================
+
+/**
+ * CARRY parts a CONSUMER carries as its onboard BUFFER: enough stock to keep
+ * burning `burnRate` for `intervalTicks` between refuel events (spec 34 D2,
+ * owner: "the carry is designed to carry it over in between refuelings").
+ * ONE law for every consumer - a mobile consumer (builder) buffers on the
+ * body because a container costs ~an extension and rots (C7), a parked one
+ * is the degenerate case: parkedRelayCarry(r) === bufferCarryParts(r, 2).
+ * Continuous (fractional); callers round up when sizing an actual body.
+ */
+export function bufferCarryParts(burnRate: number, intervalTicks: number): number {
+  return (burnRate * intervalTicks) / CARRY_CAPACITY;
+}
+
+/**
+ * Ticks between refuel events for a consumer whose fuel stands `distance`
+ * away: `haulerCount` carriers working the supply vector land a delivery
+ * every roundTrip/n; with none, the consumer's own round trip is the cadence
+ * (self-fetch). The owner's buffer inputs verbatim: "the distance back to
+ * the energy source and how many haulers are working the route".
+ */
+export function refuelIntervalTicks(distance: number, haulerCount: number): number {
+  return roundTripTicks(distance) / Math.max(1, haulerCount);
+}
+
+/**
+ * Standing body parts of a dedicated supply vector `(fuel, site, rate)`:
+ * carriers at 1:1 CARRY:MOVE (laden both ways is the worst case; the vector
+ * IS carryPartsFor - no third formula).
+ */
+export function vectorSupplyParts(rate: number, distance: number): number {
+  return 2 * carryPartsFor(rate, distance);
+}
+
+/**
+ * Standing body parts for a consumer that SELF-FETCHES fuel from `distance`,
+ * at its OPTIMAL build/fetch cycle. Its WORK idles for the round trip
+ * (utilization u = T/(T+RT)), so netting `rate` needs 1/u the WORK - at
+ * 100e/part the game's most expensive idle - and its buffer returns LADEN
+ * (C3: empty CARRY is fatigue-free, full is not), so the CARRY pays MOVE.
+ * parts(T) = burn(T) * (2/w + T/25), burn = rate*(1+RT/T), w = energy/WORK;
+ * minimizing gives T* = sqrt(50*RT/w). Exists to make the crossover in
+ * supplyMethod COMPUTED, not asserted.
+ */
+export function directFetchParts(rate: number, distance: number, energyPerWork = BUILD_ENERGY_PER_WORK): number {
+  const rt = roundTripTicks(distance);
+  const t = Math.sqrt((50 * rt) / energyPerWork); // optimal build stretch between fetches
+  const burn = rate * (1 + rt / t); // burn capacity that nets `rate` at util u
+  const workParts = burn / energyPerWork;
+  const carry = (burn * t) / CARRY_CAPACITY;
+  return 2 * workParts + 2 * carry; // WORK+MOVE, laden CARRY+MOVE
+}
+
+/**
+ * The supply-method crossover (spec 34 D1): how a consumer at `distance`
+ * from its fuel should be fed, priced in standing spawn parts. Withdraw
+ * adjacency (d<=1) is the owner's "route of length 0" - direct draw, no
+ * vector, no buffer beyond a tick's worth. Beyond it the comparison runs:
+ * dedicated vector (carriers + baseline WORK + an in-place-refilled buffer
+ * that never travels laden, so CARRY only) vs self-fetch at its optimum.
+ * The math lands where the game's meta does (static miner + hauler beat
+ * mobile harvesters): the vector wins from d=2 up at any real rate - but
+ * it is COMPUTED here so the corp reads a verdict, not a category.
+ */
+export function supplyMethod(
+  rate: number,
+  distance: number,
+  energyPerWork = BUILD_ENERGY_PER_WORK
+): { method: "direct" | "vector"; directParts: number; vectorParts: number } {
+  const directParts = directFetchParts(rate, distance, energyPerWork);
+  const vectorParts =
+    vectorSupplyParts(rate, distance) +
+    2 * (rate / energyPerWork) + // the baseline WORK core + its MOVE
+    bufferCarryParts(rate, refuelIntervalTicks(distance, 1)); // buffer: CARRY only (refilled in place)
+  if (distance <= 1) return { method: "direct", directParts, vectorParts };
+  return { method: directParts < vectorParts ? "direct" : "vector", directParts, vectorParts };
+}
+
+/**
+ * The ALL-IN operation spawn load (spec 34 D4): the node's own bodies PLUS
+ * every supply/evacuation vector it operates, each amortized over the
+ * effective life at ITS distance. This is the `spawnPartsPerTick` a corp's
+ * commission must declare - an operation that fields carriers its price
+ * omits is lying to the parts ledger (P4's measured "unbudgeted" class).
+ */
+export function operationSpawnLoad(nodeLoad: number, vectors: { rate: number; distance: number }[]): number {
+  let load = nodeLoad;
+  for (const v of vectors) {
+    load += vectorSupplyParts(v.rate, v.distance) / effectiveLife(v.distance);
+  }
+  return load;
+}
+
 export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 

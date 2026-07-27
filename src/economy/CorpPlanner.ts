@@ -35,6 +35,7 @@ import {
   spawnPartsFor,
   carryPartsFor,
   constructionWorkSpawnLoad,
+  operationSpawnLoad,
   controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
@@ -620,7 +621,12 @@ function routeToSinks(
       sink.kind === "controller"
         ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
         : sink.kind === "construction"
-        ? constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        ? // ALL-IN (spec 34 D4): the WORK bodies plus the supply vector that
+          // fuels them - the SAME charge the commission envelope declares
+          // (commissionPlan), linear in the rate so the per-unit form holds.
+          operationSpawnLoad(constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos)), [
+            { rate: 1, distance: nearestSpawnDist(sink.pos) }
+          ])
         : 0;
 
     for (const { id, d } of order) {
