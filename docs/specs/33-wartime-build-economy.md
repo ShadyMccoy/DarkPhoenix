@@ -90,6 +90,25 @@ drain-preference (lever 3); measure the fleet relegation live before deciding
 whether they are needed (the fleet shrink may backpressure the controller link
 enough on its own).
 
+**CONFIRMED 2026-07-27 (t72599499, dt 586 post-deploy):** the fleet relegation
+redirected the surplus AND lever 1 proved UNNECESSARY. Stamp fired clean
+(`wartime:true`, `allocated 2`, `targetCount 1`, `demand staffed`). Deltas vs
+the falsification baseline: P7 controller 18.8 -> 9.8 e/t (relegating, stock
+721->795 so the floor holds); P8 build 0 -> 3.91 e/t (sites 1->6, progress
+110->2400 - the surplus now lands in structures); E4 storage -4067 (draining
+below reserve) -> +5846 above, slope +16.92/t (drain STOPPED). The feared
+regression did NOT occur: LINK healthy (hub 15.5, ctrl 7.8, no jam), income
+healthy (P9 85.6 e/t routed, 1.22x funded), X5 churn 0. So shrinking the FLEET
+alone redirected the energy WITHOUT backpressuring the link or starving mining -
+lever 1 (relay throttle) is not needed. The physical redirect is still RAMPING
+(the 12-WORK incumbent upgrader ages out over ~1500t since targetCount=1 stops
+replacement, and the build crew is sizing up), so storage still banks +16.92/t
+until the upgrader drains and build climbs to its ~31 e/t absorb. The one ledger
+WARN (P7 0.65x plan) is the relegation working by design - the ledger has no
+wartime-mode awareness. Second check ~1 creep-gen out to confirm P8 climbs to
+absorb as the upgrader drains (the "build out-plans its haulage" watch: if
+storage keeps banking after the upgrader is gone, the tanker haul under-sizes).
+
 Still OPEN for the full mode: entry/exit HYSTERESIS as a named posture (the bare
 3000 threshold can flap as the last structure finishes - a build-out stays well
 above it so no flap mid-rebuild, but a lone finishing structure hovers); a

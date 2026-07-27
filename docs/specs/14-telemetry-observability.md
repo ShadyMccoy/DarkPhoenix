@@ -4737,3 +4737,24 @@ impossible now (no walking hauler on the core). Verdict: **FIXED, VERIFIED LIVE*
 (The SEPARATE core-convergence pile — H1 idleSink en-route, ground-piled ~8.8k —
 persists and is the base-remodel / core-placement work, spec 31 §6a + spec 32;
 not this thrash.)
+
+### AUDIT 2026-07-27 (t72598913→t72599499) — wartime "surplus to building": plan-side relegation FALSIFIED, physical fleet relegation FIXED + VERIFIED
+
+Two-part cycle on the owner's "surplus normally for upgrading, but now for
+building" (spec 33). (1) The plan-side controller cap (`controllerRoutingCapacity`
+relegating the controller sink in wartime) was deployed and **FALSIFIED as a
+physical no-op** (t72598913): the controller still ran P7 9x (~18.8 e/t vs the
+relegated plan ~2), P8 0 built, storage drained below reserve (E4 -4067). Cause:
+the fleet sizes from ACTUAL controller-side stock, which the source→core→
+controller LINK relay keeps full — capping the plan number moves no energy. (2)
+The PHYSICAL fix — relegate the FLEET itself (`upgraderSizing` gains a `wartime`
+flag off the shared `buildPoolBacklog >= WARTIME_BACKLOG_THRESHOLD` lens; the
+fleet drops to `ANTI_DOWNGRADE_RESERVE`) — deployed and **VERIFIED LIVE**
+(t72599499, dt 586): P7 18.8→9.8 e/t, P8 0→3.91 e/t (progress 110→2400, sites
+1→6), E4 -4067→+5846 (drain stopped). Feared link-backpressure regression did
+NOT occur: LINK hub 15.5/ctrl 7.8 (no jam), income P9 85.6 e/t 1.22x, X5 churn 0,
+no FAIL lines. **Lever 1 (relay throttle) proven UNNECESSARY — the fleet shrink
+alone redirected the surplus.** Redirect still ramping (12-WORK incumbent ages
+out over ~1500t, targetCount 1 stops replacement). Verdict: **FALSIFIED (plan
+half) + FIXED, VERIFIED LIVE (physical half)**; second check pending to confirm
+P8 climbs to absorb as the upgrader drains.
