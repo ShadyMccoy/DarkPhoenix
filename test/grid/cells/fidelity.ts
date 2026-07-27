@@ -547,8 +547,11 @@ function buildBuilderBufferFeedCell(): GridCell {
         energy: 100,
         memory: { workType: "build", corpId: "building-$room()-construction", working: true },
       })),
-      // The vector's carriers at the priced 1:1 gait (spec 34 D1: the
-      // vector IS carryPartsFor - 1 tile/tick laden), staged at the bank.
+      // The vector's carriers in the corp's own 3C:1M shape, staged at the
+      // bank. The laden-gait-vs-priced-RT tension is a measured OPEN item
+      // (spec 34): 1:1 bodies lifted this cell's util ~5 points but
+      // collapsed the poor-economy ramp world - the cell stages what the
+      // corp actually fields.
       ...[
         { name: "bk1", x: 22, y: 24 },
         { name: "bk2", x: 22, y: 26 },
@@ -556,7 +559,7 @@ function buildBuilderBufferFeedCell(): GridCell {
         { name: "bk4", x: 20, y: 26 },
       ].map(k => ({
         ...k,
-        body: ["carry", "carry", "carry", "carry", "carry", "move", "move", "move", "move", "move"],
+        body: ["carry", "carry", "carry", "carry", "carry", "move", "move"],
         memory: { workType: "tank", corpId: "building-$room()-construction" },
       })),
     ],

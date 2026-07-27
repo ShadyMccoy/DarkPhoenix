@@ -22,7 +22,7 @@ import { stepOffRoad, travelTo } from "./movement";
 import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
-import { buildBuilderBody, buildRatioHaulerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildBuilderBody, buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   pickCriticalRepairTarget,
   wantsCriticalRecovery,
@@ -2488,8 +2488,6 @@ export class ConstructionCorp extends Corp {
     // more energy per WORK, so the DELIVERY side is the binding constraint -
     // "we actually need the haulers to be bigger"). The old 4-CARRY cap
     // forced 200-capacity shuttles out of an 1800-capacity room.
-    // A 1:1 unit (1 CARRY + 1 MOVE) costs exactly 100, so floor(cap/100) IS
-    // the affordable CARRY per body at the vector's priced gait.
     const perTankerMax = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / 100), 16));
     const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
     const dist = this.buildFuelDistance(room, site);
@@ -2511,16 +2509,20 @@ export class ConstructionCorp extends Corp {
     // Distribute the need across the bodies instead.
     const target = Math.max(2, Math.ceil(carryNeeded / perTankerMax));
     const carryPer = Math.max(1, Math.min(perTankerMax, Math.ceil(carryNeeded / target)));
-    // Carriers at the PRICED 1:1 gait (spec 34 D1: the vector IS
-    // carryPartsFor, whose round trip assumes 1 tile/tick laden - a 1:1
-    // body's speed). The old CARRY-heavy tanker (3C:1M) crawled its laden
-    // leg at 3 t/tile: real RT ~2x the priced one, so the fleet sized
-    // against the priced RT under-delivered its own vector (measured by
-    // builder-buffer-feed as periodic buffer-drain starvation). Body now
-    // matches the sizing formula's physics; the tender's parked refill
-    // circuit keeps the CARRY-heavy shape where it belongs.
-    const desired = buildRatioHaulerBody(carryPer, ctx.energyCapacity, "1:1");
-    const min = buildRatioHaulerBody(1, ctx.energyCapacity, "1:1");
+    // BODY GAIT vs PRICED GAIT - a measured, OPEN tension (spec 34): the
+    // 3C:1M shape walks its laden leg at 3 t/tile, so the real round trip
+    // runs ~2x the roundTripTicks this sizing prices (builder-buffer-feed
+    // measured the starvation valleys: starved 500 vs 30 with 1:1 bodies).
+    // A 1:1 fleet is also strictly better per spawn-part on a plain
+    // shuttle - BUT switching to it collapsed the poor-economy ramp
+    // (fid-t5-real-maze gross 51% -> 25%, spawnIdle 57% -> 95%, twice,
+    // with a cost-envelope cap tried and falsified) through a demand-shape
+    // interaction that is NOT yet diagnosed. Per the trap list (question
+    // the mechanism, never stack patches), the shape stays 3:1 until that
+    // interaction is understood - see spec 34 "vector gait" open item for
+    // the full measurements.
+    const desired = buildTankerBody(carryPer, ctx.energyCapacity, false);
+    const min = buildTankerBody(1, ctx.energyCapacity, false);
     return {
       target,
       desiredCost: desired.cost,

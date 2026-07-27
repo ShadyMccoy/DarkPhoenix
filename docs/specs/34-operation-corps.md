@@ -31,23 +31,19 @@ ONTOLOGY §3 records the family.
   site completion). Home corps release ONLY through the operation-end
   cohort; remote stint corps keep the immediate local hand-off (their want
   is a stable local signal — the original hand-off incident).
-- **`builder-buffer-feed` grid cell** — green at 98–100% workUtil across
-  four draws (floor 0.9), zero fuel trips, delivery detected ~t21. Building
-  it surfaced and fixed THREE fidelity gaps, in order of discovery:
+- **`builder-buffer-feed` grid cell** — green at 91–92% workUtil across
+  four draws (floor 0.9), zero fuel trips, fed-idle 0. Building it surfaced
+  THREE fidelity gaps; two are fixed, the third is measured and queued:
   1. **Parked burn** (fed-idle was 73% of all idle): the full-refill toggle
      made a vector-fed builder wait for a FULL store while the tanker
      dribbled its buffer. Now: while the corp fields live tankers, the
      builder builds on ANY held energy and holds its post when dry
      (`parkedBuilderBurn.test.ts`); fetch worlds keep the toggle verbatim.
-  2. **1:1 vector carriers**: the CARRY-heavy 3C:1M tanker walked its laden
-     leg at 3 t/tile — real RT ≈ 2× the `roundTripTicks` the sizing priced,
-     so the fleet under-delivered its own vector (starvation valleys,
-     starved 500 → 30 after). Construction tankers now field
-     `buildRatioHaulerBody 1:1`, the gait `vectorSupplyParts` prices ("the
-     vector IS carryPartsFor"); the tender keeps CARRY-heavy where the duty
-     cycle really is parked. bodyEquivalence pins the supersession.
-  3. **The operation-end release gate** (the D6 refinement above): fed-idle
+  2. **The operation-end release gate** (the D6 refinement above): fed-idle
      1480 → 0.
+  3. **The vector-gait tension — measured, OPEN** (see the open item
+     below): the residual ~8% is starvation from the 3C:1M carrier's laden
+     gait (3 t/tile → real RT ≈ 2× the priced `roundTripTicks`).
 
 **OPEN, in order:**
 
@@ -64,7 +60,23 @@ ONTOLOGY §3 records the family.
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
-4. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
+4. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
+   mechanism NOT yet understood; do not patch blind (trap-list rule). The
+   facts: (a) `tankerCarryNeeded` sizes the fleet with `roundTripTicks`
+   (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile
+   (real RT ≈ 4d+2) — the fleet under-delivers its own vector, measured in
+   builder-buffer-feed as starvation valleys (starved ~500-700/window;
+   util 91-92% vs 98-100% with 1:1 bodies). (b) A 1:1 fleet is strictly
+   better per spawn-part on a plain shuttle (rate/part ratio 0.75-0.9
+   favoring 1:1 at all d). (c) BUT switching construction tankers to 1:1
+   collapsed the poor-economy ramp: fid-t5-real-maze gross 51% → 25%,
+   spawnIdle 57% → 95%, reproduced twice, and a cost-envelope cap
+   (`floor(cap/150)` per body, holding the old 200-cost desired) did NOT
+   restore it — so the interaction is a demand-shape effect, not body
+   price. Next probe: diff the two variants' spawn agendas/executed buys
+   over the maze ramp (t0-600) to find which demand class the 1:1 shape
+   displaces or walls.
+5. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
    read the bot's exported memory PER TICK (workType lens, plan sums); the
    builder-buffer-feed calibration measured ~13% of samples with
    unparsable/partial memory, which silently drops the plan-side sums those

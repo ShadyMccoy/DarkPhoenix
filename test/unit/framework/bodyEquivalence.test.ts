@@ -21,7 +21,6 @@ import {
   UpgraderStrategy,
   buildGuardBody,
   buildMinerBody,
-  buildRatioHaulerBody,
   buildReserverBody,
   buildBuilderBody,
   buildTankerBody,
@@ -111,8 +110,8 @@ interface Case {
   kind: CorpKind;
   role: string;
   hints?: BodyHints;
-  /** Deliberate supersession of the retired switch (spec 34): the pin
-   * freezes kind-vs-formula instead of kind-vs-reference for this row. */
+  /** Deliberate supersession of the retired switch: the pin freezes
+   * kind-vs-formula instead of kind-vs-reference for this row. */
   reference?: (budget: number, param: number | undefined) => BodyPartConstant[];
 }
 
@@ -127,16 +126,7 @@ const CASES: Case[] = [
   { kind: upgradeKind as CorpKind, role: "upgrader", hints: { bodyStrategy: "mobile" } },
   { kind: upgradeKind as CorpKind, role: "upgrader", hints: { bodyStrategy: "containerFed" } },
   { kind: constructionKind as CorpKind, role: "builder" },
-  // Spec 34 D1 (deliberate supersession, like the builder row): the
-  // construction tanker is the supply VECTOR's carrier and fields the 1:1
-  // gait the vector math prices (vectorSupplyParts = 2*carryPartsFor assumes
-  // 1 tile/tick laden). The retired switch's CARRY-heavy shape survives only
-  // where the duty cycle really is parked - the tender, pinned below.
-  {
-    kind: constructionKind as CorpKind,
-    role: "tanker",
-    reference: (budget, param) => buildRatioHaulerBody(param ?? 4, budget, "1:1").body
-  },
+  { kind: constructionKind as CorpKind, role: "tanker" },
   { kind: extensionTenderKind as CorpKind, role: "tanker" },
   { kind: controllerFeederKind as CorpKind, role: "feeder" },
   { kind: scoutKind as CorpKind, role: "scout" },

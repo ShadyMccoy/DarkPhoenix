@@ -26,7 +26,7 @@ import { stripSpawnPrefix } from "../../economy/ids";
 import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildBuilderBody, buildRatioHaulerBody } from "../../spawn/BodyBuilder";
+import { buildBuilderBody, buildTankerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
 import { homeSpawnsByRoom, nearestSpawnTo } from "../../economy/proposeHelpers";
@@ -223,15 +223,10 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // Two shapes: WORK builders carrying their own BUFFER (spec 34 D3 -
     // bodyParam is the demanded WORK, hints.bufferCarry the interval-sized
     // CARRY; the old buildUpgraderBody(cap, 2) path IGNORED bodyParam, so
-    // demand and body disagreed) and the supply VECTOR's carriers at the
-    // PRICED 1:1 gait (spec 34 D1: vectorSupplyParts = 2*carryPartsFor
-    // assumes laden-both-ways 1:1 - "the vector IS carryPartsFor". The old
-    // CARRY-heavy 3C:1M tanker walked its laden leg at 3 t/tile, so the
-    // real round trip ran ~2x the priced one and the fleet sized to the
-    // priced RT under-delivered its own vector: measured by the
-    // builder-buffer-feed cell as buffer-drain starvation valleys. The
-    // tender keeps the CARRY-heavy shape - ITS duty cycle is parked).
-    if (role === "tanker") return buildRatioHaulerBody(bodyParam ?? 4, energyBudget, "1:1").body;
+    // demand and body disagreed) and CARRY tankers operating the corp's
+    // supply vector (3C:1M - the gait-vs-priced-RT tension is a measured
+    // OPEN item, see the tankerPlan note + spec 34).
+    if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
     return buildBuilderBody(bodyParam ?? 2, hints?.bufferCarry ?? 2, energyBudget).body;
   },
 
