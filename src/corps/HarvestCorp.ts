@@ -7,10 +7,12 @@
  * @module corps/HarvestCorp
  */
 
+import { isIntelId, parsePositionalId, stripSourcePrefix, stripSpawnPrefix } from "../economy/ids";
 import { HARVEST_ENERGY_PER_WORK, staffsPost, workPartsForEnergyRate } from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
+import { spawnRoomHasFlowMiner } from "./censusLens";
 import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
@@ -127,12 +129,9 @@ export class HarvestCorp extends Corp {
     }
 
     // For intel-based sources, parse position from ID format: "intel-ROOMNAME-X-Y"
-    if (this.sourceId.startsWith("intel-")) {
-      const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
-      if (match) {
-        const [, parsedRoom, x, y] = match;
-        return { x: parseInt(x, 10), y: parseInt(y, 10), roomName: parsedRoom };
-      }
+    if (isIntelId(this.sourceId)) {
+      const parsed = parsePositionalId(this.sourceId);
+      if (parsed) return { ...parsed.pos };
     }
 
     // Fallback: extract room name from nodeId
@@ -153,7 +152,7 @@ export class HarvestCorp extends Corp {
     // {corpId, workType} - only STAGED test creeps carried it, which made
     // the saturation gate read every organic home source as unmined and
     // remotes never unlocked (measured via SATDIAG probe).
-    const realSourceId = this.sourceId.replace("source-", "");
+    const realSourceId = stripSourcePrefix(this.sourceId);
     for (const creep of this.getActiveCreeps()) {
       if (creep.memory.assignedSourceId !== realSourceId) {
         creep.memory.assignedSourceId = realSourceId;
@@ -165,20 +164,20 @@ export class HarvestCorp extends Corp {
 
     // For intel-based sources (remote rooms), source might be null until we have vision
     // Parse position from intel source ID format: "intel-ROOMNAME-X-Y"
-    const isIntelSource = this.sourceId.startsWith("intel-");
+    const isIntelSource = isIntelId(this.sourceId);
     let targetPos: RoomPosition | null = null;
 
     if (!source && isIntelSource) {
-      const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(this.sourceId);
-      if (match) {
-        const [, roomName, x, y] = match;
-        targetPos = new RoomPosition(parseInt(x, 10), parseInt(y, 10), roomName);
+      const parsed = parsePositionalId(this.sourceId);
+      if (parsed) {
+        const { x, y, roomName } = parsed.pos;
+        targetPos = new RoomPosition(x, y, roomName);
 
         // If we now have vision of the room, try to find the actual source
         const room = Game.rooms[roomName];
         if (room) {
           const sources = room.find(FIND_SOURCES);
-          source = sources.find(s => s.pos.x === parseInt(x, 10) && s.pos.y === parseInt(y, 10)) ?? null;
+          source = sources.find(s => s.pos.x === x && s.pos.y === y) ?? null;
         }
       }
     }
@@ -267,7 +266,7 @@ export class HarvestCorp extends Corp {
     // Release the smallest; on WORK ties, the one FARTHEST from the source -
     // never the seated holder (grid cell move-miner-pocket-holdoff: an
     // index-order tie-break recycled the seated miner and displaced it).
-    const source = Game.getObjectById(this.sourceId.replace("source-", "") as Id<Source>);
+    const source = Game.getObjectById(stripSourcePrefix(this.sourceId) as Id<Source>);
     let releaseIdx = 0;
     staffing.forEach((c, i) => {
       if (i === 0) return;
@@ -533,21 +532,9 @@ export class HarvestCorp extends Corp {
   private spawnRoomHasMiner(): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const spawnRoom = spawn?.room.name;
-    // Count only real FLOW miners (a HarvestCorp's creep, corpId "mining-..."),
-    // NOT bootstrap jacks - which also carry workType "harvest" but corpId
-    // "bootstrap-...". Counting jacks here made every flow miner non-blocking
-    // while jacks were alive, so the blocking upgrader/haulers always outranked
-    // it and no flow miner ever spawned: the colony could never hand off from
-    // bootstrap to the flow economy.
-    for (const name in Game.creeps) {
-      const creep = Game.creeps[name];
-      const memory = creep.memory;
-      if (memory.workType !== "harvest" || !memory.corpId?.startsWith("mining-")) continue;
-      // Unknown rooms (unit-harness mocks) count as local - the old colony-wide
-      // behavior - so only a KNOWN remote miner is excluded from the floor gate.
-      if (!spawnRoom || creep.room?.name === undefined || creep.room.name === spawnRoom) return true;
-    }
-    return false;
+    // Count only real FLOW miners, never bootstrap jacks - the census lens
+    // carries the compound predicate and the handoff incident rationale.
+    return spawnRoomHasFlowMiner(spawnRoom);
   }
 
   /**
@@ -634,7 +621,7 @@ export class HarvestCorp extends Corp {
     // The flow sink id is prefixed ("spawn-<gameId>"); strip it so spawnId is
     // the real spawn game id - the spawn scheduler matches corps to spawns by
     // this id, and a prefixed value silently excludes the corp (no miners spawn).
-    this.spawnId = assignment.spawnId.replace("spawn-", "");
+    this.spawnId = stripSpawnPrefix(assignment.spawnId);
   }
 
   /**

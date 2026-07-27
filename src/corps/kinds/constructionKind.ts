@@ -22,6 +22,7 @@
 import { Commission, corpIdFor } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
+import { stripSpawnPrefix } from "../../economy/ids";
 import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
@@ -130,7 +131,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       // spawn ids ("spawn-<gameId>"), the live problem carries raw game ids.
       // Normalize before the lookup - without this it ALWAYS missed and every
       // remote trunk fell through to the first spawn's room (audit find).
-      const spawnKey = m.spawnId?.replace("spawn-", "");
+      const spawnKey = stripSpawnPrefix(m.spawnId);
       const homeRoom = (spawnKey && spawnRoomById.get(spawnKey)) ?? [...spawnRoomById.values()][0];
       if (!homeRoom || at.roomName === homeRoom) continue; // home sources: the in-room scan covers them
       const list = trunksByRoom.get(homeRoom) ?? [];
@@ -168,7 +169,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // construction allocations in the spawnless rooms it staffs.
     const poolAllocBySpawnRoom = new Map<string, number>();
     for (const [roomName, spawnId] of homeSpawnByRoom) {
-      const spawnRoom = spawnRoomById.get(spawnId.replace("spawn-", "")) ?? roomName;
+      const spawnRoom = spawnRoomById.get(stripSpawnPrefix(spawnId)) ?? roomName;
       if (roomName === spawnRoom) continue; // own-room allocations ride `allocations`
       const sum = (allocByRoom.get(roomName) ?? []).reduce((s, a) => s + a.allocated, 0);
       if (sum > 0) poolAllocBySpawnRoom.set(spawnRoom, (poolAllocBySpawnRoom.get(spawnRoom) ?? 0) + sum);

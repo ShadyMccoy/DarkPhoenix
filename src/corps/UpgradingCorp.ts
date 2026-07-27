@@ -7,6 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
 import { driveRecycle } from "./recycle";
@@ -443,20 +444,6 @@ export class UpgradingCorp extends Corp {
     this.spawnId = spawnId;
   }
 
-  /**
-   * True if the room already has a real flow hauler in the field (corpId
-   * "hauling-..."), i.e. the mining->spawn delivery loop is closed. Bootstrap
-   * jacks (which also move energy) are deliberately excluded - see the
-   * supply-before-demand gate in getSpawnDemand.
-   */
-  private roomHasHauler(room: Room): boolean {
-    for (const creep of room.find(FIND_MY_CREEPS)) {
-      const memory = creep.memory;
-      if (memory.workType === "haul" && memory.corpId?.startsWith("hauling-")) return true;
-    }
-    return false;
-  }
-
     /**
    * Declare this corp's spawn demand for the scheduler.
    *
@@ -483,7 +470,7 @@ export class UpgradingCorp extends Corp {
     // closes the supply loop; the controller is kept alive meanwhile by the
     // bootstrap corp's anti-downgrade upgrading. Bootstrap jacks do NOT count -
     // we want their deliveries to fund the first hauler, not be spent upgrading.
-    if (spawn && !this.roomHasHauler(spawn.room)) return [];
+    if (spawn && !roomHasFlowHauler(spawn.room)) return [];
 
     // Energy/tick the controller is allocated; that is the WORK the upgraders
     // must total to consume it (1 energy/tick per WORK part). Without an

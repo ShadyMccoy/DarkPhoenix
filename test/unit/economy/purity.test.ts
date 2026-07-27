@@ -39,7 +39,8 @@ const PURE: string[] = [
   "expansion.ts",
   "goals.ts",
   "strategy.ts",
-  "depositSavings.ts"
+  "depositSavings.ts",
+  "ids.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
@@ -115,7 +116,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
-      "./goals", "./strategy",
+      "./goals", "./strategy", "./ids",
       // pure shared types
       "../types/Position", "../types/Memory",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling

@@ -24,6 +24,7 @@ import { Position } from "../types/Position";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
 import { extensionClusters, nextStop, roomCircuit } from "./refillCircuit";
 import { travelTo, travelToBypass } from "./movement";
+import { roomHasFlowMiner } from "./censusLens";
 import { CARRY_MOVE_PAIR_COST, maxCarryPairs, staffsPost } from "../economy/primitives";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
@@ -156,21 +157,6 @@ export class ExtensionTenderCorp extends Corp {
 
   public getCreepCount(): number {
     return this.getTenders().length;
-  }
-
-  /** True once a flow miner is producing in the room (income before infrastructure). */
-  private roomHasMiner(room: Room): boolean {
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (
-        c.room.name === room.name &&
-        c.memory.workType === "harvest" &&
-        (c.memory.corpId ?? "").startsWith("mining-")
-      ) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -481,7 +467,7 @@ export class ExtensionTenderCorp extends Corp {
 
     // Infrastructure follows income: don't spawn a tender before the room has a
     // miner, or it takes the first spawn slot and delays the economy it depends on.
-    const hasMiner = this.roomHasMiner(room);
+    const hasMiner = roomHasFlowMiner(room.name);
     if (!hasMiner) {
       this.lastSizing = { tick: ctx.tick, gate: "no-miner", extensions: extensions.length, hasMiner };
       return [];

@@ -47,6 +47,7 @@ import {
   planColony
 } from "./CorpPlanner";
 import { Commission } from "./Commission";
+import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
@@ -134,7 +135,7 @@ export const FUND_HORIZON = 50;
  */
 export function agendaFundingRate(sinkId: string): number {
   if (typeof Memory === "undefined" || typeof Game === "undefined") return 0;
-  const spawnId = sinkId.replace("spawn-", "");
+  const spawnId = stripSpawnPrefix(sinkId);
   const entry = Memory.spawnAgenda?.[spawnId];
   if (!entry || Game.time - entry.tick > 100) return 0;
   return entry.fundingNeed / FUND_HORIZON;
@@ -395,15 +396,11 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
- * Whether a source id counts as SUSTAINED mined income (excludes intel-only
- * prospects - rooms scouted before their real source ids were recorded, which
- * are not income; the t72444684 phantom guard). One home for the rule so the
- * plan's income sum (buildColonyProblem minedSupply) and the reserve's income
- * (FlowEconomy warchestTarget) classify identically and cannot drift.
+ * The mined-income id rule now lives in economy/ids.ts (spec 32 phase C: one
+ * id-space home); re-exported here for the existing import sites (FlowEconomy's
+ * warchest income sum).
  */
-export function isMinedIncomeId(id: string): boolean {
-  return !id.startsWith("source-intel-") && !id.startsWith("intel-");
-}
+export { isMinedIncomeId } from "./ids";
 
 /**
  * Physical energy room remaining in a room's storage bank. Infinity when there
@@ -470,7 +467,7 @@ export function buildColonyProblem(
     // The mid-build repricing verdict (roadEconomics): a route >= 1/2 built
     // already fields the 2:1 body; the fraction rides along so the planner
     // sizes CARRY at the effective (crawl-corrected) distance.
-    const paveFrac = pavedSources.get(s.id.replace("source-", ""));
+    const paveFrac = pavedSources.get(stripSourcePrefix(s.id));
     const pave = paveFrac === undefined ? undefined : partialPaveRatio(paveFrac, 1);
     return {
       id: s.id,
@@ -590,9 +587,10 @@ export function buildColonyProblem(
     .getSinks()
     .filter(s => s.type === "storage")
     .map(s => s.position);
-  const clusterSources = graph
-    .getSources()
-    .filter(s => !s.id.startsWith("source-intel-") && !s.id.startsWith("intel-"));
+  // Same phantom guard as minedSupply above - intel-only prospects are not
+  // income and must not anchor a cluster (this was isMinedIncomeId's documented
+  // "one home" rule re-implemented inline; audit finding economy-adapters/5).
+  const clusterSources = graph.getSources().filter(s => isMinedIncomeId(s.id));
   const clusters = new Map<string, { rate: number; remaining: number }>();
   const sinkClusterSource = new Map<string, string>();
   if (storagePositions.length > 0) {
@@ -784,7 +782,7 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     // Bank flows are executed by the depot movers (tender/feeder), never by a
     // spawnable CarryCorp - publishing them would be permanent phantom variance
     // for the plan-vs-fielded gauges.
-    if (h.sourceId.startsWith("bank-")) continue;
+    if (isBankSourceId(h.sourceId)) continue;
     corps.push({
       kind: "haul",
       carry: Math.max(1, Math.ceil(h.carryParts)),

@@ -11,6 +11,7 @@
 import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedMiner } from "../../economy/CorpPlanner";
+import { stripSourcePrefix } from "../../economy/ids";
 import { minerOverhead } from "../../economy/primitives";
 import { MinerAssignment } from "../../flow/FlowTypes";
 import { buildMinerBody } from "../../spawn/BodyBuilder";
@@ -19,7 +20,7 @@ import { HarvestCorp, SerializedHarvestCorp } from "../HarvestCorp";
 
 /** The real game source id (the flow "source-" prefix stripped, defensively). */
 function gameSourceId(corp: HarvestCorp): string {
-  return corp.getSourceId().replace("source-", "");
+  return stripSourcePrefix(corp.getSourceId());
 }
 
 /**
@@ -78,7 +79,7 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     // HarvestCorp.work() resolves the source via Game.getObjectById(this.sourceId),
     // so the corp's sourceId must be the REAL game id - strip the flow "source-"
     // prefix. The assignment keeps the flow id.
-    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, m.sourceId.replace("source-", ""));
+    const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, stripSourcePrefix(m.sourceId));
     corp.setMinerAssignment(assignment);
     corp.setPostHint(c.produces.at);
     return corp;

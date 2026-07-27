@@ -12,6 +12,7 @@
 import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedHauler } from "../../economy/CorpPlanner";
+import { isScavengeId, stripSourcePrefix, stripSpawnPrefix } from "../../economy/ids";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { CarryCorp, SerializedCarryCorp } from "../CarryCorp";
@@ -49,14 +50,14 @@ export const carryKind: CorpKind<CarryCorp> = {
     if (existing) {
       existing.setHaulerAssignments(assignments);
       // Commission-owned, same stripping as creation below: never let it go stale.
-      existing.setSpawnId(routes[0].spawnId.replace("spawn-", ""));
+      existing.setSpawnId(stripSpawnPrefix(routes[0].spawnId));
       existing.setPickupHint(c.consumes.at);
       return existing;
     }
     // The flow spawn id is prefixed ("spawn-<gameId>"); strip it so the corp's
     // spawnId is the real game id the scheduler matches on (CarryCorp does not
     // strip it itself, unlike HarvestCorp).
-    const spawnId = routes[0].spawnId.replace("spawn-", "");
+    const spawnId = stripSpawnPrefix(routes[0].spawnId);
     const roomName = c.consumes.at?.roomName ?? routes[0].sourceId;
     const corp = new CarryCorp(legacyNodeId(roomName, routes[0].sourceId), spawnId);
     corp.setHaulerAssignments(assignments);
@@ -95,8 +96,8 @@ export const carryKind: CorpKind<CarryCorp> = {
   // "started"; otherwise the unit starts when the source's producer fields.
   demandGroup(corp: CarryCorp, corpId: string, world: DemandWorld) {
     const fromId = corp.getHaulerAssignments()[0]?.fromId;
-    const sourceId = (fromId ?? corpId.replace(/^carry-/, "")).replace("source-", "");
-    const started = sourceId.startsWith("scavenge-") || world.isSourceMined(sourceId);
+    const sourceId = stripSourcePrefix(fromId ?? corpId.replace(/^carry-/, ""));
+    const started = isScavengeId(sourceId) || world.isSourceMined(sourceId);
     return { groupId: sourceId, started };
   },
 

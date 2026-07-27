@@ -15,6 +15,7 @@
 import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
+import { stripSpawnPrefix } from "../../economy/ids";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
 import { UpgraderStrategy, buildUpgraderBody } from "../../spawn/BodyBuilder";
@@ -68,14 +69,14 @@ export const upgradeKind: CorpKind<UpgradingCorp> = {
       // is immortal - a stale spawnId (spawn rebuilt sometime in 72M ticks)
       // made collectDemands drop its demands forever while the plan begged
       // for 117 WORK of upgrading.
-      existing.setSpawnId((spawnId ?? "").replace("spawn-", ""));
+      existing.setSpawnId(stripSpawnPrefix(spawnId ?? ""));
       return existing;
     }
     const roomName = c.produces.at?.roomName ?? sink.sinkId;
     // The serving spawn is the flow sink id ("spawn-<gameId>"); strip the prefix
     // to the real game id the scheduler matches on (UpgradingCorp does not strip
     // it itself, and FlowMaterializer passes the already-real spawn.id).
-    const corp = new UpgradingCorp(legacyNodeId(roomName), (spawnId ?? "").replace("spawn-", ""));
+    const corp = new UpgradingCorp(legacyNodeId(roomName), stripSpawnPrefix(spawnId ?? ""));
     corp.setSinkAllocation(allocation);
     return corp;
   },

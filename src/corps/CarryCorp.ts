@@ -8,6 +8,8 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
+import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
+import { isTenderCreep } from "./censusLens";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
@@ -732,27 +734,25 @@ export class CarryCorp extends Corp {
     if (this.haulerAssignments.length > 0) {
       const assignment = this.haulerAssignments[0];
       // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
-      const sourceGameId = assignment.fromId.replace("source-", "");
+      const sourceGameId = stripSourcePrefix(assignment.fromId);
 
       // Scavenger: the "source" is a ground stock (no live object). Parse its
       // position from the id (scavenge-ROOM-X-Y) the same way as an intel source.
-      if (sourceGameId.startsWith("scavenge-")) {
-        const match = /^scavenge-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(sourceGameId);
-        if (match) {
-          const [, roomName, x, y] = match;
-          creep.memory.assignedSourcePos = { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
+      if (isScavengeId(sourceGameId)) {
+        const parsed = parsePositionalId(sourceGameId);
+        if (parsed) {
+          creep.memory.assignedSourcePos = { ...parsed.pos };
         }
         return null;
       }
 
       // Check if this is an intel-based source (remote room without vision)
-      if (sourceGameId.startsWith("intel-")) {
+      if (isIntelId(sourceGameId)) {
         // Intel source: parse position from ID format "intel-ROOMNAME-X-Y"
-        const match = /^intel-([EW]\d+[NS]\d+)-(\d+)-(\d+)$/.exec(sourceGameId);
-        if (match) {
-          const [, roomName, x, y] = match;
+        const parsed = parsePositionalId(sourceGameId);
+        if (parsed) {
           // Store position for navigation even without source object
-          creep.memory.assignedSourcePos = { x: parseInt(x, 10), y: parseInt(y, 10), roomName };
+          creep.memory.assignedSourcePos = { ...parsed.pos };
         }
         return null; // No live source object for intel sources
       }
@@ -900,7 +900,7 @@ export class CarryCorp extends Corp {
 
   /** True when this corp serves a transient ground stock rather than a source. */
   private isScavenger(): boolean {
-    return this.haulerAssignments[0]?.fromId.startsWith("scavenge-") ?? false;
+    return isScavengeId(this.haulerAssignments[0]?.fromId ?? "");
   }
 
   /**
@@ -1251,8 +1251,7 @@ export class CarryCorp extends Corp {
       const tender = Object.values(Game.creeps).find(
         c =>
           c.room.name === room.name &&
-          c.memory.workType === "tank" &&
-          String(c.memory.corpId ?? "").includes("tender") &&
+          isTenderCreep(c.memory) &&
           c.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
           c.store[RESOURCE_ENERGY] < bankCapacity
       );
@@ -1641,7 +1640,7 @@ export class CarryCorp extends Corp {
   /** This corp's source game id (from its flow assignments). */
   private mySourceId(): string | undefined {
     const a = this.haulerAssignments[0];
-    return a ? a.fromId.replace("source-", "") : undefined;
+    return a ? stripSourcePrefix(a.fromId) : undefined;
   }
 
   /**

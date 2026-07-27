@@ -704,6 +704,10 @@ function populateNodeResources(
             // built a SECOND harvest corp for the same source, and both corps
             // spawned a miner (the duplicate-miner incident). The positional id
             // remains only as the legacy fallback for pre-sourceIds intel.
+            // THE encoder for the intel phantom-source id space: the matching
+            // lenses (economy/ids.ts isIntelId / parsePositionalId /
+            // isMinedIncomeId) decode exactly this "intel-ROOM-X-Y" form;
+            // change one only with the other.
             node.resources.push({
               type: "source",
               id: intel.sourceIds?.[i] ?? `intel-${roomName}-${sourcePos.x}-${sourcePos.y}`,

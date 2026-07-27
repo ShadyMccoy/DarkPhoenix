@@ -23,6 +23,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
+import { roomHasFlowMiner } from "./censusLens";
 import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
@@ -185,21 +186,6 @@ export class ControllerFeederCorp extends Corp {
     return this.getFeeders().length;
   }
 
-  /** True once a flow miner is producing in the room (income before infrastructure). */
-  private roomHasMiner(room: Room): boolean {
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (
-        c.room.name === room.name &&
-        c.memory.workType === "harvest" &&
-        (c.memory.corpId ?? "").startsWith("mining-")
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /** Energy already staged at the controller input: its container/link plus piles. */
   private controllerStock(controller: StructureController, inputPos: RoomPosition): number {
     let stock = 0;
@@ -351,7 +337,7 @@ export class ControllerFeederCorp extends Corp {
       return []; // no bank yet -> haulers feed the controller directly
     }
     const banked = room.storage.store.energy ?? 0;
-    const hasMiner = this.roomHasMiner(room);
+    const hasMiner = roomHasFlowMiner(room.name);
     if (!hasMiner) {
       this.lastSizing = { tick: ctx.tick, gate: "no-miner", banked, hasMiner };
       return []; // infrastructure follows income
