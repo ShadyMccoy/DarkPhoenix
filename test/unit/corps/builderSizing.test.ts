@@ -85,7 +85,7 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     // while a warchest surplus stands - ~2x the lifetime pace, so the surplus is
     // spent into structures not banked. A filling warchest (no surplus) keeps
     // the lifetime pace. Same bankSurplusRate lens the plan sink reads.
-    const { buildPoolAbsorbRate } = require("../../../src/corps/ConstructionCorp");
+    const { buildPoolAbsorbRate } = require("../../../src/corps/constructionLedger");
     (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
     const spawnPos = { x: 25, y: 25, roomName: "W1N1", getRangeTo: () => 5 };
     const bigSite = { progressTotal: 30_000, progress: 0, pos: { x: 30, y: 30 } };

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { buildPoolAbsorbRate } from "../../../src/corps/ConstructionCorp";
+import { buildPoolAbsorbRate } from "../../../src/corps/constructionLedger";
 import { projectAbsorbRate } from "../../../src/economy/primitives";
 
 /**

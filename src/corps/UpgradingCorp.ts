@@ -24,8 +24,8 @@ import {
 } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
-import { CONTROLLER_STARVE_FLOOR } from "./CarryCorp";
-import { buildPoolAbsorbRate, buildPoolBacklog } from "./ConstructionCorp";
+import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
+import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
 import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */

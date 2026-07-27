@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
+import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
 import {
-  ConstructionCorp,
   PROJECT_LEDGER_DECAY,
   ProjectRecord,
   constructionProjectLedger
-} from "../../../src/corps/ConstructionCorp";
+} from "../../../src/corps/constructionLedger";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 /**

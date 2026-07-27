@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { buildPool } from "../../../src/corps/ConstructionCorp";
+import { buildPool } from "../../../src/corps/constructionLedger";
 
 /**
  * The colony's ONE build pool (owner 2026-07-20: "It basically just doesn't

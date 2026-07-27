@@ -4,7 +4,14 @@
 > messages and some historical comments; it was renumbered to 35 when the
 > merge brought in master's own spec 32 (graceful mining backoff).
 
-**Status:** PHASES A–D LANDED 2026-07-27 (each its own gated commit: A
+**Status:** PHASES A–D + G–H LANDED 2026-07-27; G: flow/ collapsed into
+economy/flowAdapter (one DTO module survives), main.ts 1059→620
+(console → execution/console.ts, sink admission → economy/planningAssembly,
+ONE runPlanningPhase(force) fixing the console-forced zero-sink bug);
+H: ConstructionCorp → constructionLedger + constructionPlacement + runtime
+(2986→2538+203+313), CarryCorp → haulPolicy (1828→1526+341), Telemetry →
+8 segment writers + 157-line orchestrator (frozen bytes proven
+differentially). (each its own gated commit: A
 dead-code sweep −3,295 lines; B constants inversion + formula folds,
 primitives imports from nobody; C economy/ids.ts + corps/censusLens.ts;
 D propose helpers + startedUnitDemandGroup + optional run/runCorpTick +

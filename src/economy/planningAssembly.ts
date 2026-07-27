@@ -12,7 +12,7 @@
 
 import { FlowEconomy } from "./flowAdapter";
 import { Node } from "../nodes/Node";
-import { constructionProjectLedger } from "../corps/ConstructionCorp";
+import { constructionProjectLedger } from "../corps/constructionLedger";
 import { aggregateTrunkRoadSinks } from "./roadSegments";
 import { collectTrunkRoutes, homeBankSupply } from "./roadSegmentsGame";
 import { roomLinearDistance } from "../utils/RoomDiscovery";

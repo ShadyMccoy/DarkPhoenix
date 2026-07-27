@@ -22,7 +22,8 @@ import {
   runCommissionedCorps,
   serializeStore
 } from "../../../src/economy/CorpKind";
-import { ConstructionCorp, trunkGateFromSurvey } from "../../../src/corps/ConstructionCorp";
+import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
+import { trunkGateFromSurvey } from "../../../src/corps/constructionPlacement";
 import { constructionKind, ConstructionAssignment } from "../../../src/corps/kinds/constructionKind";
 import { describeCorpKindConformance } from "./conformance";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";

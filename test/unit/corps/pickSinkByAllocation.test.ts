@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import "../../../src/types/Memory"; // load CreepMemory/Memory augmentation
-import { pickSinkByAllocation } from "../../../src/corps/CarryCorp";
+import { pickSinkByAllocation } from "../../../src/corps/haulPolicy";
 
 describe("pickSinkByAllocation", () => {
   it("delivers to the spawn when there is no controller route", () => {

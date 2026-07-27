@@ -188,4 +188,67 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       "demandLadder gained a Game/Memory reference — the ladder is pure named constants (spec 35 phase D)"
     ).to.equal(false);
   });
+
+  it("the construction placement ladder (corps/constructionPlacement.ts) is Game/Memory-free", () => {
+    // Spec 35 phase H: rung tables + tile-election policy only. The scorers
+    // operate on the Room they are handed; placement EXECUTION (site
+    // creation, cooldowns, stamps) stays in ConstructionCorp.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/constructionPlacement.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "constructionPlacement gained a Game/Memory reference — Game-coupled placement belongs in ConstructionCorp"
+    ).to.equal(false);
+  });
+
+  it("the hauler policy head (corps/haulPolicy.ts) is Game/Memory-free", () => {
+    // Spec 35 phase H: CarryCorp's exported pure-policy head (sink choice,
+    // storage banking, depot refill, dedicated-source drain, duty
+    // classification) - pure functions of their arguments. World reads stay
+    // in CarryCorp (the corp runtime), which supplies the state.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/haulPolicy.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "haulPolicy gained a Game/Memory reference — Game-coupled hauling belongs in CarryCorp"
+    ).to.equal(false);
+  });
+
+  it("the construction ledger lens (corps/constructionLedger.ts) reads Game only behind typeof guards", () => {
+    // Spec 35 phase H: the PLAN-consumed lens surface (project ledger + build
+    // pool). Same adapter-style ratchet as economy/'s ADAPTERS: world reads
+    // are allowed, but only typeof-guarded, so pure harnesses can call it.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/corps/constructionLedger.ts"), "utf8")
+    );
+    const refs = (code.match(/\bGame\s*[.[]/g) ?? []).length;
+    const guards = (code.match(/typeof\s+(Game|Memory)\s*[!=]==?\s*"undefined"/g) ?? []).length;
+    if (refs > 0) {
+      expect(guards, `${refs} Game references need typeof guards`).to.be.greaterThan(0);
+    }
+  });
+
+  it("economy/ never imports a corp RUNTIME module (the phase-H seam)", () => {
+    // The seam violation spec 35 phase H closes: planningAssembly imported
+    // constructionProjectLedger from corps/ConstructionCorp (the Game-coupled
+    // corp runtime). economy/ may reach into corps/ ONLY for the whitelisted
+    // lens/type modules below — a corp class import cannot land silently again.
+    const ALLOWED_CORPS_IMPORTS = new Set(["Corp", "nodeEnergy", "constructionLedger"]);
+    const all = fs.readdirSync(ECONOMY).filter(f => f.endsWith(".ts"));
+    for (const file of all) {
+      const code = read(file);
+      const importRe = /from\s+"\.\.\/corps\/([^"]+)"/g;
+      let m: RegExpExecArray | null;
+      while ((m = importRe.exec(code)) !== null) {
+        expect(
+          ALLOWED_CORPS_IMPORTS.has(m[1]),
+          `economy/${file} imports corps/${m[1]} — economy may only read the corps lens/type modules (${[
+            ...ALLOWED_CORPS_IMPORTS
+          ].join(", ")})`
+        ).to.equal(true);
+      }
+    }
+  });
 });

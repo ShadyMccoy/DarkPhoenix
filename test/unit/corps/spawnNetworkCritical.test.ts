@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { isSpawnNetworkCritical } from "../../../src/corps/CarryCorp";
+import { isSpawnNetworkCritical } from "../../../src/corps/haulPolicy";
 
 /**
  * The controller-starve fix (grid cells haul-t1-circuit-split /

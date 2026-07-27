@@ -38,7 +38,7 @@ import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
 import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
-import { buildPoolAbsorbRate } from "./ConstructionCorp";
+import { buildPoolAbsorbRate } from "./constructionLedger";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
