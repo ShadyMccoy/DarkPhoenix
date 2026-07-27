@@ -96,10 +96,11 @@ Later families (same rule — one home):
   price), the invader-tax primitives (spec 13).
 
 Debt PAID (spec 35 phase B, 2026-07-27): `primitives.ts` now imports
-constants from nobody — `planning/EconomicConstants.ts` is deleted, and
-`flow/FlowTypes` / `corps/economics` re-export the ground-truth constants
-FROM primitives (one release of import-path tolerance). The id-space lenses
-live in `economy/ids.ts` (spec 35 phase C).
+constants from nobody — `planning/EconomicConstants.ts` is deleted. Phase G
+closed the one-release import-path tolerance: the `flow/FlowTypes` /
+`corps/economics` constant re-exports are deleted and every importer reads
+primitives directly. The id-space lenses live in `economy/ids.ts` (spec 35
+phase C).
 
 ## 4. The Corp (the operator)
 

@@ -11,9 +11,8 @@
  */
 
 import { expect } from "chai";
-import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { solveColony } from "../../../src/economy/flowAdapter";
+import { FlowGraph, solveColony } from "../../../src/economy/flowAdapter";
 import { Position } from "../../../src/types/Position";
 import { CommissionedMiner, CommissionedHauler, CommissionedSink } from "../../../src/economy/CorpPlanner";
 import { ConsumeAssignment } from "../../../src/economy/commissionPlan";

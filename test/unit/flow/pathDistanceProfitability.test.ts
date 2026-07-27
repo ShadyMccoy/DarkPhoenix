@@ -1,6 +1,5 @@
 import { expect } from "chai";
-import { FlowGraph } from "../../../src/flow/FlowGraph";
-import { solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
+import { FlowGraph, solveWithCorpPlanner } from "../../../src/economy/flowAdapter";
 import { clearPathDistanceCache, pathDistance } from "../../../src/nodes/NodeNavigator";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { MinerAssignment } from "../../../src/flow/FlowTypes";

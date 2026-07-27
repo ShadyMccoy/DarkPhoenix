@@ -1,12 +1,20 @@
 /**
- * Flow-based Economy Types
+ * Flow DTOs - the ONE surviving flow-vocabulary module (spec 35 phase G).
  *
- * Core interfaces for the MFMC (Min-cost Max-flow) economy system.
- * Replaces the market-based offer/contract system with direct flow allocation.
+ * The FlowSolution/assignment shapes the live corps, telemetry and the
+ * adapter's solve share, plus the FlowSource/FlowSink discovery shapes and
+ * their id-minting factories. The discovery + solve driver themselves live in
+ * economy/flowAdapter.ts (the sanctioned world adapter - ONTOLOGY §1); this
+ * module is declarations and pure mappers only, and stays Game-free (the
+ * purity ratchet scans it).
+ *
+ * Economic constants are homed in economy/primitives (spec 35 phase B
+ * inverted the dependency; phase G closed the one-release re-export
+ * tolerance - import primitives directly).
  */
 
-// Position type (shared across modules)
-export { Position } from "../types/Position";
+import type { CommissionedHauler } from "../economy/CorpPlanner";
+import { haulerOverhead } from "../economy/primitives";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { Position } from "../types/Position";
 
@@ -17,18 +25,14 @@ import { Position } from "../types/Position";
 /** Energy produced per tick by a source (3000 capacity / 300 regen) */
 export const SOURCE_ENERGY_PER_TICK = 10;
 
-// Body-part costs, creep lifetime and the standard-miner body are homed in
-// economy/primitives (spec 35 phase B inverted the constants dependency);
-// re-exported here so legacy flow-layer import paths keep working.
-export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../economy/primitives";
-
 // =============================================================================
 // SINK TYPES
 // =============================================================================
 
 /**
- * Types of energy sinks (consumers) in the economy.
- * Priority ordering is handled by PriorityManager.
+ * Types of energy sinks (consumers) in the economy. Sinks are VALUED by the
+ * planner's ladder (perInstanceSinkValue over DEFAULT_SINK_VALUE - the ONE
+ * value model, ONTOLOGY §7); the type only names what the sink is.
  */
 export type SinkType =
   | "spawn" // Spawn overhead - keeping creeps alive (CRITICAL)
@@ -389,5 +393,44 @@ export function createEdgeId(fromId: string, toId: string): string {
 // (Round-trip / carry-part / hauler-cost formulas live in economy/primitives -
 // the single canonical home for economic math. See docs/ONTOLOGY.md § 2.)
 
-// Re-export distance functions from shared Position module
-export { chebyshevDistance, estimateRoomDistance } from "../types/Position";
+// =============================================================================
+// THE ONE CommissionedHauler -> HaulerAssignment MAPPER
+// =============================================================================
+
+/**
+ * Reconstruct a flow-shaped HaulerAssignment from one commissioned route.
+ *
+ * The planner emits CommissionedHaulers; two runtime paths reconstruct the
+ * flow-shaped HaulerAssignment from them - the live adapter (flowAdapter.
+ * solveColony, building the FlowSolution) and the framework materialization
+ * (carryKind.materialize). They MUST stay identical, so both call this: a new
+ * hauler field (paved, depositPos, ...) is a one-place change and the
+ * solver-bridge pin can never drift. spawnCostPerTick is the one derived field,
+ * recomputed from the canonical primitive (no private formula).
+ *
+ * Cycle-free: imports only the CommissionedHauler TYPE (from the pure planner,
+ * which never imports flow/) and primitives. Folded into this DTO module by
+ * spec 35 phase G (its own flow/haulerAssignment.ts home dissolved with the
+ * translation layer).
+ *
+ * spawnId is carried verbatim (the flow "spawn-" prefix is stripped separately,
+ * when the CORP's spawnId is set - not here).
+ */
+export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerAssignment {
+  return {
+    edgeId: createEdgeId(h.sourceId, h.sinkId),
+    fromId: h.sourceId,
+    toId: h.sinkId,
+    distance: h.distance,
+    carryParts: h.carryParts,
+    flowRate: h.flowRate,
+    spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
+    // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes it).
+    spawnParts: h.spawnParts,
+    spawnId: h.spawnId,
+    // A paved route spawns road haulers: 2 CARRY per MOVE (SpawningCorp.getPartRatios).
+    ...(h.paved ? { haulerRatio: "2:1" as const } : {}),
+    // The deposit port the plan chose (spec 26): CarryCorp delivers here first.
+    ...(h.depositPos ? { depositPos: h.depositPos } : {})
+  };
+}

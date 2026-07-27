@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
-import { FlowEconomy } from "../../../src/flow/FlowEconomy";
+import { FlowEconomy } from "../../../src/economy/flowAdapter";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 
 /**

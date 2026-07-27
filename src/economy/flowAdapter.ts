@@ -1,25 +1,38 @@
 /**
- * @fileoverview Adapter: run the GOAP CorpPlanner over a live FlowGraph and emit
- * the FlowSolution shape the materialiser already consumes.
+ * @fileoverview THE world adapter (ONTOLOGY §1): the whole PLAN<->world
+ * translation layer in one module, since spec 35 phase G collapsed src/flow/'s
+ * driver into it.
  *
- * This is the drop-in seam. FlowEconomy.solve() can call solveWithCorpPlanner()
- * in place of the old FlowSolver (solveIteratively) and the downstream materialiser,
- * corps and scheduler are untouched - the planner just produces better-reasoned
- * miner/hauler/sink assignments from one model.
+ *  - FlowGraph: source/sink DISCOVERY from spatial nodes (the world-translation
+ *    input this adapter flattens into the pure ColonyProblem);
+ *  - buildColonyProblem/solveColony: run the GOAP CorpPlanner over that graph
+ *    and emit both the FlowSolution shape the materialiser/telemetry consume
+ *    and the Commission envelopes the corp kinds materialize from;
+ *  - FlowEconomy: the solve cadence + persistence driver main.ts holds
+ *    (Memory.goal / lastBankDraw / warchestTarget traffic lives HERE, behind
+ *    typeof guards - the pure layers only ever receive them as arguments).
+ *
+ * DTO shapes stay in flow/FlowTypes.ts (Game-free, ratchet-scanned).
  *
  * @module economy/flowAdapter
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
-import { roomLinearDistance } from "../utils/RoomDiscovery";
-import { FlowGraph } from "../flow/FlowGraph";
+import { isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
 import {
+  FlowSink,
   FlowSolution,
+  FlowSource,
   HaulerAssignment,
   MinerAssignment,
   SinkAllocation,
-  SinkType
+  SinkType,
+  createFlowSink,
+  createFlowSource,
+  haulerAssignmentFromCommissioned
 } from "../flow/FlowTypes";
+import { Node, getResourcesByType } from "../nodes/Node";
+import { countMiningSpots } from "../analysis/SourceAnalysis";
 import { pathDistance } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
@@ -53,7 +66,6 @@ import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } 
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
-import { haulerAssignmentFromCommissioned } from "../flow/haulerAssignment";
 
 // Re-exported from primitives (the coherent home for the controller sip); kept
 // here so existing flowAdapter importers of the constant are unaffected.
@@ -65,7 +77,231 @@ export { ANTI_DOWNGRADE_RESERVE };
  * module); re-exported here for the existing import sites.
  */
 export { STORAGE_UPGRADE_TARGET } from "./bank";
-import { STORAGE_UPGRADE_TARGET, bankToTransientSource, bankSourceId, resolveReserveTarget } from "./bank";
+import {
+  STORAGE_UPGRADE_TARGET,
+  bankToTransientSource,
+  bankSourceId,
+  resolveReserveTarget,
+  warchestTarget
+} from "./bank";
+
+// =============================================================================
+// FLOW GRAPH - source/sink discovery from spatial nodes
+// =============================================================================
+
+/**
+ * FlowGraph builds and maintains the flow network from spatial nodes.
+ *
+ * The flow network consists of:
+ * - Sources: Energy producers (game Sources)
+ * - Sinks: Energy consumers (spawns, controllers, construction sites, etc.)
+ */
+/** Normal controller upgrade demand (energy/tick) when nothing else competes. */
+export const DEFAULT_CONTROLLER_UPGRADE_DEMAND = 50;
+
+export class FlowGraph {
+  /** All energy sources indexed by ID */
+  private sources: Map<string, FlowSource>;
+
+  /** All energy sinks indexed by ID */
+  private sinks: Map<string, FlowSink>;
+
+  /** All nodes in the network */
+  private nodes: Map<string, Node>;
+
+  /**
+   * Creates a new FlowGraph from nodes.
+   *
+   * @param nodes - Array of territory nodes
+   */
+  public constructor(nodes: Node[]) {
+    this.sources = new Map();
+    this.sinks = new Map();
+    this.nodes = new Map();
+
+    // Index nodes
+    for (const node of nodes) {
+      this.nodes.set(node.id, node);
+    }
+
+    // Discover sources and sinks from nodes
+    this.discoverSources();
+    this.discoverSinks();
+  }
+
+  // ===========================================================================
+  // DISCOVERY METHODS
+  // ===========================================================================
+
+  /**
+   * Discover all energy sources from node resources.
+   */
+  private discoverSources(): void {
+    this.sources.clear();
+
+    for (const node of this.nodes.values()) {
+      const sourceResources = getResourcesByType(node, "source");
+
+      for (const resource of sourceResources) {
+        // Skip sources in Source Keeper rooms (too dangerous to mine without combat)
+        const roomName = resource.position.roomName;
+        if (isSourceKeeperRoom(roomName)) {
+          continue;
+        }
+
+        // resource.capacity is the total energy capacity (e.g., 3000)
+        // Convert to rate: capacity / 300 ticks = energy per tick
+        const energyCapacity = resource.capacity ?? 3000;
+        const ratePerTick = energyCapacity / 300; // Standard: 3000/300 = 10 e/tick
+
+        // Count mining spots from the actual game source
+        let maxMiners = 1;
+        if (typeof Game !== "undefined") {
+          const gameSource = Game.getObjectById(resource.id as Id<Source>);
+          if (gameSource) {
+            maxMiners = countMiningSpots(gameSource);
+          }
+        }
+
+        const source = createFlowSource(resource.id, node.id, resource.position, ratePerTick, maxMiners);
+        this.sources.set(source.id, source);
+      }
+    }
+  }
+
+  /**
+   * Discover all energy sinks from node resources.
+   * Creates sinks for spawns, controllers, storage, etc.
+   */
+  private discoverSinks(): void {
+    this.sinks.clear();
+
+    for (const node of this.nodes.values()) {
+      // Spawns - critical for creep production
+      const spawns = getResourcesByType(node, "spawn");
+      for (const resource of spawns) {
+        const sink = createFlowSink(
+          "spawn",
+          resource.id,
+          node.id,
+          resource.position,
+          10, // Base spawn overhead demand
+          50 // Max capacity per tick
+        );
+        this.sinks.set(sink.id, sink);
+      }
+
+      // Controllers - upgrading (only owned controllers)
+      const controllers = getResourcesByType(node, "controller");
+      for (const resource of controllers) {
+        // Only add controller as sink if we own it
+        if (!resource.isOwned) continue;
+
+        const sink = createFlowSink(
+          "controller",
+          resource.id,
+          node.id,
+          resource.position,
+          DEFAULT_CONTROLLER_UPGRADE_DEMAND, // upgrade demand (reduced while building)
+          100 // Max upgrade per tick (limited by WORK parts in practice)
+        );
+        this.sinks.set(sink.id, sink);
+      }
+
+      // Storage - buffer sink (lowest priority)
+      const storages = getResourcesByType(node, "storage");
+      for (const resource of storages) {
+        const sink = createFlowSink(
+          "storage",
+          resource.id,
+          node.id,
+          resource.position,
+          0, // No active demand (only takes excess)
+          1000 // High capacity for buffering
+        );
+        this.sinks.set(sink.id, sink);
+      }
+
+      // Containers near sources become intermediate collection points
+      // (handled differently - they're part of the edge, not a sink)
+    }
+  }
+
+  // ===========================================================================
+  // DYNAMIC SINK MANAGEMENT
+  // ===========================================================================
+
+  /**
+   * Add a construction site as a temporary sink.
+   *
+   * @param id - Construction site ID
+   * @param nodeId - Node containing the site
+   * @param position - World position
+   * @param progressRemaining - Build progress remaining
+   * @param priority - Override priority (default: construction priority)
+   */
+  public addConstructionSite(
+    id: string,
+    nodeId: string,
+    position: Position,
+    progressRemaining: number,
+    priority?: number
+  ): void {
+    const sink = createFlowSink(
+      "construction",
+      id,
+      nodeId,
+      position,
+      // Demand a real build crew's worth, not one builder's. Construction outranks
+      // the controller (priority 70 vs 60), so this makes building claim the node's
+      // surplus while there is something to build - "build supersedes upgrade" - and
+      // the builder squad sizes itself to the energy actually allocated (which the
+      // available surplus and MAX_BUILDERS still cap, so it does not over-claim).
+      // The controller resumes absorbing the surplus once building is done.
+      20, // Demand: roughly a full build crew (MAX_BUILDERS) at low/mid RCL
+      50, // Capacity: max build rate
+      priority
+    );
+    sink.progressRemaining = progressRemaining;
+    this.sinks.set(sink.id, sink);
+  }
+
+  // ===========================================================================
+  // QUERY METHODS
+  // ===========================================================================
+
+  /**
+   * Get all sources.
+   */
+  public getSources(): FlowSource[] {
+    return Array.from(this.sources.values());
+  }
+
+  /**
+   * Get a source by ID.
+   */
+  public getSource(id: string): FlowSource | undefined {
+    return this.sources.get(id);
+  }
+
+  /**
+   * Get all sinks, optionally filtered by type.
+   */
+  public getSinks(type?: SinkType): FlowSink[] {
+    const sinks = Array.from(this.sinks.values());
+    if (type) {
+      return sinks.filter(s => s.type === type);
+    }
+    return sinks;
+  }
+
+  /**
+   * Get a sink by ID.
+   */
+  public getSink(id: string): FlowSink | undefined {
+    return this.sinks.get(id);
+  }
+}
 
 /**
  * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
@@ -408,13 +644,6 @@ export function detectBankSources(): PlannerSource[] {
   }
   return out;
 }
-
-/**
- * The mined-income id rule now lives in economy/ids.ts (spec 35 phase C: one
- * id-space home); re-exported here for the existing import sites (FlowEconomy's
- * warchest income sum).
- */
-export { isMinedIncomeId } from "./ids";
 
 /**
  * Physical energy room remaining in a room's storage bank. Infinity when there
@@ -972,6 +1201,114 @@ export function solveColony(
     sourceVerdicts: plan.sourceVerdicts
   };
   return { solution, commissions, adopted: searched.adopted };
+}
+
+// =============================================================================
+// FLOW ECONOMY - the solve cadence + persistence driver
+// =============================================================================
+
+/**
+ * FlowEconomy - the solve driver main.ts holds.
+ *
+ * Builds the FlowGraph from spatial nodes and drives the ONE economy solve
+ * (solveColony -> planColony). One solve yields both the FlowSolution (legacy
+ * telemetry DTO) and the Commission envelopes the corp kinds materialize from
+ * (execution/CommissionHost).
+ *
+ * Spec 17 P5 trimmed this class to its live seam: the pre-cleanup façade
+ * carried a dead query/metrics/preset API (~two-thirds of the class, zero
+ * callers) and the retired PriorityManager second sink ladder - sinks are
+ * valued by the planner's ladder (perInstanceSinkValue over
+ * DEFAULT_SINK_VALUE), nowhere else. Spec 35 phase G folded it into this
+ * adapter: its Memory traffic (goal / lastBankDraw / warchestTarget) is
+ * world-adapter business, not a layer of its own.
+ */
+export class FlowEconomy {
+  /** Flow graph built from nodes */
+  private graph: FlowGraph;
+
+  /** Current solution (null if not yet solved) */
+  private solution: FlowSolution | null = null;
+
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * `solution`, wrapped as Commission envelopes for the corp kinds to
+   * materialize. Empty until the first solve.
+   */
+  private commissions: Commission[] = [];
+
+  public constructor(nodes: Node[]) {
+    this.graph = new FlowGraph(nodes);
+  }
+
+  /**
+   * Re-solve the economy. The caller (main.ts) owns the cadence - the CPU
+   * governor's solve interval and the bootstrap eager-solve gate - so this
+   * always solves when called.
+   */
+  public update(tick: number): void {
+    // The goal is EXECUTION-owned state (Memory.goal, set by the operator via
+    // global.setGoal); the pure layers only ever receive it as an argument.
+    const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
+    // The previous solve's realized bank draw (consumer allocations drawn
+    // from the hub) - the feeder-pricing signal that breaks the starvation
+    // loop (see buildColonyProblem). PERSISTED in Memory, not on `this`:
+    // main.ts replaces the FlowEconomy instance on every graph rebuild, so
+    // instance-held history died before it was ever read (prod t72447816:
+    // infra pinned at 0.1874 across every post-deploy solve - the fix was
+    // deployed and dormant). Memory survives rebuilds and global resets.
+    const prevBankDraw = typeof Memory !== "undefined" ? Memory.lastBankDraw : undefined;
+    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw);
+    if (typeof Memory !== "undefined") {
+      Memory.lastBankDraw = result.solution.sinkAllocations
+        .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
+        .reduce((sum, a) => sum + a.allocated, 0);
+      // Publish the liquidity reserve target for next solve's bank-surplus
+      // emission and every consumer that sizes off it (bank.resolveReserveTarget).
+      // Income is the colony's sustained mined rate - the SAME set and rule as
+      // buildColonyProblem's minedSupply (isMinedIncomeId), so the reserve and
+      // the plan never classify income differently.
+      const income = this.graph
+        .getSources()
+        .filter(s => isMinedIncomeId(s.id))
+        .reduce((sum, s) => sum + s.capacity, 0);
+      Memory.warchestTarget = warchestTarget(income);
+    }
+    this.solution = result.solution;
+    this.commissions = result.commissions;
+    if (result.adopted.length > 0) {
+      console.log(
+        `[Strategy] adopted ${result.adopted.length} restructuring(s): ` +
+          result.adopted.map(a => `${a.sourceId}->${a.spawnId} (+${(a.gain * 100).toFixed(1)}%)`).join(", ")
+      );
+    }
+  }
+
+  /** Get current solution (or null if not solved). */
+  public getSolution(): FlowSolution | null {
+    return this.solution;
+  }
+
+  /**
+   * The current solve's commissions (the framework seam). Same plan as
+   * getSolution(), wrapped as Commission envelopes. Empty until the first solve.
+   */
+  public getCommissions(): Commission[] {
+    return this.commissions;
+  }
+
+  /** Get the flow graph for direct access. */
+  public getFlowGraph(): FlowGraph {
+    return this.graph;
+  }
+
+  /**
+   * Add a construction site dynamically (main.ts feeds newly-placed sites in
+   * between full graph rebuilds).
+   */
+  public addConstructionSite(id: string, nodeId: string, position: Position, progressRemaining: number): void {
+    this.graph.addConstructionSite(id, nodeId, position, progressRemaining);
+  }
 }
 
 /** Re-export for the integration site. */

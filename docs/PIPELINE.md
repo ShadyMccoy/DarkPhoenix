@@ -11,9 +11,13 @@
 
 - `FlowSolver` was replaced by a pure GOAP planner, **`economy/CorpPlanner.ts`
   → `planColony`**. The seam is `economy/flowAdapter.ts` → `solveColony` /
-  `solveWithCorpPlanner`; `flow/FlowEconomy.ts` is a thin façade.
-- The **market** layer (offers/contracts/clearing) is retired.
-  `global.marketStatus()` is a mis-named stats dump.
+  `solveWithCorpPlanner`; since spec 35 phase G that adapter also houses the
+  whole translation layer — the `FlowGraph` discovery and the `FlowEconomy`
+  solve driver main.ts holds (the old `flow/FlowEconomy.ts` thin façade is
+  folded in, its `Memory.goal`/`lastBankDraw`/`warchestTarget` traffic behind
+  the adapter's typeof guards).
+- The **market** layer (offers/contracts/clearing) is retired
+  (`global.marketStatus()` went with it in the spec 17 P5 sweep).
 - **Vocabulary:** the live corps are **HarvestCorp / CarryCorp** (old docs say
   MiningCorp / HaulingCorp). A *corp* is a **commission** — both the planning
   operator and the runtime owner of its creeps ([ONTOLOGY §4](./ONTOLOGY.md)).
@@ -23,10 +27,13 @@
   lives on the `CorpKind` contract. The NOW plan is prescriptive
   (`planAcquisitions`).
 
-`FlowGraph`/`FlowEconomy`/`FlowSolution` survive as the **world-translation
-layer** feeding the planner and the legacy telemetry DTO. The graph's own
-`PriorityManager` priorities are vestigial (deletion tracked, spec 17 P5) —
-sink values come from the planner's ladder (ONTOLOGY §7).
+The **world-translation layer** lives inside the adapter: `FlowGraph`
+(discovery) and `FlowEconomy` (solve driver) are classes in
+`economy/flowAdapter.ts`; `flow/FlowTypes.ts` is the ONE surviving DTO module
+(`FlowSolution` + assignment shapes, the id-minting factories, the shared
+hauler mapper — Game-free, purity-ratchet-scanned). Sink `priority` on the
+DTO is a vestigial telemetry passthrough — sink values come from the
+planner's ladder (ONTOLOGY §7).
 
 ## The pipeline, end to end
 
@@ -44,12 +51,19 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    spawns the territory BFS skipped (`attachOwnedSpawnsToNodes` — **without
    this the solver assigns zero miners**).
 
-2. **Nodes → FlowGraph.** `flow/FlowGraph.ts` discovers `FlowSource`s
-   (`rate = capacity/300`, `maxMiners` from mining spots), `FlowSink`s
-   (spawn/controller/storage; SK rooms skipped), and builds source×sink edges
-   with **real cached `pathDistance`**. Shapes in `flow/FlowTypes.ts`.
+2. **Nodes → FlowGraph.** The `FlowGraph` class (`economy/flowAdapter.ts`)
+   discovers `FlowSource`s (`rate = capacity/300`, `maxMiners` from mining
+   spots) and `FlowSink`s (spawn/controller/storage; SK rooms skipped);
+   construction sinks are admitted from the project LEDGER by
+   `economy/planningAssembly.ts` → `addConstructionSitesToFlow` (trunk A/Z
+   aggregation included), inside the ONE solve-input assembly
+   (`assembleEconomyForSolve`) that `main.ts` → `runPlanningPhase` runs on
+   BOTH the scheduled cadence and the console-forced `global.plan()`
+   (spec 35 phase G — the forced path used to skip admission).
+   There is no edge matrix — distances are priced downstream through **real
+   cached `pathDistance`**. Shapes in `flow/FlowTypes.ts`.
 
-3. **FlowGraph → ColonyProblem.** `economy/flowAdapter.ts` → `buildColonyProblem`
+3. **FlowGraph → ColonyProblem.** In the same adapter, `buildColonyProblem`
    flattens the graph into a pure, `Game`-free `ColonyProblem`
    (`{spawns, sources, sinks, dist}`), pricing every sink from the compiled
    GOAL valuation (spec 18: `economy/goals.ts`, default = the measured
@@ -126,7 +140,10 @@ Three independent clocks — don't conflate them:
 - **Economy re-solve:** the CPU governor's plan (`execution/CpuGovernor.ts`:
   `FULL_SOLVE_INTERVAL` = 50 at full/lean, `STRETCHED_SOLVE_INTERVAL` = 150
   degraded), or eagerly when nodes exist but no produce-shaped commission is
-  materialized (bootstrap gate in `main.ts`).
+  materialized (bootstrap gate in `main.ts`). Every trigger — cadence,
+  bootstrap gate, and the console's `global.plan()` (registered by
+  `execution/console.ts`) — funnels into the ONE `main.ts` →
+  `runPlanningPhase` (spec 35 phase G).
 - **Spatial/terrain analysis:** ≤ every 5000 ticks
   (`MULTI_ROOM_ANALYSIS_CACHE_TTL`), spread incrementally across ticks;
   node-resource refresh on its own 50-tick clock.
@@ -175,8 +192,9 @@ Road placement is fed by two independent inputs that answer different questions:
   the `FlowEconomy` query/metrics/preset API (the façade is five live
   methods), the FlowSolver input machinery (`getFlowProblem`/`FlowProblem`/
   `FlowConstraints`), the survey/market console vestiges (`global.survey`,
-  `global.marketStatus`, `runSurveyPhase`/`runPlanningPhase`/
-  `runExecutionPhase`), the always-empty `Node.corps` web, the NodeSurveyor
+  `global.marketStatus`, the Phases.ts-era `runSurveyPhase`/`runPlanningPhase`/
+  `runExecutionPhase` — today's `main.ts runPlanningPhase` is the LIVE spec 35
+  phase G planning entry, a different function), the always-empty `Node.corps` web, the NodeSurveyor
   ROI estimators, `framework/EdgeVariant` beyond `HaulerRatio`/`MiningMode`,
   and `scripts/plan-budget.ts`. `FlowSink.priority` survives only as a
   telemetry passthrough (default 0).

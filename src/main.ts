@@ -23,7 +23,8 @@
  * - FlowEconomy: Solver for optimal energy routing
  *
  * ## Console Commands
- * - global.plan() - Force run flow economy planning
+ * Registered once at module load via execution/console.ts (spec 35 phase G):
+ * - global.plan() - Force run THE planning phase (same path as the cadence)
  * - global.status() - Show orchestration status
  * - global.flowStatus() - Show flow economy details
  *
@@ -38,7 +39,6 @@ import {
   allCommissionedCorps,
   cleanupDeadCreeps,
   completeCensus,
-  commissionedCorpsOfKind,
   createCorpRegistry,
   getAnalysisCache,
   isAnalysisInProgress,
@@ -49,7 +49,6 @@ import {
   sampleMarketPrices,
   renderNodeVisuals,
   renderSpatialVisuals,
-  renderRoadScores,
   rescueOrphans,
   resetAnalysis,
   restoreVisualizationCache,
@@ -65,20 +64,14 @@ import {
   startSpawnPlacement,
   trackRoadUsage
 } from "./execution";
-import { constructionProjectLedger } from "./corps/ConstructionCorp";
-import { aggregateTrunkRoadSinks } from "./economy/roadSegments";
-import { collectTrunkRoutes, homeBankSupply } from "./economy/roadSegmentsGame";
-import { Node, SerializedNode, deserializeNode } from "./nodes";
-import { FlowEconomy } from "./flow";
-import {
-  PLANNING_INTERVAL,
-  initCorps,
-  setLastPlanningTick,
-  shouldRunPlanning
-} from "./orchestration";
+import { registerConsoleCommands } from "./execution/console";
+import { assembleEconomyForSolve } from "./economy/planningAssembly";
+import { SerializedNode, deserializeNode } from "./nodes";
+import { FlowEconomy } from "./economy/flowAdapter";
+import { initCorps, setLastPlanningTick, shouldRunPlanning } from "./orchestration";
 import { ErrorMapper } from "./utils";
 import { getTelemetry } from "./telemetry";
-import { formatCpuReport, disjointInfra } from "./telemetry/cpuReport";
+import { disjointInfra } from "./telemetry/cpuReport";
 import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
@@ -87,31 +80,8 @@ import { runWatchdogs } from "./telemetry/watchdogs";
 // =============================================================================
 // GLOBALS
 // =============================================================================
-
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace -- augmenting NodeJS.Global has no ES-module equivalent
-  namespace NodeJS {
-    interface Global {
-      colony: Colony | undefined;
-      corps: CorpRegistry;
-      // Flow economy (new integration)
-      flowEconomy: FlowEconomy | undefined;
-      // Orchestration commands
-      plan: () => void;
-      status: () => void;
-      flowStatus: () => void;
-      // Legacy commands
-      recalculateTerrain: () => void;
-      setGoal: (profile?: string, weight?: number) => void;
-      resetAnalysis: () => void;
-      showNodes: () => void;
-      exportNodes: () => string;
-      roadHeatmap: (roomName?: string) => void;
-      cpuReport: () => void;
-      visuals: (on?: boolean) => void;
-    }
-  }
-}
+// The NodeJS.Global augmentation (global.plan/status/... typings) lives with
+// the commands in execution/console.ts (spec 35 phase G).
 
 /** The colony instance (persisted across ticks) */
 let colony: Colony | undefined;
@@ -121,6 +91,18 @@ let flowEconomy: FlowEconomy | undefined;
 
 /** All active corps */
 const corps: CorpRegistry = createCorpRegistry();
+
+// Live console commands (global.plan/status/flowStatus/...): registered once at
+// module load - exactly when the old inline block used to assign them - with
+// accessors into this module's live state (colony/flowEconomy are REPLACED
+// across ticks, so the console must read through getters). Spec 35 phase G
+// moved the command bodies to execution/console.ts; main.ts keeps this wiring.
+registerConsoleCommands({
+  getColony: () => colony,
+  getFlowEconomy: () => flowEconomy,
+  corps,
+  runPlanningPhase: force => runPlanningPhase(force)
+});
 
 // =============================================================================
 // MAIN GAME LOOP
@@ -365,68 +347,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // heaviest work when it runs, and it was entirely unnamed. Bucket it so the
     // ledger shows the solve's cost (spec 20) and one bad solve can't abort the
     // rest of the tick (persist/telemetry still run).
-    bulkhead("planning", () => {
-    console.log(`[Planning] Starting planning phase at tick ${Game.time}`);
-
-    // --- SURVEY: Analyze territory and create corps ---
-    // Start incremental multi-room spatial analysis if no nodes exist
-    if (colony!.getNodes().length === 0 && !isAnalysisInProgress()) {
-      runIncrementalAnalysis(colony!);
-    }
-
-    // Run the colony economic coordination (surveying, stats)
-    colony!.run(Game.time, corps);
-
-    // Expansion campaign (spec 06): open/advance/close Memory.expansion on the
-    // planning cadence. When the target room is claimed this places the
-    // founding spawn site; the flow solver's NEW_SPAWN_SITE_VALUE sink does
-    // the actual funneling - no scripted campaign beyond this state machine.
-    updateExpansionCampaign(colony!.getNodes());
-
-    // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
-    const planningNodes = colony!.getNodes();
-    if (planningNodes.length > 0) {
-      // Rebuild economy from current Memory state
-      const edgeCount = Memory.nodeEdges?.length || 0;
-      console.log(`[FlowEconomy] Rebuilding with ${planningNodes.length} nodes, ${edgeCount} edges`);
-
-      flowEconomy = buildFlowEconomyFromMemory(planningNodes);
-
-      // Feed live construction sites into the flow as sinks so the solver can
-      // allocate energy (and hauler routes) to them. After an RCL-up the
-      // priority logic ranks construction above the controller, so the colony
-      // builds new structures first and only minimally upgrades.
-      addConstructionSitesToFlow(flowEconomy, planningNodes);
-
-      // Update globals for debugging
-      global.flowEconomy = flowEconomy;
-
-      flowEconomy.update(Game.time); // Force update during planning
-
-      // Log flow economy status
-      const solution = flowEconomy.getSolution();
-      if (solution) {
-        console.log(`[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
-        console.log(
-          `[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${String(solution.isSustainable)}`
-        );
-        if (solution.warnings.length > 0) {
-          console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
-        }
-
-        // Corps are materialized from the solve's commissions by CommissionHost
-        // (every tick), so no separate materialize step is needed here.
-        console.log(
-          `[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers, ${
-            flowEconomy.getCommissions().length
-          } commissions`
-        );
-      }
-    }
-
-    setLastPlanningTick(Game.time);
-    console.log(`[Planning] Complete`);
-    });
+    bulkhead("planning", () => runPlanningPhase(false));
   }
 
   // (The shadow EconomyPlanner overlay that used to re-size haulers here is
@@ -513,81 +434,92 @@ function getOrCreateColony(): Colony {
 }
 
 // =============================================================================
-// FLOW ECONOMY MANAGEMENT
+// PLANNING PHASE
 // =============================================================================
 
 /**
- * Feed the room's live construction sites into the flow economy as construction
- * sinks, each mapped to the nearest node in its room. This makes construction a
- * first-class consumer in the flow solve (with hauler routes), so the local
- * mover delivers energy to builders per the solver's allocation.
+ * THE planning phase - ONE function for both the scheduled cadence and the
+ * console-forced path (spec 35 phase G): survey kick, colony coordination,
+ * expansion campaign, then the solve-input assembly (economy rebuild ->
+ * construction-sink admission -> solve -> commission publish, via
+ * economy/planningAssembly's assembleEconomyForSolve) and the planning-tick
+ * persist. The CALLER owns the cadence - the CPU governor's solve interval
+ * and the bootstrap eager-solve gate stay in the loop - so this always plans
+ * when invoked. `force` only labels the log header.
+ *
+ * THE ONE SANCTIONED BEHAVIOR CHANGE of the phase-G refactor
+ * (docs/specs/35-strategic-seam-refactor.md, phase G): before this
+ * unification, global.plan() duplicated the rebuild+solve WITHOUT
+ * construction-sink admission - a console-forced plan solved with ZERO
+ * construction sinks and published a plan that zeroed construction
+ * colony-wide until the next scheduled solve. Both paths now run the SAME
+ * assembleEconomyForSolve seam (admission included) - pinned by
+ * test/unit/economy/planningAssembly.test.ts.
  */
-function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]): void {
-  // PROJECT LEDGER admission (owner 2026-07-22: "construction sites should
-  // be part of the corps memory so it can rehydrate and bypass Vision") -
-  // the sink set comes from the construction corps' durable ledger, NOT a
-  // Game.rooms scan. The scan was the measured cluster flap (t72489078:
-  // 15 sinks -> 0 across two captures, the solve keyed to which room
-  // happened to be sighted). Vision reconciles the ledger
-  // (ConstructionCorp.reconcileProjects); decisions read it here. Spec 25's
-  // admission rule is unchanged (any of OUR sites, per-site capacity
-  // pool-absorb/cluster bounded in the adapter) - only the data source
-  // moved from eyesight to the ledger.
-  // TRUNK A/Z AGGREGATION (owner 2026-07-22): collapse each trunk road's
-  // per-tile sites into TWO aggregate sinks - Z (source end, the source's
-  // builder+hauler) and A (home end, the pool crew) - split proportional to
-  // energy flow. A 20-tile trunk was 20 sinks -> 20 micro hauler-edges from
-  // one source (t72505602: P2 34/44, P4 +18%); now it is 2 sinks -> one
-  // source->Z edge and one home A project. Non-trunk construction
-  // (extensions, containers, in-room roads) passes through per-site.
-  const graph = economy.getFlowGraph();
-  const routes = collectTrunkRoutes(id => graph.getSource(`source-${id}`)?.capacity);
-  const admitted = aggregateTrunkRoadSinks(constructionProjectLedger(), routes, homeBankSupply());
+function runPlanningPhase(force: boolean): void {
+  console.log(
+    force
+      ? `[Planning] Running planning phase at tick ${Game.time}...`
+      : `[Planning] Starting planning phase at tick ${Game.time}`
+  );
 
-  for (const rec of admitted) {
-    const roomName = rec.roomName;
-    // A room with no analyzed nodes yet (a freshly claimed founding, or a
-    // remote road room) still needs its sites in the graph (spec 06 audit) -
-    // anchor on the nearest node by room distance until the room's own
-    // analysis lands. The anchor only shapes graph topology; haul pricing
-    // uses the site's real position either way.
-    let roomNodes = nodes.filter(n => n.roomName === roomName);
-    if (roomNodes.length === 0) {
-      let nearest: Node | undefined;
-      let nearestDist = Infinity;
-      for (const node of nodes) {
-        const d = Game.map.getRoomLinearDistance(node.roomName, roomName);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearest = node;
-        }
-      }
-      if (nearest) roomNodes = [nearest];
-    }
-    if (roomNodes.length === 0) continue;
-
-    // Map the site to the nearest node in the same room.
-    let best: Node | undefined;
-    let bestDist = Infinity;
-    for (const node of roomNodes) {
-      const dx = node.peakPosition.x - rec.x;
-      const dy = node.peakPosition.y - rec.y;
-      const d = Math.abs(dx) + Math.abs(dy);
-      if (d < bestDist) {
-        bestDist = d;
-        best = node;
-      }
-    }
-    if (!best) continue;
-
-    economy.addConstructionSite(rec.id, best.id, { x: rec.x, y: rec.y, roomName }, rec.remaining);
+  // --- SURVEY: Analyze territory and create corps ---
+  // Start incremental multi-room spatial analysis if no nodes exist
+  if (colony!.getNodes().length === 0 && !isAnalysisInProgress()) {
+    runIncrementalAnalysis(colony!);
   }
+
+  // Run the colony economic coordination (surveying, stats)
+  colony!.run(Game.time, corps);
+
+  // Expansion campaign (spec 06): open/advance/close Memory.expansion on the
+  // planning cadence. When the target room is claimed this places the
+  // founding spawn site; the flow solver's NEW_SPAWN_SITE_VALUE sink does
+  // the actual funneling - no scripted campaign beyond this state machine.
+  updateExpansionCampaign(colony!.getNodes());
+
+  // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
+  const planningNodes = colony!.getNodes();
+  if (planningNodes.length > 0) {
+    // Rebuild economy from current Memory state
+    const edgeCount = Memory.nodeEdges?.length || 0;
+    console.log(`[FlowEconomy] Rebuilding with ${planningNodes.length} nodes, ${edgeCount} edges`);
+
+    // Rebuild -> construction-sink admission -> solve, through the ONE
+    // adapter-side assembly seam (economy/planningAssembly).
+    flowEconomy = assembleEconomyForSolve(planningNodes, Game.time);
+
+    // Update globals for debugging
+    global.flowEconomy = flowEconomy;
+
+    // Log flow economy status
+    const solution = flowEconomy.getSolution();
+    if (solution) {
+      console.log(`[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers`);
+      console.log(
+        `[FlowEconomy] Efficiency: ${solution.efficiency.toFixed(1)}%, Sustainable: ${String(solution.isSustainable)}`
+      );
+      if (solution.warnings.length > 0) {
+        console.log(`[FlowEconomy] Warnings: ${solution.warnings.join(", ")}`);
+      }
+
+      // Corps are materialized from the solve's commissions by CommissionHost
+      // (every tick), so no separate materialize step is needed here.
+      console.log(
+        `[FlowEconomy] Solved: ${solution.miners.length} miners, ${solution.haulers.length} haulers, ${
+          flowEconomy.getCommissions().length
+        } commissions`
+      );
+    }
+  }
+
+  setLastPlanningTick(Game.time);
+  console.log(`[Planning] Complete`);
 }
 
-/** Builds a fresh flow economy (source/sink discovery) from the colony's nodes. */
-function buildFlowEconomyFromMemory(nodes: Node[]): FlowEconomy {
-  return new FlowEconomy(nodes);
-}
+// =============================================================================
+// FLOW ECONOMY MANAGEMENT
+// =============================================================================
 
 /**
  * Creates or restores the flow economy (source/sink discovery + solve driver)
@@ -595,7 +527,7 @@ function buildFlowEconomyFromMemory(nodes: Node[]): FlowEconomy {
  */
 function getOrCreateFlowEconomy(activeColony: Colony): FlowEconomy {
   const nodes = activeColony.getNodes();
-  const economy = buildFlowEconomyFromMemory(nodes);
+  const economy = new FlowEconomy(nodes);
 
   if (nodes.length > 0) {
     const edgeCount = Memory.nodeEdges?.length || 0;
@@ -686,374 +618,3 @@ function logStats(activeColony: Colony, activeCorps: CorpRegistry): void {
   logCorpStats(activeCorps);
 }
 
-// =============================================================================
-// CONSOLE COMMANDS
-// =============================================================================
-
-// -----------------------------------------------------------------------------
-// ORCHESTRATION COMMANDS
-// -----------------------------------------------------------------------------
-
-
-/**
- * Force run flow economy planning phase.
- * Call from console: `global.plan()`
- *
- * Planning:
- * 1. Rebuilds flow graph from nodes if needed
- * 2. Solves optimal energy allocation (sources -> sinks)
- * 3. Materializes solution into corps (miners, haulers, upgraders)
- */
-global.plan = () => {
-  if (!colony) {
-    console.log("[Planning] No colony exists. Run global.recalculateTerrain() first.");
-    return;
-  }
-
-  console.log(`[Planning] Running planning phase at tick ${Game.time}...`);
-
-  // --- FLOW ECONOMY: Rebuild from Memory to pick up new nodes/edges ---
-  const nodes = colony.getNodes();
-  if (nodes.length > 0) {
-    // Rebuild economy from current Memory state
-    // This picks up any new nodes, sources, or edges from scouting
-    const edgeCount = Memory.nodeEdges?.length || 0;
-    console.log(`[FlowEconomy] Rebuilding with ${nodes.length} nodes, ${edgeCount} edges`);
-
-    flowEconomy = buildFlowEconomyFromMemory(nodes);
-
-    // Update globals for debugging
-    global.flowEconomy = flowEconomy;
-
-    flowEconomy.update(Game.time); // Force update
-
-    // Get solution and show results
-    const solution = flowEconomy.getSolution();
-    if (solution) {
-      console.log(`\n=== Flow Economy Results ===`);
-      console.log(`Miners: ${solution.miners.length}`);
-      console.log(`Haulers: ${solution.haulers.length}`);
-      console.log(`Total Harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
-      console.log(`Net Energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
-      console.log(`Efficiency: ${solution.efficiency.toFixed(1)}%`);
-      console.log(`Sustainable: ${solution.isSustainable ? "YES" : "NO"}`);
-
-      if (solution.warnings.length > 0) {
-        console.log(`Warnings: ${solution.warnings.join(", ")}`);
-      }
-
-      // Corps are materialized from the commissions by CommissionHost.
-      console.log(`\nCommissions: ${flowEconomy.getCommissions().length}`);
-    } else {
-      console.log(`[FlowEconomy] No solution computed`);
-    }
-  } else if (!flowEconomy) {
-    console.log(`[FlowEconomy] Not initialized`);
-  } else {
-    console.log(`[FlowEconomy] No nodes available`);
-  }
-
-  setLastPlanningTick(Game.time);
-};
-
-/**
- * Show orchestration status.
- * Call from console: `global.status()`
- *
- * Shows:
- * - Last survey/planning tick
- * - Active chains and contracts
- * - Corp counts by type
- */
-/**
- * Set the colony's GOAL (spec 18): a named profile, optionally blended with
- * the default. `global.setGoal()` reverts to the default profile;
- * `global.setGoal("growController")` commits fully;
- * `global.setGoal("growController", 0.7)` blends 70/30 with the default.
- * Compiled onto the sink ladder next solve (invariants enforced - a bad
- * profile name is ignored by the compiler and default applies).
- */
-global.setGoal = (profile?: string, weight?: number) => {
-  if (!profile) {
-    delete Memory.goal;
-    console.log("[Goal] reverted to the default profile");
-    return;
-  }
-  const w = weight === undefined ? 1 : Math.max(0, Math.min(1, weight));
-  Memory.goal = w >= 1 ? { blend: { [profile]: 1 } } : { blend: { [profile]: w, default: 1 - w } };
-  console.log(`[Goal] set: ${JSON.stringify(Memory.goal.blend)}`);
-};
-
-global.status = () => {
-  console.log("\n=== Orchestration Status ===");
-  console.log(`Current tick: ${Game.time}`);
-  console.log(`Last survey: ${Memory.lastSurveyTick ?? "never"}`);
-  console.log(`Last planning: ${Memory.lastPlanningTick ?? "never"}`);
-  console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
-
-  console.log("\n=== Corps ===");
-  const corpCountByKind: { [kind: string]: number } = {};
-  for (const { kind } of completeCensus(corps)) corpCountByKind[kind] = (corpCountByKind[kind] ?? 0) + 1;
-  for (const kind of Object.keys(corpCountByKind).sort()) {
-    console.log(`${kind}: ${corpCountByKind[kind]}`);
-  }
-
-  if (colony) {
-    console.log("\n=== Colony ===");
-    console.log(`Nodes: ${colony.getNodes().length}`);
-  }
-};
-
-/**
- * Show flow economy status.
- * Call from console: `global.flowStatus()`
- *
- * Shows:
- * - Flow graph summary (sources, sinks, edges)
- * - Current solution allocations
- * - Efficiency and sustainability metrics
- * - Miner and hauler assignments
- */
-global.flowStatus = () => {
-  if (!flowEconomy) {
-    console.log("[FlowEconomy] Not initialized. Colony may have no nodes yet.");
-    return;
-  }
-
-  const graph = flowEconomy.getFlowGraph();
-  const solution = flowEconomy.getSolution();
-
-  console.log("\n=== Flow Economy Status ===");
-  console.log(`Sources: ${graph.getSources().length}`);
-  console.log(`Sinks: ${graph.getSinks().length}`);
-
-  if (!solution) {
-    console.log("\nNo solution computed yet. Run global.plan() to trigger solve.");
-    return;
-  }
-
-  console.log("\n=== Solution Metrics ===");
-  console.log(`Total Harvest: ${solution.totalHarvest.toFixed(2)} energy/tick`);
-  console.log(`Mining Overhead: ${solution.miningOverhead.toFixed(2)} energy/tick`);
-  console.log(`Hauling Overhead: ${solution.haulingOverhead.toFixed(2)} energy/tick`);
-  console.log(`Net Energy: ${solution.netEnergy.toFixed(2)} energy/tick`);
-  console.log(`Efficiency: ${solution.efficiency.toFixed(1)}%`);
-  console.log(`Sustainable: ${solution.isSustainable ? "YES" : "NO"}`);
-
-  console.log("\n=== Miner Assignments ===");
-  for (const miner of solution.miners.slice(0, 5)) {
-    console.log(`  ${miner.sourceId.slice(-8)}: spawn=${miner.spawnId.slice(-8)}, dist=${miner.spawnDistance}`);
-  }
-  if (solution.miners.length > 5) {
-    console.log(`  ... and ${solution.miners.length - 5} more miners`);
-  }
-
-  console.log("\n=== Hauler Assignments ===");
-  for (const hauler of solution.haulers.slice(0, 5)) {
-    console.log(
-      `  ${hauler.fromId.slice(-8)} -> ${hauler.toId.slice(-8)}: ${hauler.carryParts} CARRY, ${hauler.flowRate.toFixed(
-        2
-      )} e/tick`
-    );
-  }
-  if (solution.haulers.length > 5) {
-    console.log(`  ... and ${solution.haulers.length - 5} more haulers`);
-  }
-
-  console.log("\n=== Sink Allocations (by priority) ===");
-  const allocations = solution.sinkAllocations.sort((a, b) => b.priority - a.priority);
-  for (const alloc of allocations.slice(0, 10)) {
-    const pct = alloc.demand > 0 ? ((alloc.allocated / alloc.demand) * 100).toFixed(0) : "N/A";
-    console.log(
-      `  ${alloc.sinkType}[${alloc.sinkId.slice(-8)}]: ${alloc.allocated.toFixed(1)}/${alloc.demand.toFixed(
-        1
-      )} (${pct}%) pri=${alloc.priority}`
-    );
-  }
-  if (allocations.length > 10) {
-    console.log(`  ... and ${allocations.length - 10} more sinks`);
-  }
-
-  if (solution.warnings.length > 0) {
-    console.log("\n=== Warnings ===");
-    for (const warning of solution.warnings) {
-      console.log(`  ⚠ ${warning}`);
-    }
-  }
-
-  // Show unmet demand if any
-  if (solution.unmetDemand.size > 0) {
-    console.log("\n=== Unmet Demand ===");
-    for (const [sinkId, unmet] of solution.unmetDemand) {
-      console.log(`  ${sinkId.slice(-12)}: ${unmet.toFixed(2)} energy/tick unmet`);
-    }
-  }
-};
-
-// -----------------------------------------------------------------------------
-// LEGACY COMMANDS
-// -----------------------------------------------------------------------------
-
-/**
- * Force recalculation of multi-room spatial analysis.
- * Call from console: `global.recalculateTerrain()`
- *
- * This triggers an incremental analysis that spreads work across multiple ticks.
- */
-global.recalculateTerrain = () => {
-  resetAnalysis();
-
-  if (colony) {
-    console.log(`[MultiRoom] Triggering incremental recalculation (will spread across multiple ticks)...`);
-    // Start the incremental analysis - it will continue on subsequent ticks
-    runIncrementalAnalysis(colony);
-  } else {
-    console.log("[MultiRoom] Cache cleared - will recalculate when colony exists");
-  }
-};
-
-/**
- * Reset analysis cache without triggering recalculation.
- * Call from console: `global.resetAnalysis()`
- */
-global.resetAnalysis = () => {
-  resetAnalysis();
-  console.log("[Analysis] Cache cleared. Will recalculate on next tick.");
-};
-
-/**
- * Show node summary with ROI scores.
- * Call from console: `global.showNodes()`
- */
-global.showNodes = () => {
-  if (!colony) {
-    console.log("[Nodes] No colony exists yet");
-    return;
-  }
-
-  const nodes = colony.getNodes();
-  if (nodes.length === 0) {
-    console.log("[Nodes] No nodes found. Run global.recalculateTerrain() first.");
-    return;
-  }
-
-  // Sort by ROI score descending
-  const sortedNodes = [...nodes].sort((a, b) => (b.roi?.score ?? 0) - (a.roi?.score ?? 0));
-
-  console.log(`\n=== Colony Nodes (${nodes.length} total) ===`);
-  console.log("Sorted by ROI score (planner-backed economic value)\n");
-
-  for (const node of sortedNodes) {
-    const roi = node.roi;
-    if (roi) {
-      const distStr = roi.distanceFromOwned === Infinity ? "∞" : roi.distanceFromOwned.toString();
-
-      console.log(`${node.id} [${roi.isOwned ? "OWNED" : `dist=${distStr}`}]`);
-      console.log(`  Score: ${roi.score.toFixed(1)} | Openness: ${roi.openness}`);
-      console.log(`  Resources: ${roi.sourceCount} sources, ${roi.hasController ? "has controller" : "no controller"}`);
-    } else {
-      console.log(`${node.id} | (no ROI data)`);
-    }
-  }
-
-  // Show top expansion targets
-  console.log("\n=== Top Expansion Targets ===");
-  const expansionTargets = sortedNodes.filter(n => !n.roi?.isOwned && (n.roi?.score ?? 0) > 0);
-  if (expansionTargets.length === 0) {
-    console.log("No viable expansion targets found.");
-  } else {
-    for (const node of expansionTargets.slice(0, 5)) {
-      const roi = node.roi!;
-      const distStr = roi.distanceFromOwned === Infinity ? "∞" : roi.distanceFromOwned.toString();
-      console.log(`  ${node.id}: score=${roi.score.toFixed(1)}, dist=${distStr}`);
-    }
-  }
-};
-
-/**
- * Export node graph as JSON for external analysis.
- * Call from console: `global.exportNodes()`
- */
-global.exportNodes = (): string => {
-  if (!colony) {
-    console.log("[Export] No colony exists yet");
-    return "{}";
-  }
-
-  const nodes = colony.getNodes();
-
-  // Build export structure
-  const exportData = {
-    exportedAt: Game.time,
-    nodeCount: nodes.length,
-    nodes: nodes.map(node => ({
-      id: node.id,
-      roomName: node.roomName,
-      peakPosition: node.peakPosition,
-      territorySize: node.territorySize,
-      resources: node.resources.map(r => ({
-        type: r.type,
-        id: r.id,
-        position: r.position,
-        capacity: r.capacity,
-        mineralType: r.mineralType
-      })),
-      roi: node.roi,
-      spansRooms: node.spansRooms
-    })),
-    // Summary stats
-    summary: {
-      totalSources: nodes.reduce((sum, n) => sum + (n.roi?.sourceCount ?? 0), 0),
-      ownedNodes: nodes.filter(n => n.roi?.isOwned).length,
-      expansionCandidates: nodes.filter(n => !n.roi?.isOwned && (n.roi?.score ?? 0) > 0).length,
-      avgROI: nodes.length > 0 ? nodes.reduce((sum, n) => sum + (n.roi?.score ?? 0), 0) / nodes.length : 0
-    }
-  };
-
-  const json = JSON.stringify(exportData, null, 2);
-  console.log(`[Export] Exported ${nodes.length} nodes. Copy from console or use: JSON.parse(global.exportNodes())`);
-  console.log(json);
-  return json;
-};
-
-/**
- * Show the empirical road-usage heatmap: the tiles where our creeps walked on
- * unpaved ground and paid move-fatigue a road would have saved, ranked hottest
- * first. Paints a RoomVisual heat overlay when the room is visible.
- * Call from console: `global.roadHeatmap()` (all owned rooms) or
- * `global.roadHeatmap("W1N1")`.
- */
-/**
- * Show where CPU is actually being spent this tick: the spec-20 reconciliation
- * (whole-tick = corps + named infra + unnamed residual), a per-kind and
- * per-bucket breakdown, and the worst per-corp offenders by ~100-tick EMA.
- * Reads the `Memory.corpCpu` ledger the host publishes every tick, so the
- * numbers are last-tick-accurate. Call from console: `global.cpuReport()`.
- */
-global.cpuReport = () => {
-  const bucket = typeof Game.cpu?.bucket === "number" ? Game.cpu.bucket : undefined;
-  const limit = typeof Game.cpu?.limit === "number" ? Game.cpu.limit : undefined;
-  for (const line of formatCpuReport(Memory.corpCpu, { bucket, limit })) console.log(line);
-};
-
-/**
- * Toggle the debug overlays (node/spatial RoomVisuals), OFF by default because
- * they cost ~35 CPU/tick to draw pixels only visible with the client open on the
- * room. `global.visuals()` flips the current state; `global.visuals(true/false)`
- * sets it explicitly. The load-bearing analysis-cache restore is unaffected.
- */
-global.visuals = (on?: boolean) => {
-  Memory.visuals = on === undefined ? !Memory.visuals : on;
-  console.log(`[visuals] overlays ${Memory.visuals ? "ON" : "OFF"}`);
-};
-
-global.roadHeatmap = (roomName?: string) => {
-  const names = roomName
-    ? [roomName]
-    : Object.keys(Memory.rooms ?? {}).filter(r => Memory.rooms?.[r]?.roadScores);
-  if (names.length === 0) {
-    console.log("[roadScores] No road-usage data yet.");
-    return;
-  }
-  for (const name of names) console.log(renderRoadScores(name));
-};

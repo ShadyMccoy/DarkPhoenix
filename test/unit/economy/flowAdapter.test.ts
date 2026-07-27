@@ -1,7 +1,6 @@
 import { expect } from "chai";
-import { FlowGraph } from "../../../src/flow/FlowGraph";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
-import { solveWithCorpPlanner, controllerRoutingCapacity } from "../../../src/economy/flowAdapter";
+import { FlowGraph, solveWithCorpPlanner, controllerRoutingCapacity } from "../../../src/economy/flowAdapter";
 import { netEnergy } from "../../../src/economy/primitives";
 import { PlannerSource } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";

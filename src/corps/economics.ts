@@ -8,9 +8,8 @@
 // The spawn build-rate and reservation-pricing constants (SPAWN_PARTS_PER_TICK,
 // CLAIM_LIFETIME, RESERVER_DUTY) are homed in economy/primitives - spec 35
 // phase B inverted the spec-17-P5 debt where the PLAN core imported them from
-// this EXECUTE-directory file. Re-exported here so corps-side import paths
-// keep working for one release.
-export { SPAWN_PARTS_PER_TICK, CLAIM_LIFETIME, RESERVER_DUTY } from "../economy/primitives";
+// this EXECUTE-directory file; phase G closed the one-release re-export
+// tolerance (every importer reads primitives directly).
 
 /**
  * Ticks a creep burns per tile walking from the spawn to its post.

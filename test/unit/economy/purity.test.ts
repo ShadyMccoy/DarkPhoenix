@@ -12,6 +12,12 @@
  *   3. the sanctioned world ADAPTERS (flowAdapter, scavenge) may read Game
  *      only behind `typeof Game` guards - counted, so a guard removal trips.
  *
+ * The scan extends beyond src/economy/ to the modules the planning core
+ * touches (spec 35 phase G): corps/Corp.ts (the base type), the NOW planner
+ * (spawn/SpawnScheduler), the demand ladder, and flow/FlowTypes.ts - the ONE
+ * surviving flow DTO module after the translation-layer collapse folded
+ * FlowGraph + FlowEconomy into economy/flowAdapter.ts (an ADAPTER here).
+ *
  * Known debt is EXPLICIT (KNOWN_IMPURE below), not silently tolerated: when a
  * P3/P5 cleanup lands, move the file to the pure list and shrink the debt set
  * - the test fails if debt grows OR if paid-off debt is still listed.
@@ -44,8 +50,11 @@ const PURE: string[] = [
   "proposeHelpers.ts"
 ];
 
-/** Sanctioned world adapters: Game reads allowed, but only typeof-guarded. */
-const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts", "roadSegmentsGame.ts"];
+/** Sanctioned world adapters: Game reads allowed, but only typeof-guarded.
+ * planningAssembly.ts is the solve-input assembly seam (spec 35 phase G):
+ * construction sink admission (project ledger + trunk aggregation) + the ONE
+ * rebuild->admit->solve sequence both planning paths run. */
+const ADAPTERS: string[] = ["flowAdapter.ts", "scavenge.ts", "roadSegmentsGame.ts", "planningAssembly.ts"];
 
 /**
  * Explicit debt: economy/ files known to violate purity. EMPTY since the
@@ -111,8 +120,9 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
     // The planning core's permitted import surface - listed so a NEW
     // dependency (execution/, colony/, telemetry/, corps runtime classes)
     // cannot land silently. The constants inversion debt is PAID (spec 35
-    // phase B): primitives.ts imports constants from nobody; flow/FlowTypes
-    // and corps/economics re-export FROM it.
+    // phase B): primitives.ts imports constants from nobody; phase G deleted
+    // the one-release flow/FlowTypes + corps/economics re-exports - every
+    // importer reads primitives directly.
     const ALLOWED = new Set([
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
@@ -133,6 +143,21 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
         expect(ALLOWED.has(m[1]), `${file} imports "${m[1]}" — not on the PLAN-layer allowlist`).to.equal(true);
       }
     }
+  });
+
+  it("the flow DTO module (flow/FlowTypes.ts) is Game-free", () => {
+    // The ONE surviving src/flow/ module (spec 35 phase G): FlowSolution +
+    // assignment shapes, the id-minting factories, and the shared
+    // CommissionedHauler -> HaulerAssignment mapper. Declarations and pure
+    // mappers only - discovery and the solve driver live in flowAdapter (an
+    // ADAPTER above); if this file needs Game, it belongs there instead.
+    const code = stripComments(
+      fs.readFileSync(path.join(__dirname, "../../../src/flow/FlowTypes.ts"), "utf8")
+    );
+    expect(
+      GLOBAL_REF.test(code),
+      "flow/FlowTypes.ts gained a Game/Memory reference — the DTO module must stay declaration-only"
+    ).to.equal(false);
   });
 
   it("the Corp base class the planning core depends on is itself Game-free", () => {

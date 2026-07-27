@@ -18,10 +18,11 @@ import { SerializedCorp } from "../Corp";
 import { CarryCorp, SerializedCarryCorp } from "../CarryCorp";
 
 // The CommissionedHauler -> HaulerAssignment mapper is shared with flowAdapter
-// (one source of truth for the solver-bridge pin); re-exported here for the
-// existing import sites (carryKind.test, solverBridge.test).
-export { haulerAssignmentFromCommissioned } from "../../flow/haulerAssignment";
-import { haulerAssignmentFromCommissioned } from "../../flow/haulerAssignment";
+// (one source of truth for the solver-bridge pin); it lives in the flow DTO
+// module (spec 35 phase G) and is re-exported here for the existing import
+// sites (carryKind.test, solverBridge.test).
+export { haulerAssignmentFromCommissioned } from "../../flow/FlowTypes";
+import { haulerAssignmentFromCommissioned } from "../../flow/FlowTypes";
 
 /**
  * The CarryCorp's legacy runtime nodeId (and id `hauling-${nodeId}`) is
