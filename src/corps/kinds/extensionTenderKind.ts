@@ -81,7 +81,13 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   claimsOrphan(creep: Creep, corps: { [corpId: string]: ExtensionTenderCorp }): string | null {
     if (!isTenderCreep(creep.memory)) return null;
     for (const id in corps) {
-      if (corps[id].getPosition().roomName === creep.pos.roomName) return id;
+      // The CORP's own id, never the store key: the store is keyed by the
+      // COMMISSION id ("tender-W1N1") while creeps resolve against corp.id
+      // ("moving-W1N1-tender", the legacy runtime convention). Stamping the
+      // key left the orphan claimed-by-nobody - a frozen tender beside a
+      // stocked depot (measured: haul-t4-refill-sla-under-churn fail @34,
+      // the staged stale tender never truly adopted).
+      if (corps[id].getPosition().roomName === creep.pos.roomName) return corps[id].id;
     }
     return null;
   }

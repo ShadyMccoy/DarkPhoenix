@@ -165,8 +165,13 @@ describe("cohort release at operation end (spec 34 D6)", () => {
     // rescue map routes tank orphans to the tender kind - which must now
     // decline foreign tankers (isTenderCreep lens) so the released vector
     // rides grace -> recycle refund instead of becoming a phantom tender.
+    // The fixture's store KEY deliberately differs from the corp's OWN id
+    // (commission id vs legacy runtime id - the live shape): the claim must
+    // return corp.id, the id creeps resolve against. Returning the key left
+    // the orphan claimed-by-nobody - a frozen tender beside a stocked depot
+    // (measured live in haul-t4-refill-sla-under-churn, fail @34).
     const corps: any = {
-      tenderCorp: { id: "tenderCorp", getPosition: () => ({ x: 10, y: 10, roomName: HOME }) }
+      [`tender-${HOME}`]: { id: `moving-${HOME}-tender`, getPosition: () => ({ x: 10, y: 10, roomName: HOME }) }
     };
     const released: any = {
       pos: { roomName: HOME },
@@ -183,13 +188,14 @@ describe("cohort release at operation end (spec 34 D6)", () => {
       "a dead construction corp's tanker: no claim either"
     ).to.equal(null);
 
-    const tenderOrphan: any = {
+    const staleTenderOrphan: any = {
       pos: { roomName: HOME },
-      memory: { workType: "tank", corpId: `moving-${HOME}-tender` }
+      memory: { workType: "tank", corpId: "stale-tender" } // the cells' adopted-stale staging pattern
     };
-    expect(extensionTenderKind.claimsOrphan!(tenderOrphan, corps), "its OWN orphan: same-room adoption").to.equal(
-      "tenderCorp"
-    );
+    expect(
+      extensionTenderKind.claimsOrphan!(staleTenderOrphan, corps),
+      "its OWN orphan adopts to the CORP id, never the store key"
+    ).to.equal(`moving-${HOME}-tender`);
 
     const farTenderOrphan: any = {
       pos: { roomName: "W9N9" },
