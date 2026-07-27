@@ -1,7 +1,15 @@
 # 32 — The strategic-seam refactor: one contract, one home, one lens
 
-**Status:** IN PROGRESS 2026-07-27 — mapped by a 9-reader audit (106 findings
-across every subsystem); phases land bottom-up, one commit each, gated.
+**Status:** PHASES A–D LANDED 2026-07-27 (each its own gated commit: A
+dead-code sweep −3,295 lines; B constants inversion + formula folds,
+primitives imports from nobody; C economy/ids.ts + corps/censusLens.ts;
+D propose helpers + startedUnitDemandGroup + optional run/runCorpTick +
+INFRA_ROLES deleted + spawn/demandLadder.ts + SpawnAnchoredCorp +
+corps/regimes.ts + OrphanRescue census fold). Gates: build + unit suite +
+integration trio green per phase; grid run at phase exit. OPEN: D-scout
+(scout through the scheduler), E structural-regime upgrade, F legacy-pair
+port, G translation-layer collapse, H giant-file splits. Mapped by a
+9-reader audit (106 findings across every subsystem).
 **Priority:** P0 — this is the "corps plug in seamlessly" spec: it finishes
 what specs 17/20 started so that implementing, introducing, or updating a
 corp kind never requires knowledge that lives outside the kind's own file.

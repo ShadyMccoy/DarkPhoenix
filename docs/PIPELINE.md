@@ -137,7 +137,7 @@ Road placement is fed by two independent inputs that answer different questions:
 
 - **A priori — `economy/roadEconomics.ts`.** A closed-form cost/benefit for a
   KNOWN route with an ASSUMED flow. `ConstructionCorp.tryPlaceRoadRoute`
-  (`ConstructionCorp.ts:731`) uses it to decide whether to pave each
+  uses it to decide whether to pave each
   source→depot haul route and caches the verdict in `RoomMemory.roadRoutes`.
 - **Empirical — `economy/roadScoring.ts` + `execution/roadTracker.ts`.**
   `trackRoadUsage` (every tick, `main.ts` EXECUTE phase) watches where our
@@ -180,8 +180,23 @@ Road placement is fed by two independent inputs that answer different questions:
   ROI estimators, `framework/EdgeVariant` beyond `HaulerRatio`/`MiningMode`,
   and `scripts/plan-budget.ts`. `FlowSink.priority` survives only as a
   telemetry passthrough (default 0).
+- **Also deleted (spec 32 phase A sweep, 2026-07-27):** the `NodeNavigator`
+  graph class (the module-level `pathDistance` survives — it is THE distance
+  function), `Persistence`'s economicEdges BFS + `Memory.economicEdges`/
+  `spatialEdgeWeights`, `FlowGraph`'s edge matrix and query API (discovery +
+  `getSources`/`getSinks` survive), `NodeSurveyor` entirely, SpawningCorp's
+  market-era order queue (`queueSpawnOrder` et al.), the uncalled
+  FLOW-INTEGRATION accessors on the four heavy corps, the spatial
+  skeleton-builder, `planning/EconomicConstants.ts` (phase B: constants now
+  homed in `economy/primitives.ts`, which imports from nobody).
+- **Spec 32 one-home modules (2026-07-27):** id-space lenses in
+  `economy/ids.ts` + `corps/censusLens.ts`; propose helpers in
+  `economy/proposeHelpers.ts`; the spawn-value ladder in
+  `spawn/demandLadder.ts`; regime lenses in `corps/regimes.ts`;
+  `CorpKind.run` is optional (dispatch default `runCorpTick`).
 - **Not yet ported to the framework:** `BootstrapCorp` and `SpawningCorp`
-  (infrastructure; folded into the census by `completeCensus`).
+  (infrastructure; folded into the census by `completeCensus`; the port is
+  spec 32 phase F).
 
 See [`ONTOLOGY.md`](./ONTOLOGY.md) for the layer model and kind contract, and
 [`specs/17-ontology-layers.md`](./specs/17-ontology-layers.md) for the

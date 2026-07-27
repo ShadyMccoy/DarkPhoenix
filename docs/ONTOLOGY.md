@@ -20,9 +20,11 @@ walkthrough is [PIPELINE.md](./PIPELINE.md); the work items are
 | **EXECUTE** (dumb) | `corps/`, `corps/kinds/` (materialize/run/body), `execution/` (CommissionHost, SpawnDirector, OrphanRescue, runners) | Game, plus its commission's assignment — "follow your assignment" | invent policy the plan owns; read another kind's naming conventions instead of a shared lens |
 | **AUDIT** (passive, pullable) | variance meters (`Memory.corpVariance`), the per-corp CPU ledger (`Memory.corpCpu`), telemetry segments, the spawn agenda + receipts (`Memory.spawnAgenda`), BlackBox flight recorder | everything, generically via the census | feed back into decisions; enumerate kinds by hand |
 
-Two world-adapter modules are the sanctioned PLAN↔world boundary:
-`economy/flowAdapter.ts` and `economy/scavenge.ts` read the live world (behind
-`typeof Game` guards) to BUILD the pure `ColonyProblem`. Everything else in
+Three world-adapter modules are the sanctioned PLAN↔world boundary:
+`economy/flowAdapter.ts`, `economy/scavenge.ts`, and
+`economy/roadSegmentsGame.ts` read the live world (behind `typeof Game`
+guards) to BUILD the pure `ColonyProblem` (the purity ratchet's ADAPTERS
+list is the mechanical form of this sentence). Everything else in
 `economy/` is Game-free.
 
 The audit layer is deliberately **passive but pullable**: nothing in the bot
@@ -84,8 +86,11 @@ Later families (same rule — one home):
 - **Conversions:** `workPartsForEnergyRate`, `energyPerSpawnPart` (the shadow
   price), the invader-tax primitives (spec 13).
 
-Known debt: `planning/EconomicConstants.ts` and `corps/economics.ts` still hold
-parallel copies/constants (audited 2026-07-19, spec 17 P5 folds them in).
+Debt PAID (spec 32 phase B, 2026-07-27): `primitives.ts` now imports
+constants from nobody — `planning/EconomicConstants.ts` is deleted, and
+`flow/FlowTypes` / `corps/economics` re-export the ground-truth constants
+FROM primitives (one release of import-path tolerance). The id-space lenses
+live in `economy/ids.ts` (spec 32 phase C).
 
 ## 4. The Corp (the operator)
 
