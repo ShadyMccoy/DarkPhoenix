@@ -160,6 +160,24 @@ export const PROJECT_COMPLETION_FRACTION = 2 / 3;
  */
 export const WARTIME_COMPLETION_FRACTION = 1 / 3;
 
+/**
+ * The summed construction remaining work (energy) that marks a room as being in
+ * WARTIME (spec 33): a build backlog meaningful enough that upgrading relegates
+ * to its floor and the surplus flows to building. ~one structure (an extension
+ * is 3000): a lone road (300) never trips it, a real build-out does. Read by
+ * BOTH the plan (flowAdapter's controller-sink relegation) and the physical
+ * consumer (UpgradingCorp's fleet relegation), so the two shift COHERENTLY.
+ */
+export const WARTIME_BACKLOG_THRESHOLD = 3000;
+
+/**
+ * The controller's anti-downgrade sip (energy/tick == WORK): the inviolable
+ * floor upgrading is relegated TO (never zeroed) - keeps the controller alive
+ * while the surplus funds building. The plan's controller sink and the physical
+ * upgrader fleet both floor here, so relegation is a coherent ladder shift.
+ */
+export const ANTI_DOWNGRADE_RESERVE = 2;
+
 /** The sizing horizon for a crew working `travelDistance` from its spawn.
  * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
 export function projectBuildHorizon(travelDistance: number, accelerate = false): number {

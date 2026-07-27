@@ -68,6 +68,28 @@ levers:
 These are the real "surplus -> building" change; the acceleration + relegation +
 tanker fuel shipped are necessary but not sufficient without them.
 
+**UPGRADER-FLEET RELEGATION LANDED 2026-07-27** (the first physical lever, owner
+"sure"): `upgraderSizing` gains a `wartime` flag - while the colony holds a
+MEANINGFUL build backlog (`buildPoolBacklog >= WARTIME_BACKLOG_THRESHOLD`, the
+SAME lens the plan's controller sink relegates on, now shared from
+`primitives`), the fleet is relegated to the anti-downgrade sip
+(`ANTI_DOWNGRADE_RESERVE = 2`, also shared from `primitives`) instead of the
+stock-grounded surplus-eater. This is the PHYSICAL half the falsification named:
+capping the plan sink moved no energy because the fleet sized from the actual
+link-fed stock; shrinking the FLEET is what stops it eating the surplus, so the
+energy the link delivers lands in building instead. Fires OFF THE BACKLOG (not
+`surplus`) because the falsified drain ran with the bank BELOW reserve (E4
+-4067) while the link-kept stock still fed a stock-grounded fleet - a
+surplus-only gate would leave that drain running. Floor inviolable (never
+zeroed); `surplus` reported FALSE in the relegated return so the sip funds as an
+ordinary must-keep-alive demand, not a held surplus-eater; reverts the tick the
+backlog drains (clean exit). Red-first: `test/unit/corps/upgraderRelegation.
+test.ts`. Stamp: `sizing.wartime` (spec 14). STILL AHEAD: the link-relay
+throttle (lever 1 - core->controller relay in wartime) and the feeder
+drain-preference (lever 3); measure the fleet relegation live before deciding
+whether they are needed (the fleet shrink may backpressure the controller link
+enough on its own).
+
 Still OPEN for the full mode: entry/exit HYSTERESIS as a named posture (the bare
 3000 threshold can flap as the last structure finishes - a build-out stays well
 above it so no flap mid-rebuild, but a lone finishing structure hovers); a

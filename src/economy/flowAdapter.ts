@@ -29,7 +29,9 @@ import {
   UPGRADE_ENERGY_PER_WORK,
   infraSpawnLoad,
   minerOverhead,
-  projectAbsorbRate
+  projectAbsorbRate,
+  WARTIME_BACKLOG_THRESHOLD,
+  ANTI_DOWNGRADE_RESERVE
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import { partialPaveRatio } from "./roadEconomics";
@@ -49,8 +51,9 @@ import { searchStructure } from "./strategy";
 import { commissionsFromPlan } from "./commissionPlan";
 import { haulerAssignmentFromCommissioned } from "../flow/haulerAssignment";
 
-/** Guaranteed controller trickle (energy/tick) so it never downgrades / stalls. */
-export const ANTI_DOWNGRADE_RESERVE = 2;
+// Re-exported from primitives (the coherent home for the controller sip); kept
+// here so existing flowAdapter importers of the constant are unaffected.
+export { ANTI_DOWNGRADE_RESERVE };
 
 /**
  * The save-regime controller cap lives in economy/bank.ts with the rest of the
@@ -591,7 +594,6 @@ export function buildColonyProblem(
   // controllerRoutingCapacity). The threshold excludes a lone road so trivial
   // paving never relegates upgrading; a real build-out (extensions, storage)
   // does. Exits cleanly when the backlog drains below the threshold.
-  const WARTIME_BACKLOG_THRESHOLD = 3000;
   const constructionWorkByRoom = new Map<string, number>();
   for (const cs of constructionSites) {
     const r = cs.position.roomName;

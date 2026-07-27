@@ -270,6 +270,16 @@ export function buildPool(homeRoomName: string): BuildPoolEntry[] {
  * the buffered horizon of the FARTHEST pool room (in-room = spawn range to
  * the first site; remote = roomLinearDistance * 50).
  */
+/**
+ * The colony's summed outstanding construction work (energy), the WARTIME
+ * backlog gauge (spec 33). Same buildPool lens buildPoolAbsorbRate sizes from -
+ * including the durable blind-route receipt remainders - so the fleet
+ * relegation (UpgradingCorp) reads exactly the work the crew is funded to eat.
+ */
+export function buildPoolBacklog(homeRoomName: string): number {
+  return buildPool(homeRoomName).reduce((s, e) => s + e.work, 0);
+}
+
 export function buildPoolAbsorbRate(homeRoomName: string, spawnPos: RoomPosition | undefined): number {
   const pool = buildPool(homeRoomName);
   if (pool.length === 0) return 0;
