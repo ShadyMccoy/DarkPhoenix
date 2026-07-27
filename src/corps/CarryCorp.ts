@@ -372,6 +372,7 @@ export interface SerializedCarryCorp extends SerializedCorp {
   dutyIdleSource?: number;
   dutyIdleSink?: number;
   dutyIdleSinkAtSink?: number;
+  dutyIdleSinkStorageRoom?: number;
   dutySince?: number;
 }
 
@@ -405,6 +406,14 @@ export class CarryCorp extends Corp {
    * split names the fix: at-sink => deposit throughput; en-route => decongest
    * the lane / relocate the parked blocker. */
   private dutyIdleSinkAtSink = 0;
+  /** Of the atSink idle ticks, those where the STORAGE still had free capacity
+   * (the deposit target was NOT saturated). atSink WITH storage room => the
+   * block is SPATIAL contention (queuing for the deposit tile / a parked mover
+   * in the way), so the fix is geometry / deposit-spread, NOT a bigger fleet.
+   * atSink WITHOUT storage room => genuine sink saturation (spill the load).
+   * The fork the coarse atSink split could not name (owner 2026-07-27, the
+   * post-feeder-router pile: atSink 0.21, storage far from full). */
+  private dutyIdleSinkStorageRoom = 0;
   private dutySince = 0;
 
   /**
@@ -500,6 +509,9 @@ export class CarryCorp extends Corp {
             // of idleSink: adjacent to the deposit (sink refused) vs the
             // complement, blocked en-route (lane traffic / standing blocker).
             idleSinkAtSinkFrac: Math.round((this.dutyIdleSinkAtSink / this.dutyAlive) * 1000) / 1000,
+            // of the atSink idle: the hub storage HAD room (=> spatial
+            // contention at the deposit, not sink saturation - the fix fork).
+            idleSinkStorageRoomFrac: Math.round((this.dutyIdleSinkStorageRoom / this.dutyAlive) * 1000) / 1000,
             meterTicks: tick - this.dutySince
           }
         : {})
@@ -533,6 +545,7 @@ export class CarryCorp extends Corp {
       this.dutyIdleSource = 0;
       this.dutyIdleSink = 0;
       this.dutyIdleSinkAtSink = 0;
+      this.dutyIdleSinkStorageRoom = 0;
       this.dutySince = tick;
     }
     // The deposit points a loaded hauler waits AT: the room storage and (spec
@@ -566,6 +579,12 @@ export class CarryCorp extends Corp {
               sinks.some(p => creep.pos.getRangeTo(p) <= 1)
             ) {
               this.dutyIdleSinkAtSink += 1;
+              // Was the hub sink actually saturated, or does it have room (so the
+              // block is spatial contention, not sink refusal)? One cheap read.
+              const storageRoom = room.storage
+                ? (room.storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0
+                : false;
+              if (storageRoom) this.dutyIdleSinkStorageRoom += 1;
             }
             break;
         }
@@ -1823,6 +1842,7 @@ export class CarryCorp extends Corp {
       dutyIdleSource: this.dutyIdleSource,
       dutyIdleSink: this.dutyIdleSink,
       dutyIdleSinkAtSink: this.dutyIdleSinkAtSink,
+      dutyIdleSinkStorageRoom: this.dutyIdleSinkStorageRoom,
       dutySince: this.dutySince
     };
   }
@@ -1839,6 +1859,7 @@ export class CarryCorp extends Corp {
     this.dutyIdleSource = data.dutyIdleSource ?? 0;
     this.dutyIdleSink = data.dutyIdleSink ?? 0;
     this.dutyIdleSinkAtSink = data.dutyIdleSinkAtSink ?? 0;
+    this.dutyIdleSinkStorageRoom = data.dutyIdleSinkStorageRoom ?? 0;
     this.dutySince = data.dutySince ?? 0;
   }
 }

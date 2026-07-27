@@ -617,6 +617,10 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const idleSink = wavg("idleSinkFrac");
       const idleSinkAtSink = wavg("idleSinkAtSinkFrac");
       const idleSinkEnRoute = Math.max(0, idleSink - idleSinkAtSink);
+      // Of the atSink idle: how much had the hub storage with ROOM (=> spatial
+      // contention at the deposit, NOT sink saturation). Absent pre-instrument.
+      const atSinkStorageRoom = wavg("idleSinkStorageRoomFrac");
+      const atSinkContended = idleSinkAtSink > 1e-9 && atSinkStorageRoom >= idleSinkAtSink * 0.5;
       // Buffers over container cap (2000) = energy on the ground.
       const buffers: Record<string, number> = core.sourceBuffers ?? {};
       const overCap = Object.values(buffers).reduce((s, v) => s + Math.max(0, (v as number) - 2000), 0);
@@ -639,7 +643,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
               ? "- haulers BUSY => plan under-asks (inflow-sized carry, no drain term)"
               : idleSinkEnRoute >= idleSinkAtSink
               ? "- idleSink EN-ROUTE => approach-lane congestion (traffic / standing blocker at the core)"
-              : "- idleSink AT-SINK => deposit throughput (link clamped / bank access)"
+              : atSinkContended
+              ? `- idleSink AT-SINK, storage HAD ROOM (${atSinkStorageRoom.toFixed(2)}) => SPATIAL contention at the deposit (queue / parked mover), not saturation => geometry/deposit-spread fix`
+              : "- idleSink AT-SINK, storage FULL => sink saturation (spill the load / open the drain)"
             : "- buffers near cap, no leak")
       });
     }
