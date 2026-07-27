@@ -4380,3 +4380,406 @@ Cycle verdict: **FIXED + VERIFIED**. Residual watch (next cycle): storage sat
 reserver recovery spend, partly the windfall-draw tail); confirm it self-
 corrects back toward reserve in the save regime and is not runaway upgrader
 consumption.
+
+---
+
+## Incident 2026-07-26 — X5 phantom churn on multi-slot corps (instrument bug)
+
+**Capture:** t72587664 (fixture `shard1-t72587664.json`, blackbox slimmed to
+spawn/churn/raid/hold rows). Baseline t72576379.
+
+**Symptom:** the ledger's only non-ok line was `[WARN] X5 rebuild churn 0.24`,
+worst `W43N23-reservation 1300e@12t - FAST RESPAWN (<60t = double-order/loop)`.
+The WARN pointed straight at the reserver mechanism — the single subsystem the
+trap list says never to bandaid.
+
+**Diagnosis (data, not vibes):** the reservation corp is ONE corp staffing 4
+remote rooms (creepCount 4, banks W42N22 3569 / W42N23 4166 / W43N24 3329 /
+W44N23 3110 all healthy, P6 pump +14174t/11284t). Its 16 spawns over 2624t =
+one per room per ~656t ≈ the 600t claim lifetime — the reservers live full
+lives. X5's bug: it paired CONSECUTIVE spawns in the corp's combined log and
+read the gap as one creep's lifetime. But consecutive spawns are DIFFERENT
+slots ~life/N apart, and a cohort rebuild wave serialises all N through one
+spawn ~spawn-time (12t) apart. For a healthy staffing-N corp the steady gap is
+life/N, which the formula scored as `cost·(1−1/N)` = 975e phantom churn PER
+spawn (N=4). The 12t worst gap then tripped `loop = worstGap < 60`, firing the
+false WARN. The pre-raid timing of the big early cluster (spawns 72585076–
+72585617, first raid 72585890) confirmed it was NOT invader-driven.
+
+**Fix (scripts/waste-ledger.ts `computeChurn`):** a creep's replacement is the
+next spawn OF ITS SLOT — `ss[i+staffing]`, not `ss[i+1]`. For staffing 1 this
+IS the consecutive gap, so all single-slot behaviour (and every existing test)
+is unchanged. Red-first: a synthetic healthy 4-slot corp (staggered full-life
+replacements) that the old code booked at 7800e churn + WARN and the new code
+reads at 0 + ok. The live `W43N23-reservation` phantom dropped 11828e → 6546e
+(the residual is genuine short-same-slot-gap remote noise, the invader/revoke
+class doctrine accepts).
+
+**Result:** X5 **WARN→ok**, 0.24→0.15, 17804e→11288e; worst offender is now a
+real hauler churn (`W42N23-hauling-cedc 1800e@591t`, ~40% life, not a loop).
+**Ledger fully green — no FAIL, no WARN.** home churn 0%.
+
+**Scope:** observability-only — `waste-ledger.ts` is a script, not in
+`dist/main.js`; bot behaviour unchanged, no deploy. Gate: unit 1508 + build
+green.
+
+Cycle verdict: **FIXED** (instrument). The economy itself carried no actionable
+leak this cycle — progress is AHEAD of plan (P7 1.70×, P9 mining 1.43×,
+warchest filling toward the 56k reserve); the top signal was the X5 false-WARN,
+now reporting truth so future cycles aren't misdirected onto the reserver
+mechanism.
+
+---
+
+## Incident 2026-07-26 — source energy piling & rotting (INSTRUMENT phase)
+
+**Owner report:** "energy is piling up and rotting at the sources ... some
+haulers between the core and the NE link that seem confused ... some lost creeps
+just standing around."
+
+**Confirmed from data (capture t72588289, and the trend across ~28k ticks):**
+- Source buffers sit **8,498e above the 2000 container cap right now**, and
+  2.5k–9.4k above cap in EVERY capture t72560582..t72588289.
+
+**Model correction (owner, 2026-07-26): NOT a permanent ratchet — decay bounds
+it.** Ground energy decays at `ceil(amount/1000)` per tick, a restoring force
+proportional to pile size. So the pile settles at an EQUILIBRIUM where decay
+balances the haul deficit: for inflow I and actual hauled throughput H, the
+ground pile holds at `I − H = ceil(groundPile/1000)`. Consequences that reframe
+the fix:
+  - **H ≥ I ⇒ the pile decays to zero** (settles ≤ container cap). A transient
+    setback clears itself for free — the owner's "piles degenerate."
+  - A *stable* pile is therefore NOT un-recovered gaps; it is CHRONIC
+    under-delivery (H < I), and the pile size READS OUT the deficit:
+    `dbcd92` 3993 over cap ⇒ ~4 e/t chronically rotting (on a ~10 e/t reserved
+    source, H ≈ 6 e/t — the carry-6 hauler at ~50% duty ⇒ EXECUTION loss, not a
+    missing drain term). `cee0` 1180 over cap with 0 haulers does not fit an
+    I=10 equilibrium (~10k) ⇒ almost certainly mid-transient (miner also dead,
+    I≈0, pile decaying) — the trend, not one capture, decides.
+  - The earlier #139 framing ("no buffer-drain term, every gap ratchets the
+    pile up permanently") is thus WRONG as stated: the lever is NOT a
+    scavenge-style pile-drain term. It is **make H ≥ I + a small margin** (the
+    margin only has to beat duty losses); decay does the rest. Fix the chronic
+    H < I per source: undersized body, missing hauler, or duty loss (traffic /
+    link-clamp / idle-at-sink).
+- Secondary: the best-netting remote (`dbcee0` W42N22, net 8.19 e/t, plan 18.8
+  carry) had **0 haulers** while its buffer sat at 3180 — crowded out at a
+  saturated spawn (util 0.945).
+- The single worst pile is a HOME source (`dbcd92`, 5993) with the hub link
+  clamped 55% of the time (`hubClampShare 0.547`) — so it MIGHT be a link
+  backlog, not a hauler shortfall. Intel carries no link geometry, so the
+  mechanism is unresolved from the current segments.
+
+**Owner steer:** instrument first, then fix (don't guess the worst offender's
+mechanism, and don't nudge core hauling sizing blind — CorpPlanner.ts:591
+records an aggressive 150-tick drain once crowding production out of the parts
+ledger).
+
+**Instrument shipped (this cycle):** `CarryCorp.readPickupBuffer` stamps, at the
+sizing site, the ACTUAL pickup buffer (`staged` = container + ground piles in
+range 1) and the source-link state (`srcLinkEnergy`/`srcLinkCap`, a link in
+range 2), alongside the sustained-inflow `carryNeeded` the fleet is sized to.
+`staged` is null when the pickup room isn't visible (a fact distinct from zero,
+and the signal that a remote drain term must read a durable buffer, not live
+vision). Corps segment v4→v5. Red-first: 5 unit cases pin the under-sized
+signature (pile high, no link), the link-backlog signature (link pinned at cap),
+Chebyshev range exclusion, and the null/unmeasurable cases. Observability-only
+(a read + stamp, no decision change). Gate: unit 1513 + build green.
+
+**Predicted deltas to READ next capture (~200t+ post-deploy), through the
+corrected (H vs I) lens:** per hauling corp, read `sizing.staged` (the pile =
+the deficit, ~ground/1000 e/t) against the duty split already stamped —
+  - high `duty` + standing pile ⇒ the plan UNDER-ASKS (`carryNeeded` sized to
+    nominal I but real I higher, or H capped below I): fix = size H to I+margin;
+  - low `duty` + standing pile ⇒ EXECUTION loss — read `idleSourceFrac`
+    (arriving to an empty source) vs `idleSinkFrac`/`idleSinkAtSinkFrac`
+    (blocked at delivery: link-clamp / lane traffic). Concrete prediction:
+    `dbcd92` should read `duty ≈ 0.5` (H≈6 vs I≈10) if it is execution loss;
+    `srcLinkEnergy`/`srcLinkCap` present + pinned ⇒ link backlog.
+The fix follows from the proven per-source cause (right-size H, unblock the
+delivery leg, or field the missing hauler) — NOT a pile-drain term; decay clears
+the residual once H ≥ I.
+
+Cycle verdict: **INSTRUMENTED** (fix deferred to the post-capture read, now
+framed as H-vs-I deficit localisation, not ratchet recovery).
+
+---
+
+## Change 2026-07-26 — ReservationCorp split to one corp per NODE (owner directive)
+
+**Owner directive:** "Reservation Corp should be multiple corps. One per Node
+(ie controller)."
+
+Before: ONE reservation corp per home room held a `targetRooms[]` list (4 remote
+rooms live), so its spawn log interleaved 4 independent reserver lifetimes -
+exactly the multi-slot shape the X5 same-slot fix had to correct, and a single
+corp whose funding/defunding couldn't be reasoned about per room.
+
+After: `reservationKind.propose` emits ONE commission per mined remote (bound to
+its NEAREST home spawn within scout range, deterministic tiebreak so a remote
+reachable from two homes gets exactly one corp). Commission id
+`reservation-<remote>`, runtime corp id `reservation-<remote>-reservation`,
+nodeId `<remote>-reservation` so `getPosition()` and the default orphan rule
+resolve to the reserved room. Each corp holds exactly one node; the corp's
+internal per-room logic (one-way latch, duty cycle, opportunistic topup,
+purchase-loop guard) is UNCHANGED and now operates on its single room - a
+deliberate low-risk choice given the reservation mechanism's incident history
+(the getSpawnDemand guards were not rewritten).
+
+Migration is graceful: on redeploy the pre-split per-home corp is retained
+(`retiring`) until its reservers die, while the new per-node corps take over
+spawning; the duty cycle reads the reservation bank the old reservers maintain,
+so no double-spawn. A new `claimsOrphan` re-adopts any reserver that outlives
+its old corp by its `targetRoom` (not its transit room), so an in-flight
+reserver is never recycled mid-route.
+
+Red-first: reservationKind.test.ts rungs 2-4 rewritten to the per-node contract
++ 5 new cases (one commission per remote, per-node keying, position resolves to
+the node, claimsOrphan-by-targetRoom, wildcard yields none). Gate: unit 1518 +
+build + flow-handoff/runt-economy/storage-depot/remote-mining.
+
+### FAILED IN PROD, ROLLED BACK, ROOT-CAUSED, RE-FIXED (t72591424)
+
+Deployed the split; the recapture caught a **reserver purchase loop**: 17 live
+reservers (vs ~4 pre-split), **11 piled on W42N22** with its bank stuck at 3974,
+23 reserver spawns in 2030t = **46% of ALL spawn energy** (the CLAUDE.md
+"reserver loop was 53%" trap, reproduced). Redeployed origin (696d3b2, the
+pre-split pile-instrument build) immediately to stop the bleed.
+
+Root cause — my "keep the trap-hardened logic, just feed it one room" assumption
+was WRONG. The opportunistic-topup guard blocked only on an UNASSIGNED wildcard
+(`!hasWildcard`), so once work() latched a reserver the corp offered ANOTHER.
+The old multi-room corp masked this: its wildcards spread across 4 rooms and the
+COLLECTIVE bank hit the 5000 cap, self-terminating the loop. The per-node split
+removed that safety valve — one corp, one room whose bank could not rise
+(reservers ineffective / in-flight) ⇒ opportunistic fired every tick, unbounded.
+The mechanism bug: opportunistic spawned on BANK LEVEL with no hard per-room
+COUNT cap. (Textbook CLAUDE.md meta-lesson — the reservation mechanism bites the
+moment you lean on it; the fix had to interrogate the mechanism, not the
+trigger.)
+
+Fix (ReservationCorp.getSpawnDemand, opportunistic branch): cap at ONE reserver
+per target room — guard on `countLivingReservers() < targets.length` (counts
+assigned + unassigned + SPAWNING, so the corp never re-orders against its own
+in-flight purchase) instead of the wildcard-only check. Bounds both single- and
+multi-room corps; the demand path was already count-bounded via the wildcard/
+assigned coverage check. Red-first: 2 new ReservationCorp cases (a room with a
+latched reserver, and one with a spawning newborn, each offers ZERO opportunistic
+top-up despite cap headroom) — verified red on the pre-fix build, green after.
+Gate: unit 1520 + build + integration gate (re-running) before re-deploy.
+
+Cycle verdict (this deploy): **REGRESSION → ROLLED BACK → RE-FIXED**; re-deploy
+gated on the integration suite + a post-deploy recapture that must show ≤1
+reserver per room and reserver spawn-energy back to steady state.
+
+### VERIFIED (t72595222, post re-deploy)
+
+The re-deploy (split + opportunistic count-cap) is confirmed GOOD:
+- **4 reservation corps, ONE per remote node** (W42N22/W42N23/W43N24/W44N23),
+  each **creepCount=1**, body 2·CLAIM+2·MOVE, all gates `reservation-banked`
+  (coasting, not looping). Total reservation creeps **4** (regression was 17,
+  11 piled on W42N22).
+- Reserver spawn energy 30% of a small fresh-reset window (was 46%); the
+  decisive signal is 1 reserver/room + banked gates, not the recovery-window %.
+- Ledger clean: no FAIL; the two WARNs (E5 runts feeder@100/hauler@100, X5 0.06
+  @51t) are the documented post-reset recovery transients, not steady state.
+
+Cycle verdict: **FIXED + VERIFIED** — the per-node ReservationCorp split (owner
+directive) is live and stable; the multi-slot interleave that forced the X5
+same-slot correction is gone. Fixture shard1-t72595222 (core+corps+blackbox).
+
+### Source-pile leak LOCALISED (t72595222, H-vs-I / duty read)
+
+The pending pile read, through the corrected model: the leak is **execution
+loss from approach-lane congestion where the remote haul routes converge on the
+core**, NOT under-sizing and NOT a link backlog.
+- H1: fleet duty 0.78, idleSink 0.21 **[atSink 0.07, EN-ROUTE 0.14]**,
+  ground-piled 3970e. Per-corp (new `staged`/`srcLink` stamps): remote haulers
+  carry their idleSink almost entirely EN-ROUTE — cee0 (W42N22) idleSink 0.30 /
+  atSink 0, cbd5 (W44N23) 0.32 / atSink 0, cd8d (W43N24) 0.19 — blocked on the
+  return leg into the core. staged 2.6k–3.6k at those remotes.
+- **Link-backlog hypothesis FALSIFIED**: `dbcd92` (the earlier worst pile) has
+  `srcLink None` — no link at all — and drained to 1290 post-reset. The one
+  link-fed home source, `dbcd90`, shows `srcLink 800/800` (hub link saturated,
+  `hubClampShare 0.59`, `directShare 3%`) but is distance-1 to storage so it
+  does not pile.
+- Corollary waste surfaced same capture: **tenders over-staffed 3× (66 parts /
+  3 creeps at duty 0.11)** vs the spec-31 one-lane-tender ideal; link network
+  saturated but delivering only 7.5 e/t / 3% direct to the controller.
+
+Next work item (own cycle): decongest the core convergence for remote haulers —
+target named with data, fix not yet designed. Owner review of the ideal base
+layout (specs 02/26/31: clear highways, links-as-hub-ports, one lane tender) is
+the framing for that cycle.
+
+## AUDIT 2026-07-27 (cont.) — builder budget: tanker over-provisioning + wartime build acceleration
+
+Owner: "the builder budget seems off ... speed it up a bit ... sized for at
+least all 4 extensions ... even at the leisurely pace the fleet is mismatched."
+Root causes read from code + t72596906 (build corp cc4, body carry34/move14/
+work2 - almost all tanker, ~no builder):
+- TANKER OVER-PROVISIONING: `targetTankerCount` computed the real `carryNeeded`
+  (~6) but sized each of >=2 bodies to the 16-CARRY max => 32 CARRY for a 2-WORK
+  site. Fix: `tankerPlan` distributes `carryNeeded` across the bodies (each its
+  SHARE), hot-swap floor of 2 held. The fleet proportion is now matched at any
+  pace (the owner's point 2).
+- BUILD RATE THROTTLED by design: crew + plan sink both sized to
+  `projectAbsorbRate(one placed site)` over the 2/3-life horizon => tiny crew.
+  Fix (spec 33 down-payment): `WARTIME_COMPLETION_FRACTION 1/3` shortens the
+  horizon while a spendable surplus stands, ~2x the crew AND the sink absorb,
+  coherently (both readers off `bankSurplusRate`); bounded by available energy;
+  filling warchest keeps the lifetime pace. Recalibrated the surplus-staged pins
+  (builderSizing MAX-of-tracks 6->12, flowAdapter absorb 5->6.07 / 15->30).
+
+Deployed t72597... (post feeder-router). Post-deploy t72597786 (~200t, still in
+reset transition): LARGELY POSITIVE - H1 duty 0.57->0.83 and idleSink 0.43->0.16
+(the deposit congestion the pile came from LARGELY CLEARED - feeder-router +
+tanker right-size + replan), controller link re-fed 36.9 e/t (was 0.0 in the
+dip), storage drew 64k->~reserve (surplus SPENT into work, self-limiting), sites
+1->3 + extensions 36->37 (rebuild progressing toward all 4), NO FAIL/collapse.
+Steady state (t72597918) exposed the REAL "builder budget is off": P8 FAIL -
+sites 3->3, alloc 9 e/t, 0 built, a 2-WORK builder present but the crew IDLE;
+the earmarked energy went to the controller (P7 2.37x) and storage sat at the
+reserve (E4 -1315). Root cause read from code (ConstructionCorp.runTanker): the
+construction tanker draws from STORAGE only while a spendable SURPLUS stands;
+below that it refuels from its committed SOURCE - but a LINK-SERVED source feeds
+its link (no container, no pile), so the tanker waited at the dry source forever
+and the builder starved. The controller's surplus mop-up drains storage to the
+reserve on its own, so this stalls ANY link-fed build the moment the warchest
+isn't in surplus - a pre-existing bug the wartime acceleration merely EXPOSED
+(by allocating 9 to a crew that can't be fueled). FIX: a STORAGE FALLBACK - when
+the committed source is dry AND the bank holds energy, the tanker draws the
+plan-allocated build fuel from the bank (where the mined income lands via the
+links/feeder). Bounded by the crew's allocation + the finite remaining site
+work, so it finishes the rebuild and stands down. Red-first (tankerFuel.test:
+old code stalls at the dry source), unit 1554 green. NOTE "sized for all 4" is
+gated on PLACING 4 sites (sites 1->3 climbing) + this fuel fix actually building
+them; the crew sizes to whatever is placed (sum-of-projects).
+
+VERIFIED t72598459 (post fuel-fix deploy): P8 FAIL -> [ok], building 0.20 e/t,
+extensions 37->38 (rebuild moving), build fleet 4 WORK : 6 CARRY (was 2:34 -
+fleet mismatch RESOLVED), atSink 0.28->0.04 + pile 10.6k->4.9k (congestion
+cleared), no FAIL/collapse. OPEN: P8 rate still modest - the controller mop-up
+(P7 9x) out-competes construction for the surplus; truly finishing the rebuild
+ASAP needs the spec-33 controller RELEGATION (the full wartime mode), not just
+the acceleration down-payment shipped here.
+
+## Incident 2026-07-26 — core-link thrash (feeder ↔ link-served hauler), owner-observed
+
+Owner named two live creeps "very clearly thrashing on the link":
+`hauler-g-cd90-72595372` (the cd90 link-served source's CarryCorp hauler) and
+`feeder-Feeder-72594973` (the controllerFeeder). Root cause read from code (not
+yet a stamp — this one was legible from the source):
+- `ControllerFeederCorp.runFeeder` (controller-link branch) only ever TRANSFERS
+  INTO the core link; it has NO withdraw-link→storage path. The feeder is a
+  half-router (loads, never empties).
+- `sourcePickupSpot` redirects the cd90 hauler to withdraw FROM the same core
+  link (link-served branch). So the hauler drains the link to storage while the
+  feeder loads it from storage → energy circles storage↔core-link.
+- Corroborating telemetry: `hubClampShare` 0.59 (core link full/clamped most of
+  the time), `directShare` 3%, cd90 `srcLink` 800/800 (stranded) — the link is
+  over-full and nothing actively drains it, so the hauler band-aids the missing
+  feeder empty-direction and fights it.
+
+Design + fix live in **spec 02** (feeder as the SOLE bidirectional core-link
+router; no CarryCorp for a link-served route, EMERGENT from kind selection per
+spec 17). Fix deferred there with a red-first thrash repro + grid scenario;
+links have collapsed the colony before (spec 26), so it takes the full gate + a
+post-deploy recapture. Verdict: **NAMED + ROOT-CAUSED with data**; fix pending.
+
+## AUDIT 2026-07-27 (t72596661→t72596906) — pile fine-cause instrument CONTAMINATED; controller dip NAMED, recapture pending
+
+Attacked the top ledger WARN (H1 deposit-throughput idle, pile 11.3k→11.7k
+growing). Diagnosis: storage is ~939k free (E4: 4709 above the 56k reserve), so
+the atSink idle CANNOT be sink saturation — it is spatial fan-in contention OR
+haulers adjacent to storage but blocked on another sink. Deployed a per-corp
+`idleSinkStorageRoom` counter (of the atSink idle, how much had storage room) to
+name the fork.
+
+RESULT — instrument read is CONTAMINATED, INCONCLUSIVE this cycle: the counter
+is new, so it deserialized to 0 and only accumulated from the deploy tick, while
+`atSink` + `dutyAlive` carry the full serialized 762–1456t window. Raw stamps:
+atSink 0.29/0.32/0.40/0.69, storageRoom 0.08/0.08/0.13/0.02 — the ratio ≈ the
+post-deploy window fraction (the artifact), not a real "storage full" reading.
+A clean read needs ~1500t (window turnover). LESSON: a rolling-window counter
+added mid-window can't be read until the window turns over — the split must be
+computed over the SAME sub-window as its parent, or seeded, not zeroed. This is
+the THIRD instrument layer on this pile — the over-instrument trap; STOP.
+
+BLOCKER NAMED WITH DATA (the real find): controller progress rate DROPPED
+16.5→16.7→3.3 e/t (t72596353→467→661→906) while storage banks +12.71/t and
+LINK shows hub 25.0 / **ctrl 0.0 / direct 0%** — the controller link is FULL and
+upgraders are not draining it, so income banks instead of upgrading (P7 0.72x
+lower plan). The drop is in the window right after the instrument deploy (a
+global RESET), and the feeder is behaving correctly (banks the income the full
+controller can't take). LEADING hypothesis: reset-recovery + surplus-transition
+(the fleet lagging the just-crossed 56k warchest), NOT a feeder-router
+regression. NOT an emergency (energy banks, no FAIL, feederActive true) — no
+reflexive rollback. FALSIFICATION: a settle-and-recapture ~300t out with NO
+further deploys — controller recovers toward ~16 e/t ⇒ transient confirmed;
+stays ~3 e/t ⇒ real upgrader-consumption regression (investigate the upgrader
+fleet count/sizing and #141 multi-spawn assignment, NOT the feeder).
+
+### FIXED + VERIFIED LIVE 2026-07-27 (deployed t72596353, recaptured t72596467)
+
+Shipped the coupled fix (both faults, red-first, 15 new unit tests + grid cell
+`link-core-router` `[P]`; full trio green; unit 1550): the feeder gained the
+EMPTY direction (`runLinkRouter` drains core→storage above `coreLinkTargetLevel`),
+the walking CarryCorp for a link-served source is EMERGENTLY suppressed
+(`commissionsFromPlan` reads the planner's `haulPos` lens), the `sourcePickupSpot`
+redirect is removed, and the sole-operator body carries a drain floor
+(`coreDrainRate`, incl. spec-26 deposit headroom) so the core can't back up.
+Post-deploy ledger clean, NO FAIL: **E2 = 0 stranded ("every fielded hauler
+serves a planned route")** — the cd90 walking hauler is gone; **X5 = 0 churn**;
+**LINK hub 20.4 / ctrl 18.4 e/t** delivering (not gridlocked); feeder draining
+live (`storage-drain` receipt). The storage↔core-link circling is structurally
+impossible now (no walking hauler on the core). Verdict: **FIXED, VERIFIED LIVE**.
+(The SEPARATE core-convergence pile — H1 idleSink en-route, ground-piled ~8.8k —
+persists and is the base-remodel / core-placement work, spec 31 §6a + spec 32;
+not this thrash.)
+
+### AUDIT 2026-07-27 (t72598913→t72599499) — wartime "surplus to building": plan-side relegation FALSIFIED, physical fleet relegation FIXED + VERIFIED
+
+Two-part cycle on the owner's "surplus normally for upgrading, but now for
+building" (spec 33). (1) The plan-side controller cap (`controllerRoutingCapacity`
+relegating the controller sink in wartime) was deployed and **FALSIFIED as a
+physical no-op** (t72598913): the controller still ran P7 9x (~18.8 e/t vs the
+relegated plan ~2), P8 0 built, storage drained below reserve (E4 -4067). Cause:
+the fleet sizes from ACTUAL controller-side stock, which the source→core→
+controller LINK relay keeps full — capping the plan number moves no energy. (2)
+The PHYSICAL fix — relegate the FLEET itself (`upgraderSizing` gains a `wartime`
+flag off the shared `buildPoolBacklog >= WARTIME_BACKLOG_THRESHOLD` lens; the
+fleet drops to `ANTI_DOWNGRADE_RESERVE`) — deployed and **VERIFIED LIVE**
+(t72599499, dt 586): P7 18.8→9.8 e/t, P8 0→3.91 e/t (progress 110→2400, sites
+1→6), E4 -4067→+5846 (drain stopped). Feared link-backpressure regression did
+NOT occur: LINK hub 15.5/ctrl 7.8 (no jam), income P9 85.6 e/t 1.22x, X5 churn 0,
+no FAIL lines. **Lever 1 (relay throttle) proven UNNECESSARY — the fleet shrink
+alone redirected the surplus.** Redirect still ramping (12-WORK incumbent ages
+out over ~1500t, targetCount 1 stops replacement). Verdict: **FALSIFIED (plan
+half) + FIXED, VERIFIED LIVE (physical half)**; second check pending to confirm
+P8 climbs to absorb as the upgrader drains.
+
+### AUDIT 2026-07-27 (t72599499→t72599790) — 2nd check: relegation ramping healthy; P7 ledger made WARTIME-AWARE (false-FAIL killed)
+
+Second check on the fleet relegation: still `wartime:true`/`allocated 2`/
+`targetCount 1`, ramping cleanly — P7 controller 9.8→7.0 e/t (incumbents
+draining), E4 slope +16.92→-0.78 (storage stopped banking - surplus now
+consumed), P8 sites 6→5 (a build COMPLETED), income P9 85.6→93.5 e/t (UP), LINK
+hub 17.9 ctrl 7.0 (no jam), X5 0. Healthy. BUT the ledger flagged P7 **FAIL
+(0.47x)** - a MEASUREMENT leak, not an energy leak: it compared the draining
+controller against the peacetime flow sink (15). A sharper finding than the
+earlier falsification: the controller sink reads 15 = the save-regime
+`STORAGE_UPGRADE_TARGET`, so the plan-side relegation to `max(15,2)=15` is a
+no-op at the PLAN-NUMBER level too (not just physically). Left unfixed, P7 would
+cry FAIL every cycle of the whole remodel campaign (spec 31), masking any real
+regression. FIX (analysis-only, unit+build): P7 reads the upgrader's
+`sizing.wartime`/`allocated` and measures against the RELEGATED floor in
+wartime; a FAIL is now only a controller starved BELOW its inviolable floor with
+stock standing (real downgrade risk). Red-first: 2 new wasteLedger tests (the
+real t72599790/t72599499 pair + a synthetic starvation FAIL); the 2 peacetime P7
+pins stay green (pre-wartime fixtures have no `wartime` stamp). Post-fix ledger
+P7 `3.50x RELEGATED floor (wartime) [ok]`, no FAIL lines. Verdict: **FIXED
+(measurement) + relegation ramp CONFIRMED healthy**. Still pending: the ~1
+creep-gen check that P8 climbs to the crew's ~25 e/t absorb as the upgrader
+fully drains (else the tanker haul under-sizes - the "build out-plans haulage"
+watch).

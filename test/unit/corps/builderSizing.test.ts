@@ -37,20 +37,24 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     pos: { findInRange: () => [] }
   });
 
-  const mkRoom = (sites: any[]): any => ({
+  // Storage carries a fat surplus so the crew is HORIZON-limited, not fuel-
+  // limited (in the save regime the low fuel caps the crew small regardless of
+  // horizon - the acceleration only bites when there IS surplus to burn, which
+  // is exactly its gate).
+  const mkRoom = (sites: any[], storageEnergy = 600_000): any => ({
     name: "W1N1",
     controller: { my: true }, // owned: not a remote pile-fed room
-    storage: { my: true, store: { energy: 600_000 } },
+    storage: { my: true, store: { energy: storageEnergy } },
     memory: {},
     find: (type: number) => (type === 114 ? sites : [])
   });
 
-  const planFor = (remaining: number): any => {
+  const planFor = (remaining: number, storageEnergy = 600_000): any => {
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
     corp.setConstructionAllocations([
       { sinkId: "s", sinkType: "construction", allocated: 100, demand: 100, unmet: 0, priority: 50, sourceFlows: [] }
     ] as any);
-    return (corp as any).builderPlan(1300, mkRoom([site(remaining)]));
+    return (corp as any).builderPlan(1300, mkRoom([site(remaining)], storageEnergy));
   };
 
   it("census counts the WHOLE corp: builders AND the tanker detail (X3, countMismatch t72446096)", () => {
@@ -75,14 +79,85 @@ describe("ConstructionCorp builder sizing is work-aware (sum of projects)", () =
     expect(light.partsNeeded, "a ~400-energy tail never fields a big crew").to.be.at.most(2);
   });
 
-  it("LIFETIME-COMPLETION sizing (owner 2026-07-20): finish within the buffered effective life", () => {
-    // Horizon = 2/3 of effective life ("aim for around 1,000 ... a bit of a
-    // buffer. We don't want it 99% finished"): 30k / 1000t = 30 e/t = 6 WORK.
-    // The 100 e/t allocation is NOT the binding cap; the ~70 e/t residual
-    // flows back to upgrading in the planner (the value pass hands the
-    // controller what construction's capacity does not claim).
-    const heavy = planFor(30_000);
-    expect(heavy.partsNeeded, "30k project -> 6 WORK (done in ~2/3 of a life)").to.equal(6);
+  it("WARTIME acceleration (owner 2026-07-27, spec 33): buildPoolAbsorbRate ~doubles on a spendable surplus", () => {
+    // The HOME crew's absorb (buildPoolAbsorbRate, the branch live W43N23 takes)
+    // finishes construction at the shorter wartime horizon (1/3 vs 2/3 life)
+    // while a warchest surplus stands - ~2x the lifetime pace, so the surplus is
+    // spent into structures not banked. A filling warchest (no surplus) keeps
+    // the lifetime pace. Same bankSurplusRate lens the plan sink reads.
+    const { buildPoolAbsorbRate } = require("../../../src/corps/ConstructionCorp");
+    (global as any).FIND_MY_CONSTRUCTION_SITES = 114;
+    const spawnPos = { x: 25, y: 25, roomName: "W1N1", getRangeTo: () => 5 };
+    const bigSite = { progressTotal: 30_000, progress: 0, pos: { x: 30, y: 30 } };
+    const mk = (storageEnergy: number): any => ({
+      W1N1: { name: "W1N1", storage: { my: true, store: { energy: storageEnergy } }, find: (t: number) => (t === 114 ? [bigSite] : []) }
+    });
+    Game.rooms = mk(0); // filling warchest: no surplus -> lifetime pace
+    const filling = buildPoolAbsorbRate("W1N1", spawnPos as any);
+    Game.rooms = mk(600_000); // fat warchest: surplus -> wartime pace
+    const surplus = buildPoolAbsorbRate("W1N1", spawnPos as any);
+    expect(surplus, "surplus absorbs ~2x the filling-warchest rate").to.be.closeTo(filling * 2, filling * 0.34);
+    Game.rooms = {} as any;
+  });
+});
+
+/**
+ * Tanker relay is sized to the CARRY the build actually needs, distributed
+ * across >=2 bodies - not max bodies (owner 2026-07-27, the 34-CARRY over-
+ * provisioning: a 2-WORK site got 2x16 = 32 CARRY, 26 wasted on haul it can't
+ * use). The hot-swap floor of 2 bodies holds; each body sizes to its share.
+ */
+describe("ConstructionCorp tanker relay sizes to carryNeeded, not max bodies", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetGovernor();
+    const g = global as any;
+    g.FIND_MY_CONSTRUCTION_SITES = 114;
+    g.FIND_STRUCTURES = 107;
+    g.FIND_SOURCES = 105;
+    g.RESOURCE_ENERGY = "energy";
+    g.CARRY = "carry";
+    g.MOVE = "move";
+    Game.creeps = {};
+    Game.getObjectById = () => null;
+    (Memory as any).creeps = {};
+    (Memory as any).warchestTarget = undefined;
+  });
+  afterEach(() => {
+    Game.getObjectById = () => null;
+  });
+
+  const planFor = (partsNeeded: number): any => {
+    const corp = new ConstructionCorp("W1N1-construction", "spawn1");
+    (corp as any).builderPlan = () => ({ target: 1, desiredCost: 300, minCost: 300, bodyParam: partsNeeded, partsNeeded });
+    const sourcePos = { x: 12, y: 25, roomName: "W1N1" };
+    const site: any = {
+      pos: {
+        x: 15,
+        y: 25,
+        roomName: "W1N1",
+        getRangeTo: (p: any) => Math.max(Math.abs(15 - p.x), Math.abs(25 - p.y)),
+        findClosestByRange: () => ({ pos: sourcePos })
+      }
+    };
+    const room: any = { name: "W1N1", storage: { my: true, store: { energy: 1000 } }, memory: {}, find: () => [] };
+    return (corp as any).tankerPlan({ energyCapacity: 1800 }, room, site);
+  };
+
+  it("a SMALL build (2 WORK, short leg) fields a right-sized relay, not 2x the max body", () => {
+    const plan = planFor(2); // 10 e/t consumption, ~3-tile leg -> ~3 CARRY needed
+    expect(plan.target, "hot-swap floor of two bodies holds").to.equal(2);
+    expect(plan.bodyParam, "each body sized to its SHARE, not the 16-CARRY max").to.be.at.most(4);
+    expect(plan.target * plan.bodyParam, "total CARRY tracks the real need, not 32").to.be.at.most(8);
+  });
+
+  it("a BIG build still fields big bodies (the relay scales, it is not just capped)", () => {
+    const small = planFor(2);
+    const big = planFor(20); // 100 e/t consumption -> much more CARRY in flight
+    expect(big.bodyParam, "bigger build -> bigger tanker bodies").to.be.greaterThan(small.bodyParam);
+    expect(big.target * big.bodyParam, "total scales with consumption").to.be.greaterThan(
+      small.target * small.bodyParam
+    );
   });
 });
 
@@ -174,15 +249,16 @@ describe("SPEC 25 PHASE 3: pool crew sizes up to the plan's source-funded cluste
   });
 
   it("MAX of the funding tracks, never the sum: a cluster under the horizon cap adds no parts", () => {
-    // A 30k home build-out absorbs 30 e/t (6 WORK, the lifetime-completion
-    // pin above); a 10 e/t cluster on top must NOT field 8 WORK - the crew
-    // is serial, so whichever project it stands at bounds its useful size.
-    // The cluster room is blind here: the plan's rate arrives via the
-    // commission regardless of vision.
+    // A 30k home build-out at the WARTIME pace (surplus staged: 600k storage)
+    // absorbs 30k / (1/3 life ~500t) = 60 e/t = 12 WORK; a 10 e/t cluster on top
+    // must NOT field 14 WORK - the crew is serial, so whichever project it
+    // stands at bounds its useful size (MAX, not sum). The cluster room is
+    // blind here: the plan's rate arrives via the commission regardless of
+    // vision. (Pre-wartime this pinned 6/6; the surplus now doubles the pace.)
     const bankOnly = planFor(100, 0, [site(30_000)], null);
     const bankPlusCluster = planFor(100, 10, [site(30_000)], null);
-    expect(bankOnly.partsNeeded).to.equal(6);
-    expect(bankPlusCluster.partsNeeded, "summing would idle parts; MAX holds the crew at 6").to.equal(6);
+    expect(bankOnly.partsNeeded).to.equal(12);
+    expect(bankPlusCluster.partsNeeded, "summing would idle parts; MAX holds the crew at 12").to.equal(12);
   });
 
   it("survives serialization: the pool rate round-trips (commission-owned but reset-safe)", () => {

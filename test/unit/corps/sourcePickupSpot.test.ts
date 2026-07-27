@@ -97,3 +97,80 @@ describe("sourcePickupSpot (pile vs container priority)", () => {
     expect(spot.waitClear).to.equal(true);
   });
 });
+
+/**
+ * feederRouter.soleOperator (spec 02, owner 2026-07-26): a link-served source's
+ * transport belongs to the link network + the feeder (the sole bidirectional
+ * core-link operator). sourcePickupSpot must NEVER redirect a hauler to the core
+ * link - the old redirect drained the very core the feeder loads, the
+ * storage->core->storage thrash (t72595372). RED against the old code, which
+ * returned the core link for a link-served source.
+ */
+describe("sourcePickupSpot (no core-link redirect for a link-served source)", () => {
+  const FIND_MY_STRUCTURES = 108;
+  beforeEach(() => {
+    (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).FIND_DROPPED_RESOURCES = 106;
+    (global as any).FIND_STRUCTURES = 107;
+    (global as any).FIND_MY_STRUCTURES = FIND_MY_STRUCTURES;
+    (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).STRUCTURE_LINK = "link";
+  });
+
+  /** A link-served source: a room with a storage + adjacent core link (holding
+   * energy), and a source link beside the source. Optional source-side pile. */
+  function linkServedSource(opts: { corePos: { x: number; y: number }; coreEnergy: number; pilesAt?: Pile[] }) {
+    const coreLinkStruct = {
+      id: "core",
+      structureType: "link",
+      pos: { ...opts.corePos, roomName: "W0N0" },
+      store: { energy: opts.coreEnergy, getFreeCapacity: () => 800 - opts.coreEnergy }
+    };
+    const srcLinkStruct = { id: "src-link", structureType: "link", pos: { x: 11, y: 10, roomName: "W0N0" } };
+    const room = {
+      name: "W0N0",
+      storage: {
+        my: true,
+        pos: {
+          x: opts.corePos.x - 1,
+          y: opts.corePos.y,
+          roomName: "W0N0",
+          findInRange: (t: number, _r: number, o?: { filter?: (s: any) => boolean }) => {
+            const list = t === FIND_MY_STRUCTURES ? [coreLinkStruct] : [];
+            return o?.filter ? list.filter(o.filter) : list;
+          }
+        }
+      }
+    };
+    (global as any).Game = { rooms: { W0N0: room } };
+    const sourcePos = {
+      x: 10,
+      y: 10,
+      roomName: "W0N0",
+      findInRange: (type: number, range: number, opts2?: { filter?: (o: any) => boolean }) => {
+        let list: any[] = [];
+        if (type === FIND_MY_STRUCTURES) list = [srcLinkStruct, coreLinkStruct];
+        else if (type === (global as any).FIND_DROPPED_RESOURCES) list = opts.pilesAt ?? [];
+        else list = []; // FIND_STRUCTURES (containers)
+        return list.filter(o => cheby({ x: 10, y: 10 }, o.pos) <= range && (!opts2?.filter || opts2.filter(o)));
+      }
+    } as any;
+    return { sourcePos, coreLinkStruct };
+  }
+
+  it("with a loaded core link and NO source pile: waits clear of the source, NOT the core", () => {
+    const { sourcePos, coreLinkStruct } = linkServedSource({ corePos: { x: 40, y: 40 }, coreEnergy: 500 });
+    const spot = sourcePickupSpot(sourcePos);
+    expect(spot.structure, "must not point the hauler at the core link").to.not.equal(coreLinkStruct);
+    expect(spot.structure).to.equal(undefined);
+    expect(spot.waitClear).to.equal(true);
+  });
+
+  it("with a source-side pile: drains the pile at the source, NOT the core", () => {
+    const p = pile(10, 10, 300);
+    const { sourcePos, coreLinkStruct } = linkServedSource({ corePos: { x: 40, y: 40 }, coreEnergy: 500, pilesAt: [p] });
+    const spot = sourcePickupSpot(sourcePos);
+    expect(spot.structure).to.not.equal(coreLinkStruct);
+    expect(spot.pos).to.equal(p.pos);
+  });
+});

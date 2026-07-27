@@ -20,12 +20,12 @@
  */
 
 import { Commission, corpIdFor } from "../../economy/Commission";
-import { CorpKind } from "../../economy/CorpKind";
+import { BodyHints, CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedSink } from "../../economy/CorpPlanner";
 import { Position } from "../../types/Position";
 import { ConsumeAssignment } from "../../economy/commissionPlan";
 import { SinkAllocation } from "../../flow/FlowTypes";
-import { buildTankerBody, buildUpgraderBody } from "../../spawn/BodyBuilder";
+import { buildBuilderBody, buildTankerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { ConstructionCorp, SerializedConstructionCorp } from "../ConstructionCorp";
 import { roomLinearDistance } from "../../utils/RoomDiscovery";
@@ -234,12 +234,14 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     return corp;
   },
 
-  body(role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // The corp fields two shapes: WORK builders (the live executor pins the
-    // WORK cap at 2 - upsizing is the ConstructionCorp's own fleet logic via
-    // bodyParam-less demands) and CARRY tankers ferrying build energy.
+  body(role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
+    // Two shapes: WORK builders carrying their own BUFFER (spec 34 D3 -
+    // bodyParam is the demanded WORK, hints.bufferCarry the interval-sized
+    // CARRY; the old buildUpgraderBody(cap, 2) path IGNORED bodyParam, so
+    // demand and body disagreed) and CARRY tankers operating the corp's
+    // supply vector.
     if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
-    return buildUpgraderBody(energyBudget, 2).body;
+    return buildBuilderBody(bodyParam ?? 2, hints?.bufferCarry ?? 2, energyBudget).body;
   },
 
   // BUILDER HAND-OFF, adopt half (owner 2026-07-22: "they could orphan and

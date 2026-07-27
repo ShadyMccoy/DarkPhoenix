@@ -84,6 +84,105 @@ export function parkedRelayCarry(rate: number): number {
   return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
 }
 
+// =============================================================================
+// OPERATION CORPS (spec 34): consumer buffers and the supply-method crossover
+// =============================================================================
+
+/**
+ * CARRY parts a CONSUMER carries as its onboard BUFFER: enough stock to keep
+ * burning `burnRate` for `intervalTicks` between refuel events (spec 34 D2,
+ * owner: "the carry is designed to carry it over in between refuelings").
+ * ONE law for every consumer - a mobile consumer (builder) buffers on the
+ * body because a container costs ~an extension and rots (C7), a parked one
+ * is the degenerate case: parkedRelayCarry(r) === bufferCarryParts(r, 2).
+ * Continuous (fractional); callers round up when sizing an actual body.
+ */
+export function bufferCarryParts(burnRate: number, intervalTicks: number): number {
+  return (burnRate * intervalTicks) / CARRY_CAPACITY;
+}
+
+/**
+ * Ticks between refuel events for a PARKED consumer whose fuel stands
+ * `distance` away: `haulerCount` carriers working the supply vector land a
+ * delivery every roundTrip/n. The n=0 form (the full round trip) is the
+ * degenerate no-carrier cadence - adjacent direct-draw, where RT(d<=1) is a
+ * couple of ticks. The owner's buffer inputs verbatim: "the distance back to
+ * the energy source and how many haulers are working the route".
+ */
+export function refuelIntervalTicks(distance: number, haulerCount: number): number {
+  return roundTripTicks(distance) / Math.max(1, haulerCount);
+}
+
+/**
+ * Standing body parts of a dedicated supply vector `(fuel, site, rate)`:
+ * carriers at 1:1 CARRY:MOVE (laden both ways is the worst case; the vector
+ * IS carryPartsFor - no third formula).
+ */
+export function vectorSupplyParts(rate: number, distance: number): number {
+  return 2 * carryPartsFor(rate, distance);
+}
+
+/**
+ * The PRICED-OUT COUNTERFACTUAL (spec 34 D1): what a consumer would cost if
+ * it fetched its own fuel from `distance` - which builders NEVER do (owner:
+ * "builders don't MOVE the energy. they stay in one place building"). This
+ * exists to PROVE the parked doctrine, not as a live mode: the fetcher's
+ * WORK idles for the round trip (utilization u = T/(T+RT), so netting `rate`
+ * needs 1/u the WORK - at 100e/part the game's most expensive idle) and its
+ * buffer returns LADEN (C3: empty CARRY is fatigue-free, full is not), so
+ * the CARRY pays MOVE. parts(T) = burn(T) * (2/w + T/25),
+ * burn = rate*(1+RT/T), w = energy/WORK; minimizing gives T* = sqrt(50*RT/w).
+ * Even at its optimum it loses to the vector from d=2 up.
+ */
+export function directFetchParts(rate: number, distance: number, energyPerWork = BUILD_ENERGY_PER_WORK): number {
+  const rt = roundTripTicks(distance);
+  const t = Math.sqrt((50 * rt) / energyPerWork); // optimal build stretch between fetches
+  const burn = rate * (1 + rt / t); // burn capacity that nets `rate` at util u
+  const workParts = burn / energyPerWork;
+  const carry = (burn * t) / CARRY_CAPACITY;
+  return 2 * workParts + 2 * carry; // WORK+MOVE, laden CARRY+MOVE
+}
+
+/**
+ * The supply-method verdict (spec 34 D1) for a PARKED consumer at `distance`
+ * from its fuel: "a hauler brings them energy, unless it's already adjacent
+ * to an energy source like a container or a link" (owner). Withdraw
+ * adjacency (d<=1) is the route of length 0 - direct draw in place, no
+ * vector. Beyond it, the vector delivers to the parked body. The comparison
+ * against directFetchParts (the priced-out fetch counterfactual) documents
+ * WHY the doctrine holds - the vector wins from d=2 up at any real rate,
+ * the same math that made static miner + hauler the game's meta - so the
+ * corp reads a computed verdict, never a hand-baked category.
+ */
+export function supplyMethod(
+  rate: number,
+  distance: number,
+  energyPerWork = BUILD_ENERGY_PER_WORK
+): { method: "direct" | "vector"; directParts: number; vectorParts: number } {
+  const directParts = directFetchParts(rate, distance, energyPerWork);
+  const vectorParts =
+    vectorSupplyParts(rate, distance) +
+    2 * (rate / energyPerWork) + // the baseline WORK core + its MOVE
+    bufferCarryParts(rate, refuelIntervalTicks(distance, 1)); // buffer: CARRY only (refilled in place)
+  if (distance <= 1) return { method: "direct", directParts, vectorParts };
+  return { method: directParts < vectorParts ? "direct" : "vector", directParts, vectorParts };
+}
+
+/**
+ * The ALL-IN operation spawn load (spec 34 D4): the node's own bodies PLUS
+ * every supply/evacuation vector it operates, each amortized over the
+ * effective life at ITS distance. This is the `spawnPartsPerTick` a corp's
+ * commission must declare - an operation that fields carriers its price
+ * omits is lying to the parts ledger (P4's measured "unbudgeted" class).
+ */
+export function operationSpawnLoad(nodeLoad: number, vectors: { rate: number; distance: number }[]): number {
+  let load = nodeLoad;
+  for (const v of vectors) {
+    load += vectorSupplyParts(v.rate, v.distance) / effectiveLife(v.distance);
+  }
+  return load;
+}
+
 export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 
@@ -145,9 +244,44 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
  */
 export const PROJECT_COMPLETION_FRACTION = 2 / 3;
 
-/** The sizing horizon for a crew working `travelDistance` from its spawn. */
-export function projectBuildHorizon(travelDistance: number): number {
-  return Math.max(1, PROJECT_COMPLETION_FRACTION * effectiveLife(travelDistance));
+/**
+ * WARTIME completion fraction (owner 2026-07-27, spec 33 down-payment): while a
+ * spendable warchest surplus stands, finish construction FASTER - complete over
+ * a shorter fraction of the crew's effective life so the surplus is spent into
+ * STRUCTURES (and the haul scales with it) instead of banking, and upgrading
+ * relegates to the controller floor meanwhile. Bounded DOWNSTREAM and cannot run
+ * away: the plan's construction sink is min(minedSupply + bankRate, absorb-share),
+ * so a bigger absorb only draws MORE of the ALREADY-AVAILABLE energy, never
+ * energy the economy lacks; the crew is further bounded by its fuel and
+ * maxPerBuilder. Resumes the leisurely pace with no flap when the surplus/backlog
+ * drains (the signal is the tapered bankSurplusRate the feeder/upgrader read).
+ * 1/3 (~2x the normal ~1000t pace) is the owner's "speed it up a bit".
+ */
+export const WARTIME_COMPLETION_FRACTION = 1 / 3;
+
+/**
+ * The summed construction remaining work (energy) that marks a room as being in
+ * WARTIME (spec 33): a build backlog meaningful enough that upgrading relegates
+ * to its floor and the surplus flows to building. ~one structure (an extension
+ * is 3000): a lone road (300) never trips it, a real build-out does. Read by
+ * BOTH the plan (flowAdapter's controller-sink relegation) and the physical
+ * consumer (UpgradingCorp's fleet relegation), so the two shift COHERENTLY.
+ */
+export const WARTIME_BACKLOG_THRESHOLD = 3000;
+
+/**
+ * The controller's anti-downgrade sip (energy/tick == WORK): the inviolable
+ * floor upgrading is relegated TO (never zeroed) - keeps the controller alive
+ * while the surplus funds building. The plan's controller sink and the physical
+ * upgrader fleet both floor here, so relegation is a coherent ladder shift.
+ */
+export const ANTI_DOWNGRADE_RESERVE = 2;
+
+/** The sizing horizon for a crew working `travelDistance` from its spawn.
+ * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
+export function projectBuildHorizon(travelDistance: number, accelerate = false): number {
+  const fraction = accelerate ? WARTIME_COMPLETION_FRACTION : PROJECT_COMPLETION_FRACTION;
+  return Math.max(1, fraction * effectiveLife(travelDistance));
 }
 
 /**
@@ -168,8 +302,8 @@ export function projectBuildHorizon(travelDistance: number): number {
  * visible sites raises `remainingWork` and with it the crew cap - the
  * owner's focused-burst lever under this rule.
  */
-export function projectAbsorbRate(remainingWork: number, travelDistance = 0): number {
-  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance));
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0, accelerate = false): number {
+  return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
 /**

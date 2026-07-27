@@ -222,16 +222,21 @@ export class ReservationCorp extends Corp {
       // of a busy window. One wildcard at a time (an unassigned corp
       // reserver - spawning included - is already headed for the lowest
       // bank, work()'s one-way latch).
-      const hasWildcard = ((): boolean => {
-        for (const name in Game.creeps) {
-          const cr = Game.creeps[name];
-          if (cr.memory.corpId === this.id && cr.memory.workType === "reserve" && !cr.memory.targetRoom) return true;
-        }
-        return false;
-      })();
+      // ONE reserver per target room, no more. A room maintained by a latched
+      // reserver needs no top-up, so the guard must count EVERY living reserver
+      // this corp owns - assigned, unassigned, AND spawning - not just an
+      // unassigned wildcard. The old wildcard-only guard offered another the
+      // moment work() latched the last one; harmless while the multi-room corp
+      // spread its wildcards across 4 rooms and the collective bank hit cap, it
+      // became an UNBOUNDED purchase loop once the per-node split (2026-07-26)
+      // gave each corp a single room whose bank could not rise (measured
+      // t72591424: 11 reservers piled on W42N22, 46% of ALL spawn energy). The
+      // count includes spawning newborns (countLivingReservers), so the corp
+      // never re-orders against its own in-flight purchase.
+      const covered = this.countLivingReservers();
       const minBank = Math.min(...targets.map(r => banks[r]));
       const worthBanking = minBank < RESERVATION_BANK_CAP - OPPORTUNISTIC_BANK_HEADROOM;
-      if (!hasWildcard && worthBanking) {
+      if (covered < targets.length && worthBanking) {
         const body = buildReserverBody(ctx.energyCapacity, 2);
         if (body.cost > 0) {
           this.lastSizing = { tick: ctx.tick, gate: "opportunistic-topup", targets: targets.length, banks };

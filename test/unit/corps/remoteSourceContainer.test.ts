@@ -253,10 +253,10 @@ describe("pool tankers (the carrier detail follows the build crew)", () => {
     expect((corp as any).poolTankerSite("W1N1")).to.equal(null);
   });
 
-  it("targetTankerCount prices the CROSS-ROOM shuttle finitely (linear-distance fallback)", () => {
+  it("tankerPlan prices the CROSS-ROOM shuttle finitely (linear-distance fallback)", () => {
     const { ConstructionCorp } = require("../../../src/corps/ConstructionCorp");
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
-    // builderPlan is exercised inside targetTankerCount - stub it to a fixed crew
+    // builderPlan is exercised inside tankerCarryNeeded - stub it to a fixed crew
     (corp as any).builderPlan = () => ({ target: 1, desiredCost: 300, minCost: 300, bodyParam: 2, partsNeeded: 2 });
     const bank = {
       my: true,
@@ -271,10 +271,11 @@ describe("pool tankers (the carrier detail follows the build crew)", () => {
         findClosestByRange: () => null
       }
     };
-    const n = (corp as any).targetTankerCount(room, site, 16, { energyCapacity: 1950 });
-    expect(Number.isFinite(n), "a finite fleet, not Infinity/NaN").to.equal(true);
-    expect(n, "at least the hot-swap pair").to.be.at.least(2);
-    expect(n, "sized for ~one room of shuttle, not absurd").to.be.at.most(12);
+    const plan = (corp as any).tankerPlan({ energyCapacity: 1950 }, room, site);
+    expect(Number.isFinite(plan.target), "a finite fleet, not Infinity/NaN").to.equal(true);
+    expect(plan.target, "at least the hot-swap pair").to.be.at.least(2);
+    expect(plan.target, "sized for ~one room of shuttle, not absurd").to.be.at.most(12);
+    expect(Number.isFinite(plan.bodyParam) && plan.bodyParam >= 1, "finite per-body CARRY").to.equal(true);
   });
 });
 

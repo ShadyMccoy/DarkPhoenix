@@ -35,6 +35,7 @@ import {
   spawnPartsFor,
   carryPartsFor,
   constructionWorkSpawnLoad,
+  operationSpawnLoad,
   controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
@@ -147,10 +148,12 @@ export interface DepositPort {
    * unstaffed leg the v1 source-link port punted on). Absent = consumed in place
    * (a controller-link port), no drain needed. */
   drainFrom?: Position;
-  /** The link-served home source that OWNS this port link. Its hauler already
-   * picks up at the core (sourcePickupSpot redirect), so the drain is staffed by
-   * adding the deposited flow to that source's core->storage route - no new
-   * execution path. */
+  /** The link-served home source that OWNS this port link. The plan attributes
+   * the deposited flow to that source's core->storage route for PRICING (the
+   * parts ledger stays honest). EXECUTION of the drain is the ControllerFeeder-
+   * Corp's job now - the sole bidirectional core-link operator empties the core
+   * to storage (spec 02 feeder-router); the link-served source no longer has a
+   * walking CarryCorp (emergent kind selection, commissionsFromPlan). */
   drainSourceId?: string;
 }
 
@@ -618,7 +621,12 @@ function routeToSinks(
       sink.kind === "controller"
         ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
         : sink.kind === "construction"
-        ? constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
+        ? // ALL-IN (spec 34 D4): the WORK bodies plus the supply vector that
+          // fuels them - the SAME charge the commission envelope declares
+          // (commissionPlan), linear in the rate so the per-unit form holds.
+          operationSpawnLoad(constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos)), [
+            { rate: 1, distance: nearestSpawnDist(sink.pos) }
+          ])
         : 0;
 
     for (const { id, d } of order) {
@@ -748,13 +756,15 @@ function routeToSinks(
   }
 
   // STAGE-4 DEPOSIT DRAIN (spec-26): energy deposited at a source-link port
-  // emerges at the CORE (the port fired it there); staff the short core->storage
-  // drain by adding the deposited flow to the port's OWNING link-served source,
-  // whose hauler already picks up at the core (sourcePickupSpot redirect). This
-  // is the leg v1 punted on - without it the deposits back up and the remote
-  // haulers, sized to the shortened leg, fall back to the full haul (the silent
-  // collapse). Cheap (~1 tile). The take never exceeds headroom, so a
-  // parts-limited fill drains only what it actually routed.
+  // emerges at the CORE (the port fired it there); PRICE the short core->storage
+  // drain by adding the deposited flow to the port's OWNING link-served source
+  // (keeps the parts ledger honest and the remote route sized to the short leg).
+  // EXECUTION is the ControllerFeederCorp's job - the sole bidirectional core-
+  // link operator drains the core to storage (spec 02 feeder-router), and its
+  // body carries a drain floor that includes this deposit headroom, so deposits
+  // never back up (the silent-collapse mode the v1 leg punted on). Cheap
+  // (~1 tile). The take never exceeds headroom, so a parts-limited fill drains
+  // only what it actually routed.
   for (const port of problem.depositPorts ?? []) {
     if (!port.drainFrom || !port.drainSourceId) continue;
     const deposited = port.headroom - (portRemaining.get(port) ?? port.headroom);

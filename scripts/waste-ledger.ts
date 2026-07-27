@@ -218,13 +218,24 @@ export function computeChurn(cap: any): {
   let worstV = 0;
   let worstGap = Infinity;
   for (const [corp, ss] of byCorp) {
-    if (ss.length < 2) continue;
+    // A corp of staffing N runs N INDEPENDENT slots. Filled round-robin, a
+    // slot's own successor is the spawn N positions later - the CONSECUTIVE
+    // spawn is a DIFFERENT slot ~life/N away (and a cohort rebuild wave
+    // serialises all N through one spawn ~spawn-time apart). Reading the
+    // consecutive gap as one creep's lifetime charged phantom churn to any
+    // multi-room corp (measured t72587664: the 4-room reservation corp booked
+    // 11828e of "churn" though its per-room cadence was ~656t ~ the 600t claim
+    // life - a false WARN on the reserver mechanism the trap list says never to
+    // bandaid). The correct lifetime is the SAME-slot gap ss[i+N] - ss[i]; for
+    // N=1 that IS the consecutive gap, so single-slot behaviour is unchanged.
+    const slots = Math.max(1, staffingOf(corp));
+    if (ss.length <= slots) continue; // <= staffing => the fleet GREW, nothing died
     ss.sort((a, b) => a.t - b.t);
-    // the LAST spawn is always the incumbent (alive or in-progress); only
-    // spawns beyond current staffing died and were replaced.
-    const churned = Math.max(0, Math.min(ss.length - staffingOf(corp), ss.length - 1));
+    // every spawn with a same-slot successor (i + slots in range) was replaced;
+    // the last `slots` spawns are the current incumbents.
+    const churned = ss.length - slots;
     for (let i = 0; i < churned; i++) {
-      const gap = ss[i + 1].t - ss[i].t;
+      const gap = ss[i + slots].t - ss[i].t;
       const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
       const waste = ss[i].cost * Math.max(0, 1 - gap / life);
       if (HOME_ROLES.has(ss[i].role)) homeChurn += waste;
@@ -606,6 +617,10 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const idleSink = wavg("idleSinkFrac");
       const idleSinkAtSink = wavg("idleSinkAtSinkFrac");
       const idleSinkEnRoute = Math.max(0, idleSink - idleSinkAtSink);
+      // Of the atSink idle: how much had the hub storage with ROOM (=> spatial
+      // contention at the deposit, NOT sink saturation). Absent pre-instrument.
+      const atSinkStorageRoom = wavg("idleSinkStorageRoomFrac");
+      const atSinkContended = idleSinkAtSink > 1e-9 && atSinkStorageRoom >= idleSinkAtSink * 0.5;
       // Buffers over container cap (2000) = energy on the ground.
       const buffers: Record<string, number> = core.sourceBuffers ?? {};
       const overCap = Object.values(buffers).reduce((s, v) => s + Math.max(0, (v as number) - 2000), 0);
@@ -628,7 +643,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
               ? "- haulers BUSY => plan under-asks (inflow-sized carry, no drain term)"
               : idleSinkEnRoute >= idleSinkAtSink
               ? "- idleSink EN-ROUTE => approach-lane congestion (traffic / standing blocker at the core)"
-              : "- idleSink AT-SINK => deposit throughput (link clamped / bank access)"
+              : atSinkContended
+              ? `- idleSink AT-SINK, storage HAD ROOM (${atSinkStorageRoom.toFixed(2)}) => SPATIAL contention at the deposit (queue / parked mover), not saturation => geometry/deposit-spread fix`
+              : "- idleSink AT-SINK, storage FULL => sink saturation (spill the load / open the drain)"
             : "- buffers near cap, no leak")
       });
     }
@@ -682,23 +699,49 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   {
     const allocOf = (f: any): number =>
       (f?.sinks ?? []).filter((s: any) => s.type === "controller").reduce((a: number, s: any) => a + (+s.allocated || 0), 0);
-    const alloc = Math.min(allocOf(base.data.flow), allocOf(flow));
+    const sinkAlloc = Math.min(allocOf(base.data.flow), allocOf(flow));
     const prog1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
     const prog2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
     const actual = dt > 0 ? (prog2 - prog1) / dt : 0;
     const stock1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stock2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stocked = stock1 > 500 && stock2 > 500;
+    // WARTIME AWARENESS (spec 33, t72599790): while the upgrader fleet is
+    // relegated (a build backlog stands and the surplus funds building, not the
+    // controller), the controller's real target is the RELEGATED floor
+    // (upgrader sizing.allocated ~= the anti-downgrade sip), NOT the controller
+    // flow sink - which still reads the save-regime STORAGE_UPGRADE_TARGET (15)
+    // because the plan-side cap is a no-op (max(15,2)=15). Measuring the
+    // draining incumbents against 15 false-FAILs (0.47x) EVERY cycle of a build
+    // campaign, masking any real P7 regression. In wartime the target is the
+    // relegated floor: actual OVER it is the expected incumbent drain (ok); a
+    // FAIL is only a controller starved BELOW its inviolable floor WITH stock
+    // standing (the link broke - a genuine downgrade risk, relegated != off).
+    const upg = corps.find((c: any) => c.kind === "upgrade" && c.sizing);
+    const wartime = upg?.sizing?.wartime === true;
+    const relegatedFloor = Math.max(1, +upg?.sizing?.allocated || 1);
+    const alloc = wartime ? relegatedFloor : sinkAlloc;
     const ratio = alloc > 0 ? actual / alloc : 1;
+    const verdict = wartime
+      ? stocked && ratio < 0.5
+        ? "FAIL"
+        : "ok"
+      : sinkAlloc > 0 && stocked && ratio < 0.5
+        ? "FAIL"
+        : sinkAlloc > 0 && ratio < 0.75
+          ? "WARN"
+          : "ok";
     rows.push({
       id: "P7",
       name: "controller delivery vs plan",
       value: +ratio.toFixed(2),
-      unit: "x lower-endpoint plan",
-      verdict: alloc > 0 && stocked && ratio < 0.5 ? "FAIL" : alloc > 0 && ratio < 0.75 ? "WARN" : "ok",
-      detail:
-        `actual ${actual.toFixed(1)} e/t vs plan ${alloc.toFixed(1)} (lower endpoint); ` +
-        `stock ${stock1}->${stock2}${stocked ? " (stock stood - the energy was there)" : ""}`
+      unit: wartime ? "x RELEGATED floor (wartime)" : "x lower-endpoint plan",
+      verdict,
+      detail: wartime
+        ? `wartime: relegated floor ${alloc.toFixed(1)}, delivering ${actual.toFixed(1)} e/t ` +
+          `(incumbents draining to the sip); stock ${stock1}->${stock2} - surplus funds building, not the controller`
+        : `actual ${actual.toFixed(1)} e/t vs plan ${sinkAlloc.toFixed(1)} (lower endpoint); ` +
+          `stock ${stock1}->${stock2}${stocked ? " (stock stood - the energy was there)" : ""}`
     });
   }
 

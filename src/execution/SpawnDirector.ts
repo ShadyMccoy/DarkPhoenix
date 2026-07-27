@@ -205,7 +205,8 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
           Game.time,
           chosen.bodyParam,
           chosen.haulerRatio,
-          chosen.bodyStrategy
+          chosen.bodyStrategy,
+          chosen.bufferCarry
         )
       : false;
     // Execution receipt (actual-vs-NOW): what THIS spawn actually bought,

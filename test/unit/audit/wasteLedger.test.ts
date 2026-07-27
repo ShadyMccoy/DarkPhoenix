@@ -155,6 +155,37 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p7.detail).to.contain("stock"); // the discriminator: energy WAS there
   });
 
+  it("P7 does NOT fail a WARTIME window: the controller is DELIBERATELY relegated (spec 33)", () => {
+    // Real capture t72599790 vs t72599499 (upgrader-fleet relegation live). The
+    // upgrader sizing.wartime=true, allocated 2 (relegated to the anti-downgrade
+    // sip); the controller flow sink still reads 15 (the save-regime
+    // STORAGE_UPGRADE_TARGET floor - the plan-side relegation caps to
+    // max(15,2)=15, a no-op). Actual ~7 e/t is the incumbent 12-WORK upgraders
+    // draining toward the sip. Measured against the PEACETIME plan (15) this
+    // false-FAILs (0.47x) every cycle of a build campaign, masking any REAL P7
+    // regression. Wartime target IS the relegated floor - actual over it is the
+    // expected drain, not a leak.
+    const p7 = computeLedger(fixture("shard1-t72599790.json"), fixture("shard1-t72599499.json")).find(
+      r => r.id === "P7"
+    )!;
+    expect(p7.verdict, "wartime relegation is not a delivery failure").to.not.equal("FAIL");
+    expect(p7.detail, "the verdict names the wartime relegation").to.contain("wartime");
+  });
+
+  it("P7 STILL FAILS in wartime if the controller is starved BELOW its floor (downgrade risk)", () => {
+    // Relegated != off: the anti-downgrade floor is inviolable. If the controller
+    // is delivering well under its relegated sip WITH stock standing (the link
+    // broke / a real starvation), that is a genuine FAIL even in wartime.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72599499.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72599790.json")));
+    // Force near-zero delivery while the relegated floor is 2 and stock stands.
+    capA.data.core.rooms[0].rclProgress = capB.data.core.rooms[0].rclProgress + 1; // ~0 e/t
+    capA.data.core.rooms[0].controllerStock = 800;
+    capB.data.core.rooms[0].controllerStock = 800;
+    const p7 = computeLedger(capA, capB).find(r => r.id === "P7")!;
+    expect(p7.verdict, "starved below the relegated floor with stock is a real FAIL").to.equal("FAIL");
+  });
+
   it("P8 skips gracefully when captures predate the site fields (no row)", () => {
     const rows2 = computeLedger(fixture("shard1-t72421124.json"), fixture("shard1-t72420978.json"));
     expect(rows2.find(r => r.id === "P8")).to.equal(undefined);
@@ -527,5 +558,42 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(x5, "X5 present once a blackbox is captured").to.not.equal(undefined);
     expect(x5.verdict).to.equal("WARN");
     expect(x5.detail).to.contain("FAST RESPAWN");
+  });
+
+  it("X5 does NOT flag a healthy MULTI-SLOT corp whose interleaved slots each live a full life (t72587664 reservation)", () => {
+    // Live t72587664: one reservation corp staffs 4 remote rooms (creepCount 4).
+    // Its combined spawn log interleaves 4 independent 600t replacement cycles,
+    // so CONSECUTIVE spawns are DIFFERENT slots ~life/4 apart (and a cohort
+    // rebuild wave serialises 4 spawns ~12t apart through one spawn). The old
+    // per-consecutive-gap method read those sub-60t gaps as one creep
+    // double-ordering and WARNed - phantom churn on the very mechanism the trap
+    // list says never to bandaid. The right lifetime is the SAME-slot gap
+    // (i -> i+staffing): four slots, each replaced at full 600t life = 0 churn.
+    const healthy: any[] = [];
+    for (const base of [0, 600, 1200]) {
+      for (let slot = 0; slot < 4; slot++) {
+        healthy.push({
+          t: base + slot * 50, // initial fill + two full-life replacement waves, staggered per slot
+          k: "spawn",
+          d: { corp: "reservation-W43N23-reservation", role: "reserver", cost: 1300 }
+        });
+      }
+    }
+    const churn = computeChurn(
+      mkChurnCap(healthy, [{ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 4 }])
+    )!;
+    // every slot's same-slot gap is exactly the 600t claim lifetime => nothing died early
+    expect(churn.remoteChurn, "healthy staggered 4-slot corp has no early-death churn").to.be.lessThan(1);
+    expect(churn.worstGap, "worst same-slot gap is a full life, not a sub-60t interleave").to.be.greaterThan(60);
+
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    cap.data.blackbox = { v: 1, tick: cap.tick, rows: healthy };
+    cap.data.corps.corps = cap.data.corps.corps.filter(
+      (c: any) => c.id !== "reservation-W43N23-reservation"
+    );
+    cap.data.corps.corps.push({ id: "reservation-W43N23-reservation", kind: "reservation", creepCount: 4 });
+    const x5 = computeLedger(cap, cap72404213).find(r => r.id === "X5")!;
+    expect(x5.verdict, "a healthy interleaved multi-slot corp is not a churn WARN").to.equal("ok");
+    expect(x5.detail).to.not.contain("FAST RESPAWN");
   });
 });

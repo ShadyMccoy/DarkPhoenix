@@ -113,3 +113,135 @@ spec 01 must be resolved first and these re-run.)
 2. Spec 00 scaffolding (Commission envelope + registry + conformance suite).
 3. Port/absorb the groundwork into `LinkHaulerCorp` per the table above.
 4. Tests B–E, then the regression gate.
+
+## The feeder is the core-link ROUTER, and kind-selection must be EMERGENT (owner 2026-07-26)
+
+Live thrash observed (t72595372): `hauler-g-cd90` and `feeder-Feeder` circling
+energy on the core link. Root cause read from the code, TWO faults that compound:
+
+**Fault 1 — the feeder is a HALF router.** The owner's intended role: the feeder
+is a core-link MANAGER/ROUTER, "more like a dedicated building than a creep." It
+must run the link BIDIRECTIONALLY:
+- **EMPTY** the core link → storage, to keep it OPEN for incoming source-link
+  volleys (a full core link has nowhere for the network to fire — `hubClampShare`
+  0.59 measured, source links stranded at 800/800);
+- **LOAD** the core link ← storage, to send to the controller link / any link
+  sink as needed.
+
+Today `ControllerFeederCorp.runFeeder` (controller-link branch) only ever
+TRANSFERS INTO the core link (capped to leave the income reserve); when the link
+is already staged it just holds its load beside the core. There is NO
+withdraw-from-link → storage path. The passive income reserve is not enough: when
+volleys fill the link, nothing actively drains it. The feeder must gain the empty
+direction and become the SOLE operator of the core link's level.
+
+**Fault 2 — a link-served source still gets a walking CarryCorp hauler**, whose
+`sourcePickupSpot` redirect points it at the core link. It ends up doing the
+feeder's missing empty-direction (drains the link to storage) and FIGHTS the
+feeder's load-direction → the thrash. The band-aid exists only because fault 1
+left the empty-direction unowned.
+
+**The fix is one idea, and it must be EMERGENT, not hand-wired (spec 17).** A
+link-served route is claimed by a TRANSPORT kind (the feeder-as-router today, a
+`linkHaul` kind in the full design). Kind-selection at commissioning must then
+NOT also commission a `carry` corp for that route — the two transport kinds never
+both serve one route. This should fall out of the framework's kind economics /
+registration (a route picks its cheapest transport kind; the loser is not
+commissioned), exactly as spec 00/17 prescribe — NOT a special-case check bolted
+onto CarryCorp. When it's emergent: cd90's energy flows source-link → core link →
+(feeder routes to storage or fires to a sink), with no CarryCorp on the core link
+and nothing to thrash against.
+
+**Acceptance (when this is fixed):** (a) the feeder empties the core link to
+storage whenever a source-link volley needs landing room (`hubClampShare` drops,
+no stranded source links); (b) NO `carry` corp is commissioned for a link-served
+source (emergent from kind selection, asserted in the conformance/selection
+tests); (c) red-first repro of the thrash: a link-served source + a feeder, the
+OLD path circles energy (feeder loads / hauler drains the same link), the fixed
+path moves it once. Links have collapsed the colony before (spec 26) — full
+regression gate + a post-deploy recapture that shows the thrash gone.
+
+### Tests & scenarios for the feeder-router + emergent selection (2026-07-26)
+
+UNIT (red-first, pure where possible):
+- `feederRouter.empty`: core link over the income reserve + a source-link volley
+  needs landing room → the feeder WITHDRAWS link→storage. Old code (load-only)
+  never withdraws → RED.
+- `feederRouter.load`: controller link has free capacity + core link below the
+  fire target → feeder loads storage→link. (Existing behavior, keep green.)
+- `feederRouter.soleOperator`: given a link-served source, `sourcePickupSpot`
+  does NOT return the core link as a hauler pickup while a feeder owns it (the
+  redirect that caused the thrash is gone).
+- `kindSelection.linkServedNoCarry`: commissioning a link-served route yields a
+  transport kind (feeder-router / linkHaul) and NO `carry` corp for that route —
+  asserted from the framework's selection, not a special-case (spec 17/00
+  conformance). A route flipping link↔walk selects exactly one kind.
+
+GRID SCENARIO (spec 08 — heed the spec-26 blind spot: stage the REAL topology and
+assert NET ENERGY MOVEMENT / delivery RECEIPTS, never link fill as a proxy):
+- `link-core-router`: stage storage + core link + controller link + a link-served
+  source (source link firing to the core) + a feeder, WITH the feeder relay
+  present. Assert over the window: (1) no storage↔core-link circling — net link
+  drain to storage tracks incoming volleys, feeder load tracks controller
+  receive; (2) `hubClampShare` below threshold (link stays open); (3) zero `carry`
+  corp commissioned for the link-served source; (4) controller progress rises
+  (value lands). The OLD build must FAIL cell (1)/(3) — the thrash + the redundant
+  CarryCorp — so the cell is a real regression gate, not a green-by-construction
+  proxy.
+
+### IMPLEMENTED 2026-07-27 (targeted fix; full linkHaul kind still the end state)
+
+Landed as a TARGETED coupled fix (not yet the generic `linkHaul` kind — that
+still supersedes this):
+- **Feeder = sole bidirectional core-link operator.** `ControllerFeederCorp.
+  runLinkRouter` (new) keeps the core at `coreLinkTargetLevel` (nodeEnergy):
+  below it LOADS storage→core (the original relay), above it DRAINS core→storage
+  (`coreLinkDrainAmount`, the empty direction the old code lacked). Direction is
+  chosen only while empty-handed (`creep.memory.linkMode`) so a trip never
+  flip-flops. Drain receipt stamps `lastDeliver.to = "storage-drain"`.
+- **Feeder body drain-floor** (`ControllerFeederCorp.coreDrainRate`, applied in
+  getSpawnDemand around `feederBodyRate` whose SAVE-regime contract is pinned):
+  the sole operator's body is sized to the core inflow (link-served source
+  income + spec-26 deposit-port headroom, `PER_LINK_SOURCE_DRAIN` = 10+30 e/t
+  per source link), or the core backs up and volleys strand (the spec-26
+  gridlock). Cheap at the parked 1-tile leg.
+- **Emergent no-carry-for-link-served** (`commissionsFromPlan`): a source whose
+  `haulPos` is set (link-served, from `detectLinkHaulPositions`) gets NO walking
+  carry commission — read from the planner's own lens, not a bolt-on to
+  CarryCorp. Mirrored in `flowAdapter.publishRoster` (no phantom plan-vs-fielded
+  variance, same as `bank-` sources). The spec-26 deposit-port drain is now
+  EXECUTED by the feeder (CorpPlanner comments updated); its PRICING attribution
+  is unchanged. A fresh-link transition pile is still collected by the scavenge
+  path (distinct `-scavenge` route, never suppressed).
+- **`sourcePickupSpot` core-link redirect REMOVED** (its sole caller was
+  CarryCorp, now never fielded for a link-served source).
+
+Tests (red-first proven by stashing src and re-running): `feederRouter.test.ts`
+(the bidirectional router + the body drain-floor), `commissionPlanLinkServed.
+test.ts` (emergent no-carry, flips link↔walk on haulPos), `sourcePickupSpot.
+test.ts` (no core redirect), `controllerLinkNetwork.test.ts`
+(coreLinkTargetLevel/coreLinkDrainAmount, load XOR drain). Grid cell
+`link-core-router` (test/grid/cells/linkRouter.ts). Full unit suite 1550 green;
+regression trio ALL green (storage-depot, flow-handoff, runt-economy — they
+exercise the unchanged walking path, confirming the change is a strict no-op for
+non-link rooms); grid cell `link-core-router` `[P]` (feeder drains @ tick 3, no
+`carry-source-*` through the window, controller progress @ tick 21).
+
+**VERIFIED LIVE 2026-07-27 (shard1, deployed t72596353, recaptured t72596467).**
+The new code is running (`storage-drain` drain receipt, `coreDrain` sizing stamp,
+`linkMode` all present live). Post-deploy ledger clean — NO FAIL:
+- **E2 = 0 stranded parts, "every fielded hauler serves a planned route"** — the
+  lost/thrashing walking hauler on the core link (`hauler-g-cd90`) is GONE; there
+  is no walking hauler on a link-served source to fight the feeder.
+- **X5 = 0 rebuild churn** — no thrash-induced respawn loop.
+- **LINK: W43N23 hub 20.4 / ctrl 18.4 e/t (direct 16%)** — the network delivers,
+  not gridlocked; the feeder (sole operator) keeps the core open.
+- **P9 1.43× routed (no rot), P7 controller fed, storage banking +12.4/t above
+  reserve, feederActive true** — income routed, value landing, no collapse.
+
+SCOPE NOTE (honest): this fixed the core-link THRASH + the lost walking hauler
+(the owner's "haulers between the core and the NE link that seem confused" +
+"lost creeps standing around"). It did NOT target the SEPARATE core-convergence
+congestion (H1 idleSink en-route 0.18, ground-piled ~8.8k) — that is the
+base-remodel / remote-flow core-placement work (spec 31 §6a) + the backoff
+instrumentation (spec 32), tracked there, not a regression here.

@@ -79,6 +79,15 @@ Later families (same rule — one home):
   deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
+  comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
+  adjacency, direct draw at a length-0 route. Its onboard buffer bridges the
+  delivery cadence (`bufferCarryParts(burn, refuelIntervalTicks(d, n))`;
+  `parkedRelayCarry` is the interval-2 degenerate case). Relocation is
+  UNLADEN (shed the load first — empty CARRY is fatigue-free). A corp's
+  commission price is ALL-IN (`operationSpawnLoad`: node bodies + operated
+  vectors); `directFetchParts` is the priced-out fetch counterfactual, kept
+  as the proof, never a mode.
 - **Ledger charges:** `controllerWorkSpawnLoad`, `constructionWorkSpawnLoad`,
   `infraSpawnLoad` — what the planner's parts ledger charges consumers/infra.
 - **Conversions:** `workPartsForEnergyRate`, `energyPerSpawnPart` (the shadow

@@ -144,6 +144,11 @@ export interface SpawnDemand {
   /** Hauler CARRY:MOVE ratio hint, passed through to the executor. */
   haulerRatio?: "2:1" | "1:1" | "1:2";
   /**
+   * Onboard buffer CARRY for a mobile consumer's body (spec 34 D3), passed
+   * through to the executor's BodyHints. The scheduler does not interpret it.
+   */
+  bufferCarry?: number;
+  /**
    * Body-shape strategy hint passed through to the executor (e.g. an upgrader's
    * "mobile" vs "containerFed" supply strategy). The scheduler does not interpret it.
    */

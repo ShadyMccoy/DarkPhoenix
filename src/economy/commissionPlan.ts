@@ -15,7 +15,7 @@
 import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
-import { constructionWorkSpawnLoad, controllerWorkSpawnLoad } from "./primitives";
+import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, operationSpawnLoad } from "./primitives";
 import { Position } from "../types/Position";
 
 /**
@@ -92,6 +92,20 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     // straight back into the storage it withdrew from.
     if (sourceId.startsWith("bank-")) continue;
     const src = sourceById.get(sourceId);
+    // LINK-SERVED sources get NO walking carry commission either (spec 02
+    // feeder-router, owner 2026-07-26): a source whose energy EMERGES at the
+    // core link (haulPos set by detectLinkHaulPositions) is transported by the
+    // link network + the ControllerFeederCorp - the sole bidirectional core-link
+    // operator (source link -> core link fire, then the feeder banks/relays).
+    // A CarryCorp here would drain the very core link the feeder loads - the
+    // storage->core->storage thrash (t72595372). This is the EMERGENT
+    // kind-selection spec 00/17 prescribe: the route picks one transport kind
+    // and the loser is not commissioned, read from the planner's own haulPos
+    // lens (not a bolt-on to CarryCorp). A fresh-link transition pile at the
+    // source is still collected by the scavenge path (a distinct `-scavenge`
+    // route, never suppressed), so nothing rots. (The generic linkHaul kind in
+    // the full spec-02 design supersedes this targeted suppression.)
+    if (src?.haulPos) continue;
     const flow = routes.reduce((s, r) => s + r.flowRate, 0);
     out.push({
       corpId: corpIdFor("carry", sourceId),
@@ -123,10 +137,17 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     const kind = k.kind === "controller" ? "upgrade" : k.kind === "construction" ? "build" : null;
     if (!kind) continue;
     const sink = sinkById.get(k.sinkId);
+    // Construction's price is ALL-IN (spec 34 D4): the builder WORK bodies
+    // PLUS the supply vector fueling them (the storage->site shuttle the corp
+    // operates - previously spawn load the ledger never budgeted, the P4
+    // "unbudgeted" class). The controller's mover is the feeder, charged
+    // separately in infraSpawnLoad - no vector here or it double-counts.
     const spawnPartsPerTick =
       k.kind === "controller"
         ? controllerWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos))
-        : constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos));
+        : operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos)), [
+            { rate: k.allocated, distance: nearestSpawnDist(sink?.pos) }
+          ]);
     out.push({
       corpId: corpIdFor(kind, k.sinkId),
       kind,

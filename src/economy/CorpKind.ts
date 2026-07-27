@@ -58,6 +58,13 @@ export interface BodyHints {
   haulerRatio?: "2:1" | "1:1" | "1:2";
   /** Free-form strategy (e.g. miner "linkFed", upgrader "containerFed"). */
   bodyStrategy?: string;
+  /**
+   * Onboard buffer CARRY parts for a MOBILE consumer (spec 34 D2/D3): sized
+   * upstream by primitives.bufferCarryParts to bridge the corp's refuel
+   * interval. Generic - any kind whose consumers carry their own buffer
+   * reads it (construction's builders today).
+   */
+  bufferCarry?: number;
 }
 
 /**

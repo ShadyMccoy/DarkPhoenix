@@ -58,6 +58,8 @@ export interface SquadPlan {
   minCost: number;
   /** Opaque body-size hint passed through to the executor (e.g. desired WORK). */
   bodyParam: number;
+  /** Onboard buffer CARRY for a mobile consumer's body (spec 34 D3). */
+  bufferCarry?: number;
   /**
    * Total useful parts (of usefulPart) the squad should field across all members,
    * and the most a single member can have. Together these let a maxed room retire
@@ -172,7 +174,8 @@ export class Squad {
         desiredCost: plan.desiredCost,
         minCost: plan.minCost,
         since: 0,
-        bodyParam: plan.bodyParam
+        bodyParam: plan.bodyParam,
+        ...(plan.bufferCarry !== undefined ? { bufferCarry: plan.bufferCarry } : {})
       }
     ];
   }

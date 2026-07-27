@@ -160,7 +160,8 @@ export class SpawningCorp extends Corp {
     tick: number,
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
-    bodyStrategy?: string
+    bodyStrategy?: string,
+    bufferCarry?: number
   ): boolean {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return false;
@@ -174,7 +175,7 @@ export class SpawningCorp extends Corp {
       return false;
     }
 
-    const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy });
+    const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy, bufferCarry });
     if (body.length === 0) return false;
 
     const bodyCost = this.calculateBodyCost(body);
