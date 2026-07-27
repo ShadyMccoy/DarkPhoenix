@@ -7,7 +7,7 @@
  * @module corps/HarvestCorp
  */
 
-import { staffsPost } from "../economy/primitives";
+import { HARVEST_ENERGY_PER_WORK, staffsPost, workPartsForEnergyRate } from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
@@ -286,7 +286,7 @@ export class HarvestCorp extends Corp {
   /** Miner count the plan wants - same math as getSpawnDemand's target. */
   private minerTargetCount(energyCapacity: number): number {
     if (!this.minerAssignment) return 1;
-    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(this.minerAssignment.harvestRate, HARVEST_ENERGY_PER_WORK));
     const affordableWork = Math.max(1, buildMinerBody(totalWork, energyCapacity).workParts);
     const needed = Math.ceil(totalWork / affordableWork);
     return Math.max(1, Math.min(this.minerAssignment.maxMiners || 1, needed));
@@ -303,7 +303,7 @@ export class HarvestCorp extends Corp {
     if (!this.minerAssignment) return null;
     if (creeps.some(c => c.memory.recycling)) return null;
 
-    const totalWork = Math.max(1, Math.ceil(this.minerAssignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(this.minerAssignment.harvestRate, HARVEST_ENERGY_PER_WORK));
     const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
     const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
     const runtIdx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
@@ -378,7 +378,7 @@ export class HarvestCorp extends Corp {
     const result = creep.harvest(source);
 
     if (result === OK) {
-      const energyHarvested = creep.getActiveBodyparts(WORK) * 2;
+      const energyHarvested = creep.getActiveBodyparts(WORK) * HARVEST_ENERGY_PER_WORK;
       this.recordProduction(energyHarvested);
       // Mirror the engine's invader-raid fuse (spec 13): every harvested unit
       // is raid debt for this room. Written here, at the same intent the
@@ -426,7 +426,7 @@ export class HarvestCorp extends Corp {
     if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) return [];
 
     // WORK parts needed to saturate this source (2 energy/tick per WORK part).
-    const totalWork = Math.max(1, Math.ceil(assignment.harvestRate / 2));
+    const totalWork = Math.max(1, workPartsForEnergyRate(assignment.harvestRate, HARVEST_ENERGY_PER_WORK));
 
     // Size the miner COUNT to the source's actual need, not to the number of
     // physical mining spots. A big room fields one large miner; a small room
@@ -677,12 +677,4 @@ export class HarvestCorp extends Corp {
     this.post = data.postPos ?? null;
     this.postExact = data.postExact ?? false;
   }
-}
-
-/**
- * Create a HarvestCorp for a source in a room.
- */
-export function createHarvestCorp(room: Room, spawn: StructureSpawn, source: Source): HarvestCorp {
-  const nodeId = `${room.name}-harvest-${source.id.slice(-4)}`;
-  return new HarvestCorp(nodeId, spawn.id, source.id);
 }

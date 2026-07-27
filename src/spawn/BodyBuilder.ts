@@ -8,6 +8,8 @@
  * @module spawn/BodyBuilder
  */
 
+import { BODY_COSTS, CARRY_CAPACITY } from "../economy/primitives";
+
 /**
  * Result of a body building calculation.
  */
@@ -20,16 +22,20 @@ export interface BodyResult {
   workParts: number;
 }
 
-/** Cost of each body part type */
+/**
+ * Cost of each body part type, keyed by the runtime part constants. Values
+ * come from the ONE table (primitives.BODY_COSTS) - this is just the
+ * lowercase-key view the builders index with.
+ */
 const PART_COSTS: Record<BodyPartConstant, number> = {
-  [WORK]: 100,
-  [CARRY]: 50,
-  [MOVE]: 50,
-  [ATTACK]: 80,
-  [RANGED_ATTACK]: 150,
-  [HEAL]: 250,
-  [CLAIM]: 600,
-  [TOUGH]: 10
+  [WORK]: BODY_COSTS.WORK,
+  [CARRY]: BODY_COSTS.CARRY,
+  [MOVE]: BODY_COSTS.MOVE,
+  [ATTACK]: BODY_COSTS.ATTACK,
+  [RANGED_ATTACK]: BODY_COSTS.RANGED_ATTACK,
+  [HEAL]: BODY_COSTS.HEAL,
+  [CLAIM]: BODY_COSTS.CLAIM,
+  [TOUGH]: BODY_COSTS.TOUGH
 };
 
 /**
@@ -162,7 +168,7 @@ export function buildRatioHaulerBody(
   const body: BodyPartConstant[] = [];
   for (let i = 0; i < units * carryRatio; i++) body.push(CARRY);
   for (let i = 0; i < units * moveRatio; i++) body.push(MOVE);
-  return { body, cost: units * costPerUnit, carryCapacity: units * carryRatio * 50 };
+  return { body, cost: units * costPerUnit, carryCapacity: units * carryRatio * CARRY_CAPACITY };
 }
 
 /**
@@ -203,8 +209,6 @@ export function buildTankerBody(requiredCarry: number, energyCapacity: number, u
   if (energyCapacity < minEnergy) {
     return { body: [], cost: 0, carryCapacity: 0 };
   }
-
-  const CARRY_CAPACITY = 50;
 
   // CARRY-heavy because a tanker is mostly stationary (see doc above). 1 MOVE
   // per 3 CARRY on plains (slow when loaded, but it rarely moves); on roads,

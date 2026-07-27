@@ -129,8 +129,9 @@ describe("harvest kind on the corp framework (rungs 2-4)", () => {
     const store: CorpStore = new Map();
     materializeCommissions([harvestCommission], store);
     const corp = store.get("harvest-abcd1234")!.corp as HarvestCorp;
-    // mining-${roomName}-harvest-${sourceId.slice(-4)} - what createHarvestCorp/
-    // FlowMaterializer generate, so memory.corpId still resolves post-port.
+    // mining-${roomName}-harvest-${sourceId.slice(-4)} - what the retired
+    // createHarvestCorp/FlowMaterializer generated, so memory.corpId still
+    // resolves post-port.
     expect(corp.id).to.equal("mining-W1N1-harvest-1234");
     // setMinerAssignment strips the flow "spawn-" prefix to the real game id
     expect(corp.getSpawnId()).to.equal("game1");

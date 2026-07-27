@@ -23,7 +23,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Position } from "../types/Position";
 import { CoreDepot, controllerLink, coreDepot, coreLink, coreLinkLoadRoom, controllerInputSpot } from "./nodeEnergy";
 import { travelTo, travelToBypass } from "./movement";
-import { carryPartsFor, parkedRelayCarry } from "../economy/primitives";
+import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
 import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
 import { buildPoolAbsorbRate } from "./ConstructionCorp";
 
@@ -368,8 +368,7 @@ export class ControllerFeederCorp extends Corp {
     // (infraSpawnLoad linkFedRoomCount).
     const linkFed = !!controllerLink(spawn.room);
     const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
-    const PART_PAIR = 100; // CARRY + MOVE
-    const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
+    const maxCarry = maxCarryPairs(ctx.energyCapacity);
     // The relay serves the PLAN's controller flow, never the raw surplus
     // formula: when construction preempts the bank the controller floors at
     // ~2 e/t and relaying 115 into a full stock is 90+ wasted parts (owner
@@ -450,8 +449,8 @@ export class ControllerFeederCorp extends Corp {
         // coupling's trigger.
         infrastructure: firstFeeder && banked >= 10_000,
         producesIncome: false,
-        desiredCost: carry * PART_PAIR,
-        minCost: Math.min(carry, 2) * PART_PAIR,
+        desiredCost: carry * CARRY_MOVE_PAIR_COST,
+        minCost: Math.min(carry, 2) * CARRY_MOVE_PAIR_COST,
         since: 0,
         bodyParam: carry
       }

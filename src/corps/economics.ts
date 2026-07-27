@@ -5,16 +5,12 @@
  * spec 04 - site valuation now runs through economy/siteValue.)
  */
 
-/**
- * Body parts a single spawn can build per tick. A spawn produces one part every
- * SPAWN_TIME_PER_PART (3) ticks, so this is 1/3 - i.e. 500 parts over a creep's
- * 1500-tick life. It is the spawn's *time* budget, separate from and often
- * tighter than its energy budget: a far source can stay net-energy-positive yet
- * demand more hauler parts than the spawn can physically build. Corps compete for
- * this budget the same way they compete for energy, so a source that is too far
- * loses the competition and falls out - no hard distance limit required.
- */
-export const SPAWN_PARTS_PER_TICK = 1 / 3;
+// The spawn build-rate and reservation-pricing constants (SPAWN_PARTS_PER_TICK,
+// CLAIM_LIFETIME, RESERVER_DUTY) are homed in economy/primitives - spec 32
+// phase B inverted the spec-17-P5 debt where the PLAN core imported them from
+// this EXECUTE-directory file. Re-exported here so corps-side import paths
+// keep working for one release.
+export { SPAWN_PARTS_PER_TICK, CLAIM_LIFETIME, RESERVER_DUTY } from "../economy/primitives";
 
 /**
  * Ticks a creep burns per tile walking from the spawn to its post.
@@ -36,19 +32,6 @@ export function travelTicksPerTile(energyCapacity: number): number {
 // ---------------------------------------------------------------------------
 // Reserving a remote room
 // ---------------------------------------------------------------------------
-
-/**
- * Lifetime of a creep carrying a CLAIM part (CREEP_CLAIM_LIFE_TIME). Reservers
- * live only 600 ticks, not 1500 - a big part of why the reserver toll is steep.
- */
-export const CLAIM_LIFETIME = 600;
-
-/**
- * Reserver duty cycle. A reservation accumulates (to 5000) and decays 1/tick, so a
- * reserver need not be present continuously - let it build up, let it tick down,
- * then top up. ~50% duty roughly halves the amortized cost.
- */
-export const RESERVER_DUTY = 0.5;
 
 /**
  * Banked-reservation floor (ticks) below which a target room asks for a fresh

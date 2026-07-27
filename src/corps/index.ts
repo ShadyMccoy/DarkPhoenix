@@ -13,7 +13,7 @@ export { Corp, CorpType, SerializedCorp } from "./Corp";
 
 export { BootstrapCorp, SerializedBootstrapCorp, createBootstrapCorp } from "./BootstrapCorp";
 
-export { HarvestCorp, SerializedHarvestCorp, createHarvestCorp } from "./HarvestCorp";
+export { HarvestCorp, SerializedHarvestCorp } from "./HarvestCorp";
 
 export { CarryCorp, SerializedCarryCorp, createCarryCorp } from "./CarryCorp";
 

@@ -25,11 +25,14 @@ import { Position } from "../types/Position";
 import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
+  BUILD_ENERGY_PER_WORK,
+  HARVEST_ENERGY_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   UPGRADE_ENERGY_PER_WORK,
   infraSpawnLoad,
   minerOverhead,
-  projectAbsorbRate
+  projectAbsorbRate,
+  workPartsForEnergyRate
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import { partialPaveRatio } from "./roadEconomics";
@@ -758,20 +761,24 @@ export function buildColonyProblem(
  * Solve the colony economy with the CorpPlanner and return a FlowSolution.
  * Drop-in replacement for FlowSolver.solve / solveIteratively.
  */
-/** Energy/tick one WORK part consumes at each consumer (for roster sizing). */
-const ENERGY_PER_WORK = { upgrade: 1, build: 5 } as const;
-
 /**
  * Publish the commissioned roster to Memory.economyPlan so tooling (the
  * plan-vs-spawn harness, telemetry) can compare what the single planner asked
  * for against what was actually fielded. Same shape the shadow planner used to
- * write, now sourced from the live CorpPlanner.
+ * write, now sourced from the live CorpPlanner. Work sizes convert through the
+ * primitives *_ENERGY_PER_WORK constants (one formula home), floored at 1 so
+ * every published corp fields at least one body.
  */
 function publishRoster(plan: ReturnType<typeof planColony>): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
   for (const m of plan.miners) {
-    corps.push({ kind: "mine", work: Math.max(1, Math.ceil(m.rate / 2)), sourceId: m.sourceId, spawnId: m.spawnId });
+    corps.push({
+      kind: "mine",
+      work: Math.max(1, workPartsForEnergyRate(m.rate, HARVEST_ENERGY_PER_WORK)),
+      sourceId: m.sourceId,
+      spawnId: m.spawnId
+    });
   }
   for (const h of plan.haulers) {
     // Bank flows are executed by the depot movers (tender/feeder), never by a
@@ -795,13 +802,13 @@ function publishRoster(plan: ReturnType<typeof planColony>): void {
     if (k.kind === "controller") {
       corps.push({
         kind: "upgrade",
-        work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.upgrade)),
+        work: Math.max(1, workPartsForEnergyRate(k.allocated, UPGRADE_ENERGY_PER_WORK)),
         sinkId: k.sinkId
       });
     } else if (k.kind === "construction") {
       corps.push({
         kind: "build",
-        work: Math.max(1, Math.ceil(k.allocated / ENERGY_PER_WORK.build)),
+        work: Math.max(1, workPartsForEnergyRate(k.allocated, BUILD_ENERGY_PER_WORK)),
         sinkId: k.sinkId
       });
     }

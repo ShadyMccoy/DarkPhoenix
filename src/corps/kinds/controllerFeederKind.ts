@@ -17,6 +17,7 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
 import { coreLink } from "../nodeEnergy";
+import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 
 /** The feeder commission's binding: which home room, which spawn. */
 export interface ControllerFeederAssignment {
@@ -106,12 +107,10 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
   },
 
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
-    // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts). Mirrors
-    // SpawningCorp.buildBodyForRole's "feeder" case for the framework spawn path.
-    const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
-    const body: BodyPartConstant[] = [];
-    for (let i = 0; i < carry; i++) body.push(CARRY);
-    for (let i = 0; i < carry; i++) body.push(MOVE);
-    return body;
+    // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts) - the
+    // shared hauler builder at 1:1 IS the feeder body (bit-identical, pinned
+    // by bodyEquivalence's "feeder" case). Floored at 1 CARRY so a zero
+    // bodyParam means the minimum shuttle, not "fill the budget".
+    return buildRatioHaulerBody(Math.max(1, bodyParam ?? 4), energyBudget, "1:1").body;
   }
 };

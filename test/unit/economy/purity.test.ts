@@ -106,10 +106,11 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
   });
 
   it("pure planner files import only allowlisted modules", () => {
-    // The planning core's permitted import surface. The two entries marked
-    // (debt) are audited inversions scheduled in spec 17 P5 - listed so a NEW
+    // The planning core's permitted import surface - listed so a NEW
     // dependency (execution/, colony/, telemetry/, corps runtime classes)
-    // cannot land silently.
+    // cannot land silently. The constants inversion debt is PAID (spec 32
+    // phase B): primitives.ts imports constants from nobody; flow/FlowTypes
+    // and corps/economics re-export FROM it.
     const ALLOWED = new Set([
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
@@ -117,8 +118,6 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       "./goals", "./strategy",
       // pure shared types
       "../types/Position", "../types/Memory",
-      // (debt) constants physically homed outside economy/ - P5 inverts these
-      "../flow/FlowTypes", "../corps/economics", "../planning/EconomicConstants",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling
       "../corps/Corp",
       // pure spatial/room helpers

@@ -65,7 +65,7 @@
  * netEnergy()/spawnPartsFor() in primitives.ts.
  */
 
-import { BODY_COSTS, CARRY_CAPACITY, CREEP_LIFETIME, effectiveLife } from "./primitives";
+import { BODY_COSTS, CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "./primitives";
 
 /** Energy to build one road construction site's worth on plain terrain. */
 export const ROAD_BUILD_COST = 300;
@@ -223,10 +223,10 @@ export interface RoadVerdict {
 
 /**
  * Carry units (CARRY parts) a route needs: flow * roundTrip / CARRY_CAPACITY.
- * Mirrors primitives.carryPartsFor's model (2 ticks load/unload included).
+ * Delegates to primitives.carryPartsFor (2 ticks load/unload included).
  */
 function carryUnits(flow: number, oneWay: number): number {
-  return (flow * (2 * oneWay + 2)) / CARRY_CAPACITY;
+  return carryPartsFor(flow, oneWay);
 }
 
 /**

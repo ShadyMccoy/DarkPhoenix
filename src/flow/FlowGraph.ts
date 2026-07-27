@@ -7,6 +7,7 @@
 import { FlowSink, FlowSource, Position, SinkType, createFlowSink, createFlowSource } from "./FlowTypes";
 import { Node, getResourcesByType } from "../nodes/Node";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
+import { isSourceKeeperRoom } from "../utils/RoomDiscovery";
 
 // =============================================================================
 // FLOW GRAPH CLASS
@@ -229,25 +230,6 @@ export class FlowGraph {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-/**
- * Check if a room is a Source Keeper room.
- * SK rooms have coordinates where both X and Y end in 4, 5, or 6,
- * but are not center rooms (where both end in 5).
- */
-function isSourceKeeperRoom(roomName: string): boolean {
-  const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
-  if (!match) return false;
-
-  const x = parseInt(match[1], 10) % 10;
-  const y = parseInt(match[2], 10) % 10;
-
-  // Center rooms (portals) have both coords ending in 5
-  if (x === 5 && y === 5) return false;
-
-  // SK rooms have both coords in [4, 5, 6] range
-  return x >= 4 && x <= 6 && y >= 4 && y <= 6;
-}
 
 // =============================================================================
 // FACTORY FUNCTION

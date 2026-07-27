@@ -44,6 +44,7 @@ import {
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
 import { effectiveOneWayTiles } from "./roadEconomics";
+import { DEFAULT_VALUATION } from "./goals";
 
 // =============================================================================
 // INPUT - a clean description of the world the planner reasons over
@@ -190,12 +191,19 @@ export interface ColonyProblem {
   hostileRooms?: readonly string[];
 }
 
-/** Canonical single value model (replaces mintValue/net-energy/effectiveNet/sink.value). */
+/**
+ * Canonical kind-level value baseline (replaces mintValue/net-energy/
+ * effectiveNet/sink.value). DERIVED from goals.DEFAULT_VALUATION - the ONE
+ * ladder home - so the two can never disagree by hand: spawn/construction/
+ * storage map directly, controller takes the no-vision static anchor
+ * (`controllerStatic`; the live controller prices on the min/max band via
+ * the goal system instead).
+ */
 export const DEFAULT_SINK_VALUE: Record<SinkKind, number> = {
-  spawn: 100, // keeping creeps alive - mandatory
-  construction: 70, // building raises capacity - worth more than raw upgrade
-  controller: 50, // upgrading - mops up the remainder
-  storage: 1 // buffer - soaks excess only
+  spawn: DEFAULT_VALUATION.spawn, // keeping creeps alive - mandatory
+  construction: DEFAULT_VALUATION.construction, // building raises capacity - worth more than raw upgrade
+  controller: DEFAULT_VALUATION.controllerStatic, // upgrading - mops up the remainder
+  storage: DEFAULT_VALUATION.storage // buffer - soaks excess only
 };
 
 // =============================================================================

@@ -24,7 +24,7 @@ import { Position } from "../types/Position";
 import { CoreDepot, coreDepot } from "./nodeEnergy";
 import { extensionClusters, nextStop, roomCircuit } from "./refillCircuit";
 import { travelTo, travelToBypass } from "./movement";
-import { staffsPost } from "../economy/primitives";
+import { CARRY_MOVE_PAIR_COST, maxCarryPairs, staffsPost } from "../economy/primitives";
 
 export interface SerializedExtensionTenderCorp extends SerializedCorp {
   spawnId: string;
@@ -507,8 +507,7 @@ export class ExtensionTenderCorp extends Corp {
     // enough combined carry to cover a full bank drain in one wave (at RCL2-3
     // the body caps at ~400 carry while a big miner drains 650+; measured,
     // pipeline t=1553: the lone tender's second trip lost the deadline).
-    const PART_PAIR = 100; // CARRY + MOVE
-    const maxCarry = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR), 25));
+    const maxCarry = maxCarryPairs(ctx.energyCapacity);
     const clusters = extensionClusters(room);
     // BANK CAPACITY from ACTUAL fillable structures (owner 2026-07-25:
     // generalize past the single-300-spawn, 50-per-extension assumption). The
@@ -611,8 +610,8 @@ export class ExtensionTenderCorp extends Corp {
         // One dark-post body per outage; top-ups wait like everyone else.
         infrastructure: bootstrap,
         producesIncome: false,
-        desiredCost: carry * PART_PAIR,
-        minCost: Math.min(carry, 2) * PART_PAIR,
+        desiredCost: carry * CARRY_MOVE_PAIR_COST,
+        minCost: Math.min(carry, 2) * CARRY_MOVE_PAIR_COST,
         since: 0,
         bodyParam: carry
       }

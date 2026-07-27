@@ -24,6 +24,8 @@
  * @module telemetry/LinkMeter
  */
 
+import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
+
 /** Where a fired volley landed, in planner terms. */
 export type LinkFireTarget = "hub" | "controllerRelay" | "controllerDirect";
 
@@ -31,13 +33,13 @@ export type LinkFireTarget = "hub" | "controllerRelay" | "controllerDirect";
 export const LINK_LOSS_RATIO = 0.03;
 
 /**
- * The core-fill sampler's boundary (mirrors LinkRunner's LINK_FIRE_THRESHOLD -
- * duplicated here to avoid a meter<->runner import cycle). A core BELOW it can't
- * fire onward to the controller AND a source volley would find room; a core
- * whose FREE capacity is below it can't take a worthwhile source volley (the
- * congestion the pinned-remote incident is about).
+ * The core-fill sampler's boundary IS the runner's fire gate (one home:
+ * primitives.LINK_FIRE_THRESHOLD). A core BELOW it can't fire onward to the
+ * controller AND a source volley would find room; a core whose FREE capacity
+ * is below it can't take a worthwhile source volley (the congestion the
+ * pinned-remote incident is about).
  */
-const SAMPLE_THRESHOLD = 100;
+const SAMPLE_THRESHOLD = LINK_FIRE_THRESHOLD;
 
 /** Rolling per-room accumulator (energy, since a tick). */
 export interface LinkMeterRoom {

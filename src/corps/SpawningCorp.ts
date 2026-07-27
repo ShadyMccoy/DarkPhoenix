@@ -7,7 +7,7 @@
  * @module corps/SpawningCorp
  */
 
-import { CREEP_LIFETIME } from "../planning/EconomicConstants";
+import { BODY_COSTS, CREEP_LIFETIME } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
 import { drawOrder } from "./refillCircuit";
 import { HaulerRatio } from "../framework/EdgeVariant";
@@ -156,20 +156,13 @@ export class SpawningCorp extends Corp {
   }
 
   /**
-   * Calculate energy cost of a body.
+   * Calculate energy cost of a body. Sums over the ONE cost table
+   * (primitives.BODY_COSTS, keyed by upper-case part name; the runtime part
+   * constants are the lower-case strings). Kept as a method: it is the
+   * harness-safe seam - no BODYPART_COST global needed in the mockup.
    */
   private calculateBodyCost(body: BodyPartConstant[]): number {
-    const costs: Record<BodyPartConstant, number> = {
-      [WORK]: 100,
-      [CARRY]: 50,
-      [MOVE]: 50,
-      [ATTACK]: 80,
-      [RANGED_ATTACK]: 150,
-      [HEAL]: 250,
-      [CLAIM]: 600,
-      [TOUGH]: 10
-    };
-    return body.reduce((sum, part) => sum + costs[part], 0);
+    return body.reduce((sum, part) => sum + BODY_COSTS[part.toUpperCase() as keyof typeof BODY_COSTS], 0);
   }
 
   /**

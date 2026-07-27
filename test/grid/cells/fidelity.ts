@@ -23,12 +23,17 @@
 import { GridCell, CellSample, always, atWindow, eventually } from "../GridCell";
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 import { fixtureRoom } from "../fixtureRoom";
-import { BODY_PART_COST, BodyPart } from "../../../src/planning/EconomicConstants";
+import { BODY_COSTS } from "../../../src/economy/primitives";
 import { journeyWorld } from "./journey";
 import { makeRefillSla } from "../refillSLA";
 
+// Mockup bodies carry lowercase part names ("work"); the canonical table keys
+// are uppercase, so normalize on lookup.
 const bodyCost = (body: any[]): number =>
-  (body ?? []).reduce((sum: number, p: any) => sum + (BODY_PART_COST[p.type as BodyPart] ?? 0), 0);
+  (body ?? []).reduce(
+    (sum: number, p: any) => sum + ((BODY_COSTS as Record<string, number>)[String(p.type).toUpperCase()] ?? 0),
+    0
+  );
 
 /** Per-tick economy accumulator; only ticks >= measureFrom enter the sums. */
 class EconWatch {

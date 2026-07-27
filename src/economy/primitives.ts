@@ -15,16 +15,103 @@
  * @module economy/primitives
  */
 
-import { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS } from "../flow/FlowTypes";
-import { RESERVER_DUTY, SPAWN_PARTS_PER_TICK } from "../corps/economics";
+// ---------------------------------------------------------------------------
+// Screeps ground-truth constants - the founding numbers every formula below
+// derives from. Homed HERE (spec 32 phase B inverted the audited debt: this
+// module used to import them from flow/FlowTypes, corps/economics and the
+// retired planning/EconomicConstants). flow/FlowTypes and corps/economics
+// re-export from here so legacy import paths keep working for one release.
+// ---------------------------------------------------------------------------
 
-export { BODY_COSTS, CREEP_LIFETIME, MINER_COST, MINER_PARTS, SPAWN_PARTS_PER_TICK };
+/**
+ * Body part costs (Screeps BODYPART_COST). The full 8-part table, so every
+ * body-cost consumer can converge on the ONE home; the economic formulas
+ * below use only the WORK/CARRY/MOVE trio.
+ */
+export const BODY_COSTS = {
+  WORK: 100,
+  CARRY: 50,
+  MOVE: 50,
+  ATTACK: 80,
+  RANGED_ATTACK: 150,
+  HEAL: 250,
+  CLAIM: 600,
+  TOUGH: 10
+} as const;
+
+/** Creep lifetime in ticks */
+export const CREEP_LIFETIME = 1500;
+
+/** Standard miner: 5W 3M */
+export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
+/** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */
+export const MINER_PARTS = 8;
+
+/**
+ * Ticks to spawn one body part (Screeps constant)
+ */
+export const SPAWN_TIME_PER_PART = 3;
+
+/**
+ * Body parts a single spawn can build per tick. A spawn produces one part every
+ * SPAWN_TIME_PER_PART (3) ticks, so this is 1/3 - i.e. 500 parts over a creep's
+ * 1500-tick life. It is the spawn's *time* budget, separate from and often
+ * tighter than its energy budget: a far source can stay net-energy-positive yet
+ * demand more hauler parts than the spawn can physically build. Corps compete for
+ * this budget the same way they compete for energy, so a source that is too far
+ * loses the competition and falls out - no hard distance limit required.
+ */
+export const SPAWN_PARTS_PER_TICK = 1 / 3;
+
+/**
+ * Lifetime of a creep carrying a CLAIM part (CREEP_CLAIM_LIFE_TIME). Reservers
+ * live only 600 ticks, not 1500 - a big part of why the reserver toll is steep.
+ */
+export const CLAIM_LIFETIME = 600;
+
+/**
+ * Reserver duty cycle. A reservation accumulates (to 5000) and decays 1/tick, so a
+ * reserver need not be present continuously - let it build up, let it tick down,
+ * then top up. ~50% duty roughly halves the amortized cost.
+ *
+ * Reserver BODY models in play (documented, not reconciled - spec 32 phase B
+ * moves homes, never values): the LIVE spawned body is reservationKind.body()
+ * -> buildReserverBody(energyBudget, 2) - up to 2 CLAIM + 2 MOVE (1300),
+ * degrading to 1 CLAIM + 1 MOVE when capacity affords only one pair.
+ * infraSpawnLoad below prices the standing fleet at that full-budget 4-part
+ * body (RESERVER_PARTS_PER_ROOM = 4), while corps/economics.RESERVER_BODY_COST
+ * (650) deliberately prices the MINIMUM viable 1 CLAIM + 1 MOVE body - the
+ * couldReserve affordability floor in IncrementalAnalysis.
+ */
+export const RESERVER_DUTY = 0.5;
 
 /** CARRY part capacity (energy a CARRY part holds). */
 export const CARRY_CAPACITY = 50;
 
+/**
+ * Energy cost of one CARRY + MOVE pair (100) - the unit every hauler-shaped
+ * body scales by. ONE home for the PART_PAIR/PART_PAIR_COST locals the mover
+ * corps used to re-declare.
+ */
+export const CARRY_MOVE_PAIR_COST = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
+
+/** Source energy capacity in claimed rooms (Screeps constant) */
+export const SOURCE_ENERGY_CAPACITY = 3000;
+
+/** Source regeneration time in ticks (Screeps constant) */
+export const SOURCE_REGEN_TIME = 300;
+
 /** Energy/tick a standard source yields (3000 capacity / 300 regen). */
-export const SOURCE_RATE = 10;
+export const SOURCE_RATE = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TIME; // 10
+
+/**
+ * Energy/tick credited per delivering creep by the scheduler's crude income
+ * estimate (SpawnDirector.estimateIncome): one deliverer ~ one source's worth
+ * (SOURCE_RATE). The scheduler only reads the positive/zero signal - whether
+ * it is safe to wait for a blocking demand versus spawning income first - so
+ * this is a nominal rate, not a measurement.
+ */
+export const DELIVERER_INCOME_RATE = SOURCE_RATE; // 10
 
 /** Energy/tick a single WORK part moves, by work class (Screeps *_POWER). */
 export const HARVEST_ENERGY_PER_WORK = 2; // HARVEST_POWER: 2 energy/tick per WORK
@@ -71,6 +158,17 @@ export function carryPartsFor(rate: number, distance: number): number {
 }
 
 /**
+ * CARRY(+MOVE) pairs a single hauler-shaped body can be built with from
+ * `energyBudget`: budget-capped whole pairs, hard-capped at 25 (the 50-part
+ * body limit at 1 MOVE per CARRY), floored at one pair (the executor's energy
+ * check rejects an unaffordable spawn; sizing never shrinks below a viable
+ * body). ONE cap formula for the hauler/tender/feeder demand sizers.
+ */
+export function maxCarryPairs(energyBudget: number): number {
+  return Math.max(1, Math.min(Math.floor(energyBudget / CARRY_MOVE_PAIR_COST), 25));
+}
+
+/**
  * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
  * standing adjacent to both its bank and its sink (the link-fed controller
  * feeder: storage on one side, core link on the other; owner 2026-07-22 "The
@@ -83,9 +181,6 @@ export const PARKED_RELAY_CYCLE_TICKS = 2;
 export function parkedRelayCarry(rate: number): number {
   return (rate * PARKED_RELAY_CYCLE_TICKS) / CARRY_CAPACITY;
 }
-
-export { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
-import { SPAWN_TIME_PER_PART } from "../planning/EconomicConstants";
 
 /**
  * Ticks between STARTING a creep's spawn and it standing at its post:
@@ -248,8 +343,7 @@ export function infraSpawnLoad(
   // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
   const TENDER_FLEET_PARTS = 48;
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
-  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE
-  const CLAIM_LIFETIME = 600;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE (the full-budget live body - see RESERVER_DUTY)
   const RESERVER_WALK = 60; // nominal remote-controller walk
   // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
   // corp coasts on the reservation bank, one stint per ~1080t. Holding this
@@ -316,6 +410,15 @@ export const MINING_BUDGET_FRACTION = 0.6;
 export function miningBudgetPerSpawn(): number {
   return SPAWN_PARTS_PER_TICK * MINING_BUDGET_FRACTION;
 }
+
+/**
+ * Don't fire a link dribble: wait until the sending link holds at least this
+ * much, so the (distance-long) cooldown and the 3% transfer fee are paid on a
+ * full-ish load. Miners feed 50 per transfer, so this is a couple of feeds.
+ * ONE home for the runner's fire gate (execution/LinkRunner) and the link
+ * meter's core-fill sampler boundary (telemetry/LinkMeter).
+ */
+export const LINK_FIRE_THRESHOLD = 100;
 
 // ---------------------------------------------------------------------------
 // NPC-invader raid facts (spec 13 ground truth, verified against the vendored

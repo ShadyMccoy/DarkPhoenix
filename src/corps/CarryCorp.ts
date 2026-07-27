@@ -11,7 +11,7 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { carryPartsFor, staffsPost } from "../economy/primitives";
+import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, roundTripTicks, staffsPost } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
@@ -602,7 +602,7 @@ export class CarryCorp extends Corp {
   private flagEndOfLifeForRecycling(creeps: Creep[]): void {
     const assignments = this.getHaulerAssignments();
     if (assignments.length === 0) return;
-    const minRoundTrip = Math.min(...assignments.map(a => 2 * a.distance + 2));
+    const minRoundTrip = Math.min(...assignments.map(a => roundTripTicks(a.distance)));
     for (const creep of creeps) {
       if (creep.memory.recycling || creep.spawning) continue;
       if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0) continue;
@@ -614,7 +614,7 @@ export class CarryCorp extends Corp {
 
   /** CARRY parts a single hauler can be built with at the room's full capacity. */
   private maxCarryPerHauler(room: Room): number {
-    return Math.max(1, Math.min(Math.floor(room.energyCapacityAvailable / 100), 25));
+    return maxCarryPairs(room.energyCapacityAvailable);
   }
 
   /**
@@ -641,8 +641,7 @@ export class CarryCorp extends Corp {
 
     // Conditions ready: the spawn can immediately build a hauler with at least one
     // more CARRY than the smallest runt (1 CARRY + 1 MOVE = 100 energy per step).
-    const PART_PAIR_COST = 100;
-    if (room.energyAvailable < (minCarry + 1) * PART_PAIR_COST) return;
+    if (room.energyAvailable < (minCarry + 1) * CARRY_MOVE_PAIR_COST) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
   }
@@ -1508,8 +1507,7 @@ export class CarryCorp extends Corp {
     const carryNeeded = this.haulCarryNeeded();
     if (carryNeeded <= 0) return [];
 
-    const PART_PAIR_COST = 100; // 1 CARRY + 1 MOVE
-    const maxCarryPerHauler = Math.max(1, Math.min(Math.floor(ctx.energyCapacity / PART_PAIR_COST), 25));
+    const maxCarryPerHauler = maxCarryPairs(ctx.energyCapacity);
     const targetHaulers = Math.max(1, Math.ceil(carryNeeded / maxCarryPerHauler));
 
     // Delivery-aware staffing (staffsPost): a hauler inside its replacement
@@ -1555,7 +1553,7 @@ export class CarryCorp extends Corp {
       desiredCarry = maxCarryPerHauler;
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
-    const desiredCost = desiredCarry * PART_PAIR_COST;
+    const desiredCost = desiredCarry * CARRY_MOVE_PAIR_COST;
 
     // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
     // moves only 50 energy per round trip - useless on a real route - yet it
@@ -1569,7 +1567,7 @@ export class CarryCorp extends Corp {
     // any undersized survivors are recycled and replaced once we are maxed out
     // and the spawn would otherwise idle.
     const HAULER_MIN_CARRY = 3;
-    const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * PART_PAIR_COST;
+    const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * CARRY_MOVE_PAIR_COST;
 
     return [
       {

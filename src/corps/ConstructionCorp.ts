@@ -18,7 +18,14 @@ import { wantsCriticalRecovery, wantsMaintenanceBuilder, nextRepairTarget, nextB
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import { carryPartsFor, projectAbsorbRate, SOURCE_RATE, sustainableConsumptionRate } from "../economy/primitives";
+import {
+  BUILD_ENERGY_PER_WORK,
+  carryPartsFor,
+  projectAbsorbRate,
+  SOURCE_RATE,
+  sustainableConsumptionRate,
+  workPartsForEnergyRate
+} from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
 import {
   declinedVerdictStands,
@@ -920,8 +927,8 @@ export class ConstructionCorp extends Corp {
     if (absorb > 0 || this.poolAllocatedRate > 0) {
       buildEnergy = Math.min(buildEnergy, Math.max(absorb, this.poolAllocatedRate));
     }
-    buildEnergy = Math.max(5, buildEnergy);
-    const totalWork = Math.max(1, Math.ceil(buildEnergy / 5));
+    buildEnergy = Math.max(BUILD_ENERGY_PER_WORK, buildEnergy);
+    const totalWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
     // The biggest single builder this room's extension capacity can build.
     const maxPerBuilder = Math.max(1, buildUpgraderBody(energyCapacity, totalWork).workParts);
     const { count, partsPerMember } = splitIntoMembers(totalWork, maxPerBuilder, MAX_BUILDERS);
@@ -2498,7 +2505,7 @@ export class ConstructionCorp extends Corp {
       repairRoadEnRoute(creep);
     } else if (result === OK) {
       const workParts = creep.getActiveBodyparts(WORK);
-      this.recordProduction(workParts * 5);
+      this.recordProduction(workParts * BUILD_ENERGY_PER_WORK);
     }
   }
 
@@ -2754,7 +2761,10 @@ export class ConstructionCorp extends Corp {
   }
 
   private targetTankerCount(room: Room, site: ConstructionSite, perTanker: number, ctx: SpawnDemandContext): number {
-    const consumption = Math.max(5, this.builderPlan(ctx.energyCapacity, room).partsNeeded! * 5);
+    const consumption = Math.max(
+      BUILD_ENERGY_PER_WORK,
+      this.builderPlan(ctx.energyCapacity, room).partsNeeded! * BUILD_ENERGY_PER_WORK
+    );
     const bank = room.storage;
     const surplusBanked =
       bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;

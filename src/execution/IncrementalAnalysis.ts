@@ -24,6 +24,7 @@ import { mineralNodeValue, resolveMarketPrices } from "../economy/mineralValue";
 import { chebyshevDistance } from "../types/Position";
 import { Colony } from "../colony";
 import { get7x7BoxAroundOwnedRooms, isReservableRoom } from "../utils";
+import { isSourceKeeperRoom } from "../utils/RoomDiscovery";
 
 // =============================================================================
 // CONSTANTS
@@ -469,25 +470,6 @@ export function nodeMineralValue(node: Node, prices: Parameters<typeof mineralNo
 function toColonyNode(node: Node): SiteNode {
   const controller = node.resources.find(r => r.type === "controller");
   return { id: node.id, hubPos: node.peakPosition, controllerPos: controller?.position };
-}
-
-/**
- * Check if a room is a Source Keeper room.
- * SK rooms have coordinates where both X and Y end in 4, 5, or 6,
- * but are not center rooms (where both end in 5).
- */
-function isSourceKeeperRoom(roomName: string): boolean {
-  const match = /^[WE](\d+)[NS](\d+)$/.exec(roomName);
-  if (!match) return false;
-
-  const x = parseInt(match[1], 10) % 10;
-  const y = parseInt(match[2], 10) % 10;
-
-  // Center rooms (portals) have both coords ending in 5
-  if (x === 5 && y === 5) return false;
-
-  // SK rooms have both coords in [4, 5, 6] range
-  return x >= 4 && x <= 6 && y >= 4 && y <= 6;
 }
 
 /**

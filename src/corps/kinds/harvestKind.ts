@@ -43,10 +43,11 @@ export function minerAssignmentFromCommissioned(m: CommissionedMiner): MinerAssi
 
 /**
  * The HarvestCorp's legacy runtime nodeId (and hence its id, `mining-${nodeId}`)
- * is `${roomName}-harvest-${sourceId.slice(-4)}` - the convention createHarvestCorp
- * and FlowMaterializer share. Rebuilding it here keeps live miners' memory.corpId
- * resolving across the migration. roomName comes from the commission's source
- * position (produces.at), so no Game lookup is needed.
+ * is `${roomName}-harvest-${sourceId.slice(-4)}` - the convention the retired
+ * createHarvestCorp/FlowMaterializer factories established. Rebuilding it here
+ * keeps live miners' memory.corpId resolving across the migration. roomName
+ * comes from the commission's source position (produces.at), so no Game lookup
+ * is needed.
  */
 function legacyNodeId(roomName: string, sourceId: string): string {
   return `${roomName}-harvest-${sourceId.slice(-4)}`;
