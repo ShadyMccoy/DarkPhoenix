@@ -33,11 +33,25 @@ A first, bounded slice shipped — NOT the full mode, but the acceleration lever
   haul to the build absorb rate" half), and a small build no longer over-provisions
   (the measured 34-CARRY-for-a-2-WORK-site waste, t72596906).
 
-Still OPEN for the full mode (below): the explicit upgrader relegation to the
-controller floor as a coherent regime (today upgrading just gets the residual
-after the bigger construction draw), entry/exit hysteresis as a named posture,
-and a dedicated grid cell (`wartime-build-*`) staging the backlog+warchest and
-asserting the faster build RATE + clean exit.
+**CONTROLLER RELEGATION LANDED 2026-07-27** (owner "surplus ... normally for
+upgrading, but now for building"): while a room holds a MEANINGFUL construction
+backlog (summed site work >= one structure ~3000) AND the warchest is in surplus,
+`controllerRoutingCapacity` caps the controller at its floor
+(`STORAGE_UPGRADE_TARGET`, >= the anti-downgrade reserve) instead of mopping up -
+so the surplus flows to construction (value 70) rather than the controller. This
+is the OTHER half of the down-payment: acceleration sizes construction to eat
+faster; relegation stops the controller out-competing it for the surplus
+(measured need: post-accel the controller ran P7 9x while the build inched).
+Per-room, threshold-gated (a lone road never relegates), floor inviolable, exits
+to mop-up when the backlog drains. Coherent ladder shift (both sinks move
+together), not an isolated nudge.
+
+Still OPEN for the full mode: entry/exit HYSTERESIS as a named posture (the bare
+3000 threshold can flap as the last structure finishes - a build-out stays well
+above it so no flap mid-rebuild, but a lone finishing structure hovers); a
+dedicated grid cell (`wartime-build-*`) staging the backlog+warchest and asserting
+the faster build RATE + controller-at-floor + clean exit; and the explicit haul
+sizing to the build absorb (partially covered by the tanker right-size).
 
 ## The model
 

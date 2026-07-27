@@ -208,6 +208,18 @@ describe("economy/flowAdapter - controllerRoutingCapacity physical cap (#21)", (
     // ...but never caps BELOW the real supply when the fleet can burn it all
     expect(controllerRoutingCapacity(ctrlSink, 30, withStorage, inSurplus, 40)).to.equal(30);
   });
+
+  it("WARTIME: a construction backlog in the room RELEGATES the controller to its floor (spec 33)", () => {
+    // Owner 2026-07-27: "surplus ... normally for upgrading, but now for
+    // building." In surplus, a room with a standing build backlog caps the
+    // controller at its floor (15) so the surplus flows to construction - even
+    // though the mop-up (200) would otherwise apply. RED against the old
+    // 5-arg call, which mopped up regardless of construction.
+    const wartime = new Set(["W0N0"]);
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus, Infinity, wartime)).to.equal(15);
+    // A room NOT in the wartime set still mops up (relegation is per-room).
+    expect(controllerRoutingCapacity(ctrlSink, 200, withStorage, inSurplus, Infinity, new Set())).to.equal(200);
+  });
 });
 
 // Spec 03 storage draw-down, the SURPLUS half: once a room's bank holds the
@@ -522,13 +534,15 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     );
   });
 
-  it("a REAL build-out sizes to buffered-effective-life completion; the residual upgrades (owner 2026-07-20)", () => {
-    // The site sits 4 tiles from the spawn. A bank surplus stands, so the
-    // WARTIME horizon (1/3 life, spec 33) applies: 15k / ((1/3)*1496) ~ 30 e/t
-    // - construction bursts to spend the surplus into the structure. Still
-    // BOUNDED (< the 80 e/t available), and the controller keeps MORE than
-    // construction (the guardrail: build accelerates, it does not starve the
-    // controller). Pre-wartime this was the (2/3)-life ~15 e/t lifetime pace.
+  it("WARTIME: a real build-out RELEGATES the controller - the surplus goes to building, not upgrading (owner 2026-07-27)", () => {
+    // The site sits 4 tiles from the spawn; a bank surplus stands and the 15k
+    // backlog is >= the wartime threshold (3000). So (spec 33): construction
+    // bursts at the 1/3-life horizon (~30 e/t) AND the controller RELEGATES to
+    // its floor - the surplus goes to BUILDING, not the controller mop-up
+    // ("normally for upgrading, but now for building"). Pre-wartime the residual
+    // upgraded and the controller kept more than construction; now the mode
+    // inverts that while the backlog stands. The anti-downgrade FLOOR still
+    // holds (relegated != off), and upgrading resumes mop-up once it drains.
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     graph.addConstructionSite("bigbuild", "home", at(9), 15000);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
@@ -536,9 +550,9 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     expect(build.allocated, "wartime-completion rate (1/3 life)").to.be.closeTo(15000 / ((1 / 3) * 1496), 1e-6);
-    expect(ctrl.allocated, "the un-claimed surplus still scores at the controller (build never starves it)").to.be.greaterThan(
-      build.allocated
-    );
+    expect(build.allocated, "construction now WINS the surplus over upgrading").to.be.greaterThan(ctrl.allocated);
+    expect(ctrl.allocated, "controller relegated to ~its floor, not mopping up").to.be.at.most(20);
+    expect(ctrl.allocated, "but never below the anti-downgrade floor").to.be.at.least(2);
   });
 });
 

@@ -75,9 +75,20 @@ export function controllerRoutingCapacity(
   totalSupply: number,
   roomsWithStorage: ReadonlySet<string>,
   surplusRooms: ReadonlySet<string> = new Set(),
-  physicalUpgradeCap: number = Infinity
+  physicalUpgradeCap: number = Infinity,
+  wartimeRooms: ReadonlySet<string> = new Set()
 ): number {
-  if (roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName)) {
+  // Two cases cap the controller at the save-regime floor so the surplus does
+  // NOT mop up here:
+  //  - FILLING warchest: the surplus banks toward the reserve (unchanged).
+  //  - WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
+  //    but now for building"): a MEANINGFUL construction backlog stands in this
+  //    room, so upgrading RELEGATES to the floor and the surplus flows to
+  //    construction (value 70) instead of the controller's mop-up. Relegated
+  //    != off - the anti-downgrade floor still holds; the mode exits (mop-up
+  //    resumes) the moment the backlog drains, no isolated-sink nudge.
+  const filling = roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName);
+  if (filling || wartimeRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
   // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
@@ -573,6 +584,23 @@ export function buildColonyProblem(
     .getSinks()
     .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
 
+  // WARTIME rooms (spec 33, owner 2026-07-27): rooms holding a MEANINGFUL
+  // construction backlog - summed site work >= one structure (~3000). While
+  // one stands (and the warchest is in surplus), the controller relegates to
+  // its floor so the surplus goes to BUILDING, not upgrading (see
+  // controllerRoutingCapacity). The threshold excludes a lone road so trivial
+  // paving never relegates upgrading; a real build-out (extensions, storage)
+  // does. Exits cleanly when the backlog drains below the threshold.
+  const WARTIME_BACKLOG_THRESHOLD = 3000;
+  const constructionWorkByRoom = new Map<string, number>();
+  for (const cs of constructionSites) {
+    const r = cs.position.roomName;
+    constructionWorkByRoom.set(r, (constructionWorkByRoom.get(r) ?? 0) + (cs.progressRemaining ?? 0));
+  }
+  const wartimeRooms = new Set(
+    [...constructionWorkByRoom].filter(([, w]) => w >= WARTIME_BACKLOG_THRESHOLD).map(([r]) => r)
+  );
+
   // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
   // residual - we can just make a bigger builder... consume all the energy
   // from the source mine during that time"): a site nearer to a mined source
@@ -716,7 +744,8 @@ export function buildColonyProblem(
               totalSupply,
               roomsWithStorage,
               surplusRooms,
-              controllerUpgradeCap(sink.position.roomName)
+              controllerUpgradeCap(sink.position.roomName),
+              wartimeRooms
             ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
       reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
     });
