@@ -4612,6 +4612,39 @@ target named with data, fix not yet designed. Owner review of the ideal base
 layout (specs 02/26/31: clear highways, links-as-hub-ports, one lane tender) is
 the framing for that cycle.
 
+## AUDIT 2026-07-27 (cont.) — builder budget: tanker over-provisioning + wartime build acceleration
+
+Owner: "the builder budget seems off ... speed it up a bit ... sized for at
+least all 4 extensions ... even at the leisurely pace the fleet is mismatched."
+Root causes read from code + t72596906 (build corp cc4, body carry34/move14/
+work2 - almost all tanker, ~no builder):
+- TANKER OVER-PROVISIONING: `targetTankerCount` computed the real `carryNeeded`
+  (~6) but sized each of >=2 bodies to the 16-CARRY max => 32 CARRY for a 2-WORK
+  site. Fix: `tankerPlan` distributes `carryNeeded` across the bodies (each its
+  SHARE), hot-swap floor of 2 held. The fleet proportion is now matched at any
+  pace (the owner's point 2).
+- BUILD RATE THROTTLED by design: crew + plan sink both sized to
+  `projectAbsorbRate(one placed site)` over the 2/3-life horizon => tiny crew.
+  Fix (spec 33 down-payment): `WARTIME_COMPLETION_FRACTION 1/3` shortens the
+  horizon while a spendable surplus stands, ~2x the crew AND the sink absorb,
+  coherently (both readers off `bankSurplusRate`); bounded by available energy;
+  filling warchest keeps the lifetime pace. Recalibrated the surplus-staged pins
+  (builderSizing MAX-of-tracks 6->12, flowAdapter absorb 5->6.07 / 15->30).
+
+Deployed t72597... (post feeder-router). Post-deploy t72597786 (~200t, still in
+reset transition): LARGELY POSITIVE - H1 duty 0.57->0.83 and idleSink 0.43->0.16
+(the deposit congestion the pile came from LARGELY CLEARED - feeder-router +
+tanker right-size + replan), controller link re-fed 36.9 e/t (was 0.0 in the
+dip), storage drew 64k->~reserve (surplus SPENT into work, self-limiting), sites
+1->3 + extensions 36->37 (rebuild progressing toward all 4), NO FAIL/collapse.
+OPEN (confirming at steady state): the build corp census caught 1 tanker / 0
+builder mid-transition (extension 37 DID complete, so a builder existed) - a
+steady-state recapture confirms the builder re-fields and the crew sizes for the
+3-4 placed sites. "Sized for all 4" is gated on PLACING 4 extension sites (sites
+1->3 climbing); the crew sizes to whatever is placed (sum-of-projects) - not a
+sizing bug, a placement-queue/grid question tracked for the next cycle if 4 don't
+place.
+
 ## Incident 2026-07-26 — core-link thrash (feeder ↔ link-served hauler), owner-observed
 
 Owner named two live creeps "very clearly thrashing on the link":
