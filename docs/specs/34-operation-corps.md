@@ -64,6 +64,15 @@ ONTOLOGY §3 records the family.
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
+4. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
+   read the bot's exported memory PER TICK (workType lens, plan sums); the
+   builder-buffer-feed calibration measured ~13% of samples with
+   unparsable/partial memory, which silently drops the plan-side sums those
+   ticks and INFLATES the gross ratio. Fix = the sticky-identity idiom the
+   cell now uses (a name that ever read a workType keeps it) plus caching
+   the last parsed plan across glitch ticks. Ratios will move (honestly,
+   mostly down) — recalibrate the fid floors from fresh multi-draw runs in
+   the same commit; do not mix into an unrelated landing.
 
 ## The thesis (owner, 2026-07-27)
 
