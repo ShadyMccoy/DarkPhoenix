@@ -699,23 +699,49 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   {
     const allocOf = (f: any): number =>
       (f?.sinks ?? []).filter((s: any) => s.type === "controller").reduce((a: number, s: any) => a + (+s.allocated || 0), 0);
-    const alloc = Math.min(allocOf(base.data.flow), allocOf(flow));
+    const sinkAlloc = Math.min(allocOf(base.data.flow), allocOf(flow));
     const prog1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
     const prog2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
     const actual = dt > 0 ? (prog2 - prog1) / dt : 0;
     const stock1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stock2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stocked = stock1 > 500 && stock2 > 500;
+    // WARTIME AWARENESS (spec 33, t72599790): while the upgrader fleet is
+    // relegated (a build backlog stands and the surplus funds building, not the
+    // controller), the controller's real target is the RELEGATED floor
+    // (upgrader sizing.allocated ~= the anti-downgrade sip), NOT the controller
+    // flow sink - which still reads the save-regime STORAGE_UPGRADE_TARGET (15)
+    // because the plan-side cap is a no-op (max(15,2)=15). Measuring the
+    // draining incumbents against 15 false-FAILs (0.47x) EVERY cycle of a build
+    // campaign, masking any real P7 regression. In wartime the target is the
+    // relegated floor: actual OVER it is the expected incumbent drain (ok); a
+    // FAIL is only a controller starved BELOW its inviolable floor WITH stock
+    // standing (the link broke - a genuine downgrade risk, relegated != off).
+    const upg = corps.find((c: any) => c.kind === "upgrade" && c.sizing);
+    const wartime = upg?.sizing?.wartime === true;
+    const relegatedFloor = Math.max(1, +upg?.sizing?.allocated || 1);
+    const alloc = wartime ? relegatedFloor : sinkAlloc;
     const ratio = alloc > 0 ? actual / alloc : 1;
+    const verdict = wartime
+      ? stocked && ratio < 0.5
+        ? "FAIL"
+        : "ok"
+      : sinkAlloc > 0 && stocked && ratio < 0.5
+        ? "FAIL"
+        : sinkAlloc > 0 && ratio < 0.75
+          ? "WARN"
+          : "ok";
     rows.push({
       id: "P7",
       name: "controller delivery vs plan",
       value: +ratio.toFixed(2),
-      unit: "x lower-endpoint plan",
-      verdict: alloc > 0 && stocked && ratio < 0.5 ? "FAIL" : alloc > 0 && ratio < 0.75 ? "WARN" : "ok",
-      detail:
-        `actual ${actual.toFixed(1)} e/t vs plan ${alloc.toFixed(1)} (lower endpoint); ` +
-        `stock ${stock1}->${stock2}${stocked ? " (stock stood - the energy was there)" : ""}`
+      unit: wartime ? "x RELEGATED floor (wartime)" : "x lower-endpoint plan",
+      verdict,
+      detail: wartime
+        ? `wartime: relegated floor ${alloc.toFixed(1)}, delivering ${actual.toFixed(1)} e/t ` +
+          `(incumbents draining to the sip); stock ${stock1}->${stock2} - surplus funds building, not the controller`
+        : `actual ${actual.toFixed(1)} e/t vs plan ${sinkAlloc.toFixed(1)} (lower endpoint); ` +
+          `stock ${stock1}->${stock2}${stocked ? " (stock stood - the energy was there)" : ""}`
     });
   }
 

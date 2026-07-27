@@ -4758,3 +4758,28 @@ alone redirected the surplus.** Redirect still ramping (12-WORK incumbent ages
 out over ~1500t, targetCount 1 stops replacement). Verdict: **FALSIFIED (plan
 half) + FIXED, VERIFIED LIVE (physical half)**; second check pending to confirm
 P8 climbs to absorb as the upgrader drains.
+
+### AUDIT 2026-07-27 (t72599499→t72599790) — 2nd check: relegation ramping healthy; P7 ledger made WARTIME-AWARE (false-FAIL killed)
+
+Second check on the fleet relegation: still `wartime:true`/`allocated 2`/
+`targetCount 1`, ramping cleanly — P7 controller 9.8→7.0 e/t (incumbents
+draining), E4 slope +16.92→-0.78 (storage stopped banking - surplus now
+consumed), P8 sites 6→5 (a build COMPLETED), income P9 85.6→93.5 e/t (UP), LINK
+hub 17.9 ctrl 7.0 (no jam), X5 0. Healthy. BUT the ledger flagged P7 **FAIL
+(0.47x)** - a MEASUREMENT leak, not an energy leak: it compared the draining
+controller against the peacetime flow sink (15). A sharper finding than the
+earlier falsification: the controller sink reads 15 = the save-regime
+`STORAGE_UPGRADE_TARGET`, so the plan-side relegation to `max(15,2)=15` is a
+no-op at the PLAN-NUMBER level too (not just physically). Left unfixed, P7 would
+cry FAIL every cycle of the whole remodel campaign (spec 31), masking any real
+regression. FIX (analysis-only, unit+build): P7 reads the upgrader's
+`sizing.wartime`/`allocated` and measures against the RELEGATED floor in
+wartime; a FAIL is now only a controller starved BELOW its inviolable floor with
+stock standing (real downgrade risk). Red-first: 2 new wasteLedger tests (the
+real t72599790/t72599499 pair + a synthetic starvation FAIL); the 2 peacetime P7
+pins stay green (pre-wartime fixtures have no `wartime` stamp). Post-fix ledger
+P7 `3.50x RELEGATED floor (wartime) [ok]`, no FAIL lines. Verdict: **FIXED
+(measurement) + relegation ramp CONFIRMED healthy**. Still pending: the ~1
+creep-gen check that P8 climbs to the crew's ~25 e/t absorb as the upgrader
+fully drains (else the tanker haul under-sizes - the "build out-plans haulage"
+watch).
