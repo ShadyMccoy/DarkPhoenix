@@ -4637,13 +4637,24 @@ reset transition): LARGELY POSITIVE - H1 duty 0.57->0.83 and idleSink 0.43->0.16
 tanker right-size + replan), controller link re-fed 36.9 e/t (was 0.0 in the
 dip), storage drew 64k->~reserve (surplus SPENT into work, self-limiting), sites
 1->3 + extensions 36->37 (rebuild progressing toward all 4), NO FAIL/collapse.
-OPEN (confirming at steady state): the build corp census caught 1 tanker / 0
-builder mid-transition (extension 37 DID complete, so a builder existed) - a
-steady-state recapture confirms the builder re-fields and the crew sizes for the
-3-4 placed sites. "Sized for all 4" is gated on PLACING 4 extension sites (sites
-1->3 climbing); the crew sizes to whatever is placed (sum-of-projects) - not a
-sizing bug, a placement-queue/grid question tracked for the next cycle if 4 don't
-place.
+Steady state (t72597918) exposed the REAL "builder budget is off": P8 FAIL -
+sites 3->3, alloc 9 e/t, 0 built, a 2-WORK builder present but the crew IDLE;
+the earmarked energy went to the controller (P7 2.37x) and storage sat at the
+reserve (E4 -1315). Root cause read from code (ConstructionCorp.runTanker): the
+construction tanker draws from STORAGE only while a spendable SURPLUS stands;
+below that it refuels from its committed SOURCE - but a LINK-SERVED source feeds
+its link (no container, no pile), so the tanker waited at the dry source forever
+and the builder starved. The controller's surplus mop-up drains storage to the
+reserve on its own, so this stalls ANY link-fed build the moment the warchest
+isn't in surplus - a pre-existing bug the wartime acceleration merely EXPOSED
+(by allocating 9 to a crew that can't be fueled). FIX: a STORAGE FALLBACK - when
+the committed source is dry AND the bank holds energy, the tanker draws the
+plan-allocated build fuel from the bank (where the mined income lands via the
+links/feeder). Bounded by the crew's allocation + the finite remaining site
+work, so it finishes the rebuild and stands down. Red-first (tankerFuel.test:
+old code stalls at the dry source), unit 1554 green. NOTE "sized for all 4" is
+gated on PLACING 4 sites (sites 1->3 climbing) + this fuel fix actually building
+them; the crew sizes to whatever is placed (sum-of-projects).
 
 ## Incident 2026-07-26 — core-link thrash (feeder ↔ link-served hauler), owner-observed
 

@@ -1079,6 +1079,23 @@ export class ConstructionCorp extends Corp {
       }
       return;
     }
+    // STORAGE FALLBACK for a DRY committed source (owner 2026-07-27, the link-fed
+    // build-stall): a LINK-SERVED source feeds its link, never a container/pile,
+    // so once the warchest drops OUT of surplus (the surplus fast-path above no
+    // longer fires) the tanker finds no ground fuel and would wait here forever -
+    // the builder starves and the crew idles (measured t72597918: 3 extension
+    // sites, a 2-WORK builder, 0 built, storage ~55k sitting at the reserve). Draw
+    // the plan-allocated build fuel from the BANK instead: the mined income lands
+    // there (via the links/feeder), so the tanker moves the construction share
+    // through storage to the builder. Bounded by the crew's allocation (sized to
+    // the mined-income share below surplus) and by the finite remaining site work,
+    // so it finishes the rebuild and stands down - it does not bleed the reserve.
+    if (bank?.my && (bank.store[RESOURCE_ENERGY] ?? 0) > 0) {
+      if (creep.withdraw(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(bank, { visualizePathStyle: { stroke: "#00ff00" } });
+      }
+      return;
+    }
     // Nothing to grab yet: wait at the source so we are ready when it drops.
     if (creep.pos.getRangeTo(source) > 1) {
       creep.moveTo(source, { range: 1, visualizePathStyle: { stroke: "#00ff00" } });
