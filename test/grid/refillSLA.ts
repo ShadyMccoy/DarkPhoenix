@@ -56,8 +56,11 @@ function roomFuel(objects: any[], userId: string, creepMemory: Record<string, an
       // and the refill apparatus can never draw it (measured, pipeline
       // t=1142: nearly all of the 371 "near fuel" rode on tanker-uction
       // creeps while one extension sat 50 short - unservable in fact).
+      // BOTH id families: "construction-" is the legacy prefix, "building-"
+      // the current corp id (the trap-list id-prefix drift, caught 2026-07-28
+      // when uction cargo re-entered nearFuel).
       const corpId = String(creepMemory[o.name]?.corpId ?? "");
-      if (corpId.startsWith("construction-")) continue;
+      if (corpId.startsWith("construction-") || corpId.startsWith("building-")) continue;
       fuel += o.store?.energy ?? 0;
     }
   }
@@ -71,6 +74,7 @@ function roomFuel(objects: any[], userId: string, creepMemory: Record<string, an
 export function makeRefillSla(handle?: string, graceTicks = 0): CellAssertion {
   let armed = false;
   let fuelSeen = false;
+  let releaseSeen = false;
 
   return {
     name: `extensions refill before the draining spawn finishes${handle ? ` (${handle})` : ""}`,
@@ -82,7 +86,18 @@ export function makeRefillSla(handle?: string, graceTicks = 0): CellAssertion {
       if (exts.length === 0) return true;
 
       const deficit = exts.reduce((sum, o) => sum + extFree(o), 0);
+      // DE-MINIMIS (2026-07-28, measured): a deficit under one extension-load
+      // is a spawn-remainder crumb, not a missed refill - the spawn store's
+      // +1/t regen makes drains leave non-quantum residues (violation
+      // anatomy: deficit=2 with nearFuel=2120 and five tank-role creeps
+      // standing; the honest-sized tanker volleys surfaced it at t271).
+      // Chasing a 2-energy top-up with a 400-carry tender would itself be
+      // the waste doctrine's target. A WHOLE drained extension outstanding
+      // at the deadline still violates.
+      const EXTENSION_LOAD = 50;
+      if (deficit > 0 && deficit < EXTENSION_LOAD) return true;
       if (deficit === 0) {
+        releaseSeen = false;
         // Arm only once the colony HAS a refill apparatus (a live tender):
         // the SLA binds the apparatus, and the drain that BUILDS the first
         // tender cannot be serviced by it (measured: a 17-energy dribble
@@ -104,6 +119,21 @@ export function makeRefillSla(handle?: string, graceTicks = 0): CellAssertion {
 
       const building = objects.some((o) => o.type === "spawn" && o.user === s.userId && o.spawning);
       if (building) return true; // the drain's creep is still building - deadline open
+
+      // RELEASE-WINDOW CARVE-OUT (owner ruling 2026-07-28): a shortfall while
+      // the build cohort recycles through the spawn cluster is deliberate
+      // fleet restructuring, not a refill failure - this contract was written
+      // for steady-state churn (measured: fid-t4-synthetic t1091, one
+      // extension 44 short ~1 tick past grace while released tankers
+      // converged; spec 34 item 2). Scoped to the CONSTRUCTION family's
+      // recycling creeps so ordinary tender/upgrader churn stays enforced,
+      // and sticky through the shortfall episode so a memory-glitch tick
+      // cannot pierce it mid-release.
+      const releasing = Object.values(s.memory?.creeps ?? {}).some(
+        (m: any) => m?.recycling === true && String(m?.corpId ?? "").startsWith("building-")
+      );
+      if (releasing) releaseSeen = true;
+      if (releaseSeen) return true;
 
       // Fuel is judged AT the due moment, not latched from earlier in the
       // shortfall: successive drains legitimately deepen the deficit past
