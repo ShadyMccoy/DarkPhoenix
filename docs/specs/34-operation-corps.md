@@ -127,9 +127,9 @@ cleared, B hauls residual, runt builds at funded pace) +
 `haul-t3-small-build-no-reserve` (project axis: same posture for a 3000
 site) pin the clearing; standdown (staged 2-WORK crew, 15000-work site)
 pins the reserved end-state. All three deterministic across draws; unit
-1593 green; storage-depot green; runt-economy + flow-handoff
-re-verification in flight at commit time (result recorded in the next
-commit).
+1593 green; trio green under the min-gauge (runt-economy proves the
+upsize at t460 with early exit — 2W → 3W — vs timing out the full 1200
+under the absorb-only cut).
 
 **OPEN, in order:**
 
