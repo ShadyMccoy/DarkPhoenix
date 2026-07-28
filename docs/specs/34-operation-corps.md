@@ -77,17 +77,27 @@ ONTOLOGY §3 records the family.
   regressions, exp-t5's known timeout, and the batch-marginal refill-SLA
   class below).
 
+**LANDED 2026-07-28 (P4 ledger consistency):** construction is charged
+THROUGH the plan's all-in price, end to end, by ECHO (the v8
+hauler-spawnParts pattern - one derivation, zero re-computation):
+`consumerSpawnLoad` in commissionPlan is the ONE formula (envelope and
+adapter share it; golden master byte-identical), the adapter stamps
+`spawnLoad`/`spawnDist` on construction sink allocations, the flow segment
+echoes them (v11), and the waste ledger's P4 table gains the
+"construction (all-in)" line - legacy captures without the echo emit no
+line (no fabricated figures). The wrapper honesty landed with it:
+`constructionKind.propose` sums its room's build-commission prices instead
+of declaring 0 (own-room only - a pooled spawnless room's price rides its
+own wrapper, exactly as its energyRate does). Passive per the spec-36
+instrument precedent: unit 1594 green + trio green.
+
 **OPEN, in order:**
 
-1. **P4 ledger consistency**: the waste ledger's plan-implied parts should
-   read the construction charge THROUGH the all-in price (it now exists in
-   the plan) so "unbudgeted" construction bodies disappear from the detail
-   line for the right reason.
-2. **Further kinds into the interface** (as encountered, not speculatively):
+1. **Further kinds into the interface** (as encountered, not speculatively):
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
-3. **Operation-end release traffic vs the refill SLA** — measured
+2. **Operation-end release traffic vs the refill SLA** — measured
    2026-07-28, OPEN. With the corp-driven recycle in,
    `fid-t4-synthetic-steady-state` passes in ISOLATION (twice) but fails in
    FULL-GRID batch worlds (twice) at the same event: the RCL2 extension
@@ -106,7 +116,7 @@ ONTOLOGY §3 records the family.
    50-short extensions past the 10t grace; the identical bundle passed it
    the run before). Treat both as ONE open item: the refill SLA's grace vs
    batch-load tender latency around spawn-volley drains.
-4. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
+3. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
    mechanism NOT yet understood; do not patch blind (trap-list rule). The
    facts: (a) `tankerCarryNeeded` sizes the fleet with `roundTripTicks`
    (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile
@@ -141,7 +151,7 @@ ONTOLOGY §3 records the family.
    A/Bs two built bundles on a fixed cold start but does not yet sample
    Memory.spawnAgenda; teach it to, and point it at the shard3-W1N6
    fixture (test/grid/fixtureRoom.ts) to reproduce the exact terrain.
-5. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
+4. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
    read the bot's exported memory PER TICK (workType lens, plan sums); the
    builder-buffer-feed calibration measured ~13% of samples with
    unparsable/partial memory, which silently drops the plan-side sums those

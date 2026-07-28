@@ -597,3 +597,29 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(x5.detail).to.not.contain("FAST RESPAWN");
   });
 });
+
+describe("P4 construction charge (spec 34 P4: read THROUGH the all-in price)", () => {
+  const fixtureCopy = (): any =>
+    JSON.parse(
+      require("fs").readFileSync(
+        require("path").join(__dirname, "..", "..", "fixtures", "telemetry", "shard1-t72411542.json"),
+        "utf8"
+      )
+    );
+
+  it("a build sink carrying the plan's spawnLoad gains the construction (all-in) line", () => {
+    const cap = fixtureCopy();
+    cap.data.flow.sinks = cap.data.flow.sinks ?? [];
+    cap.data.flow.sinks.push({ id: "site-x", type: "construction", demand: 20, allocated: 20, unmet: 0, priority: 70, spawnLoad: 0.05, spawnDist: 8 });
+    const { lines, total } = planSpawnLoad(cap);
+    const cons = lines.find(([n]) => n.includes("construction (all-in)"));
+    expect(cons, "the class is no longer invisible to P4").to.not.equal(undefined);
+    expect(cons![2]).to.be.closeTo(0.05, 1e-9); // the ECHO, never a re-derivation
+    expect(total).to.be.greaterThan(planSpawnLoad(fixtureCopy()).total + 0.049);
+  });
+
+  it("legacy captures without the echo stay exactly as before (no fabricated line)", () => {
+    const { lines } = planSpawnLoad(fixtureCopy());
+    expect(lines.some(([n]) => n.includes("construction (all-in)"))).to.equal(false);
+  });
+});

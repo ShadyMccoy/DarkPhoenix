@@ -32,7 +32,10 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     ],
     sinkAllocations: [
       { sinkId: "controller-W1N1", sinkType: "controller", allocated: 9, demand: 12, unmet: 3, priority: 60, sourceFlows: [] },
-      { sinkId: "site-W1N1", sinkType: "construction", allocated: 10, demand: 10, unmet: 0, priority: 70, sourceFlows: [] },
+      // spawnLoad/spawnDist: the plan's all-in consumer charge (spec 34 P4),
+      // stamped by the adapter from the commission price - the segment must
+      // echo it verbatim (the v8 hauler-spawnParts pattern).
+      { sinkId: "site-W1N1", sinkType: "construction", allocated: 10, demand: 10, unmet: 0, priority: 70, sourceFlows: [], spawnLoad: 0.021, spawnDist: 8 },
       { sinkId: "spawn-W1N1", sinkType: "spawn", allocated: 5, demand: 5, unmet: 0, priority: 100, sourceFlows: [] }
     ],
     totalHarvest: 10,
@@ -74,6 +77,14 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
     // build burns 5 energy/tick per WORK -> 10 allocated => 2 WORK
     const site = flow.sinks.find((s: any) => s.type === "construction");
     expect(site.workParts).to.equal(2);
+    // v11 (spec 34 P4): the plan's all-in consumer charge rides the sink
+    // entry verbatim - the ledger echoes it, never re-derives.
+    const siteEcho = flow.sinks.find((s: any) => s.type === "construction");
+    expect(siteEcho.spawnLoad).to.equal(0.021);
+    expect(siteEcho.spawnDist).to.equal(8);
+    // a sink the adapter left unstamped stays absent (never null/0)
+    const ctrlEcho = flow.sinks.find((s: any) => s.type === "controller");
+    expect(ctrlEcho.spawnLoad).to.equal(undefined);
     // non-WORK sinks (spawn/extension/tower/...) carry no workParts figure
     const spawn = flow.sinks.find((s: any) => s.type === "spawn");
     expect(spawn.workParts).to.be.undefined;
@@ -100,7 +111,7 @@ describe("Telemetry flow plan: hauler + consumer planned body (segment 6)", () =
   it("bumps the flow segment version for the plan fields and candidates", () => {
     new Telemetry().update(undefined, [], solution);
     const flow = JSON.parse(RawMemory.segments[6]);
-    expect(flow.version).to.equal(10); // v9 partsLedger.spent/dry; v10 depositSavings (deposit-side link instrument)
+    expect(flow.version).to.equal(11); // v10 depositSavings; v11 sinks[].spawnLoad/spawnDist (the all-in consumer charge echo, spec 34 P4)
     expect(flow.candidates).to.deep.equal([]); // absent verdicts -> empty, never undefined
   });
 

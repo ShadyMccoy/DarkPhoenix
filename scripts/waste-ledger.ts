@@ -123,6 +123,20 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   lines.push(["source-route haulers", sp, sl]);
   lines.push(["transient-route haulers (unbudgeted)", tp, tl]);
 
+  // CONSTRUCTION, charged THROUGH the plan's all-in price (spec 34 P4): the
+  // segment echoes the build commission's operationSpawnLoad (WORK bodies +
+  // supply vector) as sinks[].spawnLoad - the class stops being invisible to
+  // P4, and for the right reason: an ECHO of the planner's own number, never
+  // a ledger-side re-derivation. Legacy captures without the echo emit no
+  // line (exactly the pre-v11 behavior - no fabricated figures).
+  let cp = 0,
+    cl = 0;
+  for (const k of (flow.sinks ?? []).filter((s: any) => s.type === "construction" && s.spawnLoad !== undefined)) {
+    cl += k.spawnLoad;
+    cp += k.spawnLoad * effectiveLife(k.spawnDist ?? 8);
+  }
+  if (cl > 0) lines.push(["construction (all-in)", cp, cl]);
+
   const ctrl = (flow.sinks ?? []).find((s: any) => s.type === "controller");
   if (ctrl?.workParts) {
     const parts = ctrl.workParts * upgraderPartsPerWork(corps);

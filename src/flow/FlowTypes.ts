@@ -229,6 +229,16 @@ export interface SinkAllocation {
    */
   partsLeft?: number;
 
+  /**
+   * The plan's ALL-IN spawn charge for this consumer (parts/tick) and the
+   * nearest-spawn distance it was priced at (spec 34 P4) - stamped by the
+   * adapter from the commission price (consumerSpawnLoad, the ONE
+   * derivation) so telemetry and the waste ledger echo, never re-derive.
+   * Today stamped for construction sinks only.
+   */
+  spawnLoad?: number;
+  spawnDist?: number;
+
   /** Type of sink */
   sinkType: SinkType;
 

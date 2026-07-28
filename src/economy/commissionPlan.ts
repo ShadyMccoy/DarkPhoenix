@@ -77,6 +77,30 @@ function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): 
   return best.id;
 }
 
+/**
+ * The all-in spawn charge of a WORK-driven consumer sink (spec 34 D4/P4):
+ * controller = the WORK bodies alone (its mover is the feeder, charged in
+ * infraSpawnLoad - a vector here double-counts); construction =
+ * operationSpawnLoad(WORK bodies, supply vector). THE one derivation - the
+ * commission envelope, the adapter's sink stamp, and (by echo) the telemetry
+ * segment and the P4 waste ledger all read this number; none re-derives.
+ * Returns null for non-WORK sinks (spawn/storage/tower - delivery targets).
+ */
+export function consumerSpawnLoad(
+  problem: ColonyProblem,
+  k: CommissionedSink,
+  sinkPos: Position | undefined
+): { load: number; dist: number } | null {
+  if (k.kind !== "controller" && k.kind !== "construction") return null;
+  const dist =
+    !sinkPos || problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => problem.dist(s.pos, sinkPos)));
+  const load =
+    k.kind === "controller"
+      ? controllerWorkSpawnLoad(k.allocated, dist)
+      : operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, dist), [{ rate: k.allocated, distance: dist }]);
+  return { load, dist };
+}
+
 /** Map the solver's plan onto Commission envelopes (pure, deterministic). */
 export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): Commission[] {
   const sourceById = new Map(problem.sources.map(s => [s.id, s]));
@@ -168,24 +192,14 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
   // distance, linear in the allocation) - the commission is the economics
   // record variance/telemetry read, so it must not under-report (the audit
   // found it hardcoded 0 under a stale "not yet budgeted" comment).
-  const nearestSpawnDist = (pos: Position | undefined): number =>
-    !pos || problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => problem.dist(s.pos, pos)));
   for (const k of plan.sinks) {
     if (k.allocated <= 1e-9) continue;
     const kind = k.kind === "controller" ? "upgrade" : k.kind === "construction" ? "build" : null;
     if (!kind) continue;
     const sink = sinkById.get(k.sinkId);
-    // Construction's price is ALL-IN (spec 34 D4): the builder WORK bodies
-    // PLUS the supply vector fueling them (the storage->site shuttle the corp
-    // operates - previously spawn load the ledger never budgeted, the P4
-    // "unbudgeted" class). The controller's mover is the feeder, charged
-    // separately in infraSpawnLoad - no vector here or it double-counts.
-    const spawnPartsPerTick =
-      k.kind === "controller"
-        ? controllerWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos))
-        : operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, nearestSpawnDist(sink?.pos)), [
-            { rate: k.allocated, distance: nearestSpawnDist(sink?.pos) }
-          ]);
+    // The all-in consumer charge (spec 34 D4/P4) - see consumerSpawnLoad,
+    // the ONE derivation this envelope and the adapter's sink stamp share.
+    const spawnPartsPerTick = consumerSpawnLoad(problem, k, sink?.pos)?.load ?? 0;
     out.push({
       corpId: corpIdFor(kind, k.sinkId),
       kind,

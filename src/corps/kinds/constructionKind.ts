@@ -103,8 +103,13 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
    * from the solver's "build" commissions in the draft.
    */
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
-    // Group the draft's build allocations by the sink's room.
+    // Group the draft's build allocations by the sink's room - and their
+    // ALL-IN prices (spec 34 P4): the wrapper's own envelope must carry the
+    // sum of the build commissions it subsumes, read THROUGH the draft
+    // (never re-derived). The old hardcoded 0 was the documented lie that
+    // kept construction bodies "unbudgeted" wherever the wrapper was read.
     const allocByRoom = new Map<string, SinkAllocation[]>();
+    const priceByRoom = new Map<string, number>();
     for (const c of draft) {
       if (c.kind !== "build") continue;
       const roomName = c.produces.at?.roomName;
@@ -113,6 +118,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       const list = allocByRoom.get(roomName) ?? [];
       list.push(constructionAllocation(sink));
       allocByRoom.set(roomName, list);
+      priceByRoom.set(roomName, (priceByRoom.get(roomName) ?? 0) + (c.consumes.spawnPartsPerTick ?? 0));
     }
 
     const homeSpawnByRoom = homeSpawnsByRoom(problem);
@@ -178,7 +184,13 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
         shape: "consume",
         consumes: {
           energyRate: allocations.reduce((s, a) => s + a.allocated, 0),
-          spawnPartsPerTick: 0
+          // All-in, read through the draft (spec 34 P4): this room's build
+          // commissions' summed prices. Own-room only - a pooled spawnless
+          // room's price rides ITS OWN wrapper, exactly as its energyRate
+          // does (poolAllocatedRate is assignment-side crew sizing, never a
+          // second declaration). 0 only when the corp genuinely fields
+          // nothing plan-funded (the maintenance-only standing corp).
+          spawnPartsPerTick: priceByRoom.get(roomName) ?? 0
         },
         produces: { valuePerTick: 0 },
         assignment: {
