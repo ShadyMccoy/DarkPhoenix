@@ -59,7 +59,7 @@ export const TRIP_POINTS: TripPoint[] = [
   {
     id: "first-flow-hauler",
     description: "the first flow hauler is fielded (the delivery loop closes)",
-    check: (s) => creepsWith(s, (m) => m?.workType === "haul" && String(m?.corpId ?? "").startsWith("hauling-")) >= 1,
+    check: (s) => creepsWith(s, (m) => m?.workType === "haul" && /^(mining|hauling)-/.test(String(m?.corpId ?? ""))) >= 1, // operation id family (spec 34 D5)
     replayWindow: 60,
   },
   {

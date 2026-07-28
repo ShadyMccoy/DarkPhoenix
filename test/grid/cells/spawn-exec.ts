@@ -167,7 +167,7 @@ export const spawnExecT1Cells: GridCell[] = [
       eventually("first hauler spawned with the full corp stamp", (s) => {
         const src = s.objects().find((o: any) => o.type === "source" && o.x === 15 && o.y === 25);
         if (!src) return false;
-        const expected = `hauling-${s.room()}-hauling-${String(src._id).slice(-4)}`;
+        const expected = `mining-${s.room()}-harvest-${String(src._id).slice(-4)}`; // the miner OPERATION id (spec 34 D5)
         return Object.entries(s.memory?.creeps ?? {}).some(
           ([name, mem]: [string, any]) =>
             name.startsWith("hauler-") && mem?.workType === "haul" && mem?.corpId === expected

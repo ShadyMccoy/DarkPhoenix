@@ -218,7 +218,7 @@ export function buildT2MovementCells(): GridCell[] {
       assertions: [
         eventually("hauler adopted", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("h1 reaches the enclosed input tile", (s) => {
           const c = s.creep("h1");
@@ -269,7 +269,7 @@ export function buildT2MovementCells(): GridCell[] {
       assertions: [
         eventually("hauler adopted", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("escapes the enclosed input tile", (s) => {
           const c = s.creep("h1");
@@ -613,7 +613,7 @@ export function buildStatefulMovementCells(): GridCell[] {
       assertions: [
         eventually("h1 adopted by the carry corp", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("h1 fills its store from the pile", (s) => (s.creep("h1")?.store?.energy ?? 0) >= 100),
         // Pickup range is 1: gaining cargo while >= 2 away from the pile tile

@@ -97,8 +97,9 @@ const dedicatedCommon = () => ({
 });
 
 const bCarryCorpId = (s: any): string | null => {
+  // Spec 34 D5: a mined source haulers stamp the miner OPERATION id.
   const srcB = s.objects().find((o: any) => o.type === "source" && o.x === 40 && o.y === 25);
-  return srcB ? `hauling-${s.room()}-hauling-${String(srcB._id).slice(-4)}` : null;
+  return srcB ? `mining-${s.room()}-harvest-${String(srcB._id).slice(-4)}` : null;
 };
 
 const haulersOfCorp = (s: any, corpId: string | null): number =>
@@ -614,7 +615,7 @@ export function buildHaulingT3Cells(): GridCell[] {
         always("B's corp never fields a hauler", (s) => haulersOfCorp(s, bCarryCorpId(s)) === 0),
         eventually("A's circuit keeps running", (s) => {
           const srcA = s.objects().find((o: any) => o.type === "source" && o.x === 10 && o.y === 25);
-          return !!srcA && haulersOfCorp(s, `hauling-${s.room()}-hauling-${String(srcA._id).slice(-4)}`) >= 1;
+          return !!srcA && haulersOfCorp(s, `mining-${s.room()}-harvest-${String(srcA._id).slice(-4)}`) >= 1;
         }),
         eventually("the build consumes B's output (site progresses)", (s) => {
           const site = s.objects().find((o: any) => o.type === "constructionSite" && o.x === 38 && o.y === 25);
@@ -778,7 +779,7 @@ export function buildHaulingCells(): GridCell[] {
         eventually("all three adopted by the carry corp", (s) =>
           ["h1", "h2", "h3"].every((n) => {
             const corpId = s.memory?.creeps?.[n]?.corpId;
-            return typeof corpId === "string" && corpId.startsWith("hauling-");
+            return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
           })
         ),
         eventually("fleet splits exactly {spawn: 2, controller: 1}", (s) => {
@@ -1068,7 +1069,7 @@ export function buildHaulingCells(): GridCell[] {
       assertions: [
         eventually("adopted by the carry corp", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("h1 reaches the controller buffer", (s) => {
           const c = s.creep("h1");

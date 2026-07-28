@@ -514,7 +514,7 @@ export const churnCells: GridCell[] = [
     assertions: [
       eventually("re-adopted into the live carry corp by route", (s) => {
         const corpId = s.memory?.creeps?.hx?.corpId;
-        return typeof corpId === "string" && corpId.startsWith("hauling-") && !corpId.includes("DEAD");
+        return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId) && !corpId.includes("DEAD"); // operation id family (spec 34 D5)
       }),
       always("never recycled while its route exists", (s) => !!s.creep("hx")),
       atWindow("no orphan stamp survives", (s) => s.memory?.creeps?.hx?.orphanedSince === undefined),
@@ -687,7 +687,12 @@ export function buildChurnReplacementCells(): GridCell[] {
   const miningCreeps = (s: { memory: any; objects(): any[] }): any[] => {
     const claimed = new Set(
       Object.entries(s.memory?.creeps ?? {})
-        .filter(([, mem]: [string, any]) => typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-"))
+        .filter(
+          // workType guard (spec 34 D5): the operation HAULERS share the
+          // mining- id family - only the miner squad counts here.
+          ([, mem]: [string, any]) =>
+            typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-") && mem?.workType === "harvest"
+        )
         .map(([name]) => name)
     );
     return s.objects().filter((o) => o.type === "creep" && claimed.has(o.name));
@@ -762,7 +767,9 @@ export function buildChurnReplacementCells(): GridCell[] {
         eventually("the successor exists while the incumbent still lives", (s) => {
           if (!s.creep("m0")) return false;
           const mine = Object.entries(s.memory?.creeps ?? {}).filter(
-            ([, mem]: [string, any]) => typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-")
+            // workType guard (spec 34 D5): haulers share the id family now.
+            ([, mem]: [string, any]) =>
+              typeof mem?.corpId === "string" && mem.corpId.startsWith("mining-") && mem?.workType === "harvest"
           );
           return mine.length >= 2;
         }),
