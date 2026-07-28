@@ -423,12 +423,16 @@ function buildPreRampedCell(): GridCell[] {
         stage: world.stage,
         soloWorld: world.soloWorld,
       },
-      // Measured 72/65% gross, 34/20% controller, 89/84% carry across two
-      // calibration runs. The controller RATIO is denominator-noisy (the
-      // plan's small controller budget swings 2.8<->4.9 between re-solves),
-      // so its floor carries extra headroom. Ratchet upward as the
-      // transport/decay overhead (the ~30% gross gap) shrinks.
-      thresholds: { gross: 0.55, controller: 0.15, carry: 0.6 },
+      // RE-CALIBRATED 2026-07-28 (post parked-burn + operation-end release +
+      // EconWatch integrity): 98/98% gross (19.6 vs 20.0 e/t), 22/22%
+      // controller, 64/64% carry - two draws, IDENTICAL (the plan-cache +
+      // sticky-lens fix removed the glitch noise that made the July numbers
+      // swing 72/65%). The ~30% transport/decay gross gap has shrunk to ~2%,
+      // so the floor ratchets 0.55 -> 0.85 per this cell's charter (the
+      // tight ratchet home). The controller RATIO stays denominator-noisy
+      // (the plan's small controller budget swings between re-solves), so
+      // its floor keeps extra headroom; carry floors just under measured.
+      thresholds: { gross: 0.85, controller: 0.15, carry: 0.6 },
     }),
   ];
 }

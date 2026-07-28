@@ -111,6 +111,10 @@ instrument precedent: unit 1594 green + trio green.
    operation END at all, or a pause (the release's refund vs the re-spawn
    at the next rung)? Until decided, the cell is a KNOWN marginal red on
    full-grid runs of this branch - real signal, not staging noise.
+   2026-07-28 (post-D5): the breach now reproduces in ISOLATION too (same
+   t1091, both recalibration draws) - the D5 economy shifted the release-era
+   dynamics past the margin without batch load. Worse, but now cheaply
+   debuggable: no full-grid run needed to iterate on it.
    2026-07-28 update: `plan-t5-remote-pipeline` joined the class once (fail
    @602/700 on the same rider, same signature — a loaded tender beside
    50-short extensions past the 10t grace; the identical bundle passed it
@@ -151,15 +155,15 @@ instrument precedent: unit 1594 green + trio green.
    A/Bs two built bundles on a fixed cold start but does not yet sample
    Memory.spawnAgenda; teach it to, and point it at the shard3-W1N6
    fixture (test/grid/fixtureRoom.ts) to reproduce the exact terrain.
-4. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
-   read the bot's exported memory PER TICK (workType lens, plan sums); the
-   builder-buffer-feed calibration measured ~13% of samples with
-   unparsable/partial memory, which silently drops the plan-side sums those
-   ticks and INFLATES the gross ratio. Fix = the sticky-identity idiom the
-   cell now uses (a name that ever read a workType keeps it) plus caching
-   the last parsed plan across glitch ticks. Ratios will move (honestly,
-   mostly down) — recalibrate the fid floors from fresh multi-draw runs in
-   the same commit; do not mix into an unrelated landing.
+4. ~~Fidelity measurement integrity (EconWatch)~~ **LANDED 2026-07-28**:
+   plan cached across glitch ticks + sticky haul lens (a parsed-but-empty
+   plan still counts as the real re-solve gap). Recalibration, three draws
+   each, IDENTICAL per world (the glitch noise is gone): fid-t4-preramped
+   98/98/98% gross (19.6 vs 20.0 e/t - the July 65-72% calibration's ~30%
+   transport/decay gap has shrunk to ~2% under this session's parked-burn +
+   release fixes; floor ratcheted 0.55 → 0.85 per the cell's charter),
+   controller 22%, carry 64%; fid-t5-real-maze steady at 51/50/56-57%
+   (floors untouched - organic-ramp floors stay loose by design).
 
 ## The thesis (owner, 2026-07-27)
 
