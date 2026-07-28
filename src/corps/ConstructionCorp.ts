@@ -22,7 +22,7 @@ import { stepOffRoad, travelTo } from "./movement";
 import { plan as governorPlan } from "../execution/CpuGovernor";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
-import { buildBuilderBody, buildTankerBody, buildUpgraderBody } from "../spawn/BodyBuilder";
+import { buildBuilderBody, buildTankerBody, buildUpgraderBody, TANKER_CARRY_PER_MOVE_PLAIN } from "../spawn/BodyBuilder";
 import {
   pickCriticalRepairTarget,
   wantsCriticalRecovery,
@@ -45,7 +45,7 @@ import {
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
-import { declinedVerdictStands, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
+import { declinedVerdictStands, effectiveOneWayTiles, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
@@ -86,6 +86,26 @@ export interface SerializedConstructionCorp extends SerializedCorp {
 /** The supply vector never runs fewer than two carriers (hot-swap staging);
  * also the delivery-cadence divisor the builder's buffer bridges (spec 34). */
 const TANKER_FLOOR = 2;
+
+/**
+ * CARRY parts in flight to sustain `consumption` over the REAL refuel round
+ * trip (owner 2026-07-28: "the sizing formula should be made to be correct
+ * regardless of the carry:move ratio. Also, it should be road-aware."). The
+ * gait lens is roadEconomics.effectiveOneWayTiles - empty leg full speed,
+ * loaded leg per-tile for the body's ACTUAL ratio over the route's paved
+ * fraction - so a 3C:1M fleet on plain is sized to its true 4d+2 trip, not
+ * the 1:1 body's 2d+2 the old formula assumed (spec 34 item 3's measured
+ * under-delivery). 1.5x margin for the transfer/withdraw ticks, as before.
+ * Pure; exported for the unit suite.
+ */
+export function tankerCarryNeededFor(
+  consumption: number,
+  dist: number,
+  pavedFraction: number,
+  carryPerMove: number
+): number {
+  return Math.ceil(carryPartsFor(consumption, effectiveOneWayTiles(dist, pavedFraction, carryPerMove)) * 1.5);
+}
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
@@ -787,7 +807,13 @@ export class ConstructionCorp extends Corp {
       (spawnForTravel ? this.poolTankerSite(spawnForTravel.pos.roomName) : null);
     const fuelDist = bufSite ? this.buildFuelDistance(room, bufSite) : 8;
     const supply = supplyMethod(buildEnergy, fuelDist);
-    const interval = refuelIntervalTicks(fuelDist, supply.method === "vector" ? TANKER_FLOOR : 0);
+    // The buffer bridges the vector's REAL cadence (owner 2026-07-28): the
+    // interval reads the gait+road effective distance - the same lens the
+    // fleet is sized with - while supplyMethod keeps the RAW tiles (its
+    // direct-draw verdict is geometric adjacency, not travel time).
+    const bufPavedF = bufSite ? this.buildFuelPavedFraction(room, bufSite) : 0;
+    const effFuelDist = effectiveOneWayTiles(fuelDist, bufPavedF, TANKER_CARRY_PER_MOVE_PLAIN);
+    const interval = refuelIntervalTicks(effFuelDist, supply.method === "vector" ? TANKER_FLOOR : 0);
     const bufferFor = (work: number): number =>
       Math.max(1, Math.ceil(bufferCarryParts(work * BUILD_ENERGY_PER_WORK, interval)));
     // The biggest single builder this room's extension capacity can build, in
@@ -2533,7 +2559,14 @@ export class ConstructionCorp extends Corp {
     if (supplyMethod(consumption, dist).method === "direct") {
       return { target: 0, desiredCost: 0, minCost: 0, bodyParam: 1 };
     }
-    const carryNeeded = this.tankerCarryNeeded(consumption, dist);
+    // GAIT + ROAD AWARE (owner 2026-07-28): the fleet is sized to the 3C:1M
+    // body's REAL round trip over the route's actual paving - the old
+    // 1:1-speed sizing under-delivered its own vector ~2x on unpaved routes
+    // (spec 34 item 3's starvation valleys; most of the measured symptom was
+    // the since-fixed closest-only dispatch, but the formula stays honest
+    // regardless of the ratio built).
+    const pavedF = this.buildFuelPavedFraction(room, site);
+    const carryNeeded = tankerCarryNeededFor(consumption, dist, pavedF, TANKER_CARRY_PER_MOVE_PLAIN);
     // At least TWO bodies so one is always staged for a seamless hot swap, but
     // size EACH to its SHARE of the real carryNeeded - never the max body.
     // The old code fielded max(2, ...) bodies each at perTankerMax (16 CARRY at
@@ -2543,18 +2576,11 @@ export class ConstructionCorp extends Corp {
     // Distribute the need across the bodies instead.
     const target = Math.max(2, Math.ceil(carryNeeded / perTankerMax));
     const carryPer = Math.max(1, Math.min(perTankerMax, Math.ceil(carryNeeded / target)));
-    // BODY GAIT vs PRICED GAIT - a measured, OPEN tension (spec 34): the
-    // 3C:1M shape walks its laden leg at 3 t/tile, so the real round trip
-    // runs ~2x the roundTripTicks this sizing prices (builder-buffer-feed
-    // measured the starvation valleys: starved 500 vs 30 with 1:1 bodies).
-    // A 1:1 fleet is also strictly better per spawn-part on a plain
-    // shuttle - BUT switching to it collapsed the poor-economy ramp
-    // (fid-t5-real-maze gross 51% -> 25%, spawnIdle 57% -> 95%, twice,
-    // with a cost-envelope cap tried and falsified) through a demand-shape
-    // interaction that is NOT yet diagnosed. Per the trap list (question
-    // the mechanism, never stack patches), the shape stays 3:1 until that
-    // interaction is understood - see spec 34 "vector gait" open item for
-    // the full measurements.
+    // The SHAPE stays 3:1 (useRoads=false): switching to 1:1 collapsed the
+    // poor-economy ramp through a demand-shape interaction that is NOT yet
+    // diagnosed (fid-t5-real-maze 51% -> 25%, twice, cost-cap falsified -
+    // spec 34 item 3). The ratio-choice optimization is likewise out of
+    // scope; only the SIZING is corrected to the shape actually built.
     const desired = buildTankerBody(carryPer, ctx.energyCapacity, false);
     const min = buildTankerBody(1, ctx.energyCapacity, false);
     return {
@@ -2594,26 +2620,21 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * CARRY parts in flight to sustain the crew's consumption over the refuel
-   * round-trip (1.5x margin for the transfer/withdraw ticks). The relay is
-   * sized to this TOTAL; tankerPlan distributes it across >=2 bodies instead of
-   * fielding max bodies (the 34-CARRY over-provisioning fix).
+   * Where the build site's FUEL stands: the storage in the surplus regime,
+   * the nearest source otherwise - ONE lens for the vector sizing, the tanker
+   * fetch, the builder's buffer, and the supply verdict (spec 34), so none of
+   * them can disagree.
    */
-  private tankerCarryNeeded(consumption: number, dist: number): number {
-    return Math.ceil(carryPartsFor(consumption, dist) * 1.5);
-  }
-
-  /**
-   * Distance from the build site to its FUEL: the storage in the surplus
-   * regime, the nearest source otherwise - ONE lens for the vector sizing,
-   * the tanker fetch, the builder's buffer, and the supply verdict (spec 34),
-   * so none of them can disagree.
-   */
-  private buildFuelDistance(room: Room, site: ConstructionSite): number {
+  private buildFuelPos(room: Room, site: ConstructionSite): RoomPosition | null {
     const bank = room.storage;
     const surplusBanked =
       bank?.my && spendableBankSurplus(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0;
-    const fuelPos = surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos;
+    return (surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos) ?? null;
+  }
+
+  /** Distance from the build site to its fuel (see buildFuelPos). */
+  private buildFuelDistance(room: Room, site: ConstructionSite): number {
+    const fuelPos = this.buildFuelPos(room, site);
     // A pool site can sit in ANOTHER room (same-room getRangeTo is Infinity
     // across rooms): price the cross-room shuttle at the linear room distance.
     return !fuelPos
@@ -2621,6 +2642,33 @@ export class ConstructionCorp extends Corp {
       : site.pos.roomName === fuelPos.roomName
       ? site.pos.getRangeTo(fuelPos)
       : roomLinearDistance(site.pos.roomName, fuelPos.roomName) * 50;
+  }
+
+  /**
+   * Fraction of the straight line between the site and its fuel covered by
+   * BUILT roads - the road-awareness input to the gait lens (owner
+   * 2026-07-28). Reads standing road structures, deliberately NOT roadRoutes
+   * receipts (the trap list: receipts-gated paths never execute in sims), so
+   * staged roads in a grid cell exercise it and live roads count the moment
+   * they finish. Same straight-line geometry buildFuelDistance prices, so
+   * distance and paving cannot disagree about the route. Cross-room legs
+   * read 0 - unknown terrain sizes as plain, the bigger-fleet direction.
+   */
+  private buildFuelPavedFraction(room: Room, site: ConstructionSite): number {
+    const fuelPos = this.buildFuelPos(room, site);
+    if (!fuelPos || fuelPos.roomName !== site.pos.roomName || site.pos.roomName !== room.name) return 0;
+    if (typeof room.lookForAt !== "function") return 0; // partial mocks: plain (the bigger-fleet direction)
+    const a = site.pos;
+    const b = fuelPos;
+    const steps = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+    if (steps <= 1) return 0;
+    let roads = 0;
+    for (let i = 1; i < steps; i++) {
+      const x = Math.round(a.x + ((b.x - a.x) * i) / steps);
+      const y = Math.round(a.y + ((b.y - a.y) * i) / steps);
+      if (room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === STRUCTURE_ROAD)) roads++;
+    }
+    return roads / (steps - 1);
   }
 
   // ===========================================================================

@@ -135,71 +135,60 @@ measurements.
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
-2. **Operation-end release traffic vs the refill SLA** — measured
-   2026-07-28, OPEN. With the corp-driven recycle in,
-   `fid-t4-synthetic-steady-state` passes in ISOLATION (twice) but fails in
-   FULL-GRID batch worlds (twice) at the same event: the RCL2 extension
-   ladder completes ~t1050, the cohort releases, and at t1091 one extension
-   sits 44 short for ~1 tick past the SLA's 10-tick grace while recycling
-   tankers converge on the spawn cluster. Batch CPU contention supplies the
-   final 1-2 ticks of tender latency the margin can't absorb. Open
-   questions for the owner: should a recycling CARRIER shed into a short
-   extension it passes (refund via the bank either way, but it brushes the
-   haulers-never-fan doctrine), and is a home room's between-RCL pause an
-   operation END at all, or a pause (the release's refund vs the re-spawn
-   at the next rung)? Until decided, the cell is a KNOWN marginal red on
-   full-grid runs of this branch - real signal, not staging noise.
-   2026-07-28 (post-D5): the breach now reproduces in ISOLATION too (same
-   t1091, both recalibration draws) - the D5 economy shifted the release-era
-   dynamics past the margin without batch load. Worse, but now cheaply
-   debuggable: no full-grid run needed to iterate on it.
-   2026-07-28 update: `plan-t5-remote-pipeline` joined the class once (fail
-   @602/700 on the same rider, same signature — a loaded tender beside
-   50-short extensions past the 10t grace; the identical bundle passed it
-   the run before). Treat both as ONE open item: the refill SLA's grace vs
-   batch-load tender latency around spawn-volley drains.
-3. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
-   mechanism NOT yet understood; do not patch blind (trap-list rule). The
-   facts: (a) `tankerCarryNeeded` sizes the fleet with `roundTripTicks`
-   (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile
-   (real RT ≈ 4d+2) — the fleet under-delivers its own vector, measured in
-   builder-buffer-feed as starvation valleys (starved ~500-700/window;
-   util 91-92% vs 98-100% with 1:1 bodies).
-   2026-07-28 RE-BASELINE REQUIRED: the runt-heals cell exposed that
-   tanker dispatch was closest-only and could micro-drip a self-refueling
-   builder while starving a parked sibling; with NEED-FIRST dispatch
-   landed, builder-buffer-feed reads 95-99% util (starved 110-400) across
-   two draws with 3C:1M UNCHANGED — most of the measured "gait" starvation
-   was dispatch starvation. Re-measure before designing the probe; the
-   residual 3C:1M-vs-1:1 gap may be inside draw noise. (b) A 1:1 fleet is strictly
-   better per spawn-part on a plain shuttle (rate/part ratio 0.75-0.9
-   favoring 1:1 at all d). (c) BUT switching construction tankers to 1:1
-   collapsed the poor-economy ramp: fid-t5-real-maze gross 51% → 25%,
-   spawnIdle 57% → 95%, reproduced twice, and a cost-envelope cap
-   (`floor(cap/150)` per body, holding the old 200-cost desired) did NOT
-   restore it — so the interaction is a demand-shape effect, not body
-   price. Scheduler facts that bound the mechanism (read 2026-07-28):
-   `walkDemands` NEVER waits for desiredCost — any demand with
-   `energyAvailable >= minCost` buys immediately with `energyBudget =
-   min(desiredCost, energyAvailable)` (SpawnScheduler.ts:677-707), so at
-   cap 300 a 1:1 tanker (desired 300 == capacity) makes EVERY tanker buy
-   soak the whole bank to zero and yield an afford-min-scaled runt, while
-   3C:1M (desired 200) always leaves the bank's remainder standing; runts
-   under-deliver CARRY so the ≥2-body stream persists; and a demand
-   unserved ≥300 ticks lifts to the STARVED tier ABOVE all walled income
-   demands (SpawnScheduler.ts:436) — a lifted full-bank-soak buy resets
-   the very climb the walled miner/hauler (bank>=250/300) needed. The
-   historical W2N6 incident (SpawnScheduler.ts:683 comment) already named
-   cheap blocking-tanker streams as the bank-drain class. The /150
-   falsification says desired-cost alone is not the whole story (that
-   variant still collapsed with desired 200 but target 8), so the probe
-   must count, per variant over the maze ramp t0-600: full-bank buys
-   (cost == bank at buy), starved-tier lifts, wall-crossing ticks for the
-   miner/hauler demands, and tanker bodies bought vs CARRY fielded.
-   `sim:ab` (scripts/ab-cold-start.ts) is the harness shape — it already
-   A/Bs two built bundles on a fixed cold start but does not yet sample
-   Memory.spawnAgenda; teach it to, and point it at the shard3-W1N6
-   fixture (test/grid/fixtureRoom.ts) to reproduce the exact terrain.
+2. ~~Operation-end release traffic vs the refill SLA~~ **RESOLVED
+   2026-07-28 (owner ruling: cut the contract's over-reach, don't fix the
+   bot)** — the breaches were the SLA rider punishing behavior that is
+   correct: (a) a 1-tick 44-short dip at t1091 while the released build
+   cohort recycled through the spawn cluster - deliberate fleet
+   restructuring, not a refill failure; (b) a 2-energy crumb deficit at a
+   deadline (violation anatomy: deficit=2, nearFuel=2120, five tank-role
+   creeps standing) - a spawn-remainder residue the +1/t regen erases,
+   which a 400-carry tender SHOULD ignore. The rider gained two precision
+   clauses, both measured: a RELEASE-WINDOW carve-out (exempt while a
+   construction-family creep is recycling, sticky through the shortfall
+   episode) and a DE-MINIMIS floor (deficit must reach one extension-load,
+   50, to violate - a smaller sum means every drained extension got its
+   delivery). The owner design questions the old item queued (recycling
+   carriers shedding into extensions; between-RCL pause as operation end)
+   are no longer forced by anything and stand withdrawn unless the
+   phenomena resurface. haul-t4-refill-sla-under-churn 3/3 green after
+   both clauses; the class's historical flakiness is explained by the
+   crumb anatomy. RESIDUAL: `plan-t5-remote-pipeline` went 0/3 red under
+   the honest tanker sizing (deficits 70/160/200 - MULTIPLE whole
+   extensions outstanding, a loaded tender idling 10+ tiles out) - not a
+   contract problem: the correctly-sized construction volleys expose that
+   world's tender apparatus as genuinely thin (the old green rode on an
+   under-provisioned fleet leaving more bank margin). Owner fork: accept
+   the red pending a tender-latency/capacity look, or make that the next
+   investigation. (The rider's construction-cargo fuel exclusion also
+   carried the stale "construction-" id prefix - the trap-list drift -
+   fixed to cover "building-".)
+3. ~~The vector gait (carrier body vs priced RT)~~ **RESOLVED 2026-07-28
+   (owner ruling: "the sizing formula should be made to be correct
+   regardless of the carry:move ratio. Also, it should be road-aware")** —
+   `tankerCarryNeededFor` now sizes the fleet through the SAME gait lens
+   the road economics use (`effectiveOneWayTiles`: empty leg full speed,
+   loaded leg per-tile for the body's ACTUAL ratio over the route's paved
+   fraction), with the ratio constant exported from buildTankerBody so
+   formula and body cannot drift, and paving read by sampling BUILT road
+   structures on the site-fuel line (deliberately NOT roadRoutes receipts,
+   per the trap list - staged roads in a cell exercise it). The builder's
+   buffer interval reads the same effective distance; supplyMethod keeps
+   raw tiles (its direct-draw verdict is geometric adjacency). Unit-pinned
+   (6 hand-derived cases; a 3:1 unpaved fleet sizes ~2x the old formula).
+   Battery: buffer-feed 98-99%, maze 43% (the demand-shape canary did NOT
+   collapse), preramped 101%, fid-t4-synthetic 62% x2, SLA-churn 3/3 with
+   the item-2 rider precision. History for the record: the 91-92%
+   "gait starvation" was mostly the closest-only DISPATCH bug (need-first
+   fix); the 1:1 body switch remains falsified (maze collapse via
+   demand-shape, scheduler facts recorded in git history of this item);
+   RATIO-CHOICE optimization stays explicitly OUT OF SCOPE per the same
+   ruling. Follow-ups: a staged-roads organic-fleet acceptance cell
+   (road-aware sizing's grid pin - the sampler currently rides fixture
+   worlds' roads only), and the plan-side vector PRICE
+   (consumerSpawnLoad's vectorSupplyParts) still prices 1:1-laden-both-
+   ways - aligning it to the gait lens is a golden-master regeneration,
+   deliberate not incidental.
 4. ~~Fidelity measurement integrity (EconWatch)~~ **LANDED 2026-07-28**:
    plan cached across glitch ticks + sticky haul lens (a parsed-but-empty
    plan still counts as the real re-solve gap). Recalibration, three draws
