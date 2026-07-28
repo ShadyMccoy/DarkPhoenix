@@ -141,9 +141,16 @@ export interface CorpVarianceRow {
 }
 
 /** Every corp, via the complete census - a new kind's corps join the variance
- * snapshot by registration (off-budget corps return null variance and drop out). */
+ * snapshot by registration (off-budget corps return null variance and drop
+ * out) - PLUS each corp's internal engines (spec 34 D5: a miner operation's
+ * haul engine is not in the census, but its meter must not vanish). */
 function allCorps(registry: CorpRegistry): Corp[] {
-  return completeCensus(registry).map(e => e.corp);
+  const out: Corp[] = [];
+  for (const e of completeCensus(registry)) {
+    out.push(e.corp);
+    out.push(...e.corp.innerCorps());
+  }
+  return out;
 }
 
 /**

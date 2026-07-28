@@ -520,6 +520,19 @@ export function spawnPartsFor(rate: number, distance: number): number {
 }
 
 /**
+ * The miner NODE body's own spawn load (parts/tick) - the produce half of a
+ * miner operation's all-in price (spec 34 D5), amortized over the effective
+ * life at its distance. The routed vector parts are priced per route by the
+ * planner (carryPartsFor with paved/deposit adjustments) and SUMMED onto this
+ * in the commission envelope; spawnPartsFor above remains the pre-solve
+ * NOMINAL estimate the funding gate uses. One home for the node term - the
+ * planner's ledger charges miners through this exact formula.
+ */
+export function minerSpawnLoad(distance: number): number {
+  return MINER_PARTS / effectiveLife(distance);
+}
+
+/**
  * Shadow price of spawn build-time: energy/tick gained per build-part/tick
  * spent staffing a source at `distance`. netEnergy / spawnPartsFor - the
  * exchange rate between the colony's two currencies. Evaluated AT THE MARGIN

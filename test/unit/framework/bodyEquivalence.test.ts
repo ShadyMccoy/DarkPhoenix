@@ -118,6 +118,10 @@ interface Case {
 const CASES: Case[] = [
   { kind: harvestKind as CorpKind, role: "miner" },
   { kind: harvestKind as CorpKind, role: "miner", hints: { bodyStrategy: "linkFed" } },
+  // Spec 34 D5: the miner operation fields its vector's haulers - the SAME
+  // ratio-hauler shape the standalone carry kind builds (one formula).
+  { kind: harvestKind as CorpKind, role: "hauler" },
+  { kind: harvestKind as CorpKind, role: "hauler", hints: { haulerRatio: "2:1" } },
   { kind: carryKind as CorpKind, role: "hauler" },
   { kind: carryKind as CorpKind, role: "hauler", hints: { haulerRatio: "2:1" } },
   { kind: carryKind as CorpKind, role: "hauler", hints: { haulerRatio: "1:1" } },

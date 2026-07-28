@@ -125,7 +125,10 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       if (c.kind !== "harvest") continue;
       const at = c.produces.at;
       if (!at) continue;
-      const m = c.assignment as { sourceId?: string; spawnId?: string; rate?: number };
+      // The harvest commission is a MINER OPERATION (spec 34 D5): the node's
+      // facts ride the assignment's miner half.
+      const op = c.assignment as { miner?: { sourceId?: string; spawnId?: string } };
+      const m = op.miner ?? {};
       // Two id spaces cross here: solver commissions carry flow-prefixed
       // spawn ids ("spawn-<gameId>"), the live problem carries raw game ids.
       // Normalize before the lookup - without this it ALWAYS missed and every

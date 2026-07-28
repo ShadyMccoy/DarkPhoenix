@@ -93,6 +93,18 @@ export abstract class Corp {
   public lastActivityTick = 0;
 
   /**
+   * INTERNAL ENGINES this corp operates (spec 34 D5): sub-corps that run
+   * INSIDE the operation - never registered, dispatched, or censused on
+   * their own - but whose plan-vs-actual meters must not vanish from the
+   * variance snapshot (a miner operation's haul engine budgeted 10 e/t and
+   * delivering 0 is exactly the outlier the table exists to surface).
+   * Metering-only: the variance walker reads these; nothing else may.
+   */
+  public innerCorps(): Corp[] {
+    return [];
+  }
+
+  /**
    * RETIRING: the planner has stopped commissioning this corp, but it is kept in
    * the store while it still has living creeps so they finish their work and are
    * never orphaned (see materializeCommissions' hysteresis). A retiring corp runs

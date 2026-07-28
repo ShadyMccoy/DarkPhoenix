@@ -66,13 +66,16 @@ const miner: CommissionedMiner = {
   maxMiners: 1
 };
 
+// The MINER OPERATION shape (spec 34 D5): node + routed vector in one
+// envelope. Haul-of-zero fixture: every rung-3 assertion observes the miner
+// half unchanged; the vector's own binding is pinned in minerOperation.test.
 const harvestCommission = {
   corpId: "harvest-abcd1234",
   kind: "harvest",
   shape: "produce" as const,
   consumes: { spawnPartsPerTick: miner.spawnParts },
   produces: { energyRate: 10, at: at(20) },
-  assignment: miner
+  assignment: { miner, routes: [] }
 };
 
 function resetWorld(): void {
@@ -102,9 +105,14 @@ describe("harvest kind on the corp framework (rungs 2-4)", () => {
     expect(harvest).to.have.length(1);
     expect(harvest[0].shape).to.equal("produce");
     expect(harvest[0].corpId).to.equal("harvest-srcA");
-    // economics carried through from the planner (no private formula)
-    const m = harvest[0].assignment as CommissionedMiner;
-    expect(harvest[0].consumes.spawnPartsPerTick).to.be.closeTo(m.spawnParts, 1e-9);
+    // economics carried through from the planner (no private formula): the
+    // operation's all-in price = the miner NODE load + the ROUTED vector
+    // parts (spec 34 D5) - pinned exactly in minerOperationCommission.test;
+    // here the rung asserts the routes rode along and the price is positive.
+    const op = harvest[0].assignment as { miner: CommissionedMiner; routes: { spawnParts: number }[] };
+    expect(op.miner.sourceId).to.equal("srcA");
+    expect(op.routes.length, "the mined source's vector rides the operation").to.be.greaterThan(0);
+    expect(harvest[0].consumes.spawnPartsPerTick).to.be.greaterThan(0);
     expect(harvest[0].produces.energyRate).to.be.greaterThan(0);
   });
 
@@ -141,7 +149,7 @@ describe("harvest kind on the corp framework (rungs 2-4)", () => {
     const store: CorpStore = new Map();
     materializeCommissions([harvestCommission], store);
     const first = store.get("harvest-abcd1234")!.corp;
-    const updated = { ...harvestCommission, assignment: { ...miner, rate: 8, efficiency: 80 } };
+    const updated = { ...harvestCommission, assignment: { miner: { ...miner, rate: 8, efficiency: 80 }, routes: [] } };
     materializeCommissions([updated], store);
     const second = store.get("harvest-abcd1234")!.corp as HarvestCorp;
     expect(second).to.equal(first);

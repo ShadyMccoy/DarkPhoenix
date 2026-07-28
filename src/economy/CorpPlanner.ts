@@ -39,9 +39,9 @@ import {
   controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
+  minerSpawnLoad,
   haulerOverhead,
   miningBudgetPerSpawn,
-  MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
 import { effectiveOneWayTiles } from "./roadEconomics";
@@ -844,7 +844,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   // committed miners and the standing infra (feeder/tender/reservers - see
   // ColonyProblem.infraPartsPerTick). Production is funded first in BOTH
   // currencies; routing and consumers spend what remains.
-  const minerLoad = miners.reduce((s, m) => s + MINER_PARTS / effectiveLife(m.distance), 0);
+  const minerLoad = miners.reduce((s, m) => s + minerSpawnLoad(m.distance), 0);
   const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
   const { haulers, sinks, partsRemaining } = routeToSinks(problem, supply, partsBudget);
   // SPAWN SHADOW-PRICE SIGNAL (instrument-first for the scavenge gate, 2026-07-23):
@@ -905,7 +905,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
 
   const spawnPartsUsed = new Map<string, number>();
   for (const m of plannedMiners) {
-    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + MINER_PARTS / effectiveLife(m.distance));
+    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + minerSpawnLoad(m.distance));
   }
   for (const h of haulers) {
     spawnPartsUsed.set(h.spawnId, (spawnPartsUsed.get(h.spawnId) ?? 0) + h.spawnParts);

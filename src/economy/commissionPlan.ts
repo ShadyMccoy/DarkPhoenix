@@ -12,12 +12,32 @@
  * @module economy/commissionPlan
  */
 
-import { ColonyPlan, ColonyProblem, CommissionedHauler, CommissionedSink, planColony } from "./CorpPlanner";
+import {
+  ColonyPlan,
+  ColonyProblem,
+  CommissionedHauler,
+  CommissionedMiner,
+  CommissionedSink,
+  planColony
+} from "./CorpPlanner";
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
 import { isBankSourceId } from "./ids";
-import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, operationSpawnLoad } from "./primitives";
+import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, minerSpawnLoad, operationSpawnLoad } from "./primitives";
 import { Position } from "../types/Position";
+
+/**
+ * The MINER OPERATION's binding (spec 34 D5): the harvest node and its routed
+ * evacuation vector as ONE commission. The routes are the planner's own
+ * CommissionedHauler records (per-route distances, paved discounts, deposit
+ * legs) - the harvest kind operates them as an internal squad. Empty routes =
+ * the haul-of-zero degenerate case (link-served: the vector IS the link
+ * network; the miner feeds its source link in place).
+ */
+export interface MinerOperationAssignment {
+  miner: CommissionedMiner;
+  routes: CommissionedHauler[];
+}
 
 /**
  * The binding a consume commission (upgrade/build) carries: the planner's sink
@@ -63,27 +83,44 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
   const sinkById = new Map(problem.sinks.map(s => [s.id, s]));
   const out: Commission[] = [];
 
-  // PRODUCE - one harvest commission per commissioned miner.
-  for (const m of plan.miners) {
-    const src = sourceById.get(m.sourceId);
-    out.push({
-      corpId: corpIdFor("harvest", m.sourceId),
-      kind: "harvest",
-      shape: "produce",
-      consumes: { spawnPartsPerTick: m.spawnParts },
-      produces: { energyRate: m.rate, at: src?.pos },
-      assignment: m
-    });
-  }
-
-  // TRANSPORT - one carry commission per SOURCE (a CarryCorp owns all of its
-  // source's routes), aggregating that source's haulers.
   const routesBySource = new Map<string, CommissionedHauler[]>();
   for (const h of plan.haulers) {
     const list = routesBySource.get(h.sourceId) ?? [];
     list.push(h);
     routesBySource.set(h.sourceId, list);
   }
+
+  // PRODUCE - one MINER OPERATION per commissioned miner (spec 34 D5): the
+  // harvest node and its routed evacuation vector in ONE envelope with ONE
+  // all-in price. The node term is the canonical minerSpawnLoad; the vector
+  // term is the SUM of the planner's own routed spawnParts (paved discounts
+  // and deposit legs included) - never the pre-solve nominal estimate
+  // (m.spawnParts stays on the assignment for the funding-gate record, but
+  // it priced hauler pairs at full rate/nearest spawn and the routed truth
+  // used to live in a second envelope: two declarations, neither honest).
+  // A LINK-SERVED source (haulPos set) is the haul-of-zero degenerate case:
+  // routes drop entirely - the link network is its vector (the old carry
+  // suppression, now expressed as an empty vector set instead of a missing
+  // commission; the storage->core->storage thrash rationale is unchanged).
+  for (const m of plan.miners) {
+    const src = sourceById.get(m.sourceId);
+    const routes = src?.haulPos ? [] : routesBySource.get(m.sourceId) ?? [];
+    routesBySource.delete(m.sourceId);
+    out.push({
+      corpId: corpIdFor("harvest", m.sourceId),
+      kind: "harvest",
+      shape: "produce",
+      consumes: {
+        spawnPartsPerTick: minerSpawnLoad(m.distance) + routes.reduce((s, r) => s + r.spawnParts, 0)
+      },
+      produces: { energyRate: m.rate, at: src?.pos },
+      assignment: { miner: m, routes } as MinerOperationAssignment
+    });
+  }
+
+  // TRANSPORT - the MINERLESS leftovers (scavenge stocks: the energy is
+  // already on the ground, a pure-vector operation with no node half to
+  // merge into) keep the carry path, one commission per source.
   for (const [sourceId, routes] of routesBySource) {
     // Bank sources (spec 03 withdrawal) get NO transport commission: the depot
     // movers already run those legs - the extension tender (bank -> spawn) and

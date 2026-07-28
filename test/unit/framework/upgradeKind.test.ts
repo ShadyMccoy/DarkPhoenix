@@ -174,7 +174,7 @@ describe("upgrade kind on the corp framework (rungs 2-4)", () => {
           shape: "produce",
           consumes: { spawnPartsPerTick: 0.3 },
           produces: { energyRate: 10, at: at(20) },
-          assignment: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }
+          assignment: { miner: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }, routes: [] }
         },
         {
           corpId: "carry-source-abcd1234",
