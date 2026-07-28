@@ -1542,15 +1542,14 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 - **Known bug targeted**: double-staffing / miner pile-up on one source when multiple spawns contend
 - **Code refs**: `src/economy/CorpPlanner.ts:173-182`, `src/economy/CorpPlanner.ts:189-243`, `src/flow/FlowTypes.ts:377`, `src/execution/IncrementalAnalysis.ts:466-511`
 
-### `plan-t4-link-haul-pricing` (T4) — Link-served source hauled (and priced) from the core link
+### `plan-t4-link-haul-pricing` (T4) — Link-served source's transport IS the link (haul-of-zero)
 
-- **Purpose**: detectLinkHaulPositions (flowAdapter.ts:92-106) must set haulPos to the core link for a source with its own link, so routeToSinks prices its hauling from the core (CorpPlanner.ts:312) — tiny carry — while an unlinked twin at the same walk distance gets full-distance carry.
-- **World**: W16N0, bordered plain room. Spawn (25,25), storage (23,25), core link (22,24) [within 2 of storage], controller (25,10). Linked source (44,44) with source link (43,43) [within 2]; unlinked source (6,44). Both sources ~d 19-26 from spawn.
-- **Staged state**: controller {level:5}; structures: storage (energy 0), link (22,24), link (43,43) (links need store schema support — see open questions), 10 extensions energy 50.
-- **Expected**: Both sources mined. Haul entries from the linked source are priced from (22,24): carry <= 3 for core-adjacent sinks (e.g. 8 e/t over d=3 -> ceil(1.28)=2); haul entries from the unlinked source carry full distance (e.g. 8 e/t over d≈26 -> ceil(8.6)=9). Consequence: the core link's store receives energy once the miner feeds the source link and runLinks fires.
-- **Assertion**: By tick 100 economyPlan: 2 'mine' entries; every 'haul' entry with fromId === `source-${linkedId}` and toId in {spawn-,storage-} has carry <= 3, while >=1 'haul' entry with fromId === `source-${unlinkedId}` has carry >= 8; total carry summed from linked < total from unlinked. By tick 300 the core link db object has store.energy > 0.
-- **Verdict window**: 300 ticks
-- **Code refs**: `src/economy/flowAdapter.ts:92-106`, `src/economy/CorpPlanner.ts:60-66`, `src/economy/CorpPlanner.ts:309-314`, `src/corps/nodeEnergy.ts:52-72`
+- **Purpose (RE-PINNED 2026-07-28, owner agreed)**: detectLinkHaulPositions sets haulPos to the core link for a source with its own link; spec 02's feeder-router ruling (owner 2026-07-26) then makes the link network the transport - commissionsFromPlan drops the walking carry corp and publishRoster deliberately skips link-served haul routes (phantom-variance prevention). The pinned contract is the SUPPRESSION plus the physical pump. (The original assertion demanded short-priced core-side walking haul corps - the pre-suppression contract - and timed out forever once the design landed: the second #143 sibling to turn out a test artifact, not a bot bug. The first was groundpile's staging gap.)
+- **World**: Bordered plain room, restaged 2026-07-26 at RCL6 with a prebuilt controller link (spec 24's LINK SWAP destroyed the staged source link at RCL5's 2-slot limit). Spawn (25,25), storage (21,25), core link (22,24), controller link (27,11), source link (43,43) beside the linked source (44,44); unlinked source (6,44); staged miner on the linked source.
+- **Expected**: Both sources planned as mines; the goal-plan echo carries NO 'haul' entry from the linked source and a real full-distance one (carry >= 6) from the unlinked source; the miner feeds the source link and runLinks lands energy in the core link.
+- **Assertion**: EVENTUALLY economyPlan has 2 'mine' entries, zero 'haul' entries with the linked source's fromId, and >=1 unlinked 'haul' with carry >= 6; EVENTUALLY the core link db object holds energy > 0.
+- **Verdict window**: 220 ticks
+- **Code refs**: `src/economy/flowAdapter.ts (detectLinkHaulPositions, publishRoster link-served skip)`, `src/economy/commissionPlan.ts (link-served haul-of-zero)`
 
 ### `plan-t5-remote-mined` (T5) — Profitable adjacent-room source gets opened and stays open
 

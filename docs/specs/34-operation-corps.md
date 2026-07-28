@@ -158,11 +158,12 @@ measurements.
    extensions outstanding, a loaded tender idling 10+ tiles out) - not a
    contract problem: the correctly-sized construction volleys expose that
    world's tender apparatus as genuinely thin (the old green rode on an
-   under-provisioned fleet leaving more bank margin). Owner fork: accept
-   the red pending a tender-latency/capacity look, or make that the next
-   investigation. (The rider's construction-cargo fuel exclusion also
-   carried the stale "construction-" id prefix - the trap-list drift -
-   fixed to cover "building-".)
+   under-provisioned fleet leaving more bank margin). Owner 2026-07-28:
+   ACCEPTED as a tracked red pending a tender-latency/capacity look -
+   "let's get it closed out and move forwards". (The rider's
+   construction-cargo fuel exclusion also carried the stale
+   "construction-" id prefix - the trap-list drift - fixed to cover
+   "building-".)
 3. ~~The vector gait (carrier body vs priced RT)~~ **RESOLVED 2026-07-28
    (owner ruling: "the sizing formula should be made to be correct
    regardless of the carry:move ratio. Also, it should be road-aware")** —
@@ -181,9 +182,14 @@ measurements.
    the item-2 rider precision. History for the record: the 91-92%
    "gait starvation" was mostly the closest-only DISPATCH bug (need-first
    fix); the 1:1 body switch remains falsified (maze collapse via
-   demand-shape, scheduler facts recorded in git history of this item);
-   RATIO-CHOICE optimization stays explicitly OUT OF SCOPE per the same
-   ruling. Follow-ups: a staged-roads organic-fleet acceptance cell
+   demand-shape, scheduler facts recorded in git history of this item) -
+   BUT owner 2026-07-28: "The maze experiment had issues due to the
+   energy constraints. Might be poorly designed" - treat the maze's
+   falsifications as PROVISIONAL (an energy-constrained world can
+   manufacture demand-shape cliffs that say more about the cell than the
+   bot); a maze-world redesign is a candidate if the 1:1 question
+   reopens. RATIO-CHOICE optimization stays explicitly OUT OF SCOPE per
+   the same ruling. Follow-ups: a staged-roads organic-fleet acceptance cell
    (road-aware sizing's grid pin - the sampler currently rides fixture
    worlds' roads only), and the plan-side vector PRICE
    (consumerSpawnLoad's vectorSupplyParts) still prices 1:1-laden-both-

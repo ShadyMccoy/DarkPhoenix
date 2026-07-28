@@ -190,5 +190,6 @@ deliberately re-baselined in the same commit.
 - The upstream #143 regressions (`haul-t3-dedicated-resume-groundpile`,
   `plan-t4-link-haul-pricing`) belong on master — spec 35's status has
   the bisection evidence; item 3's instrument helps diagnose but does
-  not fix. (Groundpile RESOLVED 2026-07-28 — staging gap; see item 3's
-  note.)
+  not fix. (BOTH RESOLVED 2026-07-28 as test artifacts: groundpile was a
+  staging gap; link-haul-pricing pinned the pre-suppression contract and
+  was re-pinned to spec 02's haul-of-zero design, owner agreed.)
