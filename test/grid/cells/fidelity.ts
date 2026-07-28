@@ -52,6 +52,17 @@ class EconWatch {
   private measuredTicks = 0;
   private emptyPlanStreak = 0;
 
+  // MEASUREMENT INTEGRITY (spec 34, measured 2026-07-27): the bot's exported
+  // memory fails to parse on a real fraction of samples (~13% in the
+  // builder-buffer-feed calibration - CellSample returns {} those ticks).
+  // Reading the plan/workType lenses straight off it silently dropped the
+  // plan-side sums and the fielded-carry lens on glitch ticks while the
+  // object-side numerators kept counting - inflating gross fidelity. The
+  // plan is cached across glitches (it only changes at re-solves) and the
+  // haul lens is STICKY (a name that ever read workType "haul" stays one).
+  private lastPlanCorps: any[] | null = null;
+  private readonly haulNames = new Set<string>();
+
   // Overhead decomposition (owner 2026-07-10): name the buckets inside the
   // plan-vs-actual gap so each is ratchetable - under-mining vs decay vs
   // accumulation vs transit vs spawn idle time.
@@ -163,17 +174,28 @@ class EconWatch {
     // Idle while a minimal body (150) is affordable = wasted build-time.
     if (spawnIdle && spawnBank >= 150) this.spawnIdleTicks += 1;
 
-    const corps: any[] = s.memory?.economyPlan?.corps ?? [];
-    this.emptyPlanStreak = corps.length === 0 ? this.emptyPlanStreak + 1 : 0;
+    // A glitch tick (memory unparsable -> {}) is NOT a plan gap and must
+    // not zero the plan-side sums: carry the cached plan through it. A
+    // PARSED memory with an empty plan is the real re-solve gap and counts.
+    const memoryParsed = !!s.memory && Object.keys(s.memory).length > 0;
+    if (memoryParsed) this.lastPlanCorps = s.memory?.economyPlan?.corps ?? [];
+    const corps: any[] = this.lastPlanCorps ?? [];
+    if (memoryParsed) {
+      this.emptyPlanStreak = corps.length === 0 ? this.emptyPlanStreak + 1 : 0;
+    }
     this.planMineSum += corps.filter((c) => c.kind === "mine").reduce((t, c) => t + (c.work ?? 0) * 2, 0);
     this.planUpgradeSum += corps.filter((c) => c.kind === "upgrade").reduce((t, c) => t + (c.work ?? 0), 0);
     this.planCarrySum += corps.filter((c) => c.kind === "haul").reduce((t, c) => t + (c.carry ?? 0), 0);
 
+    // Sticky haul lens: enroll names on parsed ticks; count bodies from the
+    // OBJECT side every tick (dead names simply stop matching objects).
+    for (const name in s.memory?.creeps ?? {}) {
+      if (s.memory.creeps[name]?.workType === "haul") this.haulNames.add(name);
+    }
     const creepsByName = new Map<string, any>();
     for (const o of objs) if (o.type === "creep") creepsByName.set(o.name, o);
     let fielded = 0;
-    for (const name in s.memory?.creeps ?? {}) {
-      if (s.memory.creeps[name]?.workType !== "haul") continue;
+    for (const name of this.haulNames) {
       const doc = creepsByName.get(name);
       if (doc) fielded += (doc.body ?? []).filter((p: any) => p.type === "carry").length;
     }
