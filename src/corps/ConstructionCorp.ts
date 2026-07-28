@@ -37,6 +37,7 @@ import {
   BUILD_ENERGY_PER_WORK,
   bufferCarryParts,
   carryPartsFor,
+  dedicationJustified,
   projectAbsorbRate,
   refuelIntervalTicks,
   SOURCE_RATE,
@@ -835,12 +836,21 @@ export class ConstructionCorp extends Corp {
       // TTL death - trunk frozen at 51/53 for 3,300+ ticks, ledger P8 FAIL).
       const crew = this.builders.members().filter(b => !b.memory.repairDetail);
       const eligible = crew.filter(b => b.store.getFreeCapacity(RESOURCE_ENERGY) > 0);
+      // NEED-FIRST dispatch (haul-t3-dedicated-runt-heals, 2026-07-28):
+      // builders below half buffer are served before anyone is topped off.
+      // Closest-only let a container-adjacent builder - self-refueling, so
+      // ~5 free capacity every tick - shadow a parked sibling standing at
+      // ZERO for its whole life (parked builders don't walk to fuel; the
+      // vector is their lifeline, and a starving member is the vector's
+      // first duty).
+      const hungry = eligible.filter(b => b.store[RESOURCE_ENERGY] < (b.store.getCapacity(RESOURCE_ENERGY) ?? 0) / 2);
+      const pickFrom = hungry.length > 0 ? hungry : eligible;
       // findClosestByRange is SAME-ROOM-ONLY - the t72504146 blindness: a
       // pool builder in another room was invisible to the pick. Nearest
       // local crew wins as before; with NO local crew the tanker marches at
       // the cross-room builder (transfer returns ERR_NOT_IN_RANGE until it
       // arrives - moveTo paths between rooms).
-      const target = creep.pos.findClosestByRange(eligible) ?? eligible[0];
+      const target = creep.pos.findClosestByRange(pickFrom) ?? pickFrom[0];
       if (target) {
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#ffaa00" } });
@@ -937,6 +947,16 @@ export class ConstructionCorp extends Corp {
    * so the builder gets the source's full output instead of fighting the haulers
    * for it. Only when there is a spare source - the others still feed
    * spawn/controller; a one-source room can't give its only source away.
+   *
+   * THE RESERVATION IS EARNED BY THE PROJECT (owner 2026-07-28, with the
+   * resume-valve retirement): the crew is sized by sum-of-projects
+   * (builderPlan's absorb cap), so a small project fields a small crew - and
+   * reserving a 10 e/t source to feed the 5 e/t crew one extension justifies
+   * stranded the other half at the source, which the retired drain valve then
+   * existed to bleed home. Dedicate only when the crew the pool justifies
+   * consumes ~the source's output (dedicationJustified); small builds run
+   * un-reserved - haulers keep their routes, tankers draw as ordinary
+   * consumers, and the builder's onboard buffer bridges the contention.
    */
   private updateDedicatedSource(room: Room, building: boolean): void {
     const sources = room.find(FIND_SOURCES);
@@ -946,7 +966,15 @@ export class ConstructionCorp extends Corp {
     }
     const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
     const nearest = site ? site.pos.findClosestByRange(sources) : null;
-    room.memory.dedicatedBuildSourceId = nearest?.id;
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    const crewRate = spawn
+      ? Math.max(buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos), this.poolAllocatedRate)
+      : 0;
+    if (!nearest || !dedicationJustified(crewRate, nearest.energyCapacity / ENERGY_REGEN_TIME)) {
+      delete room.memory.dedicatedBuildSourceId;
+      return;
+    }
+    room.memory.dedicatedBuildSourceId = nearest.id;
   }
 
   private tankerSource(creep: Creep, room: Room): Source | null {

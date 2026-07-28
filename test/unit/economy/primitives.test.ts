@@ -25,6 +25,8 @@ import {
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   SPAWN_TIME_PER_PART,
+  DEDICATION_MIN_CONSUMPTION,
+  dedicationJustified,
   infraSpawnLoad
 } from "../../../src/economy/primitives";
 
@@ -194,6 +196,23 @@ describe("economy/primitives", () => {
     it("falls with distance: the marginal source sets a falling shadow price", () => {
       expect(energyPerSpawnPart(10, 75)).to.be.lessThan(energyPerSpawnPart(10, 20));
       expect(energyPerSpawnPart(10, 120)).to.be.lessThan(energyPerSpawnPart(10, 75));
+    });
+  });
+
+  describe("dedicationJustified (the reservation is earned by the project)", () => {
+    it("a small project's crew (absorb floor, 5 e/t) does not deserve a 10 e/t source", () => {
+      expect(dedicationJustified(5, 10)).to.equal(false);
+    });
+    it("a crew consuming ~the source's output does (>= 80%)", () => {
+      expect(dedicationJustified(8, 10)).to.equal(true);
+      expect(dedicationJustified(15, 10)).to.equal(true);
+    });
+    it("boundary sits at DEDICATION_MIN_CONSUMPTION of the source rate", () => {
+      expect(dedicationJustified(DEDICATION_MIN_CONSUMPTION * 10, 10)).to.equal(true);
+      expect(dedicationJustified(DEDICATION_MIN_CONSUMPTION * 10 - 1e-9, 10)).to.equal(false);
+    });
+    it("never dedicates against a zero-rate source", () => {
+      expect(dedicationJustified(10, 0)).to.equal(false);
     });
   });
 });

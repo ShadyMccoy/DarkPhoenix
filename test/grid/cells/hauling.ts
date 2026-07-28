@@ -27,17 +27,24 @@ const flowHaulerExists = (s: { memory: any }) =>
 // ---------------------------------------------------------------------------
 // T3 dedicated-source geometry: two sources - A (10,25) fully staffed keeps
 // the economy sane; B (40,25) is the dedicated build source (its id injected
-// into Memory.rooms.$room().dedicatedBuildSourceId), with a staged extension
-// site at (38,25) plus a staged builder+tanker on the construction corp's
+// into Memory.rooms.$room().dedicatedBuildSourceId), with a staged site at
+// (38,25) plus a staged builder+tanker on the construction corp's
 // deterministic id so building actually consumes B's output. B's carry corp
 // commissions organically with zero creeps; whether it fields a hauler is
-// exactly what the three cells discriminate.
+// exactly what the cells discriminate.
+//
+// THE RESERVATION IS EARNED (owner 2026-07-28): updateDedicatedSource keeps
+// the reservation only when the pool's absorb rate consumes ~the source's
+// output (dedicationJustified). siteWork sets that verdict: the default
+// 15000 justifies (absorb ~15 e/t vs the 10 e/t source), 3000 does not
+// (absorb floors at 5 e/t) - the small-build cell stages the latter and
+// asserts the staged reservation is CLEARED.
 // Harvest spots: A -> (11,24); B -> (39,24) (Chebyshev-to-spawn tie-break).
 // ---------------------------------------------------------------------------
 const dedicatedRoom = (roomName: string) =>
   new RoomBuilder(roomName).border().controller(25, 8).source(10, 25).source(40, 25).toRoom();
 
-const dedicatedCommon = () => ({
+const dedicatedCommon = (siteWork = 15000) => ({
   structures: [{ type: "container", x: 11, y: 24, energy: 800 }] as any[],
   creeps: [
     {
@@ -80,7 +87,7 @@ const dedicatedCommon = () => ({
       user: ctx.userId,
       structureType: "extension",
       progress: 0,
-      progressTotal: 3000,
+      progressTotal: siteWork,
     });
     // Freeze container decay for the window (same confound as the
     // arrive-builder cell, diag 2026-07-26): staged containers carry no
@@ -108,6 +115,16 @@ const haulersOfCorp = (s: any, corpId: string | null): number =>
     : Object.entries(s.memory?.creeps ?? {}).filter(
         ([, mem]: [string, any]) => mem?.workType === "haul" && mem?.corpId === corpId
       ).length;
+
+/** Total WORK parts across the room's build-role creeps (db bodies are {type,hits} entries). */
+const buildSquadWork = (s: any): number =>
+  s
+    .objects()
+    .filter((o: any) => o.type === "creep" && s.memory?.creeps?.[o.name]?.workType === "build")
+    .reduce(
+      (sum: number, o: any) => sum + ((o.body ?? []) as any[]).filter((p: any) => (p?.type ?? p) === "work").length,
+      0
+    );
 
 // ---------------------------------------------------------------------------
 // T1 circuit-split geometry: source (25,42) with its container staged on the
@@ -591,14 +608,13 @@ export function buildHaulingT4Cells(): GridCell[] {
 export function buildHaulingT3Cells(): GridCell[] {
   let sitePrev: number | null = null;
   let siteGrew = false;
-  let prevPile: number | null = null;
-  let sawPickup = false;
 
   return [
     {
-      // Stand-down: B's container under 50% and no pile - B's corp yields to
-      // the build and fields NO hauler across two flow resolves, while A's
-      // circuit keeps running and the site actually progresses.
+      // Stand-down: B is reserved for the build, so B's corp yields and fields
+      // NO hauler across two flow resolves, while A's circuit keeps running and
+      // the site actually progresses. (Unconditional since the resume-fallback
+      // retirement, owner 2026-07-28 - no stock threshold un-freezes it.)
       id: "haul-t3-dedicated-standdown",
       tier: 3,
       avenue: "logistics",
@@ -628,10 +644,54 @@ export function buildHaulingT3Cells(): GridCell[] {
     },
 
     {
-      // Resume via container: B's container at 70% (>= the 50% drain gate) -
-      // the builder is not keeping pace, so B un-yields and fields a hauler
-      // that drains the surplus home.
-      id: "haul-t3-dedicated-resume-container",
+      // Sizing IS the resume (owner 2026-07-28): the resume-on-backup fallback
+      // - un-freezing B's haulers when a container/pile backed up past a drain
+      // gate - is retired with its cells (resume-container, resume-groundpile).
+      // Correct sizing makes the backup unreachable, so this cell stages the
+      // runt those cells had to FORCE (a 1-WORK builder against a 10 e/t
+      // source, staging that under the old gate FIELDED a hauler) and pins the
+      // healing contract in its place: the squad grows to the source's full
+      // WORK, the site progresses at the healed rate, and B's haulers stay
+      // stood down throughout - the always-assertion the fallback made
+      // unwritable.
+      id: "haul-t3-dedicated-runt-heals",
+      tier: 3,
+      avenue: "logistics",
+      window: 150,
+      rooms: { home: dedicatedRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 2 },
+      ...((): any => {
+        const c = dedicatedCommon();
+        c.structures.push({ type: "container", x: 39, y: 24, energy: 1400 }); // B: 70% - past the RETIRED drain gate
+        c.creeps = c.creeps.map((cr: any) =>
+          cr.name === "bB" ? { ...cr, body: ["work", "carry", "carry", "move"] } : cr
+        );
+        return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
+      })(),
+      assertions: [
+        always("B's corp never fields a hauler (sizing, not resume)", (s) =>
+          haulersOfCorp(s, bCarryCorpId(s)) === 0
+        ),
+        eventually("the squad heals to the source's full WORK", (s) => buildSquadWork(s) >= 2),
+        eventually("the site progresses at the healed rate", (s) => {
+          // >= 900 by window end needs the heal: a lone 1-WORK runt caps at
+          // 5/t x 150t = 750 even feeding perfectly; a healed squad crosses
+          // comfortably (5/t before the heal, 10+/t after).
+          const site = s.objects().find((o: any) => o.type === "constructionSite" && o.x === 38 && o.y === 25);
+          return (site?.progress ?? 0) >= 900;
+        }),
+      ],
+    },
+
+    {
+      // The other half of the earned reservation: a SMALL project (one 3000
+      // extension - absorb floors at 5 e/t, half the 10 e/t source) does not
+      // deserve a whole source. The stale staged reservation is CLEARED on
+      // evaluation, B keeps its normal haul route, and the build still
+      // progresses as an ordinary consumer - no stand-down, so nothing for
+      // the retired resume valve to bleed.
+      id: "haul-t3-small-build-no-reserve",
       tier: 3,
       avenue: "logistics",
       window: 100,
@@ -639,84 +699,21 @@ export function buildHaulingT3Cells(): GridCell[] {
       bot: { x: 25, y: 25 },
       controller: { level: 2 },
       ...((): any => {
-        const c = dedicatedCommon();
-        c.structures.push({ type: "container", x: 39, y: 24, energy: 1400 }); // B: 70%
+        const c = dedicatedCommon(3000);
+        c.structures.push({ type: "container", x: 39, y: 24, energy: 1400 }); // same stock as runt-heals: only siteWork differs
         return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
       })(),
       assertions: [
-        eventually("B's corp fields a hauler (contrast with stand-down)", (s) =>
+        eventually("the stale reservation is cleared (project too small)", (s) => {
+          const rooms = s.memory?.rooms;
+          return !!rooms && !rooms[s.room()]?.dedicatedBuildSourceId;
+        }),
+        eventually("B keeps its haul route (contrast with stand-down)", (s) =>
           haulersOfCorp(s, bCarryCorpId(s)) >= 1
         ),
-        eventually("the surplus is drained below the gate", (s) => {
-          const box = s.objects().find((o: any) => o.type === "container" && o.x === 39 && o.y === 24);
-          return !!box && (box.store?.energy ?? 2000) < 1000;
-        }),
-      ],
-    },
-
-    {
-      // Resume via ground pile: B has NO container, just a 400 pile on the
-      // miner's tile - the pile analogue of the drain gate un-freezes B's
-      // haulers; a single-tick drop >= 100 is the decisive pickup signature.
-      id: "haul-t3-dedicated-resume-groundpile",
-      tier: 3,
-      avenue: "logistics",
-      // 150: under the energy-led scheduler, consumers spend freely and B's
-      // resume hauler can queue behind them (green at 100 twice, red once).
-      window: 150,
-      rooms: { home: dedicatedRoom },
-      bot: { x: 25, y: 25 },
-      controller: { level: 2 },
-      ...((): any => {
-        const c = dedicatedCommon();
-        // A 1-WORK builder consumes 5/t against 10/t mined: the surplus
-        // genuinely backs up (the 2W builder + tanker consumed EXACTLY the
-        // mining rate, so yielding stayed correct and the cell timed out).
-        c.creeps = c.creeps.map((cr: any) =>
-          cr.name === "bB" ? { ...cr, body: ["work", "carry", "carry", "move"] } : cr
-        );
-        // EXTEND the base stage (site insert + container-decay freeze), never
-        // replace it: a wholesale override here missed the freeze when #141
-        // added it, so container A's tick-1 decay put bB on repair detail for
-        // ~90t - the 5/t build consumer this cell's drain arithmetic needs -
-        // and the pile outgrew the resume hauler (diag 2026-07-28).
-        const baseStage = c.stage;
-        c.stage = async (ctx: any) => {
-          await baseStage(ctx);
-          await ctx.db["rooms.objects"].insert({
-            type: "energy",
-            room: ctx.room(),
-            x: 39,
-            y: 24,
-            energy: 400,
-            resourceType: "energy",
-          });
-        };
-        return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
-      })(),
-      assertions: [
-        eventually("B's corp fields a hauler", (s) => haulersOfCorp(s, bCarryCorpId(s)) >= 1),
-        eventually("a hauler visits the pile and it drains", (s) => {
-          // FLAKE HISTORY (5 flips at drop-size thresholds): the bite-size
-          // signal races consumer timing - small haulers and jack nibbles
-          // blur the single-tick drop. The mechanism-true, timing-robust
-          // signal: one of B's haulers stands at the pile AND the pile
-          // meaningfully drains afterward.
-          const pile = s.objects().find((o: any) => o.type === "energy" && o.x === 39 && o.y === 24);
-          const amount = pile?.energy ?? 0;
-          const bId = bCarryCorpId(s);
-          const visiting = s
-            .objects()
-            .some(
-              (o: any) =>
-                o.type === "creep" &&
-                s.memory?.creeps?.[o.name]?.corpId === bId &&
-                s.memory?.creeps?.[o.name]?.workType === "haul" &&
-                Math.max(Math.abs(o.x - 39), Math.abs(o.y - 24)) <= 1
-            );
-          if (visiting) sawPickup = true; // visit recorded...
-          prevPile = amount;
-          return sawPickup && amount <= 600; // ...and the pile drained below its staged level
+        eventually("the build progresses un-reserved", (s) => {
+          const site = s.objects().find((o: any) => o.type === "constructionSite" && o.x === 38 && o.y === 25);
+          return (site?.progress ?? 0) >= 50;
         }),
       ],
     },

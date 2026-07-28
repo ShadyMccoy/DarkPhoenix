@@ -178,8 +178,11 @@ false-red run on 07-09).
 **FLAKY WATCH (2026-07-08)**: two cells flip across identical-code full
 runs as scheduler dynamics shift spawn interleavings:
 haul-t3-dedicated-resume-groundpile (pass@100 x2, timeout@100, pass@150,
-timeout@150) and spawn-timer-survives-busy-spawn (pass, fail@140 x2,
-pass, fail@140). The timer cell's flip MAY be a real intermittent
+timeout@150; RESOLVED 2026-07-28 - the cell's stage override missed the
+#141 decay freeze, so the repair detail hijacked the only builder; the
+cell then retired with the resume valve, superseded by
+haul-t3-dedicated-runt-heals) and spawn-timer-survives-busy-spawn (pass,
+fail@140 x2, pass, fail@140). The timer cell's flip MAY be a real intermittent
 demand-flicker (the #93 stamp changes byte-identity under specific spawn
 sequences) - a diag lead, not just noise. A rerun-once policy for
 eventually-only cells is designed but unbuilt.
@@ -973,9 +976,9 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 | `haul-t2-critical-divert` | T2 | 30t |  |
 | `haul-t2-no-divert-above-half` | T2 | 30t | RCL2 stall: controller-bound hauler diverted on ANY spawn fr |
 | `haul-t2-scavenge-threshold` | T2 | 150t |  |
-| `haul-t3-dedicated-standdown` | T3 | 100t | haulers competed with construction tankers for the dedicated |
-| `haul-t3-dedicated-resume-container` | T3 | 90t |  |
-| `haul-t3-dedicated-resume-groundpile` | T3 | 90t | bare-pile dedicated source left the hauler frozen while the  |
+| `haul-t3-dedicated-standdown` | T3 | 110t | haulers competed with construction tankers for the dedicated |
+| `haul-t3-dedicated-runt-heals` | T3 | 150t | tanker closest-only dispatch starved the far parked builder |
+| `haul-t3-small-build-no-reserve` | T3 | 100t | whole source reserved for a crew half its size |
 | `haul-t4-tender-bus-regime` | T4 | 60t | haulers schooling on one half-full extension tile |
 | `haul-t4-tender-death-failsafe` | T4 | 50t | dead tender deadlocking the colony |
 | `haul-t4-storage-bank-and-spill` | T4 | 60t | depot soaked up every spare load and the controller starved |
@@ -1050,37 +1053,35 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 
 ### `haul-t3-dedicated-standdown` (T3) — Dedicated build source fields no haulers while the builder drains it
 
-- **Purpose**: yieldsToBuild: with dedicatedBuildSourceId set, container below 50% and no 300+ pile, the source's CarryCorp returns [] from getSpawnDemand and existing haulers stop pickup - the construction tankers get the full output.
-- **World**: W0N0 sealed ring + stub. Spawn (25,25). Source A (10,25) warm-staffed (miner, container, 1 hauler). Source B (40,25) with miner and container staged 400/2000. Extension construction site at (38,25) (nearest source is B, so updateDedicatedSource keeps B). Controller (25,8), level 2-3.
+- **Purpose**: yieldsToBuild: with dedicatedBuildSourceId set, the source's CarryCorp returns [] from getSpawnDemand and existing haulers stop pickup - the construction tankers get the full output. The stand-down is UNCONDITIONAL (the resume-on-backup valve is retired, owner 2026-07-28; sizing is the anti-backup guarantee).
+- **World**: W0N0 sealed ring + stub. Spawn (25,25). Source A (10,25) warm-staffed (miner, container, 1 hauler). Source B (40,25) with miner and container staged 400/2000. Construction site at (38,25) staged with 15000 remaining work (big enough that dedicationJustified keeps the reservation; nearest source is B). Controller (25,8), level 2.
 - **Staged state**: Warm memory: carry corps for A and B (B's with 0 creeps), construction corp with 1 builder + 1 tanker staged near the site, Memory.rooms.W0N0.dedicatedBuildSourceId = B's id (idMap-remapped).
 - **Expected**: B's corp yields: no hauler is ever spawned for B; A's circuit keeps running; B's container is touched only by the tanker/builder.
-- **Assertion**: For every sampled tick in a 100-tick window (spanning 2 flow resolves): no exported Memory.creeps entry has workType==='haul' AND corpId===B's carry-corp id, while >=1 such entry exists for A's corp id; construction site progress at (38,25) increases (build actually consuming B's output).
+- **Assertion**: For every sampled tick in a 110-tick window (spanning 2 flow resolves): no exported Memory.creeps entry has workType==='haul' AND corpId===B's harvest-operation id, while >=1 such entry exists for A's; construction site progress at (38,25) increases (build actually consuming B's output).
+- **Verdict window**: 110 ticks
+- **Known bug targeted**: haulers competed with construction tankers for the dedicated source's output
+- **Code refs**: `src/corps/CarryCorp.ts (yieldsToBuild, pickupEnergy stand-down, getSpawnDemands yield gate)`, `src/corps/ConstructionCorp.ts (updateDedicatedSource)`
+
+### `haul-t3-dedicated-runt-heals` (T3) — A runt builder heals to the source's full WORK; no resume valve needed
+
+- **Purpose**: Sizing IS the resume (owner 2026-07-28, replacing the retired resume-container/resume-groundpile cells): a staged 1-WORK runt against a 10 e/t dedicated source is healed by the demand side (builderPlan sizes the squad to the source; a sibling spawns) instead of un-freezing B's haulers to bleed the backup. Also pins the tanker's NEED-FIRST dispatch: the found starvation mode was the vector micro-dripping a container-adjacent self-refueling builder (~5 free capacity every tick, always closest) while the parked sibling stood at zero for its whole life.
+- **World**: Standdown's room; B's container staged 1400/2000 (stock past the RETIRED drain gate - stood down regardless), site at (38,25) with 15000 work, bB downsized to 1 WORK.
+- **Staged state**: Same warm memory as standdown (dedicatedBuildSourceId=B, B's operation with 0 haulers).
+- **Expected**: The first solve demands a sibling builder (squad target 2 WORK); it parks at build range and the tanker feeds it (need-first); site progress runs ~5/t before the heal, ~10/t after.
+- **Assertion**: ALWAYS no Memory.creeps entry with workType 'haul' on B's operation id; EVENTUALLY total WORK across build-role creeps >= 2; EVENTUALLY site progress >= 900 (a lone 1-WORK runt caps at 5/t x 150t = 750 even feeding perfectly, so 900 needs the healed squad).
+- **Verdict window**: 150 ticks
+- **Known bug targeted**: tanker closest-only dispatch starved the far parked builder (found by this cell, fixed 2026-07-28); the retired resume valve masked under-sized crews instead of healing them
+- **Code refs**: `src/corps/ConstructionCorp.ts (builderPlan sizing, recycleUndersizedBuilder, runTanker need-first dispatch)`, `src/economy/primitives.ts (dedicationJustified)`
+
+### `haul-t3-small-build-no-reserve` (T3) — A small project does not earn a whole source
+
+- **Purpose**: The other half of the earned reservation: one 3000 extension absorbs 5 e/t (the projectAbsorbRate floor) - half the 10 e/t source - so dedicationJustified says NO. The staged stale reservation is cleared on evaluation, B keeps its normal haul route, and the build draws as an ordinary consumer.
+- **World**: Standdown's room; site at (38,25) with 3000 work; B's container staged 1400/2000 (same stock as runt-heals - only siteWork differs).
+- **Staged state**: Same warm memory INCLUDING the stale Memory.rooms.W0N0.dedicatedBuildSourceId = B - the cell asserts the runtime clears it.
+- **Expected**: updateDedicatedSource deletes the reservation on tick 1; B's operation fields a hauler normally; the builder+tanker keep building from the container as ordinary consumers.
+- **Assertion**: EVENTUALLY Memory.rooms has no dedicatedBuildSourceId for the room; EVENTUALLY a Memory.creeps entry with workType 'haul' on B's operation id exists (contrast with stand-down); EVENTUALLY site progress >= 50.
 - **Verdict window**: 100 ticks
-- **Known bug targeted**: haulers competed with construction tankers for the dedicated source's output (rationale at CarryCorp.ts:961-974)
-- **Code refs**: `src/corps/CarryCorp.ts:975-996 (yieldsToBuild)`, `src/corps/CarryCorp.ts:829 (getSpawnDemand yield gate)`, `src/corps/CarryCorp.ts:517 (pickupEnergy stand-down)`, `src/corps/ConstructionCorp.ts:383-393 (updateDedicatedSource)`
-
-### `haul-t3-dedicated-resume-container` (T3) — Haulers resume when the dedicated source's container backs up past 50%
-
-- **Purpose**: shouldDrainDedicatedSource: container >= 50% (DEDICATED_SOURCE_DRAIN_FILL) means the builder isn't keeping pace, so the corp un-yields and hauls the surplus to the core.
-- **World**: Same room as haul-t3-dedicated-standdown, but source B's container staged at 1400/2000 (>= 1000 threshold).
-- **Staged state**: Same warm memory (dedicatedBuildSourceId=B, site at (38,25), builder+tanker staged, B carry corp with 0 creeps).
-- **Expected**: yieldsToBuild returns false (1400 >= 0.5*2000); B's getSpawnDemand fires (blocking first hauler); a hauler spawns (~18 ticks), walks ~15 tiles, withdraws from B's container and delivers to spawn/controller.
-- **Assertion**: Within 90 ticks: exported Memory.creeps gains an entry with workType==='haul' AND corpId===B's carry-corp id (contrast: standdown cell forbids this), AND on some tick that creep's db object sits within range 1 of B's container with store.energy >= 100 (loaded), AND the spawn store or controller input container subsequently increases by >= 100.
-- **Verdict window**: 90 ticks
-- **Code refs**: `src/corps/CarryCorp.ts:109-118 (shouldDrainDedicatedSource)`, `src/corps/CarryCorp.ts:90 (DEDICATED_SOURCE_DRAIN_FILL=0.5)`, `src/corps/CarryCorp.ts:975-996 (yieldsToBuild resume path)`, `src/corps/CarryCorp.ts:888-903 (blocking first-hauler demand)`
-
-### `haul-t3-dedicated-resume-groundpile` (T3) — A 300+ ground pile at a bare dedicated source un-freezes its haulers
-
-> **[errata: infeasible #4]** — apply corrections before building.
-
-- **Purpose**: The ground-pile analogue of the container check: pile >= DEDICATED_SOURCE_DRAIN_PILE=300 within range 1 of the dedicated source must trigger resume even with no container to inspect.
-- **World**: Same room as haul-t3-dedicated-standdown, but source B has NO container: miner staged on its harvest tile, dropped-energy pile of 400 staged on that tile. Site at (38,25).
-- **Staged state**: Warm memory identical (dedicatedBuildSourceId=B, B carry corp 0 creeps); pile inserted as db 'energy' object.
-- **Expected**: groundPile=400 >= 300 -> yieldsToBuild false -> B fields a hauler that walks to the pile and picks up (a single-tick drop of ~its free capacity), then delivers home; without the fix the pile would only grow (+10/tick miner) and decay.
-- **Assertion**: Within 90 ticks: a Memory.creeps entry with workType 'haul' and B's corpId exists AND the pile at B's tile shows a single-tick decrease >= 100 (pickup event - decay alone is ~1/tick and mining adds +10/tick, so any >=100 one-tick drop is decisive).
-- **Verdict window**: 90 ticks
-- **Known bug targeted**: bare-pile dedicated source left the hauler frozen while the pile grew and decayed (documented CarryCorp.ts:92-101)
-- **Code refs**: `src/corps/CarryCorp.ts:92-101 (DEDICATED_SOURCE_DRAIN_PILE rationale)`, `src/corps/CarryCorp.ts:109-118 (shouldDrainDedicatedSource ground branch)`, `src/corps/CarryCorp.ts:986-994 (groundPile findInRange)`
+- **Code refs**: `src/corps/ConstructionCorp.ts (updateDedicatedSource conditional)`, `src/economy/primitives.ts (dedicationJustified, DEDICATION_MIN_CONSUMPTION, projectAbsorbRate floor)`
 
 ### `haul-t4-tender-bus-regime` (T4) — Tender regime: haulers run the source->depot bus, tender does extensions, surplus spills
 

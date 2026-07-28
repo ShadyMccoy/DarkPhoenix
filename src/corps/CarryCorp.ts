@@ -35,7 +35,6 @@ import {
   pickSinkByAllocation,
   pickStorageDeposit,
   shouldBankControllerLoad,
-  shouldDrainDedicatedSource,
   shouldRefillFromDepot
 } from "./haulPolicy";
 
@@ -1407,53 +1406,31 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * True when this corp's source has been reserved for the builder: it must stand
-   * down (field no haulers, and existing ones stop drawing from it) so the
-   * construction tankers get the source's full output. The reservation is set by
-   * ConstructionCorp in room memory while a build is active.
+   * True when this corp's source has been reserved for the builder: it stands
+   * down unconditionally (fields no haulers, and existing ones stop drawing from
+   * it) so the construction tankers get the source's full output. The reservation
+   * is set by ConstructionCorp in room memory while a build is active.
    *
-   * The reservation holds only while the builder keeps the source's container
-   * drained. If energy backs up past DEDICATED_SOURCE_DRAIN_FILL the builder can't
-   * consume the source's full output (a runt builder, or no active consumption),
-   * so we resume hauling the surplus to the core: the accumulated energy goes home
-   * instead of overflowing the container and decaying on the ground. The builder,
-   * sized to the whole source, holds the container near-empty in the normal case,
-   * so haulers stay stood down.
+   * The resume-on-backup fallback (un-freeze the haulers once a container/pile
+   * backed up past a drain threshold) is RETIRED (owner 2026-07-28: "make sure
+   * the builder does its job and is sized correctly" - fix the sizing, don't
+   * valve around it). Backup pressure is handled at its causes: builderPlan
+   * sizes the squad to the source's full output and recycleUndersizedBuilder
+   * heals runts; a dead crew clears the reservation itself (updateDedicatedSource
+   * requires live builders), resuming normal hauling; a pile past the scavenge
+   * threshold is recovered by the planner's scavenge route (its own corp family,
+   * never stood down); container stock doesn't decay and drains home when the
+   * reservation lifts.
    */
   private yieldsToBuild(): boolean {
     // Spec 25 phase 3: the trunk-receipt stand-down is retired - the PLAN now
     // routes a trunk-building source's output (local sinks first, residual
     // home), and this corp fields haulers only for planned routes, so the
     // stand-down is the routing itself. Only the home-room dedicated-source
-    // mechanism below remains (spill-guarded, predates trunks).
+    // mechanism below remains (predates trunks).
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
-    if (!dedicated || this.mySourceId() !== dedicated) return false;
-
-    const source = Game.getObjectById(dedicated as Id<Source>);
-    if (!source) return true;
-
-    const container = this.sourceContainerAt(source);
-    const containerEnergy = container ? container.store[RESOURCE_ENERGY] : null;
-    const containerCapacity = container ? container.store.getCapacity(RESOURCE_ENERGY) || 2000 : 0;
-    // The miner drops on the ground when there is no container; count that pile too,
-    // so a bare-pile source doesn't leave the hauler frozen while energy decays.
-    const groundPile = source.pos
-      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
-      .reduce((sum, r) => sum + r.amount, 0);
-
-    // Resume hauling (don't yield) whenever the surplus is backing up - the builder
-    // is not keeping pace with the miner, so the overflow should flow to the core.
-    if (shouldDrainDedicatedSource(containerEnergy, containerCapacity, groundPile)) return false;
-    return true;
-  }
-
-  /** The static container on a source's tile, if any (where the miner deposits). */
-  private sourceContainerAt(source: Source): StructureContainer | null {
-    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER
-    }) as StructureContainer[];
-    return containers[0] ?? null;
+    return !!dedicated && this.mySourceId() === dedicated;
   }
 
   /**

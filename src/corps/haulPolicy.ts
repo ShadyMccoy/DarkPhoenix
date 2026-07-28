@@ -166,46 +166,6 @@ export function depotBankTarget(depot: CoreDepot): number {
 }
 
 /**
- * Fill fraction at which a dedicated build source's container is judged to be
- * "backing up": the builder isn't draining the source's full output (a runt
- * builder, or no active consumption), so the energy just accumulates in the
- * container and, once it caps out, overflows onto the ground and decays - wasted.
- * Above this the source's haulers resume and move the surplus to the core instead,
- * so the economy rebalances around whatever the builder actually consumes rather
- * than stranding the rest at the source. Half-full leaves ample headroom before
- * the container caps out.
- */
-const DEDICATED_SOURCE_DRAIN_FILL = 0.5;
-
-/**
- * Dropped energy (within range 1 of a dedicated build source) above which the
- * source's haulers RESUME and clear the surplus instead of yielding to the builder.
- * Without a container the miner drops straight on the ground, and the container
- * fill check above can't see it - so a bare-pile source would otherwise leave the
- * hauler frozen while a big pile grows and decays. This is the ground-pile analogue
- * of DEDICATED_SOURCE_DRAIN_FILL: a pile this size means the builder isn't keeping
- * pace, so the overflow should flow to the core.
- */
-const DEDICATED_SOURCE_DRAIN_PILE = 300;
-
-/**
- * Whether a hauler on the dedicated build source should RESUME hauling (drain the
- * surplus) rather than yield: true when energy is backing up - a container past the
- * drain fill, OR a ground pile past the drain threshold - meaning the builder isn't
- * consuming the source's full output. Pure so it can be unit tested directly.
- */
-export function shouldDrainDedicatedSource(
-  containerEnergy: number | null,
-  containerCapacity: number,
-  groundPile: number
-): boolean {
-  if (containerEnergy !== null && containerCapacity > 0) {
-    if (containerEnergy >= containerCapacity * DEDICATED_SOURCE_DRAIN_FILL) return true;
-  }
-  return groundPile >= DEDICATED_SOURCE_DRAIN_PILE;
-}
-
-/**
  * Should an empty spawn-circuit hauler REFILL from the core depot (the degraded,
  * tender-less bridge) instead of trekking to its own source this tick? Only when
  * the depot is a real, NEARBY bank that is at least as close as the hauler's own

@@ -91,6 +91,32 @@ of declaring 0 (own-room only - a pooled spawnless room's price rides its
 own wrapper, exactly as its energyRate does). Passive per the spec-36
 instrument precedent: unit 1594 green + trio green.
 
+**LANDED 2026-07-28 (the resume valve retired — owner: "a fallback we
+don't need. What we want it's just to make sure that the builder does its
+job and is sized correctly"):** the dedicated-source resume-on-backup
+fallback (`shouldDrainDedicatedSource` + the 50%-container/300-pile drain
+gates in `yieldsToBuild`) is DELETED — the stand-down is unconditional
+while a reservation holds, and backup pressure is handled at its causes:
+builderPlan sizes the squad to the source, recycleUndersizedBuilder heals
+runts, a dead crew clears the reservation itself, scavenge recovers
+threshold piles, container stock waits decay-free. The trigger for the
+retirement was the groundpile diagnosis: the cells had to STAGE a 1-WORK
+runt to make resume fire at all, and the "backup" it bled was the DESIGNED
+mismatch of reserving a whole 10 e/t source for the 5 e/t crew a single
+extension justifies (projectAbsorbRate floors at 5). So THE RESERVATION IS
+NOW EARNED: `dedicationJustified(crewRate, sourceRate)` (primitives,
+>= 80%) gates updateDedicatedSource — small projects run un-reserved with
+normal haul routes. Landing the replacement cell surfaced and fixed a real
+vector bug: tanker dispatch was closest-only, and a container-adjacent
+self-refueling builder (~5 free capacity every tick) starved a parked
+sibling at ZERO for its whole life — dispatch is now need-first (below
+half buffer beats proximity). Cells: resume-container + resume-groundpile
+retired; `haul-t3-dedicated-runt-heals` (heal to full WORK, progress at
+the healed rate, haulers stay down) + `haul-t3-small-build-no-reserve`
+(stale reservation cleared, B keeps its route) pin the new contract;
+standdown restaged on a 15000-work site. All three deterministic across
+draws; unit 1593 green.
+
 **OPEN, in order:**
 
 1. **Further kinds into the interface** (as encountered, not speculatively):
@@ -126,7 +152,14 @@ instrument precedent: unit 1594 green + trio green.
    (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile
    (real RT ≈ 4d+2) — the fleet under-delivers its own vector, measured in
    builder-buffer-feed as starvation valleys (starved ~500-700/window;
-   util 91-92% vs 98-100% with 1:1 bodies). (b) A 1:1 fleet is strictly
+   util 91-92% vs 98-100% with 1:1 bodies).
+   2026-07-28 RE-BASELINE REQUIRED: the runt-heals cell exposed that
+   tanker dispatch was closest-only and could micro-drip a self-refueling
+   builder while starving a parked sibling; with NEED-FIRST dispatch
+   landed, builder-buffer-feed reads 95-99% util (starved 110-400) across
+   two draws with 3C:1M UNCHANGED — most of the measured "gait" starvation
+   was dispatch starvation. Re-measure before designing the probe; the
+   residual 3C:1M-vs-1:1 gap may be inside draw noise. (b) A 1:1 fleet is strictly
    better per spawn-part on a plain shuttle (rate/part ratio 0.75-0.9
    favoring 1:1 at all d). (c) BUT switching construction tankers to 1:1
    collapsed the poor-economy ramp: fid-t5-real-maze gross 51% → 25%,
@@ -164,6 +197,24 @@ instrument precedent: unit 1594 green + trio green.
    release fixes; floor ratcheted 0.55 → 0.85 per the cell's charter),
    controller 22%, carry 64%; fid-t5-real-maze steady at 51/50/56-57%
    (floors untouched - organic-ramp floors stay loose by design).
+5. **Planner-owned dedication (the spec-25 completion, pre-hub)** — the
+   2026-07-28 retirement kept dedication itself as runtime room memory;
+   the PLAN still doesn't know. Measured consequences that remain: the
+   solver routes the dedicated source's output to ordinary sinks (a
+   plan-vs-actual phantom while any reservation holds), and the site
+   supply leg is represented twice (a haul route on the source's
+   operation AND the consume commission's tanker vector, different
+   distance bases, one physical job — the tankers execute, the routed
+   haulers are gated). The clean home mirrors hub-era emergent
+   dedication: the construction sink's fill IS the reservation, the
+   source's home routes carry only the residual, yieldsToBuild and
+   UpgradingCorp.effectiveAllocated (the (n-1)/n guess) both dissolve
+   into the plan. FORK FOR THE OWNER before starting: pre-hub the value
+   ladder runs controller 80 > construction 70, so a construction
+   pre-pass that claims the nearest source ahead of the controller fill
+   changes ladder semantics — the exact class the 90-vs-85 founding
+   incident warns about. Needs an owner ruling on where construction's
+   claim slots pre-hub; do not nudge a value in isolation.
 
 ## The thesis (owner, 2026-07-27)
 
