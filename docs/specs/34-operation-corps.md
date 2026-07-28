@@ -91,45 +91,43 @@ of declaring 0 (own-room only - a pooled spawnless room's price rides its
 own wrapper, exactly as its energyRate does). Passive per the spec-36
 instrument precedent: unit 1594 green + trio green.
 
-**LANDED 2026-07-28 (the resume valve retired — owner: "a fallback we
-don't need. What we want it's just to make sure that the builder does its
-job and is sized correctly"):** the dedicated-source resume-on-backup
-fallback (`shouldDrainDedicatedSource` + the 50%-container/300-pile drain
-gates in `yieldsToBuild`) is DELETED — the stand-down is unconditional
-while a reservation holds, and backup pressure is handled at its causes:
-builderPlan sizes the squad to the source, recycleUndersizedBuilder heals
-runts, a dead crew clears the reservation itself, scavenge recovers
-threshold piles, container stock waits decay-free. The trigger for the
-retirement was the groundpile diagnosis: the cells had to STAGE a 1-WORK
-runt to make resume fire at all, and the "backup" it bled was the DESIGNED
-mismatch of reserving a whole 10 e/t source for a crew that couldn't eat
-it. So THE RESERVATION IS NOW EARNED: `dedicationJustified(crewRate,
-sourceRate)` (primitives, >= 80%) gates updateDedicatedSource with
-crewRate = **min(standing builder burn, sum-of-projects absorb)** — BOTH
-axes must clear. The first cut used the absorb alone (a goal-plan
-quantity) and runt-economy caught it within the hour: container sites
-(~15k work) justified reserving the near source while the standing
-cold-start crew was 1 WORK, so the source hoarded into a build it
-couldn't eat, extensions never filled, and the 2-WORK miner never upsized
-in 1200 ticks — the macro doctrine's own rule (consumers sized from
-ACTUAL capability, never the goal plan) names the fix. Consequence worth
-knowing: pre-reservation the crew is sized by its ALLOCATION like any
-consumer (parts-bound rooms fund small crews and B hauls the residual —
-production first); the reservation follows the crew as funding grows it
-to the source's rate, and releases on the project tail. Landing the
-replacement cell also surfaced and fixed a real vector bug: tanker
-dispatch was closest-only, and a container-adjacent self-refueling
-builder (~5 free capacity every tick) starved a parked sibling at ZERO
-for its whole life — dispatch is now need-first (below half buffer beats
-proximity). Cells: resume-container + resume-groundpile retired;
-`haul-t3-dedicated-runt-not-reserved` (crew axis: stale reservation
-cleared, B hauls residual, runt builds at funded pace) +
-`haul-t3-small-build-no-reserve` (project axis: same posture for a 3000
-site) pin the clearing; standdown (staged 2-WORK crew, 15000-work site)
-pins the reserved end-state. All three deterministic across draws; unit
-1593 green; trio green under the min-gauge (runt-economy proves the
-upsize at t460 with early exit — 2W → 3W — vs timing out the full 1200
-under the absorb-only cut).
+**ATTEMPTED AND REVERTED 2026-07-28 (the earned reservation — owner: "a
+fallback we don't need. What we want it's just to make sure that the
+builder does its job and is sized correctly"):** the resume valve
+(`shouldDrainDedicatedSource` + the drain gates in `yieldsToBuild`) was
+deleted and the reservation gated on an earned-consumption gauge
+(`dedicationJustified`, two cuts: pool absorb alone, then min(standing
+burn, absorb)). The grid then demonstrated, one measurement at a time,
+that always-dedicate + valve is a FOUR-legged coupled regime, and each
+cut broke a different leg's dependents:
+1. absorb-only gauge → runt-economy froze the cold ramp (container sites
+   ~15k work justified reserving the near source for a 1-WORK crew; the
+   source hoarded, extensions never filled, the 2-WORK miner never
+   upsized in 1200t). Doctrine names it: consumers sized from ACTUAL
+   capability, never the goal plan.
+2. min(burn, absorb) gauge + valve deleted → the refill-SLA class
+   breached DETERMINISTICALLY (haul-t4-refill-sla @211: the "dedicated"
+   source's container was staged at 75%, so under the old code the valve
+   had kept its haulers running the whole time — the cell's tuned income
+   stream) and fid-t5-real-maze collapsed 50→16% gross. The valve is the
+   consumption-lag lens: standing WORK is capability, not throughput.
+3. valve restored, gauge kept → fid-t4-preramped STILL breached @239:
+   with reservations refused, the tankers' least-loaded fallback spread
+   across BOTH sources (the old always-dedicate had confined the siphon
+   to one) and UpgradingCorp.effectiveAllocated's (n-1)/n damping never
+   engaged — the tender crawled at spawn self-regen after a volley.
+Per the trap-list rule (second patch on the same mechanism = interrogate
+the mechanism; this was heading for a fifth), the gauge was REVERTED to
+always-dedicate + valve — the measured-good regime — same day. KEPT from
+the attempt, independently verified: (a) NEED-FIRST tanker dispatch
+(closest-only starved a parked builder at ZERO for its whole life while
+micro-dripping a container-adjacent self-refueler; builder-buffer-feed
+91-92% → 95-99% workUtil with 3C:1M unchanged), (b) the SITE-NEAREST
+tanker-source fallback for un-reserved builds (the least-loaded spread's
+siphon-everything pathology, measured in fid-t4-preramped), (c) the
+groundpile cell staging fix (the #143 red's root cause), (d) this
+investigation — the redesign fork now lives in open item 5 with all the
+measurements.
 
 **OPEN, in order:**
 
@@ -212,18 +210,27 @@ under the absorb-only cut).
    controller 22%, carry 64%; fid-t5-real-maze steady at 51/50/56-57%
    (floors untouched - organic-ramp floors stay loose by design).
 5. **Planner-owned dedication (the spec-25 completion, pre-hub)** — the
-   2026-07-28 retirement kept dedication itself as runtime room memory;
-   the PLAN still doesn't know. Measured consequences that remain: the
-   solver routes the dedicated source's output to ordinary sinks (a
-   plan-vs-actual phantom while any reservation holds), and the site
-   supply leg is represented twice (a haul route on the source's
-   operation AND the consume commission's tanker vector, different
-   distance bases, one physical job — the tankers execute, the routed
-   haulers are gated). The clean home mirrors hub-era emergent
-   dedication: the construction sink's fill IS the reservation, the
-   source's home routes carry only the residual, yieldsToBuild and
-   UpgradingCorp.effectiveAllocated (the (n-1)/n guess) both dissolve
-   into the plan. FORK FOR THE OWNER before starting: pre-hub the value
+   dedication regime remains runtime room memory; the PLAN still doesn't
+   know. The 2026-07-28 attempted retirement (see the ATTEMPTED AND
+   REVERTED entry above) established by measurement that the regime is a
+   FOUR-legged coupling switching on `dedicatedBuildSourceId` together:
+   the stand-down, the drain valve (the actual-consumption lens), the
+   tanker source pinning, and the upgrader (n-1)/n damping. Any
+   replacement must re-provide all four functions — a corp-side gauge
+   swap alone broke a different leg's dependents on each cut
+   (runt-economy cold freeze; refill-SLA class; preramped tender crawl).
+   Measured consequences that remain today: the solver routes the
+   dedicated source's output to ordinary sinks (a plan-vs-actual phantom
+   while any reservation holds), and the site supply leg is represented
+   twice (a haul route on the source's operation AND the consume
+   commission's tanker vector, different distance bases, one physical
+   job — the tankers execute, the routed haulers are gated). The clean
+   home mirrors hub-era emergent dedication: the construction sink's
+   fill IS the reservation (sized by the plan to what the crew actually
+   sustains — the wartime-relegation lens supplies the upgrader damping
+   plan-side), the source's home routes carry only the residual (the
+   valve dissolves into routing), and tanker sourcing follows the fill's
+   nearest-first choice. FORK FOR THE OWNER before starting: pre-hub the value
    ladder runs controller 80 > construction 70, so a construction
    pre-pass that claims the nearest source ahead of the controller fill
    changes ladder semantics — the exact class the 90-vs-85 founding

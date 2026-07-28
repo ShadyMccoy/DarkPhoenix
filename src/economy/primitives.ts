@@ -401,31 +401,6 @@ export function projectAbsorbRate(remainingWork: number, travelDistance = 0, acc
   return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
-/**
- * Minimum fraction of a source's output the build crew must consume before the
- * crew deserves the WHOLE source (ConstructionCorp.updateDedicatedSource).
- * Reserving 10 e/t to feed the 5 e/t crew a single extension justifies
- * stranded the other half at the source - the surplus the retired resume
- * valve (owner 2026-07-28: "make sure the builder does its job and is sized
- * correctly") existed to bleed. Below this fraction the source keeps its
- * normal haul routes and the build draws as an ordinary consumer (the
- * builder's onboard buffer bridges tanker-vs-hauler contention); at or above
- * it, the stranded sliver costs less than contention over nearly the whole
- * output.
- */
-export const DEDICATION_MIN_CONSUMPTION = 0.8;
-
-/**
- * Should a whole source be reserved for the build? `crewRate` is the
- * consumption the crew can ACTUALLY sustain - min(standing builder burn,
- * sum-of-projects absorb), per the macro doctrine (consumers sized from
- * actual capability, never the goal plan; the absorb-only first cut
- * reserved a source for a crew that couldn't eat it, measured in
- * runt-economy 2026-07-28) - and `sourceRate` the source's full output.
- */
-export function dedicationJustified(crewRate: number, sourceRate: number): boolean {
-  return sourceRate > 0 && crewRate >= DEDICATION_MIN_CONSUMPTION * sourceRate;
-}
 
 /**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-

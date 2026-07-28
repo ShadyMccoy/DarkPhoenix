@@ -53,8 +53,8 @@ reflects the embargo (today it lags up to a full cadence); trio green.
 
 **Seam:** `corps/haulPolicy.ts` (spec 35 H extracted the hauler
 routing/banking policy head — `shouldRefillFromDepot`,
-`pickDeliverySink` et al. — pure and unit-testable.
-`shouldDrainDedicatedSource` retired 2026-07-28 with the resume valve).
+`shouldDrainDedicatedSource`, `pickDeliverySink` et al. — pure and
+unit-testable).
 
 **The change:** the fix already queued in spec 27's notes ("depot bridge
 economy, bus-regime red") is a policy change; write it against
@@ -85,7 +85,7 @@ Side value: this instrument was the planned diagnostic for the upstream
 `haul-t3-dedicated-resume-groundpile` regression (#143, timeouts on pure
 master — see spec 35 status). RESOLVED without it 2026-07-28: the cell's
 stage override had missed the #141 container-decay freeze (repair detail
-hijacked the only builder); the cell then retired with the resume valve.
+hijacked the only builder); staging fixed, deterministic green since.
 The instrument keeps its own spec-32 value.
 
 **Acceptance:** unit — staged windows classify a lagging-haul world as
@@ -190,5 +190,5 @@ deliberately re-baselined in the same commit.
 - The upstream #143 regressions (`haul-t3-dedicated-resume-groundpile`,
   `plan-t4-link-haul-pricing`) belong on master — spec 35's status has
   the bisection evidence; item 3's instrument helps diagnose but does
-  not fix. (Groundpile RESOLVED 2026-07-28 — staging gap, then the cell
-  retired with the resume valve; see item 3's note.)
+  not fix. (Groundpile RESOLVED 2026-07-28 — staging gap; see item 3's
+  note.)

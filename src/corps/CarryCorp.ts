@@ -35,6 +35,7 @@ import {
   pickSinkByAllocation,
   pickStorageDeposit,
   shouldBankControllerLoad,
+  shouldDrainDedicatedSource,
   shouldRefillFromDepot
 } from "./haulPolicy";
 
@@ -1407,20 +1408,20 @@ export class CarryCorp extends Corp {
 
   /**
    * True when this corp's source has been reserved for the builder: it stands
-   * down unconditionally (fields no haulers, and existing ones stop drawing from
-   * it) so the construction tankers get the source's full output. The reservation
-   * is set by ConstructionCorp in room memory while a build is active.
+   * down (fields no haulers, and existing ones stop drawing from it) so the
+   * construction tankers get the source's full output. The reservation is set
+   * by ConstructionCorp in room memory while a build is active.
    *
-   * The resume-on-backup fallback (un-freeze the haulers once a container/pile
-   * backed up past a drain threshold) is RETIRED (owner 2026-07-28: "make sure
-   * the builder does its job and is sized correctly" - fix the sizing, don't
-   * valve around it). Backup pressure is handled at its causes: builderPlan
-   * sizes the squad to the source's full output and recycleUndersizedBuilder
-   * heals runts; a dead crew clears the reservation itself (updateDedicatedSource
-   * requires live builders), resuming normal hauling; a pile past the scavenge
-   * threshold is recovered by the planner's scavenge route (its own corp family,
-   * never stood down); container stock doesn't decay and drains home when the
-   * reservation lifts.
+   * The stand-down holds only while the crew KEEPS PACE. Stock backing up
+   * past the drain lens (shouldDrainDedicatedSource) means the crew is not
+   * consuming the output whatever its body count says - standing WORK is
+   * capability, not throughput (crews walk, split across sites, wait on
+   * tankers) - so the haulers keep their routes and the un-eaten output flows
+   * home. This is the macro doctrine's actual-stock signal, not a fallback:
+   * retiring it (owner directive 2026-07-28, attempted same day) broke the
+   * refill-SLA class deterministically and collapsed fid-t5-real-maze 50->16%
+   * gross. The reservation/valve/tanker-pinning/upgrader-damping bundle is
+   * coupled - the redesign fork is spec 34 open item 5, owner-gated.
    */
   private yieldsToBuild(): boolean {
     // Spec 25 phase 3: the trunk-receipt stand-down is retired - the PLAN now
@@ -1430,7 +1431,30 @@ export class CarryCorp extends Corp {
     // mechanism below remains (predates trunks).
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
-    return !!dedicated && this.mySourceId() === dedicated;
+    if (!dedicated || this.mySourceId() !== dedicated) return false;
+
+    const source = Game.getObjectById(dedicated as Id<Source>);
+    if (!source) return true;
+
+    const container = this.sourceContainerAt(source);
+    const containerEnergy = container ? container.store[RESOURCE_ENERGY] : null;
+    const containerCapacity = container ? container.store.getCapacity(RESOURCE_ENERGY) || 2000 : 0;
+    // The miner drops on the ground when there is no container; count that pile
+    // too, so a bare-pile source doesn't leave the route frozen while energy decays.
+    const groundPile = source.pos
+      .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
+      .reduce((sum, r) => sum + r.amount, 0);
+
+    if (shouldDrainDedicatedSource(containerEnergy, containerCapacity, groundPile)) return false;
+    return true;
+  }
+
+  /** The static container on a source's tile, if any (where the miner deposits). */
+  private sourceContainerAt(source: Source): StructureContainer | null {
+    const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    }) as StructureContainer[];
+    return containers[0] ?? null;
   }
 
   /**

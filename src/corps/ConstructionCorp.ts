@@ -37,7 +37,6 @@ import {
   BUILD_ENERGY_PER_WORK,
   bufferCarryParts,
   carryPartsFor,
-  dedicationJustified,
   projectAbsorbRate,
   refuelIntervalTicks,
   SOURCE_RATE,
@@ -948,18 +947,19 @@ export class ConstructionCorp extends Corp {
    * for it. Only when there is a spare source - the others still feed
    * spawn/controller; a one-source room can't give its only source away.
    *
-   * THE RESERVATION IS EARNED (owner 2026-07-28, with the resume-valve
-   * retirement), and by the ACTUAL crew, not the goal plan: crewRate =
-   * min(standing builder burn, sum-of-projects absorb). Reserving on the
-   * project's appetite alone re-created the mismatch the retired valve bled -
-   * measured in runt-economy: container sites (~15k work) justified the
-   * reservation while the standing cold-start crew was 1 WORK, so the near
-   * source hoarded into a build it couldn't eat, extensions never filled, and
-   * the 2-WORK miner never upsized in 1200 ticks. The macro doctrine already
-   * names the rule: consumers are sized from ACTUAL capability, never from
-   * the goal plan. So a cold colony keeps both sources hauling (production
-   * first) and the reservation FOLLOWS the crew as it heals to the source's
-   * rate; a crew outliving its project (absorb below the source) releases.
+   * CONDITIONAL DEDICATION ATTEMPTED AND REVERTED (2026-07-28, same day): an
+   * "earned reservation" gauge - dedicationJustified(min(standing burn, pool
+   * absorb), sourceRate) - was landed on the owner's "make sure the builder
+   * does its job and is sized correctly" and reverted after the grid showed
+   * the always-dedicate regime is FOUR-legged coupling, not one rule: the
+   * stand-down, the drain valve (yieldsToBuild's consumption-lag lens), the
+   * tanker source pinning, and UpgradingCorp.effectiveAllocated's (n-1)/n
+   * damping all switch on this reservation together. Gating it broke each
+   * leg's dependents in turn (runt-economy cold-ramp freeze under an
+   * absorb-only gauge; the refill-SLA class + fid-t5-real-maze 50->16% under
+   * min(burn, absorb) - un-scaled upgraders and spread tankers drained the
+   * tender's margin). The redesign is spec 34 open item 5's fork - owner
+   * ruling required; measurements in the spec.
    */
   private updateDedicatedSource(room: Room, building: boolean): void {
     const sources = room.find(FIND_SOURCES);
@@ -969,18 +969,7 @@ export class ConstructionCorp extends Corp {
     }
     const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
     const nearest = site ? site.pos.findClosestByRange(sources) : null;
-    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    const absorb = spawn
-      ? Math.max(buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos), this.poolAllocatedRate)
-      : 0;
-    const standingBurn =
-      this.builders.members().reduce((s, b) => s + b.getActiveBodyparts(WORK), 0) * BUILD_ENERGY_PER_WORK;
-    const crewRate = Math.min(standingBurn, absorb);
-    if (!nearest || !dedicationJustified(crewRate, nearest.energyCapacity / ENERGY_REGEN_TIME)) {
-      delete room.memory.dedicatedBuildSourceId;
-      return;
-    }
-    room.memory.dedicatedBuildSourceId = nearest.id;
+    room.memory.dedicatedBuildSourceId = nearest?.id;
   }
 
   private tankerSource(creep: Creep, room: Room): Source | null {
@@ -999,6 +988,24 @@ export class ConstructionCorp extends Corp {
     }
     const sources = room.find(FIND_SOURCES).sort((a, b) => a.id.localeCompare(b.id));
     if (sources.length === 0) return null;
+
+    // UN-RESERVED builds fetch from the SITE-NEAREST source (2026-07-28, with
+    // the earned reservation): the least-loaded spread below siphoned EVERY
+    // income stream at once - measured in fid-t4-preramped as a colony-wide
+    // refill-SLA breach (@239 deterministic: three spread tankers drained
+    // both circuits while the tender crawled at spawn self-regen; the old
+    // always-dedicate had confined construction's draw to one source).
+    // Nearest-to-site IS the plan's construction fill order (spec 25
+    // nearest-first), so execution and plan agree on which stream funds the
+    // build; the other circuits feed the core untouched.
+    const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+    if (site) {
+      const nearest = site.pos.findClosestByRange(sources);
+      if (nearest) {
+        creep.memory.assignedSourceId = nearest.id;
+        return nearest;
+      }
+    }
 
     const load = new Map<string, number>();
     for (const t of this.tankers.members()) {
