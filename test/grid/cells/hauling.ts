@@ -675,17 +675,14 @@ export function buildHaulingT3Cells(): GridCell[] {
         c.creeps = c.creeps.map((cr: any) =>
           cr.name === "bB" ? { ...cr, body: ["work", "carry", "carry", "move"] } : cr
         );
+        // EXTEND the base stage (site insert + container-decay freeze), never
+        // replace it: a wholesale override here missed the freeze when #141
+        // added it, so container A's tick-1 decay put bB on repair detail for
+        // ~90t - the 5/t build consumer this cell's drain arithmetic needs -
+        // and the pile outgrew the resume hauler (diag 2026-07-28).
+        const baseStage = c.stage;
         c.stage = async (ctx: any) => {
-          await ctx.db["rooms.objects"].insert({
-            type: "constructionSite",
-            room: ctx.room(),
-            x: 38,
-            y: 25,
-            user: ctx.userId,
-            structureType: "extension",
-            progress: 0,
-            progressTotal: 3000,
-          });
+          await baseStage(ctx);
           await ctx.db["rooms.objects"].insert({
             type: "energy",
             room: ctx.room(),
