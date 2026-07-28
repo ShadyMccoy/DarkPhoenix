@@ -94,9 +94,28 @@ ONTOLOGY §3 records the family.
    spawnIdle 57% → 95%, reproduced twice, and a cost-envelope cap
    (`floor(cap/150)` per body, holding the old 200-cost desired) did NOT
    restore it — so the interaction is a demand-shape effect, not body
-   price. Next probe: diff the two variants' spawn agendas/executed buys
-   over the maze ramp (t0-600) to find which demand class the 1:1 shape
-   displaces or walls.
+   price. Scheduler facts that bound the mechanism (read 2026-07-28):
+   `walkDemands` NEVER waits for desiredCost — any demand with
+   `energyAvailable >= minCost` buys immediately with `energyBudget =
+   min(desiredCost, energyAvailable)` (SpawnScheduler.ts:677-707), so at
+   cap 300 a 1:1 tanker (desired 300 == capacity) makes EVERY tanker buy
+   soak the whole bank to zero and yield an afford-min-scaled runt, while
+   3C:1M (desired 200) always leaves the bank's remainder standing; runts
+   under-deliver CARRY so the ≥2-body stream persists; and a demand
+   unserved ≥300 ticks lifts to the STARVED tier ABOVE all walled income
+   demands (SpawnScheduler.ts:436) — a lifted full-bank-soak buy resets
+   the very climb the walled miner/hauler (bank>=250/300) needed. The
+   historical W2N6 incident (SpawnScheduler.ts:683 comment) already named
+   cheap blocking-tanker streams as the bank-drain class. The /150
+   falsification says desired-cost alone is not the whole story (that
+   variant still collapsed with desired 200 but target 8), so the probe
+   must count, per variant over the maze ramp t0-600: full-bank buys
+   (cost == bank at buy), starved-tier lifts, wall-crossing ticks for the
+   miner/hauler demands, and tanker bodies bought vs CARRY fielded.
+   `sim:ab` (scripts/ab-cold-start.ts) is the harness shape — it already
+   A/Bs two built bundles on a fixed cold start but does not yet sample
+   Memory.spawnAgenda; teach it to, and point it at the shard3-W1N6
+   fixture (test/grid/fixtureRoom.ts) to reproduce the exact terrain.
 5. **Fidelity measurement integrity (EconWatch)**: the fid-* accumulators
    read the bot's exported memory PER TICK (workType lens, plan sums); the
    builder-buffer-feed calibration measured ~13% of samples with
