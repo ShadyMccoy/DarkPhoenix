@@ -5,8 +5,7 @@ import { setupGlobals } from "../mock";
 import {
   ConstructionCorp,
   OPERATION_END_CONFIRM_TICKS,
-  RELEASED_BUILDER_CORP_ID,
-  RELEASED_TANKER_CORP_ID
+  RELEASED_BUILDER_CORP_ID
 } from "../../../src/corps/ConstructionCorp";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
 import { isTenderCreep } from "../../../src/corps/censusLens";
@@ -16,9 +15,14 @@ import { PLACEMENT_COOLDOWN } from "../../../src/corps/constructionPlacement";
  * COHORT RELEASE AT OPERATION END (spec 34 D6): when the build pool drains -
  * work COMPLETE, never defund - every squad releases the same tick. Builders
  * ride the existing hand-off (release -> claimsOrphan adoption); the vector's
- * tankers RELEASE -> ordinary orphan grace -> recycle refund. No creep
- * outlives its operation by accident (the measured stray class: full ~800e
- * tankers idling their home loop to TTL death after the ladder finished).
+ * tankers go straight to CORP-DRIVEN recycle (memory.recycling - the squad
+ * walks them to the spawn, banks the cargo, refunds the body). Tankers skip
+ * the orphan path deliberately: no rescue exists for them by design, so the
+ * 25t grace only FROZE them in place - measured as fid-t4-synthetic's
+ * refill-SLA breach (a released tanker parked dead on the tender's
+ * refill-approach tile). No creep outlives its operation by accident (the
+ * measured stray class: full ~800e tankers idling their home loop to TTL
+ * death after the ladder finished).
  *
  * Two boundaries the mechanism must respect:
  * - "Pool drained" is confirmed against the PLACEMENT CADENCE: between ladder
@@ -85,15 +89,13 @@ describe("cohort release at operation end (spec 34 D6)", () => {
 
     releasePass(corp, spawn, 1000); // drain observed: clock starts, nothing fires yet
     const g = (global as any).Game;
-    expect(g.creeps.t1.memory.corpId, "no release before the drain is confirmed").to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling, "no release before the drain is confirmed").to.equal(undefined);
 
     releasePass(corp, spawn, 1000 + CONFIRM);
     expect(g.creeps.b1.memory.corpId, "builders release to the adoption marker").to.equal(RELEASED_BUILDER_CORP_ID);
-    expect(g.creeps.t1.memory.corpId, "tankers release to the recycle marker").to.equal(RELEASED_TANKER_CORP_ID);
-    expect(g.creeps.t2.memory.corpId, "every member goes - mid-recycle runts too").to.equal(RELEASED_TANKER_CORP_ID);
-    expect(g.creeps.t2.memory.recycling, "the orphan path owns the released creep - no stale duty flags").to.equal(
-      undefined
-    );
+    expect(g.creeps.t1.memory.corpId, "tankers stay CORP-OWNED - the squad drives their recycle").to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling, "tankers flagged for the walk-out refund").to.equal(true);
+    expect(g.creeps.t2.memory.recycling, "every member goes - mid-recycle runts stay flagged").to.equal(true);
   });
 
   it("a between-rungs transient drain (the placement cadence) does NOT release", () => {
@@ -108,18 +110,18 @@ describe("cohort release at operation end (spec 34 D6)", () => {
     releasePass(corp, spawn, 1000);
     releasePass(corp, spawn, 1000 + CONFIRM - 1);
     const g = (global as any).Game;
-    expect(g.creeps.t1.memory.corpId, "inside the window: still the corp's tanker").to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling, "inside the window: still the corp's working tanker").to.equal(undefined);
 
     // The next rung lands (placement attempt succeeds): the clock must reset...
     stageRoom([{ progress: 0, progressTotal: 3000 }]);
     releasePass(corp, spawn, 1000 + CONFIRM);
-    expect(g.creeps.t1.memory.corpId).to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling).to.equal(undefined);
 
     // ...so a later drain starts a FRESH window instead of firing instantly.
     stageRoom([]);
     releasePass(corp, spawn, 1000 + CONFIRM + 1);
     releasePass(corp, spawn, 1000 + CONFIRM + CONFIRM);
-    expect(g.creeps.t1.memory.corpId, "fresh window after a refill: no instant fire").to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling, "fresh window after a refill: no instant fire").to.equal(undefined);
   });
 
   it("DEFUND (allocation -> 0 with work standing) does NOT release - trap-list revocation class", () => {
@@ -133,8 +135,8 @@ describe("cohort release at operation end (spec 34 D6)", () => {
     releasePass(corp, spawn, 1000);
     releasePass(corp, spawn, 1000 + CONFIRM * 5); // far past any confirm window
     const g = (global as any).Game;
-    expect(g.creeps.t1.memory.corpId, "standing work keeps the standing fleet").to.equal(corp.id);
-    expect(g.creeps.t2.memory.corpId).to.equal(corp.id);
+    expect(g.creeps.t1.memory.recycling, "standing work keeps the standing fleet").to.equal(undefined);
+    expect(g.creeps.t2.memory.recycling).to.equal(undefined);
   });
 
   it("a mid-operation WANT DIP does NOT strand the standing builder (the re-solve reprice)", () => {
@@ -160,10 +162,10 @@ describe("cohort release at operation end (spec 34 D6)", () => {
     expect(g.creeps.t1.memory.corpId).to.equal(corp.id);
   });
 
-  it("released tankers are NOT tender-rescued: the tender kind claims its own orphans only", () => {
+  it("orphaned construction tankers are NOT tender-rescued: the tender kind claims its own only", () => {
     // Retires the cross-kind coverage smell: workType "tank" is shared, so the
-    // rescue map routes tank orphans to the tender kind - which must now
-    // decline foreign tankers (isTenderCreep lens) so the released vector
+    // rescue map routes tank orphans to the tender kind - which must decline
+    // foreign tankers (isTenderCreep lens): a dead construction corp's tanker
     // rides grace -> recycle refund instead of becoming a phantom tender.
     // The fixture's store KEY deliberately differs from the corp's OWN id
     // (commission id vs legacy runtime id - the live shape): the claim must
@@ -173,19 +175,17 @@ describe("cohort release at operation end (spec 34 D6)", () => {
     const corps: any = {
       [`tender-${HOME}`]: { id: `moving-${HOME}-tender`, getPosition: () => ({ x: 10, y: 10, roomName: HOME }) }
     };
-    const released: any = {
-      pos: { roomName: HOME },
-      memory: { workType: "tank", corpId: RELEASED_TANKER_CORP_ID }
-    };
-    expect(extensionTenderKind.claimsOrphan!(released, corps), "released construction tanker: no claim").to.equal(null);
-
     const constructionOrphan: any = {
       pos: { roomName: HOME },
       memory: { workType: "tank", corpId: `building-${HOME}-construction` }
     };
     expect(
+      isTenderCreep(constructionOrphan.memory),
+      "the lens itself: a construction tanker never reads as a tender"
+    ).to.equal(false);
+    expect(
       extensionTenderKind.claimsOrphan!(constructionOrphan, corps),
-      "a dead construction corp's tanker: no claim either"
+      "a dead construction corp's tanker: no claim"
     ).to.equal(null);
 
     const staleTenderOrphan: any = {
@@ -202,11 +202,5 @@ describe("cohort release at operation end (spec 34 D6)", () => {
       memory: { workType: "tank", corpId: "moving-W9N9-tender" }
     };
     expect(extensionTenderKind.claimsOrphan!(farTenderOrphan, corps), "different room: no claim").to.equal(null);
-  });
-
-  it("sentinel hygiene: the release marker never reads as a tender creep", () => {
-    // isTenderCreep keys on corpId.includes("tender"); a marker that matched
-    // would put every released tanker right back into the tender census.
-    expect(isTenderCreep({ workType: "tank", corpId: RELEASED_TANKER_CORP_ID } as any)).to.equal(false);
   });
 });

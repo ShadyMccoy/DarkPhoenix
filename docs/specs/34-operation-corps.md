@@ -20,17 +20,24 @@ ONTOLOGY §3 records the family.
   the pool drained past `OPERATION_END_CONFIRM_TICKS` (2× the placement
   cadence, so a between-rungs gap never fires it) releases every squad the
   same tick — builders → the adoption marker (`claimsOrphan` → next corp,
-  else grace → recycle), tankers → `RELEASED_TANKER_CORP_ID` → grace →
-  recycle refund. The tender-rescue of construction tankers is RETIRED
-  (extensionTenderKind.claimsOrphan is gated on `isTenderCreep`). Two
-  boundary rules, both pinned in `cohortRelease.test.ts`: DEFUND (allocation
-  → 0, sites standing) never releases, and — the refinement D6 forced — a
-  mid-operation WANT DIP never releases either: the home pool corp's want is
-  a re-solve PRICE, and releasing on its dip stranded a standing 2W builder
-  as a frozen orphan holding 80 energy (measured in the cell, want 2→1 at a
-  site completion). Home corps release ONLY through the operation-end
-  cohort; remote stint corps keep the immediate local hand-off (their want
-  is a stable local signal — the original hand-off incident).
+  else grace → recycle), tankers → CORP-DRIVEN recycle (`memory.recycling`;
+  the squad walks them out, banks cargo, refunds the body). Tankers skip
+  the orphan path deliberately: no rescue exists for them by design, and
+  the first cut (a release sentinel through OrphanRescue) FROZE them for
+  the 25t grace wherever they stood — measured as fid-t4-synthetic's
+  refill-SLA breach at t1091, deterministic across draws, a released tanker
+  parked dead on the tender's refill-approach tile. The tender-rescue of
+  construction tankers is RETIRED (extensionTenderKind.claimsOrphan is
+  gated on `isTenderCreep`, returning corp.id — never the commission store
+  key, the frozen-stale-tender incident). Two boundary rules, all pinned in
+  `cohortRelease.test.ts`: DEFUND (allocation → 0, sites standing) never
+  releases, and — the refinement D6 forced — a mid-operation WANT DIP never
+  releases either: the home pool corp's want is a re-solve PRICE, and
+  releasing on its dip stranded a standing 2W builder as a frozen orphan
+  holding 80 energy (measured in the cell, want 2→1 at a site completion).
+  Home corps release ONLY through the operation-end cohort; remote stint
+  corps keep the immediate local hand-off (their want is a stable local
+  signal — the original hand-off incident).
 - **`builder-buffer-feed` grid cell** — green at 91–92% workUtil across
   four draws (floor 0.9), zero fuel trips, fed-idle 0. Building it surfaced
   THREE fidelity gaps; two are fixed, the third is measured and queued:

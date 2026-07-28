@@ -114,18 +114,6 @@ const TANKER_FLOOR = 2;
 export const RELEASED_BUILDER_CORP_ID = "released-builder";
 
 /**
- * The non-live corpId a released TANKER carries at OPERATION END (spec 34 D6:
- * cohort release). Unlike builders there is no adoption half - a vector's
- * carriers exist for the operation they served - so rescue finds no taker and
- * the ordinary grace -> recycle path refunds the body (driveRecycle banks any
- * carried energy first). The tender kind explicitly declines these orphans
- * (its claimsOrphan is gated on isTenderCreep - the marker must never contain
- * "tender", pinned in cohortRelease.test.ts): the old cross-kind coverage
- * turned a finished operation's vector into phantom tenders.
- */
-export const RELEASED_TANKER_CORP_ID = "released-tanker";
-
-/**
  * How long the build pool must stay drained before it counts as OPERATION END
  * (spec 34 D6). Between ladder rungs the pool is legitimately empty for up to
  * PLACEMENT_COOLDOWN ticks (a site completes; the next placement attempt runs
@@ -296,9 +284,15 @@ export class ConstructionCorp extends Corp {
    * build pool drains - work COMPLETE, confirmed against the placement
    * cadence - every squad releases the same tick: builders to the adoption
    * marker (claimsOrphan routes them to the next corp that wants one, else
-   * grace -> recycle), the vector's carriers to the recycle marker (no
-   * taker by design - the tender kind declines foreign tanks - so the
-   * ordinary grace -> recycle path refunds each body).
+   * grace -> recycle), the vector's carriers straight to CORP-DRIVEN recycle
+   * (memory.recycling; Squad.run walks them to the spawn, banks any cargo,
+   * refunds the body). Tankers deliberately SKIP the orphan path: no rescue
+   * exists for them by design (the tender kind declines foreign tanks), so
+   * the 25t orphan grace bought nothing and cost plenty - a released tanker
+   * FROZE in place through the grace, and it was last standing inside the
+   * extension cluster: measured as fid-t4-synthetic's refill-SLA breach at
+   * t1091 (deterministic, two draws - the frozen tanker parked on the
+   * tender's refill-approach tile while an extension sat 44 short).
    *
    * The trigger is the SAME buildPool lens the demand side gates orders on
    * (staffsPost symmetry) - physical standing work, never the plan's
@@ -322,8 +316,7 @@ export class ConstructionCorp extends Corp {
     // (repairerPlan) - releaseExcessBuilders keeps exactly that.
     this.releaseExcessBuilders();
     for (const tanker of this.tankers.members()) {
-      tanker.memory.corpId = RELEASED_TANKER_CORP_ID;
-      delete tanker.memory.recycling; // the orphan path owns it now
+      tanker.memory.recycling = true; // corp-driven: walk out, bank cargo, refund
     }
   }
 
