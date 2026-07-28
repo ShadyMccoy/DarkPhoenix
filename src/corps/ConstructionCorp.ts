@@ -948,15 +948,18 @@ export class ConstructionCorp extends Corp {
    * for it. Only when there is a spare source - the others still feed
    * spawn/controller; a one-source room can't give its only source away.
    *
-   * THE RESERVATION IS EARNED BY THE PROJECT (owner 2026-07-28, with the
-   * resume-valve retirement): the crew is sized by sum-of-projects
-   * (builderPlan's absorb cap), so a small project fields a small crew - and
-   * reserving a 10 e/t source to feed the 5 e/t crew one extension justifies
-   * stranded the other half at the source, which the retired drain valve then
-   * existed to bleed home. Dedicate only when the crew the pool justifies
-   * consumes ~the source's output (dedicationJustified); small builds run
-   * un-reserved - haulers keep their routes, tankers draw as ordinary
-   * consumers, and the builder's onboard buffer bridges the contention.
+   * THE RESERVATION IS EARNED (owner 2026-07-28, with the resume-valve
+   * retirement), and by the ACTUAL crew, not the goal plan: crewRate =
+   * min(standing builder burn, sum-of-projects absorb). Reserving on the
+   * project's appetite alone re-created the mismatch the retired valve bled -
+   * measured in runt-economy: container sites (~15k work) justified the
+   * reservation while the standing cold-start crew was 1 WORK, so the near
+   * source hoarded into a build it couldn't eat, extensions never filled, and
+   * the 2-WORK miner never upsized in 1200 ticks. The macro doctrine already
+   * names the rule: consumers are sized from ACTUAL capability, never from
+   * the goal plan. So a cold colony keeps both sources hauling (production
+   * first) and the reservation FOLLOWS the crew as it heals to the source's
+   * rate; a crew outliving its project (absorb below the source) releases.
    */
   private updateDedicatedSource(room: Room, building: boolean): void {
     const sources = room.find(FIND_SOURCES);
@@ -967,9 +970,12 @@ export class ConstructionCorp extends Corp {
     const site = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
     const nearest = site ? site.pos.findClosestByRange(sources) : null;
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    const crewRate = spawn
+    const absorb = spawn
       ? Math.max(buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos), this.poolAllocatedRate)
       : 0;
+    const standingBurn =
+      this.builders.members().reduce((s, b) => s + b.getActiveBodyparts(WORK), 0) * BUILD_ENERGY_PER_WORK;
+    const crewRate = Math.min(standingBurn, absorb);
     if (!nearest || !dedicationJustified(crewRate, nearest.energyCapacity / ENERGY_REGEN_TIME)) {
       delete room.memory.dedicatedBuildSourceId;
       return;

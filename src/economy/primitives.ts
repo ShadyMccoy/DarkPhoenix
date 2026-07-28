@@ -417,9 +417,11 @@ export const DEDICATION_MIN_CONSUMPTION = 0.8;
 
 /**
  * Should a whole source be reserved for the build? `crewRate` is the
- * consumption the project justifies - the SAME sum-of-projects absorb the
- * crew is sized to (projectAbsorbRate via buildPoolAbsorbRate), never a
- * separate estimate - and `sourceRate` the source's full output.
+ * consumption the crew can ACTUALLY sustain - min(standing builder burn,
+ * sum-of-projects absorb), per the macro doctrine (consumers sized from
+ * actual capability, never the goal plan; the absorb-only first cut
+ * reserved a source for a crew that couldn't eat it, measured in
+ * runt-economy 2026-07-28) - and `sourceRate` the source's full output.
  */
 export function dedicationJustified(crewRate: number, sourceRate: number): boolean {
   return sourceRate > 0 && crewRate >= DEDICATION_MIN_CONSUMPTION * sourceRate;

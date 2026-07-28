@@ -34,11 +34,13 @@ const flowHaulerExists = (s: { memory: any }) =>
 // exactly what the cells discriminate.
 //
 // THE RESERVATION IS EARNED (owner 2026-07-28): updateDedicatedSource keeps
-// the reservation only when the pool's absorb rate consumes ~the source's
-// output (dedicationJustified). siteWork sets that verdict: the default
-// 15000 justifies (absorb ~15 e/t vs the 10 e/t source), 3000 does not
-// (absorb floors at 5 e/t) - the small-build cell stages the latter and
-// asserts the staged reservation is CLEARED.
+// the reservation only when min(standing crew burn, pool absorb) consumes
+// ~the source's output (dedicationJustified) - BOTH axes must clear. The
+// staged bB body and siteWork set the verdict: standdown's 2-WORK crew
+// against the default 15000 work justifies (min(10, ~15) vs the 10 e/t
+// source); a 1-WORK runt does not (burn 5 - the runt-not-reserved cell),
+// nor does a 3000 project (absorb floors at 5 - the small-build cell).
+// Both clearing cells stage a stale reservation and assert it is CLEARED.
 // Harvest spots: A -> (11,24); B -> (39,24) (Chebyshev-to-spawn tie-break).
 // ---------------------------------------------------------------------------
 const dedicatedRoom = (roomName: string) =>
@@ -116,15 +118,6 @@ const haulersOfCorp = (s: any, corpId: string | null): number =>
         ([, mem]: [string, any]) => mem?.workType === "haul" && mem?.corpId === corpId
       ).length;
 
-/** Total WORK parts across the room's build-role creeps (db bodies are {type,hits} entries). */
-const buildSquadWork = (s: any): number =>
-  s
-    .objects()
-    .filter((o: any) => o.type === "creep" && s.memory?.creeps?.[o.name]?.workType === "build")
-    .reduce(
-      (sum: number, o: any) => sum + ((o.body ?? []) as any[]).filter((p: any) => (p?.type ?? p) === "work").length,
-      0
-    );
 
 // ---------------------------------------------------------------------------
 // T1 circuit-split geometry: source (25,42) with its container staged on the
@@ -644,20 +637,21 @@ export function buildHaulingT3Cells(): GridCell[] {
     },
 
     {
-      // Sizing IS the resume (owner 2026-07-28): the resume-on-backup fallback
-      // - un-freezing B's haulers when a container/pile backed up past a drain
-      // gate - is retired with its cells (resume-container, resume-groundpile).
-      // Correct sizing makes the backup unreachable, so this cell stages the
-      // runt those cells had to FORCE (a 1-WORK builder against a 10 e/t
-      // source, staging that under the old gate FIELDED a hauler) and pins the
-      // healing contract in its place: the squad grows to the source's full
-      // WORK, the site progresses at the healed rate, and B's haulers stay
-      // stood down throughout - the always-assertion the fallback made
-      // unwritable.
-      id: "haul-t3-dedicated-runt-heals",
+      // The CREW axis of the earned reservation (owner 2026-07-28, replacing
+      // the retired resume-container/resume-groundpile cells): a 1-WORK runt
+      // burns 5 of the source's 10 e/t, so min(standing burn, absorb) sits
+      // below the gate and the staged stale reservation is CLEARED - B hauls
+      // its residual home (production first; the old code reserved anyway and
+      // needed the drain valve to bleed the difference), while the runt keeps
+      // building at its funded pace. The crew is sized by its ALLOCATION
+      // (consumer discipline, parts-bound here - measured: a parts-bound
+      // staged colony funds exactly 1 WORK), and the reservation follows the
+      // crew only when funding grows it to the source's rate - the standdown
+      // cell pins that reserved end-state with its staged 2-WORK crew.
+      id: "haul-t3-dedicated-runt-not-reserved",
       tier: 3,
       avenue: "logistics",
-      window: 150,
+      window: 110,
       rooms: { home: dedicatedRoom },
       bot: { x: 25, y: 25 },
       controller: { level: 2 },
@@ -670,16 +664,16 @@ export function buildHaulingT3Cells(): GridCell[] {
         return { structures: c.structures, creeps: c.creeps, memory: c.memory, stage: c.stage };
       })(),
       assertions: [
-        always("B's corp never fields a hauler (sizing, not resume)", (s) =>
-          haulersOfCorp(s, bCarryCorpId(s)) === 0
+        eventually("the stale reservation is cleared (crew can't eat the source)", (s) => {
+          const rooms = s.memory?.rooms;
+          return !!rooms && !rooms[s.room()]?.dedicatedBuildSourceId;
+        }),
+        eventually("B hauls its residual home (production first)", (s) =>
+          haulersOfCorp(s, bCarryCorpId(s)) >= 1
         ),
-        eventually("the squad heals to the source's full WORK", (s) => buildSquadWork(s) >= 2),
-        eventually("the site progresses at the healed rate", (s) => {
-          // >= 900 by window end needs the heal: a lone 1-WORK runt caps at
-          // 5/t x 150t = 750 even feeding perfectly; a healed squad crosses
-          // comfortably (5/t before the heal, 10+/t after).
+        eventually("the runt keeps building at its funded pace", (s) => {
           const site = s.objects().find((o: any) => o.type === "constructionSite" && o.x === 38 && o.y === 25);
-          return (site?.progress ?? 0) >= 900;
+          return (site?.progress ?? 0) >= 400;
         }),
       ],
     },

@@ -102,20 +102,34 @@ runts, a dead crew clears the reservation itself, scavenge recovers
 threshold piles, container stock waits decay-free. The trigger for the
 retirement was the groundpile diagnosis: the cells had to STAGE a 1-WORK
 runt to make resume fire at all, and the "backup" it bled was the DESIGNED
-mismatch of reserving a whole 10 e/t source for the 5 e/t crew a single
-extension justifies (projectAbsorbRate floors at 5). So THE RESERVATION IS
-NOW EARNED: `dedicationJustified(crewRate, sourceRate)` (primitives,
->= 80%) gates updateDedicatedSource — small projects run un-reserved with
-normal haul routes. Landing the replacement cell surfaced and fixed a real
-vector bug: tanker dispatch was closest-only, and a container-adjacent
-self-refueling builder (~5 free capacity every tick) starved a parked
-sibling at ZERO for its whole life — dispatch is now need-first (below
-half buffer beats proximity). Cells: resume-container + resume-groundpile
-retired; `haul-t3-dedicated-runt-heals` (heal to full WORK, progress at
-the healed rate, haulers stay down) + `haul-t3-small-build-no-reserve`
-(stale reservation cleared, B keeps its route) pin the new contract;
-standdown restaged on a 15000-work site. All three deterministic across
-draws; unit 1593 green.
+mismatch of reserving a whole 10 e/t source for a crew that couldn't eat
+it. So THE RESERVATION IS NOW EARNED: `dedicationJustified(crewRate,
+sourceRate)` (primitives, >= 80%) gates updateDedicatedSource with
+crewRate = **min(standing builder burn, sum-of-projects absorb)** — BOTH
+axes must clear. The first cut used the absorb alone (a goal-plan
+quantity) and runt-economy caught it within the hour: container sites
+(~15k work) justified reserving the near source while the standing
+cold-start crew was 1 WORK, so the source hoarded into a build it
+couldn't eat, extensions never filled, and the 2-WORK miner never upsized
+in 1200 ticks — the macro doctrine's own rule (consumers sized from
+ACTUAL capability, never the goal plan) names the fix. Consequence worth
+knowing: pre-reservation the crew is sized by its ALLOCATION like any
+consumer (parts-bound rooms fund small crews and B hauls the residual —
+production first); the reservation follows the crew as funding grows it
+to the source's rate, and releases on the project tail. Landing the
+replacement cell also surfaced and fixed a real vector bug: tanker
+dispatch was closest-only, and a container-adjacent self-refueling
+builder (~5 free capacity every tick) starved a parked sibling at ZERO
+for its whole life — dispatch is now need-first (below half buffer beats
+proximity). Cells: resume-container + resume-groundpile retired;
+`haul-t3-dedicated-runt-not-reserved` (crew axis: stale reservation
+cleared, B hauls residual, runt builds at funded pace) +
+`haul-t3-small-build-no-reserve` (project axis: same posture for a 3000
+site) pin the clearing; standdown (staged 2-WORK crew, 15000-work site)
+pins the reserved end-state. All three deterministic across draws; unit
+1593 green; storage-depot green; runt-economy + flow-handoff
+re-verification in flight at commit time (result recorded in the next
+commit).
 
 **OPEN, in order:**
 

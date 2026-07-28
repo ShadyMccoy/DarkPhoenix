@@ -181,8 +181,8 @@ haul-t3-dedicated-resume-groundpile (pass@100 x2, timeout@100, pass@150,
 timeout@150; RESOLVED 2026-07-28 - the cell's stage override missed the
 #141 decay freeze, so the repair detail hijacked the only builder; the
 cell then retired with the resume valve, superseded by
-haul-t3-dedicated-runt-heals) and spawn-timer-survives-busy-spawn (pass,
-fail@140 x2, pass, fail@140). The timer cell's flip MAY be a real intermittent
+haul-t3-dedicated-runt-not-reserved) and spawn-timer-survives-busy-spawn
+(pass, fail@140 x2, pass, fail@140). The timer cell's flip MAY be a real intermittent
 demand-flicker (the #93 stamp changes byte-identity under specific spawn
 sequences) - a diag lead, not just noise. A rerun-once policy for
 eventually-only cells is designed but unbuilt.
@@ -977,7 +977,7 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 | `haul-t2-no-divert-above-half` | T2 | 30t | RCL2 stall: controller-bound hauler diverted on ANY spawn fr |
 | `haul-t2-scavenge-threshold` | T2 | 150t |  |
 | `haul-t3-dedicated-standdown` | T3 | 110t | haulers competed with construction tankers for the dedicated |
-| `haul-t3-dedicated-runt-heals` | T3 | 150t | tanker closest-only dispatch starved the far parked builder |
+| `haul-t3-dedicated-runt-not-reserved` | T3 | 110t | whole source reserved for a crew that couldn't eat it |
 | `haul-t3-small-build-no-reserve` | T3 | 100t | whole source reserved for a crew half its size |
 | `haul-t4-tender-bus-regime` | T4 | 60t | haulers schooling on one half-full extension tile |
 | `haul-t4-tender-death-failsafe` | T4 | 50t | dead tender deadlocking the colony |
@@ -1062,16 +1062,16 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 - **Known bug targeted**: haulers competed with construction tankers for the dedicated source's output
 - **Code refs**: `src/corps/CarryCorp.ts (yieldsToBuild, pickupEnergy stand-down, getSpawnDemands yield gate)`, `src/corps/ConstructionCorp.ts (updateDedicatedSource)`
 
-### `haul-t3-dedicated-runt-heals` (T3) — A runt builder heals to the source's full WORK; no resume valve needed
+### `haul-t3-dedicated-runt-not-reserved` (T3) — A runt crew doesn't earn the source
 
-- **Purpose**: Sizing IS the resume (owner 2026-07-28, replacing the retired resume-container/resume-groundpile cells): a staged 1-WORK runt against a 10 e/t dedicated source is healed by the demand side (builderPlan sizes the squad to the source; a sibling spawns) instead of un-freezing B's haulers to bleed the backup. Also pins the tanker's NEED-FIRST dispatch: the found starvation mode was the vector micro-dripping a container-adjacent self-refueling builder (~5 free capacity every tick, always closest) while the parked sibling stood at zero for its whole life.
-- **World**: Standdown's room; B's container staged 1400/2000 (stock past the RETIRED drain gate - stood down regardless), site at (38,25) with 15000 work, bB downsized to 1 WORK.
-- **Staged state**: Same warm memory as standdown (dedicatedBuildSourceId=B, B's operation with 0 haulers).
-- **Expected**: The first solve demands a sibling builder (squad target 2 WORK); it parks at build range and the tanker feeds it (need-first); site progress runs ~5/t before the heal, ~10/t after.
-- **Assertion**: ALWAYS no Memory.creeps entry with workType 'haul' on B's operation id; EVENTUALLY total WORK across build-role creeps >= 2; EVENTUALLY site progress >= 900 (a lone 1-WORK runt caps at 5/t x 150t = 750 even feeding perfectly, so 900 needs the healed squad).
-- **Verdict window**: 150 ticks
-- **Known bug targeted**: tanker closest-only dispatch starved the far parked builder (found by this cell, fixed 2026-07-28); the retired resume valve masked under-sized crews instead of healing them
-- **Code refs**: `src/corps/ConstructionCorp.ts (builderPlan sizing, recycleUndersizedBuilder, runTanker need-first dispatch)`, `src/economy/primitives.ts (dedicationJustified)`
+- **Purpose**: The CREW axis of the earned reservation (owner 2026-07-28, replacing the retired resume-container/resume-groundpile cells): a 1-WORK runt burns 5 of the source's 10 e/t, so min(standing burn, absorb) sits below DEDICATION_MIN_CONSUMPTION and the reservation is refused - B hauls its residual home (production first) while the runt builds at its funded pace. The old code reserved anyway and needed the drain valve to bleed the difference. (An earlier heal-in-place version of this cell surfaced and fixed the tanker's closest-only dispatch starving a far parked builder - need-first dispatch remains landed and is exercised by builder-buffer-feed.)
+- **World**: Standdown's room; B's container staged 1400/2000 (stock past the RETIRED drain gate - irrelevant now), site at (38,25) with 15000 work, bB downsized to 1 WORK.
+- **Staged state**: Same warm memory as standdown INCLUDING the stale dedicatedBuildSourceId=B - the cell asserts the runtime clears it.
+- **Expected**: updateDedicatedSource clears the reservation on evaluation (crew burn 5 < 8); B's operation fields haulers for its residual; the runt keeps building ~5/t. The crew is sized by its ALLOCATION (consumer discipline; a parts-bound staged colony funds exactly 1 WORK - measured), and the reservation follows the crew only when funding grows it to the source's rate (standdown pins that reserved end-state with its staged 2-WORK crew).
+- **Assertion**: EVENTUALLY Memory.rooms has no dedicatedBuildSourceId; EVENTUALLY a workType-'haul' Memory.creeps entry on B's operation id exists; EVENTUALLY site progress >= 400 (5/t sustained).
+- **Verdict window**: 110 ticks
+- **Known bug targeted**: reserving a whole source for a crew that can't eat it (the mismatch the retired valve existed to bleed; runt-economy measured the cold-start version - reserved-but-unconsumed income froze the miner upsize path)
+- **Code refs**: `src/corps/ConstructionCorp.ts (updateDedicatedSource min-gauge, runTanker need-first dispatch)`, `src/economy/primitives.ts (dedicationJustified, DEDICATION_MIN_CONSUMPTION)`
 
 ### `haul-t3-small-build-no-reserve` (T3) — A small project does not earn a whole source
 
