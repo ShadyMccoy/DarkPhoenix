@@ -52,22 +52,42 @@ ONTOLOGY §3 records the family.
      below): the residual ~8% is starvation from the 3C:1M carrier's laden
      gait (3 t/tile → real RT ≈ 2× the priced `roundTripTicks`).
 
+**LANDED 2026-07-28 (third tranche — the producer mirror, owner go):**
+
+- **D5 second half — the MINER OPERATION.** A mined source is ONE harvest
+  commission carrying `{miner, routes}` with `spawnPartsPerTick =
+  minerSpawnLoad(d) + Σ routed spawnParts` (the planner's own per-route
+  parts, paved discounts and deposit legs included) — the two-envelope
+  double-declaration (nominal estimate on harvest + routed truth on carry)
+  is gone. The harvest kind fields the whole operation: hauler role moved
+  in (`deliversEnergy` intact), bodies via the same ratio-hauler formula,
+  and HarvestCorp runs the vector through an internal CarryCorp engine
+  sharing the operation's id (workType separates the squads — the
+  construction builder/tanker pattern; every haul behavior/gate/policy
+  verbatim). Boundary rulings (owner): link-served = haul-of-zero (routes
+  [], price = node alone); minerless scavenge stocks keep the standalone
+  carry path; bank routes stay uncommissioned. `Corp.innerCorps()` is the
+  metering hook that keeps the engine's plan-vs-actual row in
+  Memory.corpVariance (flow-handoff's hand-off probe enforces it).
+  Gate: unit 1591 green (golden master deliberately regenerated),
+  integration trio green, full grid 125/130 — the fifteen first-run reds
+  were stale cell DETECTORS (cells watched for the retired "hauling-"
+  stamp; operation haulers stamp "mining-…"), modernized and re-verified
+  per class; remaining reds are the pre-existing set (the two #143 master
+  regressions, exp-t5's known timeout, and the batch-marginal refill-SLA
+  class below).
+
 **OPEN, in order:**
 
-1. **minerCorp — the producer-side mirror (D5 second half).** "Spawn a
-   minerCorp": harvest + its evacuation vector as ONE commission with ONE
-   all-in price (`operationSpawnLoad(minerOverhead, [vector])`), the carry
-   squad an internal detail of the harvest kind. Registration-only (spec 17);
-   the consumer half landed first, this is the same move on produce.
-2. **P4 ledger consistency**: the waste ledger's plan-implied parts should
+1. **P4 ledger consistency**: the waste ledger's plan-implied parts should
    read the construction charge THROUGH the all-in price (it now exists in
    the plan) so "unbudgeted" construction bodies disappear from the detail
    line for the right reason.
-3. **Further kinds into the interface** (as encountered, not speculatively):
+2. **Further kinds into the interface** (as encountered, not speculatively):
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
-4. **Operation-end release traffic vs the refill SLA** — measured
+3. **Operation-end release traffic vs the refill SLA** — measured
    2026-07-28, OPEN. With the corp-driven recycle in,
    `fid-t4-synthetic-steady-state` passes in ISOLATION (twice) but fails in
    FULL-GRID batch worlds (twice) at the same event: the RCL2 extension
@@ -81,7 +101,12 @@ ONTOLOGY §3 records the family.
    operation END at all, or a pause (the release's refund vs the re-spawn
    at the next rung)? Until decided, the cell is a KNOWN marginal red on
    full-grid runs of this branch - real signal, not staging noise.
-5. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
+   2026-07-28 update: `plan-t5-remote-pipeline` joined the class once (fail
+   @602/700 on the same rider, same signature — a loaded tender beside
+   50-short extensions past the 10t grace; the identical bundle passed it
+   the run before). Treat both as ONE open item: the refill SLA's grace vs
+   batch-load tender latency around spawn-volley drains.
+4. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
    mechanism NOT yet understood; do not patch blind (trap-list rule). The
    facts: (a) `tankerCarryNeeded` sizes the fleet with `roundTripTicks`
    (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile
