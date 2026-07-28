@@ -67,7 +67,21 @@ ONTOLOGY §3 records the family.
    the feeder IS a 1-tile vector; tender/scout/reserver declare
    `spawnPartsPerTick: 0` today — same honesty pass as D4 when their pricing
    matters to a real decision.
-4. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
+4. **Operation-end release traffic vs the refill SLA** — measured
+   2026-07-28, OPEN. With the corp-driven recycle in,
+   `fid-t4-synthetic-steady-state` passes in ISOLATION (twice) but fails in
+   FULL-GRID batch worlds (twice) at the same event: the RCL2 extension
+   ladder completes ~t1050, the cohort releases, and at t1091 one extension
+   sits 44 short for ~1 tick past the SLA's 10-tick grace while recycling
+   tankers converge on the spawn cluster. Batch CPU contention supplies the
+   final 1-2 ticks of tender latency the margin can't absorb. Open
+   questions for the owner: should a recycling CARRIER shed into a short
+   extension it passes (refund via the bank either way, but it brushes the
+   haulers-never-fan doctrine), and is a home room's between-RCL pause an
+   operation END at all, or a pause (the release's refund vs the re-spawn
+   at the next rung)? Until decided, the cell is a KNOWN marginal red on
+   full-grid runs of this branch - real signal, not staging noise.
+5. **The vector gait (carrier body vs priced RT)** — measured 2026-07-27,
    mechanism NOT yet understood; do not patch blind (trap-list rule). The
    facts: (a) `tankerCarryNeeded` sizes the fleet with `roundTripTicks`
    (2d+2, a 1:1 body's speed) but the 3C:1M body walks laden at 3 t/tile

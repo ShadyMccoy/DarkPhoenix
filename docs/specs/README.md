@@ -35,7 +35,7 @@ Conventions used by every spec:
 | 05 | [Toolchain upgrade](05-toolchain-upgrade.md) | approved, not started | P2 |
 | 06 | [Expansion: claim the next room](06-expansion.md) | **LANDED 2026-07-10** — capital-gated claiming + sink-based founding, exp-t5 cells green | landed |
 | 07 | [Tower defense (minimal)](07-tower-defense.md) | **LANDED 2026-07-17** (spec 13 tranche 1) — TowerRunner + RCL3 placement + tender feeding; tower-defense integration test green | landed |
-| 08 | [Inflection-point grid](08-inflection-grid.md) | ~114 cells; BOT LEVEL ratcheted (red: haul-t4-tender-bus-regime — depot bridge economy, fix queued in spec 27; plan-t5-remote-pipeline) | ongoing — the success metric |
+| 08 | [Inflection-point grid](08-inflection-grid.md) | ~130 cells; BOT LEVEL ratcheted (current reds, 2026-07-28 full runs: haul-t3-dedicated-resume-groundpile + plan-t4-link-haul-pricing — the bisected #143 master regressions; fid-t4-synthetic's batch-load-marginal refill SLA — spec 34 open item; exp-t5-founding timeout — active work. haul-t4-tender-bus-regime and plan-t5-remote-pipeline are GREEN again) | ongoing — the success metric |
 | 09 | [Robustness program](09-robustness-program.md) | phases 1, 4 done; 5 partial (CpuGovernor + bulkheads; schema versioning open); 6 partial (standdown); 2-3 open | P0 (phase 2) |
 | 10 | [RCL journey map](10-rcl-journey.md) | living ledger — most steps cell-pinned; see gap list | ongoing |
 | 11 | [Two plans: goal and now](11-two-plans.md) | phases 1-2 landed (agenda published + funding); phase 3 (transitions into agenda) open | P0 |
