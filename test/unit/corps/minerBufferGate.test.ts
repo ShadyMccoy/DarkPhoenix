@@ -238,3 +238,43 @@ describe("pile-gate delay meter (tallyPileGate - the spawning delay time of a pi
     delete (global as any).Memory.pileMeter;
   });
 });
+
+describe("pile gate NEVER darkens an unstaffed source (live FAIL t72658948)", () => {
+  // The gate's job is to stop buying ANOTHER body into a saturated mouth.
+  // It must never suppress the source's FIRST miner: with staffing 0 the
+  // source produces nothing at all, so the pile is purely a hauling deficit
+  // and blocking the replacement converts a haul problem into an INCOME
+  // STOPPAGE. Measured live: cd8e (buffered 3016, staffing 0/1, held 214t)
+  // and cd8d (2279, 0/1, 292t) both went dark behind their own piles - E6
+  // caught it as a FAIL ("2 source(s) DARK behind a full pile - income
+  // stopped"). colonyColdStart did NOT cover this: the SPAWN's room still
+  // had miners, so only the remote posts starved.
+  const ctx2 = { energyCapacity: 550, tick: 200 };
+
+  beforeEach(() => {
+    (global as any).Game.creeps = {};
+    (global as any).Game.time = ((global as any).Game.time ?? 0) + 1;
+    delete (global as any).Memory.pileMeter;
+  });
+
+  it("DEMANDS a miner at a full-buffer source with ZERO staffing (income first)", () => {
+    const corp = stagedCorp();
+    // No creeps for this corp anywhere: the post is dark.
+    const source = stageSource(4000, 0);
+    (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
+
+    const demands = corp.getSpawnDemand(ctx2);
+    expect(demands.map(d => d.role), "a dark source must be re-staffed").to.include("miner");
+    expect(corp.lastSizing).to.include({ gate: "clear-unstaffed" });
+  });
+
+  it("still defers when the post IS staffed (the gate's actual job is unchanged)", () => {
+    const corp = stagedCorp();
+    stageStandingMiner(corp);
+    const source = stageSource(4000, 0);
+    (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
+
+    expect(corp.getSpawnDemand(ctx2)).to.deep.equal([]);
+    expect(corp.lastSizing).to.include({ gate: "buffer-full" });
+  });
+});

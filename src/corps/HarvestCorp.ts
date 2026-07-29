@@ -560,7 +560,18 @@ export class HarvestCorp extends Corp {
     // only on fresh direct evidence (the stranded-reserver trap's polarity),
     // and a cold start is exempt above all.
     const buffered = this.unhauledBufferStock();
-    const held = !colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD;
+    // NEVER darken an unstaffed source (live FAIL t72658948, E6 caught it:
+    // "2 source(s) DARK behind a full pile - income stopped"). The gate
+    // exists to stop buying ANOTHER body into a saturated mouth; with
+    // staffing 0 the source produces NOTHING, so the pile is purely a
+    // hauling deficit and withholding the replacement converts a haul
+    // problem into an income stoppage - the worse failure, and a distress
+    // response of the wrong class (macro doctrine: fund producers first).
+    // Subsumes the cold-start exemption: colonyColdStart only covered a dead
+    // SPAWN ROOM, so remote posts (cd8e 3016e/214t, cd8d 2279e/292t) starved
+    // while home still mined. The pile still gates every ADDITIONAL body.
+    const held =
+      current > 0 && !colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD;
     // Delay meter (owner 2026-07-29): tally the gate's ACTUAL verdict so the
     // stamp carries HOW LONG this pile has been delaying spawning. Fog
     // (buffered null) never tallies - unmeasurable is neither held nor clear.
@@ -588,7 +599,12 @@ export class HarvestCorp extends Corp {
     }
     this.lastSizing = {
       tick: ctx.tick,
-      gate: "clear",
+      // Name the unstaffed exemption distinctly: a "clear" stamp over a
+      // 3000-energy buffer would read as a measurement bug in the capture.
+      gate:
+        buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD && current === 0
+          ? "clear-unstaffed"
+          : "clear",
       buffered,
       staffing: current,
       target,
