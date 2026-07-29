@@ -5117,3 +5117,18 @@ in ~50-100t and the crew sizes against all of it; buildRank orders the wider
 board (containers -> extensions -> storage/link -> tower -> other -> roads
 last, latch absolute) so proximity cannot silently replace the ladder's
 economics.
+
+**Reduced-change deploy record**: trio green by MARKERS **and by runtime**
+(storage-depot 7s - back from 10m, so the storage places immediately again;
+runt-economy 4m - upsize proven early; flow-handoff 4m), 1650 unit.
+DEPLOYED (global reset) on top of the drain term. Predictions for the next
+check: home W43N23 has a surplus, so its ladder should now advance a rung per
+PLACEMENT_COOLDOWN while sites stand - expect siteCount > 1 in the room
+ledger when a build-out is open (was pinned at 0/1), P8 build delivery > 0
+with construction absorbing, and the crew sized against the SUM (builder
+bodyParts up vs the single-site cap). Guardrails: P4 must stay under 1.0x
+ceiling and E5 runts at 0 (if the wider board out-competes producers, the
+gate's surplus condition is too loose - tighten to a MINIMUM surplus, not
+just > 0); E4 must not dive below reserve (widening spends the surplus, which
+is intended, but it must not eat the warchest); bootstrap rooms (no storage)
+must show UNCHANGED one-at-a-time behaviour - the guard's whole point.
