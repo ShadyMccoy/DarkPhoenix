@@ -4805,3 +4805,25 @@ Pending watch: P7 convergence — 0.63x and climbing with stock rising; if it
 stalls below plan at the next check (30m cadence) it becomes the work item
 (candidate causes: P4 0.90x ceiling pressure, P2 micro-routes). E4 must land AT
 target, not below (doctrine: warchest AT its target).
+
+### AUDIT 2026-07-29 (t72643358→t72643961, dt 603) — 3rd check: P7 re-FAIL 0.25x read as upsize turnover (hypothesis, stamps healthy)
+
+Short-window check (manual fire). **P7 FAIL 0.25x** (13.6 vs 53.7 e/t, stock
+1293→631) and E4 slope flipped +11.17/t (76813, banking again) — but every
+decision stamp is healthy: upgrader sizing `allocated 115.5` (banked-77k-driven,
+2.2x the plan endpoint), `targetCount 3 / staffing 3 / demand staffed / hold
+true`, workUtil 0.999, actual fleet 2 creeps / 49 WORK with the 3rd
+upgrader@4350 AT THE SPAWN HEAD (util 0.98, queue 3, idle 2% all buy-latency);
+feeder gate `staffed`, linkFed d1, wantedFeeders 1 = feeders 1; W43N23 is RCL7
+(no rate cap), plan stable, E5 0/8, X5 0.04 (home 1%). HYPOTHESIS (one, from
+stamps): generational upsize turnover — post-reset small upgraders aged out
+while their 4350-cost replacements queue behind a saturated spawn; the 603t
+window catches the trough (49 standing WORK ≠ window-average fielded WORK).
+E4 re-banking is the same transient mirrored (burn dipped, income didn't).
+NOT a gate/starvation signature (allocated >> plan, stock stood, cap 5300
+bank full). Falsifier next capture (≥30m, thousands of ticks): 3-creep fleet
+standing ⇒ P7 ≥1.0x lower endpoint and E4 slope negative toward 56000; if P7
+still <1.0x with the fleet fielded, the hypothesis is DEAD and the work item
+is delivery-side (link ctrl 35 e/t vs burn capacity ~87 WORK) or turnover
+cadence — instrument, don't re-theorize. Verdict: **INSTRUMENT-READ, fix
+deferred pending falsifier; clean-check counter reset (was 1).**
