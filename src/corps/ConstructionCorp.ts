@@ -1081,9 +1081,6 @@ export class ConstructionCorp extends Corp {
       return;
     }
     this.lastPlacementAttempt = tick;
-    // Set when rung 1.7 takes the controller-container tile, so rung 3 does
-    // not re-attempt it in the same tick (batch placement, owner 2026-07-29).
-    let placedCtrlContainer = false;
 
     // Owner build order: at RCL2 the container rungs open only once the
     // extension SET IS BUILT (sites don't count) - extensions, then
@@ -1099,12 +1096,8 @@ export class ConstructionCorp extends Corp {
     if (containersOpen) {
       const srcContainer = this.findMissingSourceContainer(room);
       if (srcContainer) {
-        // No early return (owner 2026-07-29 batch placement): the rungs below
-        // are different structures on different tiles, so one pass places one
-        // of each. Multi-instance rungs (a second source container) fill in on
-        // the next cooldown - which now arrives without waiting for the board
-        // to empty. Build ORDER is preserved by buildRank, not by scarcity.
         this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER);
+        return; // ONE rung per pass - see the same-tick note on tryPlaceNextSite
       }
     }
 
@@ -1116,6 +1109,7 @@ export class ConstructionCorp extends Corp {
       const depot = this.findMissingCoreDepot(room);
       if (depot) {
         this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER);
+        return;
       }
     }
 
@@ -1135,7 +1129,7 @@ export class ConstructionCorp extends Corp {
       const ctrlContainer = this.findMissingControllerContainer(room);
       if (ctrlContainer) {
         this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER);
-        placedCtrlContainer = true; // rung 3 must not re-attempt the same tile this tick
+        return;
       }
     }
 
@@ -1148,6 +1142,7 @@ export class ConstructionCorp extends Corp {
     const tower = this.findMissingTower(room, rcl);
     if (tower) {
       this.placeSite(room, tower.x, tower.y, STRUCTURE_TOWER);
+      return;
     }
 
     // 2. Extensions: cheap (3000), near the sources, and they compound spawn
@@ -1182,11 +1177,7 @@ export class ConstructionCorp extends Corp {
         remaining -= 1;
         placedAny = true;
       }
-      // NO early return (owner 2026-07-29): the rungs below are part of the
-      // same wanted SET and their work must be visible to the crew sizing
-      // too. The ladder's ORDER now lives on the build side (buildRank), so
-      // placing wide costs nothing in build priority.
-      void placedAny;
+      if (placedAny) return;
     }
 
     // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
@@ -1197,6 +1188,7 @@ export class ConstructionCorp extends Corp {
     const storage = this.findMissingStorage(room, rcl);
     if (storage) {
       this.placeSite(room, storage.x, storage.y, STRUCTURE_STORAGE);
+      return;
     }
 
     // 2.7 Links (RCL 5): a core link beside the storage, then a source link at
@@ -1205,19 +1197,18 @@ export class ConstructionCorp extends Corp {
     const link = this.findMissingLink(room, rcl);
     if (link) {
       this.placeSite(room, link.x, link.y, STRUCTURE_LINK);
+      return;
     }
 
     // 3. Controller container last: it buffers the upgrade push (containerFed
     //    upgraders draw from it), so under the owner build order it lands at
     //    RCL2 right before the RCL3 push - after extensions and the mining
     //    containers.
-    if (containersOpen && !placedCtrlContainer) {
-      // Same-tick placements are invisible to lookFor, so rung 1.7's
-      // surplus jump-queue placement would otherwise be re-attempted here
-      // against the same tile (a guaranteed ERR_INVALID_TARGET stamp).
+    if (containersOpen) {
       const ctrlContainer = this.findMissingControllerContainer(room);
       if (ctrlContainer) {
         this.placeSite(room, ctrlContainer.x, ctrlContainer.y, STRUCTURE_CONTAINER);
+        return;
       }
     }
 
