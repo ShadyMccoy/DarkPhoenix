@@ -5065,3 +5065,14 @@ Red-first: 5 tests (drain math, gentleness, self-extinction, fog, builder
 yield); 1637 unit green. Verdict: **damping FIXED+VERIFIED; E6 leak
 DIAGNOSED from stamps and fixed - the owner's "don't let the gate mask
 hauling problems" paid off exactly as designed.**
+
+**Drain-term deploy record**: trio green by MARKER LINES (flow-handoff 4m,
+runt-economy 4m, storage-depot 7s - all "1 passing"), 1637 unit, deployed on
+top of b52bd23. PREDICTIONS for the +20m check: cd8e's drain route stamps
+carryNeeded ~4-5 (was 1) and FIELDS a hauler; buffered 3874 falls; once
+below 2000 the miner gate releases (E6 gated count 1 -> 0) and heldFor
+resets to 0; P9 routed/funded holds ~1.4-1.6x (the term must not over-buy);
+no new E5 runts and P4 stays under 1.0x ceiling (the term is gentle by
+construction, but spawn parts are DRY at 0.89x - if P4 crosses 1.0 or E5
+runts appear, the term is over-asking and gets a cap). E4 must stay
+converged (~56-60k, flat) - the drain term spends INCOME, not the bank.
