@@ -5171,3 +5171,48 @@ RUNT-ECONOMY, still open (owner: "always causing us problems"):
   ran all three with b red). Same class as the documented grid exit-code trap;
   any gate reading exit codes ships on red. Verdicts must be read from marker
   lines until this is fixed.
+
+### AUDIT 2026-07-29 (t72658948→t72660208, dt 1260) — pile PRICING verified; the binding constraint is SPAWN PARTS, and DEP is the named lever
+
+**No FAIL lines.** PILE PRICING **VERIFIED**: E6 lists 4 deferred sources and
+every one is **staffing 1/1** — not one DARK. The prior capture had two at
+staffing 0/1 with "2 source(s) DARK behind a full pile - income stopped". The
+redesign's whole claim (yield priority, never withhold the body) is confirmed
+by measurement, and the E6 FAIL that exposed the original defect is retired.
+DAMPING holds (E4 69011, slope −16.39/t toward the 56000 reserve; watch the
+projection reading 44432 — the glide must not overshoot far BELOW reserve).
+X5 **0** churn, E5 runts 0, E2 0 stranded, P1 flap 0, P9 1.57x.
+
+**DRAIN TERM works but cannot be funded — the cycle's real finding.** It
+raised the piled routes' demand exactly as designed (cedc route carryNeeded
+**7**, cd8e route **3**, both previously 1), but 3 of 4 carry corps field
+**zero** creeps: `partsLedger budget 0.164 / spent 0.168, dry: true`, P4
+0.96x ceiling. More carry cannot be bought. So four mouths stay saturated
+(cd90 3128, cd8e 3234, cd8d 2691, cedc 4702; heldFor 769/416/645/874t,
+~13.7k standing) and E6's attribution ("the leak is HAULING") is right but
+one level short: the leak is hauling, and hauling's blocker is SPAWN PARTS.
+
+**NAMED LEVER (data, not hypothesis): DEP link-deposit routing.** The four
+piled sources ARE the four DEP candidates: cd8e 36→23, cd8d 55→42, cedc
+38→25, cee0 46→34 tiles. Their plan carry is 9.6/16.8/18.4/16.8 = ~61.6
+parts at d=23..45; carry = rate*(2d+2)/50, so cutting ~13 tiles per route
+takes the set to ~42 parts — **~20 carry parts (~40 body parts) returned to a
+0.333 p/t ceiling that is currently oversubscribed**, plus DEP's own 40 e/t /
+~510 tile*e/t. That relieves the DRY bind AND funds the drain the piles need:
+one change, both ends. This is DEP's own pre-registered purpose ("sizes the
+potential lever before the depositPos routing is re-activated").
+
+DELIBERATELY NOT SHIPPED THIS CYCLE: four live-behavior changes went out
+today and two carried defects (the batch-placement lockout, the pile-gate
+dark sources). With P4 at 0.96x, a planner/routing change is exactly where a
+misstep is most expensive, and it deserves a cycle of its own with a
+falsifier, not a fifth deploy at the end of a long session. Verdict:
+**pile pricing FIXED+VERIFIED; blocker NAMED with data (spawn parts) and its
+lever sized (DEP).**
+
+NEW WATCHES: tenders jumped 102p → **153p** (0.102 of the 0.333 ceiling, ~30%
+of colony spawn capacity) — if that is a ratchet rather than extension growth
+it is a leak class of its own. H1 duty 0.56 with 5755e ground-piled and
+at-sink contention 0.37 (the standing deposit-geometry item). X3 1 untracked
+creep persists across captures, and mining-W44N23-harvest-cbd5 claims 3 vs 2
+counted — a real census/orphan drift worth its own red-first cycle.
