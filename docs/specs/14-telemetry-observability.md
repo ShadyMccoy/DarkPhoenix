@@ -4827,3 +4827,24 @@ still <1.0x with the fleet fielded, the hypothesis is DEAD and the work item
 is delivery-side (link ctrl 35 e/t vs burn capacity ~87 WORK) or turnover
 cadence — instrument, don't re-theorize. Verdict: **INSTRUMENT-READ, fix
 deferred pending falsifier; clean-check counter reset (was 1).**
+
+### AUDIT 2026-07-29 (t72643961→t72644411, dt 450) — falsifier: turnover hypothesis CONFIRMED, delivery-side bound REFUTED
+
+Check 4, the designed falsifier for the 0.25x trough. **No FAIL lines.** P7
+0.25x→**0.80x ok** (43.1 vs 53.7 e/t), stock 631→715 RISING while burning; E4
+slope **−23.26/t** (66344, closing on the 56000 reserve). Mechanism read
+confirmed with a nuance: fleet stands at 2 creeps / 41 WORK (the @4350 landed,
+another small-gen upgrader expired) — staffing 2 of targetCount 3, demand
+`demanded`, allocated 84.4, workUtil 1.00 over 277t. Delivery tracks STANDING
+WORK at full utilization (41 WORK → 43.1 e/t), so the trough was fielded-WORK
+during turnover, not throughput: the link/feeder delivery-side alternative is
+REFUTED (stock rose under 43 e/t burn; link ctrl 36.2 + feeder headroom).
+Residual 0.20x gap ≈ the missing 3rd body (spawn util 0.98, queue 3). Watches
+carried: E4 must LAND at ~56k (slope must flatten, warchest AT target per
+doctrine); SCAV 2/4 below margin (W42N23-37-6 384.23 vs 388.68 marginal,
+W43N24-30-20 272.54 recurring); H1 0.64 duty / 5508e ground-piled at-sink
+(standing geometry/deposit-spread class, pre-dates deploy: 0.75/4380e at
+t72640141); P2 10/16 micro-routes (transient scavenge). Census 30/31. Verdict:
+**FALSIFIED-ALTERNATIVE / CONFIRMED (turnover), clean check — counter 1 of 2
+toward hourly steady-state.** Deploy d9c06c6 remains verified: both pre-deploy
+FAILs (E4 spend path, P7 delivery) resolved to ok on falsifier-grade evidence.
