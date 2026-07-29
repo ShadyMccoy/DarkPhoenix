@@ -5132,3 +5132,42 @@ gate's surplus condition is too loose - tighten to a MINIMUM surplus, not
 just > 0); E4 must not dive below reserve (widening spends the surplus, which
 is intended, but it must not eat the warchest); bootstrap rooms (no storage)
 must show UNCHANGED one-at-a-time behaviour - the guard's whole point.
+
+### DEV 2026-07-29 — pile gate REPLACED by pile PRICING (owner-approved redesign)
+
+The gate mechanism was interrogated per the trap-list rule (second patch on
+one mechanism ⇒ the mechanism is the bug) and replaced. Doctrine it violated:
+"scarcity acts at the SPAWN (defund: no NEW bodies, via priority), and the
+planner prices — it doesn't gate." Suppressing the demand cost two measured
+failures: (1) two live sources went DARK when their miners EOL'd behind full
+piles (E6 FAIL t72658948, income stopped) — patched, then (2) the mechanism
+itself was retired. NOW: SOURCE_BUFFER_PRIORITY_PENALTY (100) subtracts from
+the demand's value and clears `blocking`; 100 exceeds the whole within-tier
+spread (miner value 100..150) so a piled source ranks below EVERY clear
+source's miner, while an idle spawn still re-staffs it. Tier separators
+(income 1e6, blocking 1e4) untouched — documented as separators, not
+tunables. Unstaffed/cold-start pay NO penalty. Delay meter + E6 unchanged
+(owner: keep as-is); they now measure how long a pile has cost a source its
+PRIORITY. Gate: 1654 unit + trio green (flow-handoff 4m, runt-economy 4m x2,
+storage-depot 7s). DEPLOYED.
+
+TWO CLAIMS THE DATA CORRECTED (epistemics, spec-14 rule "every claim must be
+a read from data or it is a hypothesis, labeled as such"):
+- "The pile gate caused the runt-economy flake" — UNVERIFIED. Reasoned from a
+  code path (the gate preceded runtUpgradeDemand). The first working
+  diagnostic showed `buffered: 0` in that world at t460, so the gate was not
+  implicated there. De-pricing removes a POSSIBLE cause; the next red run's
+  stamps will name the actual one.
+- The first diagnostic printed "the corp never sized, look upstream of the
+  demand" — FABRICATED. Corp.lastSizing is transient and never serialized, so
+  Memory could never carry it; it lives in telemetry segment 4. A false cause
+  aimed at an innocent subsystem is worse than no diagnostic.
+
+RUNT-ECONOMY, still open (owner: "always causing us problems"):
+- Its verdict rests on ONE 2→3 WORK transition, so unrelated changes flip it.
+  Robustness needs the MECHANISM asserted (an upsize demand emitted) or a
+  world staged so the transition is not marginal — a deliberate cell redesign.
+- It EXITS 0 while reporting failures (measured: a trio chain `a && b && c`
+  ran all three with b red). Same class as the documented grid exit-code trap;
+  any gate reading exit codes ships on red. Verdicts must be read from marker
+  lines until this is fixed.
