@@ -2,6 +2,10 @@
 import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain, setRoomLevel, enableMods, FREE_ECONOMY_MOD } from "./loadLayout";
+import { TELEMETRY_SEGMENTS } from "../../src/telemetry/segmentIds";
+
+/** Segment 4 - the ONE place a corp's transient sizing stamp is exported. */
+const TELEMETRY_CORPS_SEGMENT = TELEMETRY_SEGMENTS.CORPS;
 
 /**
  * Runt -> upsize probe.
@@ -94,13 +98,20 @@ describe("runt economy upsizes its runts", () => {
       // counts, so "upsize never proven" cost an 11-minute rerun and manual
       // reasoning to attribute (measured twice in one session: once a
       // host-load flake, once a real pile-gate suppression of the upsize
-      // demand). The miner corp's own sizing stamp IS the decision, so
-      // capture it on every sample and print it on failure - the cell then
-      // names its own cause the first time.
-      for (const id in (mem.commissions?.corps ?? mem.corps ?? {})) {
-        if (!/harvest|mining/.test(id)) continue;
-        const sz = ((mem.commissions?.corps ?? mem.corps ?? {}) as any)[id]?.lastSizing;
-        if (sz) lastMinerSizing[id] = sz;
+      // demand). The miner corp's sizing stamp IS the decision - but it is
+      // TRANSIENT and never serialized into Memory (Corp.lastSizing), so it
+      // must be read from telemetry SEGMENT 4, the one place it is exported
+      // verbatim. A first attempt read player memory and printed "the corp
+      // never sized", which was a FALSE diagnosis - worse than none.
+      try {
+        const [raw] = await helper.player.getSegments([TELEMETRY_CORPS_SEGMENT]);
+        if (raw) {
+          for (const c of JSON.parse(raw).corps ?? []) {
+            if (c.kind === "harvest" && c.sizing) lastMinerSizing[c.id] = c.sizing;
+          }
+        }
+      } catch {
+        /* segment not active / unparseable - leave the stamps empty */
       }
       const works = await flowMinerWork(mem);
       for (const w of works) {
@@ -132,7 +143,9 @@ describe("runt economy upsizes its runts", () => {
       ? Object.entries(lastMinerSizing)
           .map(([id, sz]) => `${id.slice(-22)} ${JSON.stringify(sz)}`)
           .join("\n  ")
-      : "(no miner sizing stamps seen - the corp never sized, look upstream of the demand)";
+      : `(no stamps in telemetry segment ${TELEMETRY_CORPS_SEGMENT} - either the bot never wrote it ` +
+        `(check the segment is active / the bot is executing at all) or no harvest corp existed. ` +
+        `This is NOT evidence about the sizing decision itself.)`;
     console.log(`=== miner sizing stamps (last seen) ===\n  ${diag}`);
 
     assert.notEqual(
