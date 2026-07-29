@@ -38,6 +38,48 @@ import { travelTo } from "./movement";
  */
 export type MinerApproach = "spot" | "spread" | "stay";
 
+/** Rolling window for the pile-gate delay meter (spawn-meter cadence). */
+export const PILE_METER_WINDOW = 1500;
+
+/**
+ * One evaluated tick of the miner pile gate (pure seam, upgradeMeter
+ * pattern; owner 2026-07-29: "instrument the spawning delay time for the
+ * energy piles"). `held` is the gate's ACTUAL verdict this tick. Returns the
+ * two delay readings the sizing stamp exports: `heldFor` = consecutive ticks
+ * of the current hold (wall ticks since `since`, surviving window rolls and
+ * evaluation gaps), `heldFrac` = deferred share of EVALUATED ticks in the
+ * window. Idempotent within a tick (multiple demand collections sample
+ * once). Callers must NOT tally fog ticks - unmeasurable is neither held
+ * nor clear.
+ */
+export function tallyPileGate(
+  meter: NonNullable<Memory["pileMeter"]>,
+  sourceTail: string,
+  tick: number,
+  held: boolean
+): { heldFor: number; heldFrac: number } {
+  let w = meter[sourceTail];
+  if (!w || tick - w.t0 >= PILE_METER_WINDOW) {
+    // Roll the window counters, but a hold in progress carries its `since`
+    // across the roll - heldFor measures the pile, not the bookkeeping.
+    w = meter[sourceTail] = { t0: tick, last: 0, samples: 0, held: 0, since: held && w?.since ? w.since : 0 };
+  }
+  if (w.last !== tick) {
+    w.last = tick;
+    w.samples++;
+    if (held) {
+      w.held++;
+      if (!w.since) w.since = tick;
+    } else {
+      w.since = 0;
+    }
+  }
+  return {
+    heldFor: held && w.since ? tick - w.since + 1 : 0,
+    heldFrac: w.samples > 0 ? w.held / w.samples : 0
+  };
+}
+
 /**
  * Decide a miner's move. A poor room splits a source across several small miners
  * (see getSpawnDemand), but static mining points them ALL at one tile
@@ -518,18 +560,40 @@ export class HarvestCorp extends Corp {
     // only on fresh direct evidence (the stranded-reserver trap's polarity),
     // and a cold start is exempt above all.
     const buffered = this.unhauledBufferStock();
-    if (!colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD) {
+    const held = !colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD;
+    // Delay meter (owner 2026-07-29): tally the gate's ACTUAL verdict so the
+    // stamp carries HOW LONG this pile has been delaying spawning. Fog
+    // (buffered null) never tallies - unmeasurable is neither held nor clear.
+    const delay =
+      buffered !== null
+        ? tallyPileGate(
+            (Memory.pileMeter = Memory.pileMeter ?? {}),
+            stripSourcePrefix(this.sourceId).slice(-6),
+            ctx.tick,
+            held
+          )
+        : undefined;
+    if (held) {
       this.lastSizing = {
         tick: ctx.tick,
         gate: "buffer-full",
         buffered,
         threshold: SOURCE_BUFFER_DEFER_THRESHOLD,
         staffing: current,
-        target
+        target,
+        heldFor: delay?.heldFor ?? 0,
+        heldFrac: delay?.heldFrac ?? 0
       };
       return [];
     }
-    this.lastSizing = { tick: ctx.tick, gate: "clear", buffered, staffing: current, target };
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: "clear",
+      buffered,
+      staffing: current,
+      target,
+      ...(delay ? { heldFrac: delay.heldFrac } : {})
+    };
 
     if (current >= target) {
       // Fully staffed by count - but a runt fleet still wants its overlap

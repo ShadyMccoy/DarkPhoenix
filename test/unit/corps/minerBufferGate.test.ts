@@ -171,3 +171,70 @@ describe("sourceBufferStock lens", () => {
     expect(sourceBufferStock(broken)).to.equal(null);
   });
 });
+
+describe("pile-gate delay meter (tallyPileGate - the spawning delay time of a pile)", () => {
+  // Owner 2026-07-29: instrument HOW LONG piles delay spawning. Rolling
+  // window (upgradeMeter pattern): heldFor = consecutive ticks the gate has
+  // held (since survives window rolls), heldFrac = gated share of evaluated
+  // ticks. Fog never tallies - unmeasurable must neither reset nor inflate.
+  const { tallyPileGate, PILE_METER_WINDOW } = require("../../../src/corps/HarvestCorp");
+
+  it("accumulates heldFor across consecutive held ticks and resets on release", () => {
+    const meter: any = {};
+    expect(tallyPileGate(meter, "aaaaaa", 100, true).heldFor).to.equal(1);
+    expect(tallyPileGate(meter, "aaaaaa", 101, true).heldFor).to.equal(2);
+    expect(tallyPileGate(meter, "aaaaaa", 102, true).heldFor).to.equal(3);
+    expect(tallyPileGate(meter, "aaaaaa", 103, false).heldFor).to.equal(0);
+    expect(tallyPileGate(meter, "aaaaaa", 104, true).heldFor).to.equal(1); // fresh hold
+  });
+
+  it("computes heldFrac as the gated share of EVALUATED ticks", () => {
+    const meter: any = {};
+    tallyPileGate(meter, "bbbbbb", 200, true);
+    tallyPileGate(meter, "bbbbbb", 201, false);
+    const r = tallyPileGate(meter, "bbbbbb", 202, true);
+    expect(r.heldFrac).to.be.closeTo(2 / 3, 1e-9);
+  });
+
+  it("is idempotent within one tick (multiple demand collections sample once)", () => {
+    const meter: any = {};
+    tallyPileGate(meter, "cccccc", 300, true);
+    const r = tallyPileGate(meter, "cccccc", 300, true);
+    expect(r.heldFor).to.equal(1);
+    expect(meter.cccccc.samples).to.equal(1);
+  });
+
+  it("rolls the window but PRESERVES the consecutive hold across the roll", () => {
+    const meter: any = {};
+    tallyPileGate(meter, "dddddd", 1000, true);
+    const r = tallyPileGate(meter, "dddddd", 1000 + PILE_METER_WINDOW, true);
+    expect(r.heldFor).to.equal(PILE_METER_WINDOW + 1); // since survives the roll
+    expect(meter.dddddd.samples).to.equal(1); // window counters restarted
+  });
+
+  it("stamps the delay onto a HELD gate decision (heldFor/heldFrac in sizing)", () => {
+    (global as any).Memory.pileMeter = {};
+    const corp = stagedCorp();
+    stageStandingMiner(corp);
+    const source = stageSource(SOURCE_BUFFER_DEFER_THRESHOLD, 0);
+    (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
+
+    corp.getSpawnDemand(ctx);
+    expect(corp.lastSizing).to.include({ gate: "buffer-full", heldFor: 1, heldFrac: 1 });
+
+    corp.getSpawnDemand({ ...ctx, tick: ctx.tick + 1 });
+    expect(corp.lastSizing).to.include({ heldFor: 2 });
+    delete (global as any).Memory.pileMeter;
+  });
+
+  it("never tallies on fog (buffered null): the meter neither resets nor inflates", () => {
+    (global as any).Memory.pileMeter = { srcaaa: { t0: 50, last: 50, samples: 1, held: 1, since: 50 } };
+    const corp = stagedCorp();
+    stageStandingMiner(corp);
+    (global as any).Game.getObjectById = () => null; // no vision
+
+    corp.getSpawnDemand(ctx);
+    expect((global as any).Memory.pileMeter.srcaaa).to.deep.equal({ t0: 50, last: 50, samples: 1, held: 1, since: 50 });
+    delete (global as any).Memory.pileMeter;
+  });
+});

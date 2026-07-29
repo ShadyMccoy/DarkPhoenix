@@ -4876,3 +4876,21 @@ gate "clear" with small buffered in steady state (deferrals rare while
 hauling is healthy); no new FAILs post-ramp; E6 row appears once both
 captures carry stamps. The gate's real test arrives with the next
 invader-raid / hauler-churn event.
+
+### AUDIT 2026-07-29 (addendum) — pile delay meter: the spawning delay time of a pile, measured
+
+Owner follow-up: "instrument the spawning delay time for the energy piles."
+`Memory.pileMeter` (upgradeMeter pattern; keyed by the source tail =
+sourceBuffers key so the instruments join) tallied at the pile-gate decision
+site with the gate's ACTUAL verdict: `heldFor` = consecutive ticks of the
+current hold (`since` survives window rolls and evaluation gaps), `heldFrac`
+= deferred share of evaluated ticks over a 1500t window; fog never tallies
+(unmeasurable is neither held nor clear - must not reset `since` nor inflate
+the window). Stamps (segment 4 v7) carry both. E6 upgraded from two-capture
+chronicity to MEASURED duration: heldFor >= SOURCE_REGEN_TIME (300t, one
+regen cycle) or heldFrac >= 0.5 WARNs from a single capture; heldFor >=
+CREEP_LIFETIME (1500t - a full miner generation suppressed) FAILs; dark
+sources unchanged FAIL; pre-meter stamps fall back to the chronic read.
+Red-first: +6 meter/stamp tests, +3 E6 duration tests (1622 unit green).
+Observability-only (the gate verdict expression is unchanged): unit+build
+gate per protocol.

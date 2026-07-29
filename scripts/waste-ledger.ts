@@ -19,8 +19,10 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   CLAIM_LIFETIME,
+  CREEP_LIFETIME,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
@@ -887,12 +889,27 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       );
       const chronic = gated.filter((c: any) => bGated.has(c.id));
       const dark = gated.filter((c: any) => (c.sizing.staffing ?? 0) === 0);
+      // Delay meter verdicts (v7 stamps, owner 2026-07-29): heldFor is the
+      // MEASURED consecutive hold - one source regen cycle of continuous
+      // deferral WARNs from a single capture (no second-capture wait), a
+      // full miner lifetime FAILs (a whole generation of spawning
+      // suppressed behind one pile). Pre-meter stamps (no heldFor) fall
+      // back to the two-capture chronic read.
+      const lifetimeHeld = gated.filter((c: any) => (c.sizing.heldFor ?? 0) >= CREEP_LIFETIME);
+      const regenHeld = gated.filter(
+        (c: any) => (c.sizing.heldFor ?? 0) >= SOURCE_REGEN_TIME || (c.sizing.heldFrac ?? 0) >= 0.5
+      );
       rows.push({
         id: "E6",
         name: "miner pile gate (haul deficit surfaced)",
         value: gated.length,
         unit: `of ${stamped.length} miner ops deferred`,
-        verdict: dark.length > 0 ? "FAIL" : chronic.length > 0 ? "WARN" : "ok",
+        verdict:
+          dark.length > 0 || lifetimeHeld.length > 0
+            ? "FAIL"
+            : chronic.length > 0 || regenHeld.length > 0
+            ? "WARN"
+            : "ok",
         detail:
           gated.length === 0
             ? "no deferrals - source buffers under threshold"
@@ -900,6 +917,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
                 .map(
                   (c: any) =>
                     `${String(c.id).slice(-14)} buffered ${c.sizing.buffered} staffing ${c.sizing.staffing}/${c.sizing.target}` +
+                    (c.sizing.heldFor !== undefined
+                      ? ` held ${c.sizing.heldFor}t (${((c.sizing.heldFrac ?? 0) * 100).toFixed(0)}% of window)`
+                      : "") +
                     (bGated.has(c.id) ? " CHRONIC" : "")
                 )
                 .join("; ") +

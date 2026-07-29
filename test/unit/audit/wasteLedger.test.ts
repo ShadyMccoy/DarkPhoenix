@@ -684,4 +684,40 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
     expect(e6.verdict).to.equal("ok");
     expect(e6.value).to.equal(0);
   });
+
+  // Delay meter verdicts (owner 2026-07-29: instrument the spawning delay
+  // time of a pile). heldFor is MEASURED consecutive hold: one source regen
+  // cycle (300t) of continuous deferral WARNs without waiting for a second
+  // capture; a full miner lifetime (1500t) FAILs - a whole generation of
+  // spawning suppressed behind one pile.
+  it("WARNs on a measured hold >= one regen cycle (300t) from a SINGLE capture", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-lag", 1);
+    c.sizing.heldFor = 300;
+    c.sizing.heldFrac = 0.3;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+    expect(e6.detail).to.contain("300t");
+  });
+
+  it("FAILs on a measured hold >= a miner lifetime (1500t) even fully staffed", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-stuck", 1);
+    c.sizing.heldFor = 1500;
+    c.sizing.heldFrac = 1;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("FAIL");
+  });
+
+  it("stays ok on a short measured hold (below a regen cycle, staffed, not chronic)", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-blip2", 1);
+    c.sizing.heldFor = 40;
+    c.sizing.heldFrac = 0.04;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+  });
 });
