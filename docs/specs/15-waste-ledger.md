@@ -32,6 +32,7 @@ progress unconverted).
 | E3 | ground decay: dropped energy rotting (1/1000/t), decaying containers | phase 2 counter in scavenge/room ledger: `decayLoss` |
 | E4 | idle capital: `storageEnergy` above WARCHEST_TARGET with the spend path down | EXISTS: room ledger + feeder gate |
 | E5 | runt purchases: bodies below the efficient floor bought from a drained spawn | EXISTS: agenda receipts (cost) + body floors |
+| E6 | pile-gate masking: the miner buffer gate (`SOURCE_BUFFER_DEFER_THRESHOLD`, owner 2026-07-29) defers NEW miner bodies while a source mouth holds ≥2000 unhauled — a BACKSTOP against rot (E3) that frees spawn time, never a fix; left unwatched it would HIDE the haul deficit that built the pile (owner: "bad if it covers up hauling problems") | EXISTS: segment-4 harvest sizing stamps (v6: `gate` buffer-full/clear, `buffered`, `staffing`, `target`); ledger row E6 — CHRONIC gating (both captures) WARNs with the work item named as the HAUL side (drain term / route sizing / churn; the CarryCorp pickup stamps distinguish), a source DARK behind a full pile (gated, staffing 0 — income stopped) FAILs; pre-gate captures skip the row |
 
 ### Spawn-time leaks (parts/tick of the 1/3 ceiling)
 

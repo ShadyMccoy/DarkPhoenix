@@ -866,6 +866,49 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- E6 miner pile gate: haul-deficit visibility (owner 2026-07-29) ----
+  // The HarvestCorp buffer gate defers NEW miner bodies while a source mouth
+  // holds >= SOURCE_BUFFER_DEFER_THRESHOLD unhauled (segment-4 stamp, v6).
+  // The gate is a BACKSTOP against rot, not a fix: a holding gate means the
+  // HAUL side is behind (missing drain term / route sizing / churn - the
+  // CarryCorp pickup-buffer stamp names which). This line keeps the deferral
+  // from MASKING that: chronic gating (both captures) WARNs on the haul
+  // side, and a source gone DARK behind a full pile (gated with staffing 0 -
+  // income actually stopped) FAILs. No stamped harvest corps => pre-gate
+  // capture => no row.
+  {
+    const stamped = corps.filter((c: any) => c.kind === "harvest" && c.sizing);
+    if (stamped.length > 0) {
+      const gated = stamped.filter((c: any) => c.sizing.gate === "buffer-full");
+      const bGated = new Set(
+        (base.data.corps?.corps ?? [])
+          .filter((c: any) => c.kind === "harvest" && c.sizing?.gate === "buffer-full")
+          .map((c: any) => c.id)
+      );
+      const chronic = gated.filter((c: any) => bGated.has(c.id));
+      const dark = gated.filter((c: any) => (c.sizing.staffing ?? 0) === 0);
+      rows.push({
+        id: "E6",
+        name: "miner pile gate (haul deficit surfaced)",
+        value: gated.length,
+        unit: `of ${stamped.length} miner ops deferred`,
+        verdict: dark.length > 0 ? "FAIL" : chronic.length > 0 ? "WARN" : "ok",
+        detail:
+          gated.length === 0
+            ? "no deferrals - source buffers under threshold"
+            : gated
+                .map(
+                  (c: any) =>
+                    `${String(c.id).slice(-14)} buffered ${c.sizing.buffered} staffing ${c.sizing.staffing}/${c.sizing.target}` +
+                    (bGated.has(c.id) ? " CHRONIC" : "")
+                )
+                .join("; ") +
+              " => the leak is HAULING (drain term / route sizing / churn - read the carry pickup stamps), not the miner" +
+              (dark.length > 0 ? `; ${dark.length} source(s) DARK behind a full pile - income stopped` : "")
+      });
+    }
+  }
+
   // ---- X1 dry WORK ticks (owner doctrine 2026-07-21: "having body parts
   // standing around, unable to do their job is one form of waste ... hauling
   // and working grow in concert, spawned as a package") ----

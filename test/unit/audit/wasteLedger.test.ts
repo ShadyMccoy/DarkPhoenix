@@ -623,3 +623,65 @@ describe("P4 construction charge (spec 34 P4: read THROUGH the all-in price)", (
     expect(lines.some(([n]) => n.includes("construction (all-in)"))).to.equal(false);
   });
 });
+
+describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () => {
+  // The gate DEFERS miner bodies at a full source mouth; this line keeps the
+  // deferral from MASKING the underlying haul deficit: chronic gating WARNs
+  // on the haul side, a source dark behind a full pile (staffing 0) FAILs.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const gatedCorp = (id: string, staffing: number): any => ({
+    id,
+    kind: "harvest",
+    type: "mining",
+    nodeId: id,
+    roomName: "W9N9",
+    creepCount: staffing,
+    bodyParts: staffing * 8,
+    body: {},
+    sizing: { tick: 1, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
+    createdAt: 0,
+    lastActivityTick: 1
+  });
+
+  it("skips the row entirely on pre-gate captures (no stamped harvest corps)", () => {
+    const rows = computeLedger(cap72411542, cap72404213);
+    expect(rows.find(r => r.id === "E6")).to.equal(undefined);
+  });
+
+  it("FAILs when a source goes DARK behind a full pile (gated, staffing 0)", () => {
+    const cap = clone(cap72411542);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-dead", 0));
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("FAIL");
+    expect(e6.detail).to.contain("HAULING"); // the attribution the gate must never bury
+    expect(e6.detail).to.contain("DARK");
+  });
+
+  it("WARNs on CHRONIC gating (deferred in both captures) - the haul side is behind", () => {
+    const cap = clone(cap72411542);
+    const base = clone(cap72404213);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-slow", 1));
+    base.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-slow", 1));
+    const e6 = computeLedger(cap, base).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+    expect(e6.detail).to.contain("CHRONIC");
+  });
+
+  it("stays ok on a transient deferral with the post still staffed (the gate doing its job)", () => {
+    const cap = clone(cap72411542);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-blip", 1));
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+    expect(e6.value).to.equal(1);
+  });
+
+  it("reports quiet-gate visibility (stamps present, zero deferrals) as ok/0", () => {
+    const cap = clone(cap72411542);
+    const clear = gatedCorp("mining-W9N9-harvest-fine", 1);
+    clear.sizing = { tick: 1, gate: "clear", buffered: 150, staffing: 1, target: 1 };
+    cap.data.corps.corps.push(clear);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+    expect(e6.value).to.equal(0);
+  });
+});

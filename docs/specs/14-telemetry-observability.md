@@ -4848,3 +4848,31 @@ t72640141); P2 10/16 micro-routes (transient scavenge). Census 30/31. Verdict:
 **FALSIFIED-ALTERNATIVE / CONFIRMED (turnover), clean check — counter 1 of 2
 toward hourly steady-state.** Deploy d9c06c6 remains verified: both pre-deploy
 FAILs (E4 spend path, P7 delivery) resolved to ok on falsifier-grade evidence.
+
+### AUDIT 2026-07-29 (deploy 58e378b on d9c06c6) — miner pile gate shipped + E6 masking prosecutor
+
+Owner directive: defer miner (and claimer) spawns while unhauled energy at the
+source mouth ≥ ~2000. Shipped the MINER half as the sanctioned scarcity class
+(spawn-side defund, strands nobody — the hostile-route/transit-embargo family
+in minerSpawnDemand): `SOURCE_BUFFER_DEFER_THRESHOLD = 2000` (primitives, =
+container cap per the sourceBuffers diagnostic; ~8.5k measured rotting above
+it, t72588289), read through ONE lens `sourceBufferStock` shared with the
+sourceBuffers telemetry (the controllerSideStock doctrine), vision-scoped
+FAIL-OPEN (null ≠ 0), cold-start exempt, upsize held, haul vector UNGATED
+(haulers are the release). Decision stamped (segment 4 v6: gate
+buffer-full/clear + buffered/staffing/target). RESERVERS deliberately NOT
+gated in v1: the reservation mechanism carries the two-incident revocation
+history (t72444963/t72448082) and already defers via its bank gate — a pile
+input there needs its own falsifier-backed cycle. Owner's masking concern
+("bad if it covers up hauling problems") answered with ledger line **E6**:
+chronic gating (both captures) WARNs naming the HAUL side as the work item
+(drain term / route sizing / churn — the 2026-07-26 CarryCorp pickup stamps
+distinguish), gated-with-staffing-0 (source DARK behind a full pile) FAILs;
+the gate defers, the ledger prosecutes. Red-first: 8 gate tests + 5 E6 tests;
+1613 unit green; trio green (flow-handoff 273s, runt-economy 242s,
+storage-depot 8s). Deployed 58e378b. PREDICTIONS for the +15m check: reset
+noise ~1 window (X5/H1 skip, census dip); segment-4 harvest stamps PRESENT,
+gate "clear" with small buffered in steady state (deferrals rare while
+hauling is healthy); no new FAILs post-ramp; E6 row appears once both
+captures carry stamps. The gate's real test arrives with the next
+invader-raid / hauler-churn event.
