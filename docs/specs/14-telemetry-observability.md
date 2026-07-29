@@ -4938,3 +4938,29 @@ flip positive as the big upgraders age out, else the save-regime's shed lag
 (or spawn spend 26 e/t) is the next work item. Verdict: **FALSIFIER
 RESOLVED (a) — pile gate + delay meter + E6 shipped, verified, and
 self-consistent; no open work item, E4 refill-slope is the standing watch.**
+
+### AUDIT 2026-07-29 (t72651837→t72652682, dt 845) — governor refill CONFIRMED; P7 = re-expansion trough; E6 holds attributed to the W43N24 raid
+
+**E4 watch RESOLVED**: slope −1.66 → **+24.53/t**, storage 39019→59749,
+crossed back ABOVE the 56000 reserve — the save-regime governor's full cycle
+(relegate → shed → refill) measured end-to-end. The plan is already
+re-expanding (upgrader plan WORK 30p→97p), and **P7 FAIL 0.18x (2.8 vs 15
+e/t, 3 WORK standing)** is that swing's turnover trough — same signature as
+the verified t72643961 episode, this time governor-induced. PREDICTION: P7
+recovers as the 97p fields. HYPOTHESIS (needs a second swing to confirm):
+governor oscillation — the relegation recycled a 4350e upgrader @153t
+(X5 last cycle) and the re-expansion now buys its replacement; if the
+relegate↔re-expand period is ~10kt, the hysteresis band is churning a big
+consumer per swing — the band (not the consumers) would be the work item.
+**E6**: cd8e held 464t / cd8d held 696t — past the 300t criterion, but
+attribution-before-blame: both are W43N24, the room X5 names for invader
+churn this window (harvest-cd8d 1700e@105t). Raid → hostile-route embargo
+(by design, spawns no haulers) → piles grew → gate correctly deferred.
+RAID-GAP hypothesis; falsifier next capture: buffers DRAIN (haulers
+refielded post-raid) ⇒ working as designed; buffers GROW with a clean X5
+remote line ⇒ the haul-sizing/link-deposit fix cycle opens for real. **E2 50
+"stranded" parts acquitted by its own stamp**: hauling-W42N23-37-6 is
+`retiring:true`, duty 0.861, draining cedc's 2265 stock — the wind-down
+working, expect E2→0 as it expires. Verdict: **watch-resolved (E4) +
+two hypotheses pre-registered (P7 re-expansion, E6 raid-gap); no fix — every
+open line has a falsifier queued.**
