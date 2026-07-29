@@ -117,6 +117,27 @@ export const SOURCE_RATE = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TIME; // 10
 export const SOURCE_BUFFER_DEFER_THRESHOLD = 2000;
 
 /**
+ * Priority penalty on a miner demand whose source mouth is saturated (owner
+ * redesign 2026-07-29). The first implementation SUPPRESSED the demand, which
+ * is the wrong class per doctrine - "scarcity acts at the SPAWN (defund: no
+ * NEW bodies, via priority), and the planner prices - it doesn't gate" - and
+ * it cost two measured failures: two live sources went DARK behind their own
+ * piles when their miners EOL'd (E6 FAIL t72658948, income stopped), and the
+ * runt UPSIZE was blocked whenever a bootstrap pile crossed the line,
+ * reviving the documented runt equilibrium (~40% source output forever) and
+ * making the runt-economy cell flaky.
+ *
+ * Now the demand always stands and only loses PRIORITY. Sized to exceed the
+ * whole within-tier value spread (miner value = 100 + efficiency*0.5, so
+ * 100..150): at 100 a piled source's miner sits below EVERY clear source's
+ * miner, so scarce spawn parts go to mouths that can still move their energy,
+ * while an idle spawn with nothing better to buy still re-staffs the source.
+ * The tier separators (income 1e6, blocking 1e4) are untouched - they are
+ * documented as separators, not tunables.
+ */
+export const SOURCE_BUFFER_PRIORITY_PENALTY = 100;
+
+/**
  * Energy/tick credited per delivering creep by the scheduler's crude income
  * estimate (SpawnDirector.estimateIncome): one deliverer ~ one source's worth
  * (SOURCE_RATE). The scheduler only reads the positive/zero signal - whether

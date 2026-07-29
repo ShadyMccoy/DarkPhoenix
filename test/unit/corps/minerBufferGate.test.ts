@@ -85,14 +85,42 @@ describe("HarvestCorp miner pile gate (unhauled-buffer spawn deferral)", () => {
     (global as any).Game.creeps = {};
   });
 
-  it("defers the miner purchase while the buffer sits at the container cap", () => {
+  it("DE-PRICES (never suppresses) the miner while the buffer sits at the cap", () => {
+    // OWNER REDESIGN 2026-07-29: the hard gate was the wrong class. Doctrine
+    // (CLAUDE.md): "scarcity acts at the SPAWN (defund: no NEW bodies, via
+    // priority), and the planner prices - it doesn't gate." Suppressing the
+    // demand darkened two live sources (E6 FAIL t72658948) and blocked the
+    // runt UPSIZE in bootstrap rooms (the flaky runt-economy cell, whose
+    // whole signal is one 2->3 WORK transition). Now the demand always
+    // stands; a full mouth costs it priority, so it loses scarce spawn parts
+    // to sources that can actually move their energy.
     const corp = stagedCorp();
     stageStandingMiner(corp);
     const source = stageSource(SOURCE_BUFFER_DEFER_THRESHOLD, 0);
     (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
 
-    expect(corp.getSpawnDemand(ctx)).to.deep.equal([]);
+    const demands = corp.getSpawnDemand(ctx);
+    expect(demands.map(d => d.role), "never suppressed").to.include("miner");
+    const d = demands.find(x => x.role === "miner")!;
+    expect(d.blocking, "a staffed source is not critical-path").to.equal(false);
     expect(corp.lastSizing).to.include({ gate: "buffer-full", buffered: SOURCE_BUFFER_DEFER_THRESHOLD });
+  });
+
+  it("ranks a PILED source below a CLEAR one (the behavioural contract)", () => {
+    const { spawnPriority } = require("../../../src/spawn/SpawnScheduler");
+    const mk = (buffered: number) => {
+      const corp = stagedCorp();
+      stageStandingMiner(corp);
+      const source = stageSource(buffered, 0);
+      (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
+      (global as any).Game.time = ((global as any).Game.time ?? 0) + 1;
+      delete (global as any).Memory.pileMeter;
+      return corp.getSpawnDemand({ ...ctx, tick: (global as any).Game.time }).find(d => d.role === "miner")!;
+    };
+    const clear = mk(100);
+    const piled = mk(4000);
+    expect(piled.value, "de-priced within its tier").to.be.lessThan(clear.value);
+    expect(spawnPriority(piled)).to.be.lessThan(spawnPriority(clear));
   });
 
   it("sums container AND ground pile into the gate's read (the one-lens rule)", () => {
@@ -101,7 +129,7 @@ describe("HarvestCorp miner pile gate (unhauled-buffer spawn deferral)", () => {
     const source = stageSource(1500, 500); // 2000 only as a SUM
     (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
 
-    expect(corp.getSpawnDemand(ctx)).to.deep.equal([]);
+    corp.getSpawnDemand(ctx);
     expect(corp.lastSizing).to.include({ gate: "buffer-full", buffered: 2000 });
   });
 
@@ -137,6 +165,29 @@ describe("HarvestCorp miner pile gate (unhauled-buffer spawn deferral)", () => {
     expect(demands.map(d => d.role)).to.include("miner");
   });
 
+  it("does NOT de-price the RUNT UPSIZE out of existence (the runt-equilibrium trap)", () => {
+    // A runt stuck at ~40% source output forever is the documented failure the
+    // spawn-then-recycle path exists to prevent; the hard gate reintroduced it
+    // whenever a bootstrap pile crossed the threshold. The upsize must survive
+    // a full buffer - it replaces a body rather than adding one.
+    const corp = stagedCorp();
+    (global as any).Game.creeps = {
+      runt: {
+        name: "runt",
+        spawning: false,
+        ticksToLive: 1400,
+        body: new Array(3).fill({ type: "work" }),
+        memory: { corpId: corp.id, workType: "harvest" },
+        getActiveBodyparts: () => 1, // a 1-WORK runt against a 20 e/t source
+        pos: { x: 11, y: 10, roomName: "W2N2", getRangeTo: () => 1 }
+      }
+    };
+    const source = stageSource(4000, 0);
+    (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
+    const demands = corp.getSpawnDemand(ctx);
+    expect(demands.map(d => d.role), "the runt must still be upgradeable").to.include("miner");
+  });
+
   it("leaves the haul vector UNGATED at a full buffer (haulers are the release)", () => {
     const corp = stagedCorp();
     stageStandingMiner(corp);
@@ -156,8 +207,13 @@ describe("HarvestCorp miner pile gate (unhauled-buffer spawn deferral)", () => {
     );
 
     const demands = corp.getSpawnDemand(ctx);
-    expect(demands.map(d => d.role)).to.not.include("miner");
+    // Haulers are the RELEASE - they drain the mouth - so they are never
+    // de-priced by the pile. The miner is still offered (de-pricing, not
+    // suppression) but yields priority to it.
     expect(demands.map(d => d.role)).to.include("hauler");
+    const miner = demands.find(d => d.role === "miner")!;
+    const hauler = demands.find(d => d.role === "hauler")!;
+    expect(miner.value, "the pile shifts priority toward the release").to.be.lessThan(hauler.value);
   });
 });
 
@@ -274,7 +330,8 @@ describe("pile gate NEVER darkens an unstaffed source (live FAIL t72658948)", ()
     const source = stageSource(4000, 0);
     (global as any).Game.getObjectById = (id: string) => (id === "srcaaaa" ? source : null);
 
-    expect(corp.getSpawnDemand(ctx2)).to.deep.equal([]);
+    const held = corp.getSpawnDemand(ctx2);
+    expect(held.map(d => d.role), "still offered, just de-priced").to.include("miner");
     expect(corp.lastSizing).to.include({ gate: "buffer-full" });
   });
 });

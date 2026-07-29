@@ -66,6 +66,7 @@ describe("runt economy upsizes its runts", () => {
     let largestMiner = 0; // the biggest body it ever upsized to
     let recyclingSeen = false;
     const samples: string[] = [];
+    const lastMinerSizing: { [corpId: string]: any } = {};
     let endedAt = 1200;
 
     // PROBE CADENCE (owner 2026-07-20 "runt econ always takes so long"): the
@@ -89,6 +90,18 @@ describe("runt economy upsizes its runts", () => {
         }
       }
 
+      // WHY-DIAGNOSTICS (2026-07-29): a red run used to report only WORK
+      // counts, so "upsize never proven" cost an 11-minute rerun and manual
+      // reasoning to attribute (measured twice in one session: once a
+      // host-load flake, once a real pile-gate suppression of the upsize
+      // demand). The miner corp's own sizing stamp IS the decision, so
+      // capture it on every sample and print it on failure - the cell then
+      // names its own cause the first time.
+      for (const id in (mem.commissions?.corps ?? mem.corps ?? {})) {
+        if (!/harvest|mining/.test(id)) continue;
+        const sz = ((mem.commissions?.corps ?? mem.corps ?? {}) as any)[id]?.lastSizing;
+        if (sz) lastMinerSizing[id] = sz;
+      }
       const works = await flowMinerWork(mem);
       for (const w of works) {
         if (w > 0 && w < smallestMiner) smallestMiner = w;
@@ -114,11 +127,27 @@ describe("runt economy upsizes its runts", () => {
         `recyclingSeen ${recyclingSeen}, ended at tick ${endedAt}`
     );
 
-    assert.notEqual(smallestMiner, Infinity, "the colony should staff at least one flow miner");
+    // The decision inputs behind a red verdict (see WHY-DIAGNOSTICS above).
+    const diag = Object.keys(lastMinerSizing).length
+      ? Object.entries(lastMinerSizing)
+          .map(([id, sz]) => `${id.slice(-22)} ${JSON.stringify(sz)}`)
+          .join("\n  ")
+      : "(no miner sizing stamps seen - the corp never sized, look upstream of the demand)";
+    console.log(`=== miner sizing stamps (last seen) ===\n  ${diag}`);
+
+    assert.notEqual(
+      smallestMiner,
+      Infinity,
+      `the colony should staff at least one flow miner. Stamps:\n  ${diag}`
+    );
     assert.isAbove(
       largestMiner,
       smallestMiner,
-      `flow miners should be upsized from their cold-start runt (smallest ${smallestMiner}, largest ${largestMiner}, recycled=${recyclingSeen})`
+      `flow miners should be upsized from their cold-start runt (smallest ${smallestMiner}, ` +
+        `largest ${largestMiner}, recycled=${recyclingSeen}, endedAt ${endedAt}).\n` +
+        `Miner sizing stamps name the cause - a "buffer-full" gate means the source's mouth was\n` +
+        `saturated and the upsize lost priority; "clear" with no upsize means the spawn never\n` +
+        `afforded the bigger body (read energyCapacity/agenda), not a demand problem:\n  ${diag}`
     );
   });
 });
