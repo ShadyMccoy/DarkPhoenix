@@ -28,7 +28,7 @@ import {
   effectiveLife,
   haulerOverhead
 } from "../src/economy/primitives";
-import { BASE_RESERVE, feederRelayRate } from "../src/economy/bank";
+import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -380,15 +380,53 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const reserve = typeof core.warchestTarget === "number" ? core.warchestTarget : BASE_RESERVE;
     const excess = room.storageEnergy - reserve;
     const idleThreshold = BASE_RESERVE; // a reserve's worth of genuine excess above the (dynamic) target
+    // DAMPED-EQUILIBRIUM FRAME (owner 2026-07-29: "we would expect the
+    // surplus to maybe rise, until it reaches an equilibrium ... don't
+    // necessarily flag that as a red"). Spending is surplus/SURPLUS_DRAIN_TICKS,
+    // so the bank does NOT settle at the reserve - it settles where the draw
+    // equals net inflow: S* = reserve + SURPLUS_DRAIN_TICKS x netInflow.
+    // Projected from the measured slope (slope = inflow - surplus/T =>
+    // S*_excess = excess + T x slope), a bank climbing toward a FINITE,
+    // absorbable equilibrium is convergence, not idle capital. The leak
+    // signatures survive: an equilibrium past the draw-saturation knee
+    // (MAX_SURPLUS_DRAW x T - income the spend path physically cannot
+    // absorb), and any big idle bank with the spend path DOWN.
+    const projectedExcess = excess + SURPLUS_DRAIN_TICKS * slope;
+    const knee = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS;
+    const spendPathDown = room.feederActive === false;
+    // RISING is the exemption the owner named: a bank climbing toward a
+    // finite, absorbable S* is the damped law converging. A bank FLAT or
+    // FALLING at a big surplus is not evidence of convergence (it is equally
+    // the stalled-spend-path shape), so it keeps the old watch-level WARN.
+    const converging = excess <= idleThreshold || (slope > 0 && projectedExcess < knee && !spendPathDown);
+    const runaway = slope > 0 && projectedExcess >= knee;
     rows.push({
       id: "E4",
       name: "idle capital",
       value: excess,
       unit: "energy above the reserve target",
-      verdict: excess > idleThreshold && slope >= 0 ? "FAIL" : excess > idleThreshold ? "WARN" : "ok",
-      detail: `storage ${room.storageEnergy} vs reserve ${reserve}${
-        typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
-      }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
+      verdict: converging
+        ? "ok"
+        : excess > idleThreshold && (runaway || spendPathDown)
+        ? "FAIL"
+        : excess > idleThreshold
+        ? "WARN"
+        : "ok",
+      detail:
+        `storage ${room.storageEnergy} vs reserve ${reserve}${
+          typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
+        }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}` +
+        `; projected equilibrium ${(reserve + projectedExcess).toFixed(0)} (surplus ${projectedExcess.toFixed(0)}` +
+        `, knee ${knee}) - ` +
+        (converging
+          ? excess <= idleThreshold
+            ? "at/near target"
+            : "CONVERGING toward it (damped draw, healthy - owner 2026-07-29)"
+          : spendPathDown
+          ? "SPEND PATH DOWN"
+          : runaway
+          ? "equilibrium past the absorbable knee - income the spend path cannot use"
+          : "flat/falling at a big surplus - not convergence evidence; check the spend path")
     });
   }
 

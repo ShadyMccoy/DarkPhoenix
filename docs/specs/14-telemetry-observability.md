@@ -5007,3 +5007,27 @@ runt-economy (4m rerun) + storage-depot (7s). DEPLOYED b52bd23 (global
 reset). Verification predictions stand as recorded above: relay = 15 +
 surplus/1500 (no 115 spikes), E4 glide-and-hold at ~56k, P7 steady (no
 trough windows), no 4350e purchase bursts, X5 quiet through shrinks.
+
+### AUDIT 2026-07-29 (addendum) — E4 taught the damped equilibrium (owner correction, pre-empted a false red)
+
+Owner, reading the damping through: "we would expect the surplus to maybe
+rise, until it reaches an equilibrium. So we don't necessarily want to flag
+that as a red or regression." Correct and load-bearing: with the draw at
+`surplus/1500` the bank no longer settles AT the reserve - it settles where
+draw == net inflow, `S* = reserve + 1500 x netInflow`. The OLD E4 rule
+(`excess > threshold && slope >= 0 => FAIL`) would have called every tick of
+that healthy climb a leak, and the armed post-deploy check would have read it
+as a regression and rolled back a working change. Fixed both: (a) the armed
+verification wakeup was rewritten with the equilibrium frame BEFORE it fired;
+(b) E4 now projects `S* = excess + SURPLUS_DRAIN_TICKS x slope` and reads
+RISING-toward-absorbable as ok, reserving FAIL for a projected equilibrium
+past the draw knee (`MAX_SURPLUS_DRAW x T = 150k` - income the spend path
+cannot absorb) or a big idle bank with the spend path down; flat/falling at a
+big surplus keeps the watch-level WARN (not convergence evidence, never a
+deploy-blocking red). Red-first: 5 E4 frame tests (climb-to-modest-S* ok,
+runaway FAIL, spend-path-down FAIL, flat WARN, at-target ok); the 2026-07-18
+601k-idle FAIL pin and the dynamic-warchest pin both still hold. 59 ledger /
+1632 unit green. Analysis-only (ledger script + spec): unit+build gate.
+LESSON: when a control law changes, its LEDGER LINE is part of the change -
+a verdict calibrated to the old law manufactures false reds against the new
+one (same class as the wartime P7 false-FAIL, 2026-07-27).

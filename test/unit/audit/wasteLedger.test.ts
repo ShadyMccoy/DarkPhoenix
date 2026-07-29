@@ -783,3 +783,63 @@ describe("X5 phantom churn on a mid-window fleet shrink (t72651837, owner 2026-0
     expect(eol.churnEnergy).to.equal(0);
   });
 });
+
+describe("E4 damped-equilibrium frame (owner 2026-07-29: a rising surplus is convergence, not a leak)", () => {
+  // Under SURPLUS_DRAIN_TICKS = CREEP_LIFETIME the bank's equilibrium is NOT
+  // the reserve: spending is surplus/1500, so it settles where that equals
+  // net inflow => S* = reserve + 1500 x netInflow. A bank CLIMBING toward a
+  // finite S* with the spend path live is healthy convergence; the leak
+  // signature is a bank whose projected S* runs past the draw-saturation
+  // knee (MAX_SURPLUS_DRAW x 1500) or that climbs with the spend path DOWN.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const fx = (n: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", n), "utf8"));
+
+  /** A capture pair with a chosen storage slope, feeder state, and reserve. */
+  const pair = (storage: number, prevStorage: number, feederActive = true) => {
+    const cap = clone(fx("shard1-t72652682.json"));
+    const base = clone(fx("shard1-t72651837.json"));
+    cap.data.core.warchestTarget = 56000;
+    base.data.core.warchestTarget = 56000;
+    cap.data.core.rooms[0].storageEnergy = storage;
+    cap.data.core.rooms[0].feederActive = feederActive;
+    base.data.core.rooms[0].storageEnergy = prevStorage;
+    base.data.core.rooms[0].name = cap.data.core.rooms[0].name;
+    return [cap, base] as const;
+  };
+  const e4 = (a: any, b: any): any => computeLedger(a, b).find((r: any) => r.id === "E4")!;
+
+  it("does NOT flag a bank climbing toward a modest equilibrium (the damped signature)", () => {
+    // +2/t from 90k (surplus 34k - genuinely ABOVE the idle threshold, so
+    // the old rule's "excess big AND slope >= 0" would have FAILED it):
+    // S* ~ 90k + 3000, ~37k surplus, well inside the 150k knee.
+    const [cap, base] = pair(90_000, 88_310);
+    const row = e4(cap, base);
+    expect(row.verdict).to.equal("ok");
+    expect(row.detail).to.contain("equilibrium");
+  });
+
+  it("still FAILS a runaway bank whose projected equilibrium blows past the draw knee", () => {
+    // +40/t sustained: S* ~ 200k+, far beyond MAX_SURPLUS_DRAW x 1500 - the
+    // spend path cannot absorb what income banks. That is a real leak.
+    const [cap, base] = pair(190_000, 156_200);
+    expect(e4(cap, base).verdict).to.equal("FAIL");
+  });
+
+  it("still FAILS a big idle bank while the spend path is DOWN (feederActive false)", () => {
+    const [cap, base] = pair(120_000, 120_000, false);
+    expect(e4(cap, base).verdict).to.equal("FAIL");
+  });
+
+  it("keeps a watch-level WARN (never a FAIL) on a bank FLAT at a big surplus", () => {
+    // Flat is not convergence evidence - it is equally the stalled-spend-path
+    // shape. Worth watching, never a deploy-blocking red.
+    const [cap, base] = pair(90_000, 90_000);
+    expect(e4(cap, base).verdict).to.equal("WARN");
+  });
+
+  it("stays ok at/below the reserve target (nothing idle)", () => {
+    const [cap, base] = pair(50_000, 49_000);
+    expect(e4(cap, base).verdict).to.equal("ok");
+  });
+});
