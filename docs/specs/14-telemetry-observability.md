@@ -5031,3 +5031,37 @@ runaway FAIL, spend-path-down FAIL, flat WARN, at-target ok); the 2026-07-18
 LESSON: when a control law changes, its LEDGER LINE is part of the change -
 a verdict calibrated to the old law manufactures false reds against the new
 one (same class as the wartime P7 false-FAIL, 2026-07-27).
+
+### AUDIT 2026-07-29 (t72652682→t72654979, dt 2297) — damping VERIFIED to the decimal; E6 opens the haul drain-term fix
+
+**Damping deploy (b52bd23) verified, no FAIL lines.** The relay stamp reads
+`relayRate 17.4447` = 15 + 3667/1500 EXACTLY - the damped law executing live
+(was a 115-class draw at the same bank under the 150t horizon). **E4
+converged and HELD**: storage 59667, slope **-0.04/t** (flat), projected
+equilibrium 59613 vs reserve 56000 - the swing is gone, the bank sits just
+above target instead of overshooting into relegation. No 4350e purchase
+bursts (X5 0.07, worst a 1700e remote miner); E2 0 stranded (the retiring
+hauler expired as predicted); P7 now reads the WARTIME frame (13.35x the
+relegated floor, construction absorbing 12.0 e/t, P8 building 0.96 e/t) -
+the surplus is funding STRUCTURES, doctrine-correct, and the upgrader sits
+at its floor by design (so "sized to equilibrium" gets its real test in the
+next peacetime window).
+
+**E6's pre-registered criterion FIRED and the stamps named the mechanism.**
+cd8d/cee0 drained and released (cd8d now `clear`, buffered 1650, heldFrac
+0.14 - the gate->release loop working); **cd8e alone went CHRONIC**: buffered
+2649→3874 GROWING, heldFor 512t at 100% of window, while its drain route
+`hauling-W43N24-hauling-7-38` stamped `carryNeeded 1`, `creeps 0`,
+`srcLinkEnergy null`. That is the 2026-07-26 instrument's own pre-registered
+verdict - staged high, NO link, fleet under-sized - so the fix is the
+missing BUFFER-DRAIN TERM, not the link network and not the miner. Shipped:
+`haulCarryNeeded` now adds `staged/CREEP_LIFETIME` (the codebase's ONE drain
+law - identical to sustainableConsumptionRate and to the bank's
+SURPLUS_DRAIN_TICKS) on top of the sustained rate, amortized across routes
+by carry share and priced at each route's real distance. Gentle (3874 adds
+2.6 e/t ~ 4 CARRY, never a swarm), self-extinguishing as the pile drains,
+FAILS OPEN on fog, and construction-only routes still yield to the tankers.
+Red-first: 5 tests (drain math, gentleness, self-extinction, fog, builder
+yield); 1637 unit green. Verdict: **damping FIXED+VERIFIED; E6 leak
+DIAGNOSED from stamps and fixed - the owner's "don't let the gate mask
+hauling problems" paid off exactly as designed.**
