@@ -4783,3 +4783,25 @@ P7 `3.50x RELEGATED floor (wartime) [ok]`, no FAIL lines. Verdict: **FIXED
 creep-gen check that P8 climbs to the crew's ~25 e/t absorb as the upgrader
 fully drains (else the tanker haul under-sizes - the "build out-plans haulage"
 watch).
+
+### AUDIT 2026-07-29 (t72640141→t72643358) — d9c06c6 prod deploy + post-deploy verification: CLEAN, spend path restored
+
+Deployed d9c06c6 (== origin/master, working tree clean; unit 1600 green, webpack
+259K) to world branch "master" at t72640141; pre-deploy baseline committed
+(shard1-t72640141.json). Pre-deploy ledger vs t72601836 (dt 38305): **FAIL E4**
+idle capital 39245e above reserve (95245 vs 56000, slope +0.46/t, feederActive
+true) and **FAIL P7** controller −70.1 e/t vs plan 40.7 (stock 1657→689 with
+energy standing); WARN P4 0.94x, P2 7/13, E5 2/8, H1 duty 0.75 (at-sink
+contention). Check 1 (+128t, t72640269): no new FAILs; census 27→20 + P7 0.08x
+held as reset/ramp residuals (upgrader mid-spawn on the meter); X5/H1 skipped
+(blackbox wiped by the global reset — expected). Check 2 (t72643358, dt 3089):
+**no FAIL lines.** E4 FAIL→ok — storage 96017→70080, slope **−8.40/t**, draining
+toward the 56000 reserve (spend path live again). P7 FAIL→WARN **0.63x** (36.8
+vs 58.3 e/t lower endpoint), stock 795→1293, LINK ctrl receipt 5.9→38.4 e/t
+(direct 32%). Census recovered 20→25 (24/25 tracked), X5 0.05 (home 0% —
+predicted reset-churn inflation never materialized), SCAV cleared, P4 0.90x,
+P2 7/13 unchanged. Verdict: **DEPLOY VERIFIED CLEAN; no work item this cycle.**
+Pending watch: P7 convergence — 0.63x and climbing with stock rising; if it
+stalls below plan at the next check (30m cadence) it becomes the work item
+(candidate causes: P4 0.90x ceiling pressure, P2 micro-routes). E4 must land AT
+target, not below (doctrine: warchest AT its target).
