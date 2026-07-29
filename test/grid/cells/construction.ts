@@ -157,6 +157,21 @@ const EXT_POS: Array<{ x: number; y: number }> = [
 
 const CONTAINER_FULL = 250000;
 
+/**
+ * A staged "already paved" route for cons-road-pothole-rebuilt, laid down a
+ * lane at x=10 - nowhere near the natural source(25,40)->depot(24,24) haul
+ * route, so no ordinary paving pass can put a road on it. POTHOLE is the tile
+ * left bare: the road that decayed to death.
+ */
+const POTHOLE_LANE: Array<{ x: number; y: number }> = [
+  { x: 10, y: 20 },
+  { x: 10, y: 21 },
+  { x: 10, y: 22 },
+  { x: 10, y: 23 },
+  { x: 10, y: 24 },
+];
+const POTHOLE = { x: 10, y: 22 };
+
 export function buildConstructionT2Cells(): GridCell[] {
   let oneSiteContainerSeen = false;
   let prevBHits: number | null = null;
@@ -506,6 +521,83 @@ export function buildConstructionT2Cells(): GridCell[] {
         eventually("at least part of the route is actually paved", (s) =>
           s.objects().filter((o: any) => o.type === "road").length >= 3
         ),
+      ],
+    },
+
+    {
+      // POTHOLE RE-SURVEY (owner 2026-07-29: "sometimes the roads in remote
+      // rooms decayed or got destroyed, and they never get rebuilt"). The
+      // `paved` receipt was an ABSORBING state - every read site skipped a
+      // paved route forever - so a tile whose road decayed to death or was
+      // destroyed was never re-placed. This cell stages the exact shape:
+      // a paved receipt over a route whose middle tile has NO road.
+      //
+      // This is a RECEIPTS-GATED path, and the trap list is explicit that the
+      // sims stage no roadRoutes receipts, so only a staged cell can execute
+      // it. The lane (x=10) is deliberately far from the natural
+      // source(25,40)->depot(24,24) haul route, so nothing but the re-survey
+      // can put a road at the hole - under the old code the tile stays bare
+      // for the whole window.
+      id: "cons-road-pothole-rebuilt",
+      tier: 2,
+      avenue: "construction",
+      window: 200,
+      rooms: { home: rungRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 3 },
+      structures: [
+        // Parked in the far corner, out of TOWER_REPAIR_RANGE of the staged
+        // lane - the tower must not be able to confound the observable (it
+        // repairs standing roads; it can never re-place a missing one).
+        { type: "tower", x: 45, y: 45, energy: 1000 },
+        { type: "container", x: HARVEST_SPOT.x, y: HARVEST_SPOT.y, energy: 2000 },
+        { type: "container", x: DEPOT_TILE.x, y: DEPOT_TILE.y, energy: 1500 },
+        { type: "container", x: 25, y: 12, energy: 0 },
+        ...EXT_POS.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
+        // The staged route: four tiles paved, (10,22) is the pothole.
+        ...POTHOLE_LANE.filter((t) => t.x !== POTHOLE.x || t.y !== POTHOLE.y).map((t) => ({
+          type: "road",
+          x: t.x,
+          y: t.y,
+        })),
+      ],
+      memory: {
+        rooms: {
+          "$room()": {
+            roadRoutes: {
+              "$id(home,source,25,40)": {
+                tiles: POTHOLE_LANE.reduce<number[]>((flat, t) => flat.concat([t.x, t.y]), []),
+                paved: true,
+              },
+            },
+          },
+        },
+      },
+      assertions: [
+        eventually("the missing tile gets a road site (the receipt is re-surveyed, not trusted)", (s) =>
+          s
+            .objects()
+            .some(
+              (o: any) =>
+                o.x === POTHOLE.x &&
+                o.y === POTHOLE.y &&
+                (o.type === "road" || (o.type === "constructionSite" && o.structureType === "road"))
+            )
+        ),
+        // Surgical: the sweep re-places the HOLE, not the route. A pass that
+        // re-sited every tile would mean the receipt was thrown away rather
+        // than verified.
+        always("no road site is ever placed on a tile that already has a road", (s) => {
+          const roads = new Set(
+            s
+              .objects()
+              .filter((o: any) => o.type === "road")
+              .map((o: any) => `${o.x},${o.y}`)
+          );
+          return sites(s)
+            .filter((o: any) => o.structureType === "road")
+            .every((o: any) => !roads.has(`${o.x},${o.y}`));
+        }),
       ],
     },
 

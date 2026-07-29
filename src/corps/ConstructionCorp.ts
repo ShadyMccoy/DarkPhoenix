@@ -59,6 +59,7 @@ import {
   LINK_MIN_SOURCE_RANGE,
   PLACEMENT_COOLDOWN,
   ROAD_PAYBACK_HORIZON,
+  ROAD_RESURVEY_INTERVAL,
   ROAD_SPAWN_PART_VALUE,
   SOURCE_CONTAINER_PILE_THRESHOLD,
   STORAGE_MIN_RCL,
@@ -1204,19 +1205,107 @@ export class ConstructionCorp extends Corp {
   }
 
   /**
-   * A route entry that needs no further work: paved, or declined at a flow
-   * that still stands (declinedVerdictStands). The work() gate and the
-   * placement path MUST read this same lens - if the gate thinks a stale
-   * declined verdict is settled while the placement path would re-judge it,
-   * work() never routes here and the re-judge never runs.
+   * A route entry that needs no further work: paved AND not due for its
+   * pothole re-survey, or declined at a flow that still stands
+   * (declinedVerdictStands). The work() gate and the placement path MUST read
+   * this same lens - if the gate thinks a stale declined verdict is settled
+   * while the placement path would re-judge it, work() never routes here and
+   * the re-judge never runs. The same symmetry is why `paved` is conditional
+   * here: the re-survey lives inside tryPlaceRoadRoute, so a paved route that
+   * counted as settled would never let work() reach the sweep that unsettles
+   * it - the receipt would stay true over a hole forever.
    */
   private routeSettled(
     entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined,
     currentFlow: number
   ): boolean {
     if (!entry) return false;
-    if (entry.paved) return true;
+    if (entry.paved) return !this.resurveyDue(entry);
     return !!entry.declined && declinedVerdictStands(entry.judgedFlow, currentFlow);
+  }
+
+  /**
+   * Is a paved route's receipt old enough to re-verify? An entry that has
+   * NEVER been re-surveyed is due at once - never `tick - 0 >= INTERVAL`,
+   * which reads as "not due" for the first 1500 ticks of a server's life and
+   * silently voids the whole sweep on a young colony (and in every staged
+   * cell, whose clock starts at 0).
+   */
+  private resurveyDue(entry: NonNullable<Room["memory"]["roadRoutes"]>[string], tick = Game.time): boolean {
+    return entry.resurveyed === undefined || tick - entry.resurveyed >= ROAD_RESURVEY_INTERVAL;
+  }
+
+  /**
+   * POTHOLE SWEEP: re-verify routes stamped `paved` and reopen any that have
+   * lost pavement (owner 2026-07-29: "sometimes the roads in remote rooms
+   * decayed or got destroyed, and they never get rebuilt").
+   *
+   * Roads are the one thing this corp builds that can DISAPPEAR on its own. A
+   * road decays to nothing in ~31k ticks under a 2:1 trunk fleet, and an
+   * invader flattens one in an afternoon. Repair answers the decay half only
+   * where a repair detail stands - and a trunk's PASS-THROUGH rooms (neither
+   * owned nor mined) host no construction corp at all, so their tiles get no
+   * maintenance and are exactly the ones that die. The receipt then lied
+   * permanently: `paved` fed the 2:1 hauler repricing and every placement path
+   * skipped the route, so the hole was never re-placed.
+   *
+   * Reopening is deliberately NOT a re-judge: the route already cleared
+   * roadEconomics and stands almost entirely built, so re-running the verdict
+   * could DECLINE a 97%-built road and abandon it (the revocation trap class).
+   * We only drop the receipt and hand the entry back to the ordinary
+   * in-progress machinery, which re-places the missing sites and re-stamps
+   * `paved` through its own completion sweep once the crew rebuilds them.
+   */
+  private resurveyPavedRoutes(room: Room, routes: NonNullable<Room["memory"]["roadRoutes"]>): void {
+    const trunkByKey = new Map(this.remoteTrunks.map(t => [t.sourceId.replace(/^source-/, ""), t]));
+    for (const key in routes) {
+      const entry = routes[key];
+      if (!entry?.paved || !this.resurveyDue(entry)) continue;
+
+      if (entry.tiles3 && entry.rooms) {
+        const trunk = trunkByKey.get(key);
+        // Not in the plan any more: no rebuild (a road to a source we no
+        // longer fund is dead capital) and no revocation either - the
+        // standing road keeps serving whoever walks it.
+        if (!trunk) continue;
+        // The survey IS the re-placement: it stamps a site on every visible
+        // tile missing its road, and reports which tiles those were.
+        const survey = this.placeTrunkSites(entry.rooms, entry.tiles3, trunk.pos);
+        entry.resurveyed = Game.time;
+        entry.total = survey.total;
+        // Ground truth may count DOWN here - the ratchet elsewhere exists to
+        // stop a BLIND pass from deflating the pave fraction (and flapping
+        // the hauler body), not to deny a fully-visible pass that watched a
+        // road die. With any room blind the ratchet still holds.
+        entry.built = survey.blind.length === 0 ? survey.built : Math.max(entry.built ?? 0, survey.built);
+        // `missing` is exactly "a visible, placeable tile with no built road"
+        // - blind-safe by construction, so a trunk we cannot see is never
+        // reopened on a guess.
+        if (survey.missing.length === 0) continue;
+        delete entry.paved;
+        this.stampSizing({
+          roadGate: `trunk-reopened-${survey.missing.length}`,
+          trunkMissing: survey.missing.join(" ")
+        });
+        console.log(
+          `[Construction] TRUNK to ${key} lost pavement (${survey.built}/${survey.total} standing, ` +
+            `${survey.placed} sites re-placed) - receipt dropped, rebuilding`
+        );
+        return; // one project at a time, same as the placement paths
+      }
+
+      // In-room route (source lane or the feeder): this room's own tiles,
+      // full vision, so the check is exact.
+      entry.resurveyed = Game.time;
+      if (entry.tiles.length === 0 || this.roadTilesBuilt(room, entry.tiles)) continue;
+      delete entry.paved;
+      const placed = this.placeMissingRoadSites(room, entry.tiles);
+      this.stampSizing({ roadGate: `road-reopened-${key.slice(-4)}` });
+      console.log(
+        `[Construction] Route ${key} lost pavement (${placed} sites re-placed) - receipt dropped, rebuilding`
+      );
+      return;
+    }
   }
 
   /**
@@ -1263,6 +1352,12 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return;
     const depotPos = room.storage?.pos ?? spawn.pos;
     const routes = (room.memory.roadRoutes = room.memory.roadRoutes ?? {});
+
+    // Maintenance of what stands comes before investment in what doesn't: a
+    // reopened route is a road we already paid for and are losing, while every
+    // path below is a new commitment. It runs FIRST so the one-route-at-a-time
+    // returns downstream can never starve it.
+    this.resurveyPavedRoutes(room, routes);
 
     for (const source of room.find(FIND_SOURCES)) {
       if (!this.hasContainerNear(room, source.pos, 1)) continue;
