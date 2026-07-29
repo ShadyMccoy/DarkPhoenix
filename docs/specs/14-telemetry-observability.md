@@ -5076,3 +5076,44 @@ no new E5 runts and P4 stays under 1.0x ceiling (the term is gentle by
 construction, but spawn parts are DRY at 0.89x - if P4 crosses 1.0 or E5
 runts appear, the term is over-asking and gets a cap). E4 must stay
 converged (~56-60k, flat) - the drain term spends INCOME, not the bank.
+
+### DEV 2026-07-29 — batch placement: the multi-rung pass was a real regression (caught pre-deploy)
+
+Owner ask: "place all of them, still build one at a time, size the builders
+to all the sites." Two of the three parts ALREADY existed - siteWorkRemaining
+sums every site into projectAbsorbRate (crew sizing), and nextBuildTarget
+latches until a site completes (focus). The gap was PLACEMENT:
+`canBuildMore = activeSites === 0` stalled the ladder until the board was
+BUILT OUT, capping the crew against whichever single site was open.
+
+First attempt widened the gate AND removed the ladder's early returns so one
+pass placed every rung. The trio killed it: **storage-depot 7s -> 10m FAIL**
+("expected a storage (or storage site) within 900 ticks of RCL4" - never
+placed) and **runt-economy 12m FAIL** (upsize unproven; the test early-exits
+on success, so RUNTIME IS THE VERDICT - 4m green, 12m+ means it burned all
+its ticks). ONE cause: same-tick placements are invisible to lookFor (the
+hazard the extension batch threads an exclusion set through), so multiple
+rungs firing in one tick both collide on tiles AND, decisively, place
+container sites that COUNT toward activeSites - in a no-storage room there is
+then no surplus to reopen the gate, so the ladder locks itself out. That is
+the builder-less stall the tower/road activeSites exclusion already exists to
+prevent (spec 07 comment). The RCL2 board went 1 -> 3 standing sites,
+tripling the construction sink against ~20 e/t and starving the miner upsize.
+The bootstrap surplus guard could NOT save it: an empty board opens the gate
+regardless of surplus, so the multi-rung pass fired anyway.
+
+METHOD NOTE (worth more than the fix): the FIRST runt-economy red of the day
+was a genuine host-load flake (unrelated damping change, green on rerun), and
+that reading was carried into the SECOND red - where a plausible mechanism
+for the pending change was already on the table. Runtime was the tell both
+times and it was read as load, not as "the cell ran to exhaustion". Rule: on
+an early-exit cell, a long run IS the failure signature; re-read the pending
+diff for a mechanism BEFORE attributing to the environment.
+
+SHIPPED (reduced): one rung per pass restored; the widened gate (surplus-only
+when sites stand, empty board unchanged) lets the ladder advance every
+PLACEMENT_COOLDOWN (10t) instead of waiting for builds, so a full set lands
+in ~50-100t and the crew sizes against all of it; buildRank orders the wider
+board (containers -> extensions -> storage/link -> tower -> other -> roads
+last, latch absolute) so proximity cannot silently replace the ladder's
+economics.
