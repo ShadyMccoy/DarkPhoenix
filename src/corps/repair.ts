@@ -145,7 +145,7 @@ function nearestBelowCeiling<T extends Repairable>(structures: T[], rangeOf: (s:
  * along a paving route and tiles completed - the measured ping-pong). Pure and
  * position-agnostic (the `rangeOf` lens) so it is unit-tested without a room.
  */
-export function nextBuildTarget<T extends { id: string }>(
+export function nextBuildTarget<T extends { id: string; structureType?: string }>(
   sites: T[],
   latchedId: string | undefined,
   rangeOf: (s: T) => number
@@ -154,16 +154,60 @@ export function nextBuildTarget<T extends { id: string }>(
     const latched = sites.find(s => s.id === latchedId);
     if (latched) return latched; // still standing => not finished => keep building it
   }
+  // LADDER RANK FIRST, distance only within a rank (owner 2026-07-29, the
+  // batch-placement change): with the whole wanted SET standing as sites,
+  // plain nearest-first would pave a road under the builder's feet while the
+  // extension set waits - it would silently replace the ladder's economics
+  // with proximity. Ranking here keeps the placement wide (so the
+  // sum-of-projects lens sizes the crew against ALL the work) while the
+  // BUILD order stays the owner's. A site with no structureType (test doubles,
+  // legacy callers) ranks with the default tier, so behaviour is unchanged
+  // for a homogeneous set.
   let best: T | null = null;
+  let bestRank = Infinity;
   let bestRange = Infinity;
   for (const s of sites) {
+    const rank = buildRank(s.structureType);
     const r = rangeOf(s);
-    if (r < bestRange) {
+    if (rank < bestRank || (rank === bestRank && r < bestRange)) {
+      bestRank = rank;
       bestRange = r;
       best = s;
     }
   }
   return best;
+}
+
+/**
+ * The ladder's economics as a sort key (owner build order, mirrored from
+ * ConstructionCorp.tryPlaceNextSite): source containers turn roaming
+ * drop-mining into static mining, extensions compound spawn capacity, then
+ * the durable bank and the link network; ROADS are dead last because they
+ * are efficiency rather than capacity and pay only over long horizons.
+ * Unknown types take the default tier - ahead of roads, behind the explicit
+ * capacity rungs - so a new structure never sorts behind paving by accident
+ * and the sort never throws.
+ */
+/* The engine's structure constants ARE these strings; spelled literally so
+ * this stays a PURE module (the rest of the file is unit-tested with no
+ * Screeps globals installed - referencing STRUCTURE_LINK here threw
+ * ReferenceError in exactly that harness). */
+export function buildRank(structureType: string | undefined): number {
+  switch (structureType) {
+    case "container":
+      return 0;
+    case "extension":
+      return 1;
+    case "storage":
+    case "link":
+      return 2;
+    case "tower":
+      return 3;
+    case "road":
+      return 9;
+    default:
+      return 4;
+  }
 }
 
 /**

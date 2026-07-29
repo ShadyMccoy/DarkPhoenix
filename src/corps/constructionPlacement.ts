@@ -311,3 +311,38 @@ export function findGridPosition(room: Room, exclude?: Set<string>): { x: number
   candidates.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
   return candidates[0];
 }
+
+/**
+ * The engine's global construction-site cap (MAX_CONSTRUCTION_SITES). Placing
+ * past it fails ERR_FULL on every attempt, which - under the wide placement
+ * below - would burn a cooldown per rung and stamp nothing but errors.
+ */
+export const SITE_CAP = 100;
+
+/**
+ * Should the ladder place structures this pass? (owner 2026-07-29: "instead
+ * of just placing one construction site at a time ... place all of them,
+ * however we still only build them one at a time, but we size the builders
+ * to the size of all the construction sites").
+ *
+ * The OLD rule was `activeSites === 0`: no new rung until everything standing
+ * was finished. That capped the crew against whatever single site happened to
+ * be open, because the sum-of-projects lens (siteWorkRemaining ->
+ * projectAbsorbRate) can only amortize a crew against work that EXISTS as
+ * sites - the same reasoning that batched the extension set (owner
+ * 2026-07-20), now generalized to every rung.
+ *
+ * Placing wide is safe precisely because the two things that could go wrong
+ * are handled elsewhere: build FOCUS is the latch + ladder rank (buildRank /
+ * nextBuildTarget), so a wide board is still built one site at a time in the
+ * owner's order; and the RCL sequencing intent (at RCL2 containers wait for
+ * the extension SET to be BUILT) lives in the rung gates themselves, which
+ * still read BUILT structures, not sites.
+ *
+ * `atSiteCap` closes the gate at the engine limit so a full board doesn't
+ * spam ERR_FULL every cooldown.
+ */
+export function placementGateOpen(x: { activeSites: number; wantsMore: boolean; atSiteCap: boolean }): boolean {
+  if (x.atSiteCap) return false;
+  return x.wantsMore;
+}
