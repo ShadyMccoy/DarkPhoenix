@@ -4894,3 +4894,26 @@ sources unchanged FAIL; pre-meter stamps fall back to the chronic read.
 Red-first: +6 meter/stamp tests, +3 E6 duration tests (1622 unit green).
 Observability-only (the gate verdict expression is unchanged): unit+build
 gate per protocol.
+
+### AUDIT 2026-07-29 (t72644411→t72645498, dt 1087) — gate+meter verified live; E6 first contact finds two REAL piled routes
+
+Verification for 58e378b/4ffc9a8. **No FAIL lines.** v7 stamps live on all 6
+miner ops. **E6 first contact: cd8e buffered 3946, cee0 buffered 4346** (both
+~2x threshold, staffing 1/1 - nothing dark, gate correctly deferring), the
+exact two sources DEP flags with the biggest link-deposit savings (13/12
+tiles). Attribution correct: haul deficit on the two longest remote routes.
+Calibration nit found and fixed same cycle: heldFrac 1.0 off a 7-sample
+post-reset window cried WARN on 7 ticks of evidence - the frac trigger now
+requires heldFor >= 50 (two-captures->=50t doctrine applied to the meter;
+red-first, 52 ledger tests green, 1624 unit). ALSO NOTABLE: E4 crossed BELOW
+reserve (49530 vs 56000, slope -15.47/t) and the planner correctly flipped
+upgrading to the save-regime floor (plan endpoint 15, P7 2.64x of it, P4
+upgrader line 73->20p) - the bank governor working as designed; watch it
+re-expand as the bank refills. QUEUED work item (falsifier next capture): if
+cd8e/cee0 buffers HOLD and heldFor crosses 300t, the haul-side fix cycle
+opens - candidates: the missing buffer-drain term in hauler sizing (the
+2026-07-26 instrument's hypothesis) vs link-deposit routing (DEP's 40 e/t
+lever); if they DRAIN, scavenge/haul absorbed it (SCAV already prices both
+piles at 9318 net-e/part). Verdict: **VERIFIED + INSTRUMENTED; E6 doing
+exactly what the owner asked - the gate defers, the ledger prosecutes,
+nothing masked.**

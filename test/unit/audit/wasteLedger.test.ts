@@ -721,3 +721,35 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
     expect(e6.verdict).to.equal("ok");
   });
 });
+
+describe("E6 frac trigger sample floor (first-contact calibration, t72645498)", () => {
+  // A reset wipes the meter window: 7 samples all-held read heldFrac 1.0 and
+  // cried WARN on 7 ticks of evidence. The frac trigger now requires the
+  // current hold to be >= 50t (the two-captures->=50t doctrine); heldFor's
+  // own 300t duration trigger and the dark-source FAIL are unchanged.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const fx = (name: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
+  const capBase = fx("shard1-t72411542.json");
+  const baseBase = fx("shard1-t72404213.json");
+  const mk = (heldFor: number, heldFrac: number): any => {
+    const cap = clone(capBase);
+    cap.data.corps.corps.push({
+      id: "mining-W9N9-harvest-tiny", kind: "harvest", type: "mining", nodeId: "n", roomName: "W9N9",
+      creepCount: 1, bodyParts: 8, body: {},
+      sizing: { tick: 1, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
+      createdAt: 0, lastActivityTick: 1
+    });
+    return cap;
+  };
+
+  it("suppresses the frac WARN on a tiny post-reset window (7t held, frac 1.0)", () => {
+    const e6 = computeLedger(mk(7, 1), baseBase).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+  });
+
+  it("keeps the frac WARN once the hold is >= 50t of evidence (60t, frac 0.6)", () => {
+    const e6 = computeLedger(mk(60, 0.6), baseBase).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+  });
+});

@@ -896,8 +896,14 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       // suppressed behind one pile). Pre-meter stamps (no heldFor) fall
       // back to the two-capture chronic read.
       const lifetimeHeld = gated.filter((c: any) => (c.sizing.heldFor ?? 0) >= CREEP_LIFETIME);
+      // The frac trigger needs >=50t of current hold behind it (the
+      // two-captures->=50t doctrine): a reset wipes the meter window and 7
+      // all-held samples read frac 1.0 on 7 ticks of evidence (measured
+      // first contact, t72645498 - real piles, premature verdict).
       const regenHeld = gated.filter(
-        (c: any) => (c.sizing.heldFor ?? 0) >= SOURCE_REGEN_TIME || (c.sizing.heldFrac ?? 0) >= 0.5
+        (c: any) =>
+          (c.sizing.heldFor ?? 0) >= SOURCE_REGEN_TIME ||
+          ((c.sizing.heldFrac ?? 0) >= 0.5 && (c.sizing.heldFor ?? 0) >= 50)
       );
       rows.push({
         id: "E6",
