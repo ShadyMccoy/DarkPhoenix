@@ -4995,3 +4995,15 @@ for post-deploy: relay ≈ 15 + surplus/1500 (no 115 spikes), E4 glides to
 ~56k and HOLDS (no below-reserve dips beyond fleet-EOL lag), P7 steady near
 plan with no trough windows, no 4350e purchase bursts, X5 quiet through
 shrinks.
+
+### ADDENDUM — damping gate + deploy record
+
+runt-economy first run: 0 passing / 1 failing in 12m WITH EXIT CODE 0 (the
+grid-verdict trap generalizes to plain mocha runs — markers, never exit
+codes), rerun green in its normal 4m: host-load flake (concurrent
+builds/captures in this container; the mockup meters real CPU — trap-list
+class). Gate green on the tested bundle: 1627 unit + flow-handoff (4m) +
+runt-economy (4m rerun) + storage-depot (7s). DEPLOYED b52bd23 (global
+reset). Verification predictions stand as recorded above: relay = 15 +
+surplus/1500 (no 115 spikes), E4 glide-and-hold at ~56k, P7 steady (no
+trough windows), no 4350e purchase bursts, X5 quiet through shrinks.
