@@ -339,10 +339,30 @@ export const SITE_CAP = 100;
  * the extension SET to be BUILT) lives in the rung gates themselves, which
  * still read BUILT structures, not sites.
  *
+ * WIDENING IS A SURPLUS-SPEND LEVER, not a bootstrap behaviour. Placing the
+ * set while sites already stand multiplies the construction sink (the same
+ * sum-of-projects number that sizes the crew also sizes the PLAN's build
+ * allocation), and in a cold room that diverts the spawn energy income
+ * depends on - macro doctrine: production over consumption, fund producers
+ * first. Measured shape: the runt-economy world (RCL2, 5 extensions built,
+ * ~20 e/t) goes from 1 standing site to 3 per pass under a naive widening,
+ * against the very spawn energy the miner upsize needs. So a room with
+ * nothing spendable keeps the old conservative ladder - finish what you
+ * started - exactly the rule paving already follows (roads wait for
+ * spendableBankSurplus > 0). An EMPTY board always places: bootstrap must
+ * progress.
+ *
  * `atSiteCap` closes the gate at the engine limit so a full board doesn't
  * spam ERR_FULL every cooldown.
  */
-export function placementGateOpen(x: { activeSites: number; wantsMore: boolean; atSiteCap: boolean }): boolean {
+export function placementGateOpen(x: {
+  activeSites: number;
+  wantsMore: boolean;
+  atSiteCap: boolean;
+  hasSurplus: boolean;
+}): boolean {
   if (x.atSiteCap) return false;
-  return x.wantsMore;
+  if (!x.wantsMore) return false;
+  if (x.activeSites === 0) return true; // empty board: unchanged, bootstrap progresses
+  return x.hasSurplus; // widen only when the colony can fund the set
 }

@@ -527,7 +527,14 @@ export class ConstructionCorp extends Corp {
         wantsLink ||
         wantsTower ||
         this.wantsRoadWork(room),
-      atSiteCap: Object.keys(Game.constructionSites ?? {}).length >= SITE_CAP
+      atSiteCap: Object.keys(Game.constructionSites ?? {}).length >= SITE_CAP,
+      // Widening is funded by the warchest surplus - the same lens paving
+      // uses. Without it a cold room keeps the one-at-a-time ladder so the
+      // construction sink cannot out-compete its own income (see
+      // placementGateOpen).
+      hasSurplus:
+        !!room.storage?.my &&
+        spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0
     });
 
     if (canBuildMore) {

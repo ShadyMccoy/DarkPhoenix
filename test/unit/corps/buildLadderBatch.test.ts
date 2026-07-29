@@ -91,21 +91,35 @@ describe("build ladder: batch placement needs ranked build focus", () => {
 describe("placement gate: batch the whole wanted set (owner 2026-07-29)", () => {
   const { placementGateOpen } = require("../../../src/corps/constructionPlacement");
 
-  it("OPENS with sites already standing when more structures are wanted", () => {
+  it("OPENS with sites already standing when a SURPLUS funds the set", () => {
     // The old rule (activeSites === 0) hid the backlog: the crew was sized
     // against one visible site while the rest of the set waited invisibly.
-    expect(placementGateOpen({ activeSites: 3, wantsMore: true, atSiteCap: false })).to.equal(true);
+    expect(placementGateOpen({ activeSites: 3, wantsMore: true, atSiteCap: false, hasSurplus: true })).to.equal(true);
+  });
+
+  it("does NOT widen the board in a BOOTSTRAP room (no surplus): finish what you started", () => {
+    // Production over consumption: in a cold room every extra site inflates
+    // the construction sink against a ~20 e/t income and starves the very
+    // spawn energy the miner upsize needs (the runt-economy world places 3
+    // sites per pass instead of 1 under a naive widening). Batching is a
+    // SURPLUS-SPEND lever - the same rule paving already follows - so a room
+    // with nothing banked keeps the conservative one-at-a-time ladder.
+    expect(placementGateOpen({ activeSites: 1, wantsMore: true, atSiteCap: false, hasSurplus: false })).to.equal(false);
+  });
+
+  it("still places on an EMPTY board without a surplus (bootstrap must progress)", () => {
+    expect(placementGateOpen({ activeSites: 0, wantsMore: true, atSiteCap: false, hasSurplus: false })).to.equal(true);
   });
 
   it("stays open on an empty board when structures are wanted (unchanged)", () => {
-    expect(placementGateOpen({ activeSites: 0, wantsMore: true, atSiteCap: false })).to.equal(true);
+    expect(placementGateOpen({ activeSites: 0, wantsMore: true, atSiteCap: false, hasSurplus: true })).to.equal(true);
   });
 
   it("closes when nothing more is wanted", () => {
-    expect(placementGateOpen({ activeSites: 0, wantsMore: false, atSiteCap: false })).to.equal(false);
+    expect(placementGateOpen({ activeSites: 0, wantsMore: false, atSiteCap: false, hasSurplus: true })).to.equal(false);
   });
 
   it("closes at the engine's global site cap (never spam ERR_FULL every cooldown)", () => {
-    expect(placementGateOpen({ activeSites: 40, wantsMore: true, atSiteCap: true })).to.equal(false);
+    expect(placementGateOpen({ activeSites: 40, wantsMore: true, atSiteCap: true, hasSurplus: true })).to.equal(false);
   });
 });
