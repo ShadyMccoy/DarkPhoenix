@@ -480,6 +480,17 @@ declare global {
         declined?: boolean;
         /** Flow (e/t) the declined verdict was judged at (absent on legacy entries). */
         judgedFlow?: number;
+        /**
+         * Last tick a PAVED route was re-surveyed for potholes
+         * (ConstructionCorp.resurveyPavedRoutes, cadence
+         * ROAD_RESURVEY_INTERVAL). Roads decay and invaders destroy them, so
+         * `paved` is a receipt with a shelf life, not a permanent verdict: on
+         * the beat the corp re-reads the tiles and, if a road is GONE, drops
+         * the receipt and re-places the site. Absent = never re-surveyed
+         * (legacy entries and freshly-paved routes are due at once, which
+         * costs one cheap sweep and self-stamps).
+         */
+        resurveyed?: number;
       };
     };
 

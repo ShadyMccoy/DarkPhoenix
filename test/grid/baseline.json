@@ -50,6 +50,7 @@
     "cons-repair-road-fraction": "pass",
     "cons-repair-starts-below-60": "pass",
     "cons-repair-stops-at-99": "pass",
+    "cons-road-pothole-rebuilt": "pass",
     "cons-road-route-paved": "pass",
     "cons-src-container-on-pile": "pass",
     "cons-t2-container-completes": "pass",

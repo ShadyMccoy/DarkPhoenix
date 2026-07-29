@@ -103,6 +103,25 @@ export const ROAD_SPAWN_PART_VALUE = 100;
  */
 export const ROAD_PAYBACK_HORIZON = UNMAINTAINED_ROAD_LIFE;
 
+/**
+ * Ticks between POTHOLE RE-SURVEYS of a route already stamped `paved` (see
+ * ConstructionCorp.resurveyPavedRoutes). The paved receipt used to be an
+ * absorbing state - once stamped, every read site (`routeSettled`, the trunk
+ * completion sweep, the placement loops) skipped the route forever, so a tile
+ * whose road DECAYED TO DEATH or was destroyed by an invader was never
+ * re-placed: the route stayed "paved" over a hole for the rest of the colony's
+ * life. Remote trunks feel it first - their pass-through rooms host no corp, so
+ * nothing repairs those tiles and they are the ones that actually die.
+ *
+ * The cadence is set against how fast a road can plausibly vanish, not against
+ * placement cost: an untrafficked road lives UNMAINTAINED_ROAD_LIFE (50k
+ * ticks) and a trunk under a 2:1 fleet at 10 e/t about 31k, so a hole opens on
+ * a ten-thousand-tick scale while the sweep itself is a lookForAt per tile.
+ * 1500 spends a negligible slice of that budget and still re-places within a
+ * few hundred ticks of the loss.
+ */
+export const ROAD_RESURVEY_INTERVAL = 1500;
+
 /** One placement pass over a trunk's tiles: what stands, what was added,
  * which rooms could not be read. */
 export interface TrunkSurvey {

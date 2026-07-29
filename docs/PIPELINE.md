@@ -156,6 +156,14 @@ Road placement is fed by two independent inputs that answer different questions:
   KNOWN route with an ASSUMED flow. `ConstructionCorp.tryPlaceRoadRoute`
   uses it to decide whether to pave each
   source→depot haul route and caches the verdict in `RoomMemory.roadRoutes`.
+  Both cached verdicts have a shelf life, because both can go stale in the
+  world: a `declined` verdict is voided when live flow outgrows the flow it was
+  judged at (`declinedVerdictStands`), and a `paved` receipt is re-verified
+  every `ROAD_RESURVEY_INTERVAL` ticks by
+  `ConstructionCorp.resurveyPavedRoutes` — roads decay and invaders destroy
+  them, so a visible route tile with no road drops the receipt and re-places
+  the site. Reopening never re-judges: a nearly-finished road must not be
+  abandoned by a fresh verdict.
 - **Empirical — `economy/roadScoring.ts` + `execution/roadTracker.ts`.**
   `trackRoadUsage` (every tick, `main.ts` EXECUTE phase) watches where our
   creeps actually STEP on unpaved plain/swamp while paying move-fatigue, and
