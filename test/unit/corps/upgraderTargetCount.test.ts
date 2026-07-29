@@ -2,7 +2,7 @@ import { expect } from "chai";
 import "../../../src/types/Memory";
 import { bankBehindFeeder, upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
 import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/haulPolicy";
-import { BASE_RESERVE, feederRelayRate } from "../../../src/economy/bank";
+import { BASE_RESERVE, STORAGE_UPGRADE_TARGET, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
 /**
@@ -199,11 +199,15 @@ describe("bankBehindFeeder (durable feeder-relay verdict, incident t72571505)", 
     expect(collapsed, "old: recycled to the anti-downgrade sip").to.be.lessThan(5);
     const held = bankBehindFeeder({ storageEnergy: banked, feederActive: false, controllerInputStock: stock });
     const sustained = upgraderSizing(56.4, stock, held, reserve, 0).allocated;
-    // relayRate = feederRelayRate(61134, 56000) ~ 49.2 (the measured prod value).
+    // relayRate = feederRelayRate(61134, 56000): the save-floor plus the
+    // surplus draw at the lifetime horizon (owner 2026-07-29 damping - was
+    // ~49.2 at the old 150t horizon, ~18.4 now; the anti-flap intent is
+    // unchanged: the durable verdict must keep the surplus term, never
+    // collapse to the sip).
     expect(sustained, "new: sized to the surplus relay, no teardown").to.be.closeTo(
       feederRelayRate(banked, reserve) + stock / 1500,
       1e-6
     );
-    expect(sustained, "and well above the collapsed sip").to.be.greaterThan(40);
+    expect(sustained, "and above the bare save-floor - the surplus term held").to.be.greaterThan(STORAGE_UPGRADE_TARGET);
   });
 });

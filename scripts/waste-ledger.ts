@@ -252,8 +252,30 @@ export function computeChurn(cap: any): {
     // the last `slots` spawns are the current incumbents.
     const churned = ss.length - slots;
     for (let i = 0; i < churned; i++) {
-      const gap = ss[i + slots].t - ss[i].t;
+      let gap = ss[i + slots].t - ss[i].t;
       const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
+      // EOL-window exemption (t72651837 phantom, owner 2026-07-29): the
+      // stride uses CURRENT staffing, so a fleet that SHRANK mid-window
+      // (governor relegation) mispairs a cohort-wave spawn as a slot death
+      // (two 4350e bodies bought 153t apart - the spawn's own build time -
+      // read as one slot dying at 153t, though both lived full lives). A
+      // slot with a natural-lifetime successor ANYWHERE in the log did not
+      // churn: if any later spawn sits in [0.9, 1.15]x life from ss[i],
+      // that is its real replacement - measure the gap there. Real early
+      // deaths (0.2x-life replacements) and re-order loops (<60t) have no
+      // such successor and stay caught. EXCUSE-ONLY (max): a window alt may
+      // LENGTHEN the measured gap, never shorten it - on a healthy staggered
+      // multi-slot corp a DIFFERENT slot's spawn can sit slightly earlier in
+      // the window than the true successor, and taking it verbatim would
+      // manufacture small churn on exactly the corps this line must not flag.
+      for (let m = i + 1; m < ss.length; m++) {
+        const alt = ss[m].t - ss[i].t;
+        if (alt >= 0.9 * life && alt <= 1.15 * life) {
+          gap = Math.max(gap, alt);
+          break;
+        }
+        if (alt > 1.15 * life) break;
+      }
       const waste = ss[i].cost * Math.max(0, 1 - gap / life);
       if (HOME_ROLES.has(ss[i].role)) homeChurn += waste;
       else remoteChurn += waste;

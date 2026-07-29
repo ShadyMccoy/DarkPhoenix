@@ -753,3 +753,33 @@ describe("E6 frac trigger sample floor (first-contact calibration, t72645498)", 
     expect(e6.verdict).to.equal("WARN");
   });
 });
+
+describe("X5 phantom churn on a mid-window fleet shrink (t72651837, owner 2026-07-29)", () => {
+  // The governor swing bought two 4350e upgraders 153t apart (a cohort wave -
+  // the spawn takes ~132t to BUILD one), relegation later shrank staffing to
+  // 1, and X5 read the pair at stride 1 as one slot dying at 153t: 4350e of
+  // phantom churn on bodies that both lived full lives (successors at
+  // +1646t/+1493t ~ natural EOL). A slot with a natural-lifetime successor
+  // anywhere in the log did not churn.
+  it("does not book the 4350e cohort pair as churn (both bodies EOL'd naturally)", () => {
+    const cap = fixture("shard1-t72651837.json");
+    const churn = computeChurn(cap)!;
+    expect(churn.worst).to.not.contain("4350e@153");
+    expect(churn.homeChurn, "upgrading cohort wave is not churn").to.be.lessThan(1000);
+  });
+
+  it("still catches a REAL early death (no EOL-window successor exists)", () => {
+    const mk = (ts: number[]): any => ({
+      data: {
+        blackbox: { rows: ts.map(t => ({ t, k: "spawn", d: { spawn: "s1", role: "hauler", corp: "hauling-W1N1-x", cost: 1000 } })) },
+        corps: { corps: [{ id: "hauling-W1N1-x", creepCount: 1 }] }
+      }
+    });
+    // death at 300t, replaced: successor at 0.2x life - churn stands
+    const real = computeChurn(mk([100000, 100300]))!;
+    expect(real.churnEnergy).to.be.greaterThan(700); // 1000 * (1 - 300/1500) = 800
+    // natural EOL cadence: successor at ~1x life - no churn
+    const eol = computeChurn(mk([100000, 101500]))!;
+    expect(eol.churnEnergy).to.equal(0);
+  });
+});

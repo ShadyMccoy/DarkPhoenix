@@ -4964,3 +4964,34 @@ remote line ⇒ the haul-sizing/link-deposit fix cycle opens for real. **E2 50
 working, expect E2→0 as it expires. Verdict: **watch-resolved (E4) +
 two hypotheses pre-registered (P7 re-expansion, E6 raid-gap); no fix — every
 open line has a falsifier queued.**
+
+### AUDIT 2026-07-29 — governor damping (owner directive) + X5 phantom fix: implementation
+
+Owner: "drain the bank slightly less aggressively, so upgraders are sized
+more to the equilibrium... definitely avoid having to recycle upgraders."
+Blackbox forensics first (t72651837 rows): the 4350e@153t X5 entry was
+PHANTOM — two 4350e cohort spawns t72648883/t72649036 (153t ≈ one build
+duration apart), both with natural-EOL successors (+1646t/+1493t); nothing
+was recycled, ever — the recycle path (flagExcessForRecycling) is
+dedicated-build-gated and never fired. The REAL swing: SURPLUS_DRAIN_TICKS
+150 sized fleets to a draw that self-extinguishes in 1/10 of the lifetime it
+buys — surplus peak → 2x4350e bodies at 100 e/t → fuel gone in ~200t →
+standing fleet burns the bank BELOW reserve ~1200t (slope −1.66/t) → EOL at
+floor → refill (+24.53/t) → repeat. FIX 1 (live-behavior):
+SURPLUS_DRAIN_TICKS = CREEP_LIFETIME — the drain horizon covers the lifetime
+of the bodies it sizes (bodies never outlive their fuel); a 21k surplus now
+reads +14 e/t over equilibrium, mirroring sustainableConsumptionRate's
+stock/CREEP_LIFETIME (one drain law at every stock). FIX 2 (ledger): X5
+EOL-window successor exemption, EXCUSE-ONLY (max) — a slot with a
+[0.9,1.15]x-life successor anywhere in the log did not churn; excuse-only
+because a healthy staggered multi-slot corp has other-slot spawns slightly
+earlier in the window (taking them verbatim manufactured 650e on the
+t72587664 pin). Red-first: horizon invariant test (150→red), t72651837
+phantom pin, real-death/EOL-cadence pins; 1627 unit green; recalibrated 2
+symbolic pins (bank cap probes past MAX_SURPLUS_DRAW x horizon; anti-flap
+asserts above-save-floor, intent unchanged). Gate: flow-handoff green;
+runt-economy/storage-depot in flight — DEPLOY AFTER they pass. PREDICTIONS
+for post-deploy: relay ≈ 15 + surplus/1500 (no 115 spikes), E4 glides to
+~56k and HOLDS (no below-reserve dips beyond fleet-EOL lag), P7 steady near
+plan with no trough windows, no 4350e purchase bursts, X5 quiet through
+shrinks.

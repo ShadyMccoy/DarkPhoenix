@@ -14,6 +14,7 @@ import {
   bankToTransientSource
 } from "../../../src/economy/bank";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "../../../src/economy/expansion";
+import { CREEP_LIFETIME } from "../../../src/economy/primitives";
 
 // Spec 03 (storage draw-down), the SURPLUS half: once the bank holds the
 // liquidity reserve, everything above it is spendable on the controller. The
@@ -89,8 +90,12 @@ describe("economy/bank - the surplus spend primitives", () => {
     it("drains the surplus over the target horizon", () => {
       expect(bankSurplusRate(BASE_RESERVE + 1500, BASE_RESERVE)).to.be.closeTo(1500 / SURPLUS_DRAIN_TICKS, 1e-9);
     });
-    it("caps the draw so a 100k bank doesn't ask for an absurd consumer fleet", () => {
-      expect(bankSurplusRate(BASE_RESERVE + 100_000, BASE_RESERVE)).to.equal(MAX_SURPLUS_DRAW);
+    it("caps the draw so a runaway bank doesn't ask for an absurd consumer fleet", () => {
+      // The cap binds only past MAX_SURPLUS_DRAW x SURPLUS_DRAIN_TICKS of
+      // surplus (150k at the lifetime horizon) - a degenerate-bank guard,
+      // never a pacer on ordinary surpluses.
+      const runaway = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 50_000;
+      expect(bankSurplusRate(BASE_RESERVE + runaway, BASE_RESERVE)).to.equal(MAX_SURPLUS_DRAW);
     });
     it("the cap is a runaway GUARD above the physical absorption ceiling, never a pacer (owner doctrine: FOCUS energy - surge the current objective)", () => {
       // Controller-side absorption tops out well under 100 e/t at mid-game
@@ -102,7 +107,7 @@ describe("economy/bank - the surplus spend primitives", () => {
       expect(MAX_SURPLUS_DRAW).to.be.at.least(100);
     });
     it("tapers to zero approaching the target (no flapping at the boundary)", () => {
-      expect(bankSurplusRate(BASE_RESERVE + 150, BASE_RESERVE)).to.be.closeTo(1, 1e-9);
+      expect(bankSurplusRate(BASE_RESERVE + SURPLUS_DRAIN_TICKS, BASE_RESERVE)).to.be.closeTo(1, 1e-9);
     });
   });
 
@@ -144,5 +149,19 @@ describe("economy/bank - the surplus spend primitives", () => {
       expect(bankToTransientSource("W1N1", pos, banked, 30_000)).to.not.equal(null);
       expect(bankToTransientSource("W1N1", pos, banked, 50_000)).to.equal(null);
     });
+  });
+});
+
+describe("surplus drain horizon (owner 2026-07-29: size upgraders to the equilibrium)", () => {
+  it("drains the surplus over >= one CREEP_LIFETIME - bodies never outlive their fuel", () => {
+    // Measured swing t72645498->t72652682 at 150: a ~21k surplus sized two
+    // 4350e upgraders to a 100 e/t draw that self-extinguished in ~200t;
+    // the standing fleet then burned the bank BELOW reserve for its
+    // remaining ~1200t (slope -1.66/t), EOL'd at the floor, and the refill
+    // re-armed the swing. Consumer fleets are SIZED to this draw
+    // (feederRelayRate -> upgrader inflow), so the horizon must cover the
+    // lifetime of the bodies it sizes. Mirrors sustainableConsumptionRate's
+    // stock/CREEP_LIFETIME: one drain law at every stock.
+    expect(SURPLUS_DRAIN_TICKS).to.be.at.least(CREEP_LIFETIME);
   });
 });
