@@ -17,7 +17,7 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { controllerSideStock } from "../corps/nodeEnergy";
+import { controllerSideStock, sourceBufferStock } from "../corps/nodeEnergy";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -350,15 +350,10 @@ export function updateCoreTelemetry(
       continue; // partial mocks without FIND_SOURCES wired
     }
     for (const source of sources) {
-      let stock = 0;
-      for (const s of source.pos.findInRange(FIND_STRUCTURES, 1)) {
-        if (s.structureType === STRUCTURE_CONTAINER) {
-          stock += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
-        }
-      }
-      for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
-        if (r.resourceType === RESOURCE_ENERGY) stock += r.amount ?? 0;
-      }
+      // ONE lens with the miner pile gate (HarvestCorp): the number this
+      // dashboard shows is the number the defer decision read.
+      const stock = sourceBufferStock(source);
+      if (stock === null) continue; // partial mocks without wired finds
       sourceBuffers[source.id.slice(-6)] = stock;
     }
   }

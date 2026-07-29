@@ -86,7 +86,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 5, // Version 5: CarryCorp sizing stamps pickup buffer + source-link state (source-pileup instrument 2026-07-26)
+    version: 6, // Version 6: HarvestCorp stamps the miner pile gate (buffer-full defer / clear, owner 2026-07-29)
     tick: Game.time,
     corps,
     summary: {

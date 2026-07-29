@@ -105,6 +105,18 @@ export const SOURCE_REGEN_TIME = 300;
 export const SOURCE_RATE = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TIME; // 10
 
 /**
+ * Unhauled buffer at a source's mouth (container + ground pile, the
+ * sourceBufferStock lens) at or above which buying ANOTHER miner body is
+ * deferred (owner directive 2026-07-29). 2000 is the container cap: a buffer
+ * pinned there means mining already outruns hauling (the sourceBuffers
+ * telemetry diagnostic, owner 2026-07-20; ~8.5k measured rotting above the
+ * cap, t72588289), so a new body buys rot, not income. Scarcity acts at the
+ * SPAWN: standing miners keep working, haulers stay ungated (they are the
+ * release), and demand resumes the tick the buffer drains below this line.
+ */
+export const SOURCE_BUFFER_DEFER_THRESHOLD = 2000;
+
+/**
  * Energy/tick credited per delivering creep by the scheduler's crude income
  * estimate (SpawnDirector.estimateIncome): one deliverer ~ one source's worth
  * (SOURCE_RATE). The scheduler only reads the positive/zero signal - whether

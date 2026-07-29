@@ -746,3 +746,29 @@ export function feederRelayStock(controller: StructureController, inputPos: Room
     pileRange: 1
   });
 }
+
+/**
+ * Unhauled energy at a SOURCE's mouth: container stock within 1 plus ground
+ * piles within 1. ONE lens, two readers (the {@link controllerSideStock}
+ * doctrine - the number the dashboard shows is the number the decision used):
+ * the sourceBuffers telemetry (coreSegment) and the miner pile gate
+ * (HarvestCorp.minerSpawnDemand vs SOURCE_BUFFER_DEFER_THRESHOLD). Returns
+ * null when the read is unmeasurable (partial mock without wired finds) - a
+ * different fact from zero; decision callers fail OPEN on null.
+ */
+export function sourceBufferStock(source: Source): number | null {
+  try {
+    let stock = 0;
+    for (const s of source.pos.findInRange(FIND_STRUCTURES, 1)) {
+      if (s.structureType === STRUCTURE_CONTAINER) {
+        stock += (s as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0;
+      }
+    }
+    for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+      if (r.resourceType === RESOURCE_ENERGY) stock += r.amount ?? 0;
+    }
+    return stock;
+  } catch {
+    return null;
+  }
+}

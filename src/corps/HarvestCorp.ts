@@ -8,7 +8,12 @@
  */
 
 import { isIntelId, parsePositionalId, stripSourcePrefix, stripSpawnPrefix } from "../economy/ids";
-import { HARVEST_ENERGY_PER_WORK, staffsPost, workPartsForEnergyRate } from "../economy/primitives";
+import {
+  HARVEST_ENERGY_PER_WORK,
+  SOURCE_BUFFER_DEFER_THRESHOLD,
+  staffsPost,
+  workPartsForEnergyRate
+} from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
@@ -19,7 +24,7 @@ import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { HaulerAssignment, MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
-import { coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { coreLink, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { CarryCorp } from "./CarryCorp";
 import { travelTo } from "./movement";
 
@@ -494,6 +499,38 @@ export class HarvestCorp extends Corp {
     // leaves the source dark for spawnTime + walk ticks.
     const walkTicks = (assignment.spawnDistance ?? 0) * travelTicksPerTile(ctx.energyCapacity);
     const current = this.countStaffing(walkTicks);
+
+    // Colony cold start: the engine that fills this spawn network is dead
+    // (no miner here AND none in the spawn's room). Every defund gate below
+    // stands down so the restart is never blocked (the runt-floor doctrine).
+    const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
+
+    // PILE GATE (owner directive 2026-07-29): while the unhauled buffer at
+    // this source's mouth sits at/above the container cap, ANOTHER miner
+    // body buys rot, not income - haulage is behind, whatever the cause
+    // (hauler churn, raid interruption, spawn backlog; ~8.5k measured
+    // rotting above the cap, t72588289). Defer the purchase: the standing
+    // squad keeps mining and the haul vector stays UNGATED (haulers are the
+    // release - they drain the buffer back under the threshold and demand
+    // resumes). This also holds the upsize overlap below: no new bodies of
+    // any size into a saturated mouth. Vision-scoped and FAIL-OPEN: an
+    // unmeasurable buffer (null - no vision) never defers, so the gate acts
+    // only on fresh direct evidence (the stranded-reserver trap's polarity),
+    // and a cold start is exempt above all.
+    const buffered = this.unhauledBufferStock();
+    if (!colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD) {
+      this.lastSizing = {
+        tick: ctx.tick,
+        gate: "buffer-full",
+        buffered,
+        threshold: SOURCE_BUFFER_DEFER_THRESHOLD,
+        staffing: current,
+        target
+      };
+      return [];
+    }
+    this.lastSizing = { tick: ctx.tick, gate: "clear", buffered, staffing: current, target };
+
     if (current >= target) {
       // Fully staffed by count - but a runt fleet still wants its overlap
       // upgrade (spawn-then-recycle; see runtUpgradeDemand).
@@ -524,7 +561,6 @@ export class HarvestCorp extends Corp {
     // everything anyway).
     const linkFed = this.sourceIsLinkFed();
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity, linkFed);
-    const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
     const minWork = colonyColdStart ? Math.min(desiredWork, 2) : desiredWork;
     const min = buildMinerBody(minWork, ctx.energyCapacity, linkFed);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
@@ -559,6 +595,18 @@ export class HarvestCorp extends Corp {
         bodyStrategy: linkFed ? "linkFed" : undefined
       }
     ];
+  }
+
+  /**
+   * Decision-site buffer read for the pile gate: container + ground pile at
+   * the source's mouth via the shared sourceBufferStock lens (the same
+   * number the sourceBuffers telemetry exports). Null - no vision, or an
+   * unwired mock - is a different fact from zero and fails OPEN upstream.
+   */
+  private unhauledBufferStock(): number | null {
+    const source = Game.getObjectById(stripSourcePrefix(this.sourceId) as Id<Source>);
+    if (!source) return null;
+    return sourceBufferStock(source);
   }
 
   /**
