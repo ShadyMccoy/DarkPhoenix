@@ -4917,3 +4917,24 @@ lever); if they DRAIN, scavenge/haul absorbed it (SCAV already prices both
 piles at 9318 net-e/part). Verdict: **VERIFIED + INSTRUMENTED; E6 doing
 exactly what the owner asked - the gate defers, the ledger prosecutes,
 nothing masked.**
+
+### AUDIT 2026-07-29 (t72645498→t72651837, dt 6339) — E6 falsifier: gate→release loop VERIFIED end-to-end
+
+Pre-registered question: do the cd8e/cee0 piles drain (loop works) or hold
+with heldFor ≥300t (haul fix cycle opens)? ANSWER (a): **cd8e completed the
+full cycle** — piled 3946 → gated → drained → released (absent from the gated
+list); **cee0 draining under gate** 4346→2502 (−43%, −0.29/t net), chronic
+tag correct, heldFor max 62t; **cedc boundary flap** at 2013 (+13 over cap,
+held 2t, 44% frac) — the healthy full-container oscillation. No heldFor near
+300t ⇒ per the pre-registered criterion NO fix cycle opens; the haul-side
+candidates (drain term / link-deposit DEP lever) stay QUEUED backlog. The
+delay meter did its job on first real use: chronic-vs-flap-vs-drain all
+distinguishable from one line. ALSO: save-regime governor observed shedding
+consumers — X5 worst line is the 4350e upgrader recycled @153t (the
+relegation cutting the fleet, not churn-bug; home 5%); E4 still below
+reserve (39019 vs 56000, slope −1.66/t) with upgrading at floor 15 and P7
+1.81x of it — the bank is NOT yet refilling; WATCH next check: slope must
+flip positive as the big upgraders age out, else the save-regime's shed lag
+(or spawn spend 26 e/t) is the next work item. Verdict: **FALSIFIER
+RESOLVED (a) — pile gate + delay meter + E6 shipped, verified, and
+self-consistent; no open work item, E4 refill-slope is the standing watch.**
