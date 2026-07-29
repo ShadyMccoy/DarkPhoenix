@@ -22,6 +22,7 @@ import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/prop
 import { SerializedCorp } from "../Corp";
 import { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "../ExtensionTenderCorp";
 import { buildTankerBody } from "../../spawn/BodyBuilder";
+import { isTenderCreep } from "../censusLens";
 
 /** The tender commission's binding: which home room, which spawn. */
 export interface ExtensionTenderAssignment {
@@ -67,5 +68,27 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
     // Pure CARRY+MOVE feeder; bodyParam is the desired CARRY parts (default 4).
     return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+  },
+
+  // OWN ORPHANS ONLY (spec 34 D6): workType "tank" is shared with the
+  // construction vector's tankers, so the rescue map routes every tank orphan
+  // here - and the default same-room rule used to adopt them all. A released
+  // or corp-dead construction tanker must instead ride grace -> recycle
+  // refund (its operation is over; a vector's carriers exist for the
+  // operation they served), so the claim is gated on the tender census lens.
+  // The old cross-kind coverage turned finished operations' vectors into
+  // phantom tenders - the "half-useful strays" class D6 retires.
+  claimsOrphan(creep: Creep, corps: { [corpId: string]: ExtensionTenderCorp }): string | null {
+    if (!isTenderCreep(creep.memory)) return null;
+    for (const id in corps) {
+      // The CORP's own id, never the store key: the store is keyed by the
+      // COMMISSION id ("tender-W1N1") while creeps resolve against corp.id
+      // ("moving-W1N1-tender", the legacy runtime convention). Stamping the
+      // key left the orphan claimed-by-nobody - a frozen tender beside a
+      // stocked depot (measured: haul-t4-refill-sla-under-churn fail @34,
+      // the staged stale tender never truly adopted).
+      if (corps[id].getPosition().roomName === creep.pos.roomName) return corps[id].id;
+    }
+    return null;
   }
 };

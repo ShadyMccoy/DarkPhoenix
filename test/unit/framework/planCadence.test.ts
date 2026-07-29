@@ -37,7 +37,7 @@ const fixtures = [
       shape: "produce" as const,
       consumes: { spawnPartsPerTick: 0.3 },
       produces: { energyRate: 10, at: at(20) },
-      assignment: { sourceId: "src", nodeId: "n", spawnId: "spawn-g", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }
+      assignment: { miner: { sourceId: "src", nodeId: "n", spawnId: "spawn-g", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }, routes: [] }
     }
   },
   {

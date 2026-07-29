@@ -63,19 +63,24 @@ export function spawnRoomHasFlowMiner(spawnRoom: string | undefined): boolean {
 }
 
 /**
- * True if the room already has a real flow hauler in the field (a CarryCorp
- * creep, corpId "hauling-..."), i.e. the mining->spawn delivery loop is
- * closed. Bootstrap jacks (which also move energy) are deliberately excluded:
- * this is UpgradingCorp's supply-before-demand gate against the cold-start
- * delivery deadlock (upgraders draining the spawn's starting energy before
- * the first hauler is ever eligible - the full incident rationale lives at
- * the getSpawnDemand call site). Verbatim re-home of
- * UpgradingCorp.roomHasHauler.
+ * True if the room already has a real flow hauler in the field, i.e. the
+ * mining->spawn delivery loop is closed. Two legitimate id families (spec 34
+ * D5): a MINER OPERATION's internal haul squad stamps the operation's own id
+ * ("mining-..."), while the standalone carry path (minerless scavenge
+ * stocks) keeps "hauling-...". Bootstrap jacks (which also move energy,
+ * corpId "bootstrap-...") are deliberately excluded: this is UpgradingCorp's
+ * supply-before-demand gate against the cold-start delivery deadlock
+ * (upgraders draining the spawn's starting energy before the first hauler is
+ * ever eligible - the full incident rationale lives at the getSpawnDemand
+ * call site). Verbatim re-home of UpgradingCorp.roomHasHauler, widened for
+ * the operation id family.
  */
 export function roomHasFlowHauler(room: Room): boolean {
   for (const creep of room.find(FIND_MY_CREEPS)) {
     const memory = creep.memory;
-    if (memory.workType === "haul" && memory.corpId?.startsWith("hauling-")) return true;
+    if (memory.workType !== "haul") continue;
+    const corpId = memory.corpId ?? "";
+    if (corpId.startsWith("hauling-") || corpId.startsWith("mining-")) return true;
   }
   return false;
 }

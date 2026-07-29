@@ -15,7 +15,7 @@ import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 import { FlowGraph, solveColony } from "../../../src/economy/flowAdapter";
 import { Position } from "../../../src/types/Position";
 import { CommissionedMiner, CommissionedHauler, CommissionedSink } from "../../../src/economy/CorpPlanner";
-import { ConsumeAssignment } from "../../../src/economy/commissionPlan";
+import { ConsumeAssignment, MinerOperationAssignment } from "../../../src/economy/commissionPlan";
 import { minerAssignmentFromCommissioned } from "../../../src/corps/kinds/harvestKind";
 import { haulerAssignmentFromCommissioned } from "../../../src/corps/kinds/carryKind";
 import { sinkAllocationFromCommissioned, upgradeKind } from "../../../src/corps/kinds/upgradeKind";
@@ -64,25 +64,31 @@ describe("solver bridge: commissions reconstruct the FlowSolution's assignments"
     expect(harvest.length).to.be.greaterThan(0);
 
     for (const c of harvest) {
-      const rebuilt = minerAssignmentFromCommissioned(c.assignment as CommissionedMiner);
+      // The commission is a MINER OPERATION (spec 34 D5): the node half must
+      // still reconstruct the FlowSolution's MinerAssignment exactly.
+      const op = c.assignment as MinerOperationAssignment;
+      const rebuilt = minerAssignmentFromCommissioned(op.miner);
       const live = solution.miners.find(m => m.sourceId === rebuilt.sourceId);
       expect(live, `live miner for ${rebuilt.sourceId}`).to.not.equal(undefined);
       expect(rebuilt).to.deep.equal(live);
     }
   });
 
-  it("CARRY: each source's route commissions reconstruct its FlowSolution HaulerAssignments", () => {
+  it("CARRY: the operations' routes reconstruct the FlowSolution HaulerAssignments", () => {
     const { solution, commissions } = solveColony(graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]), 0, manhattan);
 
-    const carry = commissions.filter(c => c.kind === "carry");
-    expect(carry.length).to.be.greaterThan(0);
+    // Spec 34 D5: mined sources' routes ride their operation envelopes; any
+    // standalone carry commissions (minerless scavenge stocks) add theirs.
+    // Together they must still cover the FlowSolution's haulers exactly.
+    const operationRoutes = commissions
+      .filter(c => c.kind === "harvest")
+      .reduce<CommissionedHauler[]>((acc, c) => acc.concat((c.assignment as MinerOperationAssignment).routes), []);
+    const carryRoutes = commissions
+      .filter(c => c.kind === "carry")
+      .reduce<CommissionedHauler[]>((acc, c) => acc.concat(c.assignment as CommissionedHauler[]), []);
+    expect(operationRoutes.length + carryRoutes.length).to.be.greaterThan(0);
 
-    // every reconstructed hauler must equal exactly one live hauler (by edge), and
-    // together they cover all of the FlowSolution's haulers.
-    const rebuiltAll = carry.reduce<ReturnType<typeof haulerAssignmentFromCommissioned>[]>(
-      (acc, c) => acc.concat((c.assignment as CommissionedHauler[]).map(haulerAssignmentFromCommissioned)),
-      []
-    );
+    const rebuiltAll = operationRoutes.concat(carryRoutes).map(haulerAssignmentFromCommissioned);
     expect(rebuiltAll.length).to.equal(solution.haulers.length);
     for (const r of rebuiltAll) {
       const live = solution.haulers.find(h => h.edgeId === r.edgeId);

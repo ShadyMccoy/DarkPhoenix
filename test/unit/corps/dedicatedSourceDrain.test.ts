@@ -2,10 +2,12 @@ import { expect } from "chai";
 import "../../../src/types/Memory";
 import { shouldDrainDedicatedSource } from "../../../src/corps/haulPolicy";
 
-// The fix for "a hauler stands idle next to a growing ground pile": a hauler on the
-// build-reserved source must RESUME hauling once energy backs up - whether that
-// surplus sits in a container OR on the ground (a bare-pile source, which the old
-// container-only check missed entirely).
+// The consumption-lag lens (restored 2026-07-28 after the grid voted twice -
+// see yieldsToBuild): stock backing up at a build-reserved source means the
+// crew is not consuming its output whatever its body count says, so the
+// source's haulers keep their routes - whether the surplus sits in a container
+// OR on the ground (a bare-pile source, which the old container-only check
+// missed entirely).
 describe("CarryCorp.shouldDrainDedicatedSource", () => {
   it("yields (no drain) while a container is below the drain fill and no ground pile", () => {
     expect(shouldDrainDedicatedSource(900, 2000, 0)).to.equal(false); // 45% < 50%

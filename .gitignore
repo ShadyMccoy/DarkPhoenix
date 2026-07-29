@@ -105,3 +105,5 @@ test/fixtures/snapshots/
 
 # Grid run artifact (the committed ratchet is test/grid/baseline.json)
 test/grid/last-run.json
+# grid:full per-world verdicts, merged then discarded (scripts/grid-full.sh)
+test/grid/.batch-verdicts/

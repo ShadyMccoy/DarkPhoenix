@@ -106,9 +106,11 @@ describe("framework extensibility: a new corp kind via the public API only", () 
     const beacon = commissions.filter(c => c.kind === "beacon");
     expect(beacon).to.have.length(1);
     expect(beacon[0].corpId).to.equal("beacon-spawn1");
-    // the solver's own commissions are present too (composition, not replacement)
+    // the solver's own commissions are present too (composition, not
+    // replacement). Since spec 34 D5 the mined source is ONE miner-operation
+    // envelope - its routes ride the harvest commission, so no standalone
+    // carry commission exists in a fully-mined world.
     expect(commissions.some(c => c.kind === "harvest")).to.equal(true);
-    expect(commissions.some(c => c.kind === "carry")).to.equal(true);
   });
 
   it("BIND: materialize creates once, then updates the same instance", () => {

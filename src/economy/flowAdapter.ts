@@ -65,7 +65,7 @@ import { Commission } from "./Commission";
 import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
-import { commissionsFromPlan } from "./commissionPlan";
+import { commissionsFromPlan, consumerSpawnLoad } from "./commissionPlan";
 
 // Re-exported from primitives (the coherent home for the controller sip); kept
 // here so existing flowAdapter importers of the constant are unaffected.
@@ -1162,16 +1162,25 @@ export function solveColony(
   const haulers: HaulerAssignment[] = plan.haulers.map(haulerAssignmentFromCommissioned);
 
   const sinkTypeById = new Map(graph.getSinks().map(s => [s.id, s.type]));
-  const sinkAllocations: SinkAllocation[] = plan.sinks.map(k => ({
-    sinkId: k.sinkId,
-    sinkType: sinkTypeById.get(k.sinkId) ?? "controller",
-    allocated: k.allocated,
-    demand: k.demand,
-    unmet: Math.max(0, k.demand - k.allocated),
-    priority: k.value,
-    ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
-    sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
-  }));
+  const sinkPosById = new Map(problem.sinks.map(s => [s.id, s.pos]));
+  const sinkAllocations: SinkAllocation[] = plan.sinks.map(k => {
+    // The plan's all-in consumer charge (spec 34 P4), stamped so telemetry
+    // and the waste ledger ECHO the commission price instead of re-deriving
+    // (the v8 hauler-spawnParts pattern). Construction only: the controller
+    // line's ledger model deliberately stays plan-side workParts.
+    const charge = k.kind === "construction" ? consumerSpawnLoad(problem, k, sinkPosById.get(k.sinkId)) : null;
+    return {
+      sinkId: k.sinkId,
+      sinkType: sinkTypeById.get(k.sinkId) ?? "controller",
+      allocated: k.allocated,
+      demand: k.demand,
+      unmet: Math.max(0, k.demand - k.allocated),
+      priority: k.value,
+      ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
+      ...(charge ? { spawnLoad: charge.load, spawnDist: charge.dist } : {}),
+      sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
+    };
+  });
 
   const totalHarvest = plan.totalProduced;
   const miningOverhead = miners.reduce((s, m) => s + m.spawnCostPerTick, 0);

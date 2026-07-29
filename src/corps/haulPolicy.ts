@@ -166,33 +166,36 @@ export function depotBankTarget(depot: CoreDepot): number {
 }
 
 /**
- * Fill fraction at which a dedicated build source's container is judged to be
- * "backing up": the builder isn't draining the source's full output (a runt
- * builder, or no active consumption), so the energy just accumulates in the
- * container and, once it caps out, overflows onto the ground and decays - wasted.
- * Above this the source's haulers resume and move the surplus to the core instead,
- * so the economy rebalances around whatever the builder actually consumes rather
- * than stranding the rest at the source. Half-full leaves ample headroom before
- * the container caps out.
+ * Fill fraction at which a dedicated build source's container marks the crew as
+ * NOT KEEPING PACE. This is the consumption-lag lens, not a fallback (first
+ * retired 2026-07-28 on the owner's "fallback we don't need", RESTORED the same
+ * day after the grid voted twice): standing bodies overstate real burn - a
+ * 2x1-WORK crew walking between sites reads as 10 e/t of capability and
+ * measures ~5 e/t of throughput (haul-t4-refill-sla-under-churn breached its
+ * SLA deterministically @211 and fid-t5-real-maze's gross collapsed 50->16%
+ * when the stand-down went unconditional) - while stock backing up at the
+ * source is the macro doctrine's own actual-capability signal (the same
+ * stock-grounded lens as sustainableConsumptionRate). Above this the source's
+ * haulers keep their routes and the un-eaten output flows home. The clean
+ * retirement path is a MEASURED-burn reservation gauge - spec 34 open item,
+ * owner-gated.
  */
 const DEDICATED_SOURCE_DRAIN_FILL = 0.5;
 
 /**
  * Dropped energy (within range 1 of a dedicated build source) above which the
- * source's haulers RESUME and clear the surplus instead of yielding to the builder.
- * Without a container the miner drops straight on the ground, and the container
- * fill check above can't see it - so a bare-pile source would otherwise leave the
- * hauler frozen while a big pile grows and decays. This is the ground-pile analogue
- * of DEDICATED_SOURCE_DRAIN_FILL: a pile this size means the builder isn't keeping
- * pace, so the overflow should flow to the core.
+ * source's haulers keep hauling instead of yielding - the ground-pile analogue
+ * of DEDICATED_SOURCE_DRAIN_FILL for a container-less source, where the miner
+ * drops straight on the ground and the pile decays while it waits.
  */
 const DEDICATED_SOURCE_DRAIN_PILE = 300;
 
 /**
- * Whether a hauler on the dedicated build source should RESUME hauling (drain the
- * surplus) rather than yield: true when energy is backing up - a container past the
- * drain fill, OR a ground pile past the drain threshold - meaning the builder isn't
- * consuming the source's full output. Pure so it can be unit tested directly.
+ * Whether a hauler on the dedicated build source should keep hauling (drain the
+ * surplus) rather than yield: true when energy is backing up - a container past
+ * the drain fill, OR a ground pile past the drain threshold - meaning the crew
+ * is not consuming the source's full output whatever its body count says. Pure
+ * so it can be unit tested directly.
  */
 export function shouldDrainDedicatedSource(
   containerEnergy: number | null,

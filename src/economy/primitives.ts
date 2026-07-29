@@ -401,6 +401,7 @@ export function projectAbsorbRate(remainingWork: number, travelDistance = 0, acc
   return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
+
 /**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
  * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
@@ -517,6 +518,19 @@ export function netEnergy(rate: number, distance: number): number {
  */
 export function spawnPartsFor(rate: number, distance: number): number {
   return (MINER_PARTS + 2 * carryPartsFor(rate, distance)) / effectiveLife(distance);
+}
+
+/**
+ * The miner NODE body's own spawn load (parts/tick) - the produce half of a
+ * miner operation's all-in price (spec 34 D5), amortized over the effective
+ * life at its distance. The routed vector parts are priced per route by the
+ * planner (carryPartsFor with paved/deposit adjustments) and SUMMED onto this
+ * in the commission envelope; spawnPartsFor above remains the pre-solve
+ * NOMINAL estimate the funding gate uses. One home for the node term - the
+ * planner's ledger charges miners through this exact formula.
+ */
+export function minerSpawnLoad(distance: number): number {
+  return MINER_PARTS / effectiveLife(distance);
 }
 
 /**

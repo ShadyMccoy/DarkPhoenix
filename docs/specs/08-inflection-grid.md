@@ -178,8 +178,10 @@ false-red run on 07-09).
 **FLAKY WATCH (2026-07-08)**: two cells flip across identical-code full
 runs as scheduler dynamics shift spawn interleavings:
 haul-t3-dedicated-resume-groundpile (pass@100 x2, timeout@100, pass@150,
-timeout@150) and spawn-timer-survives-busy-spawn (pass, fail@140 x2,
-pass, fail@140). The timer cell's flip MAY be a real intermittent
+timeout@150; RESOLVED 2026-07-28 - the cell's stage override missed the
+#141 decay freeze, so the repair detail hijacked the only builder;
+staging fixed, deterministic green since) and
+spawn-timer-survives-busy-spawn (pass, fail@140 x2, pass, fail@140). The timer cell's flip MAY be a real intermittent
 demand-flicker (the #93 stamp changes byte-identity under specific spawn
 sequences) - a diag lead, not just noise. A rerun-once policy for
 eventually-only cells is designed but unbuilt.
@@ -1080,6 +1082,7 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 - **Assertion**: Within 90 ticks: a Memory.creeps entry with workType 'haul' and B's corpId exists AND the pile at B's tile shows a single-tick decrease >= 100 (pickup event - decay alone is ~1/tick and mining adds +10/tick, so any >=100 one-tick drop is decisive).
 - **Verdict window**: 90 ticks
 - **Known bug targeted**: bare-pile dedicated source left the hauler frozen while the pile grew and decayed (documented CarryCorp.ts:92-101)
+- **2026-07-28**: the long-red #143 regression was a STAGING gap - this cell's stage override replaced dedicatedCommon's stage wholesale and missed the #141 container-decay freeze, so the repair detail claimed the only builder for ~90t and the pile outgrew the resume hauler. Staging fixed (extend the base stage, never replace it); deterministic green since (@55/@86 across draws).
 - **Code refs**: `src/corps/CarryCorp.ts:92-101 (DEDICATED_SOURCE_DRAIN_PILE rationale)`, `src/corps/CarryCorp.ts:109-118 (shouldDrainDedicatedSource ground branch)`, `src/corps/CarryCorp.ts:986-994 (groundPile findInRange)`
 
 ### `haul-t4-tender-bus-regime` (T4) — Tender regime: haulers run the source->depot bus, tender does extensions, surplus spills
@@ -1539,15 +1542,14 @@ SAFE PACKING RULE: (a) every reachable room of a cell is border()-sealed except 
 - **Known bug targeted**: double-staffing / miner pile-up on one source when multiple spawns contend
 - **Code refs**: `src/economy/CorpPlanner.ts:173-182`, `src/economy/CorpPlanner.ts:189-243`, `src/flow/FlowTypes.ts:377`, `src/execution/IncrementalAnalysis.ts:466-511`
 
-### `plan-t4-link-haul-pricing` (T4) — Link-served source hauled (and priced) from the core link
+### `plan-t4-link-haul-pricing` (T4) — Link-served source's transport IS the link (haul-of-zero)
 
-- **Purpose**: detectLinkHaulPositions (flowAdapter.ts:92-106) must set haulPos to the core link for a source with its own link, so routeToSinks prices its hauling from the core (CorpPlanner.ts:312) — tiny carry — while an unlinked twin at the same walk distance gets full-distance carry.
-- **World**: W16N0, bordered plain room. Spawn (25,25), storage (23,25), core link (22,24) [within 2 of storage], controller (25,10). Linked source (44,44) with source link (43,43) [within 2]; unlinked source (6,44). Both sources ~d 19-26 from spawn.
-- **Staged state**: controller {level:5}; structures: storage (energy 0), link (22,24), link (43,43) (links need store schema support — see open questions), 10 extensions energy 50.
-- **Expected**: Both sources mined. Haul entries from the linked source are priced from (22,24): carry <= 3 for core-adjacent sinks (e.g. 8 e/t over d=3 -> ceil(1.28)=2); haul entries from the unlinked source carry full distance (e.g. 8 e/t over d≈26 -> ceil(8.6)=9). Consequence: the core link's store receives energy once the miner feeds the source link and runLinks fires.
-- **Assertion**: By tick 100 economyPlan: 2 'mine' entries; every 'haul' entry with fromId === `source-${linkedId}` and toId in {spawn-,storage-} has carry <= 3, while >=1 'haul' entry with fromId === `source-${unlinkedId}` has carry >= 8; total carry summed from linked < total from unlinked. By tick 300 the core link db object has store.energy > 0.
-- **Verdict window**: 300 ticks
-- **Code refs**: `src/economy/flowAdapter.ts:92-106`, `src/economy/CorpPlanner.ts:60-66`, `src/economy/CorpPlanner.ts:309-314`, `src/corps/nodeEnergy.ts:52-72`
+- **Purpose (RE-PINNED 2026-07-28, owner agreed)**: detectLinkHaulPositions sets haulPos to the core link for a source with its own link; spec 02's feeder-router ruling (owner 2026-07-26) then makes the link network the transport - commissionsFromPlan drops the walking carry corp and publishRoster deliberately skips link-served haul routes (phantom-variance prevention). The pinned contract is the SUPPRESSION plus the physical pump. (The original assertion demanded short-priced core-side walking haul corps - the pre-suppression contract - and timed out forever once the design landed: the second #143 sibling to turn out a test artifact, not a bot bug. The first was groundpile's staging gap.)
+- **World**: Bordered plain room, restaged 2026-07-26 at RCL6 with a prebuilt controller link (spec 24's LINK SWAP destroyed the staged source link at RCL5's 2-slot limit). Spawn (25,25), storage (21,25), core link (22,24), controller link (27,11), source link (43,43) beside the linked source (44,44); unlinked source (6,44); staged miner on the linked source.
+- **Expected**: Both sources planned as mines; the goal-plan echo carries NO 'haul' entry from the linked source and a real full-distance one (carry >= 6) from the unlinked source; the miner feeds the source link and runLinks lands energy in the core link.
+- **Assertion**: EVENTUALLY economyPlan has 2 'mine' entries, zero 'haul' entries with the linked source's fromId, and >=1 unlinked 'haul' with carry >= 6; EVENTUALLY the core link db object holds energy > 0.
+- **Verdict window**: 220 ticks
+- **Code refs**: `src/economy/flowAdapter.ts (detectLinkHaulPositions, publishRoster link-served skip)`, `src/economy/commissionPlan.ts (link-served haul-of-zero)`
 
 ### `plan-t5-remote-mined` (T5) — Profitable adjacent-room source gets opened and stays open
 

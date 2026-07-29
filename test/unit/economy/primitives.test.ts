@@ -196,6 +196,7 @@ describe("economy/primitives", () => {
       expect(energyPerSpawnPart(10, 120)).to.be.lessThan(energyPerSpawnPart(10, 75));
     });
   });
+
 });
 
 // Spec 22 estimate: mineral extraction valued in energy terms via the market

@@ -512,7 +512,18 @@ export function buildPlannerT4Cells(): GridCell[] {
         },
       ],
       assertions: [
-        eventually("both sources planned; linked hauls priced from the core", (s) => {
+        eventually("both sources planned; the linked source's transport IS the link (haul-of-zero)", (s) => {
+          // RE-PINNED 2026-07-28 (owner agreed): the original assertion
+          // demanded short-priced core-side WALKING haul corps for the
+          // link-served source - the pre-suppression contract. Spec 02's
+          // feeder-router ruling (owner 2026-07-26, the D5 session's
+          // "suppressions are haul-of-zero situations") made the link
+          // network the vector: commissionsFromPlan drops the carry corp
+          // and publishRoster deliberately skips link-served haul routes
+          // (they would be permanent phantom variance). The cell then
+          // timed out forever demanding a corp the design no longer emits
+          // - the second #143 sibling to turn out a test artifact, not a
+          // bot bug. The suppression itself is now the pinned contract.
           const linked = s.objects().find((o) => o.type === "source" && o.x === 44 && o.y === 44);
           const unlinked = s.objects().find((o) => o.type === "source" && o.x === 6 && o.y === 44);
           if (!linked || !unlinked) return false;
@@ -521,11 +532,7 @@ export function buildPlannerT4Cells(): GridCell[] {
           if (mines.length !== 2) return false;
           const linkedHauls = corps.filter((c) => c.kind === "haul" && c.fromId === `source-${linked._id}`);
           const unlinkedHauls = corps.filter((c) => c.kind === "haul" && c.fromId === `source-${unlinked._id}`);
-          if (linkedHauls.length === 0 || unlinkedHauls.length === 0) return false;
-          const coreSide = linkedHauls.filter(
-            (c) => String(c.toId).startsWith("spawn-") || String(c.toId).startsWith("storage-")
-          );
-          return coreSide.every((c) => (c.carry ?? 99) <= 3) && unlinkedHauls.some((c) => (c.carry ?? 0) >= 6);
+          return linkedHauls.length === 0 && unlinkedHauls.some((c) => (c.carry ?? 0) >= 6);
         }),
         eventually("the physical pump reaches the core link", (s) => {
           const core = s.objects().find((o) => o.type === "link" && o.x === 22 && o.y === 24);

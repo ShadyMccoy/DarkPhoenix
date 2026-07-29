@@ -301,6 +301,10 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         unmet: sink.unmet,
         priority: sink.priority,
         ...(sink.partsLeft !== undefined ? { partsLeft: sink.partsLeft } : {}),
+        // v11 (spec 34 P4): the plan's all-in consumer charge, echoed
+        // verbatim from the adapter's stamp (consumerSpawnLoad) - the P4
+        // waste ledger reads THIS, never a re-derivation.
+        ...(sink.spawnLoad !== undefined ? { spawnLoad: sink.spawnLoad, spawnDist: sink.spawnDist } : {}),
         workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
       });
     }
@@ -318,7 +322,9 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // v9 adds partsLedger.spent/dry - the spawn shadow-price signal for the
     // scavenge economic gate (instrument-first, 2026-07-23). v10 adds
     // depositSavings - the deposit-side link instrument (spec-26 stage 4).
-    version: 10,
+    // v11 adds sinks[].spawnLoad/spawnDist - the all-in consumer charge
+    // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
+    version: 11,
     tick: Game.time,
     sources,
     haulers,

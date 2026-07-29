@@ -52,6 +52,17 @@ class EconWatch {
   private measuredTicks = 0;
   private emptyPlanStreak = 0;
 
+  // MEASUREMENT INTEGRITY (spec 34, measured 2026-07-27): the bot's exported
+  // memory fails to parse on a real fraction of samples (~13% in the
+  // builder-buffer-feed calibration - CellSample returns {} those ticks).
+  // Reading the plan/workType lenses straight off it silently dropped the
+  // plan-side sums and the fielded-carry lens on glitch ticks while the
+  // object-side numerators kept counting - inflating gross fidelity. The
+  // plan is cached across glitches (it only changes at re-solves) and the
+  // haul lens is STICKY (a name that ever read workType "haul" stays one).
+  private lastPlanCorps: any[] | null = null;
+  private readonly haulNames = new Set<string>();
+
   // Overhead decomposition (owner 2026-07-10): name the buckets inside the
   // plan-vs-actual gap so each is ratchetable - under-mining vs decay vs
   // accumulation vs transit vs spawn idle time.
@@ -163,17 +174,28 @@ class EconWatch {
     // Idle while a minimal body (150) is affordable = wasted build-time.
     if (spawnIdle && spawnBank >= 150) this.spawnIdleTicks += 1;
 
-    const corps: any[] = s.memory?.economyPlan?.corps ?? [];
-    this.emptyPlanStreak = corps.length === 0 ? this.emptyPlanStreak + 1 : 0;
+    // A glitch tick (memory unparsable -> {}) is NOT a plan gap and must
+    // not zero the plan-side sums: carry the cached plan through it. A
+    // PARSED memory with an empty plan is the real re-solve gap and counts.
+    const memoryParsed = !!s.memory && Object.keys(s.memory).length > 0;
+    if (memoryParsed) this.lastPlanCorps = s.memory?.economyPlan?.corps ?? [];
+    const corps: any[] = this.lastPlanCorps ?? [];
+    if (memoryParsed) {
+      this.emptyPlanStreak = corps.length === 0 ? this.emptyPlanStreak + 1 : 0;
+    }
     this.planMineSum += corps.filter((c) => c.kind === "mine").reduce((t, c) => t + (c.work ?? 0) * 2, 0);
     this.planUpgradeSum += corps.filter((c) => c.kind === "upgrade").reduce((t, c) => t + (c.work ?? 0), 0);
     this.planCarrySum += corps.filter((c) => c.kind === "haul").reduce((t, c) => t + (c.carry ?? 0), 0);
 
+    // Sticky haul lens: enroll names on parsed ticks; count bodies from the
+    // OBJECT side every tick (dead names simply stop matching objects).
+    for (const name in s.memory?.creeps ?? {}) {
+      if (s.memory.creeps[name]?.workType === "haul") this.haulNames.add(name);
+    }
     const creepsByName = new Map<string, any>();
     for (const o of objs) if (o.type === "creep") creepsByName.set(o.name, o);
     let fielded = 0;
-    for (const name in s.memory?.creeps ?? {}) {
-      if (s.memory.creeps[name]?.workType !== "haul") continue;
+    for (const name of this.haulNames) {
       const doc = creepsByName.get(name);
       if (doc) fielded += (doc.body ?? []).filter((p: any) => p.type === "carry").length;
     }
@@ -401,18 +423,225 @@ function buildPreRampedCell(): GridCell[] {
         stage: world.stage,
         soloWorld: world.soloWorld,
       },
-      // Measured 72/65% gross, 34/20% controller, 89/84% carry across two
-      // calibration runs. The controller RATIO is denominator-noisy (the
-      // plan's small controller budget swings 2.8<->4.9 between re-solves),
-      // so its floor carries extra headroom. Ratchet upward as the
-      // transport/decay overhead (the ~30% gross gap) shrinks.
-      thresholds: { gross: 0.55, controller: 0.15, carry: 0.6 },
+      // RE-CALIBRATED 2026-07-28 (post parked-burn + operation-end release +
+      // EconWatch integrity): 98/98% gross (19.6 vs 20.0 e/t), 22/22%
+      // controller, 64/64% carry - two draws, IDENTICAL (the plan-cache +
+      // sticky-lens fix removed the glitch noise that made the July numbers
+      // swing 72/65%). The ~30% transport/decay gross gap has shrunk to ~2%,
+      // so the floor ratchets 0.55 -> 0.85 per this cell's charter (the
+      // tight ratchet home). The controller RATIO stays denominator-noisy
+      // (the plan's small controller budget swings between re-solves), so
+      // its floor keeps extra headroom; carry floors just under measured.
+      thresholds: { gross: 0.85, controller: 0.15, carry: 0.6 },
     }),
   ];
 }
 
+/**
+ * builder-buffer-feed (spec 34 §Acceptance): the PARKED-consumer doctrine
+ * end-to-end in the mockup. A staged build cluster sits d≈8 from a surplus
+ * storage bank; the corp's supply VECTOR (the tanker relay) hauls the fuel
+ * while the builders' onboard buffer bridges the delivery interval. Assert:
+ *
+ *  - workUtil >= 0.9: energy actually built / (5 e/t x fielded builder WORK)
+ *    over the settled window - the buffer bridges deliveries, WORK never
+ *    idles dry (idle WORK at 100e/part is the game's costliest waste).
+ *  - NO builder trip to the fuel: a builder's store INCREASING within
+ *    withdraw range of the storage is the self-fetch signature (D1: fetching
+ *    is the priced-out counterfactual, never a live mode). Position alone is
+ *    not a violation - legitimate work can pass the bank; withdrawing there
+ *    is what the doctrine forbids.
+ *
+ * The fleet is STAGED at its steady-state shape (2x 2W2C2M parked builders,
+ * 4x 5C2M tankers, the corp's deterministic id) so the cell measures the
+ * OPERATION, not the spawn ramp; demand-side math wants exactly this shape
+ * at the staged 550 capacity, so nothing is respawned or runt-recycled
+ * mid-window. The refill SLA deliberately does not ride this world: it is
+ * an operation-contract cell, not a steady-state economy gauge - the fid-*
+ * worlds keep that enforcement.
+ */
+function buildBuilderBufferFeedCell(): GridCell {
+  const STORAGE = { x: 21, y: 25 };
+  const SITES = [
+    { x: 29, y: 24 },
+    { x: 29, y: 26 },
+    { x: 31, y: 24 },
+    { x: 31, y: 26 },
+  ];
+  const MEASURE_FROM = 60;
+  const WINDOW = 450;
+
+  // Accumulator closure (factory-registered, once per process).
+  let lastTick = -1;
+  let builtEnergy = 0; // site progress deltas + completion remainders
+  let workTicks = 0; // sum over measured ticks of fielded builder WORK parts
+  let deliveries = 0; // builder store increases seen anywhere (vector alive)
+  let fuelTrips = 0; // builder store increases within withdraw range of bank
+  let starvedTicks = 0; // measured WORK-ticks with an EMPTY store (fed too late)
+  let prevSites = new Map<string, { progress: number; total: number }>();
+  let prevBuilderEnergy = new Map<string, { energy: number; x: number; y: number }>();
+  let logged = false;
+
+  // STICKY identity: a name that EVER read workType "build" stays a builder
+  // (memory export can fail to parse on individual ticks - a workType read
+  // through it would silently drop the util denominator on those ticks while
+  // the numerator kept counting, inflating the ratio).
+  const builderNames = new Set<string>();
+  const isBuilder = (s: CellSample, o: any): boolean => {
+    if (o.type !== "creep" || o.user !== s.userId) return false;
+    if (s.memory?.creeps?.[o.name]?.workType === "build") builderNames.add(o.name);
+    return builderNames.has(o.name);
+  };
+
+  const collect = (s: CellSample): void => {
+    if (s.tick <= lastTick) return;
+    lastTick = s.tick;
+    const objs = s.objects();
+    const measuring = s.tick >= MEASURE_FROM;
+
+    const sites = new Map<string, { progress: number; total: number }>();
+    for (const o of objs.filter((x: any) => x.type === "constructionSite")) {
+      const id = String(o._id);
+      sites.set(id, { progress: o.progress ?? 0, total: o.progressTotal ?? 0 });
+      const prev = prevSites.get(id);
+      if (measuring) builtEnergy += Math.max(0, (o.progress ?? 0) - (prev?.progress ?? 0));
+    }
+    if (measuring) {
+      for (const [id, prev] of prevSites) {
+        if (!sites.has(id)) builtEnergy += Math.max(0, prev.total - prev.progress);
+      }
+    }
+    prevSites = sites;
+
+    const builderEnergy = new Map<string, { energy: number; x: number; y: number }>();
+    for (const o of objs) {
+      if (!isBuilder(s, o)) continue;
+      const energy = o.store?.energy ?? 0;
+      builderEnergy.set(o.name, { energy, x: o.x, y: o.y });
+      const prev = prevBuilderEnergy.get(o.name);
+      if (prev && energy > prev.energy) {
+        deliveries += 1;
+        // Withdraw range (1) of the bank at the moment the store grew: the
+        // self-fetch signature. Deliveries land at the parked spot, d≈8 away.
+        if (Math.max(Math.abs(o.x - STORAGE.x), Math.abs(o.y - STORAGE.y)) <= 1) fuelTrips += 1;
+      }
+      if (measuring) {
+        const work = (o.body ?? []).filter((p: any) => p.type === "work").length;
+        workTicks += work;
+        if (energy === 0) starvedTicks += work;
+      }
+    }
+    prevBuilderEnergy = builderEnergy;
+  };
+
+  const util = (): number => (workTicks <= 0 ? 0 : builtEnergy / (workTicks * 5));
+
+  return {
+    id: "builder-buffer-feed",
+    tier: 4,
+    avenue: "plan-fidelity",
+    window: WINDOW,
+    rooms: {
+      // Controller north, source far SW: the fuel axis (storage -> cluster)
+      // runs east and nothing else's traffic crosses it.
+      home: (roomName: string) =>
+        new RoomBuilder(roomName).border().controller(25, 10).source(8, 40).toRoom(),
+    },
+    bot: { x: 25, y: 25 },
+    controller: { level: 4 },
+    structures: [
+      // Surplus bank: far above the reserve target, so the surplus regime
+      // holds all window (buildFuelDistance/runTanker both read the bank as
+      // THE fuel - the vector's origin) and never flips to source-pile fuel.
+      { type: "storage", x: STORAGE.x, y: STORAGE.y, energy: 120_000 },
+      // 550 capacity: exactly the budget where builderPlan's buffered shape
+      // is 2W2C2M and maxPerBuilder is 2 - the staged bodies ARE the plan.
+      { type: "extension", x: 24, y: 23, energy: 50 },
+      { type: "extension", x: 26, y: 23, energy: 50 },
+      { type: "extension", x: 24, y: 27, energy: 50 },
+      { type: "extension", x: 26, y: 27, energy: 50 },
+      { type: "extension", x: 23, y: 24, energy: 50 },
+    ],
+    creeps: [
+      // The parked crew, in build range (3) of every cluster site.
+      ...[
+        { name: "bb1", x: 30, y: 24 },
+        { name: "bb2", x: 30, y: 26 },
+      ].map(b => ({
+        ...b,
+        body: ["work", "work", "carry", "carry", "move", "move"],
+        energy: 100,
+        memory: { workType: "build", corpId: "building-$room()-construction", working: true },
+      })),
+      // The vector's carriers in the corp's own 3C:1M shape, staged at the
+      // bank. The laden-gait-vs-priced-RT tension is a measured OPEN item
+      // (spec 34): 1:1 bodies lifted this cell's util ~5 points but
+      // collapsed the poor-economy ramp world - the cell stages what the
+      // corp actually fields.
+      ...[
+        { name: "bk1", x: 22, y: 24 },
+        { name: "bk2", x: 22, y: 26 },
+        { name: "bk3", x: 20, y: 24 },
+        { name: "bk4", x: 20, y: 26 },
+      ].map(k => ({
+        ...k,
+        body: ["carry", "carry", "carry", "carry", "carry", "move", "move"],
+        memory: { workType: "tank", corpId: "building-$room()-construction" },
+      })),
+    ],
+    // The build cluster: 4 extension sites, 12k energy of work - outlasts the
+    // window at the crew's 20 e/t, so the operation never ends mid-measure.
+    async stage(ctx) {
+      for (const site of SITES) {
+        await ctx.db["rooms.objects"].insert({
+          type: "constructionSite",
+          room: ctx.room(),
+          x: site.x,
+          y: site.y,
+          user: ctx.userId,
+          structureType: "extension",
+          progress: 0,
+          progressTotal: 3000,
+        });
+      }
+    },
+    assertions: [
+      always(
+        "no builder trip to the fuel (store never grows in the bank's withdraw ring)",
+        (s) => {
+          collect(s);
+          return fuelTrips === 0;
+        },
+        30
+      ),
+      eventually("the vector is live: a delivery reaches a parked builder", (s) => {
+        collect(s);
+        return deliveries > 0;
+      }),
+      atWindow("workUtil >= 0.9: the buffer bridges deliveries", (s) => {
+        collect(s);
+        if (s.tick >= WINDOW && !logged) {
+          logged = true;
+          // Decompose the idle: starved (empty store - the vector fed too
+          // late) vs fed-idle (held fuel but did not build - a behavior bug).
+          const idle = workTicks * 5 - builtEnergy;
+          const starved = starvedTicks * 5;
+          console.log(
+            `  [builder-buffer-feed] workUtil ${(util() * 100).toFixed(0)}% ` +
+              `(built ${builtEnergy} over ${workTicks} WORK-ticks), ` +
+              `deliveries ${deliveries}, fuelTrips ${fuelTrips}, ` +
+              `idle ${idle} = starved ${starved} + fed-idle ${idle - starved}`
+          );
+        }
+        return util() >= 0.9;
+      }),
+    ],
+  };
+}
+
 export function buildFidelityCells(): GridCell[] {
   return [
+    buildBuilderBufferFeedCell(),
     ...buildPreRampedCell(),
     // Friendly synthetic world: two sources at walk ~7, controller at ~10,
     // all-plain terrain. Everything the plan budgets is physically achievable

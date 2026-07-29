@@ -414,7 +414,7 @@ export function buildArrivalT2Cells(): GridCell[] {
       assertions: [
         eventually("adopted", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("collects the pile", (s) => {
           const c = s.creep("h1");
@@ -574,7 +574,7 @@ export function buildArrivalT2Cells(): GridCell[] {
       assertions: [
         eventually("adopted", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         eventually("drops exactly on the input tile (23,8)", (s) =>
           s.objects().some((o) => o.type === "energy" && o.x === 23 && o.y === 8 && o.energy >= 250)
@@ -684,7 +684,7 @@ export function buildArrivalT1Cells(): GridCell[] {
       assertions: [
         eventually("adopted by the carry corp", (s) => {
           const corpId = s.memory?.creeps?.h1?.corpId;
-          return typeof corpId === "string" && corpId.startsWith("hauling-");
+          return typeof corpId === "string" && /^(mining|hauling)-/.test(corpId); // operation id family (spec 34 D5) or standalone scavenge
         }),
         // Already at range 1 of a stocked container: it must not wander before
         // its FIRST load (afterwards, walking back empty to reload is the

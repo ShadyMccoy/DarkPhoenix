@@ -43,3 +43,25 @@ describe("construction commission price is ALL-IN (spec 34 D4: WORK bodies + sup
     expect(build!.consumes.spawnPartsPerTick).to.be.greaterThan(constructionWorkSpawnLoad(rate, d) + 1e-9);
   });
 });
+
+describe("constructionKind wrapper carries the all-in price (spec 34 P4/Acceptance)", () => {
+  // The per-room wrapper subsumes the solver's build commissions; its OWN
+  // envelope declared spawnPartsPerTick 0 - the documented lie (spec 34) that
+  // kept construction bodies "unbudgeted" wherever the wrapper was read. It
+  // must now SUM its rooms' build-commission prices (read-through, never a
+  // re-derivation): the draft already carries each site's operationSpawnLoad.
+  it("sums the draft build commissions' prices for its room - never 0 while fielding", async () => {
+    const { constructionKind } = await import("../../../src/corps/kinds/constructionKind");
+    const plan = planColony(world);
+    const draft = commissionsFromPlan(world, plan);
+    const buildSum = draft
+      .filter(c => c.kind === "build")
+      .reduce((s, c) => s + (c.consumes.spawnPartsPerTick ?? 0), 0);
+    expect(buildSum, "precondition: the draft carries priced build work").to.be.greaterThan(0);
+
+    const wrappers = constructionKind.propose(world, draft);
+    expect(wrappers.length).to.be.greaterThan(0);
+    const w = wrappers.find(c => (c.assignment as { roomName: string }).roomName === "W1N1")!;
+    expect(w.consumes.spawnPartsPerTick).to.be.closeTo(buildSum, 1e-9);
+  });
+});

@@ -87,15 +87,15 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
     resetWorld();
   });
 
-  it("rung 2 - PLAN: the SOLVER (not propose) emits the carry commission; the kind proposes none", () => {
+  it("rung 2 - PLAN: the kind proposes none; MINED sources' routes ride the operation (spec 34 D5)", () => {
     expect(carryKind.propose(world, [])).to.deep.equal([]);
     const { commissions } = planCommissions(world);
-    const carry = commissions.filter(c => c.kind === "carry");
-    expect(carry).to.have.length(1);
-    expect(carry[0].shape).to.equal("transport");
-    expect(carry[0].corpId).to.equal("carry-srcA");
-    expect(Array.isArray(carry[0].assignment)).to.equal(true);
-    expect((carry[0].assignment as CommissionedHauler[]).length).to.be.greaterThan(0);
+    // The mined source's routes belong to its miner-operation envelope now;
+    // the standalone carry path remains only for MINERLESS sources (scavenge
+    // stocks) - pinned shape-for-shape in minerOperationCommission.test.ts.
+    expect(commissions.filter(c => c.kind === "carry")).to.have.length(0);
+    const op = commissions.find(c => c.kind === "harvest");
+    expect(((op!.assignment as { routes: CommissionedHauler[] }).routes ?? []).length).to.be.greaterThan(0);
   });
 
   it("rung 3 - BIND: reconstructs the exact flowAdapter HaulerAssignment[]", () => {
@@ -196,7 +196,12 @@ describe("carry kind on the corp framework (rungs 2-4)", () => {
           shape: "produce",
           consumes: { spawnPartsPerTick: 0.3 },
           produces: { energyRate: 10, at: at(20) },
-          assignment: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 }
+          // The miner-operation shape (spec 34 D5); haul-of-zero here so this
+          // pin keeps observing the carry KIND's own runOrder slot.
+          assignment: {
+            miner: { sourceId: "source-abcd1234", nodeId: "node-A", spawnId: "spawn-game1", distance: 20, rate: 10, spawnParts: 0.3, netEnergy: 9, efficiency: 90, maxMiners: 1 },
+            routes: []
+          }
         },
         {
           corpId: "scout-W1N1",

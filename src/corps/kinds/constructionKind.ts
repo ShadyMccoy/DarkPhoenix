@@ -91,7 +91,9 @@ function constructionAllocation(k: CommissionedSink): SinkAllocation {
 
 export const constructionKind: CorpKind<ConstructionCorp> = {
   kind: "construction",
-  // Tankers are rescued by the tender kind (pre-spec-17 ROLE_KIND mapping).
+  // Tankers are NOT re-adopted by anyone (spec 34 D6): readopt:false keeps
+  // this kind out of the rescue map, and the tender kind's claimsOrphan
+  // declines foreign tanks - a released vector rides grace -> recycle refund.
   roles: { builder: { workType: "build" }, tanker: { workType: "tank", readopt: false } },
   runOrder: 30, // consume tier, alongside upgrade
 
@@ -101,8 +103,13 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
    * from the solver's "build" commissions in the draft.
    */
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
-    // Group the draft's build allocations by the sink's room.
+    // Group the draft's build allocations by the sink's room - and their
+    // ALL-IN prices (spec 34 P4): the wrapper's own envelope must carry the
+    // sum of the build commissions it subsumes, read THROUGH the draft
+    // (never re-derived). The old hardcoded 0 was the documented lie that
+    // kept construction bodies "unbudgeted" wherever the wrapper was read.
     const allocByRoom = new Map<string, SinkAllocation[]>();
+    const priceByRoom = new Map<string, number>();
     for (const c of draft) {
       if (c.kind !== "build") continue;
       const roomName = c.produces.at?.roomName;
@@ -111,6 +118,7 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       const list = allocByRoom.get(roomName) ?? [];
       list.push(constructionAllocation(sink));
       allocByRoom.set(roomName, list);
+      priceByRoom.set(roomName, (priceByRoom.get(roomName) ?? 0) + (c.consumes.spawnPartsPerTick ?? 0));
     }
 
     const homeSpawnByRoom = homeSpawnsByRoom(problem);
@@ -123,7 +131,10 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
       if (c.kind !== "harvest") continue;
       const at = c.produces.at;
       if (!at) continue;
-      const m = c.assignment as { sourceId?: string; spawnId?: string; rate?: number };
+      // The harvest commission is a MINER OPERATION (spec 34 D5): the node's
+      // facts ride the assignment's miner half.
+      const op = c.assignment as { miner?: { sourceId?: string; spawnId?: string } };
+      const m = op.miner ?? {};
       // Two id spaces cross here: solver commissions carry flow-prefixed
       // spawn ids ("spawn-<gameId>"), the live problem carries raw game ids.
       // Normalize before the lookup - without this it ALWAYS missed and every
@@ -173,7 +184,13 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
         shape: "consume",
         consumes: {
           energyRate: allocations.reduce((s, a) => s + a.allocated, 0),
-          spawnPartsPerTick: 0
+          // All-in, read through the draft (spec 34 P4): this room's build
+          // commissions' summed prices. Own-room only - a pooled spawnless
+          // room's price rides ITS OWN wrapper, exactly as its energyRate
+          // does (poolAllocatedRate is assignment-side crew sizing, never a
+          // second declaration). 0 only when the corp genuinely fields
+          // nothing plan-funded (the maintenance-only standing corp).
+          spawnPartsPerTick: priceByRoom.get(roomName) ?? 0
         },
         produces: { valuePerTick: 0 },
         assignment: {
@@ -222,7 +239,8 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
     // bodyParam is the demanded WORK, hints.bufferCarry the interval-sized
     // CARRY; the old buildUpgraderBody(cap, 2) path IGNORED bodyParam, so
     // demand and body disagreed) and CARRY tankers operating the corp's
-    // supply vector.
+    // supply vector (3C:1M - the gait-vs-priced-RT tension is a measured
+    // OPEN item, see the tankerPlan note + spec 34).
     if (role === "tanker") return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
     return buildBuilderBody(bodyParam ?? 2, hints?.bufferCarry ?? 2, energyBudget).body;
   },
@@ -232,8 +250,9 @@ export const constructionKind: CorpKind<ConstructionCorp> = {
   // nearest construction corp whose demand lens wants one (the corp's own
   // wantsAnotherBuilder probe - never a recomputation here), so a finished
   // remote stint walks straight to the next project instead of the measured
-  // fresh-4p-body-per-room churn. Tankers are the tender kind's rescue
-  // (roles.tanker readopt:false). No taker -> null -> grace -> recycle.
+  // fresh-4p-body-per-room churn. Tankers are never re-adopted (spec 34 D6
+  // cohort release: grace -> recycle refund; roles.tanker readopt:false).
+  // No taker -> null -> grace -> recycle.
   claimsOrphan(creep: Creep, corps: { [corpId: string]: ConstructionCorp }): string | null {
     if (creep.memory.workType !== "build") return null;
     let bestId: string | null = null;

@@ -1407,25 +1407,28 @@ export class CarryCorp extends Corp {
   }
 
   /**
-   * True when this corp's source has been reserved for the builder: it must stand
-   * down (field no haulers, and existing ones stop drawing from it) so the
-   * construction tankers get the source's full output. The reservation is set by
-   * ConstructionCorp in room memory while a build is active.
+   * True when this corp's source has been reserved for the builder: it stands
+   * down (fields no haulers, and existing ones stop drawing from it) so the
+   * construction tankers get the source's full output. The reservation is set
+   * by ConstructionCorp in room memory while a build is active.
    *
-   * The reservation holds only while the builder keeps the source's container
-   * drained. If energy backs up past DEDICATED_SOURCE_DRAIN_FILL the builder can't
-   * consume the source's full output (a runt builder, or no active consumption),
-   * so we resume hauling the surplus to the core: the accumulated energy goes home
-   * instead of overflowing the container and decaying on the ground. The builder,
-   * sized to the whole source, holds the container near-empty in the normal case,
-   * so haulers stay stood down.
+   * The stand-down holds only while the crew KEEPS PACE. Stock backing up
+   * past the drain lens (shouldDrainDedicatedSource) means the crew is not
+   * consuming the output whatever its body count says - standing WORK is
+   * capability, not throughput (crews walk, split across sites, wait on
+   * tankers) - so the haulers keep their routes and the un-eaten output flows
+   * home. This is the macro doctrine's actual-stock signal, not a fallback:
+   * retiring it (owner directive 2026-07-28, attempted same day) broke the
+   * refill-SLA class deterministically and collapsed fid-t5-real-maze 50->16%
+   * gross. The reservation/valve/tanker-pinning/upgrader-damping bundle is
+   * coupled - the redesign fork is spec 34 open item 5, owner-gated.
    */
   private yieldsToBuild(): boolean {
     // Spec 25 phase 3: the trunk-receipt stand-down is retired - the PLAN now
     // routes a trunk-building source's output (local sinks first, residual
     // home), and this corp fields haulers only for planned routes, so the
     // stand-down is the routing itself. Only the home-room dedicated-source
-    // mechanism below remains (spill-guarded, predates trunks).
+    // mechanism below remains (predates trunks).
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     const dedicated = spawn?.room.memory.dedicatedBuildSourceId;
     if (!dedicated || this.mySourceId() !== dedicated) return false;
@@ -1436,14 +1439,12 @@ export class CarryCorp extends Corp {
     const container = this.sourceContainerAt(source);
     const containerEnergy = container ? container.store[RESOURCE_ENERGY] : null;
     const containerCapacity = container ? container.store.getCapacity(RESOURCE_ENERGY) || 2000 : 0;
-    // The miner drops on the ground when there is no container; count that pile too,
-    // so a bare-pile source doesn't leave the hauler frozen while energy decays.
+    // The miner drops on the ground when there is no container; count that pile
+    // too, so a bare-pile source doesn't leave the route frozen while energy decays.
     const groundPile = source.pos
       .findInRange(FIND_DROPPED_RESOURCES, 1, { filter: r => r.resourceType === RESOURCE_ENERGY })
       .reduce((sum, r) => sum + r.amount, 0);
 
-    // Resume hauling (don't yield) whenever the surplus is backing up - the builder
-    // is not keeping pace with the miner, so the overflow should flow to the core.
     if (shouldDrainDedicatedSource(containerEnergy, containerCapacity, groundPile)) return false;
     return true;
   }

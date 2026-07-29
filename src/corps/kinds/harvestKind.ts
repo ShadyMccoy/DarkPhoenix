@@ -11,10 +11,11 @@
 import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedMiner } from "../../economy/CorpPlanner";
+import { MinerOperationAssignment } from "../../economy/commissionPlan";
 import { stripSourcePrefix } from "../../economy/ids";
 import { minerOverhead } from "../../economy/primitives";
-import { MinerAssignment } from "../../flow/FlowTypes";
-import { buildMinerBody } from "../../spawn/BodyBuilder";
+import { haulerAssignmentFromCommissioned, MinerAssignment } from "../../flow/FlowTypes";
+import { buildMinerBody, buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { HarvestCorp, SerializedHarvestCorp } from "../HarvestCorp";
 
@@ -57,7 +58,11 @@ function legacyNodeId(roomName: string, sourceId: string): string {
 export const harvestKind: CorpKind<HarvestCorp> = {
   kind: "harvest",
   runOrder: 10, // produce before transport (20), consume (30), auxiliary (40)
-  roles: { miner: { workType: "harvest" } },
+  // The MINER OPERATION (spec 34 D5): the node's miner AND the evacuation
+  // vector's haulers, one kind. The hauler role moved here from the carry
+  // kind (which keeps only the minerless scavenge stocks) - haulers deliver
+  // income, so the scheduler's is-it-safe-to-wait signal counts them.
+  roles: { miner: { workType: "harvest" }, hauler: { workType: "haul", deliversEnergy: true } },
 
   // Solver-backed: planColony emits harvest commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {
@@ -65,13 +70,18 @@ export const harvestKind: CorpKind<HarvestCorp> = {
   },
 
   materialize(c: Commission, existing: HarvestCorp | undefined): HarvestCorp {
-    const m = c.assignment as CommissionedMiner;
+    const op = c.assignment as MinerOperationAssignment;
+    const m = op.miner;
     const assignment = minerAssignmentFromCommissioned(m);
+    const routes = op.routes.map(haulerAssignmentFromCommissioned);
     if (existing) {
       // setMinerAssignment refreshes the spawn binding itself (with the
       // "spawn-" stripping) - the reason miners never went stale live while
-      // the setter-less consumer kinds did.
+      // the setter-less consumer kinds did. The vector's routes are
+      // commission-owned the same way: refreshed every round, and an empty
+      // set (haul-of-zero: link-served) clears the standing vector.
       existing.setMinerAssignment(assignment);
+      existing.setHaulRoutes(routes, c.produces.at);
       existing.setPostHint(c.produces.at);
       return existing;
     }
@@ -81,6 +91,7 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     // prefix. The assignment keeps the flow id.
     const corp = new HarvestCorp(legacyNodeId(roomName, m.sourceId), m.spawnId, stripSourcePrefix(m.sourceId));
     corp.setMinerAssignment(assignment);
+    corp.setHaulRoutes(routes, c.produces.at);
     corp.setPostHint(c.produces.at);
     return corp;
   },
@@ -96,10 +107,12 @@ export const harvestKind: CorpKind<HarvestCorp> = {
     return corp;
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
-    // bodyParam is the desired WORK parts; the scheduler scales to the budget.
-    // CARRY only for link-fed miners (the one job that uses it) - the corp
-    // declares the strategy on its demand.
+  body(role: string, bodyParam: number | undefined, energyBudget: number, hints?: BodyHints): BodyPartConstant[] {
+    // Two squads, two shapes: the vector's carriers (bodyParam = CARRY parts,
+    // sized by the haul engine's demand; the ratio hint packs road bodies at
+    // 2:1) and the miner node (bodyParam = WORK parts; CARRY only for
+    // link-fed miners - the corp declares the strategy on its demand).
+    if (role === "hauler") return buildRatioHaulerBody(bodyParam, energyBudget, hints?.haulerRatio ?? "1:1").body;
     return buildMinerBody(bodyParam ?? 5, energyBudget, hints?.bodyStrategy === "linkFed").body;
   },
 
@@ -115,9 +128,20 @@ export const harvestKind: CorpKind<HarvestCorp> = {
   },
 
   // A miner belongs to the harvest corp for the source it stands on (or its
-  // remembered source). If that source is no longer commissioned there is no
-  // such corp and the orphan falls through to recycle.
+  // remembered source); a HAULER belongs to the operation whose vector routes
+  // its assigned source (the rule the standalone carry kind applied, now the
+  // operation's own). If that source is no longer commissioned there is no
+  // such corp and the orphan falls through (the carry kind still covers
+  // scavenge routes) and ultimately recycles.
   claimsOrphan(creep: Creep, corps: { [corpId: string]: HarvestCorp }): string | null {
+    if (creep.memory.workType === "haul") {
+      const sourceId = creep.memory.assignedSourceId;
+      if (!sourceId) return null;
+      for (const id in corps) {
+        if (corps[id].getHaulAssignmentForSource(sourceId)) return corps[id].id;
+      }
+      return null;
+    }
     const source =
       creep.pos.findInRange(FIND_SOURCES, 1)[0] ??
       (creep.memory.assignedSourceId

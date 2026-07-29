@@ -249,6 +249,12 @@ export function buildBuilderBody(desiredWork: number, bufferCarry: number, energ
   return { body: [], cost: 0, workParts: 0, carryParts: 0 };
 }
 
+/** The tanker's CARRY:MOVE ratios, exported so the FLEET-SIZING formula reads
+ * the same numbers the body is built with (owner 2026-07-28: sizing must be
+ * correct regardless of the ratio - one constant, two readers, no drift). */
+export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
+export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+
 export function buildTankerBody(requiredCarry: number, energyCapacity: number, useRoads = true): TankerBodyResult {
   // Minimum viable tanker: 1 CARRY + 1 MOVE = 100 energy
   const minEnergy = PART_COSTS[CARRY] + PART_COSTS[MOVE];
@@ -259,7 +265,7 @@ export function buildTankerBody(requiredCarry: number, energyCapacity: number, u
   // CARRY-heavy because a tanker is mostly stationary (see doc above). 1 MOVE
   // per 3 CARRY on plains (slow when loaded, but it rarely moves); on roads,
   // where fatigue is halved, go to 1 MOVE per 5 CARRY.
-  const carryPerMove = useRoads ? 5 : 3;
+  const carryPerMove = useRoads ? TANKER_CARRY_PER_MOVE_ROAD : TANKER_CARRY_PER_MOVE_PLAIN;
 
   let carryParts = 0;
   let moveParts = 0;

@@ -60,7 +60,10 @@ describe("OrphanRescue.readoptKindsFor (registry-derived rescue map)", () => {
     expect(kindsFor("buster")).to.deep.equal(["coreBuster"]);
     expect(kindsFor("strike")).to.deep.equal(["coreBuster"]);
     expect(kindsFor("harvest")).to.deep.equal(["harvest"]);
-    expect(kindsFor("haul")).to.deep.equal(["carry"]);
+    // Spec 34 D5: the miner OPERATION owns its haulers, so the operation's
+    // rescue rule (assignedSourceId -> its vector) runs first; the standalone
+    // carry kind still covers the minerless scavenge routes.
+    expect(kindsFor("haul")).to.deep.equal(["harvest", "carry"]);
   });
 
   it("tank belongs to the tender kind alone: construction cedes its tankers (readopt: false)", () => {

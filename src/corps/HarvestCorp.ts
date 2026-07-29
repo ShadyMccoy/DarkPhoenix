@@ -16,10 +16,11 @@ import { spawnRoomHasFlowMiner } from "./censusLens";
 import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
-import { MinerAssignment } from "../flow/FlowTypes";
+import { HaulerAssignment, MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
 import { coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { CarryCorp } from "./CarryCorp";
 import { travelTo } from "./movement";
 
 /**
@@ -59,6 +60,12 @@ export interface SerializedHarvestCorp extends SerializedCorp {
   postPos?: Position;
   /** True once postPos is the exact harvest spot (computed with vision). */
   postExact?: boolean;
+  /** The operation's routed evacuation vector (spec 34 D5): the internal
+   * haul squad's assignments. Absent = haul-of-zero (link-served) or a
+   * pre-D5 record. */
+  haulRoutes?: HaulerAssignment[];
+  /** The vector's pickup hint (the commission's source position). */
+  haulPickupPos?: Position;
 }
 
 /**
@@ -96,16 +103,31 @@ export class HarvestCorp extends Corp {
   private postExact = false;
 
   /**
+   * The operation's EVACUATION VECTOR (spec 34 D5): an internal CarryCorp
+   * engine running the haul squad. It shares this corp's id (customId), so
+   * creeps stamp {corpId: this.id, workType} and workType alone separates
+   * the squads - the construction builder/tanker pattern. Never registered
+   * in the commission store: the planner sees ONE operation; the engine is
+   * sophistication inside the interface.
+   */
+  private haulOps: CarryCorp | null = null;
+
+  /** The vector's pickup hint, kept for serialization round-trips. */
+  private haulPickup: Position | null = null;
+
+  /**
    * Get active creeps assigned to this corp.
    */
   private getActiveCreeps(): Creep[] {
     const creeps: Creep[] = [];
 
-    // Scan for creeps with our corpId
+    // Scan for creeps with our corpId. The operation's HAULERS share the id
+    // (spec 34 D5) - workType separates the squads, so the miner scan must
+    // exclude them or the miner runner would drive the vector's carriers.
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
 
-      if (creep.memory.corpId === this.id && !creep.spawning) {
+      if (creep.memory.corpId === this.id && creep.memory.workType !== "haul" && !creep.spawning) {
         creeps.push(creep);
       }
     }
@@ -141,9 +163,20 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Main work loop - run harvester creeps.
+   * Main work loop: the miner squad, then the operation's evacuation vector
+   * (spec 34 D5) - the internal haul engine runs on the same standard
+   * cadence the dispatch would give a standalone corp.
    */
   public work(tick: number): void {
+    this.minerWork(tick);
+    if (this.haulOps) {
+      if (this.haulOps.shouldPlan(tick)) this.haulOps.plan(tick);
+      this.haulOps.work(tick);
+    }
+  }
+
+  /** The miner squad's own work loop. */
+  private minerWork(tick: number): void {
     this.lastActivityTick = tick;
 
     // Stamp the assignment on every creep: adoption (OrphanRescue) and the
@@ -395,10 +428,18 @@ export class HarvestCorp extends Corp {
   }
 
   /**
-   * Get number of active harvester creeps (excludes spawning).
+   * Creeps this operation OWNS: miners AND the vector's haulers (census-only
+   * lens - the construction X3 lesson: squads invisible to the census read
+   * as "untracked" drift. Demand sizing reads the squads directly, so
+   * widening this cannot change spawning).
    */
   public getCreepCount(): number {
-    return this.getActiveCreeps().length;
+    let count = 0;
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id && !creep.spawning) count++;
+    }
+    return count;
   }
 
   /**
@@ -410,6 +451,15 @@ export class HarvestCorp extends Corp {
    * tracks mining efficiency so better sources are staffed first.
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    // The operation demands BOTH squads under its one id: the miner node and
+    // the vector's carriers. The haul engine applies its own defund gates
+    // (hostile pickup, transit embargo, yield-to-build) internally - same
+    // rules a standalone carry corp enforced.
+    return [...this.minerSpawnDemand(ctx), ...(this.haulOps?.getSpawnDemand(ctx) ?? [])];
+  }
+
+  /** The miner squad's own demand. */
+  private minerSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
     const assignment = this.minerAssignment;
     if (!assignment) return [];
 
@@ -545,7 +595,7 @@ export class HarvestCorp extends Corp {
     let count = 0;
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      if (creep.memory.corpId === this.id) {
+      if (creep.memory.corpId === this.id && creep.memory.workType !== "haul") {
         count++;
       }
     }
@@ -563,6 +613,7 @@ export class HarvestCorp extends Corp {
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
       if (creep.memory.corpId !== this.id) continue;
+      if (creep.memory.workType === "haul") continue; // the vector's carriers staff THEIR post, not this one
       // Recycling creeps still count: the pounce-recycle path orders its own
       // successor (runtUpgradeDemand), so excluding them here double-orders
       // and churns spawn energy into runt loops (measured: the synthetic
@@ -622,6 +673,44 @@ export class HarvestCorp extends Corp {
     // the real spawn game id - the spawn scheduler matches corps to spawns by
     // this id, and a prefixed value silently excludes the corp (no miners spawn).
     this.spawnId = stripSpawnPrefix(assignment.spawnId);
+    this.haulOps?.setSpawnId(this.spawnId); // the vector spawns from the operation's spawn
+  }
+
+  /**
+   * The operation's routed evacuation vector (spec 34 D5): (re)wire the
+   * internal haul engine. Commission-owned, refreshed every materialize -
+   * an empty set is the haul-of-zero degenerate case (link-served) and
+   * clears the standing routes so the engine fields and demands nothing.
+   */
+  public setHaulRoutes(assignments: HaulerAssignment[], pickup?: Position): void {
+    this.haulPickup = pickup ?? this.haulPickup;
+    if (!this.haulOps) {
+      if (assignments.length === 0) return; // nothing to operate, nothing to build
+      // customId = this.id: the vector's creeps stamp the OPERATION's id
+      // (workType "haul" separates them from the miners); same nodeId so
+      // room-derived gates (hostile route checks) read the same room.
+      this.haulOps = new CarryCorp(this.nodeId, this.spawnId, this.id);
+    }
+    this.haulOps.setHaulerAssignments(assignments);
+    this.haulOps.setSpawnId(this.spawnId);
+    this.haulOps.setPickupHint(this.haulPickup ?? undefined);
+  }
+
+  /** The vector's route for a REAL game source id, or undefined (the orphan
+   * rescue lens - mirrors the standalone carry corp's accessor). */
+  public getHaulAssignmentForSource(sourceGameId: string): HaulerAssignment | undefined {
+    return this.haulOps?.getAssignmentForSource(sourceGameId);
+  }
+
+  /** The vector's current assignments (serialization + tests). */
+  public getHaulRoutes(): HaulerAssignment[] {
+    return this.haulOps ? this.haulOps.getHaulerAssignments() : [];
+  }
+
+  /** Metering-only (spec 34 D5): the haul engine's plan-vs-actual row joins
+   * the variance snapshot; the engine stays out of census and dispatch. */
+  public innerCorps(): Corp[] {
+    return this.haulOps ? [this.haulOps] : [];
   }
 
   /**
@@ -644,6 +733,7 @@ export class HarvestCorp extends Corp {
    * Serialize for persistence.
    */
   public serialize(): SerializedHarvestCorp {
+    const routes = this.getHaulRoutes();
     return {
       ...super.serialize(),
       spawnId: this.spawnId,
@@ -651,7 +741,9 @@ export class HarvestCorp extends Corp {
       creepNames: [],
       minerAssignment: this.minerAssignment ?? undefined,
       postPos: this.post ?? undefined,
-      postExact: this.postExact || undefined
+      postExact: this.postExact || undefined,
+      haulRoutes: routes.length > 0 ? routes : undefined,
+      haulPickupPos: this.haulPickup ?? undefined
     };
   }
 
@@ -663,5 +755,12 @@ export class HarvestCorp extends Corp {
     this.minerAssignment = data.minerAssignment ?? null;
     this.post = data.postPos ?? null;
     this.postExact = data.postExact ?? false;
+    // Rebuild the haul engine so the vector keeps running between a reset
+    // and the first re-solve (the same reason minerAssignment persists).
+    if (data.haulRoutes && data.haulRoutes.length > 0) {
+      this.setHaulRoutes(data.haulRoutes, data.haulPickupPos);
+    } else {
+      this.haulPickup = data.haulPickupPos ?? null;
+    }
   }
 }

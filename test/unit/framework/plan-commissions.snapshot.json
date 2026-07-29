@@ -1,59 +1,12 @@
 {
   "singleSource": [
     {
-      "corpId": "carry-srcA",
-      "kind": "carry",
-      "shape": "transport",
-      "consumes": {
-        "energyRate": 10,
-        "at": {
-          "x": 20,
-          "y": 0,
-          "roomName": "W0N0"
-        },
-        "spawnPartsPerTick": 0.016336
-      },
-      "produces": {
-        "energyRate": 10,
-        "at": null
-      },
-      "assignment": [
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 35,
-          "flowRate": 2,
-          "carryParts": 2.88,
-          "spawnParts": 0.003932
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-spawn",
-          "spawnId": "spawn1",
-          "distance": 20,
-          "flowRate": 4,
-          "carryParts": 3.36,
-          "spawnParts": 0.004541
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 35,
-          "flowRate": 4,
-          "carryParts": 5.76,
-          "spawnParts": 0.007863
-        }
-      ]
-    },
-    {
       "corpId": "harvest-srcA",
       "kind": "harvest",
       "shape": "produce",
       "consumes": {
         "at": null,
-        "spawnPartsPerTick": 0.016757
+        "spawnPartsPerTick": 0.021741
       },
       "produces": {
         "energyRate": 10,
@@ -64,15 +17,46 @@
         }
       },
       "assignment": {
-        "sourceId": "srcA",
-        "nodeId": "node-A",
-        "spawnId": "spawn1",
-        "distance": 20,
-        "rate": 10,
-        "spawnParts": 0.016757,
-        "netEnergy": 8.993243,
-        "efficiency": 89.932432,
-        "maxMiners": 1
+        "miner": {
+          "sourceId": "srcA",
+          "nodeId": "node-A",
+          "spawnId": "spawn1",
+          "distance": 20,
+          "rate": 10,
+          "spawnParts": 0.016757,
+          "netEnergy": 8.993243,
+          "efficiency": 89.932432,
+          "maxMiners": 1
+        },
+        "routes": [
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 35,
+            "flowRate": 2,
+            "carryParts": 2.88,
+            "spawnParts": 0.003932
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-spawn",
+            "spawnId": "spawn1",
+            "distance": 20,
+            "flowRate": 4,
+            "carryParts": 3.36,
+            "spawnParts": 0.004541
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 35,
+            "flowRate": 4,
+            "carryParts": 5.76,
+            "spawnParts": 0.007863
+          }
+        ]
       }
     },
     {
@@ -163,97 +147,12 @@
       }
     },
     {
-      "corpId": "carry-srcA",
-      "kind": "carry",
-      "shape": "transport",
-      "consumes": {
-        "energyRate": 10,
-        "at": {
-          "x": -12,
-          "y": 0,
-          "roomName": "W0N0"
-        },
-        "spawnPartsPerTick": 0.005693
-      },
-      "produces": {
-        "energyRate": 10,
-        "at": null
-      },
-      "assignment": [
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 6,
-          "flowRate": 2,
-          "carryParts": 0.56,
-          "spawnParts": 0.00075
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-spawn",
-          "spawnId": "spawn1",
-          "distance": 12,
-          "flowRate": 6,
-          "carryParts": 3.12,
-          "spawnParts": 0.004194
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 6,
-          "flowRate": 2,
-          "carryParts": 0.56,
-          "spawnParts": 0.00075
-        }
-      ]
-    },
-    {
-      "corpId": "carry-srcB",
-      "kind": "carry",
-      "shape": "transport",
-      "consumes": {
-        "energyRate": 10,
-        "at": {
-          "x": 12,
-          "y": 0,
-          "roomName": "W0N0"
-        },
-        "spawnPartsPerTick": 0.010848
-      },
-      "produces": {
-        "energyRate": 10,
-        "at": null
-      },
-      "assignment": [
-        {
-          "sourceId": "srcB",
-          "sinkId": "sink-build",
-          "spawnId": "spawn1",
-          "distance": 8,
-          "flowRate": 5,
-          "carryParts": 1.8,
-          "spawnParts": 0.002413
-        },
-        {
-          "sourceId": "srcB",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 30,
-          "flowRate": 5,
-          "carryParts": 6.2,
-          "spawnParts": 0.008435
-        }
-      ]
-    },
-    {
       "corpId": "harvest-srcA",
       "kind": "harvest",
       "shape": "produce",
       "consumes": {
         "at": null,
-        "spawnPartsPerTick": 0.012366
+        "spawnPartsPerTick": 0.011069
       },
       "produces": {
         "energyRate": 10,
@@ -264,15 +163,46 @@
         }
       },
       "assignment": {
-        "sourceId": "srcA",
-        "nodeId": "node-A",
-        "spawnId": "spawn1",
-        "distance": 12,
-        "rate": 10,
-        "spawnParts": 0.012366,
-        "netEnergy": 9.21371,
-        "efficiency": 92.137097,
-        "maxMiners": 2
+        "miner": {
+          "sourceId": "srcA",
+          "nodeId": "node-A",
+          "spawnId": "spawn1",
+          "distance": 12,
+          "rate": 10,
+          "spawnParts": 0.012366,
+          "netEnergy": 9.21371,
+          "efficiency": 92.137097,
+          "maxMiners": 2
+        },
+        "routes": [
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 6,
+            "flowRate": 2,
+            "carryParts": 0.56,
+            "spawnParts": 0.00075
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-spawn",
+            "spawnId": "spawn1",
+            "distance": 12,
+            "flowRate": 6,
+            "carryParts": 3.12,
+            "spawnParts": 0.004194
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 6,
+            "flowRate": 2,
+            "carryParts": 0.56,
+            "spawnParts": 0.00075
+          }
+        ]
       }
     },
     {
@@ -281,7 +211,7 @@
       "shape": "produce",
       "consumes": {
         "at": null,
-        "spawnPartsPerTick": 0.012366
+        "spawnPartsPerTick": 0.016225
       },
       "produces": {
         "energyRate": 10,
@@ -292,15 +222,37 @@
         }
       },
       "assignment": {
-        "sourceId": "srcB",
-        "nodeId": "node-B",
-        "spawnId": "spawn1",
-        "distance": 12,
-        "rate": 10,
-        "spawnParts": 0.012366,
-        "netEnergy": 9.21371,
-        "efficiency": 92.137097,
-        "maxMiners": 2
+        "miner": {
+          "sourceId": "srcB",
+          "nodeId": "node-B",
+          "spawnId": "spawn1",
+          "distance": 12,
+          "rate": 10,
+          "spawnParts": 0.012366,
+          "netEnergy": 9.21371,
+          "efficiency": 92.137097,
+          "maxMiners": 2
+        },
+        "routes": [
+          {
+            "sourceId": "srcB",
+            "sinkId": "sink-build",
+            "spawnId": "spawn1",
+            "distance": 8,
+            "flowRate": 5,
+            "carryParts": 1.8,
+            "spawnParts": 0.002413
+          },
+          {
+            "sourceId": "srcB",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 30,
+            "flowRate": 5,
+            "carryParts": 6.2,
+            "spawnParts": 0.008435
+          }
+        ]
       }
     },
     {
@@ -356,59 +308,12 @@
   ],
   "threeChamber": [
     {
-      "corpId": "carry-srcA",
-      "kind": "carry",
-      "shape": "transport",
-      "consumes": {
-        "energyRate": 10,
-        "at": {
-          "x": -30,
-          "y": 0,
-          "roomName": "W0N0"
-        },
-        "spawnPartsPerTick": 0.027082
-      },
-      "produces": {
-        "energyRate": 10,
-        "at": null
-      },
-      "assignment": [
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 60,
-          "flowRate": 2,
-          "carryParts": 4.88,
-          "spawnParts": 0.006778
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-spawn",
-          "spawnId": "spawn1",
-          "distance": 30,
-          "flowRate": 4,
-          "carryParts": 4.96,
-          "spawnParts": 0.006748
-        },
-        {
-          "sourceId": "srcA",
-          "sinkId": "sink-ctrl",
-          "spawnId": "spawn1",
-          "distance": 60,
-          "flowRate": 4,
-          "carryParts": 9.76,
-          "spawnParts": 0.013556
-        }
-      ]
-    },
-    {
       "corpId": "harvest-srcA",
       "kind": "harvest",
       "shape": "produce",
       "consumes": {
         "at": null,
-        "spawnPartsPerTick": 0.022313
+        "spawnPartsPerTick": 0.032524
       },
       "produces": {
         "energyRate": 10,
@@ -419,15 +324,46 @@
         }
       },
       "assignment": {
-        "sourceId": "srcA",
-        "nodeId": "node-A",
-        "spawnId": "spawn1",
-        "distance": 30,
-        "rate": 10,
-        "spawnParts": 0.022313,
-        "netEnergy": 8.714286,
-        "efficiency": 87.142857,
-        "maxMiners": 1
+        "miner": {
+          "sourceId": "srcA",
+          "nodeId": "node-A",
+          "spawnId": "spawn1",
+          "distance": 30,
+          "rate": 10,
+          "spawnParts": 0.022313,
+          "netEnergy": 8.714286,
+          "efficiency": 87.142857,
+          "maxMiners": 1
+        },
+        "routes": [
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 60,
+            "flowRate": 2,
+            "carryParts": 4.88,
+            "spawnParts": 0.006778
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-spawn",
+            "spawnId": "spawn1",
+            "distance": 30,
+            "flowRate": 4,
+            "carryParts": 4.96,
+            "spawnParts": 0.006748
+          },
+          {
+            "sourceId": "srcA",
+            "sinkId": "sink-ctrl",
+            "spawnId": "spawn1",
+            "distance": 60,
+            "flowRate": 4,
+            "carryParts": 9.76,
+            "spawnParts": 0.013556
+          }
+        ]
       }
     },
     {

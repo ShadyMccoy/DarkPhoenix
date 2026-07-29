@@ -81,9 +81,12 @@ backoff would be correct) vs UNDER-DELIVERY (pile high because haulage
 lags plan — backoff would sweep a bug). Passive and pullable (ONTOLOGY
 §1): no bot decision reads it until spec 32 lands.
 
-Side value: this instrument is exactly the diagnostic for the upstream
+Side value: this instrument was the planned diagnostic for the upstream
 `haul-t3-dedicated-resume-groundpile` regression (#143, timeouts on pure
-master — see spec 35 status).
+master — see spec 35 status). RESOLVED without it 2026-07-28: the cell's
+stage override had missed the #141 container-decay freeze (repair detail
+hijacked the only builder); staging fixed, deterministic green since.
+The instrument keeps its own spec-32 value.
 
 **Acceptance:** unit — staged windows classify a lagging-haul world as
 under-delivery and a saturated world as surplus (pin thresholds); the
@@ -187,4 +190,6 @@ deliberately re-baselined in the same commit.
 - The upstream #143 regressions (`haul-t3-dedicated-resume-groundpile`,
   `plan-t4-link-haul-pricing`) belong on master — spec 35's status has
   the bisection evidence; item 3's instrument helps diagnose but does
-  not fix.
+  not fix. (BOTH RESOLVED 2026-07-28 as test artifacts: groundpile was a
+  staging gap; link-haul-pricing pinned the pre-suppression contract and
+  was re-pinned to spec 02's haul-of-zero design, owner agreed.)

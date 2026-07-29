@@ -110,11 +110,18 @@ interface Case {
   kind: CorpKind;
   role: string;
   hints?: BodyHints;
+  /** Deliberate supersession of the retired switch: the pin freezes
+   * kind-vs-formula instead of kind-vs-reference for this row. */
+  reference?: (budget: number, param: number | undefined) => BodyPartConstant[];
 }
 
 const CASES: Case[] = [
   { kind: harvestKind as CorpKind, role: "miner" },
   { kind: harvestKind as CorpKind, role: "miner", hints: { bodyStrategy: "linkFed" } },
+  // Spec 34 D5: the miner operation fields its vector's haulers - the SAME
+  // ratio-hauler shape the standalone carry kind builds (one formula).
+  { kind: harvestKind as CorpKind, role: "hauler" },
+  { kind: harvestKind as CorpKind, role: "hauler", hints: { haulerRatio: "2:1" } },
   { kind: carryKind as CorpKind, role: "hauler" },
   { kind: carryKind as CorpKind, role: "hauler", hints: { haulerRatio: "2:1" } },
   { kind: carryKind as CorpKind, role: "hauler", hints: { haulerRatio: "1:1" } },
@@ -140,7 +147,9 @@ describe("CorpKind.body equals the retired SpawningCorp role switch (spec 17)", 
     it(`${c.kind.kind}.body("${c.role}")${hintLabel} matches the reference across the sweep`, () => {
       for (const budget of BUDGETS) {
         for (const param of PARAMS) {
-          const expected = referenceBody(c.role, budget, param, c.hints?.haulerRatio, c.hints?.bodyStrategy);
+          const expected = c.reference
+            ? c.reference(budget, param)
+            : referenceBody(c.role, budget, param, c.hints?.haulerRatio, c.hints?.bodyStrategy);
           const actual = c.kind.body(c.role, param, budget, c.hints);
           expect(actual, `budget=${budget} bodyParam=${String(param)}`).to.deep.equal(expected);
         }
