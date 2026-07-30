@@ -652,6 +652,24 @@ export function buildFidelityCells(): GridCell[] {
     // ratchets live on the short pre-ramped journey cells, and these floors
     // catch collapse-class regressions (the measured 0% controller run fails
     // the 15% floor).
+    //
+    // CARRY IS A COIN FLIP AGAINST ITS OWN 0.55 FLOOR - do not read a single
+    // red draw of this cell as a regression (measured 2026-07-30, 12 draws
+    // interleaved A/B across an unrelated one-line change, sandbox host):
+    //
+    //   arm A  carry 66 49 68 63 45 48%  -> 3/6 pass
+    //   arm B  carry 45 45 45 72 65 65%  -> 3/6 pass
+    //
+    // Identical pass rates, and the runs land on two discrete attractors -
+    // "good" (fielded CARRY 6.8, gross 62%, controller 50%) and "bad" (5.0,
+    // 60%, 49%) - which BOTH arms hit. The whole observed band (45-72%) also
+    // sits below the 86/74/93% calibration above, so the floor is closer than
+    // the calibration implies; the mockup meters REAL CPU against a real
+    // bucket, so host load plausibly moves which attractor a draw falls into
+    // (untested). Cost of not knowing this: one full-grid RATCHET FAILURE
+    // (bot level 4 -> 3) chased for an hour before the A/B showed baseline
+    // failing at the same rate. Confirm any red here with 3+ draws of BOTH
+    // arms (the interleaved shape above) before touching the bot.
     fidelityCell({
       id: "fid-t4-synthetic-steady-state",
       tier: 4,
