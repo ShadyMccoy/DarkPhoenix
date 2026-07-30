@@ -5216,3 +5216,54 @@ it is a leak class of its own. H1 duty 0.56 with 5755e ground-piled and
 at-sink contention 0.37 (the standing deposit-geometry item). X3 1 untracked
 creep persists across captures, and mining-W44N23-harvest-cbd5 claims 3 vs 2
 counted — a real census/orphan drift worth its own red-first cycle.
+
+### AUDIT 2026-07-29 (t72660208→t72663189, dt 2981) — tender load EXPLAINED (owner's RCL7 hypothesis confirmed); the 2nd SPAWN can never be built
+
+**No FAIL lines.** Pile pricing still holding: E6 3 chronic piles (cd8e 3401,
+cd8d 3201, cedc 3551) ALL at staffing 1/1 - no dark sources across three
+captures now. P4 relaxed 0.96x -> 0.67x, X5 0.05, E5 0, E2 0.
+
+**TENDER SPIKE: transient, not a ratchet — and the owner's mechanism is
+right.** Tenders read 153p last capture, **102p** now, so the spike was a
+rebuild wave. But the STRUCTURAL load is exactly the owner's read ("extensions
+are now fatter at rcl7 but we still only have 1 spawn"), and the numbers are
+exact: tender sizing reads `bankCapacity` = summed real capacity of every
+spawn + extension = 300 + 50x100 = **5300**, matching the room's live
+energyCapacity to the energy. At RCL6 that was 300 + 40x50 = 2300, so RCL7's
+fatter extensions raised the bank wave **2.3x**. `forCoverage =
+ceil(5300/(maxCarry 25 * 50)) = 5` tenders wanted, but `target = min(3, ...)`
+caps it at 3. Fielded: 3 tenders, 75 carry / 27 move = 102 parts = **0.068
+p/t, ~20% of the colony's whole 0.333 ceiling** - and still SHORT of a
+one-wave refill (75 carry vs 106 needed). So the fleet is simultaneously
+expensive and under-covering, by construction. `duty` reads **0.066** (a
+transfer on 6.6% of alive ticks) - and NO ledger line watches tender duty
+(H1 covers haulers, X1 covers upgrader WORK): an instrument gap on 20% of
+spawn capacity.
+
+**THE 2ND SPAWN IS UNREACHABLE.** RCL7 permits 2 spawns
+(CONTROLLER_STRUCTURES); the colony has 1. `STRUCTURE_SPAWN` appears in
+exactly ONE placement path in the whole codebase - `ExpansionCampaign`, which
+plants a NEW colony's FIRST spawn. The construction ladder
+(tryPlaceNextSite: source containers -> core depot -> ctrl container -> tower
+-> extensions -> storage -> links -> roads) has **no spawn rung at all**, so
+an owned room can never add its second spawn. Live cost: Spawn1 utilization
+**0.936**, partsPerTick 0.312 of a 0.333 ceiling, **queueDepth 5**. A second
+spawn DOUBLES the ceiling to 0.667 p/t - the exact constraint that blocked the
+drain term's funded demand last cycle (partsLedger dry, 3 of 4 drain routes
+with zero haulers, ~13.7k standing in piles) - while adding only +300 (+5.7%)
+to bankCapacity, so it barely moves tender load. Note the tender code's own
+comment already ASSUMES it: "at RCL7 the room has TWO spawns and 100-cap
+extensions" - the sizing was written for a colony the builder cannot produce.
+
+NOTE ON THE TWO CEILING READINGS (they differ and both matter): P4 0.67x is
+the steady-state PLAN against capacity; spawn utilization 0.936 with a 5-deep
+queue is the MEASURED throughput including ramps, upsizes and churn. The plan
+fits one spawn; the transitions do not.
+
+WORK ITEMS, ranked by measured value: (1) **spawn rung at RCL7+** - doubles
+the binding physical ceiling, unblocks the pile drain, and the codebase
+already assumes it exists (placement logic + ladder rung + tests; the
+multi-spawn assignment/routing code already shipped in 970752f, so this is
+the missing half); (2) DEP link-deposit on the four piled sources (~20 carry
+parts returned, 40 e/t, sized last cycle); (3) a tender-duty ledger line -
+20% of spawn capacity at 0.066 duty is unmeasured by any invariant.
