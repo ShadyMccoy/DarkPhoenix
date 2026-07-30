@@ -5361,3 +5361,41 @@ NEW WATCH: **E5 runt purchases 2 of 8 (hauler@100 x2)** - 1-CARRY haulers.
 Post-reset recovery or the drain term ordering tiny bodies onto micro-routes
 (P2 8 of 14 routes below 3 CARRY). If runts persist next capture with P2 still
 high, the drain term's carry share on a micro-route wants a floor, red-first.
+
+### AUDIT 2026-07-29 (t72664142→t72665987, dt 1845) — THE PILES ARE GONE; E4 false FAIL fixed (analysis-only)
+
+**E6: 0 of 7 deferrals - "source buffers under threshold".** The chronic piles
+are DRAINED: cd8e 3263 -> under 2000, cedc 3046 -> under 2000, and nothing
+else deferred. Those mouths had been saturated for many captures (heldFor up
+to 978t). Attribution is the drain term (carry demand now includes
+staged/CREEP_LIFETIME) plus the link routing change (+44% link throughput
+moving source energy home instead of dribbling). P2 micro-routes also fell
+8/14 -> 5/12 and E5 runts 2 -> **0** (so the two hauler@100 were reset noise,
+as suspected, not a drain-term floor problem).
+
+**Both new models still verified on the longer window.** LINK over 2259t: hub
+47.6, ctrl 34.1, direct 18%, tax 2.45 - total 81.7 e/t vs the 83.9 short-window
+read, so the +44% throughput is real and not a post-reset artifact.
+DIRECT_HOP_BONUS 1.15 unchanged. TENDER: 1 creep / 34p holding, duty 0.066 ->
+0.08 -> **0.159**, and the GUARDRAIL stayed clean - spawn `idle.bank` **0**
+(idle is 80% no-demand / 20% latency), endFill 0.972. One tender feeds the
+5300 network; the 3-tender fleet was ~3x over-provisioned, confirmed twice.
+
+**E4 FAIL "SPEND PATH DOWN" was a FALSE red - fixed in the ledger.** The
+predicate was `spendPathDown = room.feederActive === false`. Careful reading
+FIRST rejected the tempting fix: links carry SOURCE energy, not banked energy,
+so a busy link network does NOT mean the bank is being spent - E4's concern was
+legitimate in principle. The actual defect is narrower: `feederActive false`
+conflates a relay GATED OFF with one whose creep is between generations. At
+t72665987 the feeder stamped `gate "demand", wantedFeeders 1, feeders 0` (it
+had ordered a body and was waiting on the spawn) while P7 delivered 0.91x plan
+(33.3 vs 36.6 e/t) and upgraders ran workUtil 0.999 with 36 WORK standing.
+Fix reads the STAMP over the derived boolean (spec-14 rule): a relay that has
+DEMANDED a body is in transition; one gated off ("no-storage"/"no-miner"/
+"no-spawn") or absent entirely is still a FAIL. Red-first: 3 tests (the real
+capture pair must not FAIL; a synthetic no-storage gate must; a missing feeder
+corp must). 62 ledger / 1680 unit green. Analysis-only - no bot behaviour
+touched, unit+build gate per protocol.
+
+Verdict: **E6 leak ELIMINATED (measured, from chronic to zero), two models
+re-verified on longer windows, one false-FAIL class retired.**

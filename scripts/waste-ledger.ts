@@ -393,7 +393,21 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     // absorb), and any big idle bank with the spend path DOWN.
     const projectedExcess = excess + SURPLUS_DRAIN_TICKS * slope;
     const knee = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS;
-    const spendPathDown = room.feederActive === false;
+    // SPEND PATH DOWN vs BETWEEN GENERATIONS (live false FAIL t72665987). The
+    // bank's route to the controller is the FEEDER relay (links carry SOURCE
+    // energy, not banked energy, so a busy link network does NOT mean the bank
+    // is being spent - that distinction is load-bearing here). But
+    // `feederActive false` alone conflates a relay that is GATED OFF with one
+    // whose creep is simply between generations: at t72665987 the feeder
+    // stamped gate "demand" with wantedFeeders 1 / feeders 0 - it had ordered
+    // a body and was waiting on the spawn - while P7 delivered 0.91x plan and
+    // upgraders ran workUtil 0.999. Trust the stamp over the derived boolean
+    // (spec 14): a relay that has DEMANDED a body is in transition; one gated
+    // off ("no-storage"/"no-miner"/"no-spawn") or absent entirely is down.
+    const feederCorp = corps.find((c: any) => c.kind === "controllerFeeder");
+    const feederAwaitingBody =
+      feederCorp?.sizing?.gate === "demand" && (feederCorp.sizing.wantedFeeders ?? 0) > 0;
+    const spendPathDown = room.feederActive === false && !feederAwaitingBody;
     // RISING is the exemption the owner named: a bank climbing toward a
     // finite, absorbable S* is the damped law converging. A bank FLAT or
     // FALLING at a big surplus is not evidence of convergence (it is equally
@@ -415,7 +429,9 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       detail:
         `storage ${room.storageEnergy} vs reserve ${reserve}${
           typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
-        }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}` +
+        }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}${
+          feederAwaitingBody ? " (relay between generations - body demanded)" : ""
+        }` +
         `; projected equilibrium ${(reserve + projectedExcess).toFixed(0)} (surplus ${projectedExcess.toFixed(0)}` +
         `, knee ${knee}) - ` +
         (converging

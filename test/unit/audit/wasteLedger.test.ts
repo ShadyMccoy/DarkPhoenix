@@ -843,3 +843,37 @@ describe("E4 damped-equilibrium frame (owner 2026-07-29: a rising surplus is con
     expect(e4(cap, base).verdict).to.equal("ok");
   });
 });
+
+describe("E4 spend-path: a feeder BETWEEN GENERATIONS is not a broken path (t72665987)", () => {
+  // Live FAIL "SPEND PATH DOWN" on a healthy colony: feederActive false while
+  // the feeder's own stamp read gate "demand", wantedFeeders 1, feeders 0 -
+  // i.e. it had DEMANDED a body and was waiting for the spawn. Meanwhile P7
+  // delivered 0.91x plan (33.3 e/t), the link network put 34.1 e/t into the
+  // controller and upgraders ran workUtil 0.999. A path in transition is not a
+  // path down; a path GATED OFF ("no-storage"/"no-miner"/"no-spawn") is.
+  // Trust the stamp over the derived boolean - the spec-14 rule.
+  const fx = (name: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
+  const cap = fx("shard1-t72665987.json");
+  const base = fx("shard1-t72664142.json");
+
+  it("does NOT FAIL while the feeder is awaiting a body it has demanded", () => {
+    const e4 = computeLedger(cap, base).find(r => r.id === "E4")!;
+    expect(e4.verdict).to.not.equal("FAIL");
+  });
+
+  it("STILL FAILS when the feeder is structurally gated off (no-storage)", () => {
+    const gated = JSON.parse(JSON.stringify(cap));
+    const feeder = gated.data.corps.corps.find((c: any) => c.kind === "controllerFeeder");
+    feeder.sizing = { tick: feeder.sizing.tick, gate: "no-storage" };
+    const e4 = computeLedger(gated, base).find(r => r.id === "E4")!;
+    expect(e4.verdict, "a gated-off relay IS a down spend path").to.equal("FAIL");
+  });
+
+  it("STILL FAILS when there is no feeder corp at all and the bank is idle", () => {
+    const none = JSON.parse(JSON.stringify(cap));
+    none.data.corps.corps = none.data.corps.corps.filter((c: any) => c.kind !== "controllerFeeder");
+    const e4 = computeLedger(none, base).find(r => r.id === "E4")!;
+    expect(e4.verdict).to.equal("FAIL");
+  });
+});
