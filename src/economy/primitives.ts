@@ -275,6 +275,16 @@ export function directFetchParts(rate: number, distance: number, energyPerWork =
 }
 
 /**
+ * How far a PARKED consumer will reach for its own fuel without abandoning its
+ * post. This is an EXECUTION capability, not a preference: the builder's
+ * stationary scavenge (ConstructionCorp.doPickup) looks this far and no
+ * further - "don't travel for energy; haulers are responsible for delivering
+ * energy to builders". supplyMethod is bounded by it so the plan can never
+ * elect a self-fetch the runtime will not perform.
+ */
+export const DIRECT_DRAW_REACH = 4;
+
+/**
  * The supply-method verdict (spec 34 D1) for a PARKED consumer at `distance`
  * from its fuel: "a hauler brings them energy, unless it's already adjacent
  * to an energy source like a container or a link" (owner). Withdraw
@@ -284,6 +294,9 @@ export function directFetchParts(rate: number, distance: number, energyPerWork =
  * WHY the doctrine holds - the vector wins from d=2 up at any real rate,
  * the same math that made static miner + hauler the game's meta - so the
  * corp reads a computed verdict, never a hand-baked category.
+ *
+ * The verdict is bounded by REACH as well as by parts - see
+ * {@link DIRECT_DRAW_REACH}.
  */
 export function supplyMethod(
   rate: number,
@@ -296,6 +309,18 @@ export function supplyMethod(
     2 * (rate / energyPerWork) + // the baseline WORK core + its MOVE
     bufferCarryParts(rate, refuelIntervalTicks(distance, 1)); // buffer: CARRY only (refilled in place)
   if (distance <= 1) return { method: "direct", directParts, vectorParts };
+  // REACH BOUND: the two part-curves RECROSS at long range (directFetchParts
+  // grows linearly, vectorSupplyParts carries a fixed overhead), handing the
+  // verdict back to "direct" precisely where a parked builder is least able
+  // to fetch. Measured live at the cross-room distance the corp prices
+  // (roomLinearDistance * 50 = 100): direct 241.5 vs vector 250.4 at rate 20
+  // - a 3.6% margin, and the builder that "won" it stood in W41N23 beside 15
+  // sites in FETCH state with no tanker, 4251 energy of work and 0 built
+  // (P8 "CREW IDLE", t72675271). The consumer only ever draws from within
+  // DIRECT_DRAW_REACH, so beyond that the vector is not the cheaper option -
+  // it is the ONLY implementable one, whatever the parts say. Pricing a
+  // behavior the runtime never performs is a fidelity bug by construction.
+  if (distance > DIRECT_DRAW_REACH) return { method: "vector", directParts, vectorParts };
   return { method: directParts < vectorParts ? "direct" : "vector", directParts, vectorParts };
 }
 

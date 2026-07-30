@@ -5583,3 +5583,74 @@ primary measure is converging and the trap list is explicit about repeated
 patches to one mechanism - the bootstrap-escape residual is recorded for a
 cycle that can gate it properly (make the pierce distinguish a genuine outage
 from a routine generation change, red-first, full trio).
+
+### AUDIT 2026-07-30 (t72675033→t72675270) — P8 root-caused: the plan priced a fetch the runtime never performs
+
+**CYCLE VERDICT: instrumented, then FIXED at the mechanism** (one falsified
+hypothesis, one stamp, one read, one fix — no second guess).
+
+**Shipped first (t72675270 deploy)**: the last-builder rule
+(`repairDetailRecruit`) + smallest-body detail pick (`pickRepairDetail`) +
+the pool/crew stamp (segment 4 **v10**). P8 was explicitly NOT claimed fixed
+by that commit — by then the crew had already grown to 2, so conscription was
+not the live cause. That prediction held: P8 stayed FAIL after the deploy.
+
+**The stamp closed it in ONE capture** (t72675271):
+
+    building-W43N23-construction creeps 2 parts 132
+      poolHead "W41N23" poolHeadBlind 0 poolRooms 1 poolWork "W41N23:4251"
+      crew 2 onRepairDetail 1 latchedToSite 0 buildTargets "FR"
+      crewAt "W41N23,W43N23" crewHome 1 buildRoom "W41N23"
+      tankers 0 vectorFed false
+
+**HYPOTHESIS FALSIFIED BY THE STAMP**: the blind-receipt-head oscillation
+(pool ranks home first then by linear distance, so a distance-1 blind room
+would outrank the distance-2 room holding the real sites). `poolHeadBlind 0`,
+`poolRooms 1` — the pool was one VISIBLE room. Recorded because the reasoning
+was sound and the data still killed it; the stamp existed precisely so this
+cost one capture instead of a patch.
+
+**THE ACTUAL CAUSE — a plan-vs-execution contradiction.** The builder stands
+IN W41N23 (`crewAt`), beside 4251 energy of work, in state **F** (fetching:
+`memory.working` false, no target). It never eats, because:
+
+1. `buildFuelDistance` prices a cross-room leg at `roomLinearDistance * 50`
+   = **100** tiles.
+2. `supplyMethod(rate, 100)` returns **"direct"** — measured, at every
+   plausible rate: rate 20 → direct 241.5 parts vs vector 250.4, a **3.6%**
+   margin. The two part-curves RECROSS at long range (directFetchParts grows
+   linearly, vectorSupplyParts carries a fixed overhead), so the verdict flips
+   back to self-fetch precisely where a parked builder is least able to fetch.
+3. "direct" ⇒ `tankerPlan` returns target 0 ⇒ **no supply vector**.
+4. `doPickup` scavenges range **4** and never travels ("Haulers are
+   responsible for delivering energy to builders").
+5. `memory.working` flips only on a **100% fill**; `doBuild` is the ONLY
+   setter of `buildTargetId`, and it runs only when working.
+
+So the plan elected a 100-tile self-fetch against a 4-tile scan, and the crew
+starved beside its own sites. 15 sites, 20 e/t allocated, **0 built**. The
+same bad verdict ALSO shrank the builder's buffer (builderPlan reads
+`supply.method === "vector"` for the refuel interval): one wrong lens, two
+wrong outputs.
+
+**THE FIX IS AT THE MECHANISM, not the symptom** (trap list: question the
+mechanism). `DIRECT_DRAW_REACH` (primitives) is now an EXECUTION capability —
+how far a parked consumer reaches without abandoning its post — and
+`supplyMethod` is bounded by it: beyond the reach the vector is not the
+cheaper option, it is the ONLY implementable one, whatever the parts say.
+`doPickup`'s literal 4 now READS that constant, so the two cannot drift again.
+Blast radius is small and measured: at d = 4/10/20/50 the parts comparison
+already said "vector", so the bound removes only the pathological long-range
+"direct".
+
+**PREDICTED DELTAS (recorded BEFORE the deploy)**:
+  - `tankers` 0 → ≥2 (tankerPlan floors at 2 for the hot swap)
+  - `vectorFed` false → true
+  - `buildTargets` "FR" → "BR" (builder latches once fed)
+  - P8: progress 0 → >0, remote sites 15 → falling
+  - E4 slope falls as construction actually spends its 20 e/t
+  - P4 rises (the vector is new spawn load) — headroom exists at 0.75x ceiling
+
+**WATCH FOR**: builders becoming CARRY-heavier (the vector verdict raises the
+buffer via refuelIntervalTicks), and tanker spawn cost competing with the
+miner/hauler queue that is already 8 deep at 0.97 utilization.

@@ -7,6 +7,7 @@ import {
   roundTripTicks,
   carryPartsFor,
   supplyMethod,
+  DIRECT_DRAW_REACH,
   directFetchParts,
   vectorSupplyParts,
   operationSpawnLoad,
@@ -73,6 +74,55 @@ describe("economy/primitives - operation corps (spec 34)", () => {
       const at2 = supplyMethod(10, 2);
       expect(at2.method).to.equal("vector");
       expect(vectorSupplyParts(10, 2)).to.be.lessThan(directFetchParts(10, 2));
+    });
+
+    /**
+     * REACH BOUND (live P8, t72675271). The parts comparison alone flips back
+     * to "direct" at long range - directFetchParts grows linearly while
+     * vectorSupplyParts carries a fixed overhead, so the two curves recross.
+     * MEASURED at the cross-room distance the code actually prices
+     * (roomLinearDistance * 50 = 100): direct 241.5 parts vs vector 250.4 at
+     * rate 20 - a 3.6% margin that handed the verdict to a branch the RUNTIME
+     * CANNOT PERFORM. doPickup scavenges range 4 and never travels for energy
+     * ("Haulers are responsible for delivering energy to builders"), so a
+     * "direct" verdict 100 tiles from the fuel fields no tanker and the
+     * builder simply never eats:
+     *
+     *   building-W43N23-construction crew 2 buildTargets "FR"
+     *     crewAt "W41N23,W43N23" poolHead "W41N23" poolWork "W41N23:4251"
+     *     tankers 0 vectorFed false latchedToSite 0
+     *
+     * 15 sites standing, 20 e/t allocated, 0 built - P8 "CREW IDLE". A plan
+     * that prices a behavior the runtime never performs is a fidelity bug by
+     * construction, so the verdict is bounded by REACH, not just by parts.
+     */
+    it("never returns direct beyond the parked builder's reach (the P8 recross)", () => {
+      // The cross-room distance that produced the live deadlock.
+      expect(supplyMethod(20, 100).method).to.equal("vector");
+      expect(supplyMethod(5, 100).method).to.equal("vector");
+      expect(supplyMethod(60, 100).method).to.equal("vector");
+    });
+
+    it("the bound is the stationary draw reach, and adjacency still draws direct", () => {
+      expect(DIRECT_DRAW_REACH).to.be.at.least(1);
+      expect(supplyMethod(10, 1).method).to.equal("direct");
+      // Just past the reach the vector is the ONLY implementable supply.
+      expect(supplyMethod(10, DIRECT_DRAW_REACH + 1).method).to.equal("vector");
+    });
+
+    it("keeps the parts comparison INSIDE the reach (the bound adds, never overrides)", () => {
+      // Within reach the economics still decide - at d=2 the vector already
+      // wins on parts, and that verdict must be unchanged by the bound.
+      const at2 = supplyMethod(10, 2);
+      expect(at2.method).to.equal("vector");
+      expect(at2.directParts).to.be.greaterThan(at2.vectorParts);
+    });
+
+    it("still reports BOTH part counts when the reach bound decides", () => {
+      // The bound changes the verdict, not the accounting - P4 reads these.
+      const far = supplyMethod(20, 100);
+      expect(far.directParts).to.be.greaterThan(0);
+      expect(far.vectorParts).to.be.greaterThan(0);
     });
 
     it("vector parts = 2x carryPartsFor (CARRY+MOVE at 1:1) - no third formula", () => {

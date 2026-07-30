@@ -38,6 +38,7 @@ import {
   BUILD_ENERGY_PER_WORK,
   bufferCarryParts,
   carryPartsFor,
+  DIRECT_DRAW_REACH,
   projectAbsorbRate,
   refuelIntervalTicks,
   SOURCE_RATE,
@@ -2550,7 +2551,12 @@ export class ConstructionCorp extends Corp {
    * Haulers are responsible for delivering energy to builders.
    */
   private doPickup(creep: Creep, _room: Room): void {
-    const PICKUP_RANGE = 4; // Only grab energy within this range
+    // ONE reach constant, shared with the supply verdict (primitives.
+    // DIRECT_DRAW_REACH): supplyMethod may only elect a self-fetch inside the
+    // range this scan actually covers. Two literals drifted apart once already
+    // - the plan priced a 100-tile "direct" draw against a 4-tile scan and the
+    // crew starved beside its own sites (P8, t72675271).
+    const PICKUP_RANGE = DIRECT_DRAW_REACH;
 
     // Any walk here can carry a partial load (the builder tops up over several
     // ticks), so every moveTo repairs the road underfoot in the same tick -
