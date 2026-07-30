@@ -180,3 +180,101 @@ describe("builder assignment (latch to a site, sequential targets, repair while 
     });
   });
 });
+
+/**
+ * REPAIR DETAIL MUST NOT CONSUME THE LAST BUILDER (owner-reported 2026-07-29:
+ * "there's a big builder, but he's going around repairing roads instead";
+ * root-caused at t72674879 - W43N23 stamped crew 1, onRepairDetail 1,
+ * latchedToSite 0, buildTargets "R" with an 88-part builder, while 15 remote
+ * sites stood and the plan allocated 20 e/t to construction: P8 FAIL "CREW
+ * IDLE").
+ *
+ * TWO measured incidents pull opposite ways and the rule must honour both:
+ *  - clearing an ACTIVE detail when a site appears stranded a below-gate
+ *    container forever (cons-repair-stops-at-99, the reason the old
+ *    "never take the last builder while sites exist" guard was REMOVED);
+ *  - recruiting the ONLY builder into the detail zeroes construction (this
+ *    incident).
+ * The distinction is CLEAR vs RECRUIT: an existing detail is sticky and keeps
+ * its beat; a lone builder is never conscripted while build work stands - the
+ * +1 detail demand (builderPlanWithDetail) fields a dedicated creep instead.
+ */
+describe("repairDetailRecruit (never conscript the last builder)", () => {
+  const { repairDetailRecruit } = require("../../../src/corps/repair");
+
+  it("does NOT recruit when the crew is ONE and build work stands", () => {
+    expect(repairDetailRecruit({ crew: 1, hasDetail: false, buildWork: true })).to.equal(false);
+  });
+
+  it("DOES recruit a lone builder when there is nothing to build", () => {
+    // The idle-maintenance case: with no sites the whole point of the crew is
+    // upkeep, so the single builder maintains.
+    expect(repairDetailRecruit({ crew: 1, hasDetail: false, buildWork: false })).to.equal(true);
+  });
+
+  it("recruits from a crew of two even while building (repair stays decoupled)", () => {
+    // The owner's 2026-07-18 directive: sites never block repair. With a
+    // second body available, one repairs and one builds.
+    expect(repairDetailRecruit({ crew: 2, hasDetail: false, buildWork: true })).to.equal(true);
+  });
+
+  it("never double-assigns when a detail already exists", () => {
+    expect(repairDetailRecruit({ crew: 3, hasDetail: true, buildWork: true })).to.equal(false);
+  });
+
+  it("does not recruit from an empty crew", () => {
+    expect(repairDetailRecruit({ crew: 0, hasDetail: false, buildWork: false })).to.equal(false);
+  });
+
+  /**
+   * The CRITICAL band pierces the rule. REPAIR_CRITICAL exists precisely so a
+   * genuinely endangered structure outranks construction ("a container is
+   * worth 5000 energy to rebuild plus the mining it strands, far more than the
+   * marginal delay to a build" - repair.ts). A last-builder guard that also
+   * blocked the critical diversion would let the container die with sites
+   * standing, which is the failure the critical band was added to prevent.
+   */
+  it("PIERCES the last-builder rule when a structure is critically decayed", () => {
+    expect(repairDetailRecruit({ crew: 1, hasDetail: false, buildWork: true, critical: true })).to.equal(true);
+  });
+
+  it("critical is irrelevant once a detail exists (still no double-assign)", () => {
+    expect(repairDetailRecruit({ crew: 2, hasDetail: true, buildWork: true, critical: true })).to.equal(false);
+  });
+});
+
+/**
+ * WHICH member is conscripted (owner-reported 2026-07-29: "there's a BIG
+ * builder, but he's going around repairing roads instead"). `members()`
+ * iterates Game.creeps in insertion order, so the old `members[0]` picked
+ * arbitrarily - a 88-part builder was as likely as a runt. That inverts the
+ * economics: the detail's OWN plan (repairerPlan) is a 550-cost 2-WORK body,
+ * while the build crew's whole purpose is to absorb the construction budget.
+ * Put the SMALLEST body on the beat and leave the build capacity building.
+ */
+describe("pickRepairDetail (the smallest body takes the maintenance beat)", () => {
+  const { pickRepairDetail } = require("../../../src/corps/repair");
+  const sizeOf = (c: { parts: number }) => c.parts;
+
+  it("picks the smallest crew member, not the first listed", () => {
+    const big = { parts: 44 };
+    const small = { parts: 4 };
+    expect(pickRepairDetail([big, small], sizeOf)).to.equal(small);
+  });
+
+  it("is stable on ties (first of equals - no per-tick reshuffling)", () => {
+    const a = { parts: 8 };
+    const b = { parts: 8 };
+    expect(pickRepairDetail([a, b], sizeOf)).to.equal(a);
+  });
+
+  it("returns null for an empty crew", () => {
+    expect(pickRepairDetail([], sizeOf)).to.equal(null);
+  });
+
+  it("tolerates an unmeasurable body (a partial mock sizes 0, never throws)", () => {
+    const unknown = { parts: 0 };
+    const known = { parts: 10 };
+    expect(pickRepairDetail([known, unknown], sizeOf)).to.equal(unknown);
+  });
+});

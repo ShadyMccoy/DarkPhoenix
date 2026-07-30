@@ -86,7 +86,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 8, // Version 8: construction crew-split stamp (build vs repair detail, owner 2026-07-29)
+    version: 10, // Version 10: construction pool/crew stamp (poolHead, crewAt, blind-head gate) 2026-07-30
     tick: Game.time,
     corps,
     summary: {

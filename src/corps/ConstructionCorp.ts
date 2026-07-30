@@ -27,7 +27,9 @@ import {
   wantsCriticalRecovery,
   wantsMaintenanceBuilder,
   nextRepairTarget,
-  nextBuildTarget
+  nextBuildTarget,
+  pickRepairDetail,
+  repairDetailRecruit
 } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
@@ -470,7 +472,9 @@ export class ConstructionCorp extends Corp {
       // 2026-07-21 "or partially built": the old branch ran EVERYONE through
       // runBuilder, so the detail the demand fielded for a decaying remote
       // container idled at the sites gate while the container rotted).
-      this.assignRepairDetail(room);
+      // A remote crew's build work is this room's own sites (the pool lens is
+      // the HOME corp's; a remote corp never leaves its room).
+      this.assignRepairDetail(room, this.localSiteWork(room));
       this.builders.run(
         creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
         spawn
@@ -601,17 +605,31 @@ export class ConstructionCorp extends Corp {
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
-    this.assignRepairDetail(room);
     // ONE BUILD POOL (owner 2026-07-20): the crew works the pool's head room
     // - home first, else the nearest room with sites (its trunk tiles, a
     // founding site two rooms over, wherever). runBuilder already drives and
     // refuels in whatever room it is handed (the remote rung proved it).
-    const poolHead = buildPool(spawn.pos.roomName)[0];
+    // Walked ONCE per tick and reused - the scan finds sites in every visible
+    // room, so re-deriving it per reader is a real CPU line, not a nicety.
+    const pool = buildPool(spawn.pos.roomName);
+    // The DURABLE build-work signal for the last-builder rule: pool WORK,
+    // which charges blind receipt rooms their unbuilt share, so a room going
+    // dark cannot read as "nothing to build" and conscript the whole crew
+    // (CLAUDE.md: room state from intel, never vision).
+    const buildWork = pool.reduce((s, e) => s + e.work, 0) > 0;
+    this.assignRepairDetail(room, buildWork);
+    const poolHead = pool[0];
     if (poolHead && !poolHead.room) {
       // BLIND receipt head (stranded-trunk deadlock): no vision anywhere in
       // the pool - the crew's own travel is the only thing that can restore
       // it. March the builders at the receipt room; the repair detail keeps
       // its beat, tankers hold their home loop until a real site resolves.
+      // STAMPED before the early return (2026-07-30): this branch wrote NO
+      // sizing record, so a crew marching at a blind head was indistinguishable
+      // from a crew that never ran - the P8 "CREW IDLE" read had no way to see
+      // it. A silent early return in a decision path is a hole in spec 14 by
+      // construction.
+      this.stampSizing({ ...this.poolStamp(pool), ...this.crewStamp(room), gate: "blind-head" });
       this.builders.run(
         creep =>
           creep.memory.repairDetail
@@ -638,17 +656,17 @@ export class ConstructionCorp extends Corp {
     // cannot divert to repair - pickCriticalRepairTarget is an unused import),
     // so per spec-14 doctrine the next step is a STAMP, not a second guess:
     // export who is on which detail and what each is actually latched to.
-    const crewMembers = this.builders.members();
     this.stampSizing({
-      crew: crewMembers.length,
-      onRepairDetail: crewMembers.filter(c => c.memory.repairDetail).length,
-      latchedToSite: crewMembers.filter(c => c.memory.buildTargetId).length,
-      buildTargets: crewMembers
-        .map(c => (c.memory.repairDetail ? "R" : c.memory.buildTargetId ? "B" : "-"))
-        .join(""),
+      ...this.poolStamp(pool),
+      ...this.crewStamp(room),
+      buildRoom: buildRoom.name,
       tankers: this.tankers.members().length,
       vectorFed,
       wantsMaintenance: this.wantsMaintenance(room),
+      // The last-builder rule's input: with buildWork true and crew 1, the
+      // detail is NOT recruited (repairDetailRecruit) - so a future
+      // "crew 1 / onRepairDetail 1" stamp is readable as a bug, not a policy.
+      buildWork,
       dedicatedSource: room.memory.dedicatedBuildSourceId ? 1 : 0
     });
     this.builders.run(
@@ -665,11 +683,16 @@ export class ConstructionCorp extends Corp {
    * functions - sites never impact repair). Sticky: the flag lives on the
    * creep for life; a new one is assigned only when none exists. With nothing
    * to maintain the flag clears so the member rejoins the build crew.
+   *
+   * `buildWork` is the crew's OUTSTANDING build work (backlog for the home
+   * pool, local sites for a remote room). It never clears an active detail -
+   * it only blocks conscripting the LAST builder (see repairDetailRecruit).
    */
-  private assignRepairDetail(room: Room): void {
+  private assignRepairDetail(room: Room, buildWork: boolean): void {
     const members = this.builders.members();
     const detail = members.find(c => c.memory.repairDetail);
-    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room, detail !== undefined)) {
+    const critical = this.wantsCriticalRecovery(room, detail !== undefined);
+    if (!this.wantsMaintenance(room) && !critical) {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
@@ -686,9 +709,71 @@ export class ConstructionCorp extends Corp {
     // The cold-ramp case that motivated it is covered by the 2-builder
     // cons-t3 staging and by the fact that a real cold ramp's containers are
     // full (no maintenance competition).
-    if (detail) return;
-    const recruit = members[0];
+    if (!repairDetailRecruit({ crew: members.length, hasDetail: detail !== undefined, buildWork, critical })) return;
+    // The SMALLEST body takes the beat - a big builder's WORK belongs on the
+    // sites, not parked on a road (see pickRepairDetail).
+    const recruit = pickRepairDetail(members, c => this.builderSize(c));
     if (recruit) recruit.memory.repairDetail = true;
+  }
+
+  /** Body size of a crew member for the detail pick; 0 when unmeasurable (partial mocks). */
+  private builderSize(creep: Creep): number {
+    try {
+      return creep.getActiveBodyparts(WORK);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * WHERE the crew was sent and what it competed against (P8 diagnosis,
+   * 2026-07-30). The P8 "CREW IDLE" read could see 15 remote sites and 0
+   * progress but not WHICH room the pool elected - and the pool ranks HOME
+   * first, then by linear distance, so a distance-1 room carrying a blind
+   * receipt share outranks the distance-2 room where the real sites stand.
+   * Whether that actually happens is the open question; this stamp answers it
+   * from data instead of a second theory.
+   */
+  private poolStamp(pool: { roomName: string; room?: Room; work: number }[]): { [k: string]: number | string } {
+    const head = pool[0];
+    return {
+      poolHead: head?.roomName ?? "",
+      poolHeadBlind: head && !head.room ? 1 : 0,
+      poolRooms: pool.length,
+      // Room:work for the whole pool, so the ELECTION is reproducible from the
+      // stamp - the ranking is what is in question, not just its winner.
+      poolWork: pool.map(e => `${e.roomName}${e.room ? "" : "*"}:${Math.round(e.work)}`).join(",")
+    };
+  }
+
+  /** Who is in the crew, where they stand, and what each is doing (P8 diagnosis). */
+  private crewStamp(room: Room): { [k: string]: number | string } {
+    const crew = this.builders.members();
+    return {
+      crew: crew.length,
+      onRepairDetail: crew.filter(c => c.memory.repairDetail).length,
+      latchedToSite: crew.filter(c => c.memory.buildTargetId).length,
+      // R=repair detail, B=latched to a site, F=fetching (working false - the
+      // state that never sets a target), -=idle/in transit. "-" alone was
+      // ambiguous across four states, which is why the last read could not
+      // close (t72675034: crew 2, "-R", 0 progress, cause unresolved).
+      buildTargets: crew
+        .map(c => (c.memory.repairDetail ? "R" : c.memory.buildTargetId ? "B" : c.memory.working ? "W" : "F"))
+        .join(""),
+      // Where the crew actually STANDS - a builder marching between rooms and
+      // a builder parked at home look identical in every other field.
+      crewAt: crew.map(c => c.room?.name ?? "?").join(","),
+      crewHome: crew.filter(c => c.room?.name === room.name).length
+    };
+  }
+
+  /** Whether this room has construction work standing (partial mocks -> false). */
+  private localSiteWork(room: Room): boolean {
+    try {
+      return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
+    } catch {
+      return false;
+    }
   }
 
   /**

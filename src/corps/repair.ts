@@ -230,6 +230,74 @@ export function pickRepairTarget<T extends Repairable>(structures: T[], belowFra
 }
 
 /**
+ * Whether to CONSCRIPT a crew member onto the repair detail this tick.
+ *
+ * CLEAR and RECRUIT are different decisions, and conflating them cost two
+ * measured incidents pulling opposite ways:
+ *  - clearing an ACTIVE detail the moment a site appeared stranded a
+ *    below-gate container forever (cons-repair-stops-at-99: 8 sites placed at
+ *    t20, detail cleared, the 55% container never rose) - which is why the old
+ *    "never take the last builder while sites exist" guard was REMOVED;
+ *  - recruiting the ONLY builder into the detail zeroes construction
+ *    (owner-reported 2026-07-29 "there's a big builder, but he's going around
+ *    repairing roads instead"; root-caused at t72674879 - W43N23 stamped
+ *    crew 1 / onRepairDetail 1 / latchedToSite 0 / buildTargets "R" with an
+ *    88-part builder while 15 remote sites stood and the plan allocated
+ *    20 e/t to construction: P8 FAIL "CREW IDLE").
+ *
+ * So this function governs RECRUITMENT only - an existing detail stays sticky
+ * and keeps its beat (`hasDetail` short-circuits, and the clear path is the
+ * caller's, keyed to maintenance want, not to sites). A lone builder is never
+ * conscripted while build work stands: the +1 detail demand
+ * (builderPlanWithDetail) orders a dedicated body for maintenance instead, so
+ * repair stays decoupled from building without the build crew going to zero.
+ * With nothing to build, the lone builder maintains - that is the whole point
+ * of an idle crew.
+ *
+ * `critical` PIERCES the last-builder rule: REPAIR_CRITICAL exists so a
+ * genuinely endangered structure outranks construction (a container is worth
+ * 5000 energy to rebuild plus the mining it strands - see REPAIR_CRITICAL
+ * above). Blocking the lone builder there would let it die with sites
+ * standing, which is the exact failure the critical band was added to prevent.
+ */
+export function repairDetailRecruit(x: {
+  crew: number;
+  hasDetail: boolean;
+  buildWork: boolean;
+  critical?: boolean;
+}): boolean {
+  if (x.hasDetail) return false;
+  if (x.crew <= 0) return false;
+  if (x.crew === 1 && x.buildWork && !x.critical) return false;
+  return true;
+}
+
+/**
+ * WHICH crew member takes the maintenance beat: the SMALLEST body (owner
+ * 2026-07-29 "there's a BIG builder, but he's going around repairing roads
+ * instead"). The squad's `members()` iterates Game.creeps in insertion order,
+ * so picking members[0] conscripted an arbitrary body - an 88-part builder as
+ * readily as a runt. That inverts the economics: the detail's own plan
+ * (repairerPlan) is a 550-cost 2-WORK body, while the build crew exists to
+ * absorb the construction budget, so every WORK part parked on a road is
+ * build capacity idled. Stable on ties (strict `<`) so the pick does not
+ * reshuffle tick to tick; the `sizeOf` lens keeps this pure and testable
+ * without live creeps.
+ */
+export function pickRepairDetail<T>(crew: T[], sizeOf: (c: T) => number): T | null {
+  let best: T | null = null;
+  let bestSize = Infinity;
+  for (const c of crew) {
+    const size = sizeOf(c);
+    if (size < bestSize) {
+      bestSize = size;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/**
  * Whether to field (or keep) a maintenance builder, with hysteresis:
  * - if a builder already exists, keep it while anything is below the repair ceiling
  *   (REPAIR_TO) so it finishes the job before retiring;
