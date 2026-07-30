@@ -5524,3 +5524,18 @@ read as zero carry under the new rule. Fixed the MOCKS (real part arrays), not
 the rule: an unfaithful stand-in is exactly what let a runt hide behind a count.
 
 1699 unit green; trio in progress (storage-depot 7s green) - deploy gated on it.
+
+**Carry-coverage deploy record**: trio green (storage-depot 7s, flow-handoff
+4m, runt-economy 3m), 1699 unit, output captured to files. DEPLOYED 29f7834.
+PREDICTIONS: the 3-CARRY runt no longer satisfies the corp (needed 25 vs
+fielded 3), so a proper tender is ordered at the floor's 13-carry minimum;
+expect tender creeps 1 -> 2 briefly then the runt EOLs out, bodyParts 4 -> ~26+,
+and **idle.bank -> 0 on BOTH spawns** (THE measure - it is what fired and what
+has arbitrated every step of this chain). Then E4's 259k backlog should finally
+drain as the doubled spawn capacity actually gets fed. The new stamp fields
+(spawnCount/extensionCapacity/walkTicks/maxCarry/fieldedCarry/neededCarry) make
+the next verdict readable without a code read - that blind spot cost a cycle.
+IF idle.bank persists with a full-size tender fielded: the fleet COUNT model is
+wrong after all (not the body), and the next lever is the walkTicks input -
+verify it against the real depot->cluster geometry rather than trusting the
+1-tile read.
