@@ -71,6 +71,8 @@ describe("runt economy upsizes its runts", () => {
     let recyclingSeen = false;
     const samples: string[] = [];
     const lastMinerSizing: { [corpId: string]: any } = {};
+    let lastAgenda = "(agenda never read)";
+    let lastPartsLedger = "(parts ledger never read)";
     let endedAt = 1200;
 
     // PROBE CADENCE (owner 2026-07-20 "runt econ always takes so long"): the
@@ -113,6 +115,44 @@ describe("runt economy upsizes its runts", () => {
       } catch {
         /* segment not active / unparseable - leave the stamps empty */
       }
+      // STUCK-MODE FORENSICS (2026-07-30): the cell's known failure signature
+      // is bimodal and self-similar - source 1 piled at ~1901 with hauling
+      // dead, source 2 unstaffed for the whole run, demand standing (gate
+      // "clear", staffing 0). The miner stamps alone cannot say WHY the
+      // scheduler never fielded the second miner: that needs the NOW plan
+      // (agenda queue + energy) and the GOAL plan's parts ledger. Keep the
+      // LAST seen of each so a red verdict prints the whole decision chain,
+      // not just its final link.
+      try {
+        const [rawCore] = await helper.player.getSegments([TELEMETRY_SEGMENTS.CORE]);
+        if (rawCore) {
+          const core = JSON.parse(rawCore);
+          const spawnIds = Object.keys(core.agenda ?? {});
+          lastAgenda = spawnIds
+            .map(id => {
+              const a = core.agenda[id];
+              const q = (a.queue ?? [])
+                .slice(0, 4)
+                .map((e: any) => `${e.role}@${e.minCost}${e.blocking ? "!" : ""}(${e.gate})`)
+                .join(" ");
+              return `spawn ${id.slice(-4)} need ${a.fundingNeed} depth ${a.queueDepth}: ${q}`;
+            })
+            .join("\n  ");
+          const room = (core.rooms ?? [])[0];
+          if (room) lastAgenda += `\n  energyAvailable ${room.energyAvailable}/${room.energyCapacity}`;
+        }
+        const [rawFlow] = await helper.player.getSegments([TELEMETRY_SEGMENTS.FLOW]);
+        if (rawFlow) {
+          const flow = JSON.parse(rawFlow);
+          if (flow.partsLedger) lastPartsLedger = JSON.stringify(flow.partsLedger);
+          const verdicts = (flow.candidates ?? [])
+            .map((v: any) => `${String(v.sourceId).slice(-4)}:${v.verdict}`)
+            .join(" ");
+          if (verdicts) lastPartsLedger += `  verdicts[${verdicts}]`;
+        }
+      } catch {
+        /* segments not active - forensics stay empty */
+      }
       const works = await flowMinerWork(mem);
       for (const w of works) {
         if (w > 0 && w < smallestMiner) smallestMiner = w;
@@ -147,6 +187,8 @@ describe("runt economy upsizes its runts", () => {
         `(check the segment is active / the bot is executing at all) or no harvest corp existed. ` +
         `This is NOT evidence about the sizing decision itself.)`;
     console.log(`=== miner sizing stamps (last seen) ===\n  ${diag}`);
+    console.log(`=== NOW plan (last agenda) ===\n  ${lastAgenda}`);
+    console.log(`=== GOAL plan (last parts ledger + funding verdicts) ===\n  ${lastPartsLedger}`);
 
     assert.notEqual(
       smallestMiner,
