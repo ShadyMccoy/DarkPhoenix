@@ -5323,3 +5323,41 @@ PREDICTIONS (separable, for the next check):
 KNOWN INCONSISTENCY (named, not hidden): tenderSlotCarry still sizes each body
 from the bank wave while the count is rate-based. The maxCarry cap binds in the
 live case so the saving lands, but the halves disagree in principle.
+
+### AUDIT 2026-07-29 (t72663189→t72664142, dt 953) — BOTH owner-modelled changes VERIFIED
+
+**TENDER RATE-MATCHING — prediction hit to the number.** Stamp: creeps **1**
+(was 3), bodyParts **34** (was 102), body 25 carry / 9 move, target **1** (was
+3), duty 0.066 -> **0.08**. P4's tender line **102p=0.068 -> 34p=0.023**, i.e.
+**0.045 p/t returned to the 0.333 ceiling** - exactly the predicted ~34p.
+**GUARDRAIL CLEAN**: spawn idle `{empty 0, bank 0, buy 20, hold 0}` - `bank`
+stayed **0**, so the spawn is NOT waiting on energy; endFill 0.987 (was 0.986)
+and utilization 0.975 with a 5300-energy network fed by ONE tender. The old
+3-tender fleet was ~3x over-provisioned against a consumer measured at 27.6
+e/t, and cutting it cost nothing in spawn feeding. Note `idle.empty` also went
+54 -> 0: the spawn no longer idles for lack of demand.
+
+**LINK THROUGHPUT ROUTING — verified, and the direction of every number is the
+model's.** LINK: hub **33.5 -> 52.3**, ctrl **24.6 -> 31.6**, directShare 33%
+-> **17%**, tax 1.74 -> 2.52 (/414t window). Total link throughput
+**58.1 -> 83.9 e/t (+44%)**: the source links now empty fully into the core
+instead of dribbling into a controller link that could not absorb a full
+payload. The controller was NOT starved - its receipt ROSE, the core relay
+carrying the difference. The tax rise is purely proportional (3% of 83.9 =
+2.52; 3% of 58.1 = 1.74), so it is throughput, not new waste: +25.8 e/t moved
+for +0.78 e/t of tax. directShare FALLING is the intended behaviour here (a
+controller link that cannot take a whole volley should not capture the fire),
+NOT the "collapsed to ~0" calibration failure the deploy note watched for -
+DIRECT_HOP_BONUS 1.15 needs no change on this evidence. Window is short (414t,
+post-reset); confirm across one more capture.
+
+**Pile pricing still holding (4th consecutive capture)**: E6 2 deferrals, both
+staffing 1/1, no dark sources. E4 83655 rising at +4.80/t with the ledger
+correctly reading it as CONVERGING toward a finite equilibrium (90858, knee
+150000) rather than flagging a red - the owner's E4 frame working as intended.
+P1 flap 0, E2 0 stranded, S3/S4 clean.
+
+NEW WATCH: **E5 runt purchases 2 of 8 (hauler@100 x2)** - 1-CARRY haulers.
+Post-reset recovery or the drain term ordering tiny bodies onto micro-routes
+(P2 8 of 14 routes below 3 CARRY). If runts persist next capture with P2 still
+high, the drain term's carry share on a micro-route wants a floor, red-first.
