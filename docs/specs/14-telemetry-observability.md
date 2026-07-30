@@ -5539,3 +5539,47 @@ IF idle.bank persists with a full-size tender fielded: the fleet COUNT model is
 wrong after all (not the body), and the next lever is the walkTicks input -
 verify it against the real depot->cluster geometry rather than trusting the
 1-tile read.
+
+### AUDIT 2026-07-29 (t72673248→t72673974) — starvation ~90% cleared; the residual is the BOOTSTRAP escape firing every generation
+
+**THE MEASURE MOVED**: spawn `idle.bank` **196/243 -> 8/52** (~90% down; it was
+146/152 when first caught). Spawn1 is effectively clear. The runt-floor +
+carry-coverage chain did what it was built to do, and the tender went
+**4 parts (3 carry) -> 10 parts (8 carry)**.
+
+**The new stamp fields paid for themselves immediately.** `walkTicks: 1`
+CONFIRMS target 1 is correct (a 1-tile depot walk makes one full 25-carry
+tender deliver ~80 e/t against a 66.7 appetite - the count model was never
+wrong); `maxCarry 25`, `spawnCount 2`, `extensionCapacity 100`, `fieldedCarry
+8`, `neededCarry 25`. Without these the next hypothesis would have been the
+fleet count, which the data now rules out.
+
+**RESIDUAL, named with data (not yet fixed)**: the body is 8 carry, not the
+floor's 13. Cause: `tenderBootstrapPierce` returns true whenever `staffing ===
+0`, and with a ONE-tender fleet that is true at EVERY natural generation
+change - so each replacement is priced at the 2-carry emergency floor and
+built from whatever energy is on hand. The emergency escape, meant for a
+genuine dark-post outage (t72499165), has become the routine path. The
+carry-coverage rule still reads fieldedCarry 8 < neededCarry 25 and keeps
+demanding, so the fleet self-corrects toward ~21 carry across 2 bodies (the
+2x swarm cap) - converging, but by adding a second creep rather than buying
+one proper one. NOTE the gate LABEL still prints "staffed" from the old
+count-only test while the demand path correctly continues; the label is now
+misleading and wants aligning.
+
+**NEW FAIL - P8 "CREW IDLE (energy allocated, nothing built)"**: remote sites
+15->15, progress 0->0, plan allocating **20 e/t** to construction. This is the
+same class the owner reported ("a big builder... repairing roads instead"),
+now inverted: 15 remote trunk sites standing and no progress at all. It is the
+clear next work item.
+
+**E4 FAIL 282450 (+31.94/t, projected 330k past the 150k knee)**: with spawn
+throughput doubled, income now outruns what the spend path absorbs. P8's idle
+crew is part of that (20 e/t allocated, 0 spent). E4's cause is downstream of
+P8, so P8 is the lever.
+
+DELIBERATELY NOT SHIPPED THIS CYCLE: a fourth change to the tender chain. The
+primary measure is converging and the trap list is explicit about repeated
+patches to one mechanism - the bootstrap-escape residual is recorded for a
+cycle that can gate it properly (make the pierce distinguish a genuine outage
+from a routine generation change, red-first, full trio).
