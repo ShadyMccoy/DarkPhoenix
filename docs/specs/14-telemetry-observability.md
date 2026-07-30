@@ -5692,3 +5692,68 @@ NOT CHANGED (checked, out of scope): TOWER_REPAIR_RANGE stays 10 — past it the
 energy falloff makes tower repair ~5x worse than a builder. Multi-tower
 duplicate targeting is moot today: `findMissingTower` builds exactly ONE tower
 per room, so no second tower can overheal the first's target.
+
+### AUDIT 2026-07-30 (t72675270→t72676091, dt 821) — P8 FIXED, measured
+
+**CYCLE VERDICT: FIXED.** The supplyMethod REACH BOUND (commit 6045353) did
+what it was predicted to do. Every pre-registered delta, checked:
+
+| prediction | result |
+|---|---|
+| `tankers` 0 → ≥2 | **3** ✅ |
+| `vectorFed` false → true | **true** ✅ |
+| P8 progress 0 → >0 | **0.37 e/t**, FAIL → ok ✅ |
+| poolWork falling | 4251 → **3826** (425 energy built) ✅ |
+| P4 rises (new vector load) | 0.75 → **0.95 x ceiling** ✅ (now WARN) |
+| E4 slope falls | ❌ **20.24 → 34.12/t** — did NOT fall |
+| `buildTargets` "FR" → "BR" | ⚠️ reads "RF" — see stamp defect below |
+
+P7 also recovered on its own: 0.40× → **1× the relegated floor**, FAIL → ok.
+
+**STAMP DEFECT (mine, not the bot's)**: `buildTargets` encodes F/W from
+`memory.working`, but the vectorFed path never sets `working` — it builds
+directly whenever `store.energy > 0`. So a builder that is correctly PARKED
+and awaiting its tanker stamps "F", which reads as "stuck fetching". The
+F/W distinction is only meaningful on the non-vector path. To fix next cycle:
+encode the vector path separately (parked-dry vs parked-fed) rather than
+reusing a flag that path doesn't maintain.
+
+**E4 IS NOW THE UNAMBIGUOUS TOP LINE — and the stamps name its mechanism.**
+Storage 341743, slope +34.12/t, projected equilibrium 392928 against a 150k
+absorbable knee. NOT attributable to this change: construction went from
+spending 0 to spending 0.37 e/t, which lowers banking; the slope rose anyway.
+The cause is on the CONTROLLER path:
+
+    upgrading-W43N23-upgrading  creeps 1  parts 4
+      planAllocated 180  stock 701  banked 341743  inflow 2  allocated 2
+      targetCount 1  wartime true  workUtil 0.999
+    moving-W43N23-controllerFeeder  creeps 1  parts 12
+      gate "staffed"  relayRate 115  bodyRate 115  standingWork 2
+      planFlow 180  surplusRate 115  linkFed true  coreDrain 80
+
+The plan wants **180 e/t** to the controller. The upgrader is a **4-part, 2-WORK**
+body consuming **2 e/t** — and at UPGRADE_ENERGY_PER_WORK (1) that 2 WORK is a
+hard 2 e/t ceiling no matter what arrives. The feeder is rated 115 e/t and
+sized to `standingWork: 2`. So the upgrader sizes from `inflow: 2`, and the
+feeder sizes from the upgrader's standing WORK of 2 — **each sized from the
+other's current value, with nothing to break the circle**. `workUtil 0.999`
+confirms the 2 WORK it has is fully busy: this is not idle capacity, it is
+absent capacity. 341k banked behind a 2 e/t straw.
+
+Next cycle's work item, with the red-first shape already implied: something
+must size the controller path from the BANK (the surplus is the input the
+doctrine says consumers burn), not from a measured inflow that only exists
+because the consumer is small.
+
+**PROCESS NOTE — runt-economy flake, attributed properly.** The tower fix's
+first trio run went red on runt-economy (smallest 2, largest 2, no upsize at
+tick 1200). Attribution before blame: the pre-change source (bundle a5ea1ec,
+bit-identical md5 to the earlier green control) PASSED, which alone looks
+like a regression — so the post-change bundle was re-run and also PASSED
+(upsize PROVEN at tick 460, same as control). Flake, not regression, and
+independently ruled out by mechanism: the only behavioral delta in the commit
+is `towerNeedsFill`'s threshold, whose sole call site iterates `FIND_MY_STRUCTURES`
+towers — and the runt world is staged at **RCL 2** while TOWER_MIN_RCL is **3**,
+so no tower can exist there. N=1 vs N=1 cannot separate flake from regression
+on a cell the repo already documents as flaky; the second sample is what made
+the call honest.
