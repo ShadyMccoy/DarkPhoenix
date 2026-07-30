@@ -61,3 +61,73 @@ describe("routeSourceVolley (spec-26 stage 2 - link volley routing)", () => {
     );
   });
 });
+
+/**
+ * THROUGHPUT ROUTING (owner 2026-07-29: "there's times where the link fires
+ * towards the controller link, causing it to be backed up because there's very
+ * little energy capacity there. it should fire to the core link more so it can
+ * fully empty itself, otherwise it becomes a bottleneck").
+ *
+ * ENGINE GROUND TRUTH (@screeps/engine processor/intents/links/transfer.js):
+ * the amount is CLAMPED to the target's free capacity, and then
+ *   object.cooldown += LINK_COOLDOWN * range(source, target)
+ * is charged IN FULL regardless of how little moved. So the scarce resource is
+ * the sending link's COOLDOWN, and the right objective is
+ *   throughput = min(payload, free(target)) / range(target)
+ * energy per cooldown tick. The v1 rule compared free capacity against a fixed
+ * "worth firing" FLOOR (LINK_FIRE_THRESHOLD) and never saw the payload at all,
+ * so a controller link with 150 free captured the fire from a source holding
+ * 800: 150 delivered, the whole cooldown spent, 650 left stuck - the reported
+ * back-up.
+ */
+describe("routeSourceVolley - throughput per cooldown (owner 2026-07-29)", () => {
+  const full = {
+    payload: 800,
+    coreFree: 800,
+    controllerFree: 800,
+    controllerUnderPlan: true,
+    threshold: 100,
+    coreRange: 10,
+    controllerRange: 10
+  };
+
+  it("sends to the CORE when the controller can only take a sliver of the payload", () => {
+    // The owner's case: ctrl 150 free vs a full 800 payload at equal range.
+    // Direct would deliver 150 for a full cooldown; the core empties the link.
+    expect(routeSourceVolley({ ...full, controllerFree: 150 })).to.equal("core");
+  });
+
+  it("still prefers DIRECT when the controller can absorb the whole payload", () => {
+    expect(routeSourceVolley(full)).to.equal("controllerDirect");
+  });
+
+  it("prefers DIRECT on a partial fill only when its throughput still wins", () => {
+    // ctrl takes 600 of 800 but sits 2 tiles away vs the core's 20: direct
+    // moves 300/tick of cooldown, the core 40 - direct wins decisively.
+    expect(
+      routeSourceVolley({ ...full, controllerFree: 600, controllerRange: 2, coreRange: 20 })
+    ).to.equal("controllerDirect");
+  });
+
+  it("respects the plan cap: over-plan never direct-fires even at equal throughput", () => {
+    expect(routeSourceVolley({ ...full, controllerUnderPlan: false })).to.equal("core");
+  });
+
+  it("keeps the congestion spill: a FULL core still routes to the controller", () => {
+    expect(routeSourceVolley({ ...full, coreFree: 0, controllerUnderPlan: false })).to.equal("controllerDirect");
+  });
+
+  it("HOLDS rather than dribbling when neither target can take a threshold volley", () => {
+    expect(routeSourceVolley({ ...full, coreFree: 40, controllerFree: 40 })).to.equal(null);
+  });
+
+  it("a small payload that FITS the controller is not penalised (throughput is a ratio)", () => {
+    // payload 120 into 150 free: the link empties fully, so direct is correct.
+    expect(routeSourceVolley({ ...full, payload: 120, controllerFree: 150 })).to.equal("controllerDirect");
+  });
+
+  it("treats a missing range as neutral (legacy callers keep working)", () => {
+    const { coreRange, controllerRange, ...noRanges } = full;
+    expect(routeSourceVolley(noRanges as any)).to.equal("controllerDirect");
+  });
+});

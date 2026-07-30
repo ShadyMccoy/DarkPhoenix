@@ -20,6 +20,16 @@ import { resolveReserveTarget } from "../economy/bank";
 // with the LinkMeter's core-fill sampler) - rationale at the declaration.
 import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
 
+/**
+ * Chebyshev range between two links, or undefined when the harness supplies a
+ * partial position (the routing rule treats a missing range as neutral, so a
+ * mock without getRangeTo keeps its pre-throughput behaviour instead of
+ * throwing). Live RoomPositions always answer.
+ */
+function rangeBetween(from: StructureLink, to: StructureLink): number | undefined {
+  return typeof from.pos?.getRangeTo === "function" ? from.pos.getRangeTo(to.pos) : undefined;
+}
+
 /** Run the link network of every owned room. */
 export function runLinks(): void {
   for (const roomName in Game.rooms) {
@@ -69,7 +79,15 @@ export function runLinks(): void {
         coreFree: core.store.getFreeCapacity(RESOURCE_ENERGY),
         controllerFree: ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null,
         controllerUnderPlan: preferControllerDirect,
-        threshold: LINK_FIRE_THRESHOLD
+        threshold: LINK_FIRE_THRESHOLD,
+        // The three facts the throughput rule needs (owner 2026-07-29): what
+        // this link would send, and what each hop costs in cooldown. The
+        // engine clamps the transfer to the target's free capacity but charges
+        // LINK_COOLDOWN * range in FULL, so a nearly-full controller link used
+        // to capture fires it could not absorb and the source stayed backed up.
+        payload: link.store[RESOURCE_ENERGY],
+        coreRange: rangeBetween(link, core),
+        controllerRange: ctrl ? rangeBetween(link, ctrl) : undefined
       });
       const target = decision === "core" ? core : decision === "controllerDirect" ? ctrl : null;
       if (target) {
