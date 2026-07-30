@@ -5654,3 +5654,41 @@ already said "vector", so the bound removes only the pathological long-range
 **WATCH FOR**: builders becoming CARRY-heavier (the vector verdict raises the
 buffer via refuelIntervalTicks), and tanker spawn cost competing with the
 miner/hauler queue that is already 8 deep at 0.97 utilization.
+
+### INCIDENT 2026-07-30 — the tower's 500/500 dead point (owner-reported)
+
+Owner: *"Also the tower should repair the nearby roads anyways as well."* It
+already had the code to — `runTowers` has repaired roads/containers within
+TOWER_REPAIR_RANGE (10) since 2026-07-19 — but two independently-chosen
+constants made it stop after one burst:
+
+  - `runTowers` repairs only while `energy > TOWER_REPAIR_RESERVE` = **500**
+  - `towerNeedsFill` refilled only while `energy < capacity * 0.5` = **500**
+    (TOWER_CAPACITY is 1000)
+
+A repair action costs exactly TOWER_ENERGY_COST (10), so a refilled tower
+walks 1000 → 990 → … → **exactly 500**, and there it can neither repair (500
+is not > 500) nor be refilled (500 is not < 500). Not a probabilistic stall —
+the arithmetic lands on the dead point every time. The only thing that ever
+unstuck it was a **raid**: firing also spends 10/shot, pushing it below 500
+and triggering the tender. That is why tower repair looked intermittent while
+roads decayed down to the builder fleet — and why the owner saw a big builder
+doing road maintenance the tower should have absorbed.
+
+**FIXED AT THE COUPLING, not either number.** `TOWER_DEFENSE_RESERVE` and
+`TOWER_REPAIR_BAND` now live in primitives, and `towerRefillBelow(capacity) =
+min(capacity, reserve + band)` — so the refill trigger is *derived from* the
+repair floor and is strictly above it. Draining to the floor now always calls
+a tender, and the dead point is unrepresentable rather than merely absent.
+`TOWER_REPAIR_RESERVE` re-exports the shared constant so the two cannot be
+edited apart. Regression test pins the invariant
+(`towerRefillBelow(cap) > TOWER_REPAIR_RESERVE`), not just the current values.
+
+Cadence after the fix: repair spends the 500-energy band (≈24,000 hits at
+close range, several roads restored from scratch), the tender tops it up below
+800, and the defensive 500 is never touched by maintenance.
+
+NOT CHANGED (checked, out of scope): TOWER_REPAIR_RANGE stays 10 — past it the
+energy falloff makes tower repair ~5x worse than a builder. Multi-tower
+duplicate targeting is moot today: `findMissingTower` builds exactly ONE tower
+per room, so no second tower can overheal the first's target.

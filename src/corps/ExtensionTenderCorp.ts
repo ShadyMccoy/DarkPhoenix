@@ -18,7 +18,7 @@
  * @module corps/ExtensionTenderCorp
  */
 
-import { BODY_COSTS, CARRY_CAPACITY, SPAWN_TIME_PER_PART } from "../economy/primitives";
+import { BODY_COSTS, CARRY_CAPACITY, SPAWN_TIME_PER_PART, towerRefillBelow } from "../economy/primitives";
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { TENDER, TENDER_BOOTSTRAP } from "../spawn/demandLadder";
@@ -41,11 +41,19 @@ export interface SerializedExtensionTenderCorp extends SerializedSpawnAnchoredCo
 type FillTarget = StructureSpawn | StructureExtension | StructureTower;
 
 /**
- * A tower joins the fill circuit only below half charge (spec 07): keep the
- * war chest loaded without topping off a mid-fight trickle shot-by-shot.
+ * A tower joins the fill circuit below {@link towerRefillBelow} (spec 07):
+ * keep the war chest loaded without topping off a mid-fight trickle
+ * shot-by-shot.
+ *
+ * The threshold is DERIVED from the tower's defensive reserve, not chosen
+ * independently. The old `capacity * 0.5` was numerically identical to
+ * TOWER_DEFENSE_RESERVE at TOWER_CAPACITY 1000, and the repair path spends in
+ * exact 10s, so a full tower drained to EXACTLY 500 and then could neither
+ * repair (not > 500) nor refill (not < 500) - a dead point it hit every time
+ * (owner 2026-07-30). See towerRefillBelow for the full incident.
  */
 export function towerNeedsFill(energy: number, capacity: number): boolean {
-  return energy < capacity * 0.5;
+  return energy < towerRefillBelow(capacity);
 }
 
 /**

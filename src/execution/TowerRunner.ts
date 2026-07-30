@@ -39,6 +39,7 @@
  */
 
 import { REPAIR_TO } from "../corps/repair";
+import { TOWER_DEFENSE_RESERVE } from "../economy/primitives";
 import "../types/Memory"; // Memory.towerTargeting augmentation (focus-fire HP memory)
 
 /** Don't attempt a shot the tower can't pay for (TOWER_ENERGY_COST = 10). */
@@ -59,8 +60,13 @@ export const TOWER_REPAIR_RANGE = 10;
  * repair path is skipped entirely while any hostile is in the room); this floor
  * only caps the PEACE-time residual sink, keeping repair a consumer of surplus
  * (macro doctrine) rather than draining the defensive buffer.
+ *
+ * The tender's refill trigger is DERIVED from this number (towerRefillBelow),
+ * not chosen alongside it: when the two were independent constants they landed
+ * on the same value and the tower deadlocked at exactly the reserve, repairing
+ * nothing until a raid spent it lower (owner 2026-07-30).
  */
-export const TOWER_REPAIR_RESERVE = 500;
+export const TOWER_REPAIR_RESERVE = TOWER_DEFENSE_RESERVE;
 
 /**
  * Pure fire decision: index of the closest hostile, or null for no shot.

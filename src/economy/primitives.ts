@@ -854,3 +854,40 @@ export function mineralEnergyPerSpawnPart(
  * is about to lapse on its own and fighting buys nothing.
  */
 export const CORE_BUSTER_MIN_REMAINING = 1_000;
+
+/**
+ * The energy a tower keeps back for DEFENSE, never spent on peace-time repair.
+ * A raid is bursty and unannounced, so the tower must always be able to open
+ * fire without waiting on a tender round-trip.
+ */
+export const TOWER_DEFENSE_RESERVE = 500;
+
+/**
+ * The peace-time REPAIR budget: energy a refilled tower may spend down to the
+ * defensive reserve before it needs topping up again. At TOWER_POWER_REPAIR
+ * (800 hits) per TOWER_ENERGY_COST (10) this buys ~24,000 hits per band at
+ * close range - several roads restored from scratch - so the refill cadence
+ * stays cheap relative to what it saves in builder WORK.
+ */
+export const TOWER_REPAIR_BAND = 300;
+
+/**
+ * The level BELOW which a tower wants topping up. Expressed in terms of the
+ * defensive reserve ON PURPOSE (owner-reported 2026-07-30, "the tower should
+ * repair the nearby roads anyways as well"): the refill trigger and the repair
+ * floor were independently-chosen constants that happened to be the SAME
+ * number - `capacity * 0.5` and TOWER_DEFENSE_RESERVE are both 500 at
+ * TOWER_CAPACITY 1000 - with mutually exclusive comparisons. Repair costs
+ * exactly 10, so a full tower walked 1000 -> ... -> EXACTLY 500 and then could
+ * neither repair (not > 500) nor refill (not < 500). It parked there until a
+ * raid spent it below the line, which is why tower repair looked intermittent
+ * while roads decayed to the builder fleet.
+ *
+ * Deriving the threshold from the reserve makes that dead point
+ * unrepresentable: the trigger is strictly above the floor, so draining to the
+ * floor always calls a tender. Clamped to capacity so a small tower never asks
+ * for more than it can hold.
+ */
+export function towerRefillBelow(capacity: number): number {
+  return Math.min(capacity, TOWER_DEFENSE_RESERVE + TOWER_REPAIR_BAND);
+}
