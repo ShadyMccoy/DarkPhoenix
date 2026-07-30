@@ -101,3 +101,37 @@ describe("tender rate-matching (spawn appetite, not bank size)", () => {
     });
   });
 });
+
+describe("tender runt floor (the post-second-spawn runt spiral, t72672921)", () => {
+  // MEASURED: the second spawn doubled demand, the network drained to
+  // energyAvailable 25, and the tender was bought at its minCost of 200 - a
+  // 2-CARRY/4-part runt. 100 energy per trip cannot refill a 5600 network, so
+  // BOTH spawns sat energy-starved 25% of the window (idle.bank 146/152) while
+  // storage ballooned to 250k. A drained network then buys the NEXT tender as a
+  // runt too: a self-sustaining spiral, and exactly the class the MINER runt
+  // floor exists to prevent ("the whole economy collapses to one-useful-part
+  // creeps"). Half a tender still moves real energy; a 2-carry one does not.
+  const { tenderMinCarry } = require("../../../src/corps/ExtensionTenderCorp");
+
+  it("floors a normal purchase at HALF the needed carry, not 2", () => {
+    expect(tenderMinCarry(25, false)).to.equal(13); // ceil(25/2)
+    expect(tenderMinCarry(25, false)).to.be.greaterThan(2);
+  });
+
+  it("keeps the 2-carry BOOTSTRAP escape (a dark post must restart cheaply)", () => {
+    // The dark-post emergency (incident t72499165) still buys instantly - a
+    // hard floor there would deadlock the very outage it must fix.
+    expect(tenderMinCarry(25, true)).to.equal(2);
+  });
+
+  it("never asks for more than the desired body", () => {
+    expect(tenderMinCarry(1, false)).to.equal(1);
+    expect(tenderMinCarry(3, false)).to.equal(2); // ceil(3/2)
+  });
+
+  it("scales down with a poor room, so a cold room can still afford its floor", () => {
+    // At RCL2 the desired carry is small, so half of it stays affordable -
+    // the floor never outruns what the room can build.
+    expect(tenderMinCarry(4, false)).to.equal(2);
+  });
+});

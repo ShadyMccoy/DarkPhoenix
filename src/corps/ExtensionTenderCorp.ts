@@ -87,6 +87,34 @@ export function tenderSlotCarry(
  * the requirement. This is the CEILING the tender fleet is rate-matched to;
  * moving energy faster than this cannot buy a single extra creep.
  */
+/**
+ * Minimum CARRY a tender purchase may be filled at (the tender's runt floor,
+ * owner-reported 2026-07-29 "big builder... roads" cycle, root-caused at
+ * t72672921).
+ *
+ * The old demand offered `minCost = min(carry, 2) * 100` - 200 energy, a
+ * 2-CARRY/4-part body - on the reasoning that "minCost 200 buys instantly at
+ * this rank anyway". Once the SECOND spawn doubled demand, the network drained
+ * (energyAvailable 25) and the scheduler filled the tender at that floor: a
+ * 4-part runt moving 100 energy per trip against a 5600-energy network. Both
+ * spawns then sat energy-starved 25% of the window (idle.bank 146/152) while
+ * storage ballooned to 250k - and a drained network buys the NEXT tender as a
+ * runt too. A self-sustaining spiral, and precisely the class the MINER runt
+ * floor exists to prevent ("the whole economy collapses to one-useful-part
+ * creeps").
+ *
+ * HALF the needed carry is the floor: a half-tender still moves real energy,
+ * and because it scales with the desired body it never outruns what a poor
+ * room can afford (unlike a fixed floor). The BOOTSTRAP escape keeps the
+ * 2-CARRY body: a dark post with stranded stock (incident t72499165) must be
+ * able to restart instantly, and a hard floor there would deadlock the very
+ * outage it exists to fix.
+ */
+export function tenderMinCarry(desiredCarry: number, bootstrap: boolean): number {
+  if (bootstrap) return Math.min(desiredCarry, 2);
+  return Math.max(1, Math.min(desiredCarry, Math.ceil(desiredCarry / 2)));
+}
+
 export const TENDER_FLEET_CAP = 3;
 
 /** Core->grid walk assumed when the cluster geometry is not resolvable (a
@@ -653,7 +681,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
         infrastructure: bootstrap,
         producesIncome: false,
         desiredCost: carry * CARRY_MOVE_PAIR_COST,
-        minCost: Math.min(carry, 2) * CARRY_MOVE_PAIR_COST,
+        minCost: tenderMinCarry(carry, bootstrap) * CARRY_MOVE_PAIR_COST,
         since: 0,
         bodyParam: carry
       }
