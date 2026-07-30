@@ -86,7 +86,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 7, // Version 7: pile-gate stamps carry the delay meter (heldFor/heldFrac, owner 2026-07-29)
+    version: 8, // Version 8: construction crew-split stamp (build vs repair detail, owner 2026-07-29)
     tick: Game.time,
     corps,
     summary: {

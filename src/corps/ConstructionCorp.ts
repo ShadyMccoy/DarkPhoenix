@@ -24,7 +24,6 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildBuilderBody, buildTankerBody, buildUpgraderBody, TANKER_CARRY_PER_MOVE_PLAIN } from "../spawn/BodyBuilder";
 import {
-  pickCriticalRepairTarget,
   wantsCriticalRecovery,
   wantsMaintenanceBuilder,
   nextRepairTarget,
@@ -629,6 +628,29 @@ export class ConstructionCorp extends Corp {
     // decision tankerPlan priced. Fetch worlds field none and keep the
     // full-refill toggle.
     const vectorFed = this.tankers.members().length > 0;
+    // CREW-SPLIT STAMP (owner 2026-07-29: "there's a big builder, but he's
+    // going around repairing roads instead"). Live t72667111: the spawn site
+    // was placed OK at 42,22 (siteTotal 15000) but siteProgress sat at 0 for
+    // ~500 ticks with 2 builders fielded - and because a structure site
+    // reserves a source for the crew, P9 routed fell 110 -> 81.4 e/t and the
+    // piles began returning. So the cost is income loss AND no progress.
+    // One hypothesis was already falsified by code read (non-detail builders
+    // cannot divert to repair - pickCriticalRepairTarget is an unused import),
+    // so per spec-14 doctrine the next step is a STAMP, not a second guess:
+    // export who is on which detail and what each is actually latched to.
+    const crewMembers = this.builders.members();
+    this.stampSizing({
+      crew: crewMembers.length,
+      onRepairDetail: crewMembers.filter(c => c.memory.repairDetail).length,
+      latchedToSite: crewMembers.filter(c => c.memory.buildTargetId).length,
+      buildTargets: crewMembers
+        .map(c => (c.memory.repairDetail ? "R" : c.memory.buildTargetId ? "B" : "-"))
+        .join(""),
+      tankers: this.tankers.members().length,
+      vectorFed,
+      wantsMaintenance: this.wantsMaintenance(room),
+      dedicatedSource: room.memory.dedicatedBuildSourceId ? 1 : 0
+    });
     this.builders.run(
       creep =>
         creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom, vectorFed),
