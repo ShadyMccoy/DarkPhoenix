@@ -5267,3 +5267,59 @@ multi-spawn assignment/routing code already shipped in 970752f, so this is
 the missing half); (2) DEP link-deposit on the four piled sources (~20 carry
 parts returned, 40 e/t, sized last cycle); (3) a tender-duty ledger line -
 20% of spawn capacity at 0.066 duty is unmeasured by any invariant.
+
+### DEV 2026-07-29 — link throughput routing + tender rate-matching (both owner-modelled), DEPLOYED
+
+Two independent subsystems, one deploy, SEPARABLE verification signals.
+
+**LINK ROUTING (owner: "it fires towards the controller link, causing it to be
+backed up because there's very little energy capacity there").** Engine ground
+truth (@screeps/engine processor/intents/links/transfer.js): the amount is
+CLAMPED to the target's free capacity, then `cooldown += LINK_COOLDOWN * range`
+is charged IN FULL regardless. So the sending link's COOLDOWN is scarce and the
+objective is `min(payload, free(t)) / range(t)`. v1 had NO payload field - it
+fired direct whenever controllerFree >= LINK_FIRE_THRESHOLD (100), so a
+controller link with 150 free captured a fire from a source holding 800: 150
+delivered, whole cooldown spent, 650 stuck. Now throughput-ranked with
+DIRECT_HOP_BONUS 1.15 (saves the core's SHARED cooldown + a second 3% loss;
+conservative estimate, LINK ledger tax/relay is its calibration signal). Plan
+cap, congestion spill, hold-rather-than-dribble all preserved. Corrected
+mid-investigation: I suspected transferEnergy() with no amount returns ERR_FULL
+and moves nothing (meter over-reporting) - the engine CLAMPS, so no bug and the
+meter is accurate.
+
+**TENDER RATE-MATCHING (owner: "based on the extension grid, but also limited
+on the spawn capacity ... fatter extensions help with the refill because in a
+single tick a single tender can transfer more energy").** v1 solved the wrong
+problem: `bankCapacity/(maxCarry*50)` = "refill the whole network in one trip",
+which grows with the bank and ignores the only consumer served. MEASURED cost
+(t72663189): 3 tenders / 75 carry / **102 parts = ~20% of the colony's entire
+0.333 p/t ceiling**, duty **0.066**, against a spawn measured consuming **27.6
+e/t** (77750e / 69 spawns / 2817t at 0.936 utilization). New model:
+`spawnConsumptionCeiling(n) = n * WORK/SPAWN_TIME_PER_PART` (33.3 e/t/spawn,
+pinned above the measured burn); `tenderDeliveryRate` from the real cycle (one
+transfer per tick, each capped by the target extension - so 100-cap RCL7
+extensions HALVE the unload leg, ~35 -> ~53 e/t; v1 had this backwards);
+`tenderFleetTarget = ceil(appetite/rate)`, floored by cluster coverage, capped
+at 3. RCL7 one spawn -> **1 tender (was 3)**, carry 75 -> 25, ~102 -> ~34
+parts, **~0.045 p/t (~13% of the ceiling) returned** - the exact margin that
+went dry and blocked the hauler drain. A 2nd spawn doubles appetite and adds a
+tender automatically.
+
+Gate: 1677 unit; trio green TWICE (link build: 4m/4m/7s; tender build:
+5m/4m/7s). Three existing tests re-pinned (they encoded the retired formula;
+intent preserved) and a COLD-START FLOOR test added - the RCL2-3
+lost-deadline incident still demands 3 tenders under the new math.
+
+PREDICTIONS (separable, for the next check):
+- LINK: controller receipt holds, source links stop sitting full, directShare
+  free-floats instead of pinned by the 100e floor. If directShare collapses to
+  ~0, DIRECT_HOP_BONUS is too low.
+- P4 tender line: 102p -> ~34p, tender duty rises from 0.066.
+- GUARDRAIL that would prove the tender model wrong: spawn meter `idle.bank`
+  rising above 0 (spawn waiting on ENERGY, not demand). Currently 0, all idle
+  is empty/buy. Also watch endFill (0.986 now) and S4.
+
+KNOWN INCONSISTENCY (named, not hidden): tenderSlotCarry still sizes each body
+from the bank wave while the count is rate-based. The maxCarry cap binds in the
+live case so the saving lands, but the halves disagree in principle.
