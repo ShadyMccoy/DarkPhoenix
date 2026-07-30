@@ -194,19 +194,24 @@ export function nextBuildTarget<T extends { id: string; structureType?: string }
  * ReferenceError in exactly that harness). */
 export function buildRank(structureType: string | undefined): number {
   switch (structureType) {
-    case "container":
+    // A SPAWN outranks everything (owner 2026-07-29): it is the only structure
+    // that raises the colony's hardest ceiling - spawn parts/tick - so a
+    // pending spawn site is worth finishing before any capacity below it.
+    case "spawn":
       return 0;
-    case "extension":
+    case "container":
       return 1;
+    case "extension":
+      return 2;
     case "storage":
     case "link":
-      return 2;
-    case "tower":
       return 3;
+    case "tower":
+      return 4;
     case "road":
       return 9;
     default:
-      return 4;
+      return 5;
   }
 }
 

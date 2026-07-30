@@ -22,6 +22,71 @@ import { controllerInputSpot, coreDepot } from "./nodeEnergy";
 /**
  * Extension limits by controller level (RCL 1-8)
  */
+/**
+ * Spawns permitted per RCL, mirroring the engine's CONTROLLER_STRUCTURES
+ * (owner 2026-07-29: "lets take a look at placing the additional spawns as rcl
+ * allows"). The colony's hardest physical ceiling is spawn throughput -
+ * `spawnCount * SPAWN_PARTS_PER_TICK` - and until now STRUCTURE_SPAWN was
+ * placed NOWHERE but ExpansionCampaign (a new colony's founding spawn), so an
+ * owned room could never add its second while Spawn1 ran 0.87-0.97 utilization
+ * with a 4-6 deep queue (measured t72663189-t72665987).
+ */
+export const SPAWN_LIMITS: { [rcl: number]: number } = {
+  1: 1,
+  2: 1,
+  3: 1,
+  4: 1,
+  5: 1,
+  6: 1,
+  7: 2,
+  8: 3
+};
+
+/**
+ * Free adjacent tiles a spawn tile needs so NEWBORNS CAN STEP OUT. The one
+ * predicate neither existing scorer has: findGridPosition packs extensions
+ * densely (extensions do not care), and SpawningCorp aims emergence with
+ * spawnCreep({directions}) - a spawn walled in by its own grid would strand
+ * every creep it builds. Two keeps a lane open even while one tile is occupied
+ * by the creep already emerging.
+ */
+export const SPAWN_EMERGENCE_MIN = 2;
+
+/** How far down findGridPosition's ranking to look for a spawn tile that can
+ *  also release newborns before giving up this cooldown. */
+export const SPAWN_PLACEMENT_ATTEMPTS = 12;
+
+/**
+ * Count the walkable neighbours of (x,y) through a pure `isBlocked` lens (wall
+ * terrain or a movement-blocking structure). Room-EDGE tiles (0 and 49) never
+ * count: they are the border, not usable posts. Pure so the emergence rule is
+ * unit-pinned without a room.
+ */
+export function emergenceTileCount(isBlocked: (x: number, y: number) => boolean, x: number, y: number): number {
+  let free = 0;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx <= 0 || nx >= 49 || ny <= 0 || ny >= 49) continue;
+      if (!isBlocked(nx, ny)) free++;
+    }
+  }
+  return free;
+}
+
+/**
+ * Does this room want ANOTHER spawn? Pending SITES count against the limit: a
+ * 15k spawn site builds slowly, and re-placing every cooldown would spam
+ * ERR_INVALID_TARGET while hiding the rung below it. An unknown RCL falls back
+ * to one spawn, so bad input can never over-place.
+ */
+export function wantsAnotherSpawn(rcl: number, builtSpawns: number, spawnSites: number): boolean {
+  const limit = SPAWN_LIMITS[rcl] ?? 1;
+  return builtSpawns + spawnSites < limit;
+}
+
 export const EXTENSION_LIMITS: { [rcl: number]: number } = {
   1: 0,
   2: 5,

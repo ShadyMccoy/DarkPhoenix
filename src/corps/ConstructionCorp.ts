@@ -57,8 +57,11 @@ import {
   findGridPosition,
   LINK_LIMITS,
   LINK_MIN_SOURCE_RANGE,
+  emergenceTileCount,
   PLACEMENT_COOLDOWN,
   placementGateOpen,
+  SPAWN_EMERGENCE_MIN,
+  SPAWN_PLACEMENT_ATTEMPTS,
   ROAD_PAYBACK_HORIZON,
   ROAD_SPAWN_PART_VALUE,
   SITE_CAP,
@@ -66,7 +69,8 @@ import {
   STORAGE_MIN_RCL,
   TOWER_MIN_RCL,
   TrunkSurvey,
-  trunkGateFromSurvey
+  trunkGateFromSurvey,
+  wantsAnotherSpawn
 } from "./constructionPlacement";
 
 /**
@@ -511,6 +515,13 @@ export class ConstructionCorp extends Corp {
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
     const wantsTower = this.findMissingTower(room, rcl) !== null;
+    // The spawn rung joins the gate's "is anything wanted" test, or
+    // canBuildMore closes and tryPlaceNextSite never runs far enough to reach it.
+    const wantsSpawn = wantsAnotherSpawn(
+      rcl,
+      room.find(FIND_MY_SPAWNS).length,
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_SPAWN }).length
+    );
     // BATCH THE WHOLE WANTED SET (owner 2026-07-29): the gate no longer waits
     // for activeSites === 0. Sizing reads work that EXISTS as sites
     // (siteWorkRemaining -> projectAbsorbRate), so one-at-a-time placement
@@ -526,6 +537,7 @@ export class ConstructionCorp extends Corp {
         wantsStorage ||
         wantsLink ||
         wantsTower ||
+        wantsSpawn ||
         this.wantsRoadWork(room),
       atSiteCap: Object.keys(Game.constructionSites ?? {}).length >= SITE_CAP,
       // Widening is funded by the warchest surplus - the same lens paving
@@ -1180,6 +1192,20 @@ export class ConstructionCorp extends Corp {
       if (placedAny) return;
     }
 
+    // 2.6 ADDITIONAL SPAWNS as the RCL allows (owner 2026-07-29). AFTER the
+    //     extension set - a bigger body per spawn compounds first - but before
+    //     storage/links, because spawn throughput
+    //     (spawnCount * SPAWN_PARTS_PER_TICK) is the colony's hardest physical
+    //     ceiling: measured t72663189-t72665987, Spawn1 ran 0.87-0.97
+    //     utilization with a 4-6 deep queue against a 0.333 p/t ceiling that a
+    //     second spawn DOUBLES. The rate-matched tender model then sizes itself
+    //     up to feed it (spawnConsumptionCeiling scales with spawn count).
+    const nextSpawn = this.findMissingSpawn(room, rcl);
+    if (nextSpawn) {
+      this.placeSite(room, nextSpawn.x, nextSpawn.y, STRUCTURE_SPAWN);
+      return;
+    }
+
     // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
     //     replaces the fragile 2000-cap container depot with a structure that can
     //     hold a real reserve (spawn-surge and downgrade insurance). After the
@@ -1819,6 +1845,62 @@ export class ConstructionCorp extends Corp {
     if (!spawn) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, [spawn.pos], STRUCTURE_TOWER);
     return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
+  /**
+   * Tile for the next SPAWN this RCL allows, or null (owner 2026-07-29: "lets
+   * take a look at placing the additional spawns as rcl allows").
+   *
+   * Reuses findGridPosition's scoring deliberately: it already ranks buildable
+   * tiles by cohesion with the extension cluster and proximity to the existing
+   * spawn, and already excludes hub rings, source/controller lanes and occupied
+   * tiles. That IS the right objective - the marginal value of spawn #2 is
+   * THROUGHPUT, which is position-independent (the engine's _charge-energy draws
+   * from ALL room extensions nearest-first, no range limit), so position only
+   * moves the tender's refill walk (dominant: refillCircuit visits spawns) and a
+   * ~1% creep-travel term. spawnSiteValue is deliberately NOT used - it answers
+   * "where would a NEW economy run best", the wrong question for a developed
+   * room whose economy is already planned and routed.
+   *
+   * The one thing findGridPosition cannot know: NEWBORNS NEED SOMEWHERE TO STEP
+   * OUT. It packs extensions densely (extensions do not care), so its best tile
+   * can be walled in - which would strand every creep the spawn builds. We walk
+   * its ranking, rejecting tiles below SPAWN_EMERGENCE_MIN via its own
+   * `exclude` set, and stamp each rejection so a capture names the reason.
+   */
+  private findMissingSpawn(room: Room, rcl: number): { x: number; y: number } | null {
+    const built = room.find(FIND_MY_SPAWNS).length;
+    const pending = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType === STRUCTURE_SPAWN
+    }).length;
+    if (!wantsAnotherSpawn(rcl, built, pending)) return null;
+
+    // Harness-safe: a partial room mock may supply neither getTerrain nor a
+    // full find(). Without a terrain read we cannot prove a tile can release
+    // newborns, so we decline to place rather than guess - the rung simply
+    // waits for a cooldown with real vision (live rooms always answer).
+    if (typeof room.getTerrain !== "function") return null;
+    const terrain = room.getTerrain();
+    const blockers = new Set<string>();
+    for (const st of room.find(FIND_STRUCTURES)) {
+      // Roads and containers are walkable; own ramparts too. Everything else
+      // blocks a newborn from stepping off the spawn tile.
+      if (st.structureType === STRUCTURE_ROAD || st.structureType === STRUCTURE_CONTAINER) continue;
+      if (st.structureType === STRUCTURE_RAMPART) continue;
+      blockers.add(`${st.pos.x},${st.pos.y}`);
+    }
+    const isBlocked = (x: number, y: number): boolean =>
+      (terrain.get(x, y) & TERRAIN_MASK_WALL) !== 0 || blockers.has(`${x},${y}`);
+
+    const rejected = new Set<string>();
+    for (let attempt = 0; attempt < SPAWN_PLACEMENT_ATTEMPTS; attempt++) {
+      const pos = findGridPosition(room, rejected);
+      if (!pos) return null;
+      if (emergenceTileCount(isBlocked, pos.x, pos.y) >= SPAWN_EMERGENCE_MIN) return pos;
+      this.stampSizing({ spawnTileRejected: `${pos.x},${pos.y}:walled-in` });
+      rejected.add(`${pos.x},${pos.y}`);
+    }
+    return null;
   }
 
   private findMissingStorage(room: Room, rcl: number): { x: number; y: number } | null {
