@@ -5441,3 +5441,50 @@ for a while); once BUILT, P4 ceiling 0.333 -> 0.667, spawn utilization ~halves,
 queueDepth falls, and tenderFleetTarget auto-rises to 2 (spawnConsumptionCeiling
 scales with spawn count). GUARDRAIL: the 15k site must not starve producers -
 watch P9 routed/funded, E5 runts, and E6 pile deferrals returning.
+
+### AUDIT 2026-07-29 (t72667111→t72672921) — SECOND SPAWN BUILT; the doubling exposed a TENDER RUNT SPIRAL (owner-reported)
+
+Owner: "there's a big builder, but he's going around repairing roads instead".
+The crew-split stamp (segment 4 v8, deployed for exactly this) closed it.
+
+**The spawn rung fully worked.** placeAttempt "spawn@W43N23:42,22" -> BUILT:
+energyCapacity **5300 -> 5600** (exactly one spawn), **2 spawns** live at 0.747
+/ 0.804 utilization, colony ceiling **0.333 -> 0.667 p/t**. The crew then
+released correctly (crew 0, siteCount 0, wantsMaintenance false). The owner's
+snapshot was real - the site sat at 0 progress for a stretch - but the build
+did complete, and the report led to the defect one layer down.
+
+**THE REAL FIND - a tender runt spiral the doubling exposed.** The tender
+demand offered `minCost = min(carry,2) * 100` = **200** ("minCost 200 buys
+instantly at this rank anyway"). Two spawns doubled demand, the network drained
+(energyAvailable **25**), and the scheduler filled the tender AT THAT FLOOR: a
+2-CARRY / **4-part** body moving 100 energy per trip against a 5600-energy
+network. Result: **both spawns energy-starved 25% of the window** (idle.bank
+**146 / 152**; S4 "idle 25% [bank 100%]"), storage ballooned to **250283**
+(E4 FAIL: "equilibrium past the absorbable knee - income the spend path cannot
+use"), P4 1.02x the NEW ceiling. And a drained network buys the NEXT tender as
+a runt too - self-sustaining. Exactly the class the MINER runt floor prevents
+("the whole economy collapses to one-useful-part creeps"); the tender simply
+never had that protection.
+
+FIX (same precedent): `tenderMinCarry` floors a purchase at HALF the desired
+carry - a half-tender moves real energy, and scaling with the body means the
+floor never outruns a poor room (a FIXED floor would). BOOTSTRAP keeps the
+2-CARRY instant buy: a dark post with stranded stock (t72499165) must restart
+instantly and a hard floor there would deadlock the outage it exists to fix.
+Red-first 4 tests; 1699 unit; trio green with output CAPTURED TO FILES per
+today's process rule (storage-depot 7s, flow-handoff 4m, runt-economy 3m - its
+fastest of the session). DEPLOYED.
+
+NOTE ON THE GUARDRAIL: `idle.bank > 0` was pre-registered as the signal that
+would prove the tender RATE-MATCHING wrong. It fired - and pointed at the BODY
+SIZE, not the fleet count. The rate model stands (1 tender for 1 spawn was
+right); what was missing was a floor on how small a purchase may be. A
+guardrail that localises the defect instead of just condemning the change.
+
+PREDICTIONS for the next check: tender bodyParts 4 -> ~26 (13+ carry),
+idle.bank -> 0 on BOTH spawns, tenderFleetTarget rising to 2 now appetite is
+66.7 e/t, then E4's 250k backlog draining as the doubled capacity gets fed.
+WATCH: P4 1.02x - the planner expanded upgraders to 441p to use the new
+ceiling and overshot slightly; a 1.02x plan against a physical spawn limit just
+converges to the ceiling, so it is a watch, not yet a work item.
