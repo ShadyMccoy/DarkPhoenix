@@ -5854,3 +5854,21 @@ id) happens at the MINING stage in both plans.
 5. Accepted side effects: E4 may tick up (fewer consumer bodies — its
    mechanism is the upgrader circle, unchanged); S4 idle may rise (slack is
    the point, not a leak).
+
+**GATE OUTCOME + DEPLOY (appended after the record above was registered):**
+unit 1726 green; storage-depot green; flow-handoff green; runt-economy
+1-of-3 on this bundle (d02c350). The two reds were ACQUITTED, not waved off:
+(a) the failure signature is byte-identical to a failure measured on the
+PRE-change bundle the same day (source 1 piled at exactly 1901, source 2
+unstaffed with demand standing, ended 1200) - identical-failure-pre/post per
+the attribution rule; (b) mechanical inertness in that world was proven
+TWICE - an approximate solve of the runt shape (both sources funded, spent
+0.026 vs budget 0.289, dry false at every plausible infra; greedy fills are
+monotone, so a slack 0.9x budget funds the identical set as 1.0x) and then
+the mockup's OWN segment-6 ledger from the passing forensic run (plannable
+0.3, budget 0.289, spent 0.0237, dry false, both funded); (c) no runtime
+consumer reads the changed fields (partsLeft flows planner->telemetry only).
+The bimodal stuck mode (pile 1901 / second miner never fielded) is now its
+own filed item with forensics attached (runt-economy prints agenda + ledger
++ verdicts on failure, commit e4a21f4) - spec 37 measurement traps updated
+in spirit; it demonstrably PREDATES the headroom. Deployed ~t72677900.
