@@ -5819,3 +5819,38 @@ explicit that stacking a fourth change into the same subsystem before the
 previous ones have a clean measurement window is how attribution is lost — the
 P8 window above is already too short to read. This finding is recorded with
 its evidence so the next cycle starts from data, not memory.
+
+### DEPLOY RECORD 2026-07-30 — spawn planning headroom (SPAWN_PLAN_FRACTION 0.9)
+
+Owner directive: *"90% of theoretical spawn capacity is available for
+planning. So everything is like before, we're just planning on an economy
+that's 10% smaller in terms of bodies."*
+
+Implemented as ONE lens: `plannableSpawnParts(spawnCount)` in primitives
+(0.9 × physical), consumed by BOTH plan-side capacity reads — the mining
+tranche (`miningBudgetPerSpawn` now composes 0.6 × plannable) and the sink
+fill (`partsBudget` in planColony). `partsLedger` gains `plannable` (flow
+segment v12); `capacity` stays the PHYSICAL rate so P4's audit target is
+unchanged. The reserved 10% is execution slack for what provably spends parts
+outside the plan: EOL replacement overlap (deliveryLeadTime), invader-churn
+rebuilds (X5 measured 18% of remote spend), runt upsizes, orphan rescue.
+
+Golden master: the snapshot diff is EXACTLY the margin — every `partsLeft`
+down 0.0333, commissions/fleets identical across all three worlds. Two
+margin-tight staged worlds re-staged (infra −0.0333, leftover budgets
+unchanged); the organism scenario's "all four directions" pin re-pinned to
+its true contract (founding-independence: funded set identical with/without
+the founding; drops must read "over-budget", never "unrouted") after
+measuring that the marginal drop (srcW, tie with srcS at net 7.6, broken by
+id) happens at the MINING stage in both plans.
+
+**PREDICTED DELTAS (registered before deploy; verify at ≥1 generation):**
+1. Segment 6 partsLedger shows `plannable 0.600`; budget ~0.067 lower.
+2. P4 plan-implied 0.636 → ~0.57 p/t (0.95× → ~0.85× physical); leaves WARN.
+3. Spawn utilization 0.97 → ~0.90 over a generation; queueDepth 8 → ≤5.
+4. NO P1 flap: the mining tranche (0.36 plannable at 2 spawns) has slack over
+   its 0.212 use, so no source funding flips — if one does, that read is
+   falsified and the cycle investigates.
+5. Accepted side effects: E4 may tick up (fewer consumer bodies — its
+   mechanism is the upgrader circle, unchanged); S4 idle may rise (slack is
+   the point, not a leak).

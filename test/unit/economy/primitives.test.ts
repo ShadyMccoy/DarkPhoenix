@@ -143,8 +143,10 @@ describe("economy/primitives", () => {
   });
 
   describe("miningBudgetPerSpawn", () => {
-    it("is one third of a part/tick times the mining fraction", () => {
-      expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * 0.6, 1e-9);
+    it("is the PLANNABLE rate (90% of physical - owner 2026-07-30) times the mining fraction", () => {
+      // Composes with the planning headroom: mining sees 0.6 of a 90%-sized
+      // spawn, so the whole plan shrinks uniformly (see planHeadroom.test).
+      expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * 0.9 * 0.6, 1e-9);
     });
   });
 

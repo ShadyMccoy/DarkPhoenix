@@ -566,7 +566,10 @@ describe("economy/CorpPlanner", () => {
           // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
           // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
           // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
-          infraPartsPerTick: 0.297
+          // (Re-staged 2026-07-30 for the 90% planning headroom: 0.0333
+          // lower than the original 0.297 so the staged LEFTOVER budget is
+          // unchanged against the plannable rate.)
+          infraPartsPerTick: 0.2637
         })
       );
       const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
@@ -591,7 +594,8 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          infraPartsPerTick: 0.302
+          // (Re-staged -0.0333 for the 90% headroom; staged leftover unchanged.)
+          infraPartsPerTick: 0.2687
         })
       );
       expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
@@ -702,7 +706,8 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          infraPartsPerTick: 0.31
+          // (Re-staged -0.0333 for the 90% headroom; staged leftover unchanged.)
+          infraPartsPerTick: 0.2767
         })
       );
       const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");

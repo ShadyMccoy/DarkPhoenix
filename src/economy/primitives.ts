@@ -605,16 +605,49 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 }
 
 /**
- * Fraction of a spawn's build-rate that mining + hauling may claim. The spawn
- * also builds upgraders, builders, reservers and scouts, so income creeps get
- * only part of its 1/3 parts-per-tick. This sets how hard the spawn-time budget
- * bites before far sources fall out of contention.
+ * Fraction of the PHYSICAL spawn build-rate the planner may commit (owner
+ * 2026-07-30: "90% of theoretical spawn capacity is available for planning -
+ * everything is like before, we're just planning on an economy that's 10%
+ * smaller in terms of bodies").
+ *
+ * The reserved 10% is EXECUTION slack, not waste. A plan at 100% of physical
+ * had nowhere to put the parts execution provably spends outside the plan's
+ * fleets: EOL replacement overlap (deliveryLeadTime deliberately starts
+ * successors early), invader-churn rebuilds (X5 measured 18% of remote spawn
+ * spend), runt upsizes, and orphan rescues. Measured at t72676360 the result
+ * was utilization 0.97 with queue depth 8 and blocking demands waiting behind
+ * a saturated pipe. With the margin, that churn lands in reserved slack
+ * instead of queueing behind planned bodies.
+ *
+ * This is a MARGIN at the planning seam - execution still owns the full
+ * physical spawn, standing fleets are untouched, and nothing is gated
+ * (doctrine: the planner prices, it doesn't gate).
+ */
+export const SPAWN_PLAN_FRACTION = 0.9;
+
+/**
+ * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
+ * every plan-side capacity read derives from, so the whole plan shrinks
+ * uniformly (mining tranche and sink fill alike) rather than one tranche
+ * eating the margin.
+ */
+export function plannableSpawnParts(spawnCount: number): number {
+  return spawnCount * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION;
+}
+
+/**
+ * Fraction of a spawn's PLANNABLE build-rate that mining + hauling may claim.
+ * The spawn also builds upgraders, builders, reservers and scouts, so income
+ * creeps get only part of its parts-per-tick. This sets how hard the
+ * spawn-time budget bites before far sources fall out of contention.
  */
 export const MINING_BUDGET_FRACTION = 0.6;
 
-/** A spawn's per-tick build-time budget available to mining + hauling. */
+/** A spawn's per-tick build-time budget available to mining + hauling.
+ * Composes with the planning headroom (SPAWN_PLAN_FRACTION): mining sees
+ * 0.6 of a 90%-sized spawn, so the margin applies to the whole plan. */
 export function miningBudgetPerSpawn(): number {
-  return SPAWN_PARTS_PER_TICK * MINING_BUDGET_FRACTION;
+  return plannableSpawnParts(1) * MINING_BUDGET_FRACTION;
 }
 
 /**

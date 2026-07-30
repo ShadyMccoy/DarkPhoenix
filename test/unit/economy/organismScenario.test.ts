@@ -27,7 +27,7 @@ import { expect } from "chai";
 import { ColonyProblem, planColony } from "../../../src/economy/CorpPlanner";
 import { Position } from "../../../src/types/Position";
 import { compileGoal } from "../../../src/economy/goals";
-import { projectAbsorbRate } from "../../../src/economy/primitives";
+import { projectAbsorbRate, SPAWN_PARTS_PER_TICK, SPAWN_PLAN_FRACTION } from "../../../src/economy/primitives";
 
 /** Rooms on a world grid; a position embeds to world tiles for dist. */
 const GRID: { [room: string]: { gx: number; gy: number } } = {
@@ -119,11 +119,37 @@ describe("the organism scenario: founding B pulls the west economy (owner 2026-0
       expect(founding.value).to.be.greaterThan(ctrl.value);
     });
 
-    it("every direction keeps its miner: N, E, S, W all stay funded while founding", () => {
+    /**
+     * THE CONTRACT IS FOUNDING-INDEPENDENCE, not fleet size (re-pinned
+     * 2026-07-30 with the spawn planning headroom). The old letter - "all
+     * four directions stay funded" - was tuned to a 100% mining budget; at
+     * the 90% plannable rate (SPAWN_PLAN_FRACTION) this single-spawn world
+     * sits exactly at the margin and the tie between the two equal-value
+     * remotes (srcS/srcW, both net 7.6) drops one at the MINING stage.
+     * Measured before re-pinning: the funded set is IDENTICAL with and
+     * without the founding sink, and the dropped source's verdict is
+     * "over-budget" (capacity margin) in both - so what this test was built
+     * to catch (the founding soaking routing parts and DEMOTING a producer,
+     * verdict "unrouted") is still pinned, and pinned more precisely.
+     */
+    it("founding defunds nobody: the funded set is identical with and without the founding", () => {
+      const world = organismWorld(false);
+      world.sinks = world.sinks.filter(s => s.id !== "founding-B");
+      const without = planColony(world);
+      expect(plan.miners.map(m => m.sourceId).sort()).to.deep.equal(without.miners.map(m => m.sourceId).sort());
+    });
+
+    it("a direction dropped by the margin says so: over-budget (capacity), never unrouted (founding)", () => {
       const funded = new Set(plan.miners.map(m => m.sourceId));
       for (const id of ["srcN", "srcE", "srcS", "srcW"]) {
-        expect(funded.has(id), `${id} keeps producing during the founding`).to.equal(true);
+        if (funded.has(id)) continue;
+        const verdict = plan.sourceVerdicts.find(v => v.sourceId === id);
+        expect(verdict?.verdict, `${id} must fall to the capacity margin, not to founding demotion`).to.equal(
+          "over-budget"
+        );
       }
+      // and the margin costs at most the marginal source - never a rout
+      expect(funded.size, "at least 5 of 6 stay funded").to.be.at.least(5);
     });
 
     it("all miners stage from spawnA (B has no spawn yet)", () => {
@@ -237,6 +263,21 @@ describe("the organism scenario: founding B pulls the west economy (owner 2026-0
       expect(withAnnex.miners.length, "more sources staffed").to.be.greaterThan(without.miners.length);
       // the annex itself mines nothing - it has no sources; its value is the ledger
       expect(withAnnex.partsLedger.capacity).to.be.closeTo(without.partsLedger.capacity * 2, 1e-9);
+    });
+
+    it("the SOLVED plan budgets from the plannable (90%) rate, and the ledger shows both", () => {
+      // Headroom (owner 2026-07-30): capacity stays the PHYSICAL truth the P4
+      // ledger line audits against; `plannable` is what the fill may spend.
+      // The identity budget = plannable - minerLoad - infra must hold in a
+      // real solve, or the margin exists only in the primitive.
+      const plan = planColony(annexWorld(false));
+      const l = plan.partsLedger;
+      expect(l.capacity, "capacity stays physical").to.be.closeTo(SPAWN_PARTS_PER_TICK, 1e-9);
+      expect(l.plannable, "plannable = 90% of physical").to.be.closeTo(SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION, 1e-9);
+      expect(l.budget, "the fill spends from plannable, not capacity").to.be.closeTo(
+        l.plannable - l.minerLoad - l.infra,
+        1e-9
+      );
     });
 
     it("energy walks to the annex: its spawn refill is financed from A's economy", () => {

@@ -42,6 +42,7 @@ import {
   minerSpawnLoad,
   haulerOverhead,
   miningBudgetPerSpawn,
+  plannableSpawnParts,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
 import { effectiveOneWayTiles } from "./roadEconomics";
@@ -290,8 +291,18 @@ export interface ColonyPlan {
   /** Build-time (parts/tick) committed per spawn. */
   spawnPartsUsed: Map<string, number>;
   /** The fill's spawn-parts ledger, traced (spec 15 P4): what the budget was,
-   * what standing deductions took, what routing had to work with. */
-  partsLedger: { capacity: number; minerLoad: number; infra: number; budget: number; spent: number; dry: boolean };
+   * what standing deductions took, what routing had to work with. `capacity`
+   * is the PHYSICAL rate (what P4 audits against); `plannable` is the 90%
+   * planning margin (SPAWN_PLAN_FRACTION) the fill actually spends from. */
+  partsLedger: {
+    capacity: number;
+    plannable: number;
+    minerLoad: number;
+    infra: number;
+    budget: number;
+    spent: number;
+    dry: boolean;
+  };
   /** Sum of delivered energy weighted by sink value - the objective. */
   valueDelivered: number;
   /** delivered >= overhead: the income covers the creeps that earn it. */
@@ -840,12 +851,14 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
         : t
     )
   ];
-  // The spawn-parts ledger for the sink fill: physical build-rate minus the
+  // The spawn-parts ledger for the sink fill: PLANNABLE build-rate (90% of
+  // physical - SPAWN_PLAN_FRACTION, the execution-slack margin) minus the
   // committed miners and the standing infra (feeder/tender/reservers - see
   // ColonyProblem.infraPartsPerTick). Production is funded first in BOTH
   // currencies; routing and consumers spend what remains.
   const minerLoad = miners.reduce((s, m) => s + minerSpawnLoad(m.distance), 0);
-  const partsBudget = problem.spawns.length * SPAWN_PARTS_PER_TICK - minerLoad - (problem.infraPartsPerTick ?? 0);
+  const plannable = plannableSpawnParts(problem.spawns.length);
+  const partsBudget = plannable - minerLoad - (problem.infraPartsPerTick ?? 0);
   const { haulers, sinks, partsRemaining } = routeToSinks(problem, supply, partsBudget);
   // SPAWN SHADOW-PRICE SIGNAL (instrument-first for the scavenge gate, 2026-07-23):
   // `spent`/`dry` say whether the routing exhausted the parts budget. dry=true
@@ -856,6 +869,7 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   // scavenger's net-energy-per-part (waste-ledger SCAVENGE line) to calibrate.
   const partsLedger = {
     capacity: problem.spawns.length * SPAWN_PARTS_PER_TICK,
+    plannable,
     minerLoad,
     infra: problem.infraPartsPerTick ?? 0,
     budget: partsBudget,
