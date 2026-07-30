@@ -5920,3 +5920,69 @@ reset could not muddy the measurements above.
 259k still above the 150k knee — watch, don't patch while the drain runs) and
 E6 (5 of 10 piled — the hauler drain-term thread; spec 37's local-fuel work
 eats d01f's pile directly). Utilization/queue re-read post-transition.
+
+### AUDIT 2026-07-30 (t72679646→t72681617, dt 1971) — score 67.6 pts/t, E4 below the knee; headroom prediction #3 FALSIFIED with its mechanism
+
+**CYCLE VERDICT: verified + one prediction falsified honestly.** Second
+consecutive zero-FAIL ledger.
+
+**THE SCOREBOARD** (the thing this loop exists for):
+
+| | this morning | t72679468 | t72681617 |
+|---|---|---|---|
+| rclProgress / GCL | 1.35–2.0 pts/t | 17.1 | **67.56** |
+| controller delivery | 0.8 e/t | 58.9 | **67.6** (P7 33.8× floor) |
+| E4 storage | 351k, **+36.6/t** | 333k, −49.3/t | **189k, −66.8/t** |
+| E4 projected equilibrium | 393k | 259k | **89k — BELOW the 150k knee** |
+
+50× on the owner's score metric in one session, and the idle-capital line is
+now projected to land *under* its absorbable knee for the first time. The
+chain is the one stamped last cycle (reach bound → sites built → wartime exit
+→ upgraders sized from actual inflow → link ctrl receipt 70.9 e/t).
+
+**PREDICTION #3 FALSIFIED — utilization is DECOUPLED from the plan.** Predicted
+util 0.97→~0.90 and queueDepth 8→≤5. Measured post-transition: **util
+0.978/0.949, queueDepth 8/8**. Not a measurement artifact — the mechanism is
+in the data:
+
+- Spawn `partsPerTick` was **flat across every capture spanning the deploy**:
+  0.652, 0.654, 0.654, 0.656, 0.642. The headroom did not move it at all.
+- It DID move the plan exactly as designed: P4 0.95× → 0.63× (plan-implied
+  0.422 vs 0.667 physical).
+- Fielded fleet **grew** through the same window: 676 → 798 parts, 41 → 43
+  creeps.
+
+So the plan asks for 63% of physical while the spawn builds at 96%, and the
+gap is not the margin's to close. Two structural reasons, both by design:
+(a) the biggest spawn consumers size from **measured stock/inflow at their
+work site**, not from the plan (macro doctrine — `sustainableConsumptionRate`);
+with a 300k bank draining, that funds big upgraders regardless of the parts
+budget; (b) replacement churn scales with the STANDING fleet, not with the
+plan's marginal headroom (X5 measures 14% of spend as early-death churn
+alone). A 10% plan margin cannot lower a utilization driven by those.
+
+**This is not a regression and must not be chased now.** Utilization 0.96
+while converting 130k of idle capital into 133k control points is the drain
+working. The honest open question is whether util stays ~0.96 *after* the bank
+normalizes near the knee — that is the read worth taking, and it needs a
+post-drain window, not a patch.
+
+**Reserver spend ACQUITTED by cadence** (16.4% of spend, the #2 role, and the
+2026-07-18 purchase-loop incident was exactly this shape): 12 purchases across
+**7 rooms** over 2029t = 1.7/room. At CLAIM_LIFETIME 600 × RESERVER_DUTY 0.5
+the expected cadence is 1 per ~1200t per room = 1.7/room. Matches to the
+digit; P5 duty 0.50 ok. That is the honest price of 7 reserved rooms, not a
+loop. Role mix otherwise healthy — hauler 39.1% is the top, under the >50%
+single-role alarm.
+
+**NEW WARN — X1 dry WORK 10.4 parts idle-equivalent** (workUtil 0.84, dry
+share 0.15, 67 WORK standing). The re-fleeted consumers now outrun supply ~15%
+of ticks. Expected during a bank drain (consumers sized from a stock that is
+falling), so it is a WATCH not a work item — but if X1 persists after E4
+settles, the consumer sizing is over-shooting its supply and that IS the next
+mechanism.
+
+**E6 unchanged at 5 of 10 deferred** (cedc 5123, d01f 4615, both CHRONIC at
+100% of window). Spec 37's local-fuel work eats d01f's pile directly; the
+hauler drain-term thread remains the alternative attack. Deliberately not
+started — spec 37 is a separate session's, and this cycle changed no code.
