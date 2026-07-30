@@ -440,15 +440,26 @@ export class UpgradingCorp extends Corp {
    * Creeps (including spawning ones) that still staff the controller post for
    * demand purposes: incumbents inside their replacement lead time are
    * excluded (see staffsPost) so successors spawn build + walk ticks early.
+   *
+   * Reports the standing WORK alongside the head count, from the SAME
+   * staffsPost pass - the two must never be able to disagree about which
+   * bodies are staffing (CLAUDE.md's staffsPost symmetry rule). `work` is what
+   * the fleet actually consumes (1 e/tick per WORK); `count` is what the
+   * physical caps - parking tiles, the RCL ceiling - are measured against.
    */
-  private countStaffing(walkTicks: number): number {
+  private surveyStaffing(walkTicks: number): { count: number; work: number } {
     let count = 0;
+    let work = 0;
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
       if (creep.memory.corpId !== this.id || creep.memory.workType !== "upgrade") continue;
-      if (staffsPost(creep.ticksToLive, creep.body?.length ?? 0, walkTicks)) count++;
+      if (!staffsPost(creep.ticksToLive, creep.body?.length ?? 0, walkTicks)) continue;
+      count++;
+      // Harness stubs may omit the accessor (same defensiveness as body?.length
+      // above); reading 0 there errs toward ordering a bigger body, never a runt.
+      work += typeof creep.getActiveBodyparts === "function" ? creep.getActiveBodyparts(WORK) : 0;
     }
-    return count;
+    return { count, work };
   }
 
   /**
@@ -609,8 +620,9 @@ export class UpgradingCorp extends Corp {
     // is a known sharpening once one is cheaply available here.
     const ctrlWalkTicks =
       spawn && controller ? spawn.pos.getRangeTo(controller.pos) * travelTicksPerTile(ctx.energyCapacity) : 0;
-    const current = this.countStaffing(ctrlWalkTicks);
+    const { count: current, work: standingWork } = this.surveyStaffing(ctrlWalkTicks);
     this.lastSizing.staffing = current;
+    this.lastSizing.standingWork = standingWork;
     if (current >= targetCount) {
       this.lastSizing.demand = "staffed";
       return [];
@@ -622,7 +634,19 @@ export class UpgradingCorp extends Corp {
       return [];
     }
 
-    const remainingWork = allocated - current * affordableWork;
+    // The gap is measured against the WORK actually standing at the controller,
+    // never against `current * affordableWork` - headcount times the body the
+    // room COULD build. That phantom credited every incumbent with a full-size
+    // body, so ONE small incumbent (the cold-start runt allowance below, or the
+    // sip body a wartime relegation leaves behind) made the remainder look
+    // nearly satisfied: the next upgrader was sized to the phantom remainder -
+    // another runt - and `current >= targetCount` above then declared the
+    // controller staffed. Measured: two tiny upgraders totalling 3 WORK against
+    // a 12 e/t allocation, self-perpetuating because every replacement
+    // re-derived the same phantom gap (owner 2026-07-30, "sometimes we have
+    // like two tiny upgraders"). The runt policy below cannot catch this on its
+    // own - it holds out for `desiredWork`, and desiredWork WAS the phantom.
+    const remainingWork = allocated - standingWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, "containerFed");
     // Runt policy: a runt permanently occupies one of the few parking slots and the

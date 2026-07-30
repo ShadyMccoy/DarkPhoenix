@@ -40,6 +40,13 @@ export interface UpgraderScenario {
   dedicatedBuild?: boolean;
   /** Is a real flow hauler delivering? The #59 gate stands upgraders down without one. Default true. */
   hauler?: boolean;
+  /**
+   * Upgraders ALREADY in the field when the scenario starts, by WORK parts each.
+   * Lets a scenario begin mid-life rather than from an empty controller - e.g.
+   * the lone sip body a wartime relegation leaves behind when the build backlog
+   * drains and the allocation returns.
+   */
+  seedWork?: number[];
   /** Safety cap so a logic bug can't loop forever. */
   maxSpawns?: number;
 }
@@ -76,6 +83,7 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
     sources = 1,
     dedicatedBuild = false,
     hauler = true,
+    seedWork = [],
     maxSpawns = 20
   } = scenario;
 
@@ -134,6 +142,17 @@ export function simulateUpgraderFleet(scenario: UpgraderScenario): UpgraderFleet
     } as SinkAllocation);
     // Upgrade corps live in the commission store; collectDemands reads them there.
     seedCommissionStoreForTest(`upgrade-${ROOM}`, "upgrade", corp);
+
+    // Incumbents already staffing the controller. No ticksToLive, so staffsPost
+    // counts them fully (they are mid-life, not inside their replacement lead).
+    seedWork.forEach((work, i) => {
+      game.creeps[`upgrader-seed-${i}`] = {
+        name: `upgrader-seed-${i}`,
+        spawning: false,
+        memory: { corpId: corp.id, workType: "upgrade" },
+        getActiveBodyparts: (p: string) => (p === WORK ? work : p === CARRY || p === MOVE ? 1 : 0)
+      } as FakeCreep;
+    });
 
     const spawning = new SpawningCorp(`${ROOM}-spawning`, SPAWN_ID);
 

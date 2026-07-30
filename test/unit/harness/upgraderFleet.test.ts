@@ -40,6 +40,46 @@ describe("upgrader fleet (spawn harness)", () => {
     expect(fleet.workParts).to.deep.equal([2]);
   });
 
+  /**
+   * THE TWO-TINY-UPGRADERS LOCK-IN (owner 2026-07-30: "sometimes we have like
+   * two tiny upgraders ... it could at least be one small upgrader instead").
+   *
+   * The fleet's remaining need was computed as `allocated - count x affordableWork`
+   * - HEADCOUNT times the body the room COULD build, not the WORK actually
+   * standing at the controller. Every incumbent was therefore credited with a
+   * full-size body, so a small incumbent (the cold-start runt allowance, or the
+   * sip body a wartime relegation leaves) made the remainder look nearly
+   * satisfied. The next upgrader was sized to that phantom remainder - a runt -
+   * and then `count >= targetCount` declared the controller STAFFED. Two tiny
+   * upgraders consuming ~3 of a 12 e/t allocation, and self-perpetuating: every
+   * replacement re-derived the same phantom gap.
+   *
+   * The runt policy ("only the FIRST upgrader may spawn small") could not save
+   * it - it holds out for `desiredWork`, and desiredWork itself was the phantom.
+   * Sizing off ACTUAL standing WORK is what makes the hold-out bite.
+   */
+  describe("fleet growth is sized from ACTUAL standing WORK, not headcount", () => {
+    it("grows a small incumbent's fleet up to the allocation instead of pairing it with a runt", () => {
+      // The wartime->peacetime transition (spec 33): relegation leaves a lone
+      // 2-WORK sip body, then the build backlog drains and the controller's
+      // 12 e/t allocation returns. The fleet must consume it.
+      const fleet = simulateUpgraderFleet({ energyCapacity: 1300, allocated: 12, seedWork: [2] });
+      expect(fleet.totalWork, "the fleet consumes the allocation").to.equal(12);
+      expect(fleet.workParts, "the 2-WORK incumbent gets a full-size partner").to.deep.equal([10, 2]);
+    });
+
+    it("holds out for one proper partner rather than buying a second runt on a partial fill", () => {
+      // Only 300 energy on hand against a 1300 capacity: the FIRST upgrader is
+      // funded small (the cold-start runt allowance - the controller must start
+      // upgrading immediately). Its partner must then be sized to the REAL gap
+      // (10 WORK), which the spawn cannot afford yet - so the fleet waits with
+      // one small upgrader instead of locking in two runts forever.
+      const fleet = simulateUpgraderFleet({ energyCapacity: 1300, energyAvailable: 300, allocated: 12 });
+      expect(fleet.count, "one small upgrader, not two tiny ones").to.equal(1);
+      expect(fleet.workParts).to.deep.equal([2]);
+    });
+  });
+
   describe("the #59 supply-before-demand gate", () => {
     it("stands the upgraders DOWN until a hauler is delivering", () => {
       // No flow hauler in the room -> the gate emits no demand, so the controller
