@@ -750,16 +750,28 @@ export class ConstructionCorp extends Corp {
   /** Who is in the crew, where they stand, and what each is doing (P8 diagnosis). */
   private crewStamp(room: Room): { [k: string]: number | string } {
     const crew = this.builders.members();
+    // The VECTOR path never sets memory.working (it builds whenever the store
+    // holds energy - spec 34 parked consumer), so the working-derived F/W
+    // letters lied there: a correctly PARKED builder awaiting its tanker
+    // stamped "F" ("stuck fetching") - recorded stamp defect, t72676091. On
+    // the vector path the truthful split is fed vs dry.
+    const vectorFed = this.tankers.members().length > 0;
     return {
       crew: crew.length,
       onRepairDetail: crew.filter(c => c.memory.repairDetail).length,
       latchedToSite: crew.filter(c => c.memory.buildTargetId).length,
-      // R=repair detail, B=latched to a site, F=fetching (working false - the
-      // state that never sets a target), -=idle/in transit. "-" alone was
-      // ambiguous across four states, which is why the last read could not
-      // close (t72675034: crew 2, "-R", 0 progress, cause unresolved).
+      // R=repair detail, B=latched to a site; vector path: V=parked-fed
+      // (energy aboard, burning), D=parked-dry (awaiting the tanker); fetch
+      // path: W=working (building), F=fetching. "-" never appears - every
+      // state has a letter, so no two states share a reading (the original
+      // "-" was ambiguous across four states and t72675034 could not close).
       buildTargets: crew
-        .map(c => (c.memory.repairDetail ? "R" : c.memory.buildTargetId ? "B" : c.memory.working ? "W" : "F"))
+        .map(c => {
+          if (c.memory.repairDetail) return "R";
+          if (c.memory.buildTargetId) return "B";
+          if (vectorFed) return (c.store?.[RESOURCE_ENERGY] ?? 0) > 0 ? "V" : "D";
+          return c.memory.working ? "W" : "F";
+        })
         .join(""),
       // Where the crew actually STANDS - a builder marching between rooms and
       // a builder parked at home look identical in every other field.
