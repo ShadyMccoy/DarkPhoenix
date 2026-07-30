@@ -891,19 +891,45 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         }
         return tiles * ROAD_BUILD_COST;
       })();
-      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0;
+      // WITHIN-SITE remote progress via the construction corp's poolWork
+      // stamp (false-FAIL measured t72679468: remote count 9->9, receipts
+      // flat, poolWork 3826->2252 - 1,574e built into partially-complete
+      // sites while P8 said "CREW IDLE"). The stamp sums the pool's REMAINING
+      // work ("room:energy,room*:energy"); a FALL is a conservative floor on
+      // energy built - placements RAISE poolWork, so the delta only ever
+      // undercounts (same direction as the receipts floor). Requires the
+      // stamp at BOTH endpoints (v10+); absent on either side -> 0.
+      const poolWorkSum = (cap: any): number | null => {
+        let sum = 0;
+        let seen = false;
+        for (const corp of cap?.corps ?? []) {
+          const pw = corp?.sizing?.poolWork;
+          if (typeof pw !== "string") continue;
+          seen = true;
+          for (const entry of pw.split(",")) {
+            const n = Number(entry.slice(entry.lastIndexOf(":") + 1));
+            if (Number.isFinite(n)) sum += n;
+          }
+        }
+        return seen ? sum : null;
+      };
+      const pool1 = poolWorkSum(base.data.corps);
+      const pool2 = poolWorkSum(cap.data.corps);
+      const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
+      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
-        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta) / dt).toFixed(2) : 0,
+        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
           ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
             (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
-          : standing || receiptsDelta > 0
+          : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
+            (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
       });

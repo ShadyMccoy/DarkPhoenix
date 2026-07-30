@@ -5872,3 +5872,51 @@ The bimodal stuck mode (pile 1901 / second miner never fielded) is now its
 own filed item with forensics attached (runt-economy prints agenda + ledger
 + verdicts on failure, commit e4a21f4) - spec 37 measurement traps updated
 in spirit; it demonstrably PREDATES the headroom. Deployed ~t72677900.
+
+### AUDIT 2026-07-30 (t72678902→t72679468, dt 566) — the knot untied: E4 FALLING, score 17 pts/t, ZERO ledger FAILs
+
+**CYCLE VERDICT: verified + instrument fixed.** First zero-FAIL ledger of the
+session ("no FAIL lines - attack the largest WARN or ship the backlog").
+
+**HEADROOM VERIFICATION, final scorecard (predictions from the deploy record):**
+| # | prediction | verdict |
+|---|---|---|
+| 1 | plannable 0.600 in segment 6 | ✅ (early read) |
+| 2 | P4 0.95×→~0.85×, WARN clears | ✅ overshot to 0.52×; decomposed — the extra fall was the controller plan WORK collapse (E4 circle plan-side), NOT the margin (`dry:false`, 0.145 p/t unspent) |
+| 3 | utilization 0.97→~0.90, queue 8→≤5 | ❌ NOT MET at this read (0.98 / 8) — but confounded by the wartime-exit re-fleet (upgraders 4→100 parts bought this window). S4's character flipped: idle was 52-68% bank-starved, now 95% buy-latency / 5% bank. Deferred to a post-transition read, NOT claimed |
+| 4 | no P1 flap | ✅ 0 flips across both reads |
+| 5 | E4/S4 may tick up (accepted) | E4 went the RIGHT way instead (below) |
+
+**THE HEADLINE — the E4/P7/upgrader knot untied itself, chain fully stamped:**
+reach-bound fix → sites built (P8 0.37→0.71 e/t) → remote backlog 15→9 →
+wartime posture exited (P7 line lost its "RELEGATED (wartime)" framing) →
+upgrader sized from ACTUAL inflow per doctrine (`inflow:110, allocated:110,
+targetCount:3`, corp 4→100 parts, workUtil 0.985) → feeder resized to
+`standingWork:78` → link net delivering 55.8 e/t at the controller receipt →
+**controller eating 58.9 e/t (P7 29× its floor)** → **E4 slope +36.55 →
+−49.27/t** (storage 351k→333k, falling for the first time all session) →
+**rclProgress +53,070 over ~3,100t ≈ 17.1 pts/t, up from the 1.35-2.0 floor**.
+The owner's scoreboard number moved by an order of magnitude.
+
+**P5 reserver FAIL (early read) was TRANSIENT**: duty 1.0 with the W42N22
+reservation bank at 96 (drained during the reserver's absence; gate "staffed"
+rebuilding it). ok at this read. The two-capture rule earned its keep — no
+patch was written against a self-resolving state.
+
+**P8 FALSE-FAIL fixed at the INSTRUMENT**: remote count 9→9 + flat receipts
+read "CREW IDLE" while the corp's poolWork stamp fell 3826→2252 (1,574e built
+into partially-complete sites, crew "BBR"). The ledger now credits the
+poolWork DELTA as a conservative floor (placements RAISE poolWork, so a fall
+only undercounts — same direction as the receipts floor); red-first tests pin
+credit/flat-stall/rising-pool cases. This window's true rate: 0.23 e/t against
+20 allocated — real but slow; the gap is spec 37's fuel-lens work (piles
+rebuilding around the crew per E6: 5 of 10 deferred, d01f 5009 CHRONIC).
+
+**Deployed post-verification**: segment 4 v11 (buildTargets V/D letters,
+bundle 921aea5) — telemetry-only, held out of the verification window so its
+reset could not muddy the measurements above.
+
+**OPEN (largest WARNs)**: E4 262k (falling at −49/t; projected equilibrium
+259k still above the 150k knee — watch, don't patch while the drain runs) and
+E6 (5 of 10 piled — the hauler drain-term thread; spec 37's local-fuel work
+eats d01f's pile directly). Utilization/queue re-read post-transition.

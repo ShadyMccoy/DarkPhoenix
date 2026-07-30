@@ -250,6 +250,63 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("completion window");
   });
 
+  /**
+   * WITHIN-SITE remote progress (false-FAIL measured t72679468): remote site
+   * COUNT held 9->9 and receipts were flat, but the construction corp's
+   * poolWork stamp fell 3826->2252 - 1,574 energy actually built into
+   * partially-complete sites (crew "BBR", two builders latched). P8 read
+   * "0 e/t - CREW IDLE" on a window where the crew built ~2.8 e/t. The
+   * poolWork DELTA is a conservative floor on energy built: placements RAISE
+   * poolWork, so a falling delta only ever undercounts, same direction as
+   * the receipts floor.
+   */
+  it("P8 credits a falling construction poolWork stamp (within-site remote progress, t72679468)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W41N23: 9 };
+    capA.data.core.remoteSites = { W41N23: 9 };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:3826" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict, "building 1574e is not CREW IDLE").to.equal("ok");
+    expect(p8.value, "the poolWork floor is credited as e/t").to.be.greaterThan(0);
+    expect(p8.detail).to.contain("poolWork");
+  });
+
+  it("P8 still FAILS when poolWork is flat too (the stall is real)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W41N23: 9 };
+    capA.data.core.remoteSites = { W41N23: 9 };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("FAIL");
+    expect(p8.detail).to.contain("CREW IDLE");
+  });
+
+  it("P8 never counts a RISING poolWork as negative build (placements are not un-building)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 900, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:1000" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:4000" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    // home progress 400 delivered; the risen pool must not subtract from it
+    expect(p8.value).to.be.greaterThan(0);
+    expect(p8.verdict).to.equal("ok");
+  });
+
   it("P9 catches mined production that is funded but never routed (#19, owner-caught 2026-07-19)", () => {
     // Live t72425058/t72424537: 7 funded mined sources = 70 e/t produced, ZERO
     // mined-source haulers, 0 routed. The leak that had NO ledger line - it
