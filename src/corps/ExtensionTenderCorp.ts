@@ -18,6 +18,7 @@
  * @module corps/ExtensionTenderCorp
  */
 
+import { BODY_COSTS, CARRY_CAPACITY, SPAWN_TIME_PER_PART } from "../economy/primitives";
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { TENDER, TENDER_BOOTSTRAP } from "../spawn/demandLadder";
@@ -73,6 +74,71 @@ export function tenderSlotCarry(
   void staffing;
   const share = Math.ceil(bankCapacity / Math.max(1, target) / 50);
   return Math.max(1, Math.min(share, maxCarry));
+}
+
+/**
+ * Max energy/tick a spawn NETWORK can consume (owner 2026-07-29: "don't need
+ * to tender faster than we can spawn after all"). A spawn converts parts at
+ * SPAWN_PARTS_PER_TICK, so its energy appetite is bounded by the cost of the
+ * most expensive part it commonly builds divided by SPAWN_TIME_PER_PART.
+ * WORK (100) is the conservative choice among economy parts: 33.3 e/t per
+ * spawn, comfortably above the MEASURED live burn of 27.6 e/t (77750e over
+ * 2817t across 69 spawns at 0.936 utilization, t72663189) without inflating
+ * the requirement. This is the CEILING the tender fleet is rate-matched to;
+ * moving energy faster than this cannot buy a single extra creep.
+ */
+export const TENDER_FLEET_CAP = 3;
+
+/** Core->grid walk assumed when the cluster geometry is not resolvable (a
+ *  compact grid sits a few tiles from the depot; only used as a fallback). */
+export const TENDER_DEFAULT_WALK = 5;
+
+export function spawnConsumptionCeiling(spawnCount: number): number {
+  return Math.max(1, spawnCount) * (BODY_COSTS.WORK / SPAWN_TIME_PER_PART);
+}
+
+/**
+ * Energy/tick ONE tender sustains, from the physical cycle (owner 2026-07-29:
+ * "the fatter extensions help with the refill because of a single tick a
+ * single tender can transfer more energy"). The cycle is: 1 withdraw tick,
+ * `walkTicks` each way, then one transfer per tick - each capped by the target
+ * extension's CAPACITY. So unload ticks = carried energy / extensionCapacity,
+ * and doubling extension capacity (50 -> 100 at RCL7) HALVES the unload leg
+ * and raises throughput. The v1 sizing had this backwards: it read a fatter
+ * bank as needing MORE tenders when fatter extensions make each one faster.
+ */
+export function tenderDeliveryRate(carry: number, extensionCapacity: number, walkTicks: number): number {
+  const carried = Math.max(1, carry) * CARRY_CAPACITY;
+  const unloadTicks = Math.max(1, carried / Math.max(1, extensionCapacity));
+  return carried / (1 + 2 * Math.max(0, walkTicks) + unloadTicks);
+}
+
+/**
+ * Tenders to field: RATE-MATCHED to the spawn network's appetite, floored by
+ * cluster coverage, capped at TENDER_FLEET_CAP.
+ *
+ * Replaces `forCoverage = bankCapacity / (maxCarry*50)` - "refill the whole
+ * network in one trip" - which grew with the bank and ignored the only
+ * consumer the fleet serves. Measured cost of the old rule (t72663189): 3
+ * tenders / 75 carry / 102 parts = ~20% of the colony's entire 0.333 p/t spawn
+ * ceiling, stamping duty 0.066, against a spawn that can eat at most ~33 e/t.
+ *
+ * The CLUSTER FLOOR is preserved deliberately: separated extension groups
+ * cannot be served inside their drain deadlines by one creep however fast it
+ * is (the legacy scattered-layout rationale), so geometry can still demand
+ * more than the rate does.
+ */
+export function tenderFleetTarget(opts: {
+  spawnCount: number;
+  extensionCapacity: number;
+  maxCarry: number;
+  walkTicks: number;
+  clusters: number;
+}): number {
+  const need = spawnConsumptionCeiling(opts.spawnCount);
+  const perTender = tenderDeliveryRate(opts.maxCarry, opts.extensionCapacity, opts.walkTicks);
+  const forRate = Math.max(1, Math.ceil(need / Math.max(1e-9, perTender)));
+  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate));
 }
 
 /**
@@ -476,7 +542,26 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       (sum, s) => sum + ((s as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 0),
       0
     );
-    const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
+    // RATE-MATCH to the spawn network's appetite (owner 2026-07-29), replacing
+    // the "refill the whole bank in one trip" count. Extension CAPACITY (not
+    // just count) is the throughput lever: one transfer per tick, each capped
+    // by the target extension, so RCL7's 100-cap extensions halve the unload
+    // leg. walkTicks from the real core->cluster range when resolvable.
+    const extensionCapacity = Math.max(
+      50,
+      ...extensions.map(e => (e as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 50)
+    );
+    const depotPos = coreDepot(room)?.pos ?? spawn.pos;
+    const firstStop = clusters[0]?.[0] as FillTarget | undefined;
+    const walkTicks =
+      firstStop && typeof depotPos?.getRangeTo === "function" ? depotPos.getRangeTo(firstStop.pos) : TENDER_DEFAULT_WALK;
+    const forCoverage = tenderFleetTarget({
+      spawnCount: spawns.length,
+      extensionCapacity,
+      maxCarry,
+      walkTicks,
+      clusters: clusters.length
+    });
     // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
     // the legacy scattered layout: "split the same amount of body parts
     // across two or three creeps"): the SAME total carry (one bank wave,

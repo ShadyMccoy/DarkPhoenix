@@ -106,17 +106,31 @@ describe("dual/tri-spawn: ExtensionTenderCorp sizes from the whole bank", () => 
     return new ExtensionTenderCorp("W0N0-tender", r.boundSpawnId);
   }
 
-  it("counts BOTH RCL7 spawns and 100-cap extensions in the bank (not 300 + 50*N)", () => {
-    // RCL7: 2 spawns (600) + 20 extensions x 100 (2000) = 2600 real bank.
-    // maxCarry at 5600 cap = 25. forCoverage = ceil(2600 / (25*50)) = 3, so the
-    // fleet targets 3 coverage points and each body carries ceil(2600/3/50)=18.
-    // The retired hardcode read 300 + 50*20 = 1300: forCoverage 2, body 13 -
-    // a fleet sized for half the real drain.
+  it("counts BOTH RCL7 spawns and 100-cap extensions (not 300 + 50*N), now RATE-MATCHED", () => {
+    // RCL7: 2 spawns (600) + 20 extensions x 100 (2000) = 2600 real bank, and
+    // the per-slot body still divides that REAL wave (the retired hardcode read
+    // 300 + 50*20 = 1300 and sized a fleet for half the real drain).
+    //
+    // The COUNT is no longer "refill the whole bank in one trip" - owner
+    // 2026-07-29 rate-matched it to what the spawns can actually consume:
+    // 2 spawns want ~66.7 e/t, a 25-carry tender over 100-cap extensions
+    // sustains ~53 e/t, so TWO tenders cover it (the old formula asked for 3).
     const corp = corpFor(tenderRoom({ spawnCount: 2, extensions: 20, extCapacity: 100 }));
     const demand = corp.getSpawnDemand({ energyCapacity: 5600, tick: 100 } as any);
     const sizing = (corp as any).lastSizing;
-    expect(sizing.target, "full 2600 bank -> 3 coverage points").to.equal(3);
-    expect(demand[0].bodyParam, "body carries a third of the REAL bank wave").to.equal(18);
+    expect(sizing.target, "2 spawns' appetite / one tender's rate").to.equal(2);
+    expect(demand[0].bodyParam, "body still sized from the REAL bank wave").to.equal(25);
+  });
+
+  it("needs MORE tenders on 50-cap extensions than 100-cap ones (capacity is throughput)", () => {
+    // The owner's third point as a live pin: thinner extensions cap each
+    // transfer, lengthening the unload leg, so the same appetite needs more
+    // creeps. Same spawn count, same bank shape - only capacity differs.
+    const fat = corpFor(tenderRoom({ spawnCount: 2, extensions: 20, extCapacity: 100 }));
+    fat.getSpawnDemand({ energyCapacity: 5600, tick: 100 } as any);
+    const thin = corpFor(tenderRoom({ spawnCount: 2, extensions: 40, extCapacity: 50 }));
+    thin.getSpawnDemand({ energyCapacity: 5600, tick: 100 } as any);
+    expect((thin as any).lastSizing.target).to.be.at.least((fat as any).lastSizing.target);
   });
 
   it("counts ALL THREE RCL8 spawns and 200-cap extensions", () => {
@@ -131,13 +145,28 @@ describe("dual/tri-spawn: ExtensionTenderCorp sizes from the whole bank", () => 
     expect(sizing.target, "2900 bank over 400-carry bodies -> 3 (capped) coverage points").to.equal(3);
   });
 
-  it("stays identical to the old formula for a single RCL6 spawn (no regression)", () => {
-    // 1 spawn (300) + 20 extensions x 50 (1000) = 1300 == old 300 + 50*20.
+  it("reads the same REAL bank as the old hardcode for a single RCL6 spawn", () => {
+    // 1 spawn (300) + 20 extensions x 50 (1000) = 1300 == old 300 + 50*20, so
+    // the BANK read is unchanged here. The COUNT is now rate-matched (owner
+    // 2026-07-29): one spawn wants ~33 e/t and an 8-carry tender over 50-cap
+    // extensions sustains ~21 e/t, so TWO cover it where the retired
+    // one-trip-refill formula asked for three.
     const corp = corpFor(tenderRoom({ spawnCount: 1, extensions: 20, extCapacity: 50 }));
     corp.getSpawnDemand({ energyCapacity: 800, tick: 100 } as any);
     const sizing = (corp as any).lastSizing;
-    // maxCarry 8, forCoverage ceil(1300/400)=4 -> target 3 (same as before).
-    expect(sizing.target).to.equal(3);
+    expect(sizing.target).to.equal(2);
+  });
+
+  it("COLD START keeps its 3-tender floor (the RCL2-3 lost-deadline incident)", () => {
+    // Measured incident (pipeline t=1553): at RCL2-3 "the lone tender's second
+    // trip lost the deadline" while a big miner drained 650+ into the spawn.
+    // Rate-matching must NOT weaken that: a 550-cap room affords only a
+    // 5-carry tender (~16 e/t over 50-cap extensions) against the same ~33 e/t
+    // appetite, so the model still demands three. Pinned explicitly rather
+    // than trusted.
+    const corp = corpFor(tenderRoom({ spawnCount: 1, extensions: 5, extCapacity: 50 }));
+    corp.getSpawnDemand({ energyCapacity: 550, tick: 100 } as any);
+    expect((corp as any).lastSizing.target).to.equal(3);
   });
 });
 
