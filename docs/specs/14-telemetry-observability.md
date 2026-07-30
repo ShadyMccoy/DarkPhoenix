@@ -5757,3 +5757,65 @@ towers — and the runt world is staged at **RCL 2** while TOWER_MIN_RCL is **3*
 so no tower can exist there. N=1 vs N=1 cannot separate flake from regression
 on a cell the repo already documents as flaky; the second sample is what made
 the call honest.
+
+### AUDIT 2026-07-30 (t72676091→t72676360, dt 269) — P8 INCONCLUSIVE (window too short); new blocker named with data
+
+**CYCLE VERDICT: blocker named.** No fix shipped, deliberately — see below.
+
+**P8 reads FAIL (0 e/t) but this window CANNOT support that verdict.** Two
+sampling faults, both mine:
+  - dt is **269 ticks**, and the supply vector's round trip is home storage
+    (W43N23) → the sites (W41N23) → back: **~100 tiles each way** for a 3:1
+    carry:move body. One delivery cycle is plausibly longer than the whole
+    window, so "0 built" is consistent with a working-but-slow vector.
+  - the tower deploy's **global reset** falls inside the window.
+`poolWork` is identical to the digit across both captures (**3826**), which is
+what a sub-round-trip sample looks like. The previous, 821-tick window measured
+0.37 e/t. **Not recorded as a regression**; the next read must span ≥1 full
+round trip.
+
+**THE REAL FINDING — the build crew is starving beside 4,263 energy.**
+
+    building-W43N23-construction  crewAt "W41N23,W43N23"  buildRoom "W41N23"
+      buildTargets "RF"  tankers 4  vectorFed true  poolWork "W41N23:3826"
+    sourceBuffers: dbd01f = 4263   (source d01f IS in W41N23 — agenda entry
+                                    "mining-W41N23-harvest-d01f")
+    E6: 3-harvest-d01f buffered 4263, held 1014t (100% of window) CHRONIC
+
+The pool builder stands in W41N23, dry, next to its road sites — while **4,263
+energy sits piled at a source mouth in that same room**, chronic for the entire
+window. Meanwhile four tankers shuttle energy to it from home storage, two
+rooms away.
+
+Cause, in `buildFuelPos`:
+
+    const surplusBanked = bank?.my && spendableBankSurplus(...) > 0;
+    return (surplusBanked ? bank!.pos : site.pos.findClosestByRange(FIND_SOURCES)?.pos) ?? null;
+
+The home bank holds 351k, so `surplusBanked` is ALWAYS true and fuel is ALWAYS
+the home storage — **regardless of how far the site is from it**. The `else`
+branch (nearest source *to the site*) is exactly the right answer here and is
+never taken. This is the same CLASS as the P8 bug just fixed: a fuel lens whose
+verdict the geometry makes absurd. It also explains the reach-bound
+interaction — distance 100 forces "vector", so the colony buys 4 tankers to
+run a 100-tile shuttle past a 4,263-energy pile.
+
+**NEXT WORK ITEM (red-first shape):** `buildFuelPos` must choose fuel by
+DISTANCE-ADJUSTED availability, not by "is the bank in surplus". A same-room
+pile/container adequate to the burn beats a cross-room bank shuttle; the bank
+wins when it is genuinely the nearest adequate fuel. Blast radius is wide —
+the lens feeds `buildFuelDistance` → `supplyMethod` → `tankerPlan` AND
+`builderPlan`'s buffer — so it needs the full trio, and E6's chronic piles are
+a second beneficiary (the builder eating d01f's pile drains it).
+
+**E4 unchanged in mechanism** (351575, +36.55/t): still the 2-WORK upgrader
+circle documented in the previous entry. Note the two are linked — energy that
+cannot reach the controller AND cannot reach the build site is exactly the
+capital E4 measures.
+
+**NOT SHIPPED THIS CYCLE, on purpose.** Three changes already went to prod
+today (last-builder rule, reach bound, tower deadlock). The trap list is
+explicit that stacking a fourth change into the same subsystem before the
+previous ones have a clean measurement window is how attribution is lost — the
+P8 window above is already too short to read. This finding is recorded with
+its evidence so the next cycle starts from data, not memory.
