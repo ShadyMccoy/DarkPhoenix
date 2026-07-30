@@ -5399,3 +5399,45 @@ touched, unit+build gate per protocol.
 
 Verdict: **E6 leak ELIMINATED (measured, from chronic to zero), two models
 re-verified on longer windows, one false-FAIL class retired.**
+
+### DEV 2026-07-29 — SPAWN RUNG shipped (additional spawns as the RCL allows)
+
+Owner-directed. STRUCTURE_SPAWN was placed nowhere but ExpansionCampaign (a NEW
+colony's founding spawn), so an owned room could never add its second while
+Spawn1 ran 0.87-0.97 utilization with a 4-6 deep queue against the 0.333 p/t
+ceiling a second spawn DOUBLES. SPAWN_LIMITS mirrors CONTROLLER_STRUCTURES
+(1 to RCL6, 2 at 7, 3 at 8); wantsAnotherSpawn counts PENDING sites so a slow
+15k site is never re-placed each cooldown; unknown RCL falls back to 1.
+
+PLACEMENT: findGridPosition's cohesion ranking, NOT spawnSiteValue - throughput
+is position-independent (engine _charge-energy draws from ALL room extensions
+nearest-first, no range limit, verified in node_modules), so position only moves
+the tender refill walk (dominant: refillCircuit visits spawns; a distant spawn
+can force a 2nd tender, +34p) and ~1% creep travel. NEW predicate neither
+scorer had: >= 2 free adjacent tiles for newborn emergence (findGridPosition
+packs extensions densely because extensions do not care); rejections stamp
+`spawnTileRejected`. buildRank puts spawn at 0. Rung sits after extensions,
+before storage/links. Declines to place when terrain is unreadable.
+
+Gate: 1695 unit; storage-depot 8s GREEN (the construction canary that caught
+the batch-placement lockout), flow-handoff 5m GREEN, runt-economy RED at 14m
+then GREEN at 4m on rerun with healthy stamps (gate clear, buffered 0).
+ATTRIBUTION for shipping on that red: the rung CANNOT execute in that world
+(RCL2, SPAWN_LIMITS[2]=1, one spawn built => wantsAnotherSpawn false before any
+terrain read), and this cell has now failed ~6 times today on builds that did
+NOT contain the rung (damping, batch placement, pile-gate fix) - pre-change
+evidence that the failure is not the pending change.
+
+PROCESS FAILURE TO FIX (mine): the trio was invoked as
+`npx mocha <cell> | grep -E "passing|failing"`, which DISCARDED the very
+runt-economy diagnostic built earlier today to make a red name its own cause.
+The failing run's stamps are unrecoverable. RULE: always capture integration
+output to a file (`> log 2>&1`) and grep the FILE - never pipe the run itself
+through grep. Verdicts still come from marker lines, never exit codes.
+
+PREDICTIONS for the next check: a spawn SITE appears in W43N23 (siteCount > 0,
+P8 > 0 as the crew builds a 15k project - expect it to dominate construction
+for a while); once BUILT, P4 ceiling 0.333 -> 0.667, spawn utilization ~halves,
+queueDepth falls, and tenderFleetTarget auto-rises to 2 (spawnConsumptionCeiling
+scales with spawn count). GUARDRAIL: the 15k site must not starve producers -
+watch P9 routed/funded, E5 runts, and E6 pile deferrals returning.
