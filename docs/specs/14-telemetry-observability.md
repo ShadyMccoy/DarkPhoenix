@@ -5488,3 +5488,39 @@ idle.bank -> 0 on BOTH spawns, tenderFleetTarget rising to 2 now appetite is
 WATCH: P4 1.02x - the planner expanded upgraders to 441p to use the new
 ceiling and overshot slightly; a 1.02x plan against a physical spawn limit just
 converges to the ceiling, so it is a watch, not yet a work item.
+
+### AUDIT 2026-07-29 (t72672921→t72673248) — runt floor VERIFIED INSUFFICIENT; carry-coverage is the real fix
+
+Verification of the tender runt floor against its four pre-registered
+predictions: **all four missed, and the misses were informative.**
+Tender still **4 parts** (carry 3, move 1); `idle.bank` **196/243** (WORSE than
+the 146/152 that triggered the fix); fleet target still **1**; storage still
+climbing (250283 -> 259259).
+
+WHY THE FLOOR WAS INSUFFICIENT: it prices a NEW purchase but cannot evict a
+STANDING runt. The corp read `staffing 1 >= target 1` and stopped demanding, so
+the 3-CARRY body holds its slot for its full ~1500-tick life while both spawns
+starve. The fix addressed how cheaply a tender may be BOUGHT, not whether a
+useless one keeps its seat.
+
+THE `target: 1` I COULD NOT EXPLAIN LAST CYCLE IS CORRECT: the core depot sits
+~1 tile from the extension cluster, so a full 25-CARRY tender delivers ~80 e/t
+against a 66.7 e/t two-spawn appetite - ONE is genuinely enough. The rate model
+was right; the fielded BODY was the defect. That was invisible because the
+tender stamp exported no rate-match inputs - now fixed (spawnCount,
+extensionCapacity, walkTicks, maxCarry, fieldedCarry, neededCarry). The blind
+spot cost a full cycle.
+
+FIX (in-tree precedent, not a new invention): CarryCorp already solved this
+shape - "the count alone is not enough ... keep adding haulers until the CARRY
+is actually covered". The tender now stops only when BOTH count and fielded
+carry are satisfied, with the same 2x swarm cap. Against a 3-CARRY runt with 25
+needed it orders a proper tender, and the runt floor shipped last cycle ensures
+that one is bought at 13 carry rather than 2 - the two changes compose.
+
+TEST-MOCK CORRECTION: four tender mocks used `body: {length: 8}` or omitted
+`body` entirely - unfaithful to a real creep, whose body is a PART ARRAY. They
+read as zero carry under the new rule. Fixed the MOCKS (real part arrays), not
+the rule: an unfaithful stand-in is exactly what let a runt hide behind a count.
+
+1699 unit green; trio in progress (storage-depot 7s green) - deploy gated on it.

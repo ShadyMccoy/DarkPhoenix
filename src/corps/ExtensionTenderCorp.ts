@@ -547,8 +547,21 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // the pipe staffs - staffsPost treats undefined ttl as freshest), else
     // the demand re-fires while the replacement builds and double-orders.
     let staffing = 0;
+    // FIELDED CARRY alongside the count (live t72673248): a standing RUNT
+    // satisfies the count while delivering almost nothing - a 3-CARRY tender
+    // held `staffing 1 >= target 1`, so NO replacement was ever demanded and
+    // both spawns sat energy-starved (idle.bank 196/243) for the runt's whole
+    // ~1500-tick life. CarryCorp already solved this shape: "the count alone
+    // is not enough ... keep adding haulers until the CARRY is actually
+    // covered". Same rule here.
+    let fieldedCarry = 0;
     for (const c of this.creepsOfWorkType("tank", { includeSpawning: true })) {
-      if (staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) staffing++;
+      if (!staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) continue;
+      staffing++;
+      // Harness-safe: partial mocks supply a body that is not a part array.
+      // An unreadable body contributes 0 carry, which can only make the
+      // coverage test MORE eager - never less - so it cannot mask a runt.
+      fieldedCarry += Array.isArray(c.body) ? c.body.filter(b => b.type === CARRY).length : 0;
     }
     // FLEET SIZE (refill SLA): one tender per spatial cluster - a single
     // tender cannot beat per-drain deadlines across separated groups - AND
@@ -598,6 +611,16 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // other factor), at the ratchet's parts budget, not the old 72-part
     // fleet's. Duty meter + S3/E5 direct signals verify.
     const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    // Per-slot body, hoisted above the gate so the CARRY-coverage test and the
+    // stamp can both read it (slot k serves clusters[k % len]; see the call
+    // rationale below).
+    const carryPerSlot = tenderSlotCarry(
+      clusters.map(c => c.length),
+      staffing,
+      target,
+      bankCapacity,
+      maxCarry
+    );
     const duty = this.dutyAlive > 0 ? this.dutyTransfers / this.dutyAlive : null;
     this.lastSizing = {
       tick: ctx.tick,
@@ -607,9 +630,23 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       clusters: clusters.length,
       staffing,
       target,
+      // Rate-match inputs, so a capture can explain the COUNT without a code
+      // read (t72673248: target read 1 with two spawns and the stamp could
+      // not say why - it was a 1-tile depot walk making one full tender
+      // sufficient; the fielded body was simply a runt).
+      spawnCount: spawns.length,
+      extensionCapacity,
+      walkTicks,
+      maxCarry,
+      fieldedCarry,
+      neededCarry: target * carryPerSlot,
       ...(duty !== null ? { duty: Math.round(duty * 1000) / 1000, meterTicks: ctx.tick - this.dutySince } : {})
     };
-    if (staffing >= target) return [];
+    // Stop only when BOTH the count and the CARRY are covered. The swarm cap
+    // mirrors CarryCorp's: never more than twice the planned count, so a
+    // pathologically starved room cannot spawn an unbounded fleet.
+    if (staffing >= target && fieldedCarry >= target * carryPerSlot) return [];
+    if (staffing >= target * 2) return [];
 
     // Per-SLOT body (P4 tip t72459426: sizing every tender to the biggest
     // cluster fielded 3x46p = 138p for a 2300 bank - 0.092 parts/t, the plan's
@@ -617,13 +654,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // pairing runTenders walks), floored at an equal share of one full bank
     // wave so combined carry still covers a whole drain (the RCL2-3 coverage
     // incident, pipeline t=1553).
-    const carry = tenderSlotCarry(
-      clusters.map(c => c.length),
-      staffing,
-      target,
-      bankCapacity,
-      maxCarry
-    );
+    const carry = carryPerSlot;
 
     // REFILL BOOTSTRAP (owner 2026-07-22, live incident t72490325: zero
     // tenders, gate "demand" while endFill collapsed to 0.41 and the spawn

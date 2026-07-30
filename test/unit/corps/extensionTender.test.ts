@@ -94,6 +94,9 @@ describe("tenderBootstrapPierce (pure wall-pierce decision)", () => {
   });
 });
 
+/** A full-size tender body: sizing reads fielded CARRY, not just the count. */
+const TANK_BODY = new Array(23).fill({ type: "carry" });
+
 describe("ExtensionTenderCorp spawn demand (local mover)", () => {
   beforeEach(() => {
     setupGlobals();
@@ -234,7 +237,12 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     for (const n of ["t1", "t2", "t3"]) {
       Game.creeps[n] = {
         memory: { corpId: (corp as any).id, workType: "tank" },
-        body: { length: 8 },
+        // A REAL part array: sizing now checks fielded CARRY as well as the
+        // count (a 3-CARRY runt satisfied the count while both spawns starved,
+        // live t72673248), so a `{length: 8}` stand-in reads as zero carry and
+        // the fleet correctly keeps demanding. Full-size bodies here keep this
+        // case's intent - at target AND covered, no demand.
+        body: new Array(23).fill({ type: "carry" }),
         ticksToLive: 1400,
         room: { name: "W0N0" },
         spawning: false
@@ -317,7 +325,10 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     const corp = corpFor(r);
     Game.creeps = {
       m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false },
-      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false }
+      // Real part arrays: sizing checks fielded CARRY as well as the count
+      // (a 3-CARRY runt satisfied the count while both spawns starved, live
+      // t72673248), so a body-less stand-in reads as zero carry.
+      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false, body: TANK_BODY }
     } as any;
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(1);
   });
@@ -327,8 +338,8 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     const corp = corpFor(r);
     Game.creeps = {
       m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false },
-      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false },
-      t2: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false }
+      t1: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false, body: TANK_BODY },
+      t2: { room: { name: "W0N0" }, memory: { corpId: corp.id, workType: "tank" }, spawning: false, body: TANK_BODY }
     } as any;
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
