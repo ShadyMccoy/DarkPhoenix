@@ -6627,3 +6627,50 @@ accumulate an early death.
 haul-vector stamps) is committed but NOT deployed. Deploying resets the ring
 again and costs the clean steady-state window this verification still needs.
 Ship it once the next read lands.
+
+### VERIFY 2026-07-31 (t72695674→t72696770, dt 1096) — route-sizing fix CONFIRMED; the mechanism proved itself on the carry ledger
+
+**CYCLE VERDICT: FIXED, verified.** Four of five predictions scored, one
+unscoreable by design. **No FAIL lines** (was 2). No checklist line regressed.
+
+| prediction | pre-fix t72695674 | t72696770 | verdict |
+|---|---|---|---|
+| 1. hauler spawn load → plan | 0.463 p/t (plan 0.225) | **0.148 p/t** (plan 0.182) | **CONFIRMED** |
+| 2. F1 → 1.0 | 1.49× FAIL | **1.19× WARN** | CONFIRMED (direction) |
+| 3. upgrader load / P7 rise | 0.035 p/t, P7 0.44× | 0.006 p/t, P7 relegated | **UNSCOREABLE** |
+| 4. no body above its route | — | X6 **0 p/t**, 2/4 stamped | confirmed (weak, n=4) |
+| 5. E6 must not worsen (falsifier) | 4 of 10 gated | **2 of 10** | **did NOT trip** |
+
+**The mechanism proved itself, and this is the reading that matters.** Hauler
+spawn rate fell 68% (0.463 → 0.148 p/t) while STANDING CARRY ROSE 45%
+(270 → 393 parts). More fleet fielded, for less than a third of the spend.
+That is precisely what killing a replacement loop looks like — the bodies now
+LIVE instead of being retired-and-rebought — and it is the one reading the
+wartime confound cannot manufacture: a defunded class loses standing carry, it
+does not gain it. E2 held at 0 off-plan parts across both post-deploy reads.
+
+E6's piles fell with it (cd8e 2473→2008, cbd8 4114→off the list entirely),
+so the smaller, right-sized bodies did not starve their routes — the falsifier
+had a fair chance to trip and did not.
+
+**Prediction 3 stays unscoreable and that is correct, not a miss.** The colony
+is in the wartime construction regime (builders 0.211 p/t, 15 construction
+creeps, tankers 0.147); the upgrader is held at the relegated floor of 2 BY
+DOCTRINE (spec 33), so P7 measures against that floor and the peacetime
+comparison does not exist this window. F1's breach list moved with the regime:
+haulers are GONE from it, construction is now the top breach (+0.241). Score
+37.4 pts/t (34.2 pre-fix) — up, but under a regime shift, so not claimed.
+
+**Window caveat, stated:** the blackbox ring is 640t (the deploy reset it), so
+F1 and X5 remain provisional. The carry-ledger reading above does not depend
+on the ring.
+
+**Segment 4 v12 DEPLOYED** now that the verification window is spent. Next
+cycle's X6 stops being drain-blind on the 85% of hauler spend the miner
+operations carry, and E6's "read the carry pickup stamps" instruction becomes
+executable for the first time.
+
+**Open, unattacked, named:** (a) construction is the new F1 breach (+0.241
+p/t) — expected under a campaign, but it should retire when the campaign does;
+(b) the raid-driven early-death drift (P5, no ledger row) is still unpriced;
+(c) P2 micro-routes at 10 of 19.
