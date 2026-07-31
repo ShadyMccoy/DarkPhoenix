@@ -6470,3 +6470,44 @@ Predictions registered for next cycle: (a) F1's decomposition drops the
 "parts est. from cost" label once ~2,000 ticks of v2 rows accumulate;
 (b) source piles keep falling with construction alloc at 10.0; (c) the
 released builder is adopted or recycled.
+
+### STATUS READ 2026-07-31 (t72689264→t72690582, dt 1318) — wartime exits, score 2.0 → 20.0 pts/t
+
+Not a full cycle (owner status check, no change shipped) but it closes the
+three predictions the previous cycle registered, all three in the healthy
+direction:
+
+| prediction | result |
+|---|---|
+| F1's decomposition drops the "parts est. from cost" label as v2 rows accumulate | ✅ line now reads `[over 913t]`, no `est.` — measured, not inferred |
+| source piles keep falling with construction alloc at 10.0 | ✅ E6 **6 of 10 → 3 of 10** deferred; ground-piled 5,409 → **1,909** ("buffers near cap, no leak") |
+| the released builder is adopted or recycled | ✅ `unattributed: []`, X3 back to **ok** (2, both mid-spawn) — the `claimsOrphan` hand-off works, no patch was needed |
+
+**The build backlog emptied and the economy switched back to the controller.**
+Remote sites 29 → **0**, home `siteTotal 0` — nothing left to build anywhere.
+Consequences, all measured in one window:
+
+- **P7 20.0 e/t actual vs 14.1 planned (1.42×)** — the wartime relegation is
+  GONE, not merely satisfied. This is the oscillation question from earlier
+  cycles resolving: wartime exits when the board clears, exactly as designed.
+- **Upgraders re-fleeted 2 → 46 WORK standing**, `workUtil 1.00`, X1 dry 0.00.
+  P4's upgrader line 30p=0.020 → 132p=0.088.
+- **Controller link flow 2.4 → 26.4** (LINK tax 2.64/1034t) — the link network
+  absorbed the new load without a hauler build-out.
+- Fleet 45 → **36 creeps**: the construction crews demobilized cleanly on
+  their own when the work ran out.
+- Score **1.28 → 2.00 → 20.00 pts/t** over three windows.
+
+E4 back to `CONVERGING` (119,088, +9.26/t, equilibrium 132,984 < the 150k
+knee) — and note this vindicates NOT patching E4 last cycle: the same line
+that read "check the spend path" on a falling bank now reads healthy on a
+rising one, with no code change and no defect in between. The heuristic was
+never wrong about the colony; it just cannot see capital formation, which
+remains spec 40 Part C's job.
+
+Still open, unchanged in kind: **F1 1.78 → 1.42**, still failing, still
+haulers (0.487 p/t built vs 0.217 priced). Improved because the plan grew, not
+because the runtime shrank. Spec 39 owns it. **E2 crept 16 → 22 parts**
+stranded (W41N23-hauling-4-38, a single hauler) — WARN, worth a falsifier
+next cycle: if it climbs a third window it is a real strand, not a route in
+transition.
