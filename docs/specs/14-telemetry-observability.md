@@ -6055,3 +6055,52 @@ income supports. Still ~30x this morning's 1.35-2.0 floor.
 P2 micro-routes 12 of 23 — both point at the same hauler-sizing thread as E6's
 chronic piles. Watch; if E5 persists the drained-spawn purchase path is due
 its own cycle.
+
+### CORRECTION 2026-07-30 — the 90% headroom was an EXPERIMENT; its result is a clean negative, not a failure
+
+Owner: *"The 10% spawn headroom is an experiment. It's basically sort of
+removing a variable as an explanation to help narrow things down."*
+
+The two audit entries above logged prediction #3 (utilization 0.97→~0.90) as
+**"FALSIFIED"**, which frames an experiment's negative result as a failure.
+Re-stated correctly:
+
+**What the experiment ESTABLISHED (a real result, not a null one):** *plan
+size is not what saturates the spawn.* The plan was cut 10% and obeyed it
+exactly (P4 0.95× → 0.63×, later 0.78× after the reserver fix), while measured
+`partsPerTick` did not move at all across **six** captures spanning the deploy,
+the wartime exit and the whole 360k→130k bank drain: 0.652, 0.654, 0.654,
+0.656, 0.642, 0.649. If plan size drove utilization, that intervention would
+have moved it. It did not, so plan size is **eliminated** as the explanation.
+
+That elimination is what narrowed the search to the remaining candidates —
+replacement churn, unbudgeted classes, consumer self-sizing — and reading the
+blackbox role mix against P4's line table is what surfaced the **7× reserver
+under-count**. The experiment paid for itself by ruling something out; it was
+never a fix and should not be scored as one.
+
+**BUT it now conflicts with the fidelity objective, and the conflict is
+measurable.** The sink fill is **budget-BOUND** — `spent 0.389 / budget 0.411`
+= **95% consumed**, so the margin is actively suppressing planned fleet rather
+than sitting idle:
+
+```
+budget WITH the 10% headroom   : 0.411 p/t   (plannable 0.600)
+budget WITHOUT it              : 0.477 p/t   (capacity 0.667)   +0.067 p/t
+F1 today                       : 1.24x       (WARN; FAIL at 1.25)
+F1 with the margin removed     : ~1.10x      (direction certain, magnitude approximate)
+```
+
+F1 = measured ÷ planned, so **deliberately shrinking the plan mechanically
+worsens fidelity**. Under the doctrine added this session ("prefer a fix that
+makes the plan and the runtime agree"), a standing 10% wedge between plan and
+reality is the wrong direction — the plan is *designed* to describe a colony
+10% smaller than the one that will exist.
+
+**RECOMMENDATION (owner's call, not taken unilaterally — the headroom was an
+owner directive):** retire `SPAWN_PLAN_FRACTION` to 1.0 now that its
+experimental result is banked. Expected: plan budget +0.067 p/t, F1 1.24 →
+~1.10, no change to utilization (that is precisely what the experiment
+established). Keep the constant and its plumbing so the experiment can be
+re-run by changing one number; the `plannable` ledger field stays useful
+either way. Not reverted pending the owner's word.
