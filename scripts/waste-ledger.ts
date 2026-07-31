@@ -504,6 +504,58 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         .join(", ")
   });
 
+  // ---- P10 plan ENERGY accounting: what the plan subtracts vs what the spawn spends ----
+  //
+  // P4's twin on the energy side. P4 asks "can the spawn physically BUILD the
+  // plan's fleet" and counts ALL classes by doctrine. The plan's own energy
+  // budget does not: `totalOverhead = minerOverhead + haulerOverhead`
+  // (flow/FlowTypes), and `netEnergy = totalHarvest - totalOverhead` is what
+  // the solver then hands to sinks. Every OTHER fleet class - reservers,
+  // tenders, feeders, guards, builders, and the upgraders themselves - is
+  // spawned from energy the plan has already promised to a sink.
+  //
+  // Found 2026-07-31 (t72700221) root-causing a chronic P7. The plan allocated
+  // 106.7 e/t to the controller; the runtime's feeder valve independently
+  // settled at 54.3, which is income minus REAL spawn spend - i.e. the runtime
+  // was finding the true residual while the plan promised energy that the
+  // spawn had already burned. Fidelity doctrine says fix the seam, not the
+  // valve, so this row prices the seam.
+  {
+    const spawnRows = ((cap.data.blackbox?.rows ?? []) as any[]).filter(r => r.k === "spawn" && r.d?.cost);
+    const allRows = (cap.data.blackbox?.rows ?? []) as any[];
+    const win = allRows.length > 1 ? allRows[allRows.length - 1].t - allRows[0].t : 0;
+    const planOverhead = flow?.summary?.totalOverhead;
+    if (win > 0 && spawnRows.length > 0 && typeof planOverhead === "number") {
+      const byRole = new Map<string, number>();
+      for (const r of spawnRows) byRole.set(r.d.role, (byRole.get(r.d.role) ?? 0) + r.d.cost);
+      const perTick = (n: number) => n / win;
+      const measuredAll = perTick([...byRole.values()].reduce((a, b) => a + b, 0));
+      // like-for-like: the two classes the plan's overhead DOES price
+      const measuredPriced = perTick((byRole.get("miner") ?? 0) + (byRole.get("hauler") ?? 0));
+      const offPlan = measuredAll - measuredPriced;
+      const gap = measuredAll - planOverhead;
+      const offPlanDetail = [...byRole.entries()]
+        .filter(([role]) => role !== "miner" && role !== "hauler")
+        .sort((a, b) => b[1] - a[1])
+        .map(([role, e]) => `${role} ${perTick(e).toFixed(2)}`)
+        .join(", ");
+      rows.push({
+        id: "P10",
+        name: "plan energy accounting (overhead vs measured spawn spend)",
+        value: +gap.toFixed(2),
+        unit: "e/t the plan hands to sinks but the spawn already spent",
+        // The whole off-plan block is structural, so any colony past the
+        // bootstrap trips this; FAIL once it is a material share of the
+        // controller allocation, which is what makes P7 unreachable.
+        verdict: gap > 15 ? "FAIL" : gap > 5 ? "WARN" : "ok",
+        detail:
+          `plan overhead ${planOverhead.toFixed(2)} (miners+haulers only) vs measured spawn ${measuredAll.toFixed(2)} e/t; ` +
+          `like-for-like miners+haulers measured ${measuredPriced.toFixed(2)} (${(measuredPriced / Math.max(planOverhead, 1e-9)).toFixed(2)}x priced); ` +
+          `OFF-PLAN ${offPlan.toFixed(2)} e/t never subtracted [${offPlanDetail}] over ${win}t`
+      });
+    }
+  }
+
   // ---- P5 price/behavior drift: reserver duty ----
   const res = corps.find(c => c.kind === "reservation");
   const dutyImplemented = res?.sizing && (res.sizing.banks !== undefined || res.sizing.gate === "reservation-banked");

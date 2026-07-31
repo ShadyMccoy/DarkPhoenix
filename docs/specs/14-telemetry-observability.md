@@ -6674,3 +6674,79 @@ executable for the first time.
 p/t) — expected under a campaign, but it should retire when the campaign does;
 (b) the raid-driven early-death drift (P5, no ledger row) is still unpriced;
 (c) P2 micro-routes at 10 of 19.
+
+### AUDIT 2026-07-31 (t72696770→t72700221, dt 3451) — P7's chronic redness ROOT-CAUSED: the plan's energy budget subtracts two fleet classes out of eight
+
+**CYCLE VERDICT: BLOCKER NAMED WITH DATA (new ledger row P10); no bot change.**
+Score 41.5 pts/t. CPU 20.3/300, bucket full. The road campaign RETIRED in this
+window (remote sites 23→0, P8 4.40 e/t, +7,500e of receipts).
+
+**The route-sizing fix is now PINNED and holding.** X6 read 26/26 spawns judged
+against the corps' OWN carryNeeded stamps (segment 4 v12 landed) — **0 p/t
+bought above route**. F1 **1.03×**. E2 0. E5 0. E6 4→2→**1** of 10 gated.
+
+**The new picture is the inverse of last cycle's.** With the campaign gone the
+spawn went from saturated to **idle 26% of the window, 89% of that idle
+labelled `empty` = NO DEMAND**, while P7 fell to **0.39×** (41.5 e/t actual vs
+106.4 planned) and 129k sat banked. Spare spawn, spare bank, unmet plan.
+
+**The mechanism is an arithmetic identity, not a hypothesis.** Three stamps
+agree to three decimals:
+
+```
+banked 128,992 − reserve 70,000      = 58,992 surplus
+58,992 / SURPLUS_DRAIN_TICKS (1500)  = 39.328
++ STORAGE_UPGRADE_TARGET (15)        = 54.328  ← feederRelayRate
+```
+feeder stamp `relayRate = bodyRate = surplusRate = 54.328`; upgrader stamp
+`inflow = 54.328`, `allocated = 54.713` (= `sustainableConsumptionRate(578,
+54.328)`), `demand: "staffed"`, 53 WORK standing against a plan of 107.
+X1 `workUtil 0.998, dryShare 0.002` — those 53 WORK are never dry. The
+consumer is not starved; it has stopped asking, because the valve that feeds
+it is a pure function of the BANK SURPLUS.
+
+**First hypothesis FALSIFIED:** "the planner and the runtime run two different
+drain laws." They do not — `bankToTransientSource` and `feederRelayRate` both
+call `bankSurplusRate`. One law, shared.
+
+**The real seam, measured (new row P10 = 27.13 e/t).** `totalOverhead =
+minerOverhead + haulerOverhead` (flow/FlowTypes), and `netEnergy = totalHarvest
+− totalOverhead` is what the solver hands to sinks. Measured against the
+blackbox ring over 2,608t:
+
+| | e/t |
+|---|---|
+| plan `totalOverhead` (miners + haulers) | 18.29 |
+| measured miners + haulers | 25.88 (**1.42× priced**) |
+| measured OFF-PLAN — reserver 10.97, upgrader 4.06, tanker 1.92, guard 1.25, builder 1.04, feeder 0.31 | **19.54** |
+| measured TOTAL spawn spend | 45.42 |
+| **handed to sinks but already spent** | **27.13** |
+
+Six of eight fleet classes are spawned from energy the plan has already
+promised to a sink. P4 counts ALL classes on the PARTS side by doctrine; the
+ENERGY side counted two.
+
+**So the runtime is RIGHT and the plan is WRONG — the opposite of the reflex
+read.** Income ~100 e/t gross minus measured spawn 45.4 leaves ~54.6 e/t of
+true residual; the feeder valve settled at 54.33. The valve is *discovering the
+residual*, and the bank's −6.03/t slope is it converging on the fixed point
+(zero slope at surplus ≈ 59,400; measured 58,992). Raising the valve to chase
+the plan's 106.7 would buy points around the disagreement — the doctrine's
+named anti-pattern. **The fix belongs in the plan's cost accounting.**
+
+**Deliberately NOT fixed this session.** Making `totalOverhead` whole changes
+`netEnergy`, hence every sink allocation, hence the whole economy — the
+deepest class of live-behavior change, and it raises a policy question that is
+the owner's (how much of the bank is spendable once the plan stops
+over-promising). Named, priced, and pinned as P10 instead; next cycle attacks
+it against a measured target.
+
+**Labeled hypothesis, not chased (one at a time):** X5 flagged
+`W41N23-harvest-d01f 2000e@1t` as a fast respawn. All six sub-60t pairs this
+window were CROSS-SPAWN (Sp1→Sp2), zero same-spawn — the same signature seen
+at t72695674. But d01f's plan target is **2** haulers, so a 1-tick pair may be
+a correct cohort fill that X5 mis-slots: harvest corps stamp the MINER's
+staffing (1), and X5's same-slot lens keys off staffing. If so this is an
+INSTRUMENT bug in the class of the `upgrading`/`upgrade` typo, not a bot
+defect. Falsifier for next cycle: compare X5's slot arithmetic against the
+corp's hauler target rather than its stamped staffing.
