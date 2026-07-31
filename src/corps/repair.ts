@@ -145,7 +145,7 @@ function nearestBelowCeiling<T extends Repairable>(structures: T[], rangeOf: (s:
  * along a paving route and tiles completed - the measured ping-pong). Pure and
  * position-agnostic (the `rangeOf` lens) so it is unit-tested without a room.
  */
-export function nextBuildTarget<T extends { id: string }>(
+export function nextBuildTarget<T extends { id: string; structureType?: string }>(
   sites: T[],
   latchedId: string | undefined,
   rangeOf: (s: T) => number
@@ -154,16 +154,65 @@ export function nextBuildTarget<T extends { id: string }>(
     const latched = sites.find(s => s.id === latchedId);
     if (latched) return latched; // still standing => not finished => keep building it
   }
+  // LADDER RANK FIRST, distance only within a rank (owner 2026-07-29, the
+  // batch-placement change): with the whole wanted SET standing as sites,
+  // plain nearest-first would pave a road under the builder's feet while the
+  // extension set waits - it would silently replace the ladder's economics
+  // with proximity. Ranking here keeps the placement wide (so the
+  // sum-of-projects lens sizes the crew against ALL the work) while the
+  // BUILD order stays the owner's. A site with no structureType (test doubles,
+  // legacy callers) ranks with the default tier, so behaviour is unchanged
+  // for a homogeneous set.
   let best: T | null = null;
+  let bestRank = Infinity;
   let bestRange = Infinity;
   for (const s of sites) {
+    const rank = buildRank(s.structureType);
     const r = rangeOf(s);
-    if (r < bestRange) {
+    if (rank < bestRank || (rank === bestRank && r < bestRange)) {
+      bestRank = rank;
       bestRange = r;
       best = s;
     }
   }
   return best;
+}
+
+/**
+ * The ladder's economics as a sort key (owner build order, mirrored from
+ * ConstructionCorp.tryPlaceNextSite): source containers turn roaming
+ * drop-mining into static mining, extensions compound spawn capacity, then
+ * the durable bank and the link network; ROADS are dead last because they
+ * are efficiency rather than capacity and pay only over long horizons.
+ * Unknown types take the default tier - ahead of roads, behind the explicit
+ * capacity rungs - so a new structure never sorts behind paving by accident
+ * and the sort never throws.
+ */
+/* The engine's structure constants ARE these strings; spelled literally so
+ * this stays a PURE module (the rest of the file is unit-tested with no
+ * Screeps globals installed - referencing STRUCTURE_LINK here threw
+ * ReferenceError in exactly that harness). */
+export function buildRank(structureType: string | undefined): number {
+  switch (structureType) {
+    // A SPAWN outranks everything (owner 2026-07-29): it is the only structure
+    // that raises the colony's hardest ceiling - spawn parts/tick - so a
+    // pending spawn site is worth finishing before any capacity below it.
+    case "spawn":
+      return 0;
+    case "container":
+      return 1;
+    case "extension":
+      return 2;
+    case "storage":
+    case "link":
+      return 3;
+    case "tower":
+      return 4;
+    case "road":
+      return 9;
+    default:
+      return 5;
+  }
 }
 
 /**
@@ -178,6 +227,74 @@ export function pickRepairTarget<T extends Repairable>(structures: T[], belowFra
     if (!worst || s.hits / s.hitsMax < worst.hits / worst.hitsMax) worst = s;
   }
   return worst;
+}
+
+/**
+ * Whether to CONSCRIPT a crew member onto the repair detail this tick.
+ *
+ * CLEAR and RECRUIT are different decisions, and conflating them cost two
+ * measured incidents pulling opposite ways:
+ *  - clearing an ACTIVE detail the moment a site appeared stranded a
+ *    below-gate container forever (cons-repair-stops-at-99: 8 sites placed at
+ *    t20, detail cleared, the 55% container never rose) - which is why the old
+ *    "never take the last builder while sites exist" guard was REMOVED;
+ *  - recruiting the ONLY builder into the detail zeroes construction
+ *    (owner-reported 2026-07-29 "there's a big builder, but he's going around
+ *    repairing roads instead"; root-caused at t72674879 - W43N23 stamped
+ *    crew 1 / onRepairDetail 1 / latchedToSite 0 / buildTargets "R" with an
+ *    88-part builder while 15 remote sites stood and the plan allocated
+ *    20 e/t to construction: P8 FAIL "CREW IDLE").
+ *
+ * So this function governs RECRUITMENT only - an existing detail stays sticky
+ * and keeps its beat (`hasDetail` short-circuits, and the clear path is the
+ * caller's, keyed to maintenance want, not to sites). A lone builder is never
+ * conscripted while build work stands: the +1 detail demand
+ * (builderPlanWithDetail) orders a dedicated body for maintenance instead, so
+ * repair stays decoupled from building without the build crew going to zero.
+ * With nothing to build, the lone builder maintains - that is the whole point
+ * of an idle crew.
+ *
+ * `critical` PIERCES the last-builder rule: REPAIR_CRITICAL exists so a
+ * genuinely endangered structure outranks construction (a container is worth
+ * 5000 energy to rebuild plus the mining it strands - see REPAIR_CRITICAL
+ * above). Blocking the lone builder there would let it die with sites
+ * standing, which is the exact failure the critical band was added to prevent.
+ */
+export function repairDetailRecruit(x: {
+  crew: number;
+  hasDetail: boolean;
+  buildWork: boolean;
+  critical?: boolean;
+}): boolean {
+  if (x.hasDetail) return false;
+  if (x.crew <= 0) return false;
+  if (x.crew === 1 && x.buildWork && !x.critical) return false;
+  return true;
+}
+
+/**
+ * WHICH crew member takes the maintenance beat: the SMALLEST body (owner
+ * 2026-07-29 "there's a BIG builder, but he's going around repairing roads
+ * instead"). The squad's `members()` iterates Game.creeps in insertion order,
+ * so picking members[0] conscripted an arbitrary body - an 88-part builder as
+ * readily as a runt. That inverts the economics: the detail's own plan
+ * (repairerPlan) is a 550-cost 2-WORK body, while the build crew exists to
+ * absorb the construction budget, so every WORK part parked on a road is
+ * build capacity idled. Stable on ties (strict `<`) so the pick does not
+ * reshuffle tick to tick; the `sizeOf` lens keeps this pure and testable
+ * without live creeps.
+ */
+export function pickRepairDetail<T>(crew: T[], sizeOf: (c: T) => number): T | null {
+  let best: T | null = null;
+  let bestSize = Infinity;
+  for (const c of crew) {
+    const size = sizeOf(c);
+    if (size < bestSize) {
+      bestSize = size;
+      best = c;
+    }
+  }
+  return best;
 }
 
 /**

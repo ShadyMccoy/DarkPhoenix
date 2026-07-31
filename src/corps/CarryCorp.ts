@@ -19,7 +19,14 @@ import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle } from "./recycle";
-import { CARRY_MOVE_PAIR_COST, maxCarryPairs, roundTripTicks, staffsPost } from "../economy/primitives";
+import {
+  CARRY_MOVE_PAIR_COST,
+  CREEP_LIFETIME,
+  carryPartsFor,
+  maxCarryPairs,
+  roundTripTicks,
+  staffsPost
+} from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
 import { nextStop, roomCircuit } from "./refillCircuit";
@@ -1339,11 +1346,38 @@ export class CarryCorp extends Corp {
    * energy is left for the tankers.
    */
   private haulCarryNeeded(): number {
-    return Math.ceil(
-      this.haulerAssignments
-        .filter(a => !(a.toId ?? "").startsWith("construction-"))
-        .reduce((sum, a) => sum + a.carryParts, 0)
-    );
+    const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
+    if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
+    const sustained = routes.reduce((sum, a) => sum + a.carryParts, 0);
+
+    // BUFFER-DRAIN TERM (owner 2026-07-29, the E6 work item; pre-registered by
+    // the 2026-07-26 pileup instrument: "staged high, NO link => the fleet is
+    // under-sized - the missing drain term is the fix"). Sized to sustained
+    // inflow ALONE, a standing pile is invisible to this decision: whatever
+    // opened the gap (raid embargo, spawn scarcity, a churned hauler)
+    // ratchets the buffer up permanently and the plan never asks for the
+    // carry to clear it (measured t72654979: cd8e staged 3874 and growing,
+    // the miner gate held 512t at 100% of window, this route stamped
+    // carryNeeded 1 with zero haulers and no source link).
+    //
+    // The term is the codebase's ONE drain law - sustainableConsumptionRate's
+    // stock/CREEP_LIFETIME, the same law the bank surplus and consumer sizing
+    // use: clear the standing buffer over one creep generation ON TOP of the
+    // sustained rate. Gentle by construction (3874 adds 2.6 e/t ~ 4 CARRY on
+    // a 36-tile route, never a swarm) and self-extinguishing as the pile
+    // drains. FAILS OPEN on fog: an unmeasurable buffer (no vision) adds
+    // nothing, so demand is never fabricated from a read we do not have.
+    const staged = this.readPickupBuffer().staged;
+    if (staged === null || staged <= 0) return Math.ceil(sustained);
+
+    // Amortize across the routes by their share of the sustained carry (a
+    // single-route corp takes it all); distance comes from the route the
+    // energy actually travels, so the drain is priced at its real cost.
+    const drain = routes.reduce((sum, a) => {
+      const share = sustained > 0 ? a.carryParts / sustained : 1 / routes.length;
+      return sum + carryPartsFor((staged * share) / CREEP_LIFETIME, a.distance ?? 0);
+    }, 0);
+    return Math.ceil(sustained + drain);
   }
 
   /**

@@ -29,6 +29,7 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
+import { CREEP_LIFETIME } from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
@@ -81,8 +82,24 @@ export function resolveReserveTarget(persisted: number | undefined): number {
   return persisted ?? BASE_RESERVE;
 }
 
-/** Target ticks to drain the spendable surplus (the bank does not decay, so it keeps its own burst pace - unlike scavengeRate's effective-ttl sizing). */
-export const SURPLUS_DRAIN_TICKS = 150;
+/**
+ * Ticks over which the spendable surplus drains - and the equality with
+ * CREEP_LIFETIME is the point (owner 2026-07-29: "drain the bank slightly
+ * less aggressively, so upgraders are sized more to the equilibrium ...
+ * avoid having to recycle upgraders"). Consumer fleets are SIZED to this
+ * draw (bankSurplusRate -> feederRelayRate -> upgrader inflow), so the
+ * horizon must cover the LIFETIME of the bodies it sizes. At 150 (measured
+ * swing t72645498->t72652682): a ~21k surplus sized two 4350e upgraders to
+ * a 100 e/t draw that self-extinguished in ~200t; the standing fleet then
+ * legally burned the bank BELOW reserve for its remaining ~1200t (slope
+ * -1.66/t), EOL'd into floor bodies, and the refill re-armed the swing -
+ * plus an X5 phantom-churn artifact from the mid-window staffing shrink.
+ * At one lifetime the same surplus is a gentle +14 e/t over equilibrium
+ * and the bodies it funds die naturally as it empties. Mirrors
+ * sustainableConsumptionRate's stock/CREEP_LIFETIME: ONE drain law at
+ * every stock.
+ */
+export const SURPLUS_DRAIN_TICKS = CREEP_LIFETIME;
 
 /**
  * Runaway GUARD on the surplus draw (energy/tick) - NOT a pacer (owner

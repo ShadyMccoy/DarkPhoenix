@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { F1_CLASS_OF_KIND, F1_PLAN_PREFIX, computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { ALL_CORP_KINDS } from "../../../src/execution/CommissionHost";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -47,6 +48,51 @@ describe("waste ledger (spec 15 phase 1)", () => {
     for (const cls of ["miners", "source-route haulers", "transient-route", "upgraders", "feeder", "tenders", "reservers"]) {
       expect(names).to.contain(cls);
     }
+  });
+
+  /**
+   * PER-ROOM CORPS MUST BE SUMMED, NOT SAMPLED (measured t72683137). The
+   * reserver line read `corps.find(kind === "reservation")?.sizing?.targets` -
+   * the FIRST corp only. Reservation is a PER-ROOM corp: the live colony ran
+   * SEVEN of them (W42N22/W42N23/W43N22/W43N24/W44N22/W44N23/W41N23), each
+   * `targets: 1`, each a 4-part body. P4 therefore priced 4 parts where 28
+   * stood - 0.0074 vs 0.0519 parts/t, a 7x under-count on a class that was
+   * 21.7% of MEASURED spawn spend (26,000e of 119,969e over 2,452t). It
+   * accounts for ~26% of the session-long "unbudgeted" gap (measured 0.649
+   * p/t vs plan-implied 0.478) that the 90% headroom failed to explain.
+   *
+   * P4's charter is "ALL fleet classes, budgeted or not" - a sampling read of
+   * a per-room class silently breaks exactly that contract.
+   */
+  it("P4 SUMS per-room reservation corps instead of sampling the first (t72683137)", () => {
+    const room = (n: string) => ({
+      id: `reservation-${n}-reservation`,
+      kind: "reservation",
+      creepCount: 1,
+      bodyParts: 4,
+      sizing: { targets: 1 }
+    });
+    const seven = ["W42N22", "W42N23", "W43N22", "W43N24", "W44N22", "W44N23", "W41N23"].map(room);
+    const mk = (corps: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers: [], sinks: [] }, corps: { corps }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const resLoad = (c: any): number =>
+      planSpawnLoad(c).lines.find(([n]) => String(n).startsWith("reservers"))![2];
+
+    const one = resLoad(mk([room("W42N22")]));
+    const all = resLoad(mk(seven));
+    expect(all, "seven rooms cost seven reservers, not one").to.be.closeTo(7 * one, 1e-9);
+    expect(all, "28 parts over the claim life, not 4").to.be.closeTo(28 / (600 - 60), 1e-9);
+  });
+
+  it("P4's reserver line stays zero when no room is reserved", () => {
+    const mk = (corps: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers: [], sinks: [] }, corps: { corps }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const line = planSpawnLoad(mk([])).lines.find(([n]) => String(n).startsWith("reservers"))!;
+    expect(line[2]).to.equal(0);
   });
 
   it("P4 READS the planner's own hauler spawnParts - no re-derivation, so no drift", () => {
@@ -248,6 +294,63 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
     expect(p8.verdict).to.equal("ok");
     expect(p8.detail).to.contain("completion window");
+  });
+
+  /**
+   * WITHIN-SITE remote progress (false-FAIL measured t72679468): remote site
+   * COUNT held 9->9 and receipts were flat, but the construction corp's
+   * poolWork stamp fell 3826->2252 - 1,574 energy actually built into
+   * partially-complete sites (crew "BBR", two builders latched). P8 read
+   * "0 e/t - CREW IDLE" on a window where the crew built ~2.8 e/t. The
+   * poolWork DELTA is a conservative floor on energy built: placements RAISE
+   * poolWork, so a falling delta only ever undercounts, same direction as
+   * the receipts floor.
+   */
+  it("P8 credits a falling construction poolWork stamp (within-site remote progress, t72679468)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W41N23: 9 };
+    capA.data.core.remoteSites = { W41N23: 9 };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:3826" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict, "building 1574e is not CREW IDLE").to.equal("ok");
+    expect(p8.value, "the poolWork floor is credited as e/t").to.be.greaterThan(0);
+    expect(p8.detail).to.contain("poolWork");
+  });
+
+  it("P8 still FAILS when poolWork is flat too (the stall is real)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 0, siteProgress: 0, siteTotal: 0 });
+    capB.data.core.remoteSites = { W41N23: 9 };
+    capA.data.core.remoteSites = { W41N23: 9 };
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capA.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:2252" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.verdict).to.equal("FAIL");
+    expect(p8.detail).to.contain("CREW IDLE");
+  });
+
+  it("P8 never counts a RISING poolWork as negative build (placements are not un-building)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 900, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 20 });
+    capB.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:1000" } }] };
+    capA.data.corps = { corps: [{ id: "building-X-construction", kind: "construction", sizing: { poolWork: "W41N23:4000" } }] };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    // home progress 400 delivered; the risen pool must not subtract from it
+    expect(p8.value).to.be.greaterThan(0);
+    expect(p8.verdict).to.equal("ok");
   });
 
   it("P9 catches mined production that is funded but never routed (#19, owner-caught 2026-07-19)", () => {
@@ -621,5 +724,456 @@ describe("P4 construction charge (spec 34 P4: read THROUGH the all-in price)", (
   it("legacy captures without the echo stay exactly as before (no fabricated line)", () => {
     const { lines } = planSpawnLoad(fixtureCopy());
     expect(lines.some(([n]) => n.includes("construction (all-in)"))).to.equal(false);
+  });
+});
+
+describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () => {
+  // The gate DEFERS miner bodies at a full source mouth; this line keeps the
+  // deferral from MASKING the underlying haul deficit: chronic gating WARNs
+  // on the haul side, a source dark behind a full pile (staffing 0) FAILs.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const gatedCorp = (id: string, staffing: number): any => ({
+    id,
+    kind: "harvest",
+    type: "mining",
+    nodeId: id,
+    roomName: "W9N9",
+    creepCount: staffing,
+    bodyParts: staffing * 8,
+    body: {},
+    sizing: { tick: 1, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
+    createdAt: 0,
+    lastActivityTick: 1
+  });
+
+  it("skips the row entirely on pre-gate captures (no stamped harvest corps)", () => {
+    const rows = computeLedger(cap72411542, cap72404213);
+    expect(rows.find(r => r.id === "E6")).to.equal(undefined);
+  });
+
+  it("FAILs when a source goes DARK behind a full pile (gated, staffing 0)", () => {
+    const cap = clone(cap72411542);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-dead", 0));
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("FAIL");
+    expect(e6.detail).to.contain("HAULING"); // the attribution the gate must never bury
+    expect(e6.detail).to.contain("DARK");
+  });
+
+  it("WARNs on CHRONIC gating (deferred in both captures) - the haul side is behind", () => {
+    const cap = clone(cap72411542);
+    const base = clone(cap72404213);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-slow", 1));
+    base.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-slow", 1));
+    const e6 = computeLedger(cap, base).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+    expect(e6.detail).to.contain("CHRONIC");
+  });
+
+  it("stays ok on a transient deferral with the post still staffed (the gate doing its job)", () => {
+    const cap = clone(cap72411542);
+    cap.data.corps.corps.push(gatedCorp("mining-W9N9-harvest-blip", 1));
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+    expect(e6.value).to.equal(1);
+  });
+
+  it("reports quiet-gate visibility (stamps present, zero deferrals) as ok/0", () => {
+    const cap = clone(cap72411542);
+    const clear = gatedCorp("mining-W9N9-harvest-fine", 1);
+    clear.sizing = { tick: 1, gate: "clear", buffered: 150, staffing: 1, target: 1 };
+    cap.data.corps.corps.push(clear);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+    expect(e6.value).to.equal(0);
+  });
+
+  // Delay meter verdicts (owner 2026-07-29: instrument the spawning delay
+  // time of a pile). heldFor is MEASURED consecutive hold: one source regen
+  // cycle (300t) of continuous deferral WARNs without waiting for a second
+  // capture; a full miner lifetime (1500t) FAILs - a whole generation of
+  // spawning suppressed behind one pile.
+  it("WARNs on a measured hold >= one regen cycle (300t) from a SINGLE capture", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-lag", 1);
+    c.sizing.heldFor = 300;
+    c.sizing.heldFrac = 0.3;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+    expect(e6.detail).to.contain("300t");
+  });
+
+  it("FAILs on a measured hold >= a miner lifetime (1500t) even fully staffed", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-stuck", 1);
+    c.sizing.heldFor = 1500;
+    c.sizing.heldFrac = 1;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("FAIL");
+  });
+
+  it("stays ok on a short measured hold (below a regen cycle, staffed, not chronic)", () => {
+    const cap = clone(cap72411542);
+    const c = gatedCorp("mining-W9N9-harvest-blip2", 1);
+    c.sizing.heldFor = 40;
+    c.sizing.heldFrac = 0.04;
+    cap.data.corps.corps.push(c);
+    const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+  });
+});
+
+describe("E6 frac trigger sample floor (first-contact calibration, t72645498)", () => {
+  // A reset wipes the meter window: 7 samples all-held read heldFrac 1.0 and
+  // cried WARN on 7 ticks of evidence. The frac trigger now requires the
+  // current hold to be >= 50t (the two-captures->=50t doctrine); heldFor's
+  // own 300t duration trigger and the dark-source FAIL are unchanged.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const fx = (name: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
+  const capBase = fx("shard1-t72411542.json");
+  const baseBase = fx("shard1-t72404213.json");
+  const mk = (heldFor: number, heldFrac: number): any => {
+    const cap = clone(capBase);
+    cap.data.corps.corps.push({
+      id: "mining-W9N9-harvest-tiny", kind: "harvest", type: "mining", nodeId: "n", roomName: "W9N9",
+      creepCount: 1, bodyParts: 8, body: {},
+      sizing: { tick: 1, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
+      createdAt: 0, lastActivityTick: 1
+    });
+    return cap;
+  };
+
+  it("suppresses the frac WARN on a tiny post-reset window (7t held, frac 1.0)", () => {
+    const e6 = computeLedger(mk(7, 1), baseBase).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("ok");
+  });
+
+  it("keeps the frac WARN once the hold is >= 50t of evidence (60t, frac 0.6)", () => {
+    const e6 = computeLedger(mk(60, 0.6), baseBase).find(r => r.id === "E6")!;
+    expect(e6.verdict).to.equal("WARN");
+  });
+});
+
+describe("X5 phantom churn on a mid-window fleet shrink (t72651837, owner 2026-07-29)", () => {
+  // The governor swing bought two 4350e upgraders 153t apart (a cohort wave -
+  // the spawn takes ~132t to BUILD one), relegation later shrank staffing to
+  // 1, and X5 read the pair at stride 1 as one slot dying at 153t: 4350e of
+  // phantom churn on bodies that both lived full lives (successors at
+  // +1646t/+1493t ~ natural EOL). A slot with a natural-lifetime successor
+  // anywhere in the log did not churn.
+  it("does not book the 4350e cohort pair as churn (both bodies EOL'd naturally)", () => {
+    const cap = fixture("shard1-t72651837.json");
+    const churn = computeChurn(cap)!;
+    expect(churn.worst).to.not.contain("4350e@153");
+    expect(churn.homeChurn, "upgrading cohort wave is not churn").to.be.lessThan(1000);
+  });
+
+  it("still catches a REAL early death (no EOL-window successor exists)", () => {
+    const mk = (ts: number[]): any => ({
+      data: {
+        blackbox: { rows: ts.map(t => ({ t, k: "spawn", d: { spawn: "s1", role: "hauler", corp: "hauling-W1N1-x", cost: 1000 } })) },
+        corps: { corps: [{ id: "hauling-W1N1-x", creepCount: 1 }] }
+      }
+    });
+    // death at 300t, replaced: successor at 0.2x life - churn stands
+    const real = computeChurn(mk([100000, 100300]))!;
+    expect(real.churnEnergy).to.be.greaterThan(700); // 1000 * (1 - 300/1500) = 800
+    // natural EOL cadence: successor at ~1x life - no churn
+    const eol = computeChurn(mk([100000, 101500]))!;
+    expect(eol.churnEnergy).to.equal(0);
+  });
+});
+
+describe("E4 damped-equilibrium frame (owner 2026-07-29: a rising surplus is convergence, not a leak)", () => {
+  // Under SURPLUS_DRAIN_TICKS = CREEP_LIFETIME the bank's equilibrium is NOT
+  // the reserve: spending is surplus/1500, so it settles where that equals
+  // net inflow => S* = reserve + 1500 x netInflow. A bank CLIMBING toward a
+  // finite S* with the spend path live is healthy convergence; the leak
+  // signature is a bank whose projected S* runs past the draw-saturation
+  // knee (MAX_SURPLUS_DRAW x 1500) or that climbs with the spend path DOWN.
+  const clone = (o: any): any => JSON.parse(JSON.stringify(o));
+  const fx = (n: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", n), "utf8"));
+
+  /** A capture pair with a chosen storage slope, feeder state, and reserve. */
+  const pair = (storage: number, prevStorage: number, feederActive = true) => {
+    const cap = clone(fx("shard1-t72652682.json"));
+    const base = clone(fx("shard1-t72651837.json"));
+    cap.data.core.warchestTarget = 56000;
+    base.data.core.warchestTarget = 56000;
+    cap.data.core.rooms[0].storageEnergy = storage;
+    cap.data.core.rooms[0].feederActive = feederActive;
+    base.data.core.rooms[0].storageEnergy = prevStorage;
+    base.data.core.rooms[0].name = cap.data.core.rooms[0].name;
+    return [cap, base] as const;
+  };
+  const e4 = (a: any, b: any): any => computeLedger(a, b).find((r: any) => r.id === "E4")!;
+
+  it("does NOT flag a bank climbing toward a modest equilibrium (the damped signature)", () => {
+    // +2/t from 90k (surplus 34k - genuinely ABOVE the idle threshold, so
+    // the old rule's "excess big AND slope >= 0" would have FAILED it):
+    // S* ~ 90k + 3000, ~37k surplus, well inside the 150k knee.
+    const [cap, base] = pair(90_000, 88_310);
+    const row = e4(cap, base);
+    expect(row.verdict).to.equal("ok");
+    expect(row.detail).to.contain("equilibrium");
+  });
+
+  it("still FAILS a runaway bank whose projected equilibrium blows past the draw knee", () => {
+    // +40/t sustained: S* ~ 200k+, far beyond MAX_SURPLUS_DRAW x 1500 - the
+    // spend path cannot absorb what income banks. That is a real leak.
+    const [cap, base] = pair(190_000, 156_200);
+    expect(e4(cap, base).verdict).to.equal("FAIL");
+  });
+
+  it("still FAILS a big idle bank while the spend path is DOWN (feederActive false)", () => {
+    const [cap, base] = pair(120_000, 120_000, false);
+    expect(e4(cap, base).verdict).to.equal("FAIL");
+  });
+
+  it("keeps a watch-level WARN (never a FAIL) on a bank FLAT at a big surplus", () => {
+    // Flat is not convergence evidence - it is equally the stalled-spend-path
+    // shape. Worth watching, never a deploy-blocking red.
+    const [cap, base] = pair(90_000, 90_000);
+    expect(e4(cap, base).verdict).to.equal("WARN");
+  });
+
+  it("stays ok at/below the reserve target (nothing idle)", () => {
+    const [cap, base] = pair(50_000, 49_000);
+    expect(e4(cap, base).verdict).to.equal("ok");
+  });
+});
+
+describe("E4 spend-path: a feeder BETWEEN GENERATIONS is not a broken path (t72665987)", () => {
+  // Live FAIL "SPEND PATH DOWN" on a healthy colony: feederActive false while
+  // the feeder's own stamp read gate "demand", wantedFeeders 1, feeders 0 -
+  // i.e. it had DEMANDED a body and was waiting for the spawn. Meanwhile P7
+  // delivered 0.91x plan (33.3 e/t), the link network put 34.1 e/t into the
+  // controller and upgraders ran workUtil 0.999. A path in transition is not a
+  // path down; a path GATED OFF ("no-storage"/"no-miner"/"no-spawn") is.
+  // Trust the stamp over the derived boolean - the spec-14 rule.
+  const fx = (name: string): any =>
+    JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
+  const cap = fx("shard1-t72665987.json");
+  const base = fx("shard1-t72664142.json");
+
+  it("does NOT FAIL while the feeder is awaiting a body it has demanded", () => {
+    const e4 = computeLedger(cap, base).find(r => r.id === "E4")!;
+    expect(e4.verdict).to.not.equal("FAIL");
+  });
+
+  it("STILL FAILS when the feeder is structurally gated off (no-storage)", () => {
+    const gated = JSON.parse(JSON.stringify(cap));
+    const feeder = gated.data.corps.corps.find((c: any) => c.kind === "controllerFeeder");
+    feeder.sizing = { tick: feeder.sizing.tick, gate: "no-storage" };
+    const e4 = computeLedger(gated, base).find(r => r.id === "E4")!;
+    expect(e4.verdict, "a gated-off relay IS a down spend path").to.equal("FAIL");
+  });
+
+  it("STILL FAILS when there is no feeder corp at all and the bank is idle", () => {
+    const none = JSON.parse(JSON.stringify(cap));
+    none.data.corps.corps = none.data.corps.corps.filter((c: any) => c.kind !== "controllerFeeder");
+    const e4 = computeLedger(none, base).find(r => r.id === "E4")!;
+    expect(e4.verdict).to.equal("FAIL");
+  });
+});
+
+/**
+ * F1 — PLAN FIDELITY (owner doctrine 2026-07-30): *"More than points what
+ * we're chasing is a controllable economy. So that we can plan it all on the
+ * abstract level and then it gets implemented faithfully... We end up having
+ * to chase down why is this or that thing happening. That's something to
+ * optimize for as well."*
+ *
+ * Fidelity was already first-class in SIMS (`fid-*` grid cells; CLAUDE.md:
+ * "on synthetic worlds the plan should be achievable - a fidelity gap there
+ * is a bug signal by construction") but had NO production number. The waste
+ * ledger measured leaks; nothing measured DIVERGENCE, so every live fidelity
+ * failure this session was found by hand: the 100-tile fuel price on a 4-tile
+ * pile (spec 37), three bank-drain rates (spec 38), P4's 7x reserver
+ * under-count, and the six-capture 0.649-vs-0.478 parts gap.
+ *
+ * F1 is the aggregate: what the plan says the colony's spawn maintenance
+ * costs, against what the spawn MEASURABLY builds. 1.0 is a faithful plan.
+ * It is deliberately a RATIO in both directions - a plan that over-states is
+ * as unfaithful as one that under-states, and only one of those looks like
+ * "waste".
+ */
+describe("F1 plan fidelity (waste ledger)", () => {
+  const mk = (planLines: any[], partsPerTick: number[], corpsList: any[] = []): any => ({
+    tick: 1000,
+    data: {
+      flow: { sources: [], haulers: [], sinks: [] },
+      corps: { corps: corpsList },
+      core: {
+        rooms: [{ storageEnergy: 0 }],
+        creeps: { total: 0, tracked: 0, untracked: 0 },
+        spawns: partsPerTick.map(p => ({ partsPerTick: p, utilization: p * 3, queueDepth: 0 }))
+      },
+      ...(planLines.length ? {} : {})
+    }
+  });
+
+  /** The plan total carries fallback lines (tender 3x24, feeder, ...), so the
+   *  fixtures DERIVE it via planSpawnLoad rather than hard-coding a constant -
+   *  the assertions are about the RELATIONSHIP, which is what F1 measures. */
+  const planTotal = (cap: any): number => planSpawnLoad(cap).total;
+
+  it("reads 1.0 when the spawn builds exactly what the plan prices", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe)], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(1.0, 0.02);
+    expect(f1.verdict).to.equal("ok");
+    expect(f1.detail).to.contain("faithful");
+  });
+
+  it("FAILS when the spawn builds far more than the plan prices (the session's shape)", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(2.0, 0.05);
+    expect(f1.verdict).to.equal("FAIL");
+    expect(f1.detail).to.contain("UNBUDGETED");
+  });
+
+  it("also FLAGS an OVER-stating plan (fidelity is two-sided, not a waste line)", () => {
+    // A fleet priced but never built is exactly as uncontrollable as an
+    // unbudgeted one - and it is the shape that reads as "efficient" if you
+    // only ever look for waste.
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 0.5], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(0.5, 0.05);
+    expect(f1.verdict).to.equal("FAIL");
+    expect(f1.detail).to.contain("OVER-states");
+  });
+
+  it("skips (no row) when the spawn meter is absent - never a fabricated verdict", () => {
+    const cap: any = {
+      tick: 1000,
+      data: {
+        flow: {},
+        corps: { corps: [] },
+        core: { rooms: [{ storageEnergy: 0 }], creeps: { total: 0, tracked: 0, untracked: 0 } }
+      }
+    };
+    expect(computeLedger(cap, cap).find(r => r.id === "F1")).to.equal(undefined);
+  });
+
+  /**
+   * DECOMPOSITION (t72689264). F1 said "0.286 p/t UNBUDGETED (44%)" for five
+   * consecutive cycles and named only *the largest PLANNED class* - which is
+   * not the same question. Finding WHICH class was in breach took a manual
+   * blackbox bucket-by-role every cycle; the answer (haulers, 0.256 of the
+   * 0.286 = 89%) was stable the whole time and no line printed it.
+   *
+   * This is spec 40's Part A thesis reduced to the one line that already
+   * exists: *"one number nobody can decompose is worse than a table."* The
+   * blackbox spawn ring is the actual side, `planSpawnLoad` is the plan side,
+   * and the join is the corp's own kind - so the leak arrives with a name.
+   */
+  const mkRing = (rows: Array<{ role: string; corp: string; cost: number; parts?: number }>, tick = 1000): any =>
+    rows.map((d, i) => ({ t: tick - rows.length + i, k: "spawn", d }));
+
+  it("names the class in breach, not just the largest planned class", () => {
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "mining-A-harvest-s1", kind: "harvest", creepCount: 1, bodyParts: 8 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    // 300 hauler parts over the 1000-tick ring = 0.3 p/t of a class the plan
+    // prices at zero (no flow.haulers) - the whole overshoot, one class.
+    cap.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000, parts: 300 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.contain("haulers");
+    expect(f1.detail).to.match(/breach|worst/i);
+  });
+
+  it("surfaces a kind the plan prices at ZERO as UNPRICED (the raidGuard hole)", () => {
+    // raidGuard stood 10 parts and bought 0.020 p/t live while planSpawnLoad
+    // has no line for it at all. An unpriced CLASS is a different defect from
+    // a mispriced one: no amount of tuning an existing line can find it.
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    cap.data.blackbox = { rows: mkRing([{ role: "guard", corp: "raidGuard-A-raidGuard", cost: 3000, parts: 30 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.contain("UNPRICED");
+    expect(f1.detail).to.contain("raidGuard");
+  });
+
+  it("prefers the recorded parts count over the cost estimate, and says which it used", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const measured = mk([], [planTotal(probe) * 2], corps);
+    measured.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000, parts: 300 }]) };
+    const estimated = mk([], [planTotal(probe) * 2], corps);
+    // same purchase, no `parts` field (a pre-v2 ring): cost/50 = 300 parts too,
+    // but the line must SAY it inferred them rather than claim a measurement.
+    estimated.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000 }]) };
+    const a = computeLedger(measured, measured).find(r => r.id === "F1")!;
+    const b = computeLedger(estimated, estimated).find(r => r.id === "F1")!;
+    expect(a.detail).to.not.contain("est.");
+    expect(b.detail).to.contain("est.");
+  });
+
+  it("omits the decomposition entirely when no spawn ring was captured", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.verdict).to.equal("FAIL"); // the aggregate still works
+    expect(f1.detail).to.not.match(/breach|UNPRICED/);
+  });
+});
+
+/**
+ * The F1 class map is keyed on REGISTERED KIND NAMES, and a typo there is
+ * silent-and-wrong in the worst way: the class does not vanish, it is
+ * re-reported as UNPRICED, which reads as a plan HOLE rather than a ledger
+ * bug. Caught on the first live run - the map said "upgrading" where the kind
+ * is "upgrade", and F1 duly announced upgraders as an unpriced class.
+ *
+ * So the map is pinned against the kind registry itself, not a literal list:
+ * every registered kind is either classified or an ACKNOWLEDGED unpriced kind.
+ * A new kind (spec 17: registration-only) fails this until someone decides
+ * which of the two it is - which is the decision F1 exists to force.
+ */
+describe("F1 class map covers every registered corp kind", () => {
+  /** Kinds the PLAN genuinely does not price. Each is a real finding, not a
+   *  waiver: F1 reports them as UNPRICED so the hole stays visible. */
+  const ACKNOWLEDGED_UNPRICED = new Set([
+    "raidGuard", // defense: bought on threat, never budgeted (live 0.014-0.020 p/t)
+    "coreBuster", // invader-core response, same shape as raidGuard
+    "scout", // 50e bodies, below the noise floor but still unpriced
+    "claim", // expansion capex, one-shot and outside the maintenance plan
+    "carry" // routes ARE priced (flow.haulers); the kind only ever buys role `hauler`
+  ]);
+
+  it("classifies or acknowledges every kind in the registry", () => {
+    const unclassified = ALL_CORP_KINDS.filter(k => !F1_CLASS_OF_KIND[k] && !ACKNOWLEDGED_UNPRICED.has(k));
+    expect(unclassified, `unclassified kinds: ${unclassified.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("maps no kind that does not exist (the 'upgrading' typo)", () => {
+    const ghosts = Object.keys(F1_CLASS_OF_KIND).filter(k => !ALL_CORP_KINDS.includes(k));
+    expect(ghosts, `mapped kinds that are not registered: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("points every class at a plan line that planSpawnLoad actually emits", () => {
+    const classes = new Set(Object.values(F1_CLASS_OF_KIND).concat("haulers"));
+    const missing = [...classes].filter(c => !F1_PLAN_PREFIX[c]);
+    expect(missing, `classes with no plan prefix: ${missing.join(", ")}`).to.deep.equal([]);
   });
 });

@@ -40,6 +40,7 @@ global.ERR_GCL_NOT_ENOUGH = -15;
 
 // Find constants
 global.FIND_SOURCES = 105;
+global.FIND_DROPPED_RESOURCES = 106; // real API value (sourceBufferStock lens)
 global.FIND_MINERALS = 106;
 global.FIND_STRUCTURES = 107;
 global.FIND_MY_SPAWNS = 112;

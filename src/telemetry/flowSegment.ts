@@ -48,8 +48,18 @@ export interface FlowTelemetry {
   tick: number;
   /** The fill's spawn-parts ledger (v4): capacity/minerLoad/infra/budget.
    * v9 adds spent/dry: the spawn shadow-price signal (dry=true => spawn
-   * capacity is the binding constraint; the scavenge-gate precondition). */
-  partsLedger?: { capacity: number; minerLoad: number; infra: number; budget: number; spent?: number; dry?: boolean };
+   * capacity is the binding constraint; the scavenge-gate precondition).
+   * v12 adds plannable: the 90% planning margin (SPAWN_PLAN_FRACTION) the
+   * fill spends from; capacity stays the PHYSICAL rate P4 audits against. */
+  partsLedger?: {
+    capacity: number;
+    plannable?: number;
+    minerLoad: number;
+    infra: number;
+    budget: number;
+    spent?: number;
+    dry?: boolean;
+  };
   /** Problem-assembly counts (v5): names the layer that dropped sources. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
   /** DEPOSIT-side link instrument (v10, spec-26 stage 4): for each REMOTE
@@ -324,7 +334,9 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // depositSavings - the deposit-side link instrument (spec-26 stage 4).
     // v11 adds sinks[].spawnLoad/spawnDist - the all-in consumer charge
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
-    version: 11,
+    // v12 adds partsLedger.plannable - the 90% planning margin
+    // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
+    version: 12,
     tick: Game.time,
     sources,
     haulers,

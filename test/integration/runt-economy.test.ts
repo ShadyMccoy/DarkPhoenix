@@ -2,6 +2,10 @@
 import { assert } from "chai";
 import { helper, hookConsole } from "./helper";
 import { loadLayout, padNeighborTerrain, setRoomLevel, enableMods, FREE_ECONOMY_MOD } from "./loadLayout";
+import { TELEMETRY_SEGMENTS } from "../../src/telemetry/segmentIds";
+
+/** Segment 4 - the ONE place a corp's transient sizing stamp is exported. */
+const TELEMETRY_CORPS_SEGMENT = TELEMETRY_SEGMENTS.CORPS;
 
 /**
  * Runt -> upsize probe.
@@ -66,6 +70,9 @@ describe("runt economy upsizes its runts", () => {
     let largestMiner = 0; // the biggest body it ever upsized to
     let recyclingSeen = false;
     const samples: string[] = [];
+    const lastMinerSizing: { [corpId: string]: any } = {};
+    let lastAgenda = "(agenda never read)";
+    let lastPartsLedger = "(parts ledger never read)";
     let endedAt = 1200;
 
     // PROBE CADENCE (owner 2026-07-20 "runt econ always takes so long"): the
@@ -89,6 +96,63 @@ describe("runt economy upsizes its runts", () => {
         }
       }
 
+      // WHY-DIAGNOSTICS (2026-07-29): a red run used to report only WORK
+      // counts, so "upsize never proven" cost an 11-minute rerun and manual
+      // reasoning to attribute (measured twice in one session: once a
+      // host-load flake, once a real pile-gate suppression of the upsize
+      // demand). The miner corp's sizing stamp IS the decision - but it is
+      // TRANSIENT and never serialized into Memory (Corp.lastSizing), so it
+      // must be read from telemetry SEGMENT 4, the one place it is exported
+      // verbatim. A first attempt read player memory and printed "the corp
+      // never sized", which was a FALSE diagnosis - worse than none.
+      try {
+        const [raw] = await helper.player.getSegments([TELEMETRY_CORPS_SEGMENT]);
+        if (raw) {
+          for (const c of JSON.parse(raw).corps ?? []) {
+            if (c.kind === "harvest" && c.sizing) lastMinerSizing[c.id] = c.sizing;
+          }
+        }
+      } catch {
+        /* segment not active / unparseable - leave the stamps empty */
+      }
+      // STUCK-MODE FORENSICS (2026-07-30): the cell's known failure signature
+      // is bimodal and self-similar - source 1 piled at ~1901 with hauling
+      // dead, source 2 unstaffed for the whole run, demand standing (gate
+      // "clear", staffing 0). The miner stamps alone cannot say WHY the
+      // scheduler never fielded the second miner: that needs the NOW plan
+      // (agenda queue + energy) and the GOAL plan's parts ledger. Keep the
+      // LAST seen of each so a red verdict prints the whole decision chain,
+      // not just its final link.
+      try {
+        const [rawCore] = await helper.player.getSegments([TELEMETRY_SEGMENTS.CORE]);
+        if (rawCore) {
+          const core = JSON.parse(rawCore);
+          const spawnIds = Object.keys(core.agenda ?? {});
+          lastAgenda = spawnIds
+            .map(id => {
+              const a = core.agenda[id];
+              const q = (a.queue ?? [])
+                .slice(0, 4)
+                .map((e: any) => `${e.role}@${e.minCost}${e.blocking ? "!" : ""}(${e.gate})`)
+                .join(" ");
+              return `spawn ${id.slice(-4)} need ${a.fundingNeed} depth ${a.queueDepth}: ${q}`;
+            })
+            .join("\n  ");
+          const room = (core.rooms ?? [])[0];
+          if (room) lastAgenda += `\n  energyAvailable ${room.energyAvailable}/${room.energyCapacity}`;
+        }
+        const [rawFlow] = await helper.player.getSegments([TELEMETRY_SEGMENTS.FLOW]);
+        if (rawFlow) {
+          const flow = JSON.parse(rawFlow);
+          if (flow.partsLedger) lastPartsLedger = JSON.stringify(flow.partsLedger);
+          const verdicts = (flow.candidates ?? [])
+            .map((v: any) => `${String(v.sourceId).slice(-4)}:${v.verdict}`)
+            .join(" ");
+          if (verdicts) lastPartsLedger += `  verdicts[${verdicts}]`;
+        }
+      } catch {
+        /* segments not active - forensics stay empty */
+      }
       const works = await flowMinerWork(mem);
       for (const w of works) {
         if (w > 0 && w < smallestMiner) smallestMiner = w;
@@ -114,11 +178,31 @@ describe("runt economy upsizes its runts", () => {
         `recyclingSeen ${recyclingSeen}, ended at tick ${endedAt}`
     );
 
-    assert.notEqual(smallestMiner, Infinity, "the colony should staff at least one flow miner");
+    // The decision inputs behind a red verdict (see WHY-DIAGNOSTICS above).
+    const diag = Object.keys(lastMinerSizing).length
+      ? Object.entries(lastMinerSizing)
+          .map(([id, sz]) => `${id.slice(-22)} ${JSON.stringify(sz)}`)
+          .join("\n  ")
+      : `(no stamps in telemetry segment ${TELEMETRY_CORPS_SEGMENT} - either the bot never wrote it ` +
+        `(check the segment is active / the bot is executing at all) or no harvest corp existed. ` +
+        `This is NOT evidence about the sizing decision itself.)`;
+    console.log(`=== miner sizing stamps (last seen) ===\n  ${diag}`);
+    console.log(`=== NOW plan (last agenda) ===\n  ${lastAgenda}`);
+    console.log(`=== GOAL plan (last parts ledger + funding verdicts) ===\n  ${lastPartsLedger}`);
+
+    assert.notEqual(
+      smallestMiner,
+      Infinity,
+      `the colony should staff at least one flow miner. Stamps:\n  ${diag}`
+    );
     assert.isAbove(
       largestMiner,
       smallestMiner,
-      `flow miners should be upsized from their cold-start runt (smallest ${smallestMiner}, largest ${largestMiner}, recycled=${recyclingSeen})`
+      `flow miners should be upsized from their cold-start runt (smallest ${smallestMiner}, ` +
+        `largest ${largestMiner}, recycled=${recyclingSeen}, endedAt ${endedAt}).\n` +
+        `Miner sizing stamps name the cause - a "buffer-full" gate means the source's mouth was\n` +
+        `saturated and the upsize lost priority; "clear" with no upsize means the spawn never\n` +
+        `afforded the bigger body (read energyCapacity/agenda), not a demand problem:\n  ${diag}`
     );
   });
 });

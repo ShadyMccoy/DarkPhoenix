@@ -8,7 +8,13 @@
  */
 
 import { isIntelId, parsePositionalId, stripSourcePrefix, stripSpawnPrefix } from "../economy/ids";
-import { HARVEST_ENERGY_PER_WORK, staffsPost, workPartsForEnergyRate } from "../economy/primitives";
+import {
+  HARVEST_ENERGY_PER_WORK,
+  SOURCE_BUFFER_DEFER_THRESHOLD,
+  SOURCE_BUFFER_PRIORITY_PENALTY,
+  staffsPost,
+  workPartsForEnergyRate
+} from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
@@ -19,7 +25,7 @@ import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { HaulerAssignment, MinerAssignment } from "../flow/FlowTypes";
 import { Position } from "../types/Position";
 import { buildMinerBody } from "../spawn/BodyBuilder";
-import { coreLink, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { coreLink, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { CarryCorp } from "./CarryCorp";
 import { travelTo } from "./movement";
 
@@ -32,6 +38,73 @@ import { travelTo } from "./movement";
  * - "stay":   already in position; just harvest.
  */
 export type MinerApproach = "spot" | "spread" | "stay";
+
+/** Rolling window for the pile-gate delay meter (spawn-meter cadence). */
+export const PILE_METER_WINDOW = 1500;
+
+/**
+ * One evaluated tick of the miner pile gate (pure seam, upgradeMeter
+ * pattern; owner 2026-07-29: "instrument the spawning delay time for the
+ * energy piles"). `held` is the gate's ACTUAL verdict this tick. Returns the
+ * two delay readings the sizing stamp exports: `heldFor` = consecutive ticks
+ * of the current hold (wall ticks since `since`, surviving window rolls and
+ * evaluation gaps), `heldFrac` = deferred share of EVALUATED ticks in the
+ * window. Idempotent within a tick (multiple demand collections sample
+ * once). Callers must NOT tally fog ticks - unmeasurable is neither held
+ * nor clear.
+ */
+export function tallyPileGate(
+  meter: NonNullable<Memory["pileMeter"]>,
+  sourceTail: string,
+  tick: number,
+  held: boolean
+): { heldFor: number; heldFrac: number } {
+  let w = meter[sourceTail];
+  if (!w || tick - w.t0 >= PILE_METER_WINDOW) {
+    // Roll the window counters, but a hold in progress carries its `since`
+    // across the roll - heldFor measures the pile, not the bookkeeping.
+    w = meter[sourceTail] = { t0: tick, last: 0, samples: 0, held: 0, since: held && w?.since ? w.since : 0 };
+  }
+  if (w.last !== tick) {
+    w.last = tick;
+    w.samples++;
+    if (held) {
+      w.held++;
+      if (!w.since) w.since = tick;
+    } else {
+      w.since = 0;
+    }
+  }
+  return {
+    heldFor: held && w.since ? tick - w.since + 1 : 0,
+    heldFrac: w.samples > 0 ? w.held / w.samples : 0
+  };
+}
+
+/**
+ * De-price a piled source's miner demands (owner redesign 2026-07-29): the
+ * pile costs PRIORITY, never existence. Two effects, both within the
+ * scheduler's existing model:
+ *  - `value` drops by SOURCE_BUFFER_PRIORITY_PENALTY, which exceeds the whole
+ *    within-tier spread, so a saturated mouth ranks below EVERY clear source's
+ *    miner (value is the tier tiebreak; the 1e6/1e4 tier separators are
+ *    documented as NOT tunables and are left alone);
+ *  - `blocking` clears: a source that already has a miner standing is not on
+ *    the critical path, so it must not hold the spawn (mustFund) against
+ *    cheaper useful work while its energy sits unhauled.
+ * `producesIncome` and the demand group are deliberately untouched - they feed
+ * the scheduler's safe-to-wait income estimate and the census, and this change
+ * is about ordering only. Floored at 0 so a penalty can never invert into a
+ * negative that sorts above its own tier.
+ */
+export function depriceForPile(demands: SpawnDemand[], piled: boolean): SpawnDemand[] {
+  if (!piled) return demands;
+  return demands.map(d => ({
+    ...d,
+    value: Math.max(0, d.value - SOURCE_BUFFER_PRIORITY_PENALTY),
+    blocking: false
+  }));
+}
 
 /**
  * Decide a miner's move. A poor room splits a source across several small miners
@@ -494,11 +567,68 @@ export class HarvestCorp extends Corp {
     // leaves the source dark for spawnTime + walk ticks.
     const walkTicks = (assignment.spawnDistance ?? 0) * travelTicksPerTile(ctx.energyCapacity);
     const current = this.countStaffing(walkTicks);
+
+    // Colony cold start: the engine that fills this spawn network is dead
+    // (no miner here AND none in the spawn's room). Every defund gate below
+    // stands down so the restart is never blocked (the runt-floor doctrine).
+    const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
+
+    // PILE GATE (owner directive 2026-07-29): while the unhauled buffer at
+    // this source's mouth sits at/above the container cap, ANOTHER miner
+    // body buys rot, not income - haulage is behind, whatever the cause
+    // (hauler churn, raid interruption, spawn backlog; ~8.5k measured
+    // rotting above the cap, t72588289). Defer the purchase: the standing
+    // squad keeps mining and the haul vector stays UNGATED (haulers are the
+    // release - they drain the buffer back under the threshold and demand
+    // resumes). This also holds the upsize overlap below: no new bodies of
+    // any size into a saturated mouth. Vision-scoped and FAIL-OPEN: an
+    // unmeasurable buffer (null - no vision) never defers, so the gate acts
+    // only on fresh direct evidence (the stranded-reserver trap's polarity),
+    // and a cold start is exempt above all.
+    const buffered = this.unhauledBufferStock();
+    // PILE DE-PRICING (owner redesign 2026-07-29, replacing the hard gate).
+    // Doctrine: "scarcity acts at the SPAWN (defund: no NEW bodies, via
+    // priority), and the planner prices - it doesn't gate." The suppressing
+    // version cost two measured failures: sources went DARK when their miners
+    // EOL'd behind a full pile (E6 FAIL t72658948, income stopped), and the
+    // runt UPSIZE was blocked in bootstrap rooms, reviving the runt
+    // equilibrium and making runt-economy flaky. The demand now ALWAYS
+    // stands; a saturated mouth costs it priority (see depriceForPile), so it
+    // loses scarce spawn parts to sources that can still move their energy
+    // but is never withheld. Unstaffed posts and cold starts pay no penalty
+    // at all - a dark source is never the answer to a hauling deficit.
+    const piled = current > 0 && !colonyColdStart && buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD;
+    // Delay meter (owner: keep as-is): tallies the ACTUAL de-pricing verdict,
+    // so heldFor/heldFrac still measure how long a pile has been costing this
+    // source its spawn priority. Fog never tallies.
+    const delay =
+      buffered !== null
+        ? tallyPileGate(
+            (Memory.pileMeter = Memory.pileMeter ?? {}),
+            stripSourcePrefix(this.sourceId).slice(-6),
+            ctx.tick,
+            piled
+          )
+        : undefined;
+    this.lastSizing = {
+      tick: ctx.tick,
+      gate: piled
+        ? "buffer-full"
+        : buffered !== null && buffered >= SOURCE_BUFFER_DEFER_THRESHOLD && current === 0
+        ? "clear-unstaffed"
+        : "clear",
+      buffered,
+      ...(piled ? { threshold: SOURCE_BUFFER_DEFER_THRESHOLD } : {}),
+      staffing: current,
+      target,
+      ...(delay ? { heldFor: delay.heldFor, heldFrac: delay.heldFrac } : {})
+    };
+
     if (current >= target) {
       // Fully staffed by count - but a runt fleet still wants its overlap
       // upgrade (spawn-then-recycle; see runtUpgradeDemand).
       const upgrade = this.runtUpgradeDemand(ctx, this.getActiveCreeps());
-      return upgrade ? [upgrade] : [];
+      return upgrade ? depriceForPile([upgrade], piled) : [];
     }
 
     // Desired WORK per miner to cover the source's harvest rate across miners.
@@ -524,12 +654,12 @@ export class HarvestCorp extends Corp {
     // everything anyway).
     const linkFed = this.sourceIsLinkFed();
     const desired = buildMinerBody(desiredWork, ctx.energyCapacity, linkFed);
-    const colonyColdStart = current === 0 && !this.spawnRoomHasMiner();
     const minWork = colonyColdStart ? Math.min(desiredWork, 2) : desiredWork;
     const min = buildMinerBody(minWork, ctx.energyCapacity, linkFed);
     if (min.cost === 0) return []; // room cannot afford even a minimal miner
 
-    return [
+    return depriceForPile(
+      [
       {
         buyerCorpId: this.id,
         role: "miner",
@@ -558,7 +688,21 @@ export class HarvestCorp extends Corp {
         bodyParam: desiredWork,
         bodyStrategy: linkFed ? "linkFed" : undefined
       }
-    ];
+      ],
+      piled
+    );
+  }
+
+  /**
+   * Decision-site buffer read for the pile gate: container + ground pile at
+   * the source's mouth via the shared sourceBufferStock lens (the same
+   * number the sourceBuffers telemetry exports). Null - no vision, or an
+   * unwired mock - is a different fact from zero and fails OPEN upstream.
+   */
+  private unhauledBufferStock(): number | null {
+    const source = Game.getObjectById(stripSourcePrefix(this.sourceId) as Id<Source>);
+    if (!source) return null;
+    return sourceBufferStock(source);
   }
 
   /**

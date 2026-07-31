@@ -22,6 +22,71 @@ import { controllerInputSpot, coreDepot } from "./nodeEnergy";
 /**
  * Extension limits by controller level (RCL 1-8)
  */
+/**
+ * Spawns permitted per RCL, mirroring the engine's CONTROLLER_STRUCTURES
+ * (owner 2026-07-29: "lets take a look at placing the additional spawns as rcl
+ * allows"). The colony's hardest physical ceiling is spawn throughput -
+ * `spawnCount * SPAWN_PARTS_PER_TICK` - and until now STRUCTURE_SPAWN was
+ * placed NOWHERE but ExpansionCampaign (a new colony's founding spawn), so an
+ * owned room could never add its second while Spawn1 ran 0.87-0.97 utilization
+ * with a 4-6 deep queue (measured t72663189-t72665987).
+ */
+export const SPAWN_LIMITS: { [rcl: number]: number } = {
+  1: 1,
+  2: 1,
+  3: 1,
+  4: 1,
+  5: 1,
+  6: 1,
+  7: 2,
+  8: 3
+};
+
+/**
+ * Free adjacent tiles a spawn tile needs so NEWBORNS CAN STEP OUT. The one
+ * predicate neither existing scorer has: findGridPosition packs extensions
+ * densely (extensions do not care), and SpawningCorp aims emergence with
+ * spawnCreep({directions}) - a spawn walled in by its own grid would strand
+ * every creep it builds. Two keeps a lane open even while one tile is occupied
+ * by the creep already emerging.
+ */
+export const SPAWN_EMERGENCE_MIN = 2;
+
+/** How far down findGridPosition's ranking to look for a spawn tile that can
+ *  also release newborns before giving up this cooldown. */
+export const SPAWN_PLACEMENT_ATTEMPTS = 12;
+
+/**
+ * Count the walkable neighbours of (x,y) through a pure `isBlocked` lens (wall
+ * terrain or a movement-blocking structure). Room-EDGE tiles (0 and 49) never
+ * count: they are the border, not usable posts. Pure so the emergence rule is
+ * unit-pinned without a room.
+ */
+export function emergenceTileCount(isBlocked: (x: number, y: number) => boolean, x: number, y: number): number {
+  let free = 0;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx <= 0 || nx >= 49 || ny <= 0 || ny >= 49) continue;
+      if (!isBlocked(nx, ny)) free++;
+    }
+  }
+  return free;
+}
+
+/**
+ * Does this room want ANOTHER spawn? Pending SITES count against the limit: a
+ * 15k spawn site builds slowly, and re-placing every cooldown would spam
+ * ERR_INVALID_TARGET while hiding the rung below it. An unknown RCL falls back
+ * to one spawn, so bad input can never over-place.
+ */
+export function wantsAnotherSpawn(rcl: number, builtSpawns: number, spawnSites: number): boolean {
+  const limit = SPAWN_LIMITS[rcl] ?? 1;
+  return builtSpawns + spawnSites < limit;
+}
+
 export const EXTENSION_LIMITS: { [rcl: number]: number } = {
   1: 0,
   2: 5,
@@ -329,4 +394,59 @@ export function findGridPosition(room: Room, exclude?: Set<string>): { x: number
   // Deterministic best: score, then y, then x.
   candidates.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
   return candidates[0];
+}
+
+/**
+ * The engine's global construction-site cap (MAX_CONSTRUCTION_SITES). Placing
+ * past it fails ERR_FULL on every attempt, which - under the wide placement
+ * below - would burn a cooldown per rung and stamp nothing but errors.
+ */
+export const SITE_CAP = 100;
+
+/**
+ * Should the ladder place structures this pass? (owner 2026-07-29: "instead
+ * of just placing one construction site at a time ... place all of them,
+ * however we still only build them one at a time, but we size the builders
+ * to the size of all the construction sites").
+ *
+ * The OLD rule was `activeSites === 0`: no new rung until everything standing
+ * was finished. That capped the crew against whatever single site happened to
+ * be open, because the sum-of-projects lens (siteWorkRemaining ->
+ * projectAbsorbRate) can only amortize a crew against work that EXISTS as
+ * sites - the same reasoning that batched the extension set (owner
+ * 2026-07-20), now generalized to every rung.
+ *
+ * Placing wide is safe precisely because the two things that could go wrong
+ * are handled elsewhere: build FOCUS is the latch + ladder rank (buildRank /
+ * nextBuildTarget), so a wide board is still built one site at a time in the
+ * owner's order; and the RCL sequencing intent (at RCL2 containers wait for
+ * the extension SET to be BUILT) lives in the rung gates themselves, which
+ * still read BUILT structures, not sites.
+ *
+ * WIDENING IS A SURPLUS-SPEND LEVER, not a bootstrap behaviour. Placing the
+ * set while sites already stand multiplies the construction sink (the same
+ * sum-of-projects number that sizes the crew also sizes the PLAN's build
+ * allocation), and in a cold room that diverts the spawn energy income
+ * depends on - macro doctrine: production over consumption, fund producers
+ * first. Measured shape: the runt-economy world (RCL2, 5 extensions built,
+ * ~20 e/t) goes from 1 standing site to 3 per pass under a naive widening,
+ * against the very spawn energy the miner upsize needs. So a room with
+ * nothing spendable keeps the old conservative ladder - finish what you
+ * started - exactly the rule paving already follows (roads wait for
+ * spendableBankSurplus > 0). An EMPTY board always places: bootstrap must
+ * progress.
+ *
+ * `atSiteCap` closes the gate at the engine limit so a full board doesn't
+ * spam ERR_FULL every cooldown.
+ */
+export function placementGateOpen(x: {
+  activeSites: number;
+  wantsMore: boolean;
+  atSiteCap: boolean;
+  hasSurplus: boolean;
+}): boolean {
+  if (x.atSiteCap) return false;
+  if (!x.wantsMore) return false;
+  if (x.activeSites === 0) return true; // empty board: unchanged, bootstrap progresses
+  return x.hasSurplus; // widen only when the colony can fund the set
 }

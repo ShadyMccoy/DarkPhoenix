@@ -66,6 +66,16 @@ const KINDS: CorpKind[] = [
   constructionKind as CorpKind
 ];
 
+/**
+ * Every registered kind NAME, derived from the one roster above.
+ *
+ * Read by audits that must enumerate the kind space rather than hard-code it
+ * (F1's fidelity class map): a kind added by registration alone (spec 17) then
+ * shows up in those checks automatically instead of silently falling into a
+ * default bucket.
+ */
+export const ALL_CORP_KINDS: string[] = KINDS.map(k => k.kind);
+
 function registerKinds(): void {
   for (const kind of KINDS) {
     if (!getCorpKind(kind.kind)) registerCorpKind(kind);

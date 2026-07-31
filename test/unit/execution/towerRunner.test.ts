@@ -87,3 +87,57 @@ describe("pickTowerRepairTarget (peace-time road/container repair)", () => {
     ).to.equal(1);
   });
 });
+
+/**
+ * THE REFILL/REPAIR DEADLOCK (owner 2026-07-30: "the tower should repair the
+ * nearby roads anyways as well" - it largely was not).
+ *
+ * Two thresholds were the SAME number by coincidence, with mutually exclusive
+ * comparisons, leaving a dead point the tower converges on exactly:
+ *   - runTowers repairs only while `energy > TOWER_REPAIR_RESERVE` (500);
+ *   - towerNeedsFill refilled only while `energy < capacity * 0.5` (also 500,
+ *     since TOWER_CAPACITY is 1000).
+ * A repair action costs exactly TOWER_ENERGY_COST (10), so a full tower walks
+ * 1000 -> 990 -> ... -> EXACTLY 500 and then can neither repair (500 is not
+ * > 500) nor be refilled (500 is not < 500). It is not a probabilistic stall:
+ * the arithmetic lands on the dead point every time. Only a raid - which
+ * spends 10/shot and pushes it below 500 - ever unsticks it, which is why the
+ * tower appeared to work intermittently while roads decayed to the builder.
+ *
+ * The fix is the COUPLING, not either number: the refill threshold must sit
+ * strictly ABOVE the defensive reserve, so that draining to the reserve
+ * triggers a refill and peace-time repair always has budget above it.
+ */
+describe("tower refill/repair coupling (the 500/500 dead point)", () => {
+  const { towerNeedsFill } = require("../../../src/corps/ExtensionTenderCorp");
+  const { TOWER_REPAIR_RESERVE } = require("../../../src/execution/TowerRunner");
+  const { towerRefillBelow } = require("../../../src/economy/primitives");
+  const CAP = 1000; // TOWER_CAPACITY
+
+  it("REFILLS a tower sitting exactly at the repair reserve (the dead point)", () => {
+    expect(towerNeedsFill(TOWER_REPAIR_RESERVE, CAP)).to.equal(true);
+  });
+
+  it("the refill threshold sits strictly ABOVE the defensive reserve", () => {
+    // This is the invariant that makes the deadlock unrepresentable: if the
+    // two ever coincide again, the tower parks at the crossing point.
+    expect(towerRefillBelow(CAP)).to.be.greaterThan(TOWER_REPAIR_RESERVE);
+  });
+
+  it("leaves a non-zero repair budget after a refill", () => {
+    // Refilled to capacity, the energy ABOVE the reserve is what peace-time
+    // repair may spend - it must buy more than a single action.
+    const budget = CAP - TOWER_REPAIR_RESERVE;
+    expect(budget).to.be.greaterThan(10); // TOWER_ENERGY_COST
+  });
+
+  it("still refills a nearly-empty tower, and never a full one", () => {
+    expect(towerNeedsFill(0, CAP)).to.equal(true);
+    expect(towerNeedsFill(CAP, CAP)).to.equal(false);
+  });
+
+  it("never asks to fill above capacity on a small tower", () => {
+    // A capacity below the reserve must not make the threshold exceed it.
+    expect(towerRefillBelow(200)).to.be.at.most(200);
+  });
+});

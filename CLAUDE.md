@@ -42,6 +42,16 @@ whose operators are corps. Read order for architecture truth:
   actual (`npm run sim:real -- --metrics`; fid-* grid cells). On synthetic
   worlds the plan should be achievable — a fidelity gap there is a bug signal
   by construction.
+- **Fidelity is an OBJECTIVE, not just a report** (owner 2026-07-30: "more
+  than points what we're chasing is a controllable economy... so that we can
+  plan it all on the abstract level and then it gets implemented faithfully...
+  we end up having to chase down why is this or that thing happening. That's
+  something to optimize for as well"). A plan the runtime does not follow costs
+  more than the energy it misprices - it costs the DIAGNOSIS. Measured live by
+  the ledger's **F1** line (measured spawn p/t vs plan-priced p/t, two-sided:
+  an over-stating plan is as uncontrollable as an under-stating one). Prefer a
+  fix that makes the plan and the runtime agree over one that buys points
+  around the disagreement; when the two conflict, say so and fix the seam.
 - **Two plans** (spec 11): the GOAL plan (`Memory.economyPlan`, solver
   equilibrium) is not a schedule. The NOW plan (`Memory.spawnAgenda`) is the
   transition. Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp

@@ -275,6 +275,22 @@ declare global {
       [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
     };
 
+    /**
+     * Rolling pile-gate delay meter per source (upgradeMeter pattern, owner
+     * 2026-07-29: "instrument the spawning delay time for the energy piles").
+     * Tallied at the miner pile-gate decision site with the gate's ACTUAL
+     * verdict: `samples` = evaluated ticks in the window, `held` = ticks the
+     * gate deferred, `since` = first tick of the CURRENT consecutive hold
+     * (0 = clear; survives window rolls so heldFor spans them), `last`
+     * dedupes multi-collection ticks. Fog never tallies - an unmeasurable
+     * buffer must neither reset `since` nor inflate the window. Keyed by the
+     * source id tail (slice -6), the sourceBuffers telemetry key, so the two
+     * instruments join.
+     */
+    pileMeter?: {
+      [sourceTail: string]: { t0: number; last: number; samples: number; held: number; since: number };
+    };
+
     spawnAgenda?: {
       [spawnId: string]: {
         tick: number;

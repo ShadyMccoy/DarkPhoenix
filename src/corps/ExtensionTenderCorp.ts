@@ -18,6 +18,7 @@
  * @module corps/ExtensionTenderCorp
  */
 
+import { BODY_COSTS, CARRY_CAPACITY, SPAWN_TIME_PER_PART, towerRefillBelow } from "../economy/primitives";
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { TENDER, TENDER_BOOTSTRAP } from "../spawn/demandLadder";
@@ -40,11 +41,19 @@ export interface SerializedExtensionTenderCorp extends SerializedSpawnAnchoredCo
 type FillTarget = StructureSpawn | StructureExtension | StructureTower;
 
 /**
- * A tower joins the fill circuit only below half charge (spec 07): keep the
- * war chest loaded without topping off a mid-fight trickle shot-by-shot.
+ * A tower joins the fill circuit below {@link towerRefillBelow} (spec 07):
+ * keep the war chest loaded without topping off a mid-fight trickle
+ * shot-by-shot.
+ *
+ * The threshold is DERIVED from the tower's defensive reserve, not chosen
+ * independently. The old `capacity * 0.5` was numerically identical to
+ * TOWER_DEFENSE_RESERVE at TOWER_CAPACITY 1000, and the repair path spends in
+ * exact 10s, so a full tower drained to EXACTLY 500 and then could neither
+ * repair (not > 500) nor refill (not < 500) - a dead point it hit every time
+ * (owner 2026-07-30). See towerRefillBelow for the full incident.
  */
 export function towerNeedsFill(energy: number, capacity: number): boolean {
-  return energy < capacity * 0.5;
+  return energy < towerRefillBelow(capacity);
 }
 
 /**
@@ -73,6 +82,99 @@ export function tenderSlotCarry(
   void staffing;
   const share = Math.ceil(bankCapacity / Math.max(1, target) / 50);
   return Math.max(1, Math.min(share, maxCarry));
+}
+
+/**
+ * Max energy/tick a spawn NETWORK can consume (owner 2026-07-29: "don't need
+ * to tender faster than we can spawn after all"). A spawn converts parts at
+ * SPAWN_PARTS_PER_TICK, so its energy appetite is bounded by the cost of the
+ * most expensive part it commonly builds divided by SPAWN_TIME_PER_PART.
+ * WORK (100) is the conservative choice among economy parts: 33.3 e/t per
+ * spawn, comfortably above the MEASURED live burn of 27.6 e/t (77750e over
+ * 2817t across 69 spawns at 0.936 utilization, t72663189) without inflating
+ * the requirement. This is the CEILING the tender fleet is rate-matched to;
+ * moving energy faster than this cannot buy a single extra creep.
+ */
+/**
+ * Minimum CARRY a tender purchase may be filled at (the tender's runt floor,
+ * owner-reported 2026-07-29 "big builder... roads" cycle, root-caused at
+ * t72672921).
+ *
+ * The old demand offered `minCost = min(carry, 2) * 100` - 200 energy, a
+ * 2-CARRY/4-part body - on the reasoning that "minCost 200 buys instantly at
+ * this rank anyway". Once the SECOND spawn doubled demand, the network drained
+ * (energyAvailable 25) and the scheduler filled the tender at that floor: a
+ * 4-part runt moving 100 energy per trip against a 5600-energy network. Both
+ * spawns then sat energy-starved 25% of the window (idle.bank 146/152) while
+ * storage ballooned to 250k - and a drained network buys the NEXT tender as a
+ * runt too. A self-sustaining spiral, and precisely the class the MINER runt
+ * floor exists to prevent ("the whole economy collapses to one-useful-part
+ * creeps").
+ *
+ * HALF the needed carry is the floor: a half-tender still moves real energy,
+ * and because it scales with the desired body it never outruns what a poor
+ * room can afford (unlike a fixed floor). The BOOTSTRAP escape keeps the
+ * 2-CARRY body: a dark post with stranded stock (incident t72499165) must be
+ * able to restart instantly, and a hard floor there would deadlock the very
+ * outage it exists to fix.
+ */
+export function tenderMinCarry(desiredCarry: number, bootstrap: boolean): number {
+  if (bootstrap) return Math.min(desiredCarry, 2);
+  return Math.max(1, Math.min(desiredCarry, Math.ceil(desiredCarry / 2)));
+}
+
+export const TENDER_FLEET_CAP = 3;
+
+/** Core->grid walk assumed when the cluster geometry is not resolvable (a
+ *  compact grid sits a few tiles from the depot; only used as a fallback). */
+export const TENDER_DEFAULT_WALK = 5;
+
+export function spawnConsumptionCeiling(spawnCount: number): number {
+  return Math.max(1, spawnCount) * (BODY_COSTS.WORK / SPAWN_TIME_PER_PART);
+}
+
+/**
+ * Energy/tick ONE tender sustains, from the physical cycle (owner 2026-07-29:
+ * "the fatter extensions help with the refill because of a single tick a
+ * single tender can transfer more energy"). The cycle is: 1 withdraw tick,
+ * `walkTicks` each way, then one transfer per tick - each capped by the target
+ * extension's CAPACITY. So unload ticks = carried energy / extensionCapacity,
+ * and doubling extension capacity (50 -> 100 at RCL7) HALVES the unload leg
+ * and raises throughput. The v1 sizing had this backwards: it read a fatter
+ * bank as needing MORE tenders when fatter extensions make each one faster.
+ */
+export function tenderDeliveryRate(carry: number, extensionCapacity: number, walkTicks: number): number {
+  const carried = Math.max(1, carry) * CARRY_CAPACITY;
+  const unloadTicks = Math.max(1, carried / Math.max(1, extensionCapacity));
+  return carried / (1 + 2 * Math.max(0, walkTicks) + unloadTicks);
+}
+
+/**
+ * Tenders to field: RATE-MATCHED to the spawn network's appetite, floored by
+ * cluster coverage, capped at TENDER_FLEET_CAP.
+ *
+ * Replaces `forCoverage = bankCapacity / (maxCarry*50)` - "refill the whole
+ * network in one trip" - which grew with the bank and ignored the only
+ * consumer the fleet serves. Measured cost of the old rule (t72663189): 3
+ * tenders / 75 carry / 102 parts = ~20% of the colony's entire 0.333 p/t spawn
+ * ceiling, stamping duty 0.066, against a spawn that can eat at most ~33 e/t.
+ *
+ * The CLUSTER FLOOR is preserved deliberately: separated extension groups
+ * cannot be served inside their drain deadlines by one creep however fast it
+ * is (the legacy scattered-layout rationale), so geometry can still demand
+ * more than the rate does.
+ */
+export function tenderFleetTarget(opts: {
+  spawnCount: number;
+  extensionCapacity: number;
+  maxCarry: number;
+  walkTicks: number;
+  clusters: number;
+}): number {
+  const need = spawnConsumptionCeiling(opts.spawnCount);
+  const perTender = tenderDeliveryRate(opts.maxCarry, opts.extensionCapacity, opts.walkTicks);
+  const forRate = Math.max(1, Math.ceil(need / Math.max(1e-9, perTender)));
+  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate));
 }
 
 /**
@@ -453,8 +555,21 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // the pipe staffs - staffsPost treats undefined ttl as freshest), else
     // the demand re-fires while the replacement builds and double-orders.
     let staffing = 0;
+    // FIELDED CARRY alongside the count (live t72673248): a standing RUNT
+    // satisfies the count while delivering almost nothing - a 3-CARRY tender
+    // held `staffing 1 >= target 1`, so NO replacement was ever demanded and
+    // both spawns sat energy-starved (idle.bank 196/243) for the runt's whole
+    // ~1500-tick life. CarryCorp already solved this shape: "the count alone
+    // is not enough ... keep adding haulers until the CARRY is actually
+    // covered". Same rule here.
+    let fieldedCarry = 0;
     for (const c of this.creepsOfWorkType("tank", { includeSpawning: true })) {
-      if (staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) staffing++;
+      if (!staffsPost(c.ticksToLive, c.body?.length ?? 0, 0)) continue;
+      staffing++;
+      // Harness-safe: partial mocks supply a body that is not a part array.
+      // An unreadable body contributes 0 carry, which can only make the
+      // coverage test MORE eager - never less - so it cannot mask a runt.
+      fieldedCarry += Array.isArray(c.body) ? c.body.filter(b => b.type === CARRY).length : 0;
     }
     // FLEET SIZE (refill SLA): one tender per spatial cluster - a single
     // tender cannot beat per-drain deadlines across separated groups - AND
@@ -476,7 +591,26 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       (sum, s) => sum + ((s as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 0),
       0
     );
-    const forCoverage = Math.ceil(bankCapacity / (maxCarry * 50));
+    // RATE-MATCH to the spawn network's appetite (owner 2026-07-29), replacing
+    // the "refill the whole bank in one trip" count. Extension CAPACITY (not
+    // just count) is the throughput lever: one transfer per tick, each capped
+    // by the target extension, so RCL7's 100-cap extensions halve the unload
+    // leg. walkTicks from the real core->cluster range when resolvable.
+    const extensionCapacity = Math.max(
+      50,
+      ...extensions.map(e => (e as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 50)
+    );
+    const depotPos = coreDepot(room)?.pos ?? spawn.pos;
+    const firstStop = clusters[0]?.[0] as FillTarget | undefined;
+    const walkTicks =
+      firstStop && typeof depotPos?.getRangeTo === "function" ? depotPos.getRangeTo(firstStop.pos) : TENDER_DEFAULT_WALK;
+    const forCoverage = tenderFleetTarget({
+      spawnCount: spawns.length,
+      extensionCapacity,
+      maxCarry,
+      walkTicks,
+      clusters: clusters.length
+    });
     // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
     // the legacy scattered layout: "split the same amount of body parts
     // across two or three creeps"): the SAME total carry (one bank wave,
@@ -485,6 +619,16 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // other factor), at the ratchet's parts budget, not the old 72-part
     // fleet's. Duty meter + S3/E5 direct signals verify.
     const target = Math.min(3, Math.max(1, clusters.length, forCoverage));
+    // Per-slot body, hoisted above the gate so the CARRY-coverage test and the
+    // stamp can both read it (slot k serves clusters[k % len]; see the call
+    // rationale below).
+    const carryPerSlot = tenderSlotCarry(
+      clusters.map(c => c.length),
+      staffing,
+      target,
+      bankCapacity,
+      maxCarry
+    );
     const duty = this.dutyAlive > 0 ? this.dutyTransfers / this.dutyAlive : null;
     this.lastSizing = {
       tick: ctx.tick,
@@ -494,9 +638,23 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       clusters: clusters.length,
       staffing,
       target,
+      // Rate-match inputs, so a capture can explain the COUNT without a code
+      // read (t72673248: target read 1 with two spawns and the stamp could
+      // not say why - it was a 1-tile depot walk making one full tender
+      // sufficient; the fielded body was simply a runt).
+      spawnCount: spawns.length,
+      extensionCapacity,
+      walkTicks,
+      maxCarry,
+      fieldedCarry,
+      neededCarry: target * carryPerSlot,
       ...(duty !== null ? { duty: Math.round(duty * 1000) / 1000, meterTicks: ctx.tick - this.dutySince } : {})
     };
-    if (staffing >= target) return [];
+    // Stop only when BOTH the count and the CARRY are covered. The swarm cap
+    // mirrors CarryCorp's: never more than twice the planned count, so a
+    // pathologically starved room cannot spawn an unbounded fleet.
+    if (staffing >= target && fieldedCarry >= target * carryPerSlot) return [];
+    if (staffing >= target * 2) return [];
 
     // Per-SLOT body (P4 tip t72459426: sizing every tender to the biggest
     // cluster fielded 3x46p = 138p for a 2300 bank - 0.092 parts/t, the plan's
@@ -504,13 +662,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // pairing runTenders walks), floored at an equal share of one full bank
     // wave so combined carry still covers a whole drain (the RCL2-3 coverage
     // incident, pipeline t=1553).
-    const carry = tenderSlotCarry(
-      clusters.map(c => c.length),
-      staffing,
-      target,
-      bankCapacity,
-      maxCarry
-    );
+    const carry = carryPerSlot;
 
     // REFILL BOOTSTRAP (owner 2026-07-22, live incident t72490325: zero
     // tenders, gate "demand" while endFill collapsed to 0.41 and the spawn
@@ -568,7 +720,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
         infrastructure: bootstrap,
         producesIncome: false,
         desiredCost: carry * CARRY_MOVE_PAIR_COST,
-        minCost: Math.min(carry, 2) * CARRY_MOVE_PAIR_COST,
+        minCost: tenderMinCarry(carry, bootstrap) * CARRY_MOVE_PAIR_COST,
         since: 0,
         bodyParam: carry
       }

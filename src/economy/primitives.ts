@@ -105,6 +105,39 @@ export const SOURCE_REGEN_TIME = 300;
 export const SOURCE_RATE = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TIME; // 10
 
 /**
+ * Unhauled buffer at a source's mouth (container + ground pile, the
+ * sourceBufferStock lens) at or above which buying ANOTHER miner body is
+ * deferred (owner directive 2026-07-29). 2000 is the container cap: a buffer
+ * pinned there means mining already outruns hauling (the sourceBuffers
+ * telemetry diagnostic, owner 2026-07-20; ~8.5k measured rotting above the
+ * cap, t72588289), so a new body buys rot, not income. Scarcity acts at the
+ * SPAWN: standing miners keep working, haulers stay ungated (they are the
+ * release), and demand resumes the tick the buffer drains below this line.
+ */
+export const SOURCE_BUFFER_DEFER_THRESHOLD = 2000;
+
+/**
+ * Priority penalty on a miner demand whose source mouth is saturated (owner
+ * redesign 2026-07-29). The first implementation SUPPRESSED the demand, which
+ * is the wrong class per doctrine - "scarcity acts at the SPAWN (defund: no
+ * NEW bodies, via priority), and the planner prices - it doesn't gate" - and
+ * it cost two measured failures: two live sources went DARK behind their own
+ * piles when their miners EOL'd (E6 FAIL t72658948, income stopped), and the
+ * runt UPSIZE was blocked whenever a bootstrap pile crossed the line,
+ * reviving the documented runt equilibrium (~40% source output forever) and
+ * making the runt-economy cell flaky.
+ *
+ * Now the demand always stands and only loses PRIORITY. Sized to exceed the
+ * whole within-tier value spread (miner value = 100 + efficiency*0.5, so
+ * 100..150): at 100 a piled source's miner sits below EVERY clear source's
+ * miner, so scarce spawn parts go to mouths that can still move their energy,
+ * while an idle spawn with nothing better to buy still re-staffs the source.
+ * The tier separators (income 1e6, blocking 1e4) are untouched - they are
+ * documented as separators, not tunables.
+ */
+export const SOURCE_BUFFER_PRIORITY_PENALTY = 100;
+
+/**
  * Energy/tick credited per delivering creep by the scheduler's crude income
  * estimate (SpawnDirector.estimateIncome): one deliverer ~ one source's worth
  * (SOURCE_RATE). The scheduler only reads the positive/zero signal - whether
@@ -242,6 +275,16 @@ export function directFetchParts(rate: number, distance: number, energyPerWork =
 }
 
 /**
+ * How far a PARKED consumer will reach for its own fuel without abandoning its
+ * post. This is an EXECUTION capability, not a preference: the builder's
+ * stationary scavenge (ConstructionCorp.doPickup) looks this far and no
+ * further - "don't travel for energy; haulers are responsible for delivering
+ * energy to builders". supplyMethod is bounded by it so the plan can never
+ * elect a self-fetch the runtime will not perform.
+ */
+export const DIRECT_DRAW_REACH = 4;
+
+/**
  * The supply-method verdict (spec 34 D1) for a PARKED consumer at `distance`
  * from its fuel: "a hauler brings them energy, unless it's already adjacent
  * to an energy source like a container or a link" (owner). Withdraw
@@ -251,6 +294,9 @@ export function directFetchParts(rate: number, distance: number, energyPerWork =
  * WHY the doctrine holds - the vector wins from d=2 up at any real rate,
  * the same math that made static miner + hauler the game's meta - so the
  * corp reads a computed verdict, never a hand-baked category.
+ *
+ * The verdict is bounded by REACH as well as by parts - see
+ * {@link DIRECT_DRAW_REACH}.
  */
 export function supplyMethod(
   rate: number,
@@ -263,6 +309,18 @@ export function supplyMethod(
     2 * (rate / energyPerWork) + // the baseline WORK core + its MOVE
     bufferCarryParts(rate, refuelIntervalTicks(distance, 1)); // buffer: CARRY only (refilled in place)
   if (distance <= 1) return { method: "direct", directParts, vectorParts };
+  // REACH BOUND: the two part-curves RECROSS at long range (directFetchParts
+  // grows linearly, vectorSupplyParts carries a fixed overhead), handing the
+  // verdict back to "direct" precisely where a parked builder is least able
+  // to fetch. Measured live at the cross-room distance the corp prices
+  // (roomLinearDistance * 50 = 100): direct 241.5 vs vector 250.4 at rate 20
+  // - a 3.6% margin, and the builder that "won" it stood in W41N23 beside 15
+  // sites in FETCH state with no tanker, 4251 energy of work and 0 built
+  // (P8 "CREW IDLE", t72675271). The consumer only ever draws from within
+  // DIRECT_DRAW_REACH, so beyond that the vector is not the cheaper option -
+  // it is the ONLY implementable one, whatever the parts say. Pricing a
+  // behavior the runtime never performs is a fidelity bug by construction.
+  if (distance > DIRECT_DRAW_REACH) return { method: "vector", directParts, vectorParts };
   return { method: directParts < vectorParts ? "direct" : "vector", directParts, vectorParts };
 }
 
@@ -547,16 +605,49 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 }
 
 /**
- * Fraction of a spawn's build-rate that mining + hauling may claim. The spawn
- * also builds upgraders, builders, reservers and scouts, so income creeps get
- * only part of its 1/3 parts-per-tick. This sets how hard the spawn-time budget
- * bites before far sources fall out of contention.
+ * Fraction of the PHYSICAL spawn build-rate the planner may commit (owner
+ * 2026-07-30: "90% of theoretical spawn capacity is available for planning -
+ * everything is like before, we're just planning on an economy that's 10%
+ * smaller in terms of bodies").
+ *
+ * The reserved 10% is EXECUTION slack, not waste. A plan at 100% of physical
+ * had nowhere to put the parts execution provably spends outside the plan's
+ * fleets: EOL replacement overlap (deliveryLeadTime deliberately starts
+ * successors early), invader-churn rebuilds (X5 measured 18% of remote spawn
+ * spend), runt upsizes, and orphan rescues. Measured at t72676360 the result
+ * was utilization 0.97 with queue depth 8 and blocking demands waiting behind
+ * a saturated pipe. With the margin, that churn lands in reserved slack
+ * instead of queueing behind planned bodies.
+ *
+ * This is a MARGIN at the planning seam - execution still owns the full
+ * physical spawn, standing fleets are untouched, and nothing is gated
+ * (doctrine: the planner prices, it doesn't gate).
+ */
+export const SPAWN_PLAN_FRACTION = 0.9;
+
+/**
+ * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
+ * every plan-side capacity read derives from, so the whole plan shrinks
+ * uniformly (mining tranche and sink fill alike) rather than one tranche
+ * eating the margin.
+ */
+export function plannableSpawnParts(spawnCount: number): number {
+  return spawnCount * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION;
+}
+
+/**
+ * Fraction of a spawn's PLANNABLE build-rate that mining + hauling may claim.
+ * The spawn also builds upgraders, builders, reservers and scouts, so income
+ * creeps get only part of its parts-per-tick. This sets how hard the
+ * spawn-time budget bites before far sources fall out of contention.
  */
 export const MINING_BUDGET_FRACTION = 0.6;
 
-/** A spawn's per-tick build-time budget available to mining + hauling. */
+/** A spawn's per-tick build-time budget available to mining + hauling.
+ * Composes with the planning headroom (SPAWN_PLAN_FRACTION): mining sees
+ * 0.6 of a 90%-sized spawn, so the margin applies to the whole plan. */
 export function miningBudgetPerSpawn(): number {
-  return SPAWN_PARTS_PER_TICK * MINING_BUDGET_FRACTION;
+  return plannableSpawnParts(1) * MINING_BUDGET_FRACTION;
 }
 
 /**
@@ -796,3 +887,40 @@ export function mineralEnergyPerSpawnPart(
  * is about to lapse on its own and fighting buys nothing.
  */
 export const CORE_BUSTER_MIN_REMAINING = 1_000;
+
+/**
+ * The energy a tower keeps back for DEFENSE, never spent on peace-time repair.
+ * A raid is bursty and unannounced, so the tower must always be able to open
+ * fire without waiting on a tender round-trip.
+ */
+export const TOWER_DEFENSE_RESERVE = 500;
+
+/**
+ * The peace-time REPAIR budget: energy a refilled tower may spend down to the
+ * defensive reserve before it needs topping up again. At TOWER_POWER_REPAIR
+ * (800 hits) per TOWER_ENERGY_COST (10) this buys ~24,000 hits per band at
+ * close range - several roads restored from scratch - so the refill cadence
+ * stays cheap relative to what it saves in builder WORK.
+ */
+export const TOWER_REPAIR_BAND = 300;
+
+/**
+ * The level BELOW which a tower wants topping up. Expressed in terms of the
+ * defensive reserve ON PURPOSE (owner-reported 2026-07-30, "the tower should
+ * repair the nearby roads anyways as well"): the refill trigger and the repair
+ * floor were independently-chosen constants that happened to be the SAME
+ * number - `capacity * 0.5` and TOWER_DEFENSE_RESERVE are both 500 at
+ * TOWER_CAPACITY 1000 - with mutually exclusive comparisons. Repair costs
+ * exactly 10, so a full tower walked 1000 -> ... -> EXACTLY 500 and then could
+ * neither repair (not > 500) nor refill (not < 500). It parked there until a
+ * raid spent it below the line, which is why tower repair looked intermittent
+ * while roads decayed to the builder fleet.
+ *
+ * Deriving the threshold from the reserve makes that dead point
+ * unrepresentable: the trigger is strictly above the floor, so draining to the
+ * floor always calls a tender. Clamped to capacity so a small tower never asks
+ * for more than it can hold.
+ */
+export function towerRefillBelow(capacity: number): number {
+  return Math.min(capacity, TOWER_DEFENSE_RESERVE + TOWER_REPAIR_BAND);
+}

@@ -86,7 +86,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 5, // Version 5: CarryCorp sizing stamps pickup buffer + source-link state (source-pileup instrument 2026-07-26)
+    version: 11, // Version 11: buildTargets V/D letters (vector parked-fed vs parked-dry; F/W was a lie on the vector path) 2026-07-30
     tick: Game.time,
     corps,
     summary: {

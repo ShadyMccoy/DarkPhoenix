@@ -19,14 +19,16 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   CLAIM_LIFETIME,
+  CREEP_LIFETIME,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
   haulerOverhead
 } from "../src/economy/primitives";
-import { BASE_RESERVE, feederRelayRate } from "../src/economy/bank";
+import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -165,10 +167,25 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   const tenderBody = fleetParts(corps, "tender", 24);
   lines.push(["tenders", tenderTarget * tenderBody, (tenderTarget * tenderBody) / 1500]);
 
-  const resTargets = corps.find(c => c.kind === "reservation")?.sizing?.targets ?? 0;
-  const resBody = fleetParts(corps, "reservation", 4);
-  const resLoad = (resTargets * resBody) / Math.max(1, CLAIM_LIFETIME - 60);
-  lines.push(["reservers (claim life)", resTargets * resBody, resLoad]);
+  // PER-ROOM corps are SUMMED, never sampled (measured t72683137): reservation
+  // is one corp PER RESERVED ROOM, and `find()` priced only the first. The live
+  // colony ran SEVEN, each targets:1 / 4 parts - P4 charged 4 parts where 28
+  // stood (0.0074 vs 0.0519 parts/t, a 7x under-count) on a class that was
+  // 21.7% of MEASURED spawn spend and ~26% of the session's unexplained
+  // plan-vs-actual parts gap. P4's charter is ALL fleet classes; a sampling
+  // read of a per-room class breaks it silently.
+  const resFallback = fleetParts(corps, "reservation", 4);
+  const resParts = corps
+    .filter(c => c.kind === "reservation")
+    .reduce((sum, c) => {
+      const targets = c.sizing?.targets ?? 0;
+      // Each corp's OWN measured body when it has one; the fleet body otherwise
+      // (a corp between deaths still costs its replacement).
+      const body = c.creepCount > 0 ? c.bodyParts / c.creepCount : resFallback;
+      return sum + targets * body;
+    }, 0);
+  const resLoad = resParts / Math.max(1, CLAIM_LIFETIME - 60);
+  lines.push(["reservers (claim life)", resParts, resLoad]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
   return { total, lines };
@@ -250,8 +267,30 @@ export function computeChurn(cap: any): {
     // the last `slots` spawns are the current incumbents.
     const churned = ss.length - slots;
     for (let i = 0; i < churned; i++) {
-      const gap = ss[i + slots].t - ss[i].t;
+      let gap = ss[i + slots].t - ss[i].t;
       const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
+      // EOL-window exemption (t72651837 phantom, owner 2026-07-29): the
+      // stride uses CURRENT staffing, so a fleet that SHRANK mid-window
+      // (governor relegation) mispairs a cohort-wave spawn as a slot death
+      // (two 4350e bodies bought 153t apart - the spawn's own build time -
+      // read as one slot dying at 153t, though both lived full lives). A
+      // slot with a natural-lifetime successor ANYWHERE in the log did not
+      // churn: if any later spawn sits in [0.9, 1.15]x life from ss[i],
+      // that is its real replacement - measure the gap there. Real early
+      // deaths (0.2x-life replacements) and re-order loops (<60t) have no
+      // such successor and stay caught. EXCUSE-ONLY (max): a window alt may
+      // LENGTHEN the measured gap, never shorten it - on a healthy staggered
+      // multi-slot corp a DIFFERENT slot's spawn can sit slightly earlier in
+      // the window than the true successor, and taking it verbatim would
+      // manufacture small churn on exactly the corps this line must not flag.
+      for (let m = i + 1; m < ss.length; m++) {
+        const alt = ss[m].t - ss[i].t;
+        if (alt >= 0.9 * life && alt <= 1.15 * life) {
+          gap = Math.max(gap, alt);
+          break;
+        }
+        if (alt > 1.15 * life) break;
+      }
       const waste = ss[i].cost * Math.max(0, 1 - gap / life);
       if (HOME_ROLES.has(ss[i].role)) homeChurn += waste;
       else remoteChurn += waste;
@@ -274,6 +313,100 @@ export function computeChurn(cap: any): {
   };
 }
 
+/**
+ * F1's ACTUAL side, bucketed into the same classes `planSpawnLoad` prices.
+ *
+ * F1 reported "0.286 p/t UNBUDGETED" for five straight cycles while naming
+ * only the largest PLANNED class - a different question, and one whose answer
+ * never changed. Locating the breach meant hand-bucketing the blackbox ring
+ * by role every cycle (t72689264: haulers 0.444 p/t actual vs 0.188 priced =
+ * 0.256 of the 0.286 gap, 89%, with the whole remainder in construction and
+ * one entirely UNPRICED kind). That is spec 40 Part A's thesis applied to the
+ * line that already exists: one number nobody can decompose is worse than a
+ * table.
+ *
+ * The join is the buyer corp's own KIND (segment 4), never a guess from the
+ * id string - decision symmetry, same as everywhere else in this file. A kind
+ * with no plan line at all is reported separately as UNPRICED: an absent class
+ * is a different defect from a mispriced one, and no tuning of an existing
+ * line can ever surface it.
+ */
+export const F1_CLASS_OF_KIND: Record<string, string> = {
+  harvest: "miners", // role `hauler` on a harvest corp re-routes below
+  construction: "construction (all-in)",
+  tender: "tenders",
+  controllerFeeder: "feeder",
+  reservation: "reservers",
+  upgrade: "upgraders"
+};
+
+/** Plan-line prefix that each actual class settles against. */
+export const F1_PLAN_PREFIX: Record<string, string[]> = {
+  miners: ["miners"],
+  haulers: ["source-route haulers", "transient-route haulers"],
+  "construction (all-in)": ["construction (all-in)"],
+  tenders: ["tenders"],
+  feeder: ["feeder"],
+  reservers: ["reservers"],
+  upgraders: ["upgraders"]
+};
+
+/**
+ * Cost -> parts fallback for rings captured before the spawn row carried a
+ * `parts` count. Derived from the archetype bodies the kinds actually build
+ * (hauler CARRY+MOVE = 100e/2p; miner 5W+3M = 700e/8p; reserver 2C+2M =
+ * 1300e/4p; upgrader 2W+1C+1M = 300e/4p). Estimated lines are LABELLED - the
+ * ledger never presents an inference as a measurement.
+ */
+const F1_ENERGY_PER_PART: Record<string, number> = {
+  hauler: 50,
+  tanker: 50,
+  feeder: 50,
+  builder: 100,
+  miner: 87.5,
+  upgrader: 75,
+  reserver: 325,
+  guard: 100
+};
+
+export function f1Decompose(
+  cap: any,
+  planLines: Array<[string, number, number]>
+): { rows: Array<{ cls: string; actual: number; planned: number; unpriced: boolean }>; estimated: boolean; windowTicks: number } | null {
+  const ring: any[] = (cap.data?.blackbox?.rows ?? []).filter((r: any) => r.k === "spawn");
+  if (ring.length === 0) return null;
+  const corps: any[] = cap.data?.corps?.corps ?? [];
+  const kindOf = new Map<string, string>(corps.map(c => [c.id, c.kind]));
+
+  const ts = ring.map(r => r.t);
+  const windowTicks = Math.max(1, Math.max(...ts) - Math.min(...ts));
+  let estimated = false;
+  const actual = new Map<string, number>();
+  for (const r of ring) {
+    const kind = kindOf.get(r.d.corp) ?? String(r.d.corp).split("-")[0];
+    // A hauler is a hauler whoever buys it: the per-source haulers are owned by
+    // the HARVEST corp, and the plan prices them on the hauler lines, not the
+    // miner line. Route by role first, kind second.
+    const cls = r.d.role === "hauler" ? "haulers" : F1_CLASS_OF_KIND[kind] ?? `UNPRICED:${kind}`;
+    let parts = r.d.parts;
+    if (parts === undefined) {
+      estimated = true;
+      parts = r.d.cost / (F1_ENERGY_PER_PART[r.d.role] ?? 100);
+    }
+    actual.set(cls, (actual.get(cls) ?? 0) + parts);
+  }
+
+  const rows = [...actual].map(([cls, parts]) => {
+    const prefixes = F1_PLAN_PREFIX[cls] ?? [];
+    const planned = planLines
+      .filter(([name]) => prefixes.some(p => name.startsWith(p)))
+      .reduce((a, [, , load]) => a + load, 0);
+    return { cls, actual: parts / windowTicks, planned, unpriced: cls.startsWith("UNPRICED:") };
+  });
+  rows.sort((a, b) => Math.abs(b.actual - b.planned) - Math.abs(a.actual - a.planned));
+  return { rows, estimated, windowTicks };
+}
+
 export function computeLedger(cap: any, base: any): LedgerRow[] {
   const rows: LedgerRow[] = [];
   const core = cap.data.core;
@@ -286,6 +419,73 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   const { total, lines } = planSpawnLoad(cap);
   const ceiling = (core.spawns?.length ?? 1) * SPAWN_PARTS_PER_TICK;
   const ratio = total / ceiling;
+
+  // ---- F1 plan FIDELITY (owner doctrine 2026-07-30) ----
+  // "More than points what we're chasing is a controllable economy ... plan it
+  // all on the abstract level and then it gets implemented faithfully ... we
+  // end up having to chase down why is this or that thing happening. That's
+  // something to optimize for as well."
+  //
+  // Fidelity was first-class in SIMS (fid-* grid cells) but had NO production
+  // number, so every live divergence this session was found BY HAND: the
+  // 100-tile fuel price on a 4-tile pile (spec 37), three bank-drain rates
+  // (spec 38), P4's 7x reserver under-count, and a six-capture parts gap
+  // (measured 0.649 vs plan 0.478) that no line reported. P4 asks "is the plan
+  // PHYSICALLY POSSIBLE"; F1 asks "is the plan what actually HAPPENS" - a plan
+  // can be perfectly feasible and still describe a different colony.
+  //
+  // Two-sided ON PURPOSE: a plan that OVER-states is exactly as uncontrollable
+  // as one that under-states, and only the under-stating direction looks like
+  // "waste" - so a waste-only ledger is blind to half the failure mode.
+  {
+    const measured = (core.spawns ?? []).reduce((a: number, s: any) => a + (+s.partsPerTick || 0), 0);
+    const hasMeter = (core.spawns ?? []).some((s: any) => s.partsPerTick !== undefined);
+    if (hasMeter && total > 0) {
+      const fidelity = measured / total;
+      const gap = measured - total;
+      const worst = [...lines].sort((a, b) => b[2] - a[2])[0];
+      // WHICH class is in breach - the question five cycles of "largest
+      // planned class" could not answer (see f1Decompose).
+      const dec = f1Decompose(cap, lines);
+      let breach = "";
+      if (dec) {
+        const top = dec.rows.filter(r => Math.abs(r.actual - r.planned) >= 0.005).slice(0, 3);
+        const unpriced = dec.rows.filter(r => r.unpriced && r.actual > 0);
+        if (top.length) {
+          breach =
+            `; in breach: ` +
+            top
+              .map(
+                r =>
+                  `${r.cls.replace("UNPRICED:", "")} ${r.actual.toFixed(3)} vs ${r.planned.toFixed(3)} ` +
+                  `(${r.actual > r.planned ? "+" : ""}${(r.actual - r.planned).toFixed(3)})`
+              )
+              .join(", ");
+        }
+        if (unpriced.length) {
+          breach += `; UNPRICED classes: ${unpriced.map(r => `${r.cls.replace("UNPRICED:", "")} ${r.actual.toFixed(3)} p/t`).join(", ")}`;
+        }
+        if (breach) breach += ` [over ${dec.windowTicks}t${dec.estimated ? ", parts est. from cost" : ""}]`;
+      }
+      rows.push({
+        id: "F1",
+        name: "plan fidelity (measured vs planned spawn load)",
+        value: +fidelity.toFixed(2),
+        unit: "x planned",
+        // 1.25/0.8 = a quarter of the plan unaccounted for in either direction.
+        verdict: fidelity > 1.25 || fidelity < 0.8 ? "FAIL" : fidelity > 1.1 || fidelity < 0.9 ? "WARN" : "ok",
+        detail:
+          `spawn builds ${measured.toFixed(3)} p/t, plan prices ${total.toFixed(3)} p/t` +
+          (gap > 0
+            ? ` - ${gap.toFixed(3)} p/t UNBUDGETED (${(100 * gap / Math.max(1e-9, measured)).toFixed(0)}% of what the spawn builds is not in the plan)`
+            : gap < 0
+            ? ` - the plan OVER-states by ${(-gap).toFixed(3)} p/t (a fleet priced but never built)`
+            : " - faithful") +
+          `; largest planned class: ${worst ? `${worst[0]} ${worst[2].toFixed(3)}` : "n/a"}` +
+          breach
+      });
+    }
+  }
   rows.push({
     id: "P4",
     name: "plan spawn-infeasibility",
@@ -356,15 +556,69 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const reserve = typeof core.warchestTarget === "number" ? core.warchestTarget : BASE_RESERVE;
     const excess = room.storageEnergy - reserve;
     const idleThreshold = BASE_RESERVE; // a reserve's worth of genuine excess above the (dynamic) target
+    // DAMPED-EQUILIBRIUM FRAME (owner 2026-07-29: "we would expect the
+    // surplus to maybe rise, until it reaches an equilibrium ... don't
+    // necessarily flag that as a red"). Spending is surplus/SURPLUS_DRAIN_TICKS,
+    // so the bank does NOT settle at the reserve - it settles where the draw
+    // equals net inflow: S* = reserve + SURPLUS_DRAIN_TICKS x netInflow.
+    // Projected from the measured slope (slope = inflow - surplus/T =>
+    // S*_excess = excess + T x slope), a bank climbing toward a FINITE,
+    // absorbable equilibrium is convergence, not idle capital. The leak
+    // signatures survive: an equilibrium past the draw-saturation knee
+    // (MAX_SURPLUS_DRAW x T - income the spend path physically cannot
+    // absorb), and any big idle bank with the spend path DOWN.
+    const projectedExcess = excess + SURPLUS_DRAIN_TICKS * slope;
+    const knee = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS;
+    // SPEND PATH DOWN vs BETWEEN GENERATIONS (live false FAIL t72665987). The
+    // bank's route to the controller is the FEEDER relay (links carry SOURCE
+    // energy, not banked energy, so a busy link network does NOT mean the bank
+    // is being spent - that distinction is load-bearing here). But
+    // `feederActive false` alone conflates a relay that is GATED OFF with one
+    // whose creep is simply between generations: at t72665987 the feeder
+    // stamped gate "demand" with wantedFeeders 1 / feeders 0 - it had ordered
+    // a body and was waiting on the spawn - while P7 delivered 0.91x plan and
+    // upgraders ran workUtil 0.999. Trust the stamp over the derived boolean
+    // (spec 14): a relay that has DEMANDED a body is in transition; one gated
+    // off ("no-storage"/"no-miner"/"no-spawn") or absent entirely is down.
+    const feederCorp = corps.find((c: any) => c.kind === "controllerFeeder");
+    const feederAwaitingBody =
+      feederCorp?.sizing?.gate === "demand" && (feederCorp.sizing.wantedFeeders ?? 0) > 0;
+    const spendPathDown = room.feederActive === false && !feederAwaitingBody;
+    // RISING is the exemption the owner named: a bank climbing toward a
+    // finite, absorbable S* is the damped law converging. A bank FLAT or
+    // FALLING at a big surplus is not evidence of convergence (it is equally
+    // the stalled-spend-path shape), so it keeps the old watch-level WARN.
+    const converging = excess <= idleThreshold || (slope > 0 && projectedExcess < knee && !spendPathDown);
+    const runaway = slope > 0 && projectedExcess >= knee;
     rows.push({
       id: "E4",
       name: "idle capital",
       value: excess,
       unit: "energy above the reserve target",
-      verdict: excess > idleThreshold && slope >= 0 ? "FAIL" : excess > idleThreshold ? "WARN" : "ok",
-      detail: `storage ${room.storageEnergy} vs reserve ${reserve}${
-        typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
-      }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}`
+      verdict: converging
+        ? "ok"
+        : excess > idleThreshold && (runaway || spendPathDown)
+        ? "FAIL"
+        : excess > idleThreshold
+        ? "WARN"
+        : "ok",
+      detail:
+        `storage ${room.storageEnergy} vs reserve ${reserve}${
+          typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
+        }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}${
+          feederAwaitingBody ? " (relay between generations - body demanded)" : ""
+        }` +
+        `; projected equilibrium ${(reserve + projectedExcess).toFixed(0)} (surplus ${projectedExcess.toFixed(0)}` +
+        `, knee ${knee}) - ` +
+        (converging
+          ? excess <= idleThreshold
+            ? "at/near target"
+            : "CONVERGING toward it (damped draw, healthy - owner 2026-07-29)"
+          : spendPathDown
+          ? "SPEND PATH DOWN"
+          : runaway
+          ? "equilibrium past the absorbable knee - income the spend path cannot use"
+          : "flat/falling at a big surplus - not convergence evidence; check the spend path")
     });
   }
 
@@ -813,19 +1067,45 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         }
         return tiles * ROAD_BUILD_COST;
       })();
-      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0;
+      // WITHIN-SITE remote progress via the construction corp's poolWork
+      // stamp (false-FAIL measured t72679468: remote count 9->9, receipts
+      // flat, poolWork 3826->2252 - 1,574e built into partially-complete
+      // sites while P8 said "CREW IDLE"). The stamp sums the pool's REMAINING
+      // work ("room:energy,room*:energy"); a FALL is a conservative floor on
+      // energy built - placements RAISE poolWork, so the delta only ever
+      // undercounts (same direction as the receipts floor). Requires the
+      // stamp at BOTH endpoints (v10+); absent on either side -> 0.
+      const poolWorkSum = (cap: any): number | null => {
+        let sum = 0;
+        let seen = false;
+        for (const corp of cap?.corps ?? []) {
+          const pw = corp?.sizing?.poolWork;
+          if (typeof pw !== "string") continue;
+          seen = true;
+          for (const entry of pw.split(",")) {
+            const n = Number(entry.slice(entry.lastIndexOf(":") + 1));
+            if (Number.isFinite(n)) sum += n;
+          }
+        }
+        return seen ? sum : null;
+      };
+      const pool1 = poolWorkSum(base.data.corps);
+      const pool2 = poolWorkSum(cap.data.corps);
+      const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
+      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
-        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta) / dt).toFixed(2) : 0,
+        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
           ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
             (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
-          : standing || receiptsDelta > 0
+          : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
+            (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
           : "no sites standing across the window"
       });
@@ -864,6 +1144,73 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         `routed ${routed.toFixed(1)} e/t via ${minedHaulers.length} mined-source haulers` +
         (meaningful && ratio < 0.5 ? " - MINED PRODUCTION ROTTING (funded but unrouted, #19)" : "")
     });
+  }
+
+  // ---- E6 miner pile gate: haul-deficit visibility (owner 2026-07-29) ----
+  // The HarvestCorp buffer gate defers NEW miner bodies while a source mouth
+  // holds >= SOURCE_BUFFER_DEFER_THRESHOLD unhauled (segment-4 stamp, v6).
+  // The gate is a BACKSTOP against rot, not a fix: a holding gate means the
+  // HAUL side is behind (missing drain term / route sizing / churn - the
+  // CarryCorp pickup-buffer stamp names which). This line keeps the deferral
+  // from MASKING that: chronic gating (both captures) WARNs on the haul
+  // side, and a source gone DARK behind a full pile (gated with staffing 0 -
+  // income actually stopped) FAILs. No stamped harvest corps => pre-gate
+  // capture => no row.
+  {
+    const stamped = corps.filter((c: any) => c.kind === "harvest" && c.sizing);
+    if (stamped.length > 0) {
+      const gated = stamped.filter((c: any) => c.sizing.gate === "buffer-full");
+      const bGated = new Set(
+        (base.data.corps?.corps ?? [])
+          .filter((c: any) => c.kind === "harvest" && c.sizing?.gate === "buffer-full")
+          .map((c: any) => c.id)
+      );
+      const chronic = gated.filter((c: any) => bGated.has(c.id));
+      const dark = gated.filter((c: any) => (c.sizing.staffing ?? 0) === 0);
+      // Delay meter verdicts (v7 stamps, owner 2026-07-29): heldFor is the
+      // MEASURED consecutive hold - one source regen cycle of continuous
+      // deferral WARNs from a single capture (no second-capture wait), a
+      // full miner lifetime FAILs (a whole generation of spawning
+      // suppressed behind one pile). Pre-meter stamps (no heldFor) fall
+      // back to the two-capture chronic read.
+      const lifetimeHeld = gated.filter((c: any) => (c.sizing.heldFor ?? 0) >= CREEP_LIFETIME);
+      // The frac trigger needs >=50t of current hold behind it (the
+      // two-captures->=50t doctrine): a reset wipes the meter window and 7
+      // all-held samples read frac 1.0 on 7 ticks of evidence (measured
+      // first contact, t72645498 - real piles, premature verdict).
+      const regenHeld = gated.filter(
+        (c: any) =>
+          (c.sizing.heldFor ?? 0) >= SOURCE_REGEN_TIME ||
+          ((c.sizing.heldFrac ?? 0) >= 0.5 && (c.sizing.heldFor ?? 0) >= 50)
+      );
+      rows.push({
+        id: "E6",
+        name: "miner pile gate (haul deficit surfaced)",
+        value: gated.length,
+        unit: `of ${stamped.length} miner ops deferred`,
+        verdict:
+          dark.length > 0 || lifetimeHeld.length > 0
+            ? "FAIL"
+            : chronic.length > 0 || regenHeld.length > 0
+            ? "WARN"
+            : "ok",
+        detail:
+          gated.length === 0
+            ? "no deferrals - source buffers under threshold"
+            : gated
+                .map(
+                  (c: any) =>
+                    `${String(c.id).slice(-14)} buffered ${c.sizing.buffered} staffing ${c.sizing.staffing}/${c.sizing.target}` +
+                    (c.sizing.heldFor !== undefined
+                      ? ` held ${c.sizing.heldFor}t (${((c.sizing.heldFrac ?? 0) * 100).toFixed(0)}% of window)`
+                      : "") +
+                    (bGated.has(c.id) ? " CHRONIC" : "")
+                )
+                .join("; ") +
+              " => the leak is HAULING (drain term / route sizing / churn - read the carry pickup stamps), not the miner" +
+              (dark.length > 0 ? `; ${dark.length} source(s) DARK behind a full pile - income stopped` : "")
+      });
+    }
   }
 
   // ---- X1 dry WORK ticks (owner doctrine 2026-07-21: "having body parts

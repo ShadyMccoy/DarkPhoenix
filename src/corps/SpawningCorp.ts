@@ -91,7 +91,16 @@ export class SpawningCorp extends Corp {
 
   /**
    * Execute a scheduler decision: build the body for the chosen role within the
-   * granted energy budget and spawn it. Returns true if a creep was spawned.
+   * granted energy budget and spawn it. Returns the number of BODY PARTS
+   * spawned (0 = nothing bought, so every caller's truthiness check is
+   * unchanged).
+   *
+   * Parts, not a boolean, because the blackbox spawn row feeds F1's per-class
+   * fidelity decomposition and that comparison is in parts/tick. Energy is the
+   * wrong unit and wrong in a biased direction - a CLAIM part costs 600e where
+   * a CARRY part costs 50, so reservers read as 21% of spawn SPEND against 4%
+   * of spawn PARTS. Inferring parts back out of cost would have the ledger
+   * re-deriving a body this method already built; record it at the source.
    *
    * This is the executor half of the demand-driven spawn pipeline: the
    * SpawnScheduler decides WHAT to spawn and HOW MUCH energy to spend; this
@@ -111,9 +120,9 @@ export class SpawningCorp extends Corp {
     haulerRatio?: HaulerRatio,
     bodyStrategy?: string,
     bufferCarry?: number
-  ): boolean {
+  ): number {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn || spawn.spawning) return false;
+    if (!spawn || spawn.spawning) return 0;
 
     const corpKind = getCorpKind(kind);
     const roleSpec = corpKind?.roles[role];
@@ -121,14 +130,14 @@ export class SpawningCorp extends Corp {
       // A wiring bug (unregistered kind / undeclared role), surfaced loudly:
       // conformance asserts every kind's demand roles are declared.
       console.log(`[Spawning] no registered kind/role for ${kind}/${role} (buyer ${buyerCorpId})`);
-      return false;
+      return 0;
     }
 
     const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy, bufferCarry });
-    if (body.length === 0) return false;
+    if (body.length === 0) return 0;
 
     const bodyCost = this.calculateBodyCost(body);
-    if (spawn.room.energyAvailable < bodyCost) return false;
+    if (spawn.room.energyAvailable < bodyCost) return 0;
 
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     // Drain in refill-circuit order (owner directive): spawning empties the
@@ -151,9 +160,9 @@ export class SpawningCorp extends Corp {
       const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);
-      return true;
+      return body.length;
     }
-    return false;
+    return 0;
   }
 
   /**

@@ -24,11 +24,12 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { Squad, SquadPlan, splitIntoMembers } from "./Squad";
 import { buildBuilderBody, buildTankerBody, buildUpgraderBody, TANKER_CARRY_PER_MOVE_PLAIN } from "../spawn/BodyBuilder";
 import {
-  pickCriticalRepairTarget,
   wantsCriticalRecovery,
   wantsMaintenanceBuilder,
   nextRepairTarget,
-  nextBuildTarget
+  nextBuildTarget,
+  pickRepairDetail,
+  repairDetailRecruit
 } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { Position } from "../types/Position";
@@ -37,6 +38,7 @@ import {
   BUILD_ENERGY_PER_WORK,
   bufferCarryParts,
   carryPartsFor,
+  DIRECT_DRAW_REACH,
   projectAbsorbRate,
   refuelIntervalTicks,
   SOURCE_RATE,
@@ -57,15 +59,21 @@ import {
   findGridPosition,
   LINK_LIMITS,
   LINK_MIN_SOURCE_RANGE,
+  emergenceTileCount,
   PLACEMENT_COOLDOWN,
+  placementGateOpen,
+  SPAWN_EMERGENCE_MIN,
+  SPAWN_PLACEMENT_ATTEMPTS,
   ROAD_PAYBACK_HORIZON,
   ROAD_RESURVEY_INTERVAL,
   ROAD_SPAWN_PART_VALUE,
+  SITE_CAP,
   SOURCE_CONTAINER_PILE_THRESHOLD,
   STORAGE_MIN_RCL,
   TOWER_MIN_RCL,
   TrunkSurvey,
-  trunkGateFromSurvey
+  trunkGateFromSurvey,
+  wantsAnotherSpawn
 } from "./constructionPlacement";
 
 /**
@@ -466,7 +474,9 @@ export class ConstructionCorp extends Corp {
       // 2026-07-21 "or partially built": the old branch ran EVERYONE through
       // runBuilder, so the detail the demand fielded for a decaying remote
       // container idled at the sites gate while the container rotted).
-      this.assignRepairDetail(room);
+      // A remote crew's build work is this room's own sites (the pool lens is
+      // the HOME corp's; a remote corp never leaves its room).
+      this.assignRepairDetail(room, this.localSiteWork(room));
       this.builders.run(
         creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
         spawn
@@ -510,14 +520,39 @@ export class ConstructionCorp extends Corp {
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
     const wantsTower = this.findMissingTower(room, rcl) !== null;
-    const canBuildMore =
-      activeSites === 0 &&
-      (currentExtensions < maxExtensions ||
+    // The spawn rung joins the gate's "is anything wanted" test, or
+    // canBuildMore closes and tryPlaceNextSite never runs far enough to reach it.
+    const wantsSpawn = wantsAnotherSpawn(
+      rcl,
+      room.find(FIND_MY_SPAWNS).length,
+      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_SPAWN }).length
+    );
+    // BATCH THE WHOLE WANTED SET (owner 2026-07-29): the gate no longer waits
+    // for activeSites === 0. Sizing reads work that EXISTS as sites
+    // (siteWorkRemaining -> projectAbsorbRate), so one-at-a-time placement
+    // capped the crew against a single open site while the rest of the
+    // build-out stayed invisible - the extension-batch reasoning (owner
+    // 2026-07-20) generalized to every rung. Focus is preserved on the BUILD
+    // side (the latch + buildRank ladder order), not by starving the board.
+    const canBuildMore = placementGateOpen({
+      activeSites,
+      wantsMore:
+        currentExtensions < maxExtensions ||
         wantsContainer ||
         wantsStorage ||
         wantsLink ||
         wantsTower ||
-        this.wantsRoadWork(room));
+        wantsSpawn ||
+        this.wantsRoadWork(room),
+      atSiteCap: Object.keys(Game.constructionSites ?? {}).length >= SITE_CAP,
+      // Widening is funded by the warchest surplus - the same lens paving
+      // uses. Without it a cold room keeps the one-at-a-time ladder so the
+      // construction sink cannot out-compete its own income (see
+      // placementGateOpen).
+      hasSurplus:
+        !!room.storage?.my &&
+        spendableBankSurplus(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget)) > 0
+    });
 
     if (canBuildMore) {
       // Whether to build at all - and how fast - is the planner's call (it
@@ -572,17 +607,31 @@ export class ConstructionCorp extends Corp {
 
     // Run both squads. The squad hides the creep count: whether there is one
     // builder or several, the relay of feeders, and any creep mid-recycle.
-    this.assignRepairDetail(room);
     // ONE BUILD POOL (owner 2026-07-20): the crew works the pool's head room
     // - home first, else the nearest room with sites (its trunk tiles, a
     // founding site two rooms over, wherever). runBuilder already drives and
     // refuels in whatever room it is handed (the remote rung proved it).
-    const poolHead = buildPool(spawn.pos.roomName)[0];
+    // Walked ONCE per tick and reused - the scan finds sites in every visible
+    // room, so re-deriving it per reader is a real CPU line, not a nicety.
+    const pool = buildPool(spawn.pos.roomName);
+    // The DURABLE build-work signal for the last-builder rule: pool WORK,
+    // which charges blind receipt rooms their unbuilt share, so a room going
+    // dark cannot read as "nothing to build" and conscript the whole crew
+    // (CLAUDE.md: room state from intel, never vision).
+    const buildWork = pool.reduce((s, e) => s + e.work, 0) > 0;
+    this.assignRepairDetail(room, buildWork);
+    const poolHead = pool[0];
     if (poolHead && !poolHead.room) {
       // BLIND receipt head (stranded-trunk deadlock): no vision anywhere in
       // the pool - the crew's own travel is the only thing that can restore
       // it. March the builders at the receipt room; the repair detail keeps
       // its beat, tankers hold their home loop until a real site resolves.
+      // STAMPED before the early return (2026-07-30): this branch wrote NO
+      // sizing record, so a crew marching at a blind head was indistinguishable
+      // from a crew that never ran - the P8 "CREW IDLE" read had no way to see
+      // it. A silent early return in a decision path is a hole in spec 14 by
+      // construction.
+      this.stampSizing({ ...this.poolStamp(pool), ...this.crewStamp(room), gate: "blind-head" });
       this.builders.run(
         creep =>
           creep.memory.repairDetail
@@ -599,6 +648,29 @@ export class ConstructionCorp extends Corp {
     // decision tankerPlan priced. Fetch worlds field none and keep the
     // full-refill toggle.
     const vectorFed = this.tankers.members().length > 0;
+    // CREW-SPLIT STAMP (owner 2026-07-29: "there's a big builder, but he's
+    // going around repairing roads instead"). Live t72667111: the spawn site
+    // was placed OK at 42,22 (siteTotal 15000) but siteProgress sat at 0 for
+    // ~500 ticks with 2 builders fielded - and because a structure site
+    // reserves a source for the crew, P9 routed fell 110 -> 81.4 e/t and the
+    // piles began returning. So the cost is income loss AND no progress.
+    // One hypothesis was already falsified by code read (non-detail builders
+    // cannot divert to repair - pickCriticalRepairTarget is an unused import),
+    // so per spec-14 doctrine the next step is a STAMP, not a second guess:
+    // export who is on which detail and what each is actually latched to.
+    this.stampSizing({
+      ...this.poolStamp(pool),
+      ...this.crewStamp(room),
+      buildRoom: buildRoom.name,
+      tankers: this.tankers.members().length,
+      vectorFed,
+      wantsMaintenance: this.wantsMaintenance(room),
+      // The last-builder rule's input: with buildWork true and crew 1, the
+      // detail is NOT recruited (repairDetailRecruit) - so a future
+      // "crew 1 / onRepairDetail 1" stamp is readable as a bug, not a policy.
+      buildWork,
+      dedicatedSource: room.memory.dedicatedBuildSourceId ? 1 : 0
+    });
     this.builders.run(
       creep =>
         creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, buildRoom, vectorFed),
@@ -613,11 +685,16 @@ export class ConstructionCorp extends Corp {
    * functions - sites never impact repair). Sticky: the flag lives on the
    * creep for life; a new one is assigned only when none exists. With nothing
    * to maintain the flag clears so the member rejoins the build crew.
+   *
+   * `buildWork` is the crew's OUTSTANDING build work (backlog for the home
+   * pool, local sites for a remote room). It never clears an active detail -
+   * it only blocks conscripting the LAST builder (see repairDetailRecruit).
    */
-  private assignRepairDetail(room: Room): void {
+  private assignRepairDetail(room: Room, buildWork: boolean): void {
     const members = this.builders.members();
     const detail = members.find(c => c.memory.repairDetail);
-    if (!this.wantsMaintenance(room) && !this.wantsCriticalRecovery(room, detail !== undefined)) {
+    const critical = this.wantsCriticalRecovery(room, detail !== undefined);
+    if (!this.wantsMaintenance(room) && !critical) {
       if (detail) delete detail.memory.repairDetail;
       return;
     }
@@ -634,9 +711,83 @@ export class ConstructionCorp extends Corp {
     // The cold-ramp case that motivated it is covered by the 2-builder
     // cons-t3 staging and by the fact that a real cold ramp's containers are
     // full (no maintenance competition).
-    if (detail) return;
-    const recruit = members[0];
+    if (!repairDetailRecruit({ crew: members.length, hasDetail: detail !== undefined, buildWork, critical })) return;
+    // The SMALLEST body takes the beat - a big builder's WORK belongs on the
+    // sites, not parked on a road (see pickRepairDetail).
+    const recruit = pickRepairDetail(members, c => this.builderSize(c));
     if (recruit) recruit.memory.repairDetail = true;
+  }
+
+  /** Body size of a crew member for the detail pick; 0 when unmeasurable (partial mocks). */
+  private builderSize(creep: Creep): number {
+    try {
+      return creep.getActiveBodyparts(WORK);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * WHERE the crew was sent and what it competed against (P8 diagnosis,
+   * 2026-07-30). The P8 "CREW IDLE" read could see 15 remote sites and 0
+   * progress but not WHICH room the pool elected - and the pool ranks HOME
+   * first, then by linear distance, so a distance-1 room carrying a blind
+   * receipt share outranks the distance-2 room where the real sites stand.
+   * Whether that actually happens is the open question; this stamp answers it
+   * from data instead of a second theory.
+   */
+  private poolStamp(pool: { roomName: string; room?: Room; work: number }[]): { [k: string]: number | string } {
+    const head = pool[0];
+    return {
+      poolHead: head?.roomName ?? "",
+      poolHeadBlind: head && !head.room ? 1 : 0,
+      poolRooms: pool.length,
+      // Room:work for the whole pool, so the ELECTION is reproducible from the
+      // stamp - the ranking is what is in question, not just its winner.
+      poolWork: pool.map(e => `${e.roomName}${e.room ? "" : "*"}:${Math.round(e.work)}`).join(",")
+    };
+  }
+
+  /** Who is in the crew, where they stand, and what each is doing (P8 diagnosis). */
+  private crewStamp(room: Room): { [k: string]: number | string } {
+    const crew = this.builders.members();
+    // The VECTOR path never sets memory.working (it builds whenever the store
+    // holds energy - spec 34 parked consumer), so the working-derived F/W
+    // letters lied there: a correctly PARKED builder awaiting its tanker
+    // stamped "F" ("stuck fetching") - recorded stamp defect, t72676091. On
+    // the vector path the truthful split is fed vs dry.
+    const vectorFed = this.tankers.members().length > 0;
+    return {
+      crew: crew.length,
+      onRepairDetail: crew.filter(c => c.memory.repairDetail).length,
+      latchedToSite: crew.filter(c => c.memory.buildTargetId).length,
+      // R=repair detail, B=latched to a site; vector path: V=parked-fed
+      // (energy aboard, burning), D=parked-dry (awaiting the tanker); fetch
+      // path: W=working (building), F=fetching. "-" never appears - every
+      // state has a letter, so no two states share a reading (the original
+      // "-" was ambiguous across four states and t72675034 could not close).
+      buildTargets: crew
+        .map(c => {
+          if (c.memory.repairDetail) return "R";
+          if (c.memory.buildTargetId) return "B";
+          if (vectorFed) return (c.store?.[RESOURCE_ENERGY] ?? 0) > 0 ? "V" : "D";
+          return c.memory.working ? "W" : "F";
+        })
+        .join(""),
+      // Where the crew actually STANDS - a builder marching between rooms and
+      // a builder parked at home look identical in every other field.
+      crewAt: crew.map(c => c.room?.name ?? "?").join(","),
+      crewHome: crew.filter(c => c.room?.name === room.name).length
+    };
+  }
+
+  /** Whether this room has construction work standing (partial mocks -> false). */
+  private localSiteWork(room: Room): boolean {
+    try {
+      return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1079,7 +1230,7 @@ export class ConstructionCorp extends Corp {
       const srcContainer = this.findMissingSourceContainer(room);
       if (srcContainer) {
         this.placeSite(room, srcContainer.x, srcContainer.y, STRUCTURE_CONTAINER);
-        return;
+        return; // ONE rung per pass - see the same-tick note on tryPlaceNextSite
       }
     }
 
@@ -1160,6 +1311,20 @@ export class ConstructionCorp extends Corp {
         placedAny = true;
       }
       if (placedAny) return;
+    }
+
+    // 2.6 ADDITIONAL SPAWNS as the RCL allows (owner 2026-07-29). AFTER the
+    //     extension set - a bigger body per spawn compounds first - but before
+    //     storage/links, because spawn throughput
+    //     (spawnCount * SPAWN_PARTS_PER_TICK) is the colony's hardest physical
+    //     ceiling: measured t72663189-t72665987, Spawn1 ran 0.87-0.97
+    //     utilization with a 4-6 deep queue against a 0.333 p/t ceiling that a
+    //     second spawn DOUBLES. The rate-matched tender model then sizes itself
+    //     up to feed it (spawnConsumptionCeiling scales with spawn count).
+    const nextSpawn = this.findMissingSpawn(room, rcl);
+    if (nextSpawn) {
+      this.placeSite(room, nextSpawn.x, nextSpawn.y, STRUCTURE_SPAWN);
+      return;
     }
 
     // 2.5 Storage (RCL 4): the colony's bank and the durable core depot. It
@@ -1897,6 +2062,62 @@ export class ConstructionCorp extends Corp {
     return tile ? { x: tile.x, y: tile.y } : null;
   }
 
+  /**
+   * Tile for the next SPAWN this RCL allows, or null (owner 2026-07-29: "lets
+   * take a look at placing the additional spawns as rcl allows").
+   *
+   * Reuses findGridPosition's scoring deliberately: it already ranks buildable
+   * tiles by cohesion with the extension cluster and proximity to the existing
+   * spawn, and already excludes hub rings, source/controller lanes and occupied
+   * tiles. That IS the right objective - the marginal value of spawn #2 is
+   * THROUGHPUT, which is position-independent (the engine's _charge-energy draws
+   * from ALL room extensions nearest-first, no range limit), so position only
+   * moves the tender's refill walk (dominant: refillCircuit visits spawns) and a
+   * ~1% creep-travel term. spawnSiteValue is deliberately NOT used - it answers
+   * "where would a NEW economy run best", the wrong question for a developed
+   * room whose economy is already planned and routed.
+   *
+   * The one thing findGridPosition cannot know: NEWBORNS NEED SOMEWHERE TO STEP
+   * OUT. It packs extensions densely (extensions do not care), so its best tile
+   * can be walled in - which would strand every creep the spawn builds. We walk
+   * its ranking, rejecting tiles below SPAWN_EMERGENCE_MIN via its own
+   * `exclude` set, and stamp each rejection so a capture names the reason.
+   */
+  private findMissingSpawn(room: Room, rcl: number): { x: number; y: number } | null {
+    const built = room.find(FIND_MY_SPAWNS).length;
+    const pending = room.find(FIND_MY_CONSTRUCTION_SITES, {
+      filter: s => s.structureType === STRUCTURE_SPAWN
+    }).length;
+    if (!wantsAnotherSpawn(rcl, built, pending)) return null;
+
+    // Harness-safe: a partial room mock may supply neither getTerrain nor a
+    // full find(). Without a terrain read we cannot prove a tile can release
+    // newborns, so we decline to place rather than guess - the rung simply
+    // waits for a cooldown with real vision (live rooms always answer).
+    if (typeof room.getTerrain !== "function") return null;
+    const terrain = room.getTerrain();
+    const blockers = new Set<string>();
+    for (const st of room.find(FIND_STRUCTURES)) {
+      // Roads and containers are walkable; own ramparts too. Everything else
+      // blocks a newborn from stepping off the spawn tile.
+      if (st.structureType === STRUCTURE_ROAD || st.structureType === STRUCTURE_CONTAINER) continue;
+      if (st.structureType === STRUCTURE_RAMPART) continue;
+      blockers.add(`${st.pos.x},${st.pos.y}`);
+    }
+    const isBlocked = (x: number, y: number): boolean =>
+      (terrain.get(x, y) & TERRAIN_MASK_WALL) !== 0 || blockers.has(`${x},${y}`);
+
+    const rejected = new Set<string>();
+    for (let attempt = 0; attempt < SPAWN_PLACEMENT_ATTEMPTS; attempt++) {
+      const pos = findGridPosition(room, rejected);
+      if (!pos) return null;
+      if (emergenceTileCount(isBlocked, pos.x, pos.y) >= SPAWN_EMERGENCE_MIN) return pos;
+      this.stampSizing({ spawnTileRejected: `${pos.x},${pos.y}:walled-in` });
+      rejected.add(`${pos.x},${pos.y}`);
+    }
+    return null;
+  }
+
   private findMissingStorage(room: Room, rcl: number): { x: number; y: number } | null {
     if (rcl < STORAGE_MIN_RCL || room.storage) return null;
     const hasSite =
@@ -2211,9 +2432,20 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
+    // EXIT-TILE ESCAPE: same rule as doBuild - the repair detail latches
+    // border roads (a paved route's tiles run right up to the exit), and
+    // repairing from the exit tile teleports the detail across at tick end.
+    // Repair + move stack in one tick, so the escape is free.
+    const onExit = isRoomEdgeTile(creep.pos.x, creep.pos.y);
+    if (onExit) {
+      creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+    }
+
     const result = creep.repair(target);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      if (!onExit) {
+        creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      }
       // ERR_NOT_IN_RANGE means the target repair did NOT fire, so the work
       // action group is free: repair the road underfoot on the walk (most
       // damaged first), turning the commute into maintenance too.
@@ -2311,7 +2543,10 @@ export class ConstructionCorp extends Corp {
         // Dry off-post (a newborn at the spawn): walk out to the latched
         // site so the vector's deliveries land on a parked consumer.
         const target = nextBuildTarget(sites, creep.memory.buildTargetId, s => creep.pos.getRangeTo(s.pos)) ?? sites[0];
-        if (target && creep.pos.getRangeTo(target.pos) > 3) {
+        // `|| exit tile`: a dry parked builder must never wait on a border
+        // tile - tick-end teleports it and the bounce loop begins (same
+        // escape as doBuild).
+        if (target && (creep.pos.getRangeTo(target.pos) > 3 || isRoomEdgeTile(creep.pos.x, creep.pos.y))) {
           creep.memory.buildTargetId = target.id;
           travelTo(creep, new RoomPosition(target.pos.x, target.pos.y, room.name), {
             range: 3,
@@ -2419,9 +2654,25 @@ export class ConstructionCorp extends Corp {
     if (!target) return;
     creep.memory.buildTargetId = target.id;
 
+    // EXIT-TILE ESCAPE (owner-reported 2026-07-31, measured live: builder
+    // 72685930 teleport-bounced W43N23(36,49) <-> W43N22(36,0) over the road
+    // site at (36,2) - the engine moves any creep standing on a border tile
+    // into the next room at tick end, the cross-room branch walked it back
+    // (shedding its cargo each re-entry), and the arrival tile was the exit
+    // again; poolWork moved 0.28 e/t against a 30-site campaign). A latched
+    // target within working range of the border makes the range-3 stop the
+    // exit itself. Build and move are DIFFERENT action groups, so stepping
+    // inward costs zero build throughput: same tick still builds.
+    const onExit = isRoomEdgeTile(creep.pos.x, creep.pos.y);
+    if (onExit) {
+      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+    }
+
     const result = creep.build(target);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      if (!onExit) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      }
       // Only on the walk: a same-tick build already claimed the work action
       // group, and repair would cancel it. Spending carried energy on the road
       // underfoot also lightens the load, so the walk itself is faster.
@@ -2437,7 +2688,12 @@ export class ConstructionCorp extends Corp {
    * Haulers are responsible for delivering energy to builders.
    */
   private doPickup(creep: Creep, _room: Room): void {
-    const PICKUP_RANGE = 4; // Only grab energy within this range
+    // ONE reach constant, shared with the supply verdict (primitives.
+    // DIRECT_DRAW_REACH): supplyMethod may only elect a self-fetch inside the
+    // range this scan actually covers. Two literals drifted apart once already
+    // - the plan priced a 100-tile "direct" draw against a 4-tile scan and the
+    // crew starved beside its own sites (P8, t72675271).
+    const PICKUP_RANGE = DIRECT_DRAW_REACH;
 
     // Any walk here can carry a partial load (the builder tops up over several
     // ticks), so every moveTo repairs the road underfoot in the same tick -
