@@ -979,3 +979,90 @@ describe("E4 spend-path: a feeder BETWEEN GENERATIONS is not a broken path (t726
     expect(e4.verdict).to.equal("FAIL");
   });
 });
+
+/**
+ * F1 — PLAN FIDELITY (owner doctrine 2026-07-30): *"More than points what
+ * we're chasing is a controllable economy. So that we can plan it all on the
+ * abstract level and then it gets implemented faithfully... We end up having
+ * to chase down why is this or that thing happening. That's something to
+ * optimize for as well."*
+ *
+ * Fidelity was already first-class in SIMS (`fid-*` grid cells; CLAUDE.md:
+ * "on synthetic worlds the plan should be achievable - a fidelity gap there
+ * is a bug signal by construction") but had NO production number. The waste
+ * ledger measured leaks; nothing measured DIVERGENCE, so every live fidelity
+ * failure this session was found by hand: the 100-tile fuel price on a 4-tile
+ * pile (spec 37), three bank-drain rates (spec 38), P4's 7x reserver
+ * under-count, and the six-capture 0.649-vs-0.478 parts gap.
+ *
+ * F1 is the aggregate: what the plan says the colony's spawn maintenance
+ * costs, against what the spawn MEASURABLY builds. 1.0 is a faithful plan.
+ * It is deliberately a RATIO in both directions - a plan that over-states is
+ * as unfaithful as one that under-states, and only one of those looks like
+ * "waste".
+ */
+describe("F1 plan fidelity (waste ledger)", () => {
+  const mk = (planLines: any[], partsPerTick: number[], corpsList: any[] = []): any => ({
+    tick: 1000,
+    data: {
+      flow: { sources: [], haulers: [], sinks: [] },
+      corps: { corps: corpsList },
+      core: {
+        rooms: [{ storageEnergy: 0 }],
+        creeps: { total: 0, tracked: 0, untracked: 0 },
+        spawns: partsPerTick.map(p => ({ partsPerTick: p, utilization: p * 3, queueDepth: 0 }))
+      },
+      ...(planLines.length ? {} : {})
+    }
+  });
+
+  /** The plan total carries fallback lines (tender 3x24, feeder, ...), so the
+   *  fixtures DERIVE it via planSpawnLoad rather than hard-coding a constant -
+   *  the assertions are about the RELATIONSHIP, which is what F1 measures. */
+  const planTotal = (cap: any): number => planSpawnLoad(cap).total;
+
+  it("reads 1.0 when the spawn builds exactly what the plan prices", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe)], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(1.0, 0.02);
+    expect(f1.verdict).to.equal("ok");
+    expect(f1.detail).to.contain("faithful");
+  });
+
+  it("FAILS when the spawn builds far more than the plan prices (the session's shape)", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(2.0, 0.05);
+    expect(f1.verdict).to.equal("FAIL");
+    expect(f1.detail).to.contain("UNBUDGETED");
+  });
+
+  it("also FLAGS an OVER-stating plan (fidelity is two-sided, not a waste line)", () => {
+    // A fleet priced but never built is exactly as uncontrollable as an
+    // unbudgeted one - and it is the shape that reads as "efficient" if you
+    // only ever look for waste.
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 0.5], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.value).to.be.closeTo(0.5, 0.05);
+    expect(f1.verdict).to.equal("FAIL");
+    expect(f1.detail).to.contain("OVER-states");
+  });
+
+  it("skips (no row) when the spawn meter is absent - never a fabricated verdict", () => {
+    const cap: any = {
+      tick: 1000,
+      data: {
+        flow: {},
+        corps: { corps: [] },
+        core: { rooms: [{ storageEnergy: 0 }], creeps: { total: 0, tracked: 0, untracked: 0 } }
+      }
+    };
+    expect(computeLedger(cap, cap).find(r => r.id === "F1")).to.equal(undefined);
+  });
+});

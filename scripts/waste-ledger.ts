@@ -325,6 +325,49 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   const { total, lines } = planSpawnLoad(cap);
   const ceiling = (core.spawns?.length ?? 1) * SPAWN_PARTS_PER_TICK;
   const ratio = total / ceiling;
+
+  // ---- F1 plan FIDELITY (owner doctrine 2026-07-30) ----
+  // "More than points what we're chasing is a controllable economy ... plan it
+  // all on the abstract level and then it gets implemented faithfully ... we
+  // end up having to chase down why is this or that thing happening. That's
+  // something to optimize for as well."
+  //
+  // Fidelity was first-class in SIMS (fid-* grid cells) but had NO production
+  // number, so every live divergence this session was found BY HAND: the
+  // 100-tile fuel price on a 4-tile pile (spec 37), three bank-drain rates
+  // (spec 38), P4's 7x reserver under-count, and a six-capture parts gap
+  // (measured 0.649 vs plan 0.478) that no line reported. P4 asks "is the plan
+  // PHYSICALLY POSSIBLE"; F1 asks "is the plan what actually HAPPENS" - a plan
+  // can be perfectly feasible and still describe a different colony.
+  //
+  // Two-sided ON PURPOSE: a plan that OVER-states is exactly as uncontrollable
+  // as one that under-states, and only the under-stating direction looks like
+  // "waste" - so a waste-only ledger is blind to half the failure mode.
+  {
+    const measured = (core.spawns ?? []).reduce((a: number, s: any) => a + (+s.partsPerTick || 0), 0);
+    const hasMeter = (core.spawns ?? []).some((s: any) => s.partsPerTick !== undefined);
+    if (hasMeter && total > 0) {
+      const fidelity = measured / total;
+      const gap = measured - total;
+      const worst = [...lines].sort((a, b) => b[2] - a[2])[0];
+      rows.push({
+        id: "F1",
+        name: "plan fidelity (measured vs planned spawn load)",
+        value: +fidelity.toFixed(2),
+        unit: "x planned",
+        // 1.25/0.8 = a quarter of the plan unaccounted for in either direction.
+        verdict: fidelity > 1.25 || fidelity < 0.8 ? "FAIL" : fidelity > 1.1 || fidelity < 0.9 ? "WARN" : "ok",
+        detail:
+          `spawn builds ${measured.toFixed(3)} p/t, plan prices ${total.toFixed(3)} p/t` +
+          (gap > 0
+            ? ` - ${gap.toFixed(3)} p/t UNBUDGETED (${(100 * gap / Math.max(1e-9, measured)).toFixed(0)}% of what the spawn builds is not in the plan)`
+            : gap < 0
+            ? ` - the plan OVER-states by ${(-gap).toFixed(3)} p/t (a fleet priced but never built)`
+            : " - faithful") +
+          `; largest planned class: ${worst ? `${worst[0]} ${worst[2].toFixed(3)}` : "n/a"}`
+      });
+    }
+  }
   rows.push({
     id: "P4",
     name: "plan spawn-infeasibility",
