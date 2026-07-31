@@ -6511,3 +6511,74 @@ because the runtime shrank. Spec 39 owns it. **E2 crept 16 → 22 parts**
 stranded (W41N23-hauling-4-38, a single hauler) — WARN, worth a falsifier
 next cycle: if it climbs a third window it is a real strand, not a route in
 transition.
+
+### AUDIT 2026-07-31 (t72690582→t72695674, dt 5092) — the hauler churn loop ROOT-CAUSED: both sizers referenced the ROOM, not the ROUTE
+
+**CYCLE VERDICT: FIXED (bot change, red-first).** Score **34.16 pts/t** (gcl
+279,671,177 → 279,845,110), CPU 20.6/300, bucket 10,000/10,000, RCL 7.
+
+**Ledger:** 2 FAILs — F1 1.49× (top line) and P7 0.44×. They are ONE defect.
+
+| line | reading |
+|---|---|
+| F1 | measured 0.646 p/t vs plan 0.434 — **haulers 0.471 vs 0.225 (+0.246)**, upgraders 0.035 vs 0.069 (−0.033), raidGuard 0.029 unpriced |
+| P7 | controller 34.2 e/t vs plan 77.7; stock 640→609 (**the energy was there**) |
+| spawn | util 0.99 / 0.95, queueDepth 7 / 8 — a saturated, zero-sum pie |
+| X1 | 64 WORK standing, workUtil **1.00** — the upgraders that exist are never dry |
+
+The upgraders are not idle and not starved of energy; there are **half as many
+as the plan buys**. Under a saturated spawn the hauler over-build is paid for
+out of the upgraders' build time, and P7 is the score-side invoice for F1.
+
+**The mechanism (proven, not inferred).** The standing hauler fleet (~353
+parts) MATCHES the plan's carry (205 planned CARRY parts). So the 2.1× is not
+a bigger fleet — it is the same fleet **bought over and over**. The blackbox
+ring named the shape: every near-simultaneous same-corp respawn in the window
+was a small body followed by a maximum one, e.g. `W41N23-hauling-4-38`
+(carryNeeded **7**) spawning `[20, 16, 50, 16, 50]` parts — two 25-CARRY /
+2500e haulers inside 2419 ticks for a 7-CARRY job.
+
+Both hauler sizers measured a body against `maxCarryPairs(room capacity)`:
+
+- `CarryCorp.getSpawnDemand` top-up branch: once the fleet had the planned
+  COUNT but not the planned CARRY, it asked for `maxCarryPerHauler` — a
+  4-CARRY hole ordered a 25-CARRY body.
+- `CarryCorp.flagRuntForRecycling`: retired the smallest hauler whenever it
+  was under `maxCarryPerHauler`, so the 8-CARRY body that FULLY COVERED a
+  7-CARRY route read as a runt and was retired on every flush-spawn tick.
+
+At RCL 7 (capacity 5600 → 25 pairs) that pair is a **standing churn loop on
+every short route**: retire the adequate incumbent, rebuild at 3.5× the route,
+repeat. It could not exist below RCL ~5, where capacity and route need are the
+same order — the colony grew into it.
+
+**The fix: a hauler's right size is a property of its ROUTE, not of the room.**
+New primitive `haulerBodyCarry(energyBudget, carryNeeded)` = the route's even
+per-body share across the smallest fleet that covers it (≤ `maxCarryPairs` by
+construction). Both call sites now reference it. `maxCarryPairs` keeps its one
+correct job: the divisor that sets the fleet COUNT.
+
+Red-first, two cells in `CarryCorp.behavior.test.ts` — the demand half failed
+at **25 expected ≤7** before the fix; the recycle half pins that a covering
+body is never flagged. Gate: unit 1756 pass, `flow-handoff` / `runt-economy` /
+`storage-depot` green on the rebuilt bundle.
+
+**Falsifiable predictions registered for the post-deploy re-capture:**
+1. hauler spawn load falls from 0.463 p/t toward the plan's 0.225;
+2. F1 ratio falls from 1.49× toward 1.0;
+3. upgrader spawn load rises from 0.035 p/t toward 0.069, and **P7 rises from
+   0.44×** — the score-side confirmation;
+4. **no hauler body spawns above its route's `carryParts`** (blackbox parts vs
+   segment-6 `haulers[]`) — the direct read on the invariant;
+5. E6 does NOT worsen (4 of 10 gated). The fix never sizes BELOW the route's
+   share, so piles must not grow. **If they do, prediction 5 is the falsifier
+   and the change is wrong.**
+
+**Not addressed this cycle, named with data:** the ~0.21 p/t unbudgeted is not
+all this loop. Raided remotes (raidGuard debts W41N23 70,240 / W43N24 82,040;
+W43N22 raid debt 226,390 mid-window) kill haulers early, and the plan prices
+every route at a full 1500-tick life — a P5 price/behavior drift with no
+ledger row yet. Also: the harvest corps' nested haul vector carries **85% of
+hauler spawn spend** (59,150e of 69,750e) and exports **no sizing stamp** —
+the `hauling-*` carry corps stamp richly, `mining-*` stamp only the miner. The
+top spender is the least instrumented decision site in the colony.

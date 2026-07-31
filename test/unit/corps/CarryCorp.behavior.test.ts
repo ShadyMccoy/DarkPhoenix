@@ -281,6 +281,77 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       setFleet(nodeId, 0);
       expect(corp.getSpawnDemand(ctx)).to.deep.equal([]);
     });
+
+    // ------------------------------------------------------------------
+    // TOP-UP OVER-BUY (production audit 2026-07-31, t72695674)
+    //
+    // Live: F1 read hauler spawn load 0.471 p/t against a plan of 0.225 -
+    // 2.1x - while the STANDING hauler fleet matched the plan's carry. The
+    // spend went into bodies far larger than their route: W41N23-hauling-4-38
+    // (carryNeeded 7) bought two 25-CARRY / 2500e haulers inside one window,
+    // and every harvest-corp route bought above its even-split share.
+    //
+    // The mechanism is the top-up branch: once the fleet has the planned COUNT
+    // but not the planned CARRY, sizing jumps to maxCarryPerHauler (25 at a
+    // 5600 capacity) instead of the deficit. A 4-CARRY hole buys a 25-CARRY
+    // body. The invariant that pins it: one hauler is never worth more CARRY
+    // than the WHOLE route needs - past that the parts are dead weight the
+    // route can never load, and under a saturated spawn (util 0.99) they are
+    // bought out of the upgraders' build time (P7 controller delivery 0.44x).
+    // ------------------------------------------------------------------
+    it("tops a runt fleet up by the route's deficit, not a full-size body", () => {
+      const nodeId = "W1N1-hauling-topup";
+      const corp = carryCorp(nodeId);
+      // RCL7-shaped capacity: maxCarryPerHauler = 25, so the over-buy has room
+      // to show. The route needs 7 CARRY total (the live 4-38 shape).
+      const bigCtx = { energyCapacity: 5600, tick: 100 };
+      corp.setHaulerAssignments([route("storage-x", 3, 7 * (50 / (2 * 3 + 2)))]);
+
+      // One 3-CARRY runt fielded (a starved-spawn purchase): the planned COUNT
+      // (1) is met, the planned CARRY (7) is not.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = {
+        ...MockGame,
+        time: 100,
+        creeps: {
+          runt: {
+            memory: { corpId: nodeId, workType: "haul" },
+            spawning: false,
+            store: { getCapacity: () => 150 },
+            getActiveBodyparts: (part: string) => (part === "carry" ? 3 : 0),
+          },
+        },
+      };
+
+      const d = corp.getSpawnDemand(bigCtx)[0];
+      expect(d, "a 3-of-7 CARRY fleet still demands a top-up").to.not.equal(undefined);
+      expect(d.bodyParam as number).to.be.at.most(
+        7,
+        "a top-up body must never exceed the whole route's CARRY requirement"
+      );
+    });
+
+    it("a body that covers its route is not a runt, however big the room's spawn", () => {
+      // The recycle half of the same loop. At a 5600 capacity the pounce used
+      // to measure every hauler against 25 CARRY, so the 8-CARRY body that
+      // fully covered a 7-CARRY route was retired on every flush tick and
+      // rebuilt - paying a full body to replace an adequate one, forever.
+      const nodeId = "W1N1-hauling-covered";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([route("storage-x", 3, 7 * (50 / (2 * 3 + 2)))]);
+
+      const covering = {
+        memory: {} as Record<string, unknown>,
+        spawning: false,
+        store: { getCapacity: () => 400, [RESOURCE_ENERGY]: 0 },
+        getActiveBodyparts: (part: string) => (part === "carry" ? 8 : 0),
+      };
+      // A flush spawn at RCL7 capacity - the exact condition the pounce waits for.
+      const room = { energyAvailable: 5600, energyCapacityAvailable: 5600 } as unknown as Room;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).flagRuntForRecycling([covering], room, { spawning: null } as unknown as StructureSpawn);
+      expect(covering.memory.recycling, "8 CARRY covers a 7-CARRY route - nothing to heal").to.equal(undefined);
+    });
   });
 
   describe("load routing - which sink each load is committed to", () => {

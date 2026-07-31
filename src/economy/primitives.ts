@@ -202,6 +202,31 @@ export function maxCarryPairs(energyBudget: number): number {
 }
 
 /**
+ * CARRY parts ONE hauler should be built with to serve a route needing
+ * `carryNeeded` total, at a room of `energyBudget` capacity: the even share of
+ * the route across the smallest fleet that can cover it. Never above
+ * maxCarryPairs by construction, and - the point - never above what the ROUTE
+ * itself can load.
+ *
+ * The distinction this primitive exists to hold (production audit 2026-07-31,
+ * t72695674): a hauler's right size is a property of its ROUTE, not of the
+ * room's spawn capacity. Both hauler sizers used to reference maxCarryPairs
+ * alone, which at RCL7 (capacity 5600 -> 25 pairs) made every body under 25
+ * CARRY read as "under-built" no matter how small its route. The measured
+ * result was a standing churn loop on short routes: the demand path rebuilt a
+ * 7-CARRY route's hauler at 25 CARRY (2500e for a 700e job) and the recycle
+ * path retired the adequate 8-CARRY incumbent that covered it, on every tick
+ * the spawn happened to be flush. F1 read hauler spawn load 0.471 p/t against
+ * a plan of 0.225 - and under a saturated spawn those parts come out of the
+ * upgraders' build time (P7 controller delivery 0.44x plan).
+ */
+export function haulerBodyCarry(energyBudget: number, carryNeeded: number): number {
+  const maxPer = maxCarryPairs(energyBudget);
+  const fleet = Math.max(1, Math.ceil(carryNeeded / maxPer));
+  return Math.max(1, Math.min(maxPer, Math.ceil(carryNeeded / fleet)));
+}
+
+/**
  * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
  * standing adjacent to both its bank and its sink (the link-fed controller
  * feeder: storage on one side, core link on the other; owner 2026-07-22 "The

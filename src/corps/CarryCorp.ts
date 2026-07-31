@@ -23,6 +23,7 @@ import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
   carryPartsFor,
+  haulerBodyCarry,
   maxCarryPairs,
   roundTripTicks,
   staffsPost
@@ -330,9 +331,14 @@ export class CarryCorp extends Corp {
     }
   }
 
-  /** CARRY parts a single hauler can be built with at the room's full capacity. */
+  /**
+   * CARRY parts a single hauler on THIS corp's route is worth building with:
+   * the route's even per-body share at the room's capacity, not the room's
+   * capacity alone (see primitives.haulerBodyCarry). Referencing the capacity
+   * made a body that fully covered a short route read as a runt forever.
+   */
   private maxCarryPerHauler(room: Room): number {
-    return maxCarryPairs(room.energyCapacityAvailable);
+    return haulerBodyCarry(room.energyCapacityAvailable, this.haulCarryNeeded());
   }
 
   /**
@@ -1256,16 +1262,24 @@ export class CarryCorp extends Corp {
     // the even split makes it 2 + 2). Each index gets the floor share and the first
     // `remainder` get one more - deterministic from spawn order. Once PAST the
     // planned count we are healing a runt fleet (bootstrap under-built the bodies),
-    // so target a FULL body: the scheduler scales it down to whatever energy is on
-    // hand, but on a flush tick it lands a big hauler that flagRuntForRecycling can
-    // then swap a runt for - converging toward fewer, full-size bodies.
+    // so target the ROUTE'S per-body share: the scheduler scales it down to
+    // whatever energy is on hand, but on a flush tick it lands a right-sized
+    // hauler that flagRuntForRecycling can then swap a runt for - converging
+    // toward fewer bodies that between them cover the route exactly.
+    //
+    // That share, NOT the room's maxCarryPerHauler (production audit
+    // 2026-07-31, t72695674): sizing the heal to spawn capacity bought a
+    // 25-CARRY / 2500e body to close a 4-CARRY hole on a 7-CARRY route, and the
+    // recycle path then retired the 8-CARRY incumbent that had covered it. A
+    // standing churn loop on every short route, measured at 2.1x the plan's
+    // hauler spawn load while the STANDING fleet matched the plan's carry.
     let desiredCarry: number;
     if (current < targetHaulers) {
       const base = Math.floor(carryNeeded / targetHaulers);
       const remainder = carryNeeded % targetHaulers;
       desiredCarry = base + (current < remainder ? 1 : 0);
     } else {
-      desiredCarry = maxCarryPerHauler;
+      desiredCarry = haulerBodyCarry(ctx.energyCapacity, carryNeeded);
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
     const desiredCost = desiredCarry * CARRY_MOVE_PAIR_COST;
