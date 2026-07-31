@@ -49,6 +49,51 @@ describe("waste ledger (spec 15 phase 1)", () => {
     }
   });
 
+  /**
+   * PER-ROOM CORPS MUST BE SUMMED, NOT SAMPLED (measured t72683137). The
+   * reserver line read `corps.find(kind === "reservation")?.sizing?.targets` -
+   * the FIRST corp only. Reservation is a PER-ROOM corp: the live colony ran
+   * SEVEN of them (W42N22/W42N23/W43N22/W43N24/W44N22/W44N23/W41N23), each
+   * `targets: 1`, each a 4-part body. P4 therefore priced 4 parts where 28
+   * stood - 0.0074 vs 0.0519 parts/t, a 7x under-count on a class that was
+   * 21.7% of MEASURED spawn spend (26,000e of 119,969e over 2,452t). It
+   * accounts for ~26% of the session-long "unbudgeted" gap (measured 0.649
+   * p/t vs plan-implied 0.478) that the 90% headroom failed to explain.
+   *
+   * P4's charter is "ALL fleet classes, budgeted or not" - a sampling read of
+   * a per-room class silently breaks exactly that contract.
+   */
+  it("P4 SUMS per-room reservation corps instead of sampling the first (t72683137)", () => {
+    const room = (n: string) => ({
+      id: `reservation-${n}-reservation`,
+      kind: "reservation",
+      creepCount: 1,
+      bodyParts: 4,
+      sizing: { targets: 1 }
+    });
+    const seven = ["W42N22", "W42N23", "W43N22", "W43N24", "W44N22", "W44N23", "W41N23"].map(room);
+    const mk = (corps: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers: [], sinks: [] }, corps: { corps }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const resLoad = (c: any): number =>
+      planSpawnLoad(c).lines.find(([n]) => String(n).startsWith("reservers"))![2];
+
+    const one = resLoad(mk([room("W42N22")]));
+    const all = resLoad(mk(seven));
+    expect(all, "seven rooms cost seven reservers, not one").to.be.closeTo(7 * one, 1e-9);
+    expect(all, "28 parts over the claim life, not 4").to.be.closeTo(28 / (600 - 60), 1e-9);
+  });
+
+  it("P4's reserver line stays zero when no room is reserved", () => {
+    const mk = (corps: any[]): any => ({
+      tick: 0,
+      data: { flow: { sources: [], haulers: [], sinks: [] }, corps: { corps }, core: { rooms: [{ storageEnergy: 0 }] } }
+    });
+    const line = planSpawnLoad(mk([])).lines.find(([n]) => String(n).startsWith("reservers"))!;
+    expect(line[2]).to.equal(0);
+  });
+
   it("P4 READS the planner's own hauler spawnParts - no re-derivation, so no drift", () => {
     // ROOT-CAUSE of the ledger/planner drift (owner 2026-07-22): the ledger
     // RECOMPUTED hauler load as 2*carryParts/effectiveLife - a second

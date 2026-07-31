@@ -167,10 +167,25 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   const tenderBody = fleetParts(corps, "tender", 24);
   lines.push(["tenders", tenderTarget * tenderBody, (tenderTarget * tenderBody) / 1500]);
 
-  const resTargets = corps.find(c => c.kind === "reservation")?.sizing?.targets ?? 0;
-  const resBody = fleetParts(corps, "reservation", 4);
-  const resLoad = (resTargets * resBody) / Math.max(1, CLAIM_LIFETIME - 60);
-  lines.push(["reservers (claim life)", resTargets * resBody, resLoad]);
+  // PER-ROOM corps are SUMMED, never sampled (measured t72683137): reservation
+  // is one corp PER RESERVED ROOM, and `find()` priced only the first. The live
+  // colony ran SEVEN, each targets:1 / 4 parts - P4 charged 4 parts where 28
+  // stood (0.0074 vs 0.0519 parts/t, a 7x under-count) on a class that was
+  // 21.7% of MEASURED spawn spend and ~26% of the session's unexplained
+  // plan-vs-actual parts gap. P4's charter is ALL fleet classes; a sampling
+  // read of a per-room class breaks it silently.
+  const resFallback = fleetParts(corps, "reservation", 4);
+  const resParts = corps
+    .filter(c => c.kind === "reservation")
+    .reduce((sum, c) => {
+      const targets = c.sizing?.targets ?? 0;
+      // Each corp's OWN measured body when it has one; the fleet body otherwise
+      // (a corp between deaths still costs its replacement).
+      const body = c.creepCount > 0 ? c.bodyParts / c.creepCount : resFallback;
+      return sum + targets * body;
+    }, 0);
+  const resLoad = resParts / Math.max(1, CLAIM_LIFETIME - 60);
+  lines.push(["reservers (claim life)", resParts, resLoad]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
   return { total, lines };

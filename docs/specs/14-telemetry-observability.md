@@ -5986,3 +5986,72 @@ mechanism.
 100% of window). Spec 37's local-fuel work eats d01f's pile directly; the
 hauler drain-term thread remains the alternative attack. Deliberately not
 started — spec 37 is a separate session's, and this cycle changed no code.
+
+### AUDIT 2026-07-30 (t72681617→t72683137, dt 1520) — E4 LANDED ON TARGET; utilization mechanism falsified; P4 reserver under-count found + fixed
+
+**CYCLE VERDICT: fixed (instrument) + two watch items resolved.** Third
+consecutive zero-FAIL ledger.
+
+**E4 CONVERGED — the session's headline result completes cleanly.** Storage
+**129,592**, projected equilibrium **70,432** against a 70,000 reserve target
+(surplus **432**). Slope tapered **−66.8 → −39.4/t** exactly as the linear
+`spendableBankSurplus/SURPLUS_DRAIN_TICKS` drain predicts. **No overshoot** —
+the warchest floor held, which was the explicit regression watch. Arc for the
+session: 351k rising **+36.6/t** → 130k at target.
+
+**X1 RESOLVED as predicted.** workUtil **0.84 → 1.00**, dry share
+**0.15 → 0.00**, idle-equivalent 10.4 → 0.2 parts. The mid-drain dry share was
+the transient it was called, so consumer sizing is NOT over-shooting supply.
+Watch item closed without a patch.
+
+**MY UTILIZATION MECHANISM IS FALSIFIED.** Last cycle I explained the pinned
+utilization as "a draining 300k bank funds big fleets regardless of the parts
+budget". The bank has now stopped draining and **nothing moved**:
+
+```
+partsPerTick across SIX captures: 0.652  0.654  0.654  0.656  0.642  0.649
+spanning: the 90% headroom deploy (plan 0.95x -> 0.63x), the wartime exit
+          + re-fleet, and a 360k -> 130k bank drain to target
+utilization: 0.966 / 0.980   queueDepth 8 / 7
+```
+
+Flat at ~0.65 p/t (97% of physical) through every one of those. The correct
+statement, replacing the bank-drain story: **the spawn is permanently
+saturated by demand the plan does not budget** — 0.649 measured vs 0.478
+plan-implied. Cause partly identified below; the remainder is spec 38's Q1.
+
+**P4 RESERVER UNDER-COUNT — 7x, found and FIXED this cycle.** The reserver
+line read `corps.find(kind === "reservation")?.sizing?.targets` — the FIRST
+corp only. Reservation is a **per-room** corp and the colony runs **seven**
+(W42N22/W42N23/W43N22/W43N24/W44N22/W44N23/W41N23), each `targets: 1`, each
+4 parts. P4 charged **4 parts where 28 stood**:
+
+```
+priced    4p = 0.0074 p/t        measured (blackbox) 26,000e / 2,452t
+actual   28p = 0.0519 p/t                     = 0.0326 p/t (duty-cycled)
+reserver share of MEASURED spawn spend: 21.7% (the #2 role)
+```
+
+That single `.find()` was **~26% of the session-long unbudgeted gap** the 90%
+headroom failed to explain. Fixed by summing per-room corps and using each
+corp's own measured body; red-first tests pin the sum, the 28/540 value, and
+the empty case. P4 now reads **0.78x (0.523 p/t)**, gap narrowed
+0.171 → 0.126 p/t. Ledger-script only — unit suite (1731 green), no trio, no
+deploy.
+
+**Generalization worth carrying**: P4's charter is "ALL fleet classes,
+budgeted or not". Any per-room corp class read with `.find()` breaks it
+silently. `tenders` and `feeder` use the same sampling shape and are correct
+only because the colony has ONE room with them today — they will under-count
+the moment a second owned room exists. Filed, not fixed (no second room yet).
+
+**Score 67.6 → 42.9 pts/t — expected, not a regression.** P7 reads
+**0.86x** of plan (actual 42.9 vs plan 50.0), i.e. delivery is now tracking
+the plan rather than a surplus burst. The 67.6 peak was the bank drain on top
+of income; with the surplus exhausted the sustainable rate is what mined
+income supports. Still ~30x this morning's 1.35-2.0 floor.
+
+**NEW WARNs (neither actioned)**: E5 3-of-8 runt purchases (hauler@100 x3) and
+P2 micro-routes 12 of 23 — both point at the same hauler-sizing thread as E6's
+chronic piles. Watch; if E5 persists the drained-spawn purchase path is due
+its own cycle.
