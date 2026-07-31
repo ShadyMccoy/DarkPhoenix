@@ -6156,3 +6156,76 @@ exact number is, we can play with that later"*). The pending steady-state read
 — no drain, no wartime transition, no deploy reset — is the **first
 uncontaminated test** of whether the plan transmits to fleet size at all.
 That is the question to answer, and F1 is the right instrument for it.
+
+### AUDIT 2026-07-31 (t72683137→t72684708, dt 1571) — the "steady-state read" caught a REGIME TRANSITION instead: one full oscillation period now observed
+
+**CYCLE VERDICT: measured + named (no code changed).** The window planned as
+the first uncontaminated steady-state read turned out to contain a wartime
+RE-ENTRY — which is itself the finding.
+
+**THE OBSERVED CYCLE (first full period, all stamped):**
+1. surplus era → upgraders sized up from the bank (4 → 100 parts)
+2. bank drained 360k → target at −40 to −67/t (as designed, gentle taper)
+3. **mid-drain, while surplus still held, the road gate judged and placed the
+   NEXT route** — cd94/W43N22, 23/53 tiles, `remoteSites {W43N22: 30}`;
+   d01f's trunk simultaneously finished (78→84 of 85, W41N23 cleared)
+4. backlog standing → **wartime re-entered** (upgrader stamp `wartime: true`)
+5. **the upgrader fleet was relegated and recycled**: 100 parts → 25. The
+   blackbox shows the cost: upgraders bought at t72682355 (4450e) and
+   t72682517 (4450e) — recycled ~160t later (X5 worst:
+   `W43N23-upgrading 4450e@162t`, home bot-signal churn 9%).
+   **~9,000e of upgrader bodies bought and unwound inside ~300 ticks.**
+
+Step 5 is a measured regression against an explicit owner directive
+(2026-07-29: *"we should definitely want to avoid having to recycle
+upgraders"*). The mechanism, named: **consumers buy 1500-tick bodies against a
+surplus whose remaining life is measured in hundreds of ticks.**
+`SURPLUS_DRAIN_TICKS = CREEP_LIFETIME` correctly matched the drain horizon to
+body lifetime — but the horizon assumption is invalidated by PLACEMENT, not by
+the drain: the road gate can stand up a backlog at any moment, flipping
+wartime and cutting the surplus era short. The upgrader sizing and the road
+placement read the SAME surplus lens with no knowledge of each other's
+pending claims. Fix classes (BOTH parked, not tonight's work): wartime
+entry/exit hysteresis (spec 33's named open item) and/or netting the
+placeable-construction claim out of the surplus consumers size from
+(spec-38-adjacent — a fourth reader of the one drain rate).
+
+**The wakeup's four questions, answered:**
+1. **E4: DONE, no overshoot.** 67,230 vs 70,000 reserve (−2,770 ≈ 4%, the
+   taper crossing). `bankSurplusRate` floors at 0 below target so the drain
+   formula CANNOT continue below reserve; the line's "projected equilibrium
+   7,686" is a linear extrapolation across that regime boundary — instrument
+   artifact, noted, not worth a patch (verdict already ok). E4 leaves the
+   watch list: 351k rising → at-target in one session.
+2. **Sustainable score: ~43-61 pts/t.** 42.90 then 60.81 this window (the
+   60.81 rides the recycled upgraders' final burn + 60.8 e/t delivery). The
+   honest steady-state number still needs a window with no transition in it —
+   which the oscillation may not grant; the oscillation AVERAGE may be the
+   real number. Either way: the morning floor was 1.35.
+3. **The saturated spawn, refined by the regime change:** utilization FELL to
+   0.87 with **13% idle attributed 83% bank-starved** (S4) once the surplus
+   was gone — the first movement in seven captures. So saturation was
+   surplus-funded: demand still exceeds supply (the starved idle proves the
+   queue wanted more), but the SPEND was capped by energy, not by demand
+   drying up. Role mix stays hauler-led (47.8%), reservers 18.2% at the
+   correct cadence. F1's structural share remains specs 38/39.
+4. **E5: 1 of 8** (was 3) — receded on its own; not the top item.
+
+**F1's FIRST FAIL: 1.70× (0.596 measured vs 0.350 planned, 41% unbudgeted) —
+transition-dominated.** The plan snapped to the wartime shape (upgrader WORK
+→ ~0, construction re-priced small for the fresh route) while the spawn spent
+on the transition itself (upgrader churn, hauler rebuilds). The parts ledger
+prices an EQUILIBRIUM (spec 11); every regime flip will spike F1 until either
+the NOW plan carries a transition term or spec 39 makes spawn spend
+commission-traceable. Recorded, not patched — F1 shipped hours ago and gets
+no threshold-tuning on its first uncomfortable reading.
+
+**New WARN, watch only: H1 0.72 duty, idleSink AT-SINK 0.26 with storage
+having room** — "spatial contention at the deposit". Plausibly the re-fleet
+crowding the hub tiles; two-capture rule before any read.
+
+**NEXT READ (the oscillation question):** does wartime exit when W43N22's 30
+sites complete, the surplus re-accumulate, and the upgrader re-fleet repeat
+the buy-then-recycle churn? One more observed period ≈ confirmation the
+colony is in a stable limit cycle; the churn per period is then a priceable
+waste line.
