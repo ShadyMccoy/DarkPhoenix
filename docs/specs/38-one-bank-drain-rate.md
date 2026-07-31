@@ -101,6 +101,50 @@ wartime exit; the parts ledger prices an *equilibrium*, spec 11's GOAL plan,
 never the ramp) — but the drain-rate disagreement is the part that is
 structural and permanent.
 
+## P-F. THE PLAN IS ADVISORY, NOT BINDING — the premise under everything above
+
+Owner, pressing on the assumption the whole fidelity argument rests on:
+*"IF we follow the plan in fact."* Checked in code, not inferred:
+
+1. **Commissions DO declare a price.** `Commission.consumes.spawnPartsPerTick`
+   exists and is populated — `commissionPlan.ts:138` prices a miner commission
+   as `minerSpawnLoad(distance) + Σ routes.spawnParts`.
+2. **Nothing enforces it.** `grep partsLedger|plannableSpawnParts` across
+   `src/` returns hits ONLY in the planner, the flow adapter and telemetry.
+   **No spawn-side code reads the budget.** `SpawnScheduler` fills demands by
+   priority; it never sums declared prices, never compares them to the ledger,
+   and cannot decline a demand for exceeding it.
+3. **Exactly ONE corp reads a plan allocation at all** — `UpgradingCorp`
+   (`setSinkAllocation`). Every other corp sizes from its own lens (route
+   rate, stock/inflow, site absorb, spawn appetite). And the one that reads it
+   overrides it: measured `planAllocated 50.02` vs `allocated 90.13`.
+
+So the parts budget shapes **which commissions the solver makes**; it never
+bounds **what gets spawned**. There is no feedback loop from the ledger back
+to the spawn queue.
+
+**Consequence for the 10% headroom's transmission path** (the open question
+the steady-state read was meant to answer — now partly answerable from code):
+a smaller budget can only drop MARGINAL COMMISSIONS. It cannot shrink the
+bodies of the corps that survive, because no corp asks the plan how big to be.
+So a 10% budget cut yields *some* shrinkage (the cheapest routes fall out) but
+categorically not a 10% smaller colony — and the surviving corps' bodies,
+which are most of the spend, are untouched.
+
+**This is the root the other problems grow from.** P-A's three drain rates,
+spec 37's fuel lens, and P4's under-counts are all instances of the same
+thing: the plan describes a colony, the runtime builds a different one, and
+no mechanism reconciles them. F1 measures the total divergence; this section
+names why it is structurally nonzero.
+
+**NOT a call to make the plan binding.** A hard parts cap at the spawn door is
+a GATE, and the trap list is explicit that scarcity acts through PRICE, not
+gates ("the planner prices — it doesn't gate"); a cap would also re-open the
+t72455355 class in a new place. The open question is what a *pricing*-shaped
+reconciliation looks like — most likely making corps' own lenses derive from
+the same primitives the plan prices with, so agreement is structural rather
+than enforced.
+
 ## Open questions (the real work, not yet answered)
 
 1. **Which number is right?** If the chain's 94.7 is correct behaviour (it is
