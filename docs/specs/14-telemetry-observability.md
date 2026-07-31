@@ -6281,3 +6281,11 @@ narrow execution logic, not the fuel-lens redesign.
 disappears from API samples; W43N22 poolWork rate rises from 0.28 e/t toward
 the plan's ~10 e/t as the campaign actually builds; H1's border ground-pile
 (shedLoad debris) stops growing.
+
+**VERIFIED (same incident, post-deploy):** control sample minutes before the
+deploy still showed the bounce ((36,0)→(36,49)→(36,0)); post-deploy the same
+creep reads **(35,1)→(36,2)→(35,3)** — off the border, at the exact site it
+was stuck above, then advancing down the route as tiles complete. Prediction
+1 of 3 confirmed on the spot; poolWork rate and the border ground-pile need a
+longer window (next audit). Full gate before deploy: 1738 unit + trio all
+green (runt-economy passed first try, upsize at tick 440).
