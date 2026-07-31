@@ -6104,3 +6104,55 @@ experimental result is banked. Expected: plan budget +0.067 p/t, F1 1.24 →
 established). Keep the constant and its plumbing so the experiment can be
 re-run by changing one number; the `plannable` ledger field stays useful
 either way. Not reverted pending the owner's word.
+
+### CORRECTION TO THE CORRECTION 2026-07-30 — my "remove the headroom" recommendation was built on CONFOUNDED data
+
+Owner, rejecting it: *"If the plan is 10% smaller then everything should get
+sized accordingly. The colony will actually be 10% smaller because it's
+'constrained' by 10% less spawning."* Correct, and the entry above is wrong in
+two ways.
+
+**1. F1 is not degraded by a smaller plan — IF the plan transmits.** F1 =
+measured ÷ planned. When the budget shrinks 10%, the solver commissions ~10%
+less, corps materialize ~10% smaller, and BOTH sides of the ratio fall
+together: F1 stays ~1.0. My claim that shrinking the plan "mechanically
+worsens fidelity" silently assumed the numerator is fixed. It is not — it is
+supposed to follow. A high F1 under a smaller plan is therefore evidence of a
+**transmission failure** (plan shrank, colony didn't), which is exactly the
+thing F1 exists to catch. The instrument is fine; my reading of it was not.
+
+**2. My evidence that the colony did NOT shrink is confounded.** The headroom
+deployed at ~t72677900 — which lands *between* the last wartime-true capture
+and the first wartime-gone one:
+
+```
+tick        upgraderParts  wartime  bodyParts  partsPerTick
+72676091    4              true     718        0.650
+72676360    4              true     676        0.652
+  <-- headroom deploy ~t72677900 -->
+72678902    50             -        608        0.654
+72679468    100            -        744        0.654
+72681617    91             -        798        0.642
+72683137    100            -        816        0.649
+```
+
+The wartime exit re-fleeted the upgraders **4 → 100 parts** across the exact
+same window, and the bank drain funded it. Two large UPWARD forces ran
+simultaneously with the headroom's downward one. "partsPerTick stayed flat"
+is therefore **not** evidence the headroom failed to shrink anything — flat
+output under a large upward push and a small downward one is equally
+consistent with the headroom working. I over-read a contaminated window and
+recommended reverting an owner directive on the strength of it.
+
+**What survives the correction:** the experiment's original negative (plan
+size is not what saturates the spawn) is *also* weakened by the same
+confound and should be held more loosely than I stated. The reserver 7×
+under-count stands on its own evidence (blackbox role mix vs P4's line table)
+and is unaffected.
+
+**RECOMMENDATION WITHDRAWN.** The headroom stays at 0.9 per the owner (*"it
+makes the plan more realistic to small inefficiencies... not sure what the
+exact number is, we can play with that later"*). The pending steady-state read
+— no drain, no wartime transition, no deploy reset — is the **first
+uncontaminated test** of whether the plan transmits to fleet size at all.
+That is the question to answer, and F1 is the right instrument for it.
