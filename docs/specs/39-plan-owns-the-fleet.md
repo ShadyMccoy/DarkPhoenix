@@ -59,6 +59,26 @@ Corp                    members() — that is the WHOLE spawn surface it sees
 `Corp.getSpawnDemand()` is deleted from the base class. A corp cannot express
 a wish for a creep; it can only work the creeps it has.
 
+## OWNER DECISIONS 2026-07-31 (settle hard parts 1 and half of 2)
+
+1. *"Incorporate the actual into the plan. A bank with 30k surplus over 1500
+   ticks is a 20 e/t source. Same thing — but a single consistent framework."*
+   → Hard part 1 is DECIDED, not open: per-post actuals (bank stock, piles,
+   controller stock, TTLs) enter `ColonyProblem` through the adapter, the plan
+   allocates, corps obey the plan. The macro doctrine's "consumers size from
+   actuals" is PRESERVED by construction — the actuals are simply upstream of
+   the sizing instead of beside it. Spec 38 records the same decision from the
+   drain-rate side (the +15 out-of-plan sip and the consumer override both
+   die; t72455355 becomes an in-solver fill-order invariant).
+2. *"Spawn costs per the plan should be ratioed via effective ttl — a spawn
+   750 ticks away for delivery effectively costs double the body parts."*
+   → Commission pricing is UNIVERSALLY amortized over
+   `effectiveLife(delivery walk)` (already true for producers; extended to
+   every class, claim bodies over CLAIM_LIFETIME). This also prices the
+   replacement-overlap question in hard part 2: a commission's cost per tick
+   of USEFUL life is what the NOW plan schedules against, so the
+   deliveryLeadTime overlap stops being invisible spend.
+
 ## The hard parts (honest, not hand-waved)
 
 **1. Consumers must still size from ACTUALS — so the actuals must reach the

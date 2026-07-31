@@ -145,6 +145,50 @@ reconciliation looks like — most likely making corps' own lenses derive from
 the same primitives the plan prices with, so agreement is structural rather
 than enforced.
 
+## OWNER DECISION 2026-07-31 — invert the doctrine: actuals go INTO the plan
+
+> "Consumers sized from actual. Let's invert that though. Let's incorporate
+> the actual into the plan. So a bank with 30k surplus over 1500 ticks is a
+> 20 e/t source. Same thing right? But a single consistent framework."
+
+This RESOLVES Q1 and Q2. The single framework is: **actuals → plan →
+consumers**, one direction, no side-channel lenses. Notably the injection
+half already exists — the owner's example is `bankSurplusRate` to the digit
+(`spendableBankSurplus / SURPLUS_DRAIN_TICKS` = 30k/1500 = 20 e/t), and
+`bankToTransientSource` already feeds the solver at exactly that rate. What
+the decision changes is the OTHER half:
+
+1. **`feederRelayRate`'s `+ STORAGE_UPGRADE_TARGET` dies.** The 15 e/t save-
+   regime sip becomes a standing controller-sink floor INSIDE the plan (it is
+   an allocation, not an out-of-plan bonus), so P-B's structural overshoot is
+   gone by construction.
+2. **The consumer override (P-C) dies.** Feeder and upgrader read the plan's
+   routed controller allocation, full stop. "Consumers size from actuals"
+   stops being a bypass doctrine and becomes literally true THROUGH the plan,
+   because the actuals (bank stock, controller stock, piles) are plan inputs.
+3. **t72455355 therefore moves INSIDE the solver as an invariant**: the
+   parts-ledger fill must never starve a sink that the plan's own bank source
+   is routing to below the sip floor while that source stands. That is a fill-
+   order guarantee (production-first already exists; this extends the floor to
+   the bank-fed controller sip) plus the pinned regression test the spec
+   already demands. The `partsLedger.dry` discriminator becomes unnecessary —
+   there is no override left to arm.
+4. **The oscillation churn (t72684708) gets its structural fix here too**: if
+   the pending/placeable construction claim enters the SAME solve as a sink,
+   the upgrader sizing sees the residual surplus (surplus minus the build
+   claim about to stand up) and never buys 1500-tick bodies against a surplus
+   with 300 ticks of remaining life. The buy-then-recycle regression
+   (~9,000e/period) is priced away rather than hysteresis-patched.
+
+**Spawn-parts pricing rider (owner, same message):** *"spawn costs per the
+plan should be ratioed via effective ttl — a spawn 750 ticks away for delivery
+effectively costs double the body parts."* `effectiveLife(distance) =
+CREEP_LIFETIME − distance` already exists and most producer classes amortize
+with it; the decision makes it UNIVERSAL: every commission's
+`spawnPartsPerTick` — consumers included — is `parts / effectiveLife(delivery
+walk)`, claim bodies over `CLAIM_LIFETIME`, and the F1/P4 comparison uses the
+same basis so plan and measurement cannot diverge on amortization convention.
+
 ## Open questions (the real work, not yet answered)
 
 1. **Which number is right?** If the chain's 94.7 is correct behaviour (it is
