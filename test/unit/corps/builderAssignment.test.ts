@@ -278,3 +278,84 @@ describe("pickRepairDetail (the smallest body takes the maintenance beat)", () =
     expect(pickRepairDetail([known, unknown], sizeOf)).to.equal(unknown);
   });
 });
+
+/**
+ * EXIT-TILE ESCAPE (owner-reported 2026-07-31: "the builders in W43N22 are
+ * having a hard time. I think they might be getting stuck on the border
+ * tiles" — confirmed live: builder-72685930 teleport-bounced between
+ * W43N23(36,49) and W43N22(36,0) across three API samples, parked over a
+ * road site at (36,2); poolWork moved 580e in 2,054 ticks = 0.28 e/t).
+ *
+ * The engine moves any creep standing on a border tile (x/y = 0|49) into the
+ * adjacent room at tick end. A latched target within working range (3) of the
+ * border makes the range-3 arrival tile the EXIT ITSELF: the creep builds or
+ * repairs once, is teleported, and the cross-room branch walks it back —
+ * re-entering ON the exit tile (and shedLoad drops its cargo each bounce).
+ * Build/repair and move are DIFFERENT action groups, so stepping inward is
+ * free: the same tick still works the target. The escape is therefore
+ * unconditional-when-on-edge — never park on an exit tile.
+ */
+describe("exit-tile escape (never park on a border tile)", () => {
+  function edgeCreep(x: number, y: number, energy: number): { creep: any; builds: any[]; repairs: any[]; moves: any[] } {
+    const builds: any[] = [];
+    const repairs: any[] = [];
+    const moves: any[] = [];
+    const creep = {
+      name: "b-edge",
+      memory: {} as any,
+      store: { energy, getFreeCapacity: () => 0, getCapacity: () => 50 },
+      getActiveBodyparts: () => 2,
+      room: { name: "W43N22" },
+      pos: {
+        x, y, roomName: "W43N22",
+        getRangeTo: (t: any) => { const p = t.pos ?? t; return Math.max(Math.abs((p.x ?? 0) - x), Math.abs((p.y ?? 0) - y)); },
+        findInRange: () => [],
+        findClosestByPath: () => null
+      },
+      build: (t: any) => { builds.push(t); return 0; },
+      repair: (t: any) => { repairs.push(t); return 0; },
+      withdraw: () => -9,
+      pickup: () => -9,
+      moveTo: (...a: any[]) => { moves.push(a); return 0; }
+    };
+    return { creep, builds, repairs, moves };
+  }
+
+  it("doBuild from an exit tile STILL BUILDS but also steps inward (the live bounce)", () => {
+    const corp = new ConstructionCorp("W43N23-construction", "spawn1");
+    const site = { id: "road36-2", structureType: "road", pos: { x: 36, y: 2, roomName: "W43N22" } };
+    const room: any = { name: "W43N22", find: () => [site] };
+    const w = edgeCreep(36, 0, 50); // ON the north exit tile, site in range 2
+    (corp as any).doBuild(w.creep, room);
+    expect(w.builds, "build fires from range 2 — the action is not the problem").to.deep.equal([site]);
+    expect(w.moves.length, "and the creep steps INWARD so tick-end does not teleport it").to.be.greaterThan(0);
+  });
+
+  it("doBuild off the edge parks as before (no phantom walking)", () => {
+    const corp = new ConstructionCorp("W43N23-construction", "spawn1");
+    const site = { id: "road36-2", structureType: "road", pos: { x: 36, y: 2, roomName: "W43N22" } };
+    const room: any = { name: "W43N22", find: () => [site] };
+    const w = edgeCreep(36, 3, 50); // range 1, inside the room
+    (corp as any).doBuild(w.creep, room);
+    expect(w.builds).to.deep.equal([site]);
+    expect(w.moves.length, "in range and OFF the edge: stand and build").to.equal(0);
+  });
+
+  it("doMaintenance from an exit tile STILL REPAIRS but also steps inward", () => {
+    const corp = new ConstructionCorp("W43N23-construction", "spawn1");
+    const road = { id: "r-border", structureType: "road", hits: 2000, hitsMax: 5000, pos: { x: 36, y: 2, roomName: "W43N22" } };
+    const room: any = {
+      name: "W43N22",
+      controller: undefined,
+      storage: undefined,
+      find: (t: number, o?: any) => {
+        const all = t === (global as any).FIND_STRUCTURES ? [road] : [];
+        return o?.filter ? all.filter(o.filter) : all;
+      }
+    };
+    const w = edgeCreep(36, 0, 50);
+    (corp as any).doMaintenance(w.creep, room);
+    expect(w.repairs, "repair fires from range 2").to.deep.equal([road]);
+    expect(w.moves.length, "and the detail steps off the exit tile").to.be.greaterThan(0);
+  });
+});

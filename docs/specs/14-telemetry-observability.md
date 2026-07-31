@@ -6247,3 +6247,37 @@ Two instantaneous reads ARE valid, and both closed themselves:
 Wartime still standing (30 W43N22 sites, poolWork 9,960, build crew not yet
 fielded). The oscillation read re-armed; if the next window is also short
 (<~1,500t), re-arm again without claiming a cycle.
+
+### INCIDENT 2026-07-31 — exit-tile bounce (owner-reported: "builders in W43N22... stuck on the border tiles")
+
+Confirmed live by direct API position sampling (three samples, 45s apart):
+`builder-uction-72685930` at **W43N23 (36,49)** then **W43N22 (36,0)** — the
+same exit-tile pair, straddling the border directly over the road site at
+**(36,2)**. Corp stamp corroborates the cost: poolWork 9,960 → 9,380 over
+2,054 ticks = **0.28 e/t** against a 30-site campaign.
+
+**Mechanism** (three cooperating pieces, all read in code):
+1. The engine moves any creep standing on a border tile (x/y = 0|49) into the
+   adjacent room at tick end.
+2. A latched target within working range (3) of the border makes the range-3
+   arrival tile the exit itself — `doBuild`/`doMaintenance` happily work from
+   it (the ACTION is fine; the PARKING is the bug).
+3. After the teleport, `runBuilder`'s cross-room branch walks the creep back —
+   calling `shedLoad` (dropping its cargo at the border) each re-entry — and
+   the walk's arrival tile is the exit again. Loop.
+
+**Fix (deployed after full gate): never park on an exit tile.** Build/repair
+and move are DIFFERENT action groups, so the escape is free: standing on an
+edge tile, the creep issues a move inward toward its target AND still
+builds/repairs the same tick. Three seams: `doBuild`, `doMaintenance`, and
+the vectorFed dry-park branch. Red-first tests pin all three (build fires AND
+a move is issued from (36,0) at a (36,2) site; off-edge parking unchanged).
+
+Cross-filed to spec 37 territory (the border class belongs in its problem
+inventory) but fixed NOW as an owner-reported live incident — the fix is
+narrow execution logic, not the fuel-lens redesign.
+
+**Predicted deltas (registered before deploy):** the (36,49)/(36,0) bounce
+disappears from API samples; W43N22 poolWork rate rises from 0.28 e/t toward
+the plan's ~10 e/t as the campaign actually builds; H1's border ground-pile
+(shedLoad debris) stops growing.

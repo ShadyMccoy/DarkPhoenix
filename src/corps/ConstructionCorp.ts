@@ -2337,9 +2337,20 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
+    // EXIT-TILE ESCAPE: same rule as doBuild - the repair detail latches
+    // border roads (a paved route's tiles run right up to the exit), and
+    // repairing from the exit tile teleports the detail across at tick end.
+    // Repair + move stack in one tick, so the escape is free.
+    const onExit = isRoomEdgeTile(creep.pos.x, creep.pos.y);
+    if (onExit) {
+      creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+    }
+
     const result = creep.repair(target);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      if (!onExit) {
+        creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });
+      }
       // ERR_NOT_IN_RANGE means the target repair did NOT fire, so the work
       // action group is free: repair the road underfoot on the walk (most
       // damaged first), turning the commute into maintenance too.
@@ -2437,7 +2448,10 @@ export class ConstructionCorp extends Corp {
         // Dry off-post (a newborn at the spawn): walk out to the latched
         // site so the vector's deliveries land on a parked consumer.
         const target = nextBuildTarget(sites, creep.memory.buildTargetId, s => creep.pos.getRangeTo(s.pos)) ?? sites[0];
-        if (target && creep.pos.getRangeTo(target.pos) > 3) {
+        // `|| exit tile`: a dry parked builder must never wait on a border
+        // tile - tick-end teleports it and the bounce loop begins (same
+        // escape as doBuild).
+        if (target && (creep.pos.getRangeTo(target.pos) > 3 || isRoomEdgeTile(creep.pos.x, creep.pos.y))) {
           creep.memory.buildTargetId = target.id;
           travelTo(creep, new RoomPosition(target.pos.x, target.pos.y, room.name), {
             range: 3,
@@ -2545,9 +2559,25 @@ export class ConstructionCorp extends Corp {
     if (!target) return;
     creep.memory.buildTargetId = target.id;
 
+    // EXIT-TILE ESCAPE (owner-reported 2026-07-31, measured live: builder
+    // 72685930 teleport-bounced W43N23(36,49) <-> W43N22(36,0) over the road
+    // site at (36,2) - the engine moves any creep standing on a border tile
+    // into the next room at tick end, the cross-room branch walked it back
+    // (shedding its cargo each re-entry), and the arrival tile was the exit
+    // again; poolWork moved 0.28 e/t against a 30-site campaign). A latched
+    // target within working range of the border makes the range-3 stop the
+    // exit itself. Build and move are DIFFERENT action groups, so stepping
+    // inward costs zero build throughput: same tick still builds.
+    const onExit = isRoomEdgeTile(creep.pos.x, creep.pos.y);
+    if (onExit) {
+      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+    }
+
     const result = creep.build(target);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      if (!onExit) {
+        creep.moveTo(target, { visualizePathStyle: { stroke: "#ffaa00" } });
+      }
       // Only on the walk: a same-tick build already claimed the work action
       // group, and repair would cancel it. Spending carried energy on the road
       // underfoot also lightens the load, so the walk itself is faster.
