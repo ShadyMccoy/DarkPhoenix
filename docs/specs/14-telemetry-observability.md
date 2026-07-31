@@ -6385,3 +6385,88 @@ is a real hauling defect.
 
 Specs 37/38/39/40 remain fresh-session work per standing instruction; nothing
 in this cycle was actionable inside it.
+
+### AUDIT 2026-07-31 (t72688666→t72689264, dt 598) — E6 hypothesis CONFIRMED; F1 now names its own leak
+
+**CYCLE VERDICT: FIXED (instrument) + hypothesis CONFIRMED.** Score back to
+**2.00 pts/t** (gcl 279,643,621 → 279,644,817), CPU 24.8/300, bucket full.
+
+**1. The registered re-check fired and CONFIRMED the reallocation reading.**
+Last cycle predicted: *"if construction alloc falls and the piles do NOT
+drain, the reallocation was not the cause and E6 is a real hauling defect."*
+
+| | t72688666 | t72689264 |
+|---|---|---|
+| construction alloc | 40.5 e/t | **10.0 e/t** |
+| source piles | 29,354 | **22,323** (−11.8 e/t) |
+| E6 deferred | 7 of 10 | **6 of 10** |
+| P4 construction | 165p = 0.114 | 46p = 0.032 |
+| P4 source-route haulers | 185p = 0.127 | 228p = 0.157 |
+
+Campaign complete (home sites 1 → 0, remote 43 → 29, P8 **21.29 e/t built**),
+capacity returned to hauling, piles drained. E6 was the priced consequence of
+a plan decision, exactly as read — not a hauling defect. **The hypothesis was
+falsifiable, was registered before the data existed, and survived.**
+
+**2. F1 decomposes (the cycle's deliverable).** F1 had said "0.286 p/t
+UNBUDGETED (44%)" for five straight cycles while naming only *the largest
+PLANNED class* — a different question. Locating the breach meant
+hand-bucketing the blackbox ring by role every cycle, and the answer never
+changed:
+
+```
+in breach: haulers 0.498 vs 0.188 (+0.310),
+           construction (all-in) 0.072 vs 0.032 (+0.040),
+           reservers 0.028 vs 0.052 (-0.024);
+UNPRICED classes: raidGuard 0.014 p/t
+```
+
+**Haulers are 89% of the gap** — and E6 ("the leak is HAULING") and H1
+("haulers BUSY ⇒ plan under-asks, inflow-sized carry, **no drain term**")
+were saying so from two other directions the whole time. Three lines, one
+defect, and F1 is now the one that names it. Spec 39 gets a target rather
+than a total.
+
+Implementation notes worth keeping: the actual side is recorded in **PARTS at
+the spawn site**, not inferred from cost — cost is biased across classes (a
+CLAIM part is 600e vs 50e for CARRY, so reservers read as 21% of spawn SPEND
+against 4% of spawn PARTS, a five-fold error on exactly the class P4 already
+got wrong once). `executeSpawn` now returns the part count; blackbox segment
+v1 → v2.
+
+**3. The instrument caught its own bug on first contact with live data** —
+worth recording as the pattern. F1 initially reported `upgrade` as an UNPRICED
+class. It is not: the class map was keyed `"upgrading"` where the registered
+kind is `"upgrade"`. A typo there fails in the *worst* direction — the class
+does not vanish, it is re-reported as a plan HOLE. The fix is a ratchet, not a
+string patch: `CommissionHost.ALL_CORP_KINDS` now exports the roster and a
+test asserts every registered kind is either classified or an acknowledged
+unpriced kind, so a spec-17 registration-only kind fails the audit until
+someone decides which it is.
+
+**4. X3 FAIL (3 untracked) read as TRANSIENT, no fix — with a falsifier.**
+The three are 1 `released-builder` (a *designed* hand-off state:
+`RELEASED_BUILDER_CORP_ID` exists so `claimsOrphan` can adopt rather than
+strand) plus 2 `countMismatch` entries. The mismatch corps ROTATE every
+capture (d01f → construction/cd8e → cbd5/d01f) = creeps mid-spawn, not a leak.
+The released builder appeared in ONE capture, and one capture cannot
+distinguish transient from stuck. **Falsifier for next cycle: if
+`builder-uction-72688472` is still `released-builder`, the hand-off is stuck
+past its 25t grace and is a real defect.**
+
+**5. E4's verdict flipped on the sign of the slope while the behavior was
+identical — filed as evidence for spec 40 Part C, deliberately not patched.**
+Last window +12.10/t read *"CONVERGING (damped draw, healthy)"*; this window
+−15.00/t reads *"flat/falling at a big surplus — not convergence evidence;
+check the spend path"*. Both are the same colony doing the same thing: the
+bank buffering a build campaign. The spend path is demonstrably working (P8
+21.29 e/t into sites — the *same energy* the bank lost). E4 cannot tell
+"drained into roads" from "drained into waste" because **capital formation has
+no instrument**, which is precisely spec 40 Part C. The line prompted a check
+and the check passed; patching E4's heuristic in isolation would be the second
+patch on a mechanism whose real gap is a missing term. Left alone on purpose.
+
+Predictions registered for next cycle: (a) F1's decomposition drops the
+"parts est. from cost" label once ~2,000 ticks of v2 rows accumulate;
+(b) source piles keep falling with construction alloc at 10.0; (c) the
+released builder is adopted or recycled.
