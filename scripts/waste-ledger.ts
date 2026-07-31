@@ -1284,6 +1284,111 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- X6 over-built hauler bodies (needs the blackbox spawn log, segment 5) ----
+  //
+  // The regression pin for the 2026-07-31 route-sizing fix. A hauler body is
+  // never worth more CARRY than its WHOLE route can load; past that the parts
+  // are dead weight bought out of a saturated spawn's build time. Both sizers
+  // used to measure a body against the ROOM's maxCarryPairs (25 at RCL7), so
+  // a 7-CARRY route bought 25-CARRY bodies and retired the 8-CARRY incumbent
+  // that covered it - measured 0.471 p/t of hauler spawn against a plan of
+  // 0.225 with the STANDING fleet on plan (t72695674).
+  //
+  // Measured against the plan's per-route carryParts, with headroom for the
+  // legitimate terms the plan number does not carry: the buffer-DRAIN term
+  // (haulCarryNeeded adds staged/1500 on top of sustained inflow) and integer
+  // body rounding. OVERBUILD_TOLERANCE is deliberately loose - this row must
+  // catch a 3.5x over-buy without false-failing a drain-fed body, because a
+  // ledger line that cries wolf gets ignored (the lesson E5's plan-blind
+  // cost<300 test already taught).
+  {
+    const spawnRows = ((cap.data.blackbox?.rows ?? []) as any[]).filter(
+      r => r.k === "spawn" && r.d?.role === "hauler" && typeof r.d?.parts === "number"
+    );
+    // suffix -> {carry, ratio} of the planned route, same id convention the
+    // corp ids use (legacyNodeId keys off sourceId.slice(-4)).
+    const planRoute = new Map<string, { carry: number; ratio: string }>();
+    for (const h of (flow?.haulers ?? []) as any[]) {
+      const suf = String(h.sourceId).replace(/^source-|^scavenge-[EW]\d+[NS]\d+-|^bank-/, "").slice(-4);
+      const prev = planRoute.get(suf);
+      if (!prev || h.carryParts > prev.carry) planRoute.set(suf, { carry: +h.carryParts || 0, ratio: h.ratio ?? "1:1" });
+    }
+    // The corp's OWN carryNeeded stamp beats the plan number wherever it
+    // exists: haulCarryNeeded = sustained inflow PLUS the buffer-drain term, so
+    // a route with a standing pile legitimately needs more carry than the plan
+    // prices and a plan-only comparator false-fails it (measured while building
+    // this row: W44N22-17-6 read 4.0x against a 2.0c plan route while its own
+    // stamp said carryNeeded 11 behind a 4,114 pile - not an over-buy at all).
+    // `hauling-*` corps stamp it directly; `mining-*` operations expose their
+    // haul vector's stamp via innerSizing (segment 4 v12+, 2026-07-31).
+    const stampedNeed = new Map<string, number>();
+    for (const c of (cap.data.corps?.corps ?? []) as any[]) {
+      const own = c.sizing?.carryNeeded;
+      if (typeof own === "number") stampedNeed.set(c.id, own);
+      for (const inner of (c.innerSizing ?? []) as any[]) {
+        const n = inner.sizing?.carryNeeded;
+        if (typeof n === "number") stampedNeed.set(c.id, Math.max(stampedNeed.get(c.id) ?? 0, n));
+      }
+    }
+    const OVERBUILD_TOLERANCE = 2.0;
+    let overParts = 0;
+    let worst = "";
+    let worstRatio = 0;
+    let judged = 0;
+    let stamped = 0;
+    for (const r of spawnRows) {
+      const suf = String(r.d.corp)
+        .replace(/^mining-[EW]\d+[NS]\d+-harvest-|^hauling-[EW]\d+[NS]\d+-hauling-/, "")
+        .slice(-4);
+      const route = planRoute.get(suf);
+      if (!route || route.carry <= 0) continue; // no plan route vouches for a size
+      const need = stampedNeed.get(String(r.d.corp)) ?? route.carry;
+      if (need <= 0) continue;
+      judged += 1;
+      stamped += stampedNeed.has(String(r.d.corp)) ? 1 : 0;
+      // spawned CARRY back out of the body: 1:1 packs 2 parts per CARRY, the
+      // road ratio 2:1 packs 1.5.
+      const partsPerCarry = route.ratio === "2:1" ? 1.5 : 2;
+      const spawnedCarry = r.d.parts / partsPerCarry;
+      // At or below the sizer's own HAULER_MIN_CARRY floor the body size is set
+      // by the FLOOR, not by the route, so it cannot be an over-buy however
+      // small the route is. Without this the row fails on every micro-route's
+      // 1-CARRY body (a 0.1c planned route reads 7.9x) - which is P2's finding,
+      // not this row's, and is the false-positive class that trains us to
+      // ignore a line.
+      if (spawnedCarry <= 3) continue;
+      const ceiling = need * OVERBUILD_TOLERANCE;
+      if (spawnedCarry <= ceiling) continue;
+      overParts += (spawnedCarry - need) * partsPerCarry;
+      const ratio = spawnedCarry / need;
+      if (ratio > worstRatio) {
+        worstRatio = ratio;
+        worst = `${r.d.corp} ${spawnedCarry.toFixed(0)}c on a ${need.toFixed(1)}c route (${ratio.toFixed(1)}x)`;
+      }
+    }
+    const allRows = (cap.data.blackbox?.rows ?? []) as any[];
+    const window = allRows.length > 1 ? allRows[allRows.length - 1].t - allRows[0].t : 0;
+    if (judged > 0 && window > 0) {
+      const pt = overParts / window;
+      rows.push({
+        id: "X6",
+        name: "over-built hauler bodies (route-sizing pin)",
+        value: +pt.toFixed(3),
+        unit:
+          `p/t bought above the route (${judged} hauler spawns judged` +
+          (stamped * 2 < judged ? `, DRAIN-BLIND on ${judged - stamped} - needs segment 4 v12 stamps)` : `)`),
+        // FAIL only on a body more than DOUBLE its whole route - the shape the
+        // fix removed. Any excess at all is worth a WARN once it is measurable.
+        verdict: worstRatio >= 2.5 ? "FAIL" : pt > 0 ? "WARN" : "ok",
+        detail:
+          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-blind) - ` +
+          (worstRatio > 0
+            ? `worst ${worst}; ${overParts.toFixed(0)} parts over ${window}t`
+            : `every hauler body within ${OVERBUILD_TOLERANCE}x its route's need`)
+      });
+    }
+  }
+
   // ---- X5 rebuild churn (needs the blackbox spawn log, segment 5) ----
   {
     const churn = computeChurn(cap);
