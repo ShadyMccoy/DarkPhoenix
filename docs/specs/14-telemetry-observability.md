@@ -6326,3 +6326,62 @@ re-opens cons-repair-stops-at-99 (its container sat at 55% — above the
 critical gate — so a crew-1 release would strand it). Trap list applies: this
 is the second patch on `assignRepairDetail`, so the mechanism is the bug and
 it belongs to spec 37's pricing work.
+
+### AUDIT 2026-07-31 (t72687812→t72688666, dt 854) — campaign delivering; E6 is a PRICED reallocation, not a defect
+
+**CYCLE VERDICT: MEASURED, no code change.** Three reads, one of which
+retires an open spec item and one of which reclassifies a worsening line.
+
+**1. The build campaign is landing.** P8 **11.36 e/t built** — the exit-tile
+escape's 37× is holding a second window, not a one-capture spike. Home
+siteCount **24 → 1** (23 completed), W43N23 poolWork **7,200 → 160**, remote
+roads **+6,900e** via receipts. The stamp shows the crew following the work:
+poolRooms 3 → 4, `crewAt "W43N22"` → `"W43N22,W43N23"`, W43N24 opening a
+container placement (`placeResult 0`).
+
+**2. Spec 37 P-H self-resolved with no patch — the bounded-cost call was
+right.** Last window: `crew 1, onRepairDetail 1, buildTargets "R"` (the whole
+crew on the repair detail, the half-implemented invariant). This window:
+`crew 2, onRepairDetail 1, buildTargets "RB"` — the +1 detail demand fielded a
+second body and the crew is now one repairer + one builder, exactly the shape
+the rule intends. The invariant is still only half-implemented (no RELEASE on
+attrition, so it will recur), but the measured cost of NOT patching it is one
+creep-generation of single-role work, and the naive release still re-opens
+cons-repair-stops-at-99. Stays filed to spec 37 as pricing work, now with a
+measured recurrence cost rather than a guess.
+
+**3. E6 worsened to 7 of 10 miner ops deferred — and it is the plan's own
+decision, visible in the plan.** Source piles 29,354, ground-piled 10,998e,
+H1 duty 0.93 (haulers BUSY, so this is under-asking, not idling). The cause
+is a deliberate reallocation of spawn capacity from hauling into the build
+campaign, and it is legible across four captures:
+
+| tick | hauler spawn p/t | construction alloc | source piles |
+|---|---|---|---|
+| 72684708 | 0.2005 | 10.0 e/t | 24,564 |
+| 72687013 | 0.2153 | 20.0 e/t | 25,615 |
+| 72687812 | 0.1663 | 38.3 e/t | 18,997 |
+| 72688666 | 0.1496 | 40.5 e/t | 29,354 |
+
+P4 corroborates from the other side: `construction (all-in)` **47p=0.032 →
+165p=0.114** while `source-route haulers` **248p=0.172 → 185p=0.127**. The
+piles are the priced consequence of buying roads with hauler capacity; they
+should drain when the campaign completes. **This is what a controllable
+economy looks like** — a line got worse and the plan says why, in the plan's
+own units, without a hypothesis. Re-check next cycle: if construction alloc
+falls and the piles do NOT drain, the reallocation was not the cause and E6
+is a real hauling defect.
+
+**Unchanged / still open:**
+- **F1 1.57 FAIL** (spawn builds 0.633 p/t, plan prices 0.402 — 0.231 p/t
+  unbudgeted, 36%). Same wartime-transition pattern as prior windows; spec 39
+  owns the fix (universal effective-ttl pricing + plan-owns-the-fleet).
+- **E4 ok and CONVERGING**: storage 115,846, slope +12.10/t, projected
+  equilibrium **133,994** — below the 150k knee, so the draw is damped, not
+  runaway.
+- Score **1.28 pts/t** (gcl progress 279,642,531 → 279,643,621 over 854t).
+  Wartime relegation by design: P7 delivering 1.3 e/t against a relegated
+  floor of 2.0 while the surplus funds building.
+
+Specs 37/38/39/40 remain fresh-session work per standing instruction; nothing
+in this cycle was actionable inside it.
