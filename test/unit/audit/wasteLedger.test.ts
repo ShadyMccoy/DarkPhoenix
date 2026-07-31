@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { F1_CLASS_OF_KIND, F1_PLAN_PREFIX, computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
+import { ALL_CORP_KINDS } from "../../../src/execution/CommissionHost";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1064,5 +1065,115 @@ describe("F1 plan fidelity (waste ledger)", () => {
       }
     };
     expect(computeLedger(cap, cap).find(r => r.id === "F1")).to.equal(undefined);
+  });
+
+  /**
+   * DECOMPOSITION (t72689264). F1 said "0.286 p/t UNBUDGETED (44%)" for five
+   * consecutive cycles and named only *the largest PLANNED class* - which is
+   * not the same question. Finding WHICH class was in breach took a manual
+   * blackbox bucket-by-role every cycle; the answer (haulers, 0.256 of the
+   * 0.286 = 89%) was stable the whole time and no line printed it.
+   *
+   * This is spec 40's Part A thesis reduced to the one line that already
+   * exists: *"one number nobody can decompose is worse than a table."* The
+   * blackbox spawn ring is the actual side, `planSpawnLoad` is the plan side,
+   * and the join is the corp's own kind - so the leak arrives with a name.
+   */
+  const mkRing = (rows: Array<{ role: string; corp: string; cost: number; parts?: number }>, tick = 1000): any =>
+    rows.map((d, i) => ({ t: tick - rows.length + i, k: "spawn", d }));
+
+  it("names the class in breach, not just the largest planned class", () => {
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "mining-A-harvest-s1", kind: "harvest", creepCount: 1, bodyParts: 8 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    // 300 hauler parts over the 1000-tick ring = 0.3 p/t of a class the plan
+    // prices at zero (no flow.haulers) - the whole overshoot, one class.
+    cap.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000, parts: 300 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.contain("haulers");
+    expect(f1.detail).to.match(/breach|worst/i);
+  });
+
+  it("surfaces a kind the plan prices at ZERO as UNPRICED (the raidGuard hole)", () => {
+    // raidGuard stood 10 parts and bought 0.020 p/t live while planSpawnLoad
+    // has no line for it at all. An unpriced CLASS is a different defect from
+    // a mispriced one: no amount of tuning an existing line can find it.
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    cap.data.blackbox = { rows: mkRing([{ role: "guard", corp: "raidGuard-A-raidGuard", cost: 3000, parts: 30 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.contain("UNPRICED");
+    expect(f1.detail).to.contain("raidGuard");
+  });
+
+  it("prefers the recorded parts count over the cost estimate, and says which it used", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const measured = mk([], [planTotal(probe) * 2], corps);
+    measured.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000, parts: 300 }]) };
+    const estimated = mk([], [planTotal(probe) * 2], corps);
+    // same purchase, no `parts` field (a pre-v2 ring): cost/50 = 300 parts too,
+    // but the line must SAY it inferred them rather than claim a measurement.
+    estimated.data.blackbox = { rows: mkRing([{ role: "hauler", corp: "mining-A-harvest-s1", cost: 15000 }]) };
+    const a = computeLedger(measured, measured).find(r => r.id === "F1")!;
+    const b = computeLedger(estimated, estimated).find(r => r.id === "F1")!;
+    expect(a.detail).to.not.contain("est.");
+    expect(b.detail).to.contain("est.");
+  });
+
+  it("omits the decomposition entirely when no spawn ring was captured", () => {
+    const corps = [{ id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } }];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.verdict).to.equal("FAIL"); // the aggregate still works
+    expect(f1.detail).to.not.match(/breach|UNPRICED/);
+  });
+});
+
+/**
+ * The F1 class map is keyed on REGISTERED KIND NAMES, and a typo there is
+ * silent-and-wrong in the worst way: the class does not vanish, it is
+ * re-reported as UNPRICED, which reads as a plan HOLE rather than a ledger
+ * bug. Caught on the first live run - the map said "upgrading" where the kind
+ * is "upgrade", and F1 duly announced upgraders as an unpriced class.
+ *
+ * So the map is pinned against the kind registry itself, not a literal list:
+ * every registered kind is either classified or an ACKNOWLEDGED unpriced kind.
+ * A new kind (spec 17: registration-only) fails this until someone decides
+ * which of the two it is - which is the decision F1 exists to force.
+ */
+describe("F1 class map covers every registered corp kind", () => {
+  /** Kinds the PLAN genuinely does not price. Each is a real finding, not a
+   *  waiver: F1 reports them as UNPRICED so the hole stays visible. */
+  const ACKNOWLEDGED_UNPRICED = new Set([
+    "raidGuard", // defense: bought on threat, never budgeted (live 0.014-0.020 p/t)
+    "coreBuster", // invader-core response, same shape as raidGuard
+    "scout", // 50e bodies, below the noise floor but still unpriced
+    "claim", // expansion capex, one-shot and outside the maintenance plan
+    "carry" // routes ARE priced (flow.haulers); the kind only ever buys role `hauler`
+  ]);
+
+  it("classifies or acknowledges every kind in the registry", () => {
+    const unclassified = ALL_CORP_KINDS.filter(k => !F1_CLASS_OF_KIND[k] && !ACKNOWLEDGED_UNPRICED.has(k));
+    expect(unclassified, `unclassified kinds: ${unclassified.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("maps no kind that does not exist (the 'upgrading' typo)", () => {
+    const ghosts = Object.keys(F1_CLASS_OF_KIND).filter(k => !ALL_CORP_KINDS.includes(k));
+    expect(ghosts, `mapped kinds that are not registered: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("points every class at a plan line that planSpawnLoad actually emits", () => {
+    const classes = new Set(Object.values(F1_CLASS_OF_KIND).concat("haulers"));
+    const missing = [...classes].filter(c => !F1_PLAN_PREFIX[c]);
+    expect(missing, `classes with no plan prefix: ${missing.join(", ")}`).to.deep.equal([]);
   });
 });

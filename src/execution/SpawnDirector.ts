@@ -217,7 +217,16 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       const st = roomState.get(winner.pos.roomName)!;
       st.energyLeft = Math.max(0, st.energyLeft - result.energyBudget);
       recordAgendaExecution(winner.id, chosen.role, chosen.buyerCorpId, result.energyBudget);
-      blackBox("spawn", { spawn: winner.id, role: chosen.role, corp: chosen.buyerCorpId, cost: result.energyBudget });
+      // `parts` (not just cost) is F1's actual side: the fidelity comparison is
+      // in parts/tick, and cost is biased across classes (600e/CLAIM part vs
+      // 50e/CARRY part read reservers at 21% of spend against 4% of parts).
+      blackBox("spawn", {
+        spawn: winner.id,
+        role: chosen.role,
+        corp: chosen.buyerCorpId,
+        cost: result.energyBudget,
+        parts: spawned
+      });
       resetDemandClock(firstSeen, chosen.buyerCorpId, chosen.role);
     }
     // A failed build (lost the intra-tick energy race) leaves the demand claimed

@@ -313,6 +313,100 @@ export function computeChurn(cap: any): {
   };
 }
 
+/**
+ * F1's ACTUAL side, bucketed into the same classes `planSpawnLoad` prices.
+ *
+ * F1 reported "0.286 p/t UNBUDGETED" for five straight cycles while naming
+ * only the largest PLANNED class - a different question, and one whose answer
+ * never changed. Locating the breach meant hand-bucketing the blackbox ring
+ * by role every cycle (t72689264: haulers 0.444 p/t actual vs 0.188 priced =
+ * 0.256 of the 0.286 gap, 89%, with the whole remainder in construction and
+ * one entirely UNPRICED kind). That is spec 40 Part A's thesis applied to the
+ * line that already exists: one number nobody can decompose is worse than a
+ * table.
+ *
+ * The join is the buyer corp's own KIND (segment 4), never a guess from the
+ * id string - decision symmetry, same as everywhere else in this file. A kind
+ * with no plan line at all is reported separately as UNPRICED: an absent class
+ * is a different defect from a mispriced one, and no tuning of an existing
+ * line can ever surface it.
+ */
+export const F1_CLASS_OF_KIND: Record<string, string> = {
+  harvest: "miners", // role `hauler` on a harvest corp re-routes below
+  construction: "construction (all-in)",
+  tender: "tenders",
+  controllerFeeder: "feeder",
+  reservation: "reservers",
+  upgrade: "upgraders"
+};
+
+/** Plan-line prefix that each actual class settles against. */
+export const F1_PLAN_PREFIX: Record<string, string[]> = {
+  miners: ["miners"],
+  haulers: ["source-route haulers", "transient-route haulers"],
+  "construction (all-in)": ["construction (all-in)"],
+  tenders: ["tenders"],
+  feeder: ["feeder"],
+  reservers: ["reservers"],
+  upgraders: ["upgraders"]
+};
+
+/**
+ * Cost -> parts fallback for rings captured before the spawn row carried a
+ * `parts` count. Derived from the archetype bodies the kinds actually build
+ * (hauler CARRY+MOVE = 100e/2p; miner 5W+3M = 700e/8p; reserver 2C+2M =
+ * 1300e/4p; upgrader 2W+1C+1M = 300e/4p). Estimated lines are LABELLED - the
+ * ledger never presents an inference as a measurement.
+ */
+const F1_ENERGY_PER_PART: Record<string, number> = {
+  hauler: 50,
+  tanker: 50,
+  feeder: 50,
+  builder: 100,
+  miner: 87.5,
+  upgrader: 75,
+  reserver: 325,
+  guard: 100
+};
+
+export function f1Decompose(
+  cap: any,
+  planLines: Array<[string, number, number]>
+): { rows: Array<{ cls: string; actual: number; planned: number; unpriced: boolean }>; estimated: boolean; windowTicks: number } | null {
+  const ring: any[] = (cap.data?.blackbox?.rows ?? []).filter((r: any) => r.k === "spawn");
+  if (ring.length === 0) return null;
+  const corps: any[] = cap.data?.corps?.corps ?? [];
+  const kindOf = new Map<string, string>(corps.map(c => [c.id, c.kind]));
+
+  const ts = ring.map(r => r.t);
+  const windowTicks = Math.max(1, Math.max(...ts) - Math.min(...ts));
+  let estimated = false;
+  const actual = new Map<string, number>();
+  for (const r of ring) {
+    const kind = kindOf.get(r.d.corp) ?? String(r.d.corp).split("-")[0];
+    // A hauler is a hauler whoever buys it: the per-source haulers are owned by
+    // the HARVEST corp, and the plan prices them on the hauler lines, not the
+    // miner line. Route by role first, kind second.
+    const cls = r.d.role === "hauler" ? "haulers" : F1_CLASS_OF_KIND[kind] ?? `UNPRICED:${kind}`;
+    let parts = r.d.parts;
+    if (parts === undefined) {
+      estimated = true;
+      parts = r.d.cost / (F1_ENERGY_PER_PART[r.d.role] ?? 100);
+    }
+    actual.set(cls, (actual.get(cls) ?? 0) + parts);
+  }
+
+  const rows = [...actual].map(([cls, parts]) => {
+    const prefixes = F1_PLAN_PREFIX[cls] ?? [];
+    const planned = planLines
+      .filter(([name]) => prefixes.some(p => name.startsWith(p)))
+      .reduce((a, [, , load]) => a + load, 0);
+    return { cls, actual: parts / windowTicks, planned, unpriced: cls.startsWith("UNPRICED:") };
+  });
+  rows.sort((a, b) => Math.abs(b.actual - b.planned) - Math.abs(a.actual - a.planned));
+  return { rows, estimated, windowTicks };
+}
+
 export function computeLedger(cap: any, base: any): LedgerRow[] {
   const rows: LedgerRow[] = [];
   const core = cap.data.core;
@@ -350,6 +444,29 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const fidelity = measured / total;
       const gap = measured - total;
       const worst = [...lines].sort((a, b) => b[2] - a[2])[0];
+      // WHICH class is in breach - the question five cycles of "largest
+      // planned class" could not answer (see f1Decompose).
+      const dec = f1Decompose(cap, lines);
+      let breach = "";
+      if (dec) {
+        const top = dec.rows.filter(r => Math.abs(r.actual - r.planned) >= 0.005).slice(0, 3);
+        const unpriced = dec.rows.filter(r => r.unpriced && r.actual > 0);
+        if (top.length) {
+          breach =
+            `; in breach: ` +
+            top
+              .map(
+                r =>
+                  `${r.cls.replace("UNPRICED:", "")} ${r.actual.toFixed(3)} vs ${r.planned.toFixed(3)} ` +
+                  `(${r.actual > r.planned ? "+" : ""}${(r.actual - r.planned).toFixed(3)})`
+              )
+              .join(", ");
+        }
+        if (unpriced.length) {
+          breach += `; UNPRICED classes: ${unpriced.map(r => `${r.cls.replace("UNPRICED:", "")} ${r.actual.toFixed(3)} p/t`).join(", ")}`;
+        }
+        if (breach) breach += ` [over ${dec.windowTicks}t${dec.estimated ? ", parts est. from cost" : ""}]`;
+      }
       rows.push({
         id: "F1",
         name: "plan fidelity (measured vs planned spawn load)",
@@ -364,7 +481,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
             : gap < 0
             ? ` - the plan OVER-states by ${(-gap).toFixed(3)} p/t (a fleet priced but never built)`
             : " - faithful") +
-          `; largest planned class: ${worst ? `${worst[0]} ${worst[2].toFixed(3)}` : "n/a"}`
+          `; largest planned class: ${worst ? `${worst[0]} ${worst[2].toFixed(3)}` : "n/a"}` +
+          breach
       });
     }
   }

@@ -1,6 +1,10 @@
 import { expect } from "chai";
 import { record, reset, rows } from "../../../src/telemetry/BlackBox";
 import { WatchdogInput, runWatchdogs } from "../../../src/telemetry/watchdogs";
+import { setupGlobals, Game } from "../mock";
+import { SpawningCorp } from "../../../src/corps/SpawningCorp";
+import { registerCorpKind, getCorpKind } from "../../../src/economy/CorpKind";
+import { harvestKind } from "../../../src/corps/kinds/harvestKind";
 
 describe("BlackBox (flight recorder)", () => {
   beforeEach(() => reset());
@@ -62,5 +66,59 @@ describe("watchdogs (pure alert rules)", () => {
   it("fires on a caught-error burst", () => {
     const alerts = runWatchdogs({ ...healthy, errRowsInWindow: 12 });
     expect(alerts.some(a => a.kind === "errors")).to.equal(true);
+  });
+});
+
+/**
+ * SPAWN ROW carries the PART COUNT (t72689264).
+ *
+ * F1's per-class decomposition settles actual parts/tick against the plan's
+ * parts/tick, but the spawn row only ever recorded `cost`. Energy is the wrong
+ * unit for that comparison and misleads in a specific direction: a reserver is
+ * 600e per CLAIM part, so reservers read as 21% of spawn SPEND while being 4%
+ * of spawn PARTS - a five-fold error on exactly the class P4 already got wrong
+ * once. Inferring parts back out of cost needs a per-role constant, i.e. the
+ * ledger re-deriving a body the bot already built. Record it at the source.
+ */
+describe("blackbox spawn row carries the body part count (F1 decomposition)", () => {
+  // Game is a module-level singleton in the mock: a getObjectById stub left
+  // installed here leaks into every later spec file (it broke sizingRecord's
+  // UpgradingCorp lookup once). Restore it.
+  let realGetObjectById: unknown;
+  beforeEach(() => {
+    realGetObjectById = (Game as any).getObjectById;
+  });
+  afterEach(() => {
+    (Game as any).getObjectById = realGetObjectById;
+  });
+
+  it("SpawningCorp.executeSpawn returns the parts spawned, not just success", () => {
+    setupGlobals();
+    if (!getCorpKind("harvest")) registerCorpKind(harvestKind as any);
+    (global as any).FIND_MY_STRUCTURES = (global as any).FIND_MY_STRUCTURES ?? 107;
+    const body: BodyPartConstant[] = [];
+    (Game as any).getObjectById = () => ({
+      id: "spawn1",
+      spawning: null,
+      room: { name: "W1N1", energyAvailable: 5000, memory: {}, find: () => [] },
+      pos: { x: 25, y: 25, roomName: "W1N1" },
+      spawnCreep: (b: BodyPartConstant[]) => {
+        body.push(...b);
+        return OK;
+      }
+    });
+    const corp = new SpawningCorp("W1N1-spawning", "spawn1", "W1N1");
+    const parts = corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100);
+    expect(body.length).to.be.greaterThan(0);
+    expect(parts).to.equal(body.length);
+  });
+
+  it("returns 0 (falsy, so callers are unchanged) when the spawn does not happen", () => {
+    setupGlobals();
+    if (!getCorpKind("harvest")) registerCorpKind(harvestKind as any);
+    (global as any).FIND_MY_STRUCTURES = (global as any).FIND_MY_STRUCTURES ?? 107;
+    (Game as any).getObjectById = () => ({ id: "spawn1", spawning: {} }); // already busy
+    const corp = new SpawningCorp("W1N1-spawning", "spawn1", "W1N1");
+    expect(corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100)).to.equal(0);
   });
 });

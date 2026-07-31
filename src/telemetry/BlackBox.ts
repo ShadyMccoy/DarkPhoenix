@@ -23,7 +23,7 @@ export const BLACKBOX_SEGMENT = 5;
 
 /** Row kinds. Keep the vocabulary tiny and stable - dashboards parse it. */
 export type BlackBoxKind =
-  | "spawn" // a creep was bought: {role, corp, cost}
+  | "spawn" // a creep was bought: {role, corp, cost, parts}
   | "hold" // an evaluated spawn bought nothing: {why, top role/corp, bank}
   | "churn" // commission set changed: {created, demobilized}
   | "watch" // periodic sample: {dt: downgradeTicks, bucket, creeps}
@@ -78,7 +78,8 @@ export function flush(tick: number, alerts: ReadonlyArray<{ kind: string; messag
   if (tick % FLUSH_INTERVAL !== 0) return;
   if (typeof RawMemory !== "undefined") {
     try {
-      RawMemory.segments[BLACKBOX_SEGMENT] = JSON.stringify({ v: 1, tick, alerts, rows: ring });
+      // v2: spawn rows carry `parts` (F1's per-class decomposition is in parts/tick).
+      RawMemory.segments[BLACKBOX_SEGMENT] = JSON.stringify({ v: 2, tick, alerts, rows: ring });
     } catch {
       // Segment quota exceeded this tick - drop the flush, never the tick.
     }
