@@ -6750,3 +6750,77 @@ staffing (1), and X5's same-slot lens keys off staffing. If so this is an
 INSTRUMENT bug in the class of the `upgrading`/`upgrade` typo, not a bot
 defect. Falsifier for next cycle: compare X5's slot arithmetic against the
 corp's hauler target rather than its stamped staffing.
+
+### AUDIT 2026-07-31 (t72700221→t72701842, dt 1621) — X6 cried wolf and was fixed; the bank SAW-TOOTH captured end-to-end
+
+**CYCLE VERDICT: instrument FIXED (X6 false positive) + blocker measured (the
+oscillation).** No bot change. Score **68.29 pts/t** — the highest sustained
+figure on record — but see the funding line below before reading that as a win.
+
+**A RAID WAVE hit three remotes inside the window** (t72700080 W41N23 debt
+112,840; t72700423 W44N23 106,620; t72700655 W42N22 72,910). F1's 1.77× breach
+is substantially that incident: `raidGuard 0.054 p/t UNPRICED` (guards are
+off-plan by doctrine, P4 amendment b) plus `haulers +0.128` replacing raid
+losses. E6 went 1 → 4 gated as remote piles rebuilt behind the dead haulers
+(cd8e 3006, cd94 3314, d01f 2540). **The ledger cannot net an incident out of
+F1**, so a raid window's F1 is not comparable to a quiet window's — noted as a
+reading limitation, not patched.
+
+**X6 FAILED and the FAIL was WRONG — my own pin, fixed.** It flagged
+`mining-W43N24-harvest-cd8d 22c on a 5.0c route (4.4x)`. Reading both
+endpoints:
+
+| | carryNeeded | plan routes |
+|---|---|---|
+| t72700221 | **18** | storage d=41, carry 16.8 |
+| t72701842 | **5** | construction d=1 carry 0.74 **+** storage d=41 carry 1.25 |
+
+The 22-CARRY body was bought at t72701035 against a need of 18 — **1.2×,
+correct**. The wartime regime then re-pointed the source at a construction
+site ONE TILE away and carryNeeded collapsed to 5, making a correct body read
+4.4× over. **Fix:** X6 now judges each body against the MAX need its route
+carried across BOTH capture endpoints. Re-run clean on both windows (27/27 and
+26/26, 0 p/t). A pin that cries wolf is worse than no pin — the row's own
+comment said so and the row broke the rule on first live contact.
+
+Related and real, though not waste: the wartime re-route collapses long haul
+routes to micro-routes mid-creep-life (P2 micro-routes 6 → 10). Correctly-sized
+bodies end up oversized for a route that changed under them. P1 does not see
+this — it tracks funded↔excluded flips, not SINK changes.
+
+**THE SAW-TOOTH, measured end-to-end** (this is the cycle's real deliverable —
+it joins last cycle's valve identity to an observed full swing):
+
+| | bank | feeder valve | upgrader alloc | standing WORK |
+|---|---|---|---|---|
+| t72700221 | 128,992 | **54.328** | 54.71 | 53 |
+| t72701842 | 55,201 | **15.000** | 2.00 | **68** |
+
+In 1,621 ticks the valve collapsed **3.6×** (the bank crossed below the 70,000
+reserve, so `bankSurplusRate` → 0 and `feederRelayRate` → `STORAGE_UPGRADE_TARGET`
+alone) while the standing upgrade fleet **GREW** 53 → 68 WORK, still filling
+toward the OLD valve. Those 68 WORK are now allocated **2 e/t** and will burn
+out unreplaced; meanwhile they drained the bank at −45.52 e/t. The valve is
+continuous in `banked` — there is no cliff — but the FLEET lags it by a
+1,500-tick creep life, and the bank swung on a ~1,600-tick timescale. Fleet
+and valve are permanently fighting the previous regime.
+
+Score reads 68.29 pts/t against a −45.52 e/t bank slope, so only **~22.8 e/t
+was income-funded**. The record-looking number is the down-stroke of the
+saw-tooth, not a new plateau.
+
+**HYPOTHESIS (labeled, not proven): P10 drives the overshoot.** The plan
+over-promises by 33.18 e/t this window (plan overhead 13.88 vs measured spawn
+47.06; off-plan 25.09 never subtracted), so the valve is set above the
+sustainable residual, the bank drains to the reserve, and the valve slams.
+Falsifier for the next cycle: if the bank refills and the valve re-opens to
+~54 while P10 stays ~30, the next down-stroke should repeat with the SAME
+period — a fixed accounting error produces a repeatable saw-tooth, whereas a
+raid-driven one-off would not recur on schedule.
+
+**Cadence correction for this log:** shard1 is running at **~4.0 s/tick**
+(measured: 188,190 ticks between 2026-07-23T03:17Z and 2026-07-31T21:02Z from
+the fixtures' `capturedAt`), not the ~1 tick/s the playbook assumes. A
+3,000-tick steady-state window is **3.3 hours**, and today's 40-minute
+post-deploy check-in bought only ~580 ticks — which is why three verification
+windows in a row came back thin.

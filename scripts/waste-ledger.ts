@@ -1373,13 +1373,24 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     // stamp said carryNeeded 11 behind a 4,114 pile - not an over-buy at all).
     // `hauling-*` corps stamp it directly; `mining-*` operations expose their
     // haul vector's stamp via innerSizing (segment 4 v12+, 2026-07-31).
+    //
+    // Read from BOTH ENDPOINTS and keep the MAX (2026-07-31, second cycle):
+    // a body is judged against the largest need its route carried during the
+    // window, because the plan can re-route a source mid-life. Measured on the
+    // first live FAIL this row produced: `mining-W43N24-harvest-cd8d` bought a
+    // 22-CARRY hauler at t72701035 against a stamped carryNeeded of 18 (1.2x -
+    // correct), and the wartime regime then re-pointed the source at a
+    // construction site ONE TILE away, collapsing carryNeeded to 5. Judged on
+    // the closing stamp alone that correct body reads 4.4x over. A pin that
+    // cries wolf is worse than no pin - it trains us to ignore the line.
     const stampedNeed = new Map<string, number>();
-    for (const c of (cap.data.corps?.corps ?? []) as any[]) {
-      const own = c.sizing?.carryNeeded;
-      if (typeof own === "number") stampedNeed.set(c.id, own);
-      for (const inner of (c.innerSizing ?? []) as any[]) {
-        const n = inner.sizing?.carryNeeded;
-        if (typeof n === "number") stampedNeed.set(c.id, Math.max(stampedNeed.get(c.id) ?? 0, n));
+    const noteNeed = (id: string, n: unknown): void => {
+      if (typeof n === "number") stampedNeed.set(id, Math.max(stampedNeed.get(id) ?? 0, n));
+    };
+    for (const capture of [cap, base]) {
+      for (const c of (capture?.data?.corps?.corps ?? []) as any[]) {
+        noteNeed(c.id, c.sizing?.carryNeeded);
+        for (const inner of (c.innerSizing ?? []) as any[]) noteNeed(c.id, inner.sizing?.carryNeeded);
       }
     }
     const OVERBUILD_TOLERANCE = 2.0;
