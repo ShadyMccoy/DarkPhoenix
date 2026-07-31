@@ -6582,3 +6582,48 @@ ledger row yet. Also: the harvest corps' nested haul vector carries **85% of
 hauler spawn spend** (59,150e of 69,750e) and exports **no sizing stamp** —
 the `hauling-*` carry corps stamp richly, `mining-*` stamp only the miner. The
 top spender is the least instrumented decision site in the colony.
+
+### VERIFY 2026-07-31 (t72695674→t72696547, dt 873) — route-sizing fix deployed; read is CONFOUNDED by a regime flip
+
+**CYCLE VERDICT: partial — two predictions scored, three unscoreable.** The
+route-sizing fix (206b4d7) went live at t72695674. First post-deploy read:
+
+| | pre-fix t72695674 | post t72696547 |
+|---|---|---|
+| ledger FAILs | **2** (F1 1.49×, P7 0.44×) | **0** |
+| F1 plan fidelity | 1.49× | **1.15×** (WARN) — haulers OFF the breach list |
+| E2 stranded fleet | 30 parts off-plan | **0** ("every fielded hauler serves a planned route") |
+| E6 gated miners | 4 of 10 | **3 of 10** |
+| upgrade rate (gcl Δ/t) | 34.16 | 46.41 |
+
+**SCORED:** prediction 1 (hauler spawn load toward plan) — haulers no longer
+appear in F1's breach list at all, where they were +0.246 p/t. Prediction 2
+(F1 → 1.0) — 1.49 → 1.15. Prediction 5, **the falsifier, did not trip**: E6
+went 4 → 3 gated and cbd8's pile halved (4,114 → 2,153), so the smaller bodies
+did not starve the routes. E2 → 0 is the cleanest single result: the bodies
+with no route to justify them are gone.
+
+**UNSCOREABLE — do not read the upgrade rate as a +36% win.** The colony
+flipped into the **wartime construction regime** inside the window (upgrader
+stamp `wartime: true, construction: true, allocated: 2` against
+`planAllocated 126`; upgraders 3 creeps/64 WORK → 1/2 WORK, construction
+creeps 4 → 12). The upgrader is relegated to the floor BY DESIGN there
+(spec 33), so P7 now measures against the relegated floor rather than the
+peacetime plan, and predictions 3 (upgrader load, P7) cannot be scored. The
+46.4 e/t is incumbent upgraders draining out mid-transition and the near-term
+direction is DOWN for doctrinal reasons, not because of the change. This is
+the same trap logged at t72683137→t72684708 — a transition read as a
+steady state.
+
+Prediction 4 (X6) is also unscoreable: the row exists but reads DRAIN-BLIND on
+30 of 34 spawns pre-v12, and this window offered only 2 hauler spawns.
+
+**Window quality caveat:** the deploy's global reset left the blackbox ring at
+**379 ticks**, so F1 (1.15×) and X5 (0.00) are thin reads. X5's 0.00 against a
+pre-fix 0.13 is NOT evidence yet — a post-reset ring has had no time to
+accumulate an early death.
+
+**Held back on purpose:** segment 4 v12 (7b1e185, the miner-operation
+haul-vector stamps) is committed but NOT deployed. Deploying resets the ring
+again and costs the clean steady-state window this verification still needs.
+Ship it once the next read lands.
