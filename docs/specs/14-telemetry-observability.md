@@ -6289,3 +6289,40 @@ was stuck above, then advancing down the route as tiles complete. Prediction
 1 of 3 confirmed on the spot; poolWork rate and the border ground-pile need a
 longer window (next audit). Full gate before deploy: 1738 unit + trio all
 green (runt-economy passed first try, upsize at tick 440).
+
+### AUDIT 2026-07-31 (t72687013→t72687812, dt 799) — exit-tile escape VERIFIED: P8 0.28 → 10.51 e/t
+
+**CYCLE VERDICT: FIXED, all three predictions confirmed.** (dt 799 is short
+for the oscillation questions — those stay open — but the build-rate read is a
+direct stamp difference and is valid.)
+
+| prediction (registered pre-deploy) | result |
+|---|---|
+| the (36,0)↔(36,49) bounce disappears | ✅ same creep at (35,1)→(36,2)→(35,3), working down the route |
+| W43N22 build rate rises from 0.28 toward the ~10 e/t plan | ✅ **P8 10.51 e/t** — 37×, and at the plan's number |
+| border ground-pile (shedLoad debris) stops growing | ✅ H1 ground-piled 8,971 → **5,977**; at-sink idle **0.26 → 0.01** |
+
+Supporting: W43N22 poolWork **9,260 → 3,300** (5,960e built in that room
+alone), road receipts **+8,400e**, remote W43N22 sites **29 → 11** — eighteen
+completed in 799 ticks after ~0 in the preceding 2,054. The earlier H1
+"spatial contention at the deposit" WARN was the same bug: shed cargo piling
+at the border, now cleared.
+
+**Second-order effect, healthy**: with the campaign actually completing and
+storage refilling to 105,514 (surplus), `placementGateOpen` widened — home
+siteCount **0 → 24**, and W44N22 opened with 31. Build capacity checked
+against it: **7 WORK across six corps** (home 2 + five remotes × 1) vs 38.3
+e/t allocated — matched, so the widened board is funded, not fantasy.
+
+Score 2.00 pts/t: wartime still standing (controller relegated by design
+while the backlog builds), so this is the doctrine working, not a regression.
+
+**New finding, filed to spec 37 as P-H (not patched)**: the last-builder rule
+is a half-implemented invariant — it blocks RECRUITING the last builder onto
+the repair detail but never RELEASES one when the crew shrinks to 1 by
+attrition. Live: `crew 1, onRepairDetail 1, buildWork true` with 19,800e
+standing. Cost is bounded (2 of 7 colony WORK; P8 healthy), and the naive fix
+re-opens cons-repair-stops-at-99 (its container sat at 55% — above the
+critical gate — so a crew-1 release would strand it). Trap list applies: this
+is the second patch on `assignRepairDetail`, so the mechanism is the bug and
+it belongs to spec 37's pricing work.

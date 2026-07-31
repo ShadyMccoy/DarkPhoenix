@@ -148,6 +148,39 @@ targeting/fueling decision can read the wrong room.
 - **The pile gate caused the runt-economy flake**: unverified→withdrawn; the
   working diagnostic showed `buffered: 0` in that world.
 
+## P-H. The last-builder invariant is only HALF implemented (measured t72687812)
+
+`repairDetailRecruit` (shipped 2026-07-30 for P-D) prevents *recruiting* the
+last builder onto the repair detail while build work stands. It does not
+*release* one when the crew SHRINKS to one by attrition — the detail flag is
+sticky and the clear path keys only on "nothing wants maintenance". So the
+forbidden state is still reachable, just by a different road:
+
+```
+building-W43N23-construction  crew 1  onRepairDetail 1  buildTargets "R"
+  buildWork true   poolWork "W43N23:7200,W43N22:3300,W44N22:9300"  (19,800e)
+```
+
+I wrote an INVARIANT as a one-time DECISION. "A lone builder is never on the
+detail while build work stands" must hold every tick, not only at recruit
+time.
+
+**Cost is bounded, which is why this is filed and not hot-patched**: colony
+build capacity is 7 WORK across six corps (home 2 + five remotes × 1) against
+38.3 e/t allocated, and P8 measured 10.51 e/t in the same window — the remote
+corps carry the campaign. The lone home detail is ~2 of 7 WORK, not a stall.
+
+**And the obvious fix is a trap.** A naive "release the lone detail" re-opens
+cons-repair-stops-at-99: that incident's container sat at **55%** — below the
+0.6 spawn gate but ABOVE the 0.3 critical gate — so a crew-1 release would
+strand it exactly as before. The `+1` detail demand is supposed to field a
+second body, but the live stamp shows `wantsMaintenance: true` with crew 1,
+i.e. the second builder is NOT arriving (construction loses the saturated
+spawn queue on priority). So the real question is which of build-vs-repair
+that single body is worth more on — a PRICING question, which is this spec's
+whole thesis, not a third patch to `assignRepairDetail`. Trap list: the second
+patch on one mechanism means the mechanism is the bug.
+
 ## Measurement traps (cost this session real verdicts)
 
 - **P8 windows shorter than one supply round trip read 0.** dt=269 at a
