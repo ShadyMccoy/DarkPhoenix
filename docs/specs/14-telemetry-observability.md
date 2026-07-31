@@ -6229,3 +6229,21 @@ sites complete, the surplus re-accumulate, and the upgrader re-fleet repeat
 the buy-then-recycle churn? One more observed period ≈ confirmation the
 colony is in a stable limit cycle; the churn per period is then a priceable
 waste line.
+
+### NOTE 2026-07-31 (t72684708→t72684838, dt 130) — short window (slow server), two watches closed, no cycle claimed
+
+The server ran ~0.04 t/s this hour, so the oscillation questions get no
+answer (dt 130 < every relevant horizon; P8's "FAIL 0 e/t" here is the
+documented sub-round-trip artifact, F1 1.53 is still the same transition).
+Two instantaneous reads ARE valid, and both closed themselves:
+
+- **E4 confirmed self-correcting**: storage 67,230 → **72,497**, back ABOVE
+  the 70k reserve within 130 ticks of the taper crossing. The undershoot was
+  the crossing, not a leak. E4 is DONE-done; off the watch list.
+- **H1 recovered without intervention**: 0.72 → **0.87** duty. The at-sink
+  contention was the re-fleet crowding the hub, transient as suspected. The
+  two-capture rule saved another patch.
+
+Wartime still standing (30 W43N22 sites, poolWork 9,960, build crew not yet
+fielded). The oscillation read re-armed; if the next window is also short
+(<~1,500t), re-arm again without claiming a cycle.
