@@ -183,6 +183,13 @@ export interface ColonyProblem {
    */
   infraPartsPerTick?: number;
   /**
+   * The SAME standing infrastructure priced in ENERGY (primitives
+   * .infraSpawnEnergy - the structural twin of infraSpawnLoad). Feeds the
+   * two-pass solve's spawn-sink maintenance figure; absent = unknown, treated
+   * as zero exactly like the parts term.
+   */
+  infraEnergyPerTick?: number;
+  /**
    * Execution-context facts for auxiliary propose() triggers, assembled by
    * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
    * anything a trigger used to steal from Game/Memory/execution state rides

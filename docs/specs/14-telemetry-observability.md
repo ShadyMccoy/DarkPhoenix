@@ -7116,3 +7116,56 @@ asks for three times the fielded WORK. That is spec 39 territory (the plan owns
 the fleet / actuals into `ColonyProblem`), not a corp-local bug — this cycle
 found nothing further to fix at the local layer, and inventing work there would
 be the failed-cycle pattern the command warns about.
+
+### DEPLOY 2026-08-01 — two-pass solve: the spawn sink is charged the plan's own fleet cost
+
+**Owner-chosen (option 2 of three): *"We have the CPU available and can prove
+out the concept or approach and think about how to optimize it later."***
+
+`flowAdapter.discoverSinks` priced the spawn sink at a hardcoded **`10, // Base
+spawn overhead demand`** — the plan's ENTIRE model of what running the spawn
+costs, against a fleet costing ~42 e/t. Because the spawn tops the value ladder
+(100), the shortfall was freed DOWN the ladder and the controller absorbed it:
+allocated **108.87** against ~100 e/t of net mining, while the runtime
+delivered 47.6.
+
+**Pass 1 discovers the fleet; pass 2 charges the spawn what maintaining it
+costs.** New primitive `infraSpawnEnergy` is the structural twin of
+`infraSpawnLoad` — same signature, same three details, same order, priced
+per-CLASS (feeder/tender CARRY+MOVE at 50 e/part, reservers CLAIM+MOVE at 325).
+Kept adjacent so a change to one is visibly a change to the other.
+
+**Scope is deliberately PRODUCTION + INFRA, not consumers.** Those two are
+sized by sources and rooms — independent of what the fill allocates to the
+controller — so pass 2 is a FIXED POINT: a third pass returns the same plan.
+Charging consumer bodies would be circular (spawn demand shrinks the controller
+allocation → shrinks the upgrader fleet → shrinks the spawn demand) and could
+oscillate between passes. Consumers are funded from what remains, which is what
+the ladder is for.
+
+**PREDICTIONS registered before deploy** (computed, not guessed):
+
+| | before | predicted |
+|---|---|---|
+| infra energy | — | 11.46 |
+| production (plan `totalOverhead`) | — | 18.11 |
+| fleet maintenance | — | **29.57** (14.78/spawn) |
+| spawn sinks allocated | 20.00 | **~29.57** |
+| controller allocated | 108.87 | **~99.30** |
+
+**This closes ~9.6 of the 24.21 spawn under-routing, not all of it** — stated
+plainly. The remainder is consumer bodies (excluded by design) plus the gap
+between the plan's own pricing (29.57) and measured spend (44.21). P12's
+non-bank divergence should improve from 5.38× but NOT reach 1.0; the runtime's
+hardcoded `STORAGE_UPGRADE_TARGET = 15` is the other half and is untouched.
+
+**P7 will improve MECHANICALLY because its denominator shrinks. That is not a
+delivery win and must not be read as one.**
+
+**Gate:** unit **1769** pass, `flow-handoff` / `runt-economy` / `storage-depot`
+green on the rebuilt bundle (run SERIALLY — a first attempt ran two mockup
+servers concurrently and the storage backend died in 141ms with
+`[storage] process exited with code 1`, which is an environment failure, not an
+assertion), plus grid `plan-t4-link-haul-pricing` and
+`fid-t4-preramped-steady-state` both **[P]** — the top-of-ladder demand change
+needed the sink-ordering cells (trap list: the 90-vs-85 founding incident).

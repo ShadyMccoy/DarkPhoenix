@@ -42,6 +42,7 @@ import {
   HARVEST_ENERGY_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   UPGRADE_ENERGY_PER_WORK,
+  infraSpawnEnergy,
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate,
@@ -697,7 +698,14 @@ export function buildColonyProblem(
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
   prevBankDraw?: number,
-  depositPorts: DepositPort[] = detectLinkDepositPorts()
+  depositPorts: DepositPort[] = detectLinkDepositPorts(),
+  /**
+   * PASS-2 INPUT (two-pass solve): energy/tick the plan's standing fleet costs
+   * to maintain, PER SPAWN. Zero on pass 1 (unknown until the plan exists), so
+   * pass 1 behaves exactly as before and the pass-2 problem is the only one
+   * that differs. See solveColony.
+   */
+  spawnMaintenance = 0
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -925,7 +933,14 @@ export function buildColonyProblem(
             // consumption when the queue drains. Measured absence: the
             // reserver waited 1800+ ticks behind chained holds because its
             // 650 never banked (task #30).
-            Math.max(sink.demand, 1) + agendaFundingRate(sink.id)
+            // FLEET MAINTENANCE (two-pass solve, 2026-08-01): `sink.demand` is
+            // a hardcoded 10 "base spawn overhead" from discoverSinks - it was
+            // the plan's ENTIRE model of what running the spawn costs, against
+            // a fleet costing ~42 e/t. The spawn is the TOP of the value ladder,
+            // so the shortfall was freed down it and the controller absorbed it
+            // (measured t72714129: controller allocated 108.87 of ~100 net
+            // mining). Pass 2 supplies the fleet's real standing cost here.
+            Math.max(sink.demand, 1, spawnMaintenance) + agendaFundingRate(sink.id)
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
@@ -1015,11 +1030,14 @@ export function buildColonyProblem(
     }
   }
   const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  // Same three details, priced in ENERGY - the second currency the spawn sink
+  // needs (see the two-pass solve in solveColony).
+  const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
 
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick, depositPorts };
+    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, depositPorts };
 }
 
 /**
@@ -1135,7 +1153,44 @@ export function solveColony(
   // evaluator; the searcher may pin budget-dropped sources to spawns with
   // slack. Under the default goal on a status-quo-optimal world it adopts
   // nothing and the plan is bit-identical to the plain solve (the pin).
-  const searched = searchStructure(baseProblem);
+  const pass1 = searchStructure(baseProblem);
+
+  // ---- PASS 2: charge the spawn what the plan's own fleet costs ----
+  //
+  // Pass 1 tells us what fleet the colony needs; only then can the spawn sink
+  // demand what maintaining it costs. Before this, `discoverSinks` priced the
+  // spawn at a hardcoded 10 e/t while the fleet cost ~42 - and because the
+  // spawn tops the value ladder, the shortfall was handed DOWN the ladder and
+  // the controller absorbed it (t72714129: controller allocated 108.87 against
+  // ~100 e/t of net mining, and the runtime delivered 47.6).
+  //
+  // Scope is deliberately PRODUCTION + INFRA, not consumers. Those two are
+  // sized by sources and rooms - independent of what the fill allocates to the
+  // controller - so pass 2 is a fixed point: a third pass would return the same
+  // plan. Charging CONSUMER bodies here would be circular (spawn demand shrinks
+  // the controller allocation, which shrinks the upgrader fleet, which shrinks
+  // the spawn demand) and could oscillate between passes. Consumer bodies are
+  // funded from what remains, which is exactly what the ladder is for.
+  const fleetEnergy = pass1.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
+  const perSpawn = baseProblem.spawns.length > 0 ? fleetEnergy / baseProblem.spawns.length : 0;
+  const searched =
+    perSpawn > 0
+      ? searchStructure(
+          buildColonyProblem(
+            graph,
+            dist,
+            transientSources,
+            detectLinkHaulPositions(graph),
+            detectPavedSources(),
+            bankSources,
+            INVADER_TAX_PER_ENERGY,
+            compileGoal(goal),
+            prevBankDraw,
+            detectLinkDepositPorts(),
+            perSpawn
+          )
+        )
+      : pass1;
   const problem = searched.problem;
   const plan = searched.plan;
   // Link-served sources (haulPos set): their transport is the link network +

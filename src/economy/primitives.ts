@@ -573,6 +573,44 @@ export function infraSpawnLoad(
   return feeder + tender + reservers;
 }
 
+/**
+ * The ENERGY twin of {@link infraSpawnLoad} - the same three details, priced in
+ * energy/tick instead of build-parts/tick.
+ *
+ * Kept adjacent and structurally identical ON PURPOSE: same signature, same
+ * terms, same order, so a change to one is visibly a change to the other. The
+ * only difference is the per-part price, and it is per-CLASS because the bodies
+ * differ - feeder and tender are CARRY+MOVE pairs (100e per 2 parts) while a
+ * reserver is CLAIM+MOVE (650e per 2). A single averaged rate would be the
+ * biased conversion F1 warns about; per body it is exact.
+ *
+ * Exists because the plan under-routed the spawn: `flowAdapter.discoverSinks`
+ * priced the spawn sink at a hardcoded 10 e/t "base overhead" while the fleet
+ * cost ~42 (measured t72714129), and the spawn sits at the TOP of the value
+ * ladder - so the shortfall was handed down it and the controller absorbed it.
+ * The two-pass solve prices the fleet after pass 1 and demands it in pass 2.
+ */
+export function infraSpawnEnergy(
+  relayRate: number,
+  depotRoomCount: number,
+  remoteRoomCount: number,
+  linkFedRoomCount = 0
+): number {
+  const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
+  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feeder =
+    depotRoomCount > 0 ? ((2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
+  const TENDER_FLEET_PARTS = 48;
+  const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
+  const RESERVER_PARTS_PER_ROOM = 4;
+  const RESERVER_WALK = 60;
+  const reservers =
+    ((RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK)) *
+    CLAIM_MOVE_PER_PART;
+  return feeder + tender + reservers;
+}
+
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */
 export function minerOverhead(distance: number): number {
   return MINER_COST / effectiveLife(distance);
